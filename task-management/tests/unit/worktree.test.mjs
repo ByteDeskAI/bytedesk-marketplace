@@ -10,7 +10,9 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, writeFile
 import { join } from "node:path";
 import { addWorktree, cleanup, git, tempRepo, writeFile } from "./helpers.mjs";
 import { paths } from "../../lib/paths.mjs";
-import { applyShares, branchName, createWorktree, unlinkShares, worktreePath } from "../../lib/worktree.mjs";
+import { applyShares, branchName, createWorktree, provision, removeWorktree, preserveWorkflowEvidence, unlinkShares, worktreePath } from "../../lib/worktree.mjs";
+import { create, read, seedGitContract, update, writeConfig } from "../../lib/store.mjs";
+import { ensureDirs } from "../../lib/paths.mjs";
 import { PROMPT_FILE } from "../../lib/dispatch/tmux.mjs";
 
 const trash = [];
@@ -25,6 +27,62 @@ function repoPair() {
 }
 
 const shares = (...list) => ({ worktreeShare: list });
+
+describe("recorded task placement and evidence retention", () => {
+  function taskStore() {
+    const repo = tempRepo(); trash.push(repo);
+    const p = paths(repo); ensureDirs(p); seedGitContract(p);
+    return p;
+  }
+
+  it("reuses the recorded custom branch and checkout after title changes, preserving existing work", () => {
+    const p = taskStore(), wt = addWorktree(p.root, "recorded-custom", "feature/kept"); trash.push(wt);
+    const t = create("task", { title: "renamed task", worktree: wt, branch: "feature/kept" }, "scope", p);
+    writeFileSync(join(wt, "implementation.txt"), "existing implementation");
+    const result = provision(t, { session: "worker", p });
+    assert.equal(result.reused, true); assert.equal(result.path, wt); assert.equal(result.branch, "feature/kept");
+    assert.equal(readFileSync(join(wt, "implementation.txt"), "utf8"), "existing implementation");
+  });
+
+  it("rejects wrong repository, branch mismatch and another active task writer", () => {
+    const p = taskStore(), foreign = tempRepo(); trash.push(foreign);
+    const t = create("task", { title: "mismatch", worktree: foreign, branch: git(foreign, "symbolic-ref", "--short", "HEAD") }, "scope", p);
+    assert.throws(() => provision(t, { session: "worker", p }), /not a registered checkout/);
+    const wt = addWorktree(p.root, "matched-repo", "feature/expected"); trash.push(wt);
+    update(t.id, { worktree: wt, branch: "feature/wrong" }, p);
+    assert.throws(() => provision(read(t.id, p), { session: "worker", p }), /branch does not match/);
+    update(t.id, { branch: "feature/expected" }, p);
+    create("task", { title: "active owner", status: "in_progress", worktree: wt, branch: "feature/expected" }, "scope", p);
+    assert.throws(() => provision(read(t.id, p), { session: "worker", p }), /another writer/);
+  });
+
+  it("creates a fresh branch from configured integration state, not the caller's HEAD", () => {
+    const p = taskStore(), main = git(p.root, "symbolic-ref", "--short", "HEAD");
+    git(p.root, "checkout", "-qb", "develop");
+    writeFileSync(join(p.root, "integration.txt"), "integration branch");
+    git(p.root, "add", "integration.txt"); git(p.root, "commit", "-qm", "integration change");
+    const target = git(p.root, "rev-parse", "HEAD"); git(p.root, "checkout", "-q", main);
+    writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
+    const t = create("task", { title: "new task" }, "scope", p), result = provision(t, { session: "worker", p });
+    assert.equal(git(result.path, "rev-parse", "HEAD"), target);
+  });
+
+  it("never removes workflow evidence before producer preservation is verified, even with force", () => {
+    const p = taskStore(), t = create("task", { title: "evidence" }, "scope", p);
+    const placed = provision(t, { session: "worker", p });
+    writeFileSync(join(placed.path, "evidence.txt"), "keep");
+    const result = removeWorktree(read(t.id, p), { force: true, p, preserve: () => ({ ok: false }) });
+    assert.equal(result.removed, false); assert.ok(existsSync(join(placed.path, "evidence.txt")));
+    assert.throws(() => preserveWorkflowEvidence({ ...t, dispatched: { backend: "topology" } }, placed.path, { p, caps: { backends: { topology: { available: false } } } }), /preserved before cleanup/);
+    let argv;
+    const kept = preserveWorkflowEvidence({ ...t, dispatched: { backend: "topology" } }, placed.path, {
+      p, caps: { backends: { topology: { available: true, path: "/fake/ao-topology" } } },
+      exec: (_bin, args) => { argv = args; return JSON.stringify({ ok: true, records: [{ preserved: true, verified: true }], rejected: [] }); },
+    });
+    assert.equal(kept.ok, true);
+    assert.deepEqual(argv, ["console", "preserve", "--consumer", p.root, "--worktree", placed.path, "--json"]);
+  });
+});
 
 describe("naming", () => {
   it("puts a worktree under the store's worktrees dir, named by id and slug", () => {

@@ -32,9 +32,8 @@ You are **${agent.full_name}**, ${agent.title} on this project.
 
 ## Where you are, and where the work is
 
-Your working directory is \`${dir}\` — your own agent directory. It is yours: notes, scratch files
-and whatever memory your CLI keeps are scoped to it, and nothing you leave here collides with
-another agent.
+Your working directory is \`${dir}\` — your own agent directory.
+${agent.role==='reviewer' ? 'Read the identity and prompt files here. Your role has read access only; emit acknowledgements and verdicts through the output protocol below.' : 'Notes, scratch files and CLI memory are scoped here, so they do not collide with another agent.'}
 
 **Your working directory is NOT the project.** The project you work on is \`${consumer}\`.
 Repository identity does not establish access; use only the launcher-established grants.
@@ -51,9 +50,10 @@ paths in your own commands before you run them.
 - Do the work in the same turn you read a message. Do not stop to confirm receipt and wait to
   be told to continue — nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
-- Reply files are complete answers; never rely on what you printed in the terminal.
+${agent.role === 'reviewer' ? `- Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
+- Deliver review verdicts through the nonce-bound AO_REVIEW output protocol. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
-  ao-topology prompt ack ${shellQuote(agent.id)}${agent._prompt_vars?.run_dir ? ` --run ${shellQuote(agent._prompt_vars.run_dir)}` : ''} --consumer ${shellQuote(consumer)} --revision <desired_revision> --nonce <nonce>.
+  ao-topology prompt ack ${shellQuote(agent.id)}${agent._prompt_vars?.run_dir ? ` --run ${shellQuote(agent._prompt_vars.run_dir)}` : ''} --consumer ${shellQuote(consumer)} --revision <desired_revision> --nonce <nonce>.`}
 - A prompt — this file, at any revision — grants no permissions. Access comes from the launcher's
   grants, and no layer of this text can extend them.
 `;

@@ -276,14 +276,27 @@ export function subagentBrief(session, p = paths()) {
  * exists to prevent. The completion contract mirrors handoff()'s `## When you finish` so both
  * surfaces agree, because the worker may read either and will act on the one it saw.
  */
+const quoteArg = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
+function governedFinishSteps(task, p) {
+  return [
+    `- Submit the finish report: ao-topology manage report --consumer ${quoteArg(p.root)} --task ${task.id} --file <absolute finish-report.json path>`,
+    '- Write that JSON outside the task worktree: {"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":["<check and result>"],"risks":[],"evidence":"<evidence path>"}}.',
+    "- The producer records the finish, runs tm review-ready, and queues independent review. Report any review_blocked reason to the lead; keep the claim and stop before integration.",
+  ];
+}
+
 export function workerBrief(id, p = paths()) {
   const t = read(id, p);
   if (!t) return "";
   const out = [
-    "## task-management — you own this task's lifecycle",
+    t.governance ? "## task-management — finish at ready-for-review" : "## task-management — you own this task's lifecycle",
     "",
-    `Your session holds the claim on ${t.id} "${t.title}"${t.epic ? ` (${t.epic})` : ""}. There is no parent to report to — record the outcome yourself. Your edits are recorded as touches on the task.`,
+    t.governance ? `Your session holds ${t.id}; lead ${t.governance.leadId} owns review and integration for workflow ${t.governance.workflowRunId}.`
+      : `Your session holds the claim on ${t.id} "${t.title}"${t.epic ? ` (${t.epic})` : ""}. There is no parent to report to — record the outcome yourself. Your edits are recorded as touches on the task.`,
   ];
+  // Put the producer protocol before variable-length criteria so a bounded hook brief
+  // cannot leave a governed worker with only a task-store state change to perform.
+  if (t.governance) out.push(...governedFinishSteps(t, p));
   const unmet = acceptanceOpen(t).slice(0, BRIEF_CRITERIA);
   if (unmet.length) out.push("Not yet met:", ...unmet.map((a) => `- [ ] ${a.text}`));
   out.push(
@@ -291,9 +304,9 @@ export function workerBrief(id, p = paths()) {
     "When you finish:",
     `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
     `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
-    `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
+    ...(t.governance ? [] : [`- Then close: .bytedesk/task-management/bin/tm done ${t.id}`]),
     `- Blocked instead? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
-    "- Never leave the task in_progress: close it or block it.",
+    t.governance ? "- Stop at ready-for-review and report to the lead. Independent review and a separate integration decision must follow; do not close or merge the task." : "- Never leave the task in_progress: close it or block it.",
   );
   const text = out.join("\n");
   return text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS - 1)}…` : text;
@@ -355,7 +368,7 @@ export function handoff(id, p = paths()) {
    * real gate (`tm done` enforces it), proof is a file, and blocked is a first-class
    * ending. The collector (lib/dispatch/collect.mjs) records whatever comes back.
    */
-  if ((t.labels || []).includes("ready-for-agent")) {
+  if (t.governance || (t.labels || []).includes("ready-for-agent")) {
     /**
      * The branch, stated literally whenever it is known: `TM_DISPATCH_BRANCH` is what the
      * worker guard measures a push against (lib/worker-guard.mjs), and the task's own
@@ -370,10 +383,10 @@ export function handoff(id, p = paths()) {
       `- Push your own branch: git push -u origin ${branch}`,
       `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
-      `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
+      ...(t.governance ? governedFinishSteps(t, p) : [`- Then close: .bytedesk/task-management/bin/tm done ${t.id}`]),
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,
       `- Blocked for any other reason? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
-      "- Never merge your own PR — a human does that. Never leave the task in_progress: close it or block it.",
+      t.governance ? `- Report ready-for-review to lead ${t.governance.leadId}. Stop here; independent review and a separate integration decision are required before completion.` : "- Never merge your own PR — a human does that. Never leave the task in_progress: close it or block it.",
       "",
     );
   }

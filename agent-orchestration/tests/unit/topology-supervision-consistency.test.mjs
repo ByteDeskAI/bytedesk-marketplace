@@ -103,7 +103,7 @@ function ackProbes(dir, signal) {
       for (const name of await readdir(dir).catch(() => [])) {
         if (!name.endsWith('.json') || name.endsWith('.ack.json')) continue;
         const probe = await readJson(join(dir, name)).catch(() => null);
-        if (probe?.nonce) await writeJson(join(dir, `${probe.nonce}.ack.json`), { nonce: probe.nonce, repo_id: probe.repo_id, agent_id: probe.agent_id, at: new Date().toISOString() });
+        if (probe?.nonce) await writeJson(join(dir, `${probe.nonce}.ack.json`), { nonce: probe.nonce, repo_id: probe.repo_id, agent_id: probe.agent_id, session: probe.session, binding: probe.binding, at: new Date().toISOString() });
       }
       await sleep(25);
     }

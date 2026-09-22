@@ -59,13 +59,15 @@ import { SESSION_ENV } from "../harness/sessions.mjs";
 import { claimant } from "../claims.mjs";
 import { listAgents, retireAgent } from "../agents.mjs";
 import { batches } from "../parallel.mjs";
-import { config, list, logEvent, nextTasks, now, read, withLock } from "../store.mjs";
+import { config, list, logEvent, nextTasks, now, queueOrder, read, withLock } from "../store.mjs";
 import { agentReadiness } from "../completeness.mjs";
 import { paths } from "../paths.mjs";
 import { dispatch } from "./index.mjs";
 import { collect } from "./collect.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
+import { isSystemFailure } from "./failure.mjs";
+import { governedAdmission } from "../governance-check.mjs";
 
 /** The label that says "a worker can take this without a conversation". */
 export const READY_LABEL = "ready-for-agent";
@@ -315,7 +317,13 @@ function resetOnClose(p) {
  * excludes blocked and resolved work; claimant excludes live claims.
  */
 export function poolable(p = paths()) {
-  return nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p));
+  const waiting = nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p));
+  const admitted = list("task", { status: "in_progress" }, p).filter((t) => {
+    if (!t.governance || t.dispatched || !(t.labels || []).includes(READY_LABEL)) return false;
+    const gate = governedAdmission(t, p);
+    return gate.allow && claimant(t.id, p)?.session === gate.owner;
+  });
+  return queueOrder([...waiting, ...admitted]);
 }
 
 /**
@@ -402,7 +410,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
         const run = read(t.id, p)?.dispatched?.run;
         const agent = run ? listAgents(p).find((a) => a.runId && a.runId === run) : null;
         if (agent) retireAgent(agent.name, p);
-        if (res.outcome === "failed") recordFailure(`${t.id}: ${res.summary || "worker failed"}`, cfg, p);
+        if (res.outcome === "failed" && isSystemFailure(res)) recordFailure(`${t.id}: ${res.summary || "worker failed"}`, cfg, p);
       }
     } catch (err) {
       skipped.push({ id: t.id, reason: `collect failed: ${err.message}` });
@@ -449,11 +457,11 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       skipped.push({ id: task.id, reason: "at capacity" });
       continue;
     }
-    if (!collisionFree.has(task.id)) {
+    if (!collisionFree.has(task.id) && !task.governance) {
       skipped.push({ id: task.id, reason: "touches collide with a task ahead of it" });
       continue;
     }
-    const taken = (task.touches || []).find((path) => occupiedBy.has(path));
+    const taken = (task.touches || []).find((path) => occupiedBy.has(path) && occupiedBy.get(path) !== task.id);
     if (taken) {
       skipped.push({ id: task.id, reason: `touches overlap in_progress ${occupiedBy.get(taken)} (${taken})` });
       continue;
@@ -468,23 +476,27 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       continue;
     }
     let failure = null;
+    let systemFailure = false;
     try {
       // One session per dispatch, so a reaped worker parks its own task and not
       // every task the pool is running (reapDeadWorkers maps claims by session).
-      const res = await dispatch(task.id, { session: `pool-${task.id.toLowerCase()}`, actor: "pool", p, caps, registry, backend: pick?.name ?? null });
+      const owner = task.governance ? governedAdmission(task, p).owner : `pool-${task.id.toLowerCase()}`;
+      const res = await dispatch(task.id, { session: owner, actor: "pool", p, caps, registry, backend: pick?.name ?? null });
       if (res.ok) {
         dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree });
         busyByBackend[res.backend] = (busyByBackend[res.backend] || 0) + 1;
         room -= 1;
       } else {
         failure = res.reason;
+        systemFailure = isSystemFailure(res);
       }
     } catch (err) {
       failure = `dispatch failed: ${err.message}`;
+      systemFailure = isSystemFailure({ reason: err.message });
     }
     if (failure !== null) {
       skipped.push({ id: task.id, reason: failure });
-      brake = recordFailure(`${task.id}: ${failure}`, cfg, p);
+      if (systemFailure) brake = recordFailure(`${task.id}: ${failure}`, cfg, p);
     }
   }
 

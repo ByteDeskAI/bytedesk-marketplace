@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join, dirname, basename, isAbsolute } from "node:path";
 import test from "node:test";
@@ -128,12 +128,35 @@ test("the marketplace checkout containing the plugin source is rejected as a con
   } finally { await fx.cleanup(); }
 });
 
-test("a separate marketplace source checkout is rejected from an installed plugin cache", async () => {
+test("a Gateway-shaped unrelated marketplace is a valid consumer", async () => {
   const fx = await fixture();
   try {
     await mkdir(join(fx.consumer, ".claude-plugin"));
-    await writeFile(join(fx.consumer, ".claude-plugin", "marketplace.json"), "{}\n");
+    await writeFile(join(fx.consumer, ".claude-plugin", "marketplace.json"), JSON.stringify({name:"bytedesk-remote-gateway",plugins:[{name:"setup",source:"./setup"}]}));
+    const repo = await resolveConsumerRepository({ consumerCwd: fx.consumer, pluginRoot: fx.plugin, stateRoot: fx.state });
+    assert.equal(repo.checkoutRoot, fx.consumer);
+  } finally { await fx.cleanup(); }
+});
+
+test("actual orchestration payload and its aliases and older linked worktrees are rejected", async () => {
+  const fx = await fixture();
+  try {
+    const linked = join(fx.root, "older-source");
+    await git(fx.consumer, ["worktree", "add", "--detach", "--", linked, "HEAD"]);
+    const payload = join(fx.consumer, "agent-orchestration");
+    await mkdir(join(payload, ".claude-plugin"), { recursive: true });
+    await mkdir(join(payload, "bin"));
+    await writeFile(join(payload, "package.json"), JSON.stringify({name:"@bytedesk/agent-orchestration"}));
+    await writeFile(join(payload, ".claude-plugin", "plugin.json"), JSON.stringify({name:"agent-orchestration"}));
+    await writeFile(join(payload, "bin", "agent-orchestration-mcp"), "fixture\n");
+    const alias = join(fx.root, "source-alias");
+    await symlink(fx.consumer, alias);
     await assert.rejects(() => resolveConsumerRepository({ consumerCwd: fx.consumer, pluginRoot: fx.plugin, stateRoot: fx.state }), { code: "AO_MARKETPLACE_IS_NOT_CONSUMER" });
+    await assert.rejects(() => resolveConsumerRepository({ consumerCwd: alias, pluginRoot: fx.plugin, stateRoot: fx.state }), { code: "AO_MARKETPLACE_IS_NOT_CONSUMER" });
+    await assert.rejects(() => resolveConsumerRepository({ consumerCwd: linked, pluginRoot: fx.plugin, stateRoot: fx.state }), { code: "AO_MARKETPLACE_IS_NOT_CONSUMER" });
+    const installedAlias = join(fx.root, "installed-alias");
+    await symlink(fx.plugin, installedAlias);
+    await assert.rejects(() => resolveConsumerRepository({ consumerCwd: installedAlias, pluginRoot: fx.plugin, stateRoot: fx.state }), { code: "AO_PLUGIN_ROOT_IS_NOT_CONSUMER" });
   } finally { await fx.cleanup(); }
 });
 

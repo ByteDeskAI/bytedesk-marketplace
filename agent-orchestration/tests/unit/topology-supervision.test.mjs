@@ -27,7 +27,7 @@ const isolatedEnv = (root, home, extra = {}) => {
   return { ...process.env, TMUX: '', TMUX_TMPDIR: tmux, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config'), ...extra };
 };
 
-test('supervision refreshes a live workflow instance and publishes exact membership without applying an unacknowledged change',async t=>{
+for(const durable of [false,true]) test(`supervision refreshes a live ${durable?'durable':'legacy'} workflow instance without applying an unacknowledged change`,async t=>{
  const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
  const repo=join(root,'repo'),home=join(root,'home'),env=isolatedEnv(root,home);
  await run('git',['init',repo]);
@@ -36,7 +36,9 @@ test('supervision refreshes a live workflow instance and publishes exact members
  const binding=(await listServerPanes({tmuxServer:server}))[0];
  const conf=join(repo,'.bytedesk/agent-orchestration');await mkdir(conf,{recursive:true});
  await writeJson(join(conf,'config.json'),{prompts:{common:'./policy.md'}});await writeFile(join(conf,'policy.md'),'initial policy');
- const runDir=join(conf,'runs','run-one'),dir=join(runDir,'agents','runagent');await mkdir(dir,{recursive:true});
+ const identity=await canonicalRepoId(repo);
+ const runDir=durable?join(env.AGENT_ORCHESTRATION_STATE_HOME,'repositories',repoKey(identity.id),'topology','runs','run-one'):join(conf,'runs','run-one');
+ const dir=join(runDir,'agents','runagent');await mkdir(dir,{recursive:true});
  const agent={id:'runagent',role:'worker',full_name:'Workflow Worker',instructions:'work',_dir:dir};
  await writeJson(join(dir,'prompt-agent.json'),agent);
  await writeJson(join(runDir,'run.json'),{run_id:'run-one',name:'workflow',run_dir:runDir,consumer:repo,session:'workflow',depth:0,parent:null,agents:[{id:agent.id,role:'worker',binding}]});
@@ -87,7 +89,7 @@ test('a second supervisor for the same repository exits on the lock instead of d
     'a one-shot diagnostic must never publish daemon ownership');
   await assert.rejects(
     superviseRepository(options, { once: true }),
-    error => error.code === 'TOPOLOGY_LOCK_TIMEOUT',
+    error => error.code === 'TOPOLOGY_SUPERVISION_OWNED',
     'the loser must fail closed on the lock, never proceed to publish a second snapshot',
   );
   assert.equal(await readJson(processPath).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error)), null,
@@ -149,6 +151,8 @@ test('the supervisor records where it went and how often it has been restarted',
   // runs as `hookFailed: ENOTEMPTY ... state/presence`, with every assertion passing in ~130ms.
   try {
     assert.equal(first.restarts, 0);
+    assert.equal(first.ready, true);
+    assert.ok(first.first_tick_at);
     assert.match(first.log, /\.log$/);
     assert.match(first.source_entrypoint, /topology\/cli\.mjs$/);
     assert.match(first.source_fingerprint, /^[0-9a-f]{64}$/);
@@ -170,6 +174,34 @@ test('the supervisor records where it went and how often it has been restarted',
 
 test('supervision startup uses a bounded configurable ownership handshake', () => {
   assert.equal(DEFAULT_START_TIMEOUT_MS, 10_000);
+});
+
+test('a live owner without its first heartbeat is starting, never ready', async t => {
+  const { processIdentity } = await import('../../topology/lib/lockfile.mjs');
+  const { supervisionStatus, startRepositorySupervision } = await import('../../topology/lib/supervision.mjs');
+  const { root, options } = await quietRepo(t, 'first-heartbeat');
+  const identity = await canonicalRepoId(options.consumer), key = repoKey(identity.id);
+  const dir = join(root, 'state', 'supervision');
+  const owner = { token:'starting-owner', pid:process.pid, process_identity:await processIdentity(process.pid) };
+  await writeJson(join(dir, `${key}.lock`, 'owner.json'), owner);
+  await writeJson(join(dir, `${key}.process.json`), {...owner,lock_token:owner.token,repo_id:identity.id,consumer:options.consumer,state:'starting',started_at:new Date().toISOString()});
+  const status = await supervisionStatus(options);
+  assert.equal(status.state, 'starting');
+  assert.equal(status.ready, false);
+  const result = await startRepositorySupervision(options);
+  assert.equal(result.pid, process.pid);
+  assert.equal(result.state, 'starting');
+  assert.equal(result.ready, false);
+});
+
+test('startup errors are retained and are not classified as competing ownership', async t => {
+  const { root, options } = await quietRepo(t, 'nested-failure');
+  await assert.rejects(superviseRepository(options, {onOwned:()=>{throw Object.assign(new Error('nested lock failed'),{code:'TOPOLOGY_LOCK_TIMEOUT'});}}), {code:'TOPOLOGY_LOCK_TIMEOUT'});
+  const key = repoKey((await canonicalRepoId(options.consumer)).id);
+  const record = await readJson(join(root, 'state', 'supervision', `${key}.process.json`));
+  assert.equal(record.state, 'startup-failed');
+  assert.equal(record.failure.code, 'TOPOLOGY_LOCK_TIMEOUT');
+  assert.equal(record.failure.message, 'nested lock failed');
 });
 
 test('the census rides every tick, including the cheap ones, and is told its cadence', async t => {

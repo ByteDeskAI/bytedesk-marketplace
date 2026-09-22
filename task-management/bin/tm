@@ -73,6 +73,7 @@ import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../li
 import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
+import { governTask, readyForReview } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
@@ -539,6 +540,20 @@ const VERBS = {
         // said the closed date and the epic status had moved with it.
         (wasDone ? "  (reopened from done)" : ""),
     );
+  },
+
+  govern(id, ...args) {
+    requireInit();
+    const value = (flag) => { const at = args.indexOf(flag); return at < 0 ? null : args[at + 1]; };
+    const task = governTask(id, { workflowRunId: value("--workflow"), leadId: value("--lead"), recordPath: value("--record"), p: P });
+    out(JSON_OUT ? JSON.stringify(task.governance) : `${id} governed by ${task.governance.leadId} in ${task.governance.workflowRunId}`);
+  },
+
+  "review-ready"(id, ...args) {
+    requireInit();
+    const at = args.indexOf("--revision");
+    const task = readyForReview(id, { revision: at < 0 ? null : args[at + 1], p: P });
+    out(JSON_OUT ? JSON.stringify(task.governance) : `${id} ready-for-review — independent review and an integration decision remain required`);
   },
 
   done(id) {
@@ -1638,6 +1653,8 @@ const VERBS = {
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
+        "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
@@ -2166,6 +2183,7 @@ function hook(event) {
       const session = sessionId();
       for (const t of list("task", { status: "in_progress" }, P)) {
         if (session && t.session && t.session !== session) continue;
+        if (t.governance?.state === "ready-for-review") continue;
         update(t.id, { status: "parked", parkedReason: `session ended (${session || "unknown"})` }, P);
         releaseClaim(t.id, P);
         logEvent("parked_on_session_end", { id: t.id }, P);

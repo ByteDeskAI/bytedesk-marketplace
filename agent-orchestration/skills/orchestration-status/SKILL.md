@@ -11,8 +11,11 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill.
 
 ## Find the run
 
-`AO runs --consumer <repo>` lists every run under `<repo>/.bytedesk/agent-orchestration/runs/` with a filled dot
-for a live tmux session. The newest is usually the one the user means; confirm if two are live.
+`AO console list --consumer <repo> --json` discovers explicit ACP and named topology workflows
+across the main checkout and registered linked worktrees. Read `runtime`, canonical `workflowId`,
+`recordPath`, `revision` and `rejected` diagnostics. ACP snapshots and topology journals keep their
+native meanings. Standing lead/reviewer services and standalone terminals are outside workflow
+counts. Do not infer absent records from transcript claims.
 
 ## Read the state
 
@@ -39,9 +42,16 @@ for a live tmux session. The newest is usually the one the user means; confirm i
 
 ## Stop
 
-`AO stop --run <run_dir>` kills the tmux session and marks the run stopped; every file stays. To
-discard a run's files the user deletes `<run_dir>` themselves — never do it for them, the
-artifacts are the evidence trail.
+`AO stop --run <run_dir>` verifies the exact server, session and member incarnations, stops only
+owned panes, and records `stopped` after confirming termination. Session-name-only stop is refused.
+Read partial failures; `stop_failed` is not a completed stop. Every file and standing repository
+service stays. Console callers use actor-attributed, idempotent `console control` requests; see
+`../../docs/topology.md` for the envelope and source-revision review boundary.
+
+Before removing an explicitly owned task worktree, run
+`AO console preserve --consumer <main-repo> --worktree <owned-worktree> --json` and require `ok:true`.
+It retains terminal legacy records and byte-exact evidence outside the worktree. Active, uncertain,
+corrupt or unverifiable records hold cleanup. Never delete run history as part of routine cleanup.
 
 ## Standing repository services
 

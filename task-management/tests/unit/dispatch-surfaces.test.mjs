@@ -265,7 +265,8 @@ describe("a supplied registry participates in selection", () => {
     // checkout and green in every archive extract: it reported the machine, not the code.
     const { resolveBackend } = await import("../../lib/dispatch/backend.mjs");
     const fake = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
-    const picked = await resolveBackend({ registry: { fake }, caps: {} });
+    const p = repoStore({ dispatch: { backends: ["topology", "tmux", "orchestration", "manual"] } });
+    const picked = await resolveBackend({ registry: { fake }, caps: {}, p });
     assert.equal(picked.name, "fake", "a registry backend must be reachable, or the registry is decorative");
   });
 
@@ -276,7 +277,8 @@ describe("a supplied registry participates in selection", () => {
       topology: { name: "topology", available: () => true, spawn },
       fake: { name: "fake", available: () => true, spawn },
     };
-    const picked = await resolveBackend({ registry, caps: {} });
+    const p = repoStore({ dispatch: { backends: ["topology", "tmux", "orchestration", "manual"] } });
+    const picked = await resolveBackend({ registry, caps: {}, p });
     assert.equal(picked.name, "fake", "names absent from the order go first; an override stays where it was");
   });
 });

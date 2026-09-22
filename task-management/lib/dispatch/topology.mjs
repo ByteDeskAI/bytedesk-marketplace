@@ -35,10 +35,10 @@ import { spawnSync } from "node:child_process";
 import { toolFailureReason } from "./backend.mjs";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
-import { PROMPT_FILE, guardSettings, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
+import { GUARD_HOOK, PROMPT_FILE, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
 
 export const name = "topology";
 
@@ -112,9 +112,9 @@ export function agentRef(consumer, { p, list = null } = {}) {
   const agents = list ?? roster(consumer);
   if (wanted) {
     const hit = agents.find((a) => a.id === wanted || a.full_name === wanted);
-    return hit ? hit.id : null;
+    return hit && !["lead", "reviewer"].includes(hit.role) ? hit.id : null;
   }
-  return agents.find((a) => a.role !== "lead")?.id ?? null;
+  return agents.find((a) => !["lead", "reviewer"].includes(a.role))?.id ?? null;
 }
 
 /**
@@ -130,8 +130,8 @@ export function agentRef(consumer, { p, list = null } = {}) {
  */
 export function specFor(req, ref = null, { candidates = null, stored = null } = {}) {
   const base = ref
-    ? { id: "worker", agent: ref, role: "orchestrator", instructions: req.prompt }
-    : { id: "worker", role: "orchestrator", candidates: candidates || "claude", instructions: req.prompt };
+    ? { id: "worker", agent: ref, role: "orchestrator", candidates: candidates || "claude,codex", instructions: req.prompt }
+    : { id: "worker", role: "orchestrator", candidates: candidates || "claude,codex", instructions: req.prompt };
   // TM-177: the pane exports ONLY the spec agent's env — ao-topology writes it into the launcher
   // script — so the worker marker travels here, not just in ao-topology's own env. An inline field
   // replaces the stored agent's wholesale, so the stored env and args are carried over, not dropped.
@@ -155,13 +155,15 @@ export function specFor(req, ref = null, { candidates = null, stored = null } = 
       ...Object.fromEntries(workerEnv(req)),
     },
   };
-  // `args` reach every candidate in the chain, and only claude understands --settings.
-  const chain = cliChain(ref ? stored : base);
-  if (chain.length && chain.every((cli) => cli === "claude")) agent.args = [...(stored?.args ?? []), "--settings", guardSettings()];
+  // The producer applies worker_guard separately for each provider candidate.
+  if (stored?.args) agent.args = [...stored.args];
   return {
     version: 1,
     name: String(req.task.id).toLowerCase(),
     description: `tm dispatch of ${req.task.id}${req.task.title ? `: ${req.task.title}` : ""}`,
+    task_id: req.task.id,
+    write_authority: { task_id: req.task.id, branch: workerBranch(req), worktree: req.worktree, owner: req.session },
+    worker_guard: { task_id: req.task.id, branch: workerBranch(req), hook: GUARD_HOOK },
     agents: [agent],
   };
 }
@@ -231,17 +233,19 @@ export function spawn(
     return { ok: false, reason: `--consumer must be an absolute path; got worktree: ${req.worktree}` };
   }
 
-  const promptFile = join(req.worktree, PROMPT_FILE);
-  writeImpl(promptFile, req.prompt);
-
   const worker = { ...req, branch: workerBranch(req) };
   const agents = rosterList ?? roster(req.worktree);
   const ref = agentRef(req.worktree, { p: req.p, list: agents });
+  if (config(req.p).dispatch?.topologyAgent && !ref) return { ok: false, code: "TM_WORKER_IDENTITY_HELD", failureScope: "task", reason: "configured worker identity is missing or reserved for the standing lead/reviewer" };
   const specFile = specFileFor(req, mkdtempImpl);
   const spec = specFor(worker, ref, {
     candidates: config(req.p).dispatch?.topologyCandidates ?? null,
     stored: agents.find((a) => a.id === ref) ?? null,
   });
+  const unsupported = cliChain(spec.agents[0]).filter((cli) => !["claude", "codex"].includes(cli));
+  if (unsupported.length) return { ok: false, code: "TM_UNSUPPORTED_FALLBACK", failureScope: "task", reason: `unattended topology fallback is not approved for ${unsupported.join(", ")}; use the supported Claude → Codex chain` };
+  const promptFile = join(req.worktree, PROMPT_FILE);
+  writeImpl(promptFile, req.prompt);
   writeImpl(specFile, `${JSON.stringify(spec, null, 2)}\n`);
 
   const args = argvFor(req, specFile);
@@ -255,9 +259,12 @@ export function spawn(
     timeout: timeoutMs,
     maxBuffer,
   });
-  if (res?.error) return { ok: false, reason: `ao-topology failed to start: ${res.error.message}`, detail: { args } };
+  if (res?.error) return { ok: false, reason: `ao-topology failed to start: ${res.error.message}`, detail: { args, retry_safe: res.error.code === "ENOENT" }, ...(res.error.code !== "ENOENT" ? { failureScope: "task" } : {}) };
   if (res?.status !== 0) {
-    return { ok: false, reason: toolFailureReason("ao-topology launch", res), detail: { args } };
+    let failure = {};
+    try { failure = JSON.parse(String(res.stdout || "")); } catch { /* preserve the original tool diagnostic */ }
+    const detail = { args, ...(failure.details || {}) };
+    return { ok: false, code: failure.code, reason: toolFailureReason("ao-topology launch", res), detail, ...(detail.retry_safe === false ? { failureScope: "task" } : {}) };
   }
 
   const parsed = parseLaunch(res.stdout);
@@ -267,6 +274,8 @@ export function spawn(
     // The tmux session is the handle: `tmux attach -t <session>` is how a human looks in,
     // and ./collect.mjs reads the worker's liveness from exactly that session.
     run: `topology:${parsed.run.session}`,
+    nativeRunId: parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
+    workflowRunId: parsed.run.workflow_id ?? parsed.run.workflowId ?? parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
     detail: {
       args,
       promptFile,

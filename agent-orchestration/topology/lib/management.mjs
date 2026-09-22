@@ -2,14 +2,16 @@
 // orchestration owns communication and the review/check/landing evidence it contributes.
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { listServerPanes } from './tmux.mjs';
 import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
+import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { reviewEligibility, reviewerAvailability, requestReview } from './reviewer.mjs';
+import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { invariant, nowIso, readJson, run, writeJson } from './util.mjs';
 
@@ -43,6 +45,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     evidence: async (id, path) => exec(['evidence', taskId(id), path]),
     removeWorktree: async id => exec(['worktree', 'rm', taskId(id)]),
     done: async id => exec(['done', taskId(id)]),
+    govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
+    reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
   };
 }
 
@@ -94,11 +98,48 @@ async function registeredWorker(ctx, doc, owner) {
   invariant(rows.length === 1, 'TOPOLOGY_MANAGEMENT_WORKER', 'Exactly one task-store worker must match the dispatch and claim.');
   return rows[0];
 }
+
+// Native identity comes from the producer's authenticated records and exact observations.
+// Exclude changing liveness and record paths: an exact member can exit, and a legacy record
+// can move into durable storage, without becoming a different task writer.
+function nativeWriterIdentity(observation) {
+  invariant(observation && typeof observation.runId === 'string' && Array.isArray(observation.agents) && Array.isArray(observation.children),
+    'TOPOLOGY_MANAGEMENT_WORKER', 'Native producer returned incomplete workflow ownership.');
+  return {
+    run_id: observation.runId,
+    repository_id: observation.repositoryId,
+    task_id: observation.taskId ?? null,
+    parent_agent_id: observation.parentAgentId ?? null,
+    workload_cwd: observation.workloadCwd,
+    write_authority: observation.writeAuthority ?? null,
+    members: observation.agents.map(member => ({ id: member.id, pane: member.pane ?? null,
+      binding: member.binding ? Object.fromEntries(bindingKeys.map(key => [key, member.binding[key]])) : null })).sort((left, right) => String(left.id).localeCompare(String(right.id))),
+    children: observation.children.map(nativeWriterIdentity).sort((left, right) => left.run_id.localeCompare(right.run_id)),
+  };
+}
+
+async function observedNativeWorker(ctx, doc) {
+  const dispatched = doc.dispatched;
+  invariant(typeof dispatched?.nativeRunId === 'string' && isAbsolute(dispatched.recordPath || '') && basename(dispatched.recordPath) === 'run.json',
+    'TOPOLOGY_MANAGEMENT_WORKER', 'Topology dispatch needs its authentic native run ID and record path; reconcile the task through tm collect before reporting a finish.');
+  invariant(!dispatched.workflowRunId || dispatched.workflowRunId === `topology:${dispatched.nativeRunId}`,
+    'TOPOLOGY_MANAGEMENT_WORKER', 'Canonical workflow and native task run IDs differ.');
+  const observation = await observeNativeWorkflow({ consumer: ctx.store.root, runDir: dirname(dispatched.recordPath),
+    nativeRunId: dispatched.nativeRunId, taskId: doc.id, workloadCwd: doc.worktree, stateHome: stateRoot(ctx.env, ctx.home) });
+  invariant(observation.runId === dispatched.nativeRunId && observation.observationError === null && typeof observation.hasLiveWriters === 'boolean' && typeof observation.fingerprint === 'string',
+    'TOPOLOGY_MANAGEMENT_WORKER', 'Native producer could not establish every task writer incarnation.');
+  return { observation, identity: nativeWriterIdentity(observation) };
+}
+
 async function observeWorker(ctx, doc, owner) {
   const row = await registeredWorker(ctx, doc, owner);
-  invariant(row.status === 'active', 'TOPOLOGY_MANAGEMENT_WORKER', 'Only a currently live registered worker can establish a new ownership binding.');
   const base = { name: row.name, run: row.runId, backend: row.backend, owner, registered_at: row.registeredAt, observed_at: nowIso() };
-  if (['tmux', 'topology'].includes(row.backend)) {
+  if (row.backend === 'topology') {
+    const { observation, identity } = await observedNativeWorker(ctx, doc);
+    return { ...base, kind: 'topology', native_run_id: observation.runId, record_path: join(observation.runDir, 'run.json'), native_fingerprint: observation.fingerprint, native_identity: identity };
+  }
+  invariant(row.status === 'active', 'TOPOLOGY_MANAGEMENT_WORKER', 'Only a currently live registered worker can establish a new ownership binding.');
+  if (row.backend === 'tmux') {
     const prefix = `${row.backend}:`;
     invariant(row.runId.startsWith(prefix), 'TOPOLOGY_MANAGEMENT_WORKER', 'Invalid task worker session handle.');
     const session = row.runId.slice(prefix.length);
@@ -139,6 +180,15 @@ export async function taskWorkerState(options, record) {
     const row = await registeredWorker(ctx, doc, record.owner), worker = record.worker;
     invariant(worker && worker.owner === record.owner && worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt, 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
     invariant(record.finish && record.events?.some(event => event.event === 'finish' && event.report?.revision === record.finish.revision), 'TOPOLOGY_MANAGEMENT_WORKER', 'Task worker result has not been collected through the finish protocol.');
+    if (row.backend === 'topology') {
+      invariant(worker.kind === 'topology' && worker.native_identity, 'TOPOLOGY_MANAGEMENT_WORKER', 'Legacy native ownership must be reconciled through a new verified finish report.');
+      const { observation, identity } = await observedNativeWorker(ctx, doc);
+      invariant(worker.native_run_id === observation.runId && worker.native_fingerprint === observation.fingerprint && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
+        'TOPOLOGY_MANAGEMENT_WORKER', 'Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish.');
+      return { owned: true, active: observation.hasLiveWriters, alive: observation.hasLiveWriters,
+        proof: observation.hasLiveWriters ? 'observed-native-writers-live' : 'observed-native-workflow-exited', worker,
+        ...(observation.hasLiveWriters ? { reason: 'An exact native workflow member or child is still alive; stop every task writer before integration.' } : {}) };
+    }
     if (worker.kind === 'process') {
       invariant(row.pid === worker.pid, 'TOPOLOGY_MANAGEMENT_WORKER', 'Registered worker PID changed.');
       if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: 'observed-process-exited', worker };
@@ -180,8 +230,12 @@ export async function admitTask(options) {
     const provisioned = await ownedTask(ctx, task, owner);
     await ctx.store.start(task, provisioned.worktree);
     const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, intent, boundaries, dependencies, checks, files: doc.touches });
-    Object.assign(record, { base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
+    const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
+    const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
+    const leadId=lead?.id || options.leadId || owner;
+    Object.assign(record, { base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
+    await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});
     return { admitted: true, record };
   });
 }
@@ -199,12 +253,15 @@ export async function workerReport(options) {
       invariant(report.revision === await gitText(doc.worktree, ['rev-parse', 'HEAD']), 'TOPOLOGY_MANAGEMENT_REVISION', 'Finish must name the current exact task commit.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_DIRTY', 'Commit or preserve outstanding changes before readiness for review.');
     } else invariant(nonempty(report?.message), 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'A during-work report requires a visible reason.');
-    if (kind === 'finish' && !prior.worker && doc.dispatched && ctx.store.workers) prior.worker = await observeWorker(ctx, doc, owner);
+    // The same native workflow can undergo a producer-controlled fallback. A new finish
+    // records its newly verified member set; a change after this point blocks integration.
+    if (kind === 'finish' && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === 'topology')) prior.worker = await observeWorker(ctx, doc, owner);
     const next = await recordEvent(ctx, task, prior, kind, { owner, report, state: kind === 'finish' ? 'ready-for-review' : 'blocked' });
     next.state = kind === 'finish' ? 'ready-for-review' : 'blocked';
     if (kind === 'finish') { next.finish = report; next.collected = false; }
     await writeJson(ctx.path, next);
     if (kind === 'finish') {
+      await ctx.store.reviewReady?.(task,report.revision);
       try {
         const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [owner] });
         next.review_request = request;
@@ -272,8 +329,10 @@ export async function integrateTask(options) {
     await git(ctx.store.root, ['merge', '--ff-only', record.finish.revision]);
     const landed = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.finish.revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', 'Landing ancestry verification failed.');
-    const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch });
-    Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch } });
+    const authorization={decision:'integrate',actor:options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id,
+      authorized:options.authorized===true,revision:record.finish.revision,channel:options.actor?'gateway-or-explicit-actor':'local-operator',policy_auto_merge:policy.auto_merge===true,at:nowIso()};
+    const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
+    Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization } });
     await writeJson(ctx.path, next);
     return next;
   });

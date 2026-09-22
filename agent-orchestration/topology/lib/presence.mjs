@@ -14,6 +14,7 @@ import { censusPath, withStaleness } from "./census.mjs";
 import { queueDepth } from "./mailbox.mjs";
 import { roleVisual } from "./identity.mjs";
 import { invariant, run } from "./util.mjs";
+import { durableTopologyRoot } from './discovery.mjs';
 
 export const PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
 // The frozen contract's runRole vocabulary (§3), enforced by exact membership. It is a MAPPING
@@ -82,14 +83,17 @@ async function loadLibrary(roots) {
   for(const role of ["lead", "reviewer"]) invariant([...library.values()].filter(a => a.role === role).length <= 1, "TOPOLOGY_PRESENCE_MULTIPLE_STANDING", `Multiple repository ${role} definitions; refusing ambiguous presence.`);
   return library;
 }
-async function loadRuns(roots, repoId, explicitDirs = []) {
+async function loadRuns(roots, repoId, explicitDirs = [], stateHome = stateRoot()) {
   const dirs = new Set(explicitDirs.map(d => resolve(d)));
+  const durableRoot = durableTopologyRoot({ key: repoKey(repoId) }, { stateHome });
+  for (const dir of await entries(durableRoot)) if (dir.isDirectory()) dirs.add(join(durableRoot, dir.name));
   for(const root of roots) for(const dir of await entries(join(root, ".bytedesk/agent-orchestration/runs"))) if(dir.isDirectory()) dirs.add(join(root, ".bytedesk/agent-orchestration/runs", dir.name));
   const found = new Map();
   for(const dir of dirs) {
     const record = await json(join(dir, "run.json"));
     if(!record || typeof record.run_id !== "string" || !record.consumer) continue;
-    if((await canonicalRepoId(record.consumer)).id !== repoId) continue;
+    if((record.repository?.id || (await canonicalRepoId(record.consumer)).id) !== repoId) continue;
+    if (found.get(record.run_id)?.legacy_import?.sourcePath === join(dir, 'run.json')) continue;
     invariant(!found.has(record.run_id), "TOPOLOGY_PRESENCE_RUN_ID", "Duplicate run identity; refusing ambiguous lineage.");
     found.set(record.run_id, {...record, _presenceDir:await realpath(dir)});
   }
@@ -236,7 +240,7 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
     if(record) standing.push({...record,agent_id:agent.id});
   }
   const pending = (await records(join(state,"enrollments/pending"))).filter(r=>r.repo_id === identity.id);
-  const runs = await loadRuns(roots,identity.id,runDirs);
+  const runs = await loadRuns(roots,identity.id,runDirs,stateRoot(env,home));
   const selectors = new Set(tmuxServer ? [tmuxServer] : []);
   for(const record of [...standing,...pending,...[...runs.values()].flatMap(r=>r.agents??[])]) {
     const binding=bindingOf(record); if(validBinding(binding)) selectors.add(binding.serverKey);

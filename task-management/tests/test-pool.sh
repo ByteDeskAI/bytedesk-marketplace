@@ -10,6 +10,9 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TM_ROOT="$(mktemp -d)"
 export TM_ROOT
+# The fixture must identify its executing checkout as well as its task store.
+# Otherwise task creation stamps the live source checkout as the worker location.
+export CLAUDE_PROJECT_DIR="$TM_ROOT"
 # The name Claude Code actually sets — see test-events.sh.
 export CLAUDE_CODE_SESSION_ID="test-session"
 unset TM_ENFORCE

@@ -22,7 +22,7 @@ export function specSchemaSummary() {
       inputs: "map of input name -> { description, required, default, options?: [value | {value, description}], multi?: bool }; referenced as {{inputs.<name>}}; options make the launcher show a menu",
       session: "tmux session name template (default '{{name}}-{{run_id}}')",
       cwd: "default working directory for every agent (default '{{consumer}}')",
-      run_dir: "where mailbox, journal, and artifacts live (default '{{consumer}}/.bytedesk/agent-orchestration/runs/{{run_id}}')",
+      run_dir: "legacy requested storage hint; launch assigns durable <stateRoot>/repositories/<canonical-repo-key>/topology/runs/<run_id> and preserves workload cwd separately",
       layout: LAYOUTS,
       agents: "array of { id, role, cli, model?, candidates?: ['cli:model', ...] (ordered fallback chain; replaces cli/model), cwd?, skills?[], mcp?[], instructions?, instructions_file?, env?{}, args?[], auto_approve?, coordinates_only? }",
       "agents[].coordinates_only": "true for an agent that delegates and does not implement — the launcher withholds the work tree and the write tools from it. A repo's lead carries it; a spec may set it directly.",
@@ -393,9 +393,10 @@ function libraryCwd(agent, context) {
  */
 function readInstructionsFile(agent, context, vars) {
   const path = absolutize(agent.instructions_file, agent._agent_dir || context.consumer);
-  let text;
+  let text = context.instructionFiles?.[agent.id]?.text;
+  invariant(!context.replayRecipe || typeof text === 'string', 'TOPOLOGY_RETRY_RECIPE_INCOMPLETE', 'The retained recipe has no original instruction-file source for this member. Preserve this attempt.');
   try {
-    text = readFileSync(path, "utf8");
+    if (typeof text !== 'string') text = readFileSync(path, "utf8");
   } catch (error) {
     fail(
       "TOPOLOGY_INSTRUCTIONS_FILE_NOT_FOUND",
@@ -403,12 +404,19 @@ function readInstructionsFile(agent, context, vars) {
       { path },
     );
   }
-  return [renderDeep(text, vars), agent.instructions].map((part) => String(part || "").trim()).filter(Boolean).join("\n\n");
+  return { rendered: [renderDeep(text, vars), agent.instructions].map((part) => String(part || "").trim()).filter(Boolean).join("\n\n"),
+    source: { path: context.instructionFiles?.[agent.id]?.path || path, text } };
 }
 
 /** Render every placeholder in a validated spec for one concrete run. */
 export function materializeSpec(rawSpec, context) {
   const spec = expandAgentRefs(rawSpec, context);
+  // Retain templates before substitutions. Resolved roster definitions are copied so a retry
+  // cannot silently acquire a changed provider, permission, or task instruction from the library.
+  const recipeSpec = structuredClone(spec);
+  delete recipeSpec.render_recipe;
+  for (const agent of recipeSpec.agents) delete agent.agent;
+  const instructionFiles = {};
   const base = { run_id: context.runId, name: spec.name, consumer: context.consumer, home: context.home };
   // Inputs may themselves contain placeholders (a default of "{{consumer}}"); render them first.
   const vars = { ...base, inputs: renderDeep(context.inputs ?? {}, base) };
@@ -416,9 +424,13 @@ export function materializeSpec(rawSpec, context) {
   // it has already probed against the live tmux server, which the template cannot do.
   const session = context.session ? slug(context.session) : slug(renderDeep(spec.session, vars));
   vars.session = session;
-  const runDir = absolutize(renderDeep(spec.run_dir, vars), context.consumer);
-  containPath(runDir, context.consumer, "run_dir", context);
+  const requestedRunDir = absolutize(renderDeep(spec.run_dir, vars), context.consumer);
+  containPath(requestedRunDir, context.consumer, "run_dir", context);
+  // Only producer code supplies this context value, after resolving canonical repository state.
+  // A run_dir written inside a workflow JSON never supplies this authority.
+  const runDir = context.runDir ? absolutize(context.runDir) : requestedRunDir;
   vars.run_dir = runDir;
+  vars.inputs = renderDeep(context.inputs ?? {}, vars);
   const rendered = renderDeep({ ...spec, session, run_dir: runDir }, vars);
   rendered.cwd = absolutize(rendered.cwd, context.consumer);
   containPath(rendered.cwd, context.consumer, "cwd", context);
@@ -430,7 +442,7 @@ export function materializeSpec(rawSpec, context) {
     const agentVars = { ...vars, agent: { id: agent.id, role: agent.role } };
     const withAgent = renderDeep(agent, agentVars);
     withAgent.cwd = absolutize(withAgent.cwd ?? libraryCwd(withAgent, context) ?? rendered.cwd, context.consumer);
-    containPath(withAgent.cwd, context.consumer, `agents.${agent.id}.cwd`, context);
+    if (!context.runDir || withAgent.cwd !== join(runDir, 'agents', agent.id)) containPath(withAgent.cwd, context.consumer, `agents.${agent.id}.cwd`, context);
     // A participant has no provider chain, and running the chain logic over one produced the STRING
     // "undefined" as its cli plus a candidates array to match. Nothing read it — `prepared` skips
     // participants before it gets that far — so it sat in the materialized spec looking plausible
@@ -450,7 +462,10 @@ export function materializeSpec(rawSpec, context) {
     withAgent._inline_instructions = withAgent.instructions || "";
     withAgent._prompt_vars = agentVars;
     if (withAgent.instructions_file) {
-      withAgent.instructions = readInstructionsFile(withAgent, context, agentVars);
+      const source = readInstructionsFile(withAgent, context, agentVars);
+      withAgent.instructions = source.rendered;
+      withAgent._instruction_source = source.source;
+      instructionFiles[withAgent.id] = source.source;
       withAgent.instructions_file = absolutize(withAgent.instructions_file, withAgent._agent_dir || context.consumer);
     }
     return withAgent;
@@ -458,6 +473,10 @@ export function materializeSpec(rawSpec, context) {
   rendered.inputs_resolved = vars.inputs;
   rendered.run_id = context.runId;
   rendered.consumer = context.consumer;
+  rendered.requested_run_dir = requestedRunDir;
+  rendered.render_recipe = { schemaVersion: 1, spec: recipeSpec, instruction_files: instructionFiles,
+    context: { consumer: context.consumer, home: context.home, inputs: structuredClone(context.inputs ?? {}),
+      allowOutside: Boolean(context.allowOutside), ...(context.maxFanout === undefined ? {} : { maxFanout: context.maxFanout }) } };
   return rendered;
 }
 

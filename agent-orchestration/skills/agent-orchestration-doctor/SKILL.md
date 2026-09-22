@@ -11,6 +11,10 @@ argument-hint: "[provider: claude | codex | grok-build | kimi]"
 2. Call `orchestration_doctor` and select the requested provider from its independent probe results.
 3. Report executable discovery, adapter readiness, authentication status only as ready/not-ready,
    writable state-path checks, and actionable remediation.
+   Read `diagnostics` separately: consumer admission, the fingerprint of the loaded build,
+   fingerprints currently on disk, ACP/topology state-root alignment, repository supervisor
+   heartbeat, exact role readiness, and session-host health. A provider transport probe does
+   not establish accepted models, topology message delivery, or a healthy repository supervisor.
 4. If a consumer repository matters, pass its explicit absolute path as `consumerCwd`. Never use the
    server process cwd as a substitute.
 5. Do not print environment values, tokens, credential filenames containing secrets, or provider

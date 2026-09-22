@@ -197,6 +197,30 @@ the worktree's git dir at creation, so tm's own artifacts can never make the che
 (`<task>-<session>`), so a retried dispatch collapses onto the same run instead of
 double-spawning a worker.
 
+**Governed tasks end the worker phase at `ready-for-review`.** Set `dispatch.governed: true`
+for a repository managed by a persistent lead. Agent Orchestration admits the task and binds
+its canonical workflow, lead, worktree and producer record before dispatch. The pool can then
+pick up that admitted task under the same owner. Missing admission holds that task only.
+After committing, checking and attaching evidence, the worker saves its finish JSON outside
+the task worktree and submits
+`ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.
+The JSON is `{"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":["<check and result>"],"risks":[],"evidence":"<evidence path>"}}`.
+The producer persists the finish, calls `tm review-ready`, and queues a review request bound
+to that revision and reviewer incarnation. A bare `review-ready` call cannot skip this report.
+It keeps its claim while review is pending; `review_blocked` names a producer hold for the lead.
+Worker exit, a PR, or acceptance ticks cannot close the task. Every completion surface rereads
+the producer's exact-revision review and separately attributed integration decision, and
+checks the reviewed commit landed on the target branch. Ordinary gate overrides do not
+bypass this authority check. Deployment and publication remain separate decisions.
+
+Dispatch reuses a validated recorded checkout and branch. It rejects repository or branch
+mismatches and conflicting writers; new checkouts start at `dispatch.integrationBranch`.
+Failed launches retain their work and evidence for a validated retry. Topology records live
+outside disposable checkouts, and cleanup requires `ao-topology console preserve` to verify
+the durable copy. An uncertain live launch prevents another writer from taking its worktree.
+The topology candidate order defaults to Claude then Codex using each CLI's configured model.
+Each candidate must enforce the task ownership guard; unsupported fallback stays held visibly.
+
 **`.bytedesk/task-management/bin/tm pool` is dispatch on a loop, and it is on by default.**
 `pool once|start|stop|status|resume` (`--dry-run` shows what it would pick): the pool scans for
 open, unblocked, unclaimed `ready-for-agent` tasks and dispatches them up to `dispatch.poolWip`
@@ -211,12 +235,16 @@ same `agentReadiness` function the store's label sync uses, and a task that fail
 with the missing fields named.
 
 **The pool brakes itself rather than burning a quota.** After `dispatch.maxFailures`
-consecutive failures (default 3) — dispatch failures and failed workers both count — or after a
+consecutive provider or backend failures (default 3), or after a
 single usage- or rate-limit failure, the pool pauses. The pause lives in `pool.state.json` so it
 outlives the process that set it, logs `pool_paused`, and shows in `tm pool status`. Only a
 dispatched task reaching done resets the count, and only `.bytedesk/task-management/bin/tm pool resume` clears the
 pause. A worker still running past `dispatch.maxRuntimeMinutes` (default 120) logs
 `worker_overrun` once — visibility, not a park; a long task is not a failed one.
+Task-local ownership holds, duplicate evidence, scope failures and implementation failures do
+not consume that failure budget. Duplicate detection requires an exact task marker already
+on the integration branch; dependency mentions, ID prefixes and unmerged side branches do not
+prove completion.
 
 **One pool per repository, detached from every session.** `.bytedesk/task-management/bin/tm pool
 ensure` starts a pool if none is live and exits; when one is already live it says so and starts
@@ -232,10 +260,15 @@ starts a fresh one. A repo you are not working in therefore costs no process at 
 
 **`.bytedesk/task-management/bin/tm collect <id>` is how the result comes back.** Dispatch records `dispatched:
 {backend, run}` on the task; each backend's collector reads its own completion signal — an
-orchestration run's terminal state, a tmux or topology session disappearing — and normalizes
-it into one write path. The acceptance gate stays the real gate: a
-collector never closes a task (the worker closes through `.bytedesk/task-management/bin/tm done` itself), a "done" report on a
-task that is not done downgrades to failed with the status named, and a failed or blocked
+ACP run's terminal state, a raw tmux session disappearing, or topology's exact native
+incarnation observation — and normalizes
+it into one write path. Legacy topology `runDir` references are reconciled through the
+producer's discovery index using the exact old path, task, repository and workload checkout.
+Live legacy paths are checked again until terminal evidence moves to durable storage. Missing
+or ambiguous records hold without releasing ownership. The acceptance gate stays the real gate: a
+collector never closes a task. A governed submitted revision records `ready-for-review` and
+keeps its claim. For ungoverned tasks, a "done" report on a task that is not done downgrades
+to failed with the status named, and a failed or blocked
 outcome on a task still in_progress **parks it with the worker's summary as the reason and
 releases the claim** — an exited worker never leaves the board claiming work nobody is doing.
 Everything lands as a comment plus one `task_result` event, so `.bytedesk/task-management/bin/tm log <id>` tells the story.
@@ -1209,8 +1242,10 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `agentTtlMinutes` | `30` | when a silent agent reads as dead (`0` disables) |
 | `webhooks` / `webhooksAllowRemote` | `[]` / `false` | POST every event row to these (loopback-only) URLs; the flag admits remote ones |
 | `dispatch.backends` | topology → tmux → orchestration → manual | the fallback order `.bytedesk/task-management/bin/tm dispatch` walks |
-| `dispatch.topologyAgent` | first non-lead | which stored agent a topology dispatch borrows its identity from |
-| `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch in a repo with no agent library |
+| `dispatch.topologyAgent` | first worker | stored worker identity; standing lead and reviewer roles are reserved |
+| `dispatch.topologyCandidates` | `"claude,codex"` | approved topology candidate order; each candidate needs an enforced ownership guard |
+| `dispatch.governed` | `false` | require persistent-lead admission before dispatch and exact independent review plus authorized integration before done |
+| `dispatch.integrationBranch` | `HEAD` | branch used for new task checkouts and integrated duplicate evidence |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
 | `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `true` / `3` / `30` | the worker pool: on by default (`false` turns it off for the repo), WIP cap, poll interval |
 | `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage labels to hand |

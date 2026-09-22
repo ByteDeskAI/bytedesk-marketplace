@@ -15,6 +15,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN=$(cd "$HERE/../.." && pwd)
 AO="$PLUGIN/bin/ao-topology"
+source "$HERE/isolated-tmux.sh"
 
 ROOT=$(mktemp -d -t ao-nested-XXXXXX)
 PASS=0
@@ -22,9 +23,7 @@ FAIL=0
 SESSIONS=()
 
 cleanup() {
-  for session in "${SESSIONS[@]:-}"; do [ -n "$session" ] && tmux kill-session -t "$session" 2>/dev/null; done
-  # Anything this run started but did not name, so a failure part-way does not leave panes behind.
-  tmux ls 2>/dev/null | grep -E "^(nested-parent|nested-child|nested-fan)-" | cut -d: -f1 | while read -r s; do tmux kill-session -t "$s" 2>/dev/null; done
+  cleanup_test_tmux
   rm -rf "$ROOT"
 }
 trap cleanup EXIT
@@ -47,9 +46,10 @@ cat > "$WF/nested-child.json" <<'JSON'
 JSON
 cat > "$WF/nested-parent.json" <<'JSON'
 {"name":"nested-parent","description":"a workflow with a workflow in it","agents":[
-  {"id":"conductor","role":"orchestrator","cli":"generic","command":"cat"},
+  {"id":"conductor","role":"orchestrator","cli":"generic","command":"cat","instructions_file":"original-instructions.md","env":{"FIXTURE_RUN_DIR":"{{run_dir}}"}},
   {"id":"reviewers","workflow":"nested-child","inputs":{}}]}
 JSON
+printf '%s\n' 'Original template source {{run_id}} writes {{run_dir}}/artifacts/report.md' > "$ROOT/original-instructions.md"
 
 echo
 echo "== validate: a participant needs no cli, and may not claim one"
@@ -75,6 +75,9 @@ SESSIONS+=("$PARENT_SESSION")
 check "the parent run reports running" "$(jq_ "$LAUNCH" "d['state']")" "running"
 
 RUN="$PARENT_DIR/run.json"
+check "the first prompt render uses durable storage" "$(jq_ "$PARENT_DIR/agents/conductor/prompt-agent.json" "d['_prompt_vars']['run_dir']")" "$PARENT_DIR"
+grep -qF "writes $PARENT_DIR/artifacts/report.md" "$PARENT_DIR/agents/conductor/BOOTSTRAP.md"
+check "authored run_dir instructions use the first durable attempt" "$?" "0"
 CHILD_DIR=$(jq_ "$RUN" "[a for a in d['agents'] if a.get('workflow')][0]['workflow']['run_dir']")
 CHILD_SESSION=$(jq_ "$RUN" "[a for a in d['agents'] if a.get('workflow')][0]['workflow']['session']")
 CHILD_CONDUCTOR=$(jq_ "$RUN" "[a for a in d['agents'] if a.get('workflow')][0]['workflow']['conductor']")
@@ -107,7 +110,7 @@ check "the parent journalled the spawn" "$?" "0"
 echo
 echo "== addressing: the conductor talks to a team exactly like an agent"
 SEND="$ROOT/send.json"
-"$AO" send --run "$PARENT_DIR" --from conductor --to reviewers --stage brief --body "Review this. PING" --json 2>/dev/null | sed -n '/^{/,$p' > "$SEND"
+"$AO" send --run "$PARENT_DIR" --from-project "$ROOT" --from conductor --to reviewers --stage brief --body "Review this. PING" --json 2>/dev/null | sed -n '/^{/,$p' > "$SEND"
 check "the send is accepted" "$(jq_ "$SEND" "d['ok']")" "True"
 check "and is forwarded into the child rather than rung at a pane" "$(jq_ "$SEND" "d['delivered'][0]['workflow']")" "nested-child"
 [ -f "$CHILD_DIR/agents/child-lead/inbox/001-brief.md" ] && ok "it lands in the child conductor's inbox" || no "it lands in the child conductor's inbox"
@@ -200,7 +203,7 @@ check "and each is named after its item" "$(jq_ "$FAN_DIR/run.json" "sorted(a['i
 for s in $(jq_ "$FAN_DIR/run.json" "' '.join((a['workflow'] or {}).get('session','') for a in d['agents'] if a.get('fanout_of'))"); do SESSIONS+=("$s"); done
 
 FANSEND="$ROOT/fansend.json"
-"$AO" send --run "$FAN_DIR" --from conductor --to per-file --stage brief --body "fan me out" --json 2>/dev/null | sed -n '/^{/,$p' > "$FANSEND"
+"$AO" send --run "$FAN_DIR" --from-project "$ROOT" --from conductor --to per-file --stage brief --body "fan me out" --json 2>/dev/null | sed -n '/^{/,$p' > "$FANSEND"
 check "a send to the collective id reaches both members" "$(jq_ "$FANSEND" "len(d['delivered'])")" "2"
 "$AO" wait --run "$FAN_DIR" --from per-file --timeout 3s >/dev/null 2>&1
 check "and a barrier on the collective id waits for both" "$?" "2"
@@ -219,6 +222,28 @@ tmux has-session -t "$PARENT_SESSION" 2>/dev/null
 check "and so is the parent's" "$?" "1"
 grep -q '"type":"run.child_exited"' "$PARENT_DIR/journal.jsonl" 2>/dev/null
 check "the parent journalled the child's exit" "$?" "0"
+
+echo
+echo "== retry: re-render the retained original recipe for a new durable attempt"
+printf '%s\n' 'Changed source must not alter an existing task on retry.' > "$ROOT/original-instructions.md"
+python3 - "$RUN" "$ROOT/retry-request.json" <<'PY'
+import json, sys
+run = json.load(open(sys.argv[1]))
+json.dump({"schemaVersion": 1, "action": "retry", "workflowId": "topology:" + run["run_id"], "actor": {"id": "isolated-fixture"}, "idempotencyKey": "nested-fixture-retry", "payload": {}}, open(sys.argv[2], "w"))
+PY
+"$AO" console control --consumer "$ROOT" --request-file "$ROOT/retry-request.json" --json > "$ROOT/retry.json" 2>/dev/null
+check "retry is accepted after confirmed stop" "$?" "0"
+RETRY_DIR=$(jq_ "$ROOT/retry.json" "d['result']['runDir']")
+[ -n "$RETRY_DIR" ] && [ "$RETRY_DIR" != "$PARENT_DIR" ] && ok "retry creates a separate durable attempt" || no "retry creates a separate durable attempt"
+check "retry lineage names the prior attempt" "$(jq_ "$RETRY_DIR/run.json" "d['retry_of']")" "$(jq_ "$RUN" "d['run_id']")"
+check "retry preserves the admitted workload cwd" "$(jq_ "$RETRY_DIR/run.json" "d['workload_cwd']")" "$ROOT"
+check "retry prompt render names the new attempt" "$(jq_ "$RETRY_DIR/agents/conductor/prompt-agent.json" "d['_prompt_vars']['run_dir']")" "$RETRY_DIR"
+grep -qF "writes $RETRY_DIR/artifacts/report.md" "$RETRY_DIR/agents/conductor/BOOTSTRAP.md"
+check "retry re-renders the retained instruction source" "$?" "0"
+grep -qF 'Changed source' "$RETRY_DIR/agents/conductor/BOOTSTRAP.md"
+check "a changed input file cannot silently replace the retry task" "$?" "1"
+"$AO" stop --run "$RETRY_DIR" >/dev/null 2>&1
+check "the retry and its owned children stop cleanly" "$?" "0"
 
 echo
 echo "== the rename does not strand a repo that never renamed anything"

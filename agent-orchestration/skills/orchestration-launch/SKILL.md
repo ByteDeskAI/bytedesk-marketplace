@@ -23,10 +23,11 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
    question; skip inputs whose default the user is happy with. Pass results as
    `--input name=value` (comma-separated for multi). The CLI rejects a value outside the options,
    so never guess one.
-4. **Decide the consumer directory** — the repository the agents work in (`--consumer`). It is
-   where `.bytedesk/agent-orchestration/runs/<run_id>/` is created. The runs directory ignores
-   itself — a `.gitignore` holding `*` is written into it on first use — so there is nothing to add
-   to the repository's own `.gitignore`.
+4. **Decide the consumer directory** — the repository or validated task worktree where agents
+   work (`--consumer`). The producer puts control records under
+   `<stateRoot>/repositories/<canonical-repo-key>/topology/runs/<run_id>/` and preserves that
+   workload cwd and its write authority separately. Linked worktrees share discovery, not write
+   permission. Retain the exact returned run directory, including failed-launch records.
 5. **Dry-run first when anything is new**: `AO launch --workflow <name> --input ... --consumer <repo> --dry-run`.
    Read the warnings: missing skills, missing role packs, generic-adapter fallbacks. Fix what
    matters (a missing skill for a designer matters; a generic fallback for a CLI the user chose on
@@ -56,6 +57,10 @@ Resolve `AO` as `../../bin/ao-topology` relative to this skill (the installed pl
   only launches and observes.
 - Do not launch twice into the same session name; `AO stop --run <run_dir>` first.
 - Do not pass secrets through `--input`; they end up in `run.json`.
+- Discover both explicit runtimes through `AO console list --consumer <repo> --json`; ACP native
+  snapshots and topology native journals remain distinct. Standing services are outside the list.
+- If launch returns `retry_safe: false`, inspect the retained attempt. Do not create another writer
+  in the same worktree. A task-provider guard hold is not permission to launch an unguarded fallback.
 
 ## Standing repository services
 

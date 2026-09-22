@@ -269,6 +269,14 @@ test("two concurrent watcher acquisitions permit only one owner",async t=>{
  assert.equal(results.filter(r=>r.acquired).length,1);assert.equal((await pendingEnrollments({env})).length,1);
 });
 
+test('a stopped daemon watcher releases only its own lease promptly',async t=>{
+ const root=await scratch();t.after(()=>rm(root,{recursive:true,force:true}));const env=envFor(root),controller=new AbortController();
+ let calls=0;
+ const result=await watchServer({env,signal:controller.signal,intervalMs:60000,listPanesFn:async()=>{if(++calls===2)controller.abort();return [observed(root)];}});
+ assert.equal(result.acquired,true);
+ assert.deepEqual((await readdir(join(stateRoot(env),'watchers'))).filter(n=>n.endsWith('.json')),[]);
+});
+
 test("pendingEnrollments and clearPendingEnrollment round trip", async (t) => {
   const root = await scratch();
   t.after(() => rm(root, { recursive: true, force: true }));

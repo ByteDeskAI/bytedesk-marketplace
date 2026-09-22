@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Governed tasks now persist their workflow and lead identity. Workers submit a producer finish
+  report, which records the exact revision, updates `tm review-ready`, and queues independent review.
+  CLI, MCP, dashboard, and shared writes require independent review and
+  a separate attributed integration decision before completion. Worker exit retains a submitted
+  review and its claim, including after a process restart.
+- Dispatch validates and reuses recorded task checkouts and branches, provisions new work from
+  `dispatch.integrationBranch`, and preserves failed-launch work. Cleanup requires the topology
+  producer to verify durable workflow evidence before removing a checkout. Topology collection
+  uses the producer's exact native incarnation observation. Legacy recorded paths reconcile
+  through verified producer discovery; missing, conflicting, or foreign references hold.
+- Task-local dispatch holds and implementation failures no longer pause unrelated pool work.
+  Duplicate detection requires an exact task marker on the integration branch. Provider and
+  backend failures retain the safety pause. Topology workers use Claude then Codex with guards
+  checked per candidate; unsupported guarded fallbacks hold visibly.
+
 - Bind active claims to the exact Gateway terminal incarnation and expose validated active task IDs for stable terminal titles (Gateway TM-335). Capture bindings on claim and holder heartbeat; omit expired and inactive tasks.
 
 - **A topology-launched worker reaches its pane with the dispatch identity.** `TM_SESSION_ID`,

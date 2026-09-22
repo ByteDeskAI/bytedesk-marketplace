@@ -2,10 +2,16 @@
 // recorded at launch so later commands never guess by index.
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute } from "node:path";
 import { fail, run, shellQuote, terminalText } from "./util.mjs";
 
 const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
+const selectedServer = new AsyncLocalStorage();
+export function withServer(server, operation) {
+  if (!server) fail('TOPOLOGY_TMUX_SERVER_REQUIRED', 'Control requires the recorded tmux server.');
+  return selectedServer.run(server, operation);
+}
 // Launcher shells are infrastructure: user login rc files may consume input or replace the shell.
 // Keep inherited PATH/credentials, but never depend on interactive profile startup completing.
 const LAUNCH_SHELL = ["bash", "--noprofile", "--norc", "-i"];
@@ -20,7 +26,7 @@ export function serverArgs(server) {
 }
 
 export async function tmux(args, options = {}) {
-  const prefix = serverArgs(options.tmuxServer);
+  const prefix = serverArgs(options.tmuxServer || selectedServer.getStore());
   const result = await run(options.env?.AO_TMUX_COMMAND || TMUX, [...prefix, ...args], { env: options.env, allowFailure: true, timeoutMs: options.timeoutMs ?? 15_000 }).catch((error) => ({ code: 1, stdout: "", stderr: error.message }));
   if (result.code !== 0 && !options.allowFailure) {
     fail("TOPOLOGY_TMUX_FAILED", `tmux ${args.join(" ")} failed: ${result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`}`, { args });
@@ -266,6 +272,7 @@ export async function capture(pane, lines = 60, { escapes = false } = {}) {
  * text one character per line and defeats any form of screen scraping.
  */
 export async function waitForChannel(channel, timeoutMs, { tmuxServer = null } = {}) {
+  tmuxServer ||= selectedServer.getStore();
   // tmux handles SIGTERM by exiting 0. A subprocess timeout can therefore look successful;
   // observing the deadline separately is essential: timeout is never a shell acknowledgement.
   //
@@ -393,7 +400,7 @@ export class ControlClient extends EventEmitter {
     // `--server <socket>` it found no such session, `start()` resolved false, and every agent fell
     // back to polling — correctly, quietly, and for entirely the wrong reason, with nothing
     // anywhere saying the subscription path had been disabled for the whole run.
-    this.tmuxServer = tmuxServer;
+    this.tmuxServer = tmuxServer || selectedServer.getStore();
     this.child = null;
     this.buffer = "";
     this.closed = false;
@@ -555,6 +562,7 @@ export async function paneDeath(pane) {
  * Counting after the marker counts the prompt and nothing else, which is what the name says.
  */
 export async function clearAndWaitForShell(pane, channel, timeoutMs = 15_000, { tmuxServer = null } = {}) {
+  tmuxServer ||= selectedServer.getStore();
   const marker = `ao-baseline-${channel}`;
   // The signal is typed into the PANE, so it carries the server prefix the same way the waiter
   // does. The two must name the same server or the barrier never closes.

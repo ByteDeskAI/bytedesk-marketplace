@@ -7,9 +7,10 @@ argument-hint: "<TM-id>"
 
 # Collect
 
-Each backend's completion signal (orchestration terminal state, tmux session
-gone, topology's session gone) normalizes through one write path. The worker closes
-the task with `tm done`; this verb records how that ended.
+Each backend's completion signal (ACP terminal state, raw tmux session gone, or the
+topology producer's exact server/session/pane observation) normalizes through one write path. This verb records the
+worker outcome. A governed worker ends at `ready-for-review`; independent review and a
+separate integration decision precede completion.
 
 ## When to use
 
@@ -31,9 +32,17 @@ the worker still runs.
 ## Invariants
 
 - Never closes a task. A "done" report on a task that is not done **downgrades
-  to failed** and names the status.
+  to failed** and names the status, except a governed submitted revision records
+  `ready-for-review` and retains its claim.
 - `blocked`/`failed` on still-`in_progress` **parks** it with the summary and
   **releases the claim**.
+- A governed task already submitted for review keeps its claim and evidence after worker exit.
+  Task-local failures do not consume the pool's provider failure budget. A stale run result is
+  refused rather than applied to a newer attempt.
+- A legacy topology `runDir` is reconciled through producer discovery using its exact native
+  path, task, repository and workload checkout. Live legacy paths are rechecked until terminal
+  evidence moves to durable storage. Missing or ambiguous references and unverified incarnations
+  hold for recovery. A reused session name never proves that the old worker ended.
 - Comment + `task_result` event — `tm log <id>` / [[events]] tell the story.
 - Never throws. `{ ok: false, reason }` if never dispatched or no collector.
 

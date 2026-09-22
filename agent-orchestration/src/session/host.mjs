@@ -109,6 +109,7 @@ export async function probeSessionHost(stateRoot) {
   try {
     const response = await fetch(`http://127.0.0.1:${lease.port}/api/health`, {
       headers: { host: `127.0.0.1:${lease.port}` },
+      signal: AbortSignal.timeout(2000),
     });
     if (!response.ok) return null;
     const body = await response.json();

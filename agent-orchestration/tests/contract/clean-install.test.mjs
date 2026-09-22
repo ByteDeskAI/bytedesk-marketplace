@@ -91,17 +91,18 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     const hostSkill = (await readFile(join(installed, "skills", "install-orchestration-host", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
     assert.match(hostSkill, /^---\nname: install-orchestration-host\n/);
 
+    const providerEnv = {
+      PATH: [fakeGrokBin, fakeKimiBin, process.env.PATH].filter(Boolean).join(delimiter),
+      HOME: fakeHome,
+      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS,
+      XDG_STATE_HOME: stateRoot,
+      AGENT_ORCHESTRATION_STATE_HOME: stateRoot,
+    };
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
       cwd: installed,
-      env: {
-        PATH: [fakeGrokBin, fakeKimiBin, process.env.PATH].filter(Boolean).join(delimiter),
-        HOME: fakeHome,
-        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS,
-        XDG_STATE_HOME: stateRoot,
-        AGENT_ORCHESTRATION_STATE_HOME: stateRoot,
-      },
+      env: providerEnv,
       stderr: "pipe",
     });
     const client = new Client({ name: "agent-orchestration-contract", version: "1.0.0" });
@@ -125,6 +126,17 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       } else {
         assert.equal(doctorPayload.providerProbes.find((entry) => entry.id === "kimi").ready, true, JSON.stringify(doctorPayload.providerProbes.find((entry) => entry.id === "kimi"), null, 2));
       }
+
+      const cliDoctor = await run(join(installed, "bin", "agent-orchestration"), ["doctor", "--consumer-cwd", consumer, "--json"], {
+        cwd: installed,
+        env: providerEnv,
+      });
+      const cliDiagnostic = JSON.parse(cliDoctor.stdout).diagnostics;
+      assert.equal(cliDiagnostic.consumerAdmission.provided, true, "CLI must pass its explicit consumer flag to the producer");
+      assert.equal(cliDiagnostic.consumerAdmission.admitted, true);
+      assert.equal(cliDiagnostic.consumerAdmission.checkoutRoot, await realpath(consumer));
+      assert.equal(cliDiagnostic.loadedBuild.mode, "bundle");
+      assert.match(cliDiagnostic.loadedBuild.sourceFingerprint, /^[a-f0-9]{64}$/);
 
       const planned = await client.callTool({ name: "orchestration_plan", arguments: { consumerCwd: consumer, intent: "implementation", task: "Plan a fixture change", permissionProfile: "read" } });
       assert.equal(planned.isError, undefined);

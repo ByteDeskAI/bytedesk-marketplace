@@ -6,6 +6,9 @@ import { invariant, readJson, writeJson, writeText, sleep } from './util.mjs';
 import { withLock } from './lockfile.mjs';
 import { incarnationOf, sameIncarnation } from './incarnation.mjs';
 import { canonicalRepoId } from './repoid.mjs';
+import { listServerPanes, tmux } from './tmux.mjs';
+
+export const protocolOutputLine = line => String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').trim().replace(/^[●•]\s*/,'').trim();
 
 // A staged file is not an applied prompt. No provider currently declares native replacement.
 export async function refreshPrompt({ agent, consumer, session = null, pluginRoot, home, env = process.env, live = false, safeBoundary = false, binding = null }) {
@@ -62,6 +65,27 @@ export async function acknowledgePrompt({ agent, revision, nonce, binding = null
     await writeJson(promptStatePath(agent._dir), next);
     return next;
   });
+}
+
+/** Restricted agents acknowledge in their own output; the host supplies the
+ * observation and writes state. No shell or state-writing permission is added. */
+export async function collectPromptAcknowledgement({ agent, consumer, session, binding, env = process.env,
+  observe = options => listServerPanes(options),
+  output = async exact => (await tmux(['capture-pane','-p','-J','-t',exact.paneId,'-S','-160'],{tmuxServer:exact.serverKey,env})).stdout,
+}) {
+  invariant(agent.role === 'reviewer', 'TOPOLOGY_PROMPT_ACK_INVALID', 'Host output acknowledgement is restricted to reviewer roles.');
+  const check = async () => (await observe({tmuxServer:binding?.serverKey,env})).some(pane => pane.alive !== false && sameIncarnation(pane,binding));
+  invariant(incarnationOf(binding) && await check(), 'TOPOLOGY_PROMPT_ACK_INVALID', 'The reviewer pane incarnation is absent or has changed.');
+  const before = await readJson(promptStatePath(agent._dir));
+  if (before.status === 'current' && sameIncarnation(before.applied_binding,binding)) return {collected:true,state:before};
+  invariant(before.status==='awaiting-ack' && before.desired_session===session && sameIncarnation(before.desired_binding,binding), 'TOPOLOGY_PROMPT_ACK_INVALID', 'No staged prompt for this exact reviewer incarnation.');
+  const expected = `AO_PROMPT_ACK ${before.nonce} ${before.desired_revision}`;
+  const matches = String(await output(binding)).split(/\r?\n/).map(protocolOutputLine).filter(line=>line===expected);
+  if(matches.length!==1) return {collected:false,reason:matches.length?'ambiguous-response':'awaiting-response'};
+  invariant(await check(), 'TOPOLOGY_PROMPT_ACK_INVALID', 'Reviewer incarnation changed while collecting its acknowledgement.');
+  const state = await acknowledgePrompt({agent,consumer,session,binding,nonce:before.nonce,revision:before.desired_revision,
+    env:{AO_AGENT_ID:agent.id,AO_SESSION:session,AO_CONSUMER:consumer}});
+  return {collected:true,state};
 }
 
 /** Promote a pending live change only after a controlled restart has produced its new binding. */

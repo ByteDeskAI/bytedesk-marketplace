@@ -14,6 +14,7 @@ import { KINDS, boardId, gitBoardId, gitUser, ensureDirs, paths } from "./paths.
 import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { TRIAGE_LABELS, agentReadiness } from "./completeness.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
+import { assertGovernedMutation } from "./governance-check.mjs";
 
 const DEFAULT_CONFIG = {
   enforce: true,
@@ -774,6 +775,12 @@ export function boardOwner(p = paths()) {
 
 export function write(doc, p = paths()) {
   const { body = "", file, ...data } = doc;
+  const prior = data.id ? read(data.id, p) : null;
+  if (prior?.governance || data.governance) {
+    // Generic replacement writes must not strip ownership or bypass update().
+    // Existing completed history remains editable without repeating integration.
+    assertGovernedMutation(prior || data, { ...data, governance: data.governance, ...(prior?.status === data.status ? { status: undefined } : {}) }, p);
+  }
   /**
    * An entity is filed on the board it was created on, or nowhere.
    *
@@ -918,6 +925,7 @@ export function update(id, patch, p = paths()) {
   return withLock(p, () => {
     const doc = read(id, p);
     if (!doc) throw new Error(`not found: ${id}`);
+    assertGovernedMutation(doc, patch, p);
 
     /**
      * A task coming back OUT of done: drop `closed`, and reopen the epic that closed behind it.

@@ -13,10 +13,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup, tempStore } from "./helpers.mjs";
+import { addWorktree, cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { handoff } from "../../lib/render.mjs";
-import { create, mutate, now, read, readEvents, state, update, writeState } from "../../lib/store.mjs";
+import { create, mutate, now, read, readEvents, seedGitContract, state, update, writeState } from "../../lib/store.mjs";
 import { collect, collectOrchestration, collectTmux, collectTopology, recordResult } from "../../lib/dispatch/collect.mjs";
+import { ensureDirs, paths } from "../../lib/paths.mjs";
+import { managementIdentity } from "../../lib/governance-check.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = join(HERE, "fixtures", "fake-orchestration-mcp.mjs");
@@ -293,39 +295,126 @@ describe("collectOrchestration — against the fake MCP server", () => {
   });
 });
 
-describe("collectTopology — the tmux session is the liveness signal", () => {
-  it("reads the session out of the topology handle, argv-only", () => {
-    const p = store();
-    const id = dispatched(p, { backend: "topology" });
-    const spawn = spawnReturning({ status: 0 });
+describe("collectTopology — exact native workflow observation", () => {
+  const caps = { backends: { topology: { available: true, path: "/fake/ao-topology" } } };
+  function nativeTask(p, options = {}) {
+    const id = dispatched(p, { backend: "topology", ...options });
+    mutate(id, (task) => ({ dispatched: { ...task.dispatched, nativeRunId: id, recordPath: join(p.root, "durable", id, "run.json") } }), p);
+    return id;
+  }
+  const response = (id, patch = {}) => spawnReturning({ status: 0, stdout: JSON.stringify({ run_id: id, state: "running", session_alive: true, observation_error: null, agents: [{ id: "worker", alive: true }], ...patch }) });
 
-    assert.deepEqual(collectTopology(id, { p, spawnImpl: spawn }), { ok: true, pending: true });
-
+  it("asks the producer about the durable record, never a bare tmux name", () => {
+    const p = store(), id = nativeTask(p), spawn = response(id);
+    assert.deepEqual(collectTopology(id, { p, caps, spawnImpl: spawn }), { ok: true, pending: true, state: "running" });
     const [bin, args, opts] = spawn.calls[0];
-    assert.equal(bin, "tmux");
-    assert.deepEqual(args, ["has-session", "-t", `${id.toLowerCase()}-20260905-120000-abcd`], "the session, with the backend prefix stripped");
+    assert.equal(bin, "/fake/ao-topology");
+    assert.deepEqual(args, ["status", "--run", join(p.root, "durable", id), "--consumer", p.root, "--json"]);
     assert.equal(opts.shell, false);
     assert.equal(results(p).length, 0);
   });
 
-  it("session gone + task done = done; still in_progress = the worker walked away", () => {
-    const p = store();
-    const done = dispatched(p, { backend: "topology", status: "done", claim: false });
-    assert.equal(collectTopology(done, { p, spawnImpl: spawnReturning({ status: 1 }) }).outcome, "done");
-
-    const open = dispatched(p, { backend: "topology" });
-    const res = collectTopology(open, { p, spawnImpl: spawnReturning({ status: 1 }) });
+  it("collects only after exact observation proves native members ended", () => {
+    const p = store(), done = nativeTask(p, { status: "done", claim: false });
+    assert.equal(collectTopology(done, { p, caps, spawnImpl: response(done, { session_alive: false }) }).outcome, "done");
+    const open = nativeTask(p);
+    const res = collectTopology(open, { p, caps, spawnImpl: response(open, { agents: [{ id: "worker", alive: false }] }) });
     assert.equal(res.outcome, "failed");
     assert.equal(read(open, p).status, "parked");
     assert.equal(claimed(p, open), false);
   });
 
-  it("a handle from another backend is a refusal, not a wrong session", () => {
-    const p = store();
-    const id = dispatched(p, { backend: "topology", run: "tmux:tm-elsewhere" });
-    const res = collectTopology(id, { p, spawnImpl: () => assert.fail("must not ask tmux about a handle it cannot parse") });
-    assert.equal(res.ok, false);
-    assert.match(res.reason, /has no topology run/);
+  it("holds unknown server/pane incarnations and mismatched native IDs without releasing ownership", () => {
+    const p = store(), id = nativeTask(p);
+    for (const patch of [
+      { session_alive: null, observation_error: { code: "STALE_BINDING", message: "pane incarnation changed" } },
+      { run_id: "different-run", session_alive: false },
+      { session_alive: false, observation_error: undefined },
+    ]) {
+      const result = collectTopology(id, { p, caps, spawnImpl: response(id, patch) });
+      assert.equal(result.ok, false); assert.equal(result.failureScope, "task");
+      assert.equal(read(id, p).status, "in_progress"); assert.equal(claimed(p, id), true);
+    }
+  });
+
+  it("holds legacy records until native import and rejects another backend handle", () => {
+    const p = store(), legacy = dispatched(p, { backend: "topology" });
+    const never = () => assert.fail("unbound records must not query a tmux session name");
+    assert.match(collectTopology(legacy, { p, spawnImpl: never }).reason, /reconcile and import/);
+    const other = dispatched(p, { backend: "topology", run: "tmux:tm-elsewhere" });
+    assert.match(collectTopology(other, { p, spawnImpl: never }).reason, /has no topology run/);
+  });
+
+  function legacyFixture() {
+    const p = paths(tempRepo()); stores.push(p.root); ensureDirs(p); seedGitContract(p);
+    const worktree = addWorktree(p.root); stores.push(worktree);
+    const id = dispatched(p, { backend: "topology", worktree });
+    const runDir = join(worktree, ".bytedesk", "agent-orchestration", "runs", "native-old-1");
+    mutate(id, (task) => ({ dispatched: { ...task.dispatched, runDir } }), p);
+    const sourcePath = join(runDir, "run.json"), repoId = managementIdentity(id, p).repoId;
+    const entry = { runtime: "topology", nativeRunId: "native-old-1", workflowId: "topology:native-old-1", repositoryId: repoId,
+      taskId: id, workloadCwd: worktree, recordPath: join(p.root, "durable", "native-old-1", "run.json"), legacySourcePath: sourcePath };
+    return { p, id, sourcePath, entry, index: { schemaVersion: 1, repository: { id: repoId }, workflows: [entry], rejected: [] } };
+  }
+
+  it("recovers an exact legacy producer reference and records its durable native handle", () => {
+    const f = legacyFixture(), calls = [], original = read(f.id, f.p).dispatched.run;
+    const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(f.p.root, "isolated-state") };
+    const spawn = (bin, args, opts) => {
+      calls.push(args); assert.equal(bin, caps.backends.topology.path); assert.equal(opts.env, env);
+      if (args[0] === "console") return { status: 0, stdout: JSON.stringify(f.index) };
+      assert.deepEqual(args, ["status", "--run", dirname(f.entry.recordPath), "--consumer", f.p.root, "--json"]);
+      return response(f.entry.nativeRunId)(bin, args, opts);
+    };
+    assert.equal(collectTopology(f.id, { p: f.p, caps, env, spawnImpl: spawn }).pending, true);
+    assert.deepEqual(calls[0], ["console", "list", "--consumer", f.p.root, "--json"]);
+    const recovered = read(f.id, f.p).dispatched;
+    assert.equal(recovered.run, original);
+    assert.equal(recovered.nativeRunId, f.entry.nativeRunId);
+    assert.equal(recovered.workflowRunId, f.entry.workflowId);
+    assert.equal(recovered.recordPath, f.entry.recordPath);
+    assert.equal(recovered.legacyRecordPath, f.sourcePath);
+    assert.equal(claimed(f.p, f.id), true);
+    assert.equal(readEvents(f.p).filter((event) => event.event === "dispatch_reconciled").length, 1);
+  });
+
+  it("reconciles a live legacy path until the producer moves its terminal record", () => {
+    const f = legacyFixture(), durablePath = f.entry.recordPath, calls = [];
+    f.entry.recordPath = f.sourcePath;
+    const spawn = (bin, args, opts) => {
+      calls.push(args[0]);
+      if (args[0] === "console") return { status: 0, stdout: JSON.stringify(f.index) };
+      return response(f.entry.nativeRunId)(bin, args, opts);
+    };
+    assert.equal(collectTopology(f.id, { p: f.p, caps, spawnImpl: spawn }).pending, true);
+    assert.equal(read(f.id, f.p).dispatched.recordPath, f.sourcePath);
+    f.entry.recordPath = durablePath;
+    assert.equal(collectTopology(f.id, { p: f.p, caps, spawnImpl: spawn }).pending, true);
+    assert.equal(read(f.id, f.p).dispatched.recordPath, durablePath);
+    assert.equal(collectTopology(f.id, { p: f.p, caps, spawnImpl: spawn }).pending, true);
+    assert.deepEqual(calls, ["console", "status", "console", "status", "status"]);
+  });
+
+  it("holds missing, ambiguous, rejected and foreign legacy references without observing or releasing a worker", () => {
+    const f = legacyFixture();
+    for (const change of [
+      (index) => { index.workflows = []; },
+      (index) => { index.workflows.push({ ...index.workflows[0], nativeRunId: "other" }); },
+      (index) => { index.repository.id = "/foreign/.git"; },
+      (index) => { index.workflows[0].repositoryId = "/foreign/.git"; },
+      (index) => { index.workflows[0].taskId = "TM-999"; },
+      (index) => { index.workflows[0].workloadCwd = f.p.root; },
+      (index) => { index.rejected.push({ path: f.sourcePath, code: "TOPOLOGY_INVALID_RUN_RECORD" }); },
+    ]) {
+      const index = structuredClone(f.index); change(index);
+      const result = collectTopology(f.id, { p: f.p, caps, spawnImpl: (_bin, args) => {
+        assert.equal(args[0], "console", "an unverified reference must not reach status or tmux");
+        return { status: 0, stdout: JSON.stringify(index) };
+      } });
+      assert.equal(result.ok, false); assert.equal(result.failureScope, "task");
+      assert.equal(read(f.id, f.p).dispatched.recordPath, undefined);
+      assert.equal(read(f.id, f.p).status, "in_progress"); assert.equal(claimed(f.p, f.id), true);
+    }
   });
 });
 

@@ -146,12 +146,17 @@ is never interpolated into a shell string.
 
 - task not found; task is `done`/`deleted` — reopen first
 - no backend available — lists `tried: [{name, reason}]`
-- already dispatched **and** a live claim — `collect` first, or `--steal`
+- already dispatched **and** a live claim — confirm the worker has ended, then `collect`;
+  `--steal` cannot start a second writer
 - claim held by another live session — `--steal` is deliberate and logged as `claim_stolen`
 - WIP (`gateStart`) — same cap as `tm start`
 
 On any failure **after** a claim this call created: the claim is released and the status
 put back. A claim that predated the call is never released here.
+The checkout and any failed-launch evidence are retained. A retry validates and reuses the
+recorded path and branch; a new checkout uses `dispatch.integrationBranch`. Another live or
+uncertain workflow writer blocks reuse. Worktree cleanup requires the producer's durable
+evidence preservation check, including for failed launches.
 
 A successful dispatch stamps `dispatched: {backend, run, session, at}` on the task,
 registers `agent:<id>-<session-prefix>` in `agents.json`, and starts a heartbeat every
@@ -160,7 +165,19 @@ registers `agent:<id>-<session-prefix>` in `agents.json`, and starts a heartbeat
 Worker env: `TM_SESSION_ID` and `TM_ACTOR` are the **dispatching** session; `TM_ROOT` is
 the repo. Do not override them — they are how the work attributes.
 
-The handoff for a `ready-for-agent` task ends with the completion contract, in order: tick
+For a governed repository (`dispatch.governed: true`), the persistent lead must admit the task
+through Agent Orchestration before dispatch. The task stores `governance` with its workflow,
+lead, canonical producer record and current phase. The pool can dispatch an admitted task
+without stealing its existing claim. The worker commits, pushes its branch, opens a PR and
+attaches evidence, then submits the handoff's finish JSON with
+`ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.
+The producer saves the finish, calls `tm review-ready`, and queues an exact-revision review.
+A bare task-store readiness update cannot start that protocol. Report `review_blocked` to
+the lead. Independent review of that revision and a separately attributed integration decision
+are required before `done` on CLI, MCP and HTTP. Worker exit retains the review and claim.
+Ordinary overrides do not bypass these completion gates.
+
+For an ungoverned task, the handoff ends with the legacy completion contract, in order: tick
 each criterion (`tm accept`), **commit**, **`git push -u origin <the task's tm/ branch>`**,
 **`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>"`**,
 attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no remote, no
@@ -169,12 +186,14 @@ attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no
 
 **The worker guard** enforces that. A dispatched worker runs with permissions skipped, so it
 is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` and a PreToolUse `pre-bash` hook,
-injected with the same `--settings`, blocks: force pushes and pushes to any branch but the
+applied separately to each supported provider candidate, blocks: force pushes and pushes to any branch but the
 worker's own; branch, tag and ref deletion, `reset --hard`, history rewrites, rebasing main;
 `stash drop|clear|pop`; `gh pr merge`, releases, secrets, variables, `gh api` writes; deploy
 and secret tools, package publishing, chat webhooks and mail. It **allows** pushing the
 worker's own branch and `gh pr create`. One table, `lib/worker-guard.mjs`; it stops
 accidents, not an adversary.
+Topology defaults to Claude then Codex, using configured CLI models. A candidate that cannot
+enforce the task guard stays held; Grok remains outside unattended topology dispatch.
 
 ## Pool
 
@@ -201,8 +220,9 @@ re-checked against `agentReadiness` — the same function the store's label sync
 task that fails it is skipped with the missing fields named. Work a person vetoed with
 `ready-for-human` is never dispatched.
 
-**The brake.** After `dispatch.maxFailures` consecutive failures (default 3 — dispatch
-failures and failed workers both count), or one usage/quota-limit failure, the pool pauses.
+**The brake.** After `dispatch.maxFailures` consecutive provider or backend failures (default 3),
+or one usage/quota-limit failure, the pool pauses. Task-local readiness, duplicate, worktree,
+scope and implementation failures hold their task without pausing unrelated work.
 The pause is kept in `pool.state.json` so it outlives the process, logs `pool_paused`, and
 shows in `tm pool status`. Only a dispatched task reaching done resets the count;
 `tm pool resume` clears the pause. A worker past `dispatch.maxRuntimeMinutes` (default 120)
@@ -245,7 +265,9 @@ MCP: `tm_collect` `{ "id": "TM-014" }`. HTTP: `POST /api/task/TM-014/collect`.
 
 **Invariants:**
 
-1. A collector **never** closes a task. The worker closes through `tm done`. A "done"
+1. A collector **never** closes a task. A governed submitted revision records `ready-for-review`
+   and retains its claim until independent review and authorized integration. For ungoverned work,
+   the worker closes through `tm done`. A "done"
    report on a task that is not done **downgrades to failed** and names the status.
 2. `blocked`/`failed` on a still-`in_progress` task **parks it** with the worker's
    summary as the reason and **releases the claim**.
@@ -309,7 +331,9 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 |---|---|---|
 | `dispatch.backends` | `["topology","tmux","orchestration","manual"]` | fallback order `tm dispatch` walks |
 | `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
-| `dispatch.topologyCandidates` | `"claude"` | provider chain for a topology dispatch when the repo has no agent library |
+| `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly |
+| `dispatch.governed` | `false` | require persistent-lead admission, independent exact-revision review and a separate integration decision |
+| `dispatch.integrationBranch` | `HEAD` | base for new worktrees and ancestry source for duplicate checks |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
 | `dispatch.enabled` | `true` | the pool runs unless this is `false`; re-read every poll, so it also stops a running pool |
 | `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage to hand |

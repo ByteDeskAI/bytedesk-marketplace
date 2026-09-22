@@ -3,9 +3,9 @@
 // fallback chain that actually comes up, and deliver each agent its bootstrap pointer.
 // `failoverAgent` re-runs the same start logic for one agent from the next candidate mid-run.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, isAbsolute, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { composePrompt } from "./prompts.mjs";
 import { loadConfig } from "./config.mjs";
@@ -18,7 +18,10 @@ import { sameIncarnation } from "./incarnation.mjs";
 import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
-import { ensureRunsIgnored, exists, fail, invariant, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
+import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
+import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
+import { withLock } from './lockfile.mjs';
+import { materializeSpec } from './spec.mjs';
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -549,6 +552,50 @@ export function tokenDigest(token) {
 }
 
 /** Build launcher + argv for every candidate of one agent; write nothing yet. */
+export function runtimeGrantDirs({ runDir, agentId, artifactsDir = 'artifacts' }) {
+  invariant(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(agentId), 'TOPOLOGY_RUNTIME_GRANT', 'Agent ID is not a safe runtime directory component.');
+  const root = resolve(runDir), own = join(root, 'agents', agentId), artifacts = resolve(root, artifactsDir);
+  invariant(isInside(root, artifacts) && artifacts !== root && !isInside(join(root, 'agents'), artifacts),
+    'TOPOLOGY_RUNTIME_GRANT', 'Shared artifacts must stay in this run, outside member directories.');
+  return [own, artifacts];
+}
+
+export async function validateRuntimeCandidate({ runDir, agentId, artifactsDir, candidate, index }) {
+  const root = resolve(runDir), realRoot = await realpath(root);
+  const runtimeDirs = runtimeGrantDirs({ runDir: root, agentId, artifactsDir });
+  const launcher = join(runtimeDirs[0], `launch-${index}.sh`);
+  invariant(typeof candidate.launcher === 'string' && resolve(candidate.launcher) === launcher &&
+    await realpath(candidate.launcher) === join(realRoot, relative(root, launcher)),
+  'TOPOLOGY_RUNTIME_GRANT', 'Recorded candidate launcher escapes its exact owned runtime directory.');
+  for (const dir of runtimeDirs) invariant(await realpath(dir) === join(realRoot, relative(root, dir)),
+    'TOPOLOGY_RUNTIME_GRANT', 'Runtime scratch directory is redirected outside its exact owned location.');
+  if (candidate.runtime_dirs?.length) invariant(JSON.stringify(candidate.runtime_dirs) === JSON.stringify(runtimeDirs),
+    'TOPOLOGY_RUNTIME_GRANT', 'Recorded scratch grants do not match this run and member.');
+  return runtimeDirs;
+}
+
+export function workerCandidateGuard(workerGuard, candidate) {
+  if (!workerGuard) return { supported: true, args: [] };
+  invariant(/^TM-[0-9]+$/.test(workerGuard.task_id) && typeof workerGuard.branch === 'string' && workerGuard.branch.length > 0 && isAbsolute(workerGuard.hook || ''),
+    'TOPOLOGY_WORKER_GUARD_INVALID', 'Task worker guard must name its exact task, branch and installed hook.');
+  if (candidate.cli !== 'claude') return { supported: false, args: [], code: 'TOPOLOGY_WORKER_GUARD_UNSUPPORTED',
+    reason: `${candidate.cli} has no measured task ownership hook for ${workerGuard.task_id}; the candidate is held before launch.` };
+  return { supported: true, args: ['--settings', JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `${shellQuote(workerGuard.hook)} pre-bash`, timeout: 10 }] }] } })] };
+}
+
+export function assertAutomaticFallbackPolicy(config, candidates) {
+  if (config?.failover?.consent !== 'auto') return;
+  const approved = config.failover.approved_providers;
+  invariant(Array.isArray(approved) && approved.length > 0 && approved.every(cli => typeof cli === 'string' && /^[a-z0-9][a-z0-9_-]*$/.test(cli)) && new Set(approved).size === approved.length,
+    'TOPOLOGY_FALLBACK_NOT_APPROVED', 'Automatic failover requires failover.approved_providers in approved takeover order.');
+  let previous = -1;
+  for (const candidate of candidates) {
+    const position = approved.indexOf(candidate.cli);
+    invariant(position >= previous && position >= 0, 'TOPOLOGY_FALLBACK_NOT_APPROVED', 'This workflow candidate chain is outside the approved automatic provider order. The current member is preserved.');
+    previous = position;
+  }
+}
+
 function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage = null, replyToken = null }) {
   // A coordinator is granted nothing. It delegates rather than implements, and it is the only
   // address an outsider may reach directly in cross-repo routing — the most exposed agent in the
@@ -556,14 +603,17 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
   // work-tree grant leaves that directory the only writable path it has: "cannot write the repo" is
   // then a property of what it was launched with, not a sentence in its prompt.
   const coordinator = agent.coordinates_only === true;
+  const runtimeDirs = runtimeGrantDirs({ runDir: spec.run_dir, agentId: agent.id, artifactsDir: spec.artifacts.dir });
   // Any other agent whose cwd is not the repo has its own memory (every shipped CLI keys session
   // state by working directory) but no access to the tree it is meant to work in. The adapter
   // declares how to grant it; if it declares nothing, say so rather than launching a blind agent.
   const addDirs = coordinator
     ? []
-    : [...new Set([...(agent.add_dirs ?? []), ...(resolve(agent.cwd) === resolve(spec.consumer) ? [] : [spec.consumer])])].filter(Boolean);
+    : [...new Set([...(agent.add_dirs ?? []), ...(resolve(agent.cwd) === resolve(spec.consumer) ? [] : [spec.consumer]), ...runtimeDirs])].filter(Boolean);
   const system_prompt = `You are agent "${agent.id}" (role: ${agent.role}) in the multi-agent orchestration "${spec.name}". Before doing anything else, read ${bootstrapFile} and follow it exactly.`;
   return agent.candidates.map((candidate, index) => {
+    const workerGuard = spec.worker_guard || null;
+    const guard = workerCandidateGuard(workerGuard, candidate);
     const adapter = adapterFor({ ...agent, cli: candidate.cli, model: candidate.model }, adapters);
     if (adapter.fallback) warnings.push(`agent ${agent.id}: no adapter for cli "${candidate.cli}"; using the generic adapter with command "${adapter.command}"`);
     const vars = { run_id: spec.run_id, run_dir: spec.run_dir, session: spec.session, agent_id: agent.id, agent_role: agent.role, bootstrap_file: bootstrapFile, system_prompt };
@@ -573,7 +623,7 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
     if (coordinator && (adapter.coordinator_args ?? []).length === 0) {
       warnings.push(`agent ${agent.id}: ${candidateLabel(candidate)} declares no coordinator_args, so nothing removes its write tools — it is contained only by having no directory granted beyond ${agent.cwd}. Add coordinator_args to its provider JSON.`);
     }
-    const argv = buildArgv(adapter, { ...agent, cli: candidate.cli, model: candidate.model, coordinates_only: coordinator, add_dirs: addDirs }, vars);
+    const argv = buildArgv(adapter, { ...agent, args: [...(agent.args || []), ...guard.args], cli: candidate.cli, model: candidate.model, coordinates_only: coordinator, add_dirs: addDirs }, vars);
     // AO_AGENT_TOKEN goes in last, after the spec's own env: a spec is data, often committed data,
     // and it may not name the secret that decides which agent this pane is allowed to answer as.
     // The lineage this agent would pass DOWN if it starts a run of its own. Every agent gets it,
@@ -590,8 +640,11 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
     const upward = replyToken && agent.role === "orchestrator" && lineage?.run_dir
       ? { AO_REPLY_TO_RUN_DIR: lineage.run_dir, AO_REPLY_AS_AGENT: lineage.agent_id ?? "", AO_REPLY_TOKEN: replyToken }
       : {};
-    const env = { AO_RUN_DIR: spec.run_dir, AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate), ...descend, ...upward, ...agent.env, AO_CONSUMER: spec.consumer || spec.cwd, AO_AGENT_ID: agent.id, AO_AGENT_TOKEN: token };
-    return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
+    const env = { ...agent.env, ...descend, ...upward, AO_RUN_DIR: spec.run_dir, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate),
+      ...(workerGuard ? { TM_DISPATCH_WORKER: '1', TM_DISPATCH_TASK: workerGuard.task_id, TM_DISPATCH_BRANCH: workerGuard.branch } : {}),
+      AO_CONSUMER: spec.consumer || spec.cwd, AO_AGENT_ID: agent.id, AO_AGENT_TOKEN: token };
+    return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, guard, workerGuard, runtime_dirs: coordinator ? [] : runtimeDirs,
+      add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
   });
 }
 
@@ -603,6 +656,12 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
   const attempts = [];
   for (let index = startIndex; index < candidates.length; index += 1) {
     const item = candidates[index];
+    if (item.guard?.supported === false) {
+      attempts.push({ label: item.label, outcome: item.guard.reason, code: item.guard.code, held: true });
+      await appendJournal(runDir, { type: 'agent.candidate_held', agent: agentId, candidate: item.label, code: item.guard.code, reason: item.guard.reason });
+      continue;
+    }
+    if (item.workerGuard) invariant(await exists(item.workerGuard.hook), 'TOPOLOGY_WORKER_GUARD_MISSING', 'Task ownership hook is missing. No candidate was launched.');
     if (!(await commandExists(item.adapter.command))) {
       attempts.push({ label: item.label, outcome: `command "${item.adapter.command}" not found` });
       await appendJournal(runDir, { type: "agent.candidate_skipped", agent: agentId, candidate: item.label, reason: "command not found" });
@@ -683,7 +742,85 @@ async function recordChild(lineage, child) {
   }
 }
 
-export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {} }) {
+export async function materializeWorkflowSpec(rawSpec, context, { stateHome } = {}) {
+  const location = await topologyRunLocation({ consumer: context.consumer, nativeRunId: context.runId, stateHome });
+  const spec = materializeSpec(rawSpec, { ...context, runDir: location.runDir });
+  return { ...spec, repository: location.repository, state_home: location.stateHome, workload_cwd: spec.cwd };
+}
+
+function assertRetainedScope(original, rendered) {
+  invariant(rendered.cwd === (original.workload_cwd || original.cwd), 'TOPOLOGY_RETRY_SCOPE_CHANGED', 'Re-rendering would change the admitted workload cwd; preserve this attempt.');
+  const agents = original.launch_spec?.agents || original.agents || [];
+  invariant(agents.length === rendered.agents.length && agents.every(agent => rendered.agents.some(next => next.id === agent.id &&
+    (next.cwd === agent.cwd || agent.cwd === join(original.run_dir, 'agents', agent.id) && next.cwd === join(rendered.run_dir, 'agents', agent.id)))),
+    'TOPOLOGY_RETRY_SCOPE_CHANGED', 'Re-rendering would change a member or its admitted cwd; preserve this attempt.');
+  const authority = value => value.write_authority || { mode: 'native-provider-permissions', checkoutRoot: value.consumer };
+  invariant(JSON.stringify(authority(original)) === JSON.stringify(authority(rendered)), 'TOPOLOGY_RETRY_SCOPE_CHANGED', 'Re-rendering would change admitted write authority; preserve this attempt.');
+}
+
+export async function retryWorkflowSpec(run, { runId, stateHome, actor } = {}) {
+  const recipe = run.render_recipe || run.launch_spec?.render_recipe;
+  invariant(recipe?.schemaVersion === 1 && recipe.spec && recipe.context?.consumer === run.consumer,
+    'TOPOLOGY_RETRY_UNAVAILABLE', 'This attempt has no retained original workflow recipe. Preserve it and launch a reviewed saved workflow.');
+  const spec = await materializeWorkflowSpec(recipe.spec, { ...recipe.context, runId, session: `${run.name}-${runId}`,
+    instructionFiles: recipe.instruction_files, replayRecipe: true }, { stateHome: stateHome || run.state_home });
+  assertRetainedScope(run, spec);
+  return { ...spec, retry_of: run.run_id, root_workflow_id: run.root_workflow_id || `topology:${run.run_id}`,
+    write_authority: run.write_authority, worker_guard: run.worker_guard, task_id: run.task_id, initiator: actor || null };
+}
+
+export async function launchRun(options) {
+  const original = options.spec;
+  const location = await topologyRunLocation({ consumer: original.consumer || original.cwd, nativeRunId: original.run_id, stateHome: options.stateHome || original.state_home });
+  let rendered = original;
+  if (original.run_dir !== location.runDir) {
+    const recipe = original.render_recipe;
+    invariant(recipe?.schemaVersion === 1 && recipe.context?.consumer === original.consumer, 'TOPOLOGY_TEMPLATE_CONTEXT_REQUIRED', 'Materialize this workflow through the durable producer before launch; rendered prose cannot safely be relocated.');
+    rendered = await materializeWorkflowSpec(recipe.spec, { ...recipe.context, runId: original.run_id, session: original.session,
+      instructionFiles: recipe.instruction_files, replayRecipe: true }, { stateHome: location.stateHome });
+    assertRetainedScope(original, rendered);
+  }
+  const spec = { ...rendered, ...Object.fromEntries(['initiator', 'retry_of', 'root_workflow_id', 'worker_guard', 'task_id', 'write_authority'].filter(key => original[key] !== undefined).map(key => [key, original[key]])),
+    run_dir: location.runDir, repository: location.repository, state_home: location.stateHome, workload_cwd: original.cwd };
+  try {
+    const start = async () => {
+      if (spec.worker_guard && !options.dryRun) {
+        const index = await reconcileWorkflows({ consumer: spec.consumer, stateHome: spec.state_home });
+        const writer = spec.write_authority?.worktree || spec.write_authority?.checkoutRoot || spec.consumer;
+        const conflict = index.workflows.find(entry => entry.nativeRunId !== spec.run_id && entry.runtime === 'topology' &&
+          !['stopped', 'succeeded', 'completed', 'failed', 'cancelled', 'timed_out', 'rejected'].includes(entry.state) &&
+          entry.writeAuthority?.mode !== 'read' && resolve(entry.writeAuthority?.worktree || entry.writeAuthority?.checkoutRoot || entry.workloadCwd) === resolve(writer));
+        invariant(!conflict, 'TOPOLOGY_WORKTREE_WRITER_CONFLICT', 'A live or uncertain workflow already owns this task worktree. Inspect or stop that exact attempt before retrying.',
+          conflict ? { workflow_id: conflict.workflowId, run_dir: dirname(conflict.recordPath), retry_safe: false } : undefined);
+      }
+      return launchRunNative({ ...options, spec });
+    };
+    if (spec.worker_guard && !options.dryRun) {
+      const writer = spec.write_authority?.worktree || spec.write_authority?.checkoutRoot || spec.consumer;
+      return await withLock(join(spec.state_home, 'workflow-writers', spec.repository.key, createHash('sha256').update(resolve(writer)).digest('hex')), start,
+        { timeoutCode: 'TOPOLOGY_WORKTREE_WRITER_BUSY' });
+    }
+    return await start();
+  }
+  catch (error) {
+    if (!options.dryRun && error.code !== 'TOPOLOGY_RUN_EXISTS' && error.code !== 'TOPOLOGY_AUTO_APPROVE_UNCONFIRMED') {
+      await mkdir(spec.run_dir, { recursive: true, mode: 0o700 });
+      const run = await readJson(join(spec.run_dir, 'run.json')).catch(() => ({ version: 1, run_id: spec.run_id, name: spec.name,
+        consumer: spec.consumer, workload_cwd: spec.cwd, run_dir: spec.run_dir, repository: spec.repository, state_home: spec.state_home,
+        task_id: spec.task_id || null, write_authority: spec.write_authority || { mode: 'native-provider-permissions', checkoutRoot: spec.consumer },
+        launch_spec: spec, render_recipe: spec.render_recipe, session: spec.session, agents: [], parent: options.lineage || null, depth: options.lineage?.depth || 0, created: nowIso() }));
+      run.state = run.session_creation_attempted || run.agents.some(agent => agent.pane) ? 'launch_failed' : 'failed';
+      run.error = { code: error.code || 'TOPOLOGY_LAUNCH_FAILED', message: error.message };
+      await saveRun(spec.run_dir, run);
+      await appendJournal(spec.run_dir, { type: 'run.launch_failed', error: run.error });
+      error.details = { ...(error.details || {}), run_dir: spec.run_dir, run_id: spec.run_id, state: run.state, workload_cwd: spec.cwd, retained: true,
+        retry_safe: run.state === 'failed' && !error.code?.startsWith('TOPOLOGY_WORKTREE_WRITER_') };
+    }
+    throw error;
+  }
+}
+
+async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {} }) {
   const warnings = [];
 
   // Where this run sits in the tree, decided before anything is created. A run launched by an agent
@@ -780,6 +917,10 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     if (item.participant) continue;
     const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))) });
     const promptAgent = { ...Object.fromEntries(['id','role','full_name','title','template','coordinates_only','instructions_file','_agent_dir','_prompt_vars'].map(key=>[key,item.agent[key]])), instructions: item.agent._inline_instructions ?? item.agent.instructions ?? "", _dir:item.dir };
+    if (item.agent._instruction_source) {
+      promptAgent.instructions_file = join(item.dir, 'instructions-source.md');
+      await writeText(promptAgent.instructions_file, item.agent._instruction_source.text);
+    }
     await writeJson(join(item.dir,'prompt-agent.json'),promptAgent);
     const composed = await composePrompt({ agent: promptAgent, consumer: spec.consumer || spec.cwd, dir: item.dir, loaded, templateName: item.agent.template });
     invariant(composed.ok, "TOPOLOGY_PROMPT_INVALID", "Workflow prompt configuration is invalid.", { errors: composed.errors });
@@ -797,6 +938,18 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
     session: spec.session,
     consumer: spec.consumer,
     run_dir: spec.run_dir,
+    repository: spec.repository,
+    state_home: spec.state_home,
+    workload_cwd: spec.cwd,
+    requested_run_dir: spec.requested_run_dir,
+    write_authority: spec.write_authority || { mode: 'native-provider-permissions', checkoutRoot: spec.consumer },
+    task_id: spec.task_id || null,
+    retry_of: spec.retry_of || null,
+    root_workflow_id: spec.root_workflow_id || null,
+    launch_spec: spec,
+    render_recipe: spec.render_recipe,
+    worker_guard: spec.worker_guard || null,
+    initiator: spec.initiator || null,
     layout: spec.layout,
     inputs: spec.inputs_resolved ?? {},
     // Null at the root, and stored rather than inferred: "no parent" and "a parent we failed to
@@ -825,7 +978,7 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
       // enough to forge one with: the run dir is readable by every agent in the run. Anything that
       // needs the token itself reads it from that agent's own launcher, where only that pane sees it.
       token_sha256: tokenDigest(item.token),
-      candidates: item.candidates.map((candidate) => ({ label: candidate.label, cli: candidate.candidate.cli, model: candidate.candidate.model ?? null, adapter: candidate.adapter.id, launcher: candidate.launcher, submit_keys: candidate.adapter.submit_keys, add_dirs: candidate.add_dirs, memory: candidate.memory })),
+      candidates: item.candidates.map((candidate) => ({ label: candidate.label, cli: candidate.candidate.cli, model: candidate.candidate.model ?? null, adapter: candidate.adapter.id, launcher: candidate.launcher, submit_keys: candidate.adapter.submit_keys, add_dirs: candidate.add_dirs, runtime_dirs: candidate.runtime_dirs, memory: candidate.memory, guard: candidate.guard })),
       active: null,
       provider: null,
       adapter: null,
@@ -854,7 +1007,14 @@ export async function launchRun({ spec, adapters, skillSearchDirs, roleSearchDir
   // Sized for the whole team before the first split, because a window that is resized after the
   // panes exist redistributes rows by ratio and leaves the small ones small.
   const geometry = tmux.windowSizeFor(ordered.length);
+  run.session_creation_attempted = true;
+  await saveRun(spec.run_dir, run);
   const firstPane = await tmux.newSession(spec.session, { cwd: first.agent.cwd, windowName: spec.layout === "windows" ? first.agent.id : "main", ...geometry });
+  const firstServer = await tmux.serverOf(firstPane);
+  const firstEntry = run.agents.find(agent => agent.id === first.agent.id);
+  firstEntry.pane = firstPane;
+  firstEntry.binding = (await tmux.listServerPanes({ tmuxServer: firstServer, session: spec.session })).find(pane => pane.paneId === firstPane) || null;
+  await saveRun(spec.run_dir, run);
   const panes = new Map([[first.agent.id, firstPane]]);
   const rest = ordered.slice(1);
   if (spec.layout === "windows") {
@@ -1210,7 +1370,18 @@ export async function readDeaths(runDir) {
  * refuses. Supplying none leaves the manual path exactly as it was — an operator at a keyboard is
  * already the human turn the gate exists to require.
  */
-export async function failoverAgent({ runDir, agentId, adapters, toLabel, incidentId = null, approvedBy = null, env = process.env, home = homedir(), pluginRoot = null, log = () => {} }) {
+export async function failoverAgent(options) {
+  const run = await loadRun(options.runDir);
+  const entry = run.agents.find(agent => agent.id === options.agentId);
+  invariant(entry, 'TOPOLOGY_UNKNOWN_AGENT', `Unknown agent "${options.agentId}".`);
+  invariant(!entry.workflow, 'TOPOLOGY_AGENT_IS_A_WORKFLOW', `${options.agentId} is a workflow participant running "${entry.workflow?.name}"; fail over an agent inside its child run: failover --run ${entry.workflow?.run_dir ?? '<child run dir>'} --agent <id>.`);
+  const { assertRunOwnership } = await import('./workflow-control.mjs');
+  await assertRunOwnership(run);
+  invariant(entry?.binding?.serverKey, 'TOPOLOGY_SESSION_OWNERSHIP', 'Failover requires the exact member server binding.');
+  return tmux.withServer(entry.binding.serverKey, () => failoverAgentNative(options));
+}
+
+async function failoverAgentNative({ runDir, agentId, adapters, toLabel, incidentId = null, approvedBy = null, env = process.env, home = homedir(), pluginRoot = null, log = () => {} }) {
   const run = await loadRun(runDir);
   const entry = run.agents.find((agent) => agent.id === agentId);
   invariant(entry, "TOPOLOGY_UNKNOWN_AGENT", `Unknown agent "${agentId}". Agents: ${run.agents.map((agent) => agent.id).join(", ")}.`);
@@ -1224,6 +1395,8 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, incide
     `${agentId} is a workflow participant running "${entry.workflow?.name}", not a process on a provider — there is no chain to fail over. Fail over an agent inside its own run: \`failover --run ${entry.workflow?.run_dir ?? "<child run dir>"} --agent <id>\`.`,
   );
   invariant(await tmux.hasSession(run.session), "TOPOLOGY_SESSION_GONE", `tmux session ${run.session} is not running.`);
+  const loaded = await loadConfig({ consumer: run.repository?.root || run.consumer || runDir, env, home, pluginRoot });
+  assertAutomaticFallbackPolicy(loaded.config, entry.candidates);
   // TM-135. Before anything is respawned: is there an observation that justifies this, and has
   // somebody consented to it? Both refusals are invariants, so a run whose incident has been
   // resolved or whose config says `never` is left exactly as it was.
@@ -1244,10 +1417,16 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, incide
     invariant(observed && ['serverKey','serverPid','sessionId','sessionCreated','paneId','panePid'].every(k => observed[k] === entry.binding[k]), 'TOPOLOGY_SESSION_OWNERSHIP', 'Run pane incarnation changed; refusing failover.');
   }
   const previous = entry.provider;
+  for (const [index, candidate] of entry.candidates.entries()) {
+    await validateRuntimeCandidate({ runDir, agentId, artifactsDir: run.artifacts_dir, candidate, index });
+  }
   const candidates = entry.candidates.map((candidate, index) => {
     const adapter = adapterFor({ cli: candidate.cli, model: candidate.model, args: [], skills: [] }, adapters);
-    return { index, label: candidate.label, adapter, launcher: candidate.launcher, vars: { run_id: run.run_id, run_dir: runDir, session: run.session, agent_id: agentId, agent_role: entry.role, bootstrap_file: entry.bootstrap } };
+    const guard = workerCandidateGuard(run.worker_guard, candidate);
+    invariant(!run.worker_guard || !guard.supported || candidate.guard?.supported === true, 'TOPOLOGY_WORKER_GUARD_UNVERIFIED', 'Legacy candidate launcher has no recorded task guard. Preserve this attempt and launch a governed replacement.');
+    return { index, label: candidate.label, adapter, launcher: candidate.launcher, guard, workerGuard: run.worker_guard, vars: { run_id: run.run_id, run_dir: runDir, session: run.session, agent_id: agentId, agent_role: entry.role, bootstrap_file: entry.bootstrap } };
   });
+  invariant(candidates.slice(startIndex).some(candidate => candidate.guard.supported), 'TOPOLOGY_WORKER_GUARD_UNSUPPORTED', 'No remaining candidate has a measured task ownership guard. The current member is preserved and fallback is held.');
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex,
     ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, consent: quota.consent } : {}) });
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
@@ -1272,6 +1451,8 @@ export async function failoverAgent({ runDir, agentId, adapters, toLabel, incide
   entry.adapter = started.adapter.id;
   entry.submit_keys = started.adapter.submit_keys;
   await saveRun(runDir, run);
+  await appendJournal(runDir, { type: 'agent.failover_applied', agent: agentId, from: previous, to: started.label,
+    approved_by: quota?.approval.approved_by || approvedBy || null, binding: entry.binding });
   // The restarted provider reads its durable inbox at a safe boundary. Bootstrap readiness
   // does not prove that a later composer is empty or that a tool is not accepting input.
   const pending = await pendingReplies(runDir, [agentId]);

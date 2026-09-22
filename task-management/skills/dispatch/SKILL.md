@@ -42,10 +42,27 @@ Worker env: `TM_SESSION_ID`, `TM_ACTOR` (dispatcher), `TM_ROOT` (repo). Do not o
 ## Refusals
 
 not found; `done`/`deleted` (reopen first); no backend (`tried` lists why);
-already dispatched with a live claim (`collect` first, or `--steal`); another
+already dispatched with a live claim (confirm the worker ended, then `collect`; `--steal`
+cannot start a second writer); another
 session holds the claim (needs `--steal`); WIP (`gateStart`).
 
 ## After it starts
+
+For a governed task, first require persistent-lead admission. The handoff records its lead and
+workflow. The worker commits, pushes its branch, opens a PR, attaches evidence, then submits
+the handoff's finish JSON with `ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.
+The producer records the finish, calls `tm review-ready`, and queues independent review.
+Keep its claim and report any `review_blocked` reason to the lead;
+independent review and a separate integration decision precede `done`. `dispatch.governed: true`
+holds unadmitted tasks without pausing unrelated work.
+
+Recorded checkouts and branches are validated and reused. New checkouts use
+`dispatch.integrationBranch`. A failed launch retains its checkout and evidence for a later
+validated retry. Topology records are durable outside the task checkout; cleanup calls the
+producer's preservation check first. Claude then Codex is the supported candidate order;
+candidates without enforced worker guards hold visibly.
+
+For an ungoverned task, the legacy completion contract applies:
 
 The worker ticks AC, **commits, pushes its own branch and opens a PR**
 (`gh pr create --title "<TM-id>: <title>"`), attaches evidence, then `tm done` —

@@ -199,6 +199,7 @@ export function reapDeadWorkers(p = paths()) {
     const agent = claim.session ? deadBySession.get(claim.session) : null;
     if (!agent) continue;
     const task = read(id, p);
+    if (task?.governance?.state === "ready-for-review") continue;
     if (task && task.status === "in_progress") {
       update(id, { status: "parked", parkedReason: `agent ${agent} died` }, p);
     }

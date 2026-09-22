@@ -4,7 +4,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus } from '../../topology/lib/management.mjs';
+import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
+import { listServerPanes } from '../../topology/lib/tmux.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-manage-')); t.after(() => rm(root, { recursive: true, force: true }));
@@ -156,6 +158,10 @@ test('production worker proof uses actual tm registry and observed process exit 
   await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
   await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
   const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  actual.authorized=true;actual.actor='fixture-human';
+  actual.reviewGate=async()=>({eligible:true,reasons:[],status:{review:{task:'TM-001',repo_id:admitted.record.repo_id,revision,verified_commit:revision,
+    verdict:'approve',findings:[],reviewer_id:'fixture-reviewer',author_agent_ids:['author'],request_nonce:'fixture-review-nonce',
+    binding:{serverKey:'/fixture/socket',serverPid:1,sessionId:'$1',sessionCreated:1,paneId:'%1',panePid:2}}}});
   await workerReport({ ...actual, kind: 'finish', report: { revision, artifacts: ['code.txt'], checks: ['content'], evidence: 'actual registry fixture result', risks: [] } });
   const liveGate = await integrationEligibility(actual); assert.equal(liveGate.eligible, false); assert.ok(liveGate.reasons.some(reason => reason.includes('still alive')));
   retireAgent('fixture-task-worker', p);
@@ -192,4 +198,108 @@ test('tmux default worker proof binds the real pane incarnation and waits for it
   await run('tmux', ['-S', socket, 'kill-pane', '-t', bound.worker.binding.paneId]);
   const state = await taskWorkerState(actual, record);
   assert.equal(state.proof, 'observed-pane-exited'); assert.equal(state.active, false);
+});
+
+async function nativeFixture(t, { members = 1, nested = false } = {}) {
+  if ((await run('tmux', ['-V'], { allowFailure: true })).code !== 0) { t.skip('tmux unavailable'); return null; }
+  const fixtureValue = await fixture(t), { opts, doc } = fixtureValue;
+  await admitTask(opts);
+  // Keep the socket outside the Git fixture so teardown can always reach and stop only
+  // these test-owned servers, even if the repository's earlier cleanup hook has run.
+  const socketRoot = await mkdtemp(join(tmpdir(), 'ao-native-owner-'));
+  const socket = join(socketRoot, 'native.sock'), decoySocket = join(socketRoot, 'decoy.sock');
+  t.after(async () => {
+    for (const path of [socket, decoySocket]) await run('tmux', ['-S', path, 'kill-server'], { allowFailure: true });
+    await rm(socketRoot, { recursive: true, force: true });
+  });
+  const tmux = (args, server = socket) => run('tmux', ['-S', server, ...args]);
+  async function createNative(id, session, count, parent = null) {
+    await tmux(['new-session', '-d', '-s', session, '-c', doc.worktree, 'sleep', '120']);
+    for (let n = 1; n < count; n++) await tmux(['split-window', '-d', '-h', '-t', session, '-c', doc.worktree, 'sleep', '120']);
+    const observed = await listServerPanes({ tmuxServer: socket, session });
+    const location = await topologyRunLocation({ consumer: opts.consumer, nativeRunId: id, stateHome: opts.env.AGENT_ORCHESTRATION_STATE_HOME });
+    const agents = observed.map((binding, index) => ({ id: `writer-${index + 1}`, role: 'worker', pane: binding.paneId, binding, cwd: doc.worktree }));
+    const native = { version: 1, run_id: id, name: `tm-${doc.id}`, task_id: doc.id, consumer: doc.worktree, workload_cwd: doc.worktree,
+      repository: location.repository, run_dir: location.runDir, state: 'running', session, session_creation_attempted: true,
+      write_authority: { task_id: doc.id, worktree: doc.worktree, branch: doc.branch, owner: 'author' },
+      launch_spec: { agents: agents.map(agent => ({ id: agent.id })) }, agents, parent };
+    await writeJson(join(location.runDir, 'run.json'), native);
+    return { native, runDir: location.runDir };
+  }
+  const root = await createNative('native-parent', 'owned-native', members);
+  const child = nested ? await createNative('native-child', 'owned-child', 1, { run_id: root.native.run_id, run_dir: root.runDir, agent_id: root.native.agents[0].id }) : null;
+  if (child) await writeJson(join(root.runDir, 'children.json'), [{ run_id: child.native.run_id, run_dir: child.runDir, agent_id: root.native.agents[0].id }]);
+  doc.dispatched = { backend: 'topology', run: `topology:${root.native.session}`, session: 'author', nativeRunId: root.native.run_id,
+    workflowRunId: `topology:${root.native.run_id}`, recordPath: join(root.runDir, 'run.json') };
+  const row = { name: 'fixture-native-worker', backend: 'topology', runId: doc.dispatched.run, session: 'author', registeredAt: 'fixture', status: 'active', pid: null };
+  opts.store.workers = async () => [row];
+  const actual = { ...opts, workerState: undefined, env: { ...opts.env, TMUX: `${decoySocket},1,0` } };
+  return { ...fixtureValue, actual, root, child, row, socket, decoySocket, tmux };
+}
+
+test('native worker proof uses the durable producer binding and every member instead of an implicit same-named session', async t => {
+  const f = await nativeFixture(t, { members: 2 }); if (!f) return;
+  await f.tmux(['new-session', '-d', '-s', f.root.native.session, '-c', f.doc.worktree, 'sleep', '120'], f.decoySocket);
+  const bound = await bindTaskWorker(f.actual);
+  assert.equal(bound.worker.kind, 'topology');
+  assert.equal(bound.worker.native_run_id, f.root.native.run_id);
+  assert.equal(bound.worker.native_identity.members.length, 2);
+  assert.ok(bound.worker.native_identity.members.every(member => member.binding.serverKey === f.socket));
+  await f.finish();
+  const record = (await managementStatus(f.actual)).management;
+  await f.tmux(['kill-session', '-t', f.root.native.session], f.decoySocket);
+  f.row.status = 'retired';
+  assert.equal((await taskWorkerState(f.actual, record)).active, true, 'another server and a retired registry label cannot prove native workers exited');
+  assert.equal((await integrationEligibility(f.actual)).eligible, false);
+  await f.tmux(['kill-session', '-t', f.root.native.session]);
+  const ended = await taskWorkerState(f.actual, record);
+  assert.equal(ended.owned, true); assert.equal(ended.active, false); assert.equal(ended.proof, 'observed-native-workflow-exited');
+});
+
+test('native parent completion waits for every child and holds pending, unknown or missing runtime evidence', async t => {
+  const f = await nativeFixture(t, { nested: true }); if (!f) return;
+  await bindTaskWorker(f.actual); await f.finish();
+  const record = (await managementStatus(f.actual)).management;
+  assert.equal(record.worker.native_identity.children[0].run_id, f.child.native.run_id);
+  await f.tmux(['kill-session', '-t', f.root.native.session]);
+  const childStillLive = await taskWorkerState(f.actual, record);
+  assert.equal(childStillLive.owned, true); assert.equal(childStillLive.active, true);
+  await f.tmux(['kill-session', '-t', f.child.native.session]);
+  assert.equal((await taskWorkerState(f.actual, record)).active, false);
+  for (const state of ['starting', 'unknown-future-state']) {
+    await writeJson(join(f.root.runDir, 'run.json'), { ...f.root.native, state });
+    const held = await taskWorkerState(f.actual, record);
+    assert.equal(held.owned, false); assert.equal(held.active, true); assert.equal(held.alive, null);
+  }
+  await writeJson(join(f.root.runDir, 'run.json'), f.root.native);
+  await writeJson(join(f.child.runDir, 'run.json'), { ...f.child.native, parent: { ...f.child.native.parent, agent_id: 'another-member' } });
+  assert.equal((await taskWorkerState(f.actual, record)).owned, false);
+  await rm(join(f.child.runDir, 'run.json'));
+  assert.equal((await taskWorkerState(f.actual, record)).active, true, 'missing child evidence never proves absence');
+});
+
+test('a native fallback requires a new verified finish and incomplete or foreign task handles remain held', async t => {
+  const f = await nativeFixture(t); if (!f) return;
+  await bindTaskWorker(f.actual); await f.finish();
+  let record = (await managementStatus(f.actual)).management;
+  const member = f.root.native.agents[0], oldPid = member.binding.panePid;
+  await f.tmux(['respawn-pane', '-k', '-t', member.pane, '-c', f.doc.worktree, 'sleep', '120']);
+  member.binding = (await listServerPanes({ tmuxServer: f.socket, session: f.root.native.session }))[0];
+  assert.notEqual(member.binding.panePid, oldPid);
+  await writeJson(join(f.root.runDir, 'run.json'), f.root.native);
+  const changed = await taskWorkerState(f.actual, record);
+  assert.equal(changed.owned, false); assert.match(changed.reason, /changed after the finish report/);
+  await workerReport({ ...f.actual, kind: 'finish', report: record.finish });
+  record = (await managementStatus(f.actual)).management;
+  assert.equal(record.worker.native_identity.members[0].binding.panePid, member.binding.panePid);
+  await f.tmux(['kill-session', '-t', f.root.native.session]);
+  assert.equal((await taskWorkerState(f.actual, record)).active, false);
+  await writeJson(join(f.root.runDir, 'run.json'), { ...f.root.native, task_id: 'TM-999' });
+  assert.equal((await taskWorkerState(f.actual, record)).owned, false);
+  await writeJson(join(f.root.runDir, 'run.json'), { ...f.root.native, workload_cwd: f.opts.consumer });
+  assert.equal((await taskWorkerState(f.actual, record)).owned, false);
+  await writeJson(join(f.root.runDir, 'run.json'), f.root.native);
+  delete f.doc.dispatched.nativeRunId;
+  const legacy = await taskWorkerState(f.actual, record);
+  assert.equal(legacy.owned, false); assert.match(legacy.reason, /authentic native run ID/);
 });

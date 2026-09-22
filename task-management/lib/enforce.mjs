@@ -12,6 +12,7 @@ import { paths } from "./paths.mjs";
 import { sessionId } from "./actor.mjs";
 import { decisionRole, hasAnswer } from "./decision.mjs";
 import { missingFields } from "./completeness.mjs";
+import { governedCompletion } from "./governance-check.mjs";
 
 export function enforcementOff(p = paths()) {
   if (String(process.env.TM_ENFORCE || "").toLowerCase() === "off") return true;
@@ -183,9 +184,11 @@ function missingRefusal(what, missing, extra = "") {
 // ── done gate ────────────────────────────────────────────────────────────────
 
 export function gateDone(id, p = paths()) {
-  if (enforcementOff(p)) return { allow: true };
   const task = read(id, p);
   if (!task) return { allow: false, reason: `not found: ${id}` };
+  const governed = governedCompletion(task, p);
+  if (!governed.allow) return governed;
+  if (enforcementOff(p)) return { allow: true };
 
   if (config(p).requireAcceptance) {
     const open = acceptanceOpen(task);
@@ -259,6 +262,7 @@ function gateStopLocked(p) {
   const claims = s.claims || {};
   const mine = list("task", { status: "in_progress" }, p).filter(
     (t) =>
+      t.governance?.state !== "ready-for-review" &&
       (!session || !t.session || t.session === session) &&
       // A task marked `dispatched` whose claim belongs to THIS session has already been handed to
       // the pool: the collector (lib/dispatch/collect.mjs) owns the outcome from here, and its

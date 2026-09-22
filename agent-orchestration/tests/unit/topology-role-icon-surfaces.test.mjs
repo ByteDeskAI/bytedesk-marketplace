@@ -199,14 +199,14 @@ test("agent and session lists: icon before the readable name, additive JSON, ids
 });
 
 test("status computes icons for a run.json written before TM-168, uses the team icon, and never echoes a stored icon", async (t) => {
-  const { home, ao } = await consumerFixture(t);
-  const runDir = join(home, "run");
-  const childDir = join(home, "child");
+  const { consumer, ao } = await consumerFixture(t);
+  const runDir = join(consumer, ".bytedesk", "agent-orchestration", "runs", "r-old");
+  const childDir = join(consumer, ".bytedesk", "agent-orchestration", "runs", "child");
   await mkdir(runDir, { recursive: true });
   await mkdir(childDir, { recursive: true });
-  await writeJson(join(childDir, "run.json"), { version: 1, name: "review-team", run_id: "child", session: "ao-child-gone", state: "running", agents: [{ id: "lead", role: "orchestrator" }] });
+  await writeJson(join(childDir, "run.json"), { version: 1, name: "review-team", run_id: "child", consumer, session: "ao-child-gone", state: "running", agents: [{ id: "lead", role: "orchestrator" }] });
   await writeJson(join(runDir, "run.json"), {
-    version: 1, name: "old", run_id: "r-old", session: "ao-old-gone", run_dir: runDir, state: "running", created: new Date().toISOString(), sequence: 0,
+    version: 1, name: "old", run_id: "r-old", consumer, session: "ao-old-gone", run_dir: runDir, state: "running", created: new Date().toISOString(), sequence: 0,
     agents: [
       { id: "conductor", role: "orchestrator", pane: null, candidates: [{ label: "fake-agent:x" }], provider: "fake-agent:x", adapter: "fake-agent" },
       { id: "auditor", role: "security-auditor", roleIcon: `${ESC}]2;pwn${BEL}`, roleLabel: "Lead", pane: null, candidates: [], provider: null },
@@ -312,7 +312,7 @@ test("TM-185: status, session list, agent list and role list show the registered
   const { home, consumer, ao } = await consumerFixture(t);
   const lead = JSON.parse(await ao("agent", "new", "--role", "worker", "--name", "Wes Warden"));
   const other = JSON.parse(await ao("agent", "new", "--role", "worker", "--name", "Wren Other"));
-  const runDir = join(home, "led-run");
+  const runDir = join(consumer, ".bytedesk", "agent-orchestration", "runs", "led");
   await writeJson(join(runDir, "run.json"), {
     version: 1, name: "led", run_id: "led", session: "ao-led-gone", consumer, run_dir: runDir, state: "running", created: new Date().toISOString(), sequence: 0,
     agents: [

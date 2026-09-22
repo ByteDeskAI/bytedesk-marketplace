@@ -31,8 +31,11 @@ messages as files. Invariants:
 1. Launch argv comes from a provider adapter plus the agent's declared `args`; spec text is never
    shell source. The generated `launch.sh` quotes every element.
 2. The message of record is the inbox/outbox file. `send-keys` only delivers a one-line pointer.
-3. Runs live outside the plugin under `<consumer>/.orchestration/runs/<run_id>/`; the plugin never
-   stores state.
+3. New run records live outside the plugin and disposable worktrees under
+   `<stateRoot>/repositories/<canonical-repo-key>/topology/runs/<run_id>/`. The shared workflow
+   index is `<stateRoot>/workflow-index/v1/<canonical-repo-key>/index.json`. The recorded workload
+   cwd and write authority remain checkout-scoped; changing control storage never expands them.
+   Import surviving legacy worktree records and verify their evidence before removing a worktree.
 4. Skills and role packs are referenced by path in `BOOTSTRAP.md`; nothing is copied or symlinked
    into a consumer.
 5. Promotion into a canonical tree (assets, main branch) is a human step; the conductor recommends

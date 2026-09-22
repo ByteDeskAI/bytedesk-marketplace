@@ -6,6 +6,14 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -27,14 +35,732 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// topology/lib/util.mjs
+function fail(code, message, details) {
+  throw new TopologyError(code, message, details);
+}
+function invariant2(condition, code, message, details) {
+  if (!condition) fail(code, message, details);
+}
+async function run(command, args, options = {}) {
+  const started = performance.now();
+  const timeoutMs = options.timeoutMs ?? 3e4;
+  try {
+    const result = await execFile2(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      encoding: "utf8",
+      maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
+      timeout: timeoutMs,
+      windowsHide: true
+    });
+    if (timeoutMs > 0 && performance.now() - started >= timeoutMs) {
+      const error51 = Object.assign(new Error(`Command exceeded ${timeoutMs}ms deadline`), { code: 124, killed: true, stdout: result.stdout, stderr: result.stderr });
+      throw error51;
+    }
+    return { code: 0, stdout: result.stdout, stderr: result.stderr };
+  } catch (error51) {
+    if (options.allowFailure) {
+      return { code: error51.killed ? 124 : error51.code || 1, stdout: error51.stdout ?? "", stderr: error51.stderr ?? String(error51.message) };
+    }
+    throw error51;
+  }
+}
+async function readJson3(path3) {
+  const text = await (0, import_promises4.readFile)(path3, "utf8");
+  try {
+    return JSON.parse(text);
+  } catch (error51) {
+    fail("TOPOLOGY_INVALID_JSON", `${path3} is not valid JSON: ${error51.message}`, { path: path3 });
+  }
+}
+async function writeJson(path3, value) {
+  await (0, import_promises4.mkdir)((0, import_node_path7.dirname)(path3), { recursive: true });
+  const temp = `${path3}.${(0, import_node_crypto4.randomUUID)()}.tmp`;
+  let handle;
+  try {
+    handle = await (0, import_promises4.open)(temp, "wx", 384);
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await (0, import_promises4.rename)(temp, path3);
+  } finally {
+    await handle?.close();
+    await (0, import_promises4.rm)(temp, { force: true });
+  }
+}
+async function exists(path3) {
+  return (0, import_promises4.stat)(path3).then(() => true, () => false);
+}
+function sleep(ms) {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+function nowIso() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+var import_node_child_process2, import_node_crypto4, import_promises4, import_node_path7, import_node_util2, execFile2, TopologyError, AO_HOME;
+var init_util = __esm({
+  "topology/lib/util.mjs"() {
+    import_node_child_process2 = require("node:child_process");
+    import_node_crypto4 = require("node:crypto");
+    import_promises4 = require("node:fs/promises");
+    import_node_path7 = require("node:path");
+    import_node_util2 = require("node:util");
+    execFile2 = (0, import_node_util2.promisify)(import_node_child_process2.execFile);
+    TopologyError = class extends Error {
+      constructor(code, message, details = {}) {
+        super(message);
+        this.name = "TopologyError";
+        this.code = code;
+        this.details = details;
+      }
+    };
+    AO_HOME = (0, import_node_path7.join)(".bytedesk", "agent-orchestration");
+  }
+});
+
+// topology/lib/repoid.mjs
+async function canonicalRepoId(consumer) {
+  invariant2(consumer && typeof consumer === "string", "TOPOLOGY_REPO_REQUIRED", "A consumer path is required to identify a repository.");
+  const abs = (0, import_node_path8.resolve)(consumer);
+  const git2 = await run("git", ["-C", abs, "rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+  if (git2.code === 0 && git2.stdout.trim()) {
+    const reported = git2.stdout.trim().split("\n")[0];
+    const common = (0, import_node_path8.isAbsolute)(reported) ? (0, import_node_path8.resolve)(reported) : (0, import_node_path8.resolve)(abs, reported);
+    const real2 = await (0, import_promises5.realpath)(common).catch(() => common);
+    return { id: real2, kind: "git-common-dir", git_common_dir: real2 };
+  }
+  const real = await (0, import_promises5.realpath)(abs).catch(() => abs);
+  return { id: real, kind: "path", git_common_dir: null };
+}
+async function repositoryConsumer(consumer) {
+  const identity = await canonicalRepoId(consumer);
+  if (identity.kind === "git-common-dir" && (0, import_node_path8.basename)(identity.git_common_dir) === ".git") {
+    return await (0, import_promises5.realpath)((0, import_node_path8.dirname)(identity.git_common_dir)).catch(() => (0, import_node_path8.dirname)(identity.git_common_dir));
+  }
+  return await (0, import_promises5.realpath)((0, import_node_path8.resolve)(consumer)).catch(() => (0, import_node_path8.resolve)(consumer));
+}
+function repoKey(id) {
+  return (0, import_node_crypto5.createHash)("sha256").update(String(id)).digest("hex").slice(0, 16);
+}
+function stateRoot2(env = process.env, home = (0, import_node_os3.homedir)()) {
+  if (env.AGENT_ORCHESTRATION_STATE_HOME) return (0, import_node_path8.resolve)(env.AGENT_ORCHESTRATION_STATE_HOME);
+  const xdg = env.XDG_STATE_HOME || (0, import_node_path8.join)(home, ".local", "state");
+  return (0, import_node_path8.join)(xdg, "bytedesk", "agent-orchestration");
+}
+var import_node_crypto5, import_promises5, import_node_os3, import_node_path8;
+var init_repoid = __esm({
+  "topology/lib/repoid.mjs"() {
+    import_node_crypto5 = require("node:crypto");
+    import_promises5 = require("node:fs/promises");
+    import_node_os3 = require("node:os");
+    import_node_path8 = require("node:path");
+    init_util();
+  }
+});
+
+// topology/lib/lockfile.mjs
+async function processIdentity(pid) {
+  try {
+    const raw = await (0, import_promises6.readFile)(`/proc/${pid}/stat`, "utf8");
+    const start = raw.slice(raw.lastIndexOf(")") + 2).split(" ")[19];
+    const boot = (await (0, import_promises6.readFile)("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+    return `${boot}:${start}`;
+  } catch {
+    return null;
+  }
+}
+async function lockOwner(path3) {
+  try {
+    return JSON.parse(await (0, import_promises6.readFile)((0, import_node_path9.join)(path3, "owner.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+async function dead(owner) {
+  if (!owner?.token || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) return false;
+  try {
+    process.kill(owner.pid, 0);
+  } catch (error51) {
+    return error51.code === "ESRCH";
+  }
+  const identity = await processIdentity(owner.pid);
+  return Boolean(identity && owner.process_identity && identity !== owner.process_identity);
+}
+async function removeOwned(path3, token) {
+  const gate = (0, import_node_path9.join)(path3, ".remove");
+  try {
+    await (0, import_promises6.mkdir)(gate);
+  } catch (error51) {
+    if (["EEXIST", "ENOENT"].includes(error51.code)) return false;
+    throw error51;
+  }
+  let moved = false;
+  try {
+    if ((await lockOwner(path3))?.token !== token) return false;
+    const retired = `${path3}.retired-${(0, import_node_crypto6.randomUUID)()}`;
+    await (0, import_promises6.rename)(path3, retired);
+    moved = true;
+    await (0, import_promises6.rm)(retired, { recursive: true, force: true });
+    return true;
+  } finally {
+    if (!moved) await (0, import_promises6.rm)(gate, { recursive: true, force: true });
+  }
+}
+async function withLock(lockPath, fn, { timeoutMs = 3e4, pollMs = 50, hooks = {}, timeoutCode = "TOPOLOGY_LOCK_TIMEOUT" } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const token = (0, import_node_crypto6.randomUUID)();
+  await (0, import_promises6.mkdir)((0, import_node_path9.dirname)(lockPath), { recursive: true });
+  for (; ; ) {
+    let acquired = false;
+    try {
+      await (0, import_promises6.mkdir)(lockPath);
+      acquired = true;
+    } catch (error51) {
+      if (error51.code !== "EEXIST") throw error51;
+    }
+    if (acquired) {
+      await hooks.afterMkdir?.();
+      await (0, import_promises6.writeFile)((0, import_node_path9.join)(lockPath, "owner.json"), JSON.stringify({
+        token,
+        pid: process.pid,
+        process_identity: await processIdentity(process.pid),
+        created_at: nowIso()
+      }), "utf8");
+      break;
+    }
+    const owner = await lockOwner(lockPath);
+    if (await dead(owner)) {
+      await hooks.beforeReclaim?.(owner);
+      await removeOwned(lockPath, owner.token);
+    }
+    if (Date.now() >= deadline) {
+      fail(timeoutCode, `Timed out after ${timeoutMs}ms waiting for ${lockPath}; owner ${JSON.stringify(owner)}. Ownership is live or unknown. Inspect the owner process and lock before manual recovery.`);
+    }
+    await sleep(Math.max(1, Math.min(deadline - Date.now(), pollMs * (0.75 + Math.random() * 0.5))));
+  }
+  const ownership = await lockOwner(lockPath);
+  try {
+    return await fn(ownership);
+  } finally {
+    await removeOwned(lockPath, token);
+  }
+}
+var import_node_crypto6, import_promises6, import_node_path9;
+var init_lockfile = __esm({
+  "topology/lib/lockfile.mjs"() {
+    import_node_crypto6 = require("node:crypto");
+    import_promises6 = require("node:fs/promises");
+    import_node_path9 = require("node:path");
+    init_util();
+  }
+});
+
+// topology/lib/incarnation.mjs
+function incarnationOf(value) {
+  if (!value || INCARNATION_FIELDS.some((key) => value[key] === void 0 || value[key] === null)) return null;
+  return Object.fromEntries(INCARNATION_FIELDS.map((key) => [key, value[key]]));
+}
+function sameIncarnation(left, right) {
+  const a = incarnationOf(left), b = incarnationOf(right);
+  return Boolean(a && b && INCARNATION_FIELDS.every((key) => a[key] === b[key]));
+}
+var INCARNATION_FIELDS;
+var init_incarnation = __esm({
+  "topology/lib/incarnation.mjs"() {
+    INCARNATION_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
+  }
+});
+
+// topology/lib/tmux.mjs
+var import_node_async_hooks, TMUX, selectedServer, SUBMIT_SETTLE_MS;
+var init_tmux = __esm({
+  "topology/lib/tmux.mjs"() {
+    import_node_async_hooks = require("node:async_hooks");
+    init_util();
+    TMUX = process.env.AO_TMUX_COMMAND || "tmux";
+    selectedServer = new import_node_async_hooks.AsyncLocalStorage();
+    SUBMIT_SETTLE_MS = Number(process.env.AO_SUBMIT_SETTLE_MS ?? 500);
+  }
+});
+
+// topology/lib/discovery.mjs
+async function workflowRepository(consumer) {
+  invariant2(typeof consumer === "string" && (0, import_node_path10.isAbsolute)(consumer), "TOPOLOGY_REPO_REQUIRED", "Pass an absolute consumer repository path.");
+  invariant2((await (0, import_promises7.stat)(consumer)).isDirectory(), "TOPOLOGY_REPO_REQUIRED", "Consumer must be an existing directory.");
+  const identity = await canonicalRepoId(consumer);
+  return { id: identity.id, key: repoKey(identity.id), root: await repositoryConsumer(consumer) };
+}
+function workflowIndexPath(repository, options = {}) {
+  return (0, import_node_path10.join)(homeOf(options), "workflow-index", "v1", repository.key, "index.json");
+}
+async function readWorkflowIndex({ consumer, ...options }) {
+  const repository = await workflowRepository(consumer);
+  const path3 = workflowIndexPath(repository, options);
+  const index = await readJson3(path3).catch((error51) => {
+    if (error51.code === "ENOENT") return null;
+    throw error51;
+  });
+  if (!index) return { schemaVersion: 1, revision: "0", repository, updatedAt: null, workflows: [], rejected: [] };
+  invariant2(
+    index.schemaVersion === 1 && /^[0-9]+$/.test(index.revision) && index.repository?.id === repository.id && index.repository?.key === repository.key && Array.isArray(index.workflows),
+    "TOPOLOGY_DISCOVERY_REPOSITORY",
+    "Workflow index does not belong to this repository."
+  );
+  return index;
+}
+async function publish(repository, entry, options) {
+  const path3 = workflowIndexPath(repository, options);
+  await (0, import_promises7.mkdir)((0, import_node_path10.dirname)(path3), { recursive: true, mode: 448 });
+  return withLock(`${path3}.lock`, async () => {
+    const index = await readWorkflowIndex({ consumer: repository.root, ...options });
+    const parent = index.workflows.find((item) => item.workflowId === entry.lineage.parentWorkflowId);
+    if (parent) entry.lineage.rootWorkflowId = parent.lineage.rootWorkflowId;
+    const previous = index.workflows.find((item) => item.workflowId === entry.workflowId);
+    const equal = previous && JSON.stringify({ ...previous, revision: void 0 }) === JSON.stringify({ ...entry, revision: void 0 });
+    if (equal) return previous;
+    entry.revision = String(BigInt(previous?.revision || "0") + 1n);
+    index.workflows = [...index.workflows.filter((item) => item.workflowId !== entry.workflowId), entry].sort((a, b) => a.workflowId.localeCompare(b.workflowId));
+    index.revision = String(BigInt(index.revision) + 1n);
+    index.updatedAt = nowIso();
+    await writeJson(path3, index);
+    return entry;
+  });
+}
+async function publishACPWorkflow({ snapshot, recordPath, ...options }) {
+  if (!snapshot?.consumer?.commonGitDir || !snapshot.runId) return null;
+  const common = snapshot.consumer.commonGitDir;
+  const repository = { id: common, key: repoKey(common), root: (0, import_node_path10.basename)(common) === ".git" ? (0, import_node_path10.dirname)(common) : await repositoryConsumer(snapshot.consumer.checkoutRoot) };
+  const workflowId = `acp:${snapshot.runId}`;
+  return publish(repository, {
+    workflowId,
+    runtime: "acp",
+    nativeRunId: snapshot.runId,
+    repositoryId: repository.id,
+    repositoryRoot: repository.root,
+    workflowName: snapshot.input?.workflowName || snapshot.plan?.protocolId || snapshot.input?.protocolId || snapshot.input?.intent || "ACP workflow",
+    taskId: snapshot.input?.taskId || null,
+    lineage: {
+      parentWorkflowId: snapshot.parentRunId ? `acp:${snapshot.parentRunId}` : null,
+      retryOfWorkflowId: null,
+      rootWorkflowId: snapshot.parentRunId ? `acp:${snapshot.parentRunId}` : workflowId
+    },
+    recordPath: (0, import_node_path10.resolve)(recordPath),
+    recordFormat: "acp.snapshot.v1",
+    workloadCwd: snapshot.consumer.requestedCwd || snapshot.consumer.checkoutRoot,
+    writeAuthority: { mode: snapshot.input?.permissionProfile || snapshot.plan?.permissionProfile || "read", checkoutRoot: snapshot.consumer.checkoutRoot },
+    state: snapshot.state,
+    createdAt: snapshot.createdAt,
+    updatedAt: snapshot.updatedAt,
+    nativeRevision: String(snapshot.revision || 0),
+    revision: "0"
+  }, options);
+}
+var import_promises7, import_node_path10, homeOf;
+var init_discovery = __esm({
+  "topology/lib/discovery.mjs"() {
+    import_promises7 = require("node:fs/promises");
+    import_node_path10 = require("node:path");
+    init_repoid();
+    init_util();
+    init_lockfile();
+    init_incarnation();
+    init_tmux();
+    homeOf = (options) => (0, import_node_path10.resolve)(options.stateHome || stateRoot2(options.env));
+  }
+});
+
+// topology/lib/config.mjs
+var init_config = __esm({
+  "topology/lib/config.mjs"() {
+    init_util();
+  }
+});
+
+// topology/lib/slots.mjs
+var SHIPPED_SLOTS;
+var init_slots = __esm({
+  "topology/lib/slots.mjs"() {
+    init_lockfile();
+    init_presence();
+    init_repoid();
+    init_tmux();
+    init_util();
+    SHIPPED_SLOTS = Object.freeze(["integration", "cutover", "deploy-safe"]);
+  }
+});
+
+// topology/lib/identity.mjs
+var ROLE_ICONS, ROLE_LABELS;
+var init_identity = __esm({
+  "topology/lib/identity.mjs"() {
+    init_util();
+    ROLE_ICONS = Object.freeze({
+      lead: "\u{1F451}",
+      orchestrator: "\u{1F3BC}",
+      reviewer: "\u{1F50D}",
+      observer: "\u{1F441}\uFE0F",
+      worker: "\u{1F527}",
+      implementer: "\u{1F6E0}\uFE0F",
+      designer: "\u{1F3A8}",
+      "image-gen": "\u{1F5BC}\uFE0F",
+      researcher: "\u{1F52C}",
+      judge: "\u2696\uFE0F"
+    });
+    ROLE_LABELS = Object.freeze({
+      lead: "Lead",
+      orchestrator: "Orchestrator",
+      reviewer: "Reviewer",
+      observer: "Observer",
+      worker: "Worker",
+      implementer: "Implementer",
+      designer: "Designer",
+      "image-gen": "Image generation",
+      researcher: "Researcher",
+      judge: "Judge"
+    });
+  }
+});
+
+// topology/lib/prompts.mjs
+var init_prompts = __esm({
+  "topology/lib/prompts.mjs"() {
+    init_config();
+    init_identity();
+    init_util();
+  }
+});
+
+// topology/lib/prompt-lifecycle.mjs
+var init_prompt_lifecycle = __esm({
+  "topology/lib/prompt-lifecycle.mjs"() {
+    init_config();
+    init_prompts();
+    init_util();
+    init_lockfile();
+    init_incarnation();
+    init_repoid();
+    init_tmux();
+  }
+});
+
+// topology/lib/agents.mjs
+var init_agents = __esm({
+  "topology/lib/agents.mjs"() {
+    init_prompt_lifecycle();
+    init_util();
+    init_identity();
+  }
+});
+
+// topology/lib/routing.mjs
+var DEFAULT_TTL_MS;
+var init_routing = __esm({
+  "topology/lib/routing.mjs"() {
+    init_util();
+    init_agents();
+    init_identity();
+    init_repoid();
+    DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
+  }
+});
+
+// topology/lib/mailbox.mjs
+var init_mailbox = __esm({
+  "topology/lib/mailbox.mjs"() {
+    init_util();
+    init_routing();
+    init_agents();
+    init_lockfile();
+    init_discovery();
+  }
+});
+
+// topology/lib/providers.mjs
+var init_providers = __esm({
+  "topology/lib/providers.mjs"() {
+    init_util();
+  }
+});
+
+// topology/lib/delivery.mjs
+var RING_WINDOW_MS, ENGAGE_MS, MAX_CLIENTS, BELL_POLL_MS, STYLED_MIN_INTERVAL_MS, LATE_ACK_GRACE_MS;
+var init_delivery = __esm({
+  "topology/lib/delivery.mjs"() {
+    init_lockfile();
+    init_mailbox();
+    init_providers();
+    init_tmux();
+    init_util();
+    RING_WINDOW_MS = Number(process.env.AO_RING_WINDOW_MS ?? 6e4);
+    ENGAGE_MS = Number(process.env.AO_ENGAGE_MS ?? 6e4);
+    MAX_CLIENTS = Number(process.env.AO_BELL_MAX_CLIENTS ?? 8);
+    BELL_POLL_MS = Number(process.env.AO_BELL_POLL_MS ?? 1e3);
+    STYLED_MIN_INTERVAL_MS = Number(process.env.AO_STYLED_MIN_INTERVAL_MS ?? 5e3);
+    LATE_ACK_GRACE_MS = Number(process.env.AO_LEAD_ACK_GRACE_MS ?? 12e4);
+  }
+});
+
+// topology/lib/lineage.mjs
+var init_lineage = __esm({
+  "topology/lib/lineage.mjs"() {
+    init_util();
+  }
+});
+
+// topology/lib/resolve.mjs
+var init_resolve = __esm({
+  "topology/lib/resolve.mjs"() {
+    init_util();
+  }
+});
+
+// topology/lib/spec.mjs
+var init_spec = __esm({
+  "topology/lib/spec.mjs"() {
+    init_util();
+    init_agents();
+  }
+});
+
+// topology/lib/launch.mjs
+var init_launch = __esm({
+  "topology/lib/launch.mjs"() {
+    init_prompts();
+    init_config();
+    init_mailbox();
+    init_delivery();
+    init_lineage();
+    init_providers();
+    init_identity();
+    init_incarnation();
+    init_prompt_lifecycle();
+    init_resolve();
+    init_tmux();
+    init_util();
+    init_discovery();
+    init_lockfile();
+    init_spec();
+  }
+});
+
+// topology/lib/census.mjs
+var init_census = __esm({
+  "topology/lib/census.mjs"() {
+    init_identity();
+    init_launch();
+    init_presence();
+    init_providers();
+    init_repoid();
+    init_tmux();
+    init_util();
+  }
+});
+
+// topology/lib/presence.mjs
+var init_presence = __esm({
+  "topology/lib/presence.mjs"() {
+    init_repoid();
+    init_config();
+    init_lockfile();
+    init_tmux();
+    init_slots();
+    init_census();
+    init_mailbox();
+    init_identity();
+    init_util();
+    init_discovery();
+  }
+});
+
+// topology/lib/lead.mjs
+var DEFAULT_ACK_TIMEOUT_MS, ACK_POLL_MS, RESPONSIVE_TTL_MS;
+var init_lead = __esm({
+  "topology/lib/lead.mjs"() {
+    init_agents();
+    init_config();
+    init_identity();
+    init_incarnation();
+    init_delivery();
+    init_launch();
+    init_lockfile();
+    init_prompts();
+    init_prompt_lifecycle();
+    init_providers();
+    init_repoid();
+    init_tmux();
+    init_util();
+    DEFAULT_ACK_TIMEOUT_MS = Number(process.env.AO_LEAD_ACK_TIMEOUT_MS ?? 3e4);
+    ACK_POLL_MS = Number(process.env.AO_LEAD_ACK_POLL_MS ?? 500);
+    RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
+  }
+});
+
+// topology/lib/repo-enrollment.mjs
+var init_repo_enrollment = __esm({
+  "topology/lib/repo-enrollment.mjs"() {
+    init_config();
+    init_lead();
+    init_repoid();
+  }
+});
+
+// topology/lib/lead-recovery.mjs
+var RETRY_DELAYS_MS;
+var init_lead_recovery = __esm({
+  "topology/lib/lead-recovery.mjs"() {
+    init_lead();
+    init_repo_enrollment();
+    init_repoid();
+    init_util();
+    RETRY_DELAYS_MS = Object.freeze([1e4, 3e4, 12e4, 6e5]);
+  }
+});
+
+// topology/lib/standing-mailbox.mjs
+var init_standing_mailbox = __esm({
+  "topology/lib/standing-mailbox.mjs"() {
+    init_lead();
+    init_lead_recovery();
+    init_repo_enrollment();
+    init_lockfile();
+    init_repoid();
+    init_routing();
+    init_util();
+  }
+});
+
+// topology/lib/reviewer.mjs
+var PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS2;
+var init_reviewer = __esm({
+  "topology/lib/reviewer.mjs"() {
+    init_agents();
+    init_config();
+    init_identity();
+    init_delivery();
+    init_launch();
+    init_lockfile();
+    init_prompts();
+    init_prompt_lifecycle();
+    init_incarnation();
+    init_providers();
+    init_repoid();
+    init_tmux();
+    init_util();
+    PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 2e4);
+    PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
+    RESPONSIVE_TTL_MS2 = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
+  }
+});
+
+// topology/lib/quota.mjs
+var QUOTA_PENDING_MAX_MS;
+var init_quota = __esm({
+  "topology/lib/quota.mjs"() {
+    init_census();
+    init_config();
+    init_launch();
+    init_lead();
+    init_lockfile();
+    init_providers();
+    init_repoid();
+    init_standing_mailbox();
+    init_tmux();
+    init_util();
+    QUOTA_PENDING_MAX_MS = 5 * 6e4;
+  }
+});
+
+// topology/lib/supervision.mjs
+function reconcileFloor(env, override) {
+  const raw = override ?? env.AO_RECONCILE_MIN_MS;
+  const value = raw === void 0 || raw === null || raw === "" ? DEFAULT_RECONCILE_MIN_MS : Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_RECONCILE_MIN_MS;
+}
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error51) {
+    if (error51.code === "ESRCH") return false;
+    return true;
+  }
+}
+async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os6.homedir)() } = {}) {
+  const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
+  const root = (0, import_node_path25.join)(stateRoot2(env, home), "supervision");
+  const owner = await lockOwner((0, import_node_path25.join)(root, `${key}.lock`));
+  const recordPath = (0, import_node_path25.join)(root, `${key}.process.json`);
+  const record2 = await readJson3(recordPath).catch(() => null);
+  const tick = await readJson3((0, import_node_path25.join)(root, `${key}.json`)).catch(() => null);
+  const at = tick?.at ? Date.parse(tick.at) : NaN;
+  const alive = record2 ? pidAlive(record2.pid) : false;
+  const ownerIdentity = owner?.pid ? await processIdentity(owner.pid) : null;
+  const ownerAlive = Boolean(owner && pidAlive(owner.pid) && ownerIdentity && ownerIdentity === owner.process_identity);
+  const recordOwns = Boolean(record2 && ownerAlive && record2.pid === owner.pid && record2.process_identity === owner.process_identity && record2.lock_token === owner.token);
+  const consumerExists = record2?.consumer ? await exists(record2.consumer) : true;
+  const currentTick = Boolean(recordOwns && record2.first_tick_at && tick?.pid === record2.pid && Number.isFinite(at) && at >= Date.parse(record2.started_at));
+  const state = ownerAlive ? recordOwns ? currentTick ? "running" : "starting" : "ownership-record-mismatch" : !record2 ? "never-started" : alive ? "running-without-lock" : record2.state === "consumer-gone" ? "retired-consumer-gone" : !consumerExists ? "orphaned" : ["starting", "startup-failed"].includes(record2.state) ? "died-before-first-tick" : "down";
+  return {
+    repo_id: identity.id,
+    key,
+    state,
+    pid: record2?.pid ?? null,
+    pid_alive: alive,
+    owner: owner ? { ...owner, alive: ownerAlive, current_process_identity: ownerIdentity } : null,
+    record_owns_lock: recordOwns,
+    consumer: record2?.consumer ?? null,
+    consumer_exists: consumerExists,
+    record_state: record2?.state ?? null,
+    record_path: recordPath,
+    started_at: record2?.started_at ?? null,
+    first_tick_at: record2?.first_tick_at ?? null,
+    stopped_at: record2?.stopped_at ?? null,
+    source_entrypoint: record2?.source_entrypoint ?? null,
+    source_fingerprint: record2?.source_fingerprint ?? null,
+    restarts: record2?.restarts ?? 0,
+    ready: state === "running" && Number.isFinite(at) && Date.now() - at <= Math.max(3e4, 3 * (tick?.reconcile_min_ms ?? reconcileFloor(env))),
+    failure: record2?.failure ?? null,
+    log: record2?.log ?? (0, import_node_path25.join)(root, `${key}.log`),
+    last_tick_at: tick?.at ?? null,
+    tick_age_ms: Number.isFinite(at) ? Date.now() - at : null,
+    reconcile_min_ms: tick?.reconcile_min_ms ?? reconcileFloor(env)
+  };
+}
+var import_node_path25, import_node_os6, DEFAULT_RECONCILE_MIN_MS;
+var init_supervision = __esm({
+  "topology/lib/supervision.mjs"() {
+    import_node_path25 = require("node:path");
+    import_node_os6 = require("node:os");
+    init_presence();
+    init_census();
+    init_providers();
+    init_repoid();
+    init_discovery();
+    init_tmux();
+    init_lockfile();
+    init_agents();
+    init_prompt_lifecycle();
+    init_standing_mailbox();
+    init_lead_recovery();
+    init_reviewer();
+    init_slots();
+    init_quota();
+    init_util();
+    DEFAULT_RECONCILE_MIN_MS = 1e4;
+  }
+});
+
 // src/cli.mjs
-var import_node_util3 = require("node:util");
-var import_node_path22 = require("node:path");
+var import_node_util4 = require("node:util");
+var import_node_path28 = require("node:path");
 
 // src/service.mjs
-var import_promises19 = require("node:fs/promises");
-var import_node_os5 = require("node:os");
-var import_node_path21 = require("node:path");
+var import_promises24 = require("node:fs/promises");
+var import_node_os7 = require("node:os");
+var import_node_path27 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -1147,7 +1873,7 @@ function processGroupExists(processGroup) {
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve6) => setTimeout(resolve6, pollMs));
+    await new Promise((resolve10) => setTimeout(resolve10, pollMs));
   }
   return !processGroupExists(processGroup);
 }
@@ -1222,7 +1948,38 @@ async function runtimePath(path3, options) {
 }
 
 // src/workspace/repository.mjs
-async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot2, requireClean = false }) {
+var readJson2 = (path3) => (0, import_promises3.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
+async function containsOrchestrationPayload(checkoutRoot) {
+  const marketplace = await readJson2((0, import_node_path6.join)(checkoutRoot, ".claude-plugin", "marketplace.json"));
+  const sources = (Array.isArray(marketplace?.plugins) ? marketplace.plugins : []).filter((entry) => entry?.name === "agent-orchestration" && typeof entry.source === "string").map((entry) => entry.source);
+  for (const source of /* @__PURE__ */ new Set([".", "agent-orchestration", ...sources])) {
+    const candidate = await canonicalPath((0, import_node_path6.resolve)(checkoutRoot, source)).catch(() => null);
+    if (!candidate || !isPathWithin(checkoutRoot, candidate)) continue;
+    const [pkg, manifest] = await Promise.all([
+      readJson2((0, import_node_path6.join)(candidate, "package.json")),
+      readJson2((0, import_node_path6.join)(candidate, ".claude-plugin", "plugin.json"))
+    ]);
+    if (pkg?.name !== "@bytedesk/agent-orchestration" || manifest?.name !== "agent-orchestration") continue;
+    if (await (0, import_promises3.access)((0, import_node_path6.join)(candidate, "bin", "agent-orchestration-mcp")).then(() => true, () => false)) return true;
+  }
+  return false;
+}
+async function isOrchestrationSource(checkoutRoot, commonGitDir, pluginRoot) {
+  if (pluginRoot) {
+    const pluginCommon = await git(pluginRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).then(({ stdout }) => canonicalPath(stdout)).catch(() => null);
+    if (pluginCommon === commonGitDir) return true;
+  }
+  const listing = await git(checkoutRoot, ["worktree", "list", "--porcelain", "-z"]);
+  const roots = listing.stdout.split("\0").filter((field) => field.startsWith("worktree ")).map((field) => field.slice(9));
+  for (const root of /* @__PURE__ */ new Set([checkoutRoot, ...roots])) {
+    const canonical = await canonicalPath(root).catch(() => null);
+    if (!canonical) continue;
+    const currentCommon = await git(canonical, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).then(({ stdout }) => canonicalPath(stdout)).catch(() => null);
+    if (currentCommon === commonGitDir && await containsOrchestrationPayload(canonical)) return true;
+  }
+  return false;
+}
+async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot3, requireClean = false }) {
   invariant(typeof consumerCwd === "string" && consumerCwd.length > 0, "AO_CONSUMER_CWD_REQUIRED", "consumerCwd is required and must be an absolute repository or worktree path.");
   consumerCwd = await runtimePath(consumerCwd);
   assertAbsolutePath(consumerCwd, "consumerCwd");
@@ -1230,7 +1987,7 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
   const requestedCwd = await canonicalPath(consumerCwd);
   const [canonicalPluginRoot, canonicalStateRoot] = await Promise.all([
     pluginRoot ? canonicalPath(pluginRoot) : null,
-    stateRoot2 ? canonicalPath(stateRoot2).catch(() => stateRoot2) : null
+    stateRoot3 ? canonicalPath(stateRoot3).catch(() => stateRoot3) : null
   ]);
   invariant(!canonicalPluginRoot || !isPathWithin(canonicalPluginRoot, requestedCwd), "AO_PLUGIN_ROOT_IS_NOT_CONSUMER", "consumerCwd cannot be inside the plugin installation or marketplace source.");
   invariant(!canonicalStateRoot || !isPathWithin(canonicalStateRoot, requestedCwd), "AO_STATE_ROOT_IS_NOT_CONSUMER", "consumerCwd cannot be inside the orchestration state root.");
@@ -1243,19 +2000,17 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
   checkoutRoot = await canonicalPath(checkoutRoot);
   invariant(!canonicalPluginRoot || !isPathWithin(canonicalPluginRoot, checkoutRoot) && !isPathWithin(checkoutRoot, canonicalPluginRoot), "AO_PLUGIN_ROOT_IS_NOT_CONSUMER", "The plugin installation or marketplace source cannot be used as a consumer repository.");
   invariant(!canonicalStateRoot || !isPathWithin(canonicalStateRoot, checkoutRoot) && !isPathWithin(checkoutRoot, canonicalStateRoot), "AO_STATE_ROOT_IS_NOT_CONSUMER", "The orchestration state root cannot be used as a consumer repository.");
-  const marketplaceManifest = (0, import_node_path6.join)(checkoutRoot, ".claude-plugin", "marketplace.json");
-  const isMarketplaceSource = await (0, import_promises3.access)(marketplaceManifest).then(() => true, () => false);
-  invariant(!isMarketplaceSource, "AO_MARKETPLACE_IS_NOT_CONSUMER", "A marketplace source checkout cannot be used as an orchestration consumer repository.");
   const [{ stdout: commonGitDir }, { stdout: baseSha }, { stdout: branch }, { stdout: status }] = await Promise.all([
     git(checkoutRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(checkoutRoot, ["rev-parse", "HEAD"]),
     git(checkoutRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ({ stdout: "", stderr: "" })),
     git(checkoutRoot, ["status", "--porcelain=v1", "--untracked-files=all"])
   ]);
+  const canonicalCommonGitDir = await canonicalPath(commonGitDir);
+  invariant(!await isOrchestrationSource(checkoutRoot, canonicalCommonGitDir, canonicalPluginRoot), "AO_MARKETPLACE_IS_NOT_CONSUMER", "The Agent Orchestration source or payload repository cannot be used as its own consumer.");
   if (requireClean) {
     invariant(status === "", "AO_CONSUMER_DIRTY", "The consumer repository must be clean before creating an orchestration worktree.", { checkoutRoot });
   }
-  const canonicalCommonGitDir = await canonicalPath(commonGitDir);
   return Object.freeze({
     requestedCwd,
     checkoutRoot,
@@ -1272,8 +2027,9 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
 }
 
 // src/state/store.mjs
-var import_promises4 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
+var import_promises8 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
+init_discovery();
 var TERMINAL_STATES = /* @__PURE__ */ new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
 var RUN_ID = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var UPDATE_FIELDS = /* @__PURE__ */ new Set([
@@ -1305,20 +2061,31 @@ var RunStore = class {
     this.root = root;
   }
   async initialize() {
-    await ensurePrivateDir((0, import_node_path7.join)(this.root, "runs"));
-    await ensurePrivateDir((0, import_node_path7.join)(this.root, "locks"));
-    await ensurePrivateDir((0, import_node_path7.join)(this.root, "sessions"));
+    await ensurePrivateDir((0, import_node_path11.join)(this.root, "runs"));
+    await ensurePrivateDir((0, import_node_path11.join)(this.root, "locks"));
+    await ensurePrivateDir((0, import_node_path11.join)(this.root, "sessions"));
     return this;
   }
   runDir(runId) {
     assertRunId(runId);
-    return (0, import_node_path7.join)(this.root, "runs", runId);
+    return (0, import_node_path11.join)(this.root, "runs", runId);
   }
   snapshotPath(runId) {
-    return (0, import_node_path7.join)(this.runDir(runId), "snapshot.json");
+    return (0, import_node_path11.join)(this.runDir(runId), "snapshot.json");
+  }
+  async writeSnapshot(snapshot) {
+    await atomicWriteJson(this.snapshotPath(snapshot.runId), snapshot);
+    try {
+      await publishACPWorkflow({ snapshot, recordPath: this.snapshotPath(snapshot.runId), stateHome: this.root });
+      await (0, import_promises8.unlink)((0, import_node_path11.join)(this.runDir(snapshot.runId), "discovery-error.json")).catch(() => {
+      });
+    } catch (error51) {
+      await atomicWriteJson((0, import_node_path11.join)(this.runDir(snapshot.runId), "discovery-error.json"), { at: (/* @__PURE__ */ new Date()).toISOString(), code: error51.code ?? "AO_DISCOVERY_WRITE_FAILED", message: String(error51.message).slice(0, 2e3) }).catch(() => {
+      });
+    }
   }
   eventsPath(runId) {
-    return (0, import_node_path7.join)(this.runDir(runId), "events.ndjson");
+    return (0, import_node_path11.join)(this.runDir(runId), "events.ndjson");
   }
   /**
    * Marks a run as still worth recovering.
@@ -1330,11 +2097,11 @@ var RunStore = class {
    * sweep deletes it.
    */
   activeMarkerPath(runId) {
-    return (0, import_node_path7.join)(this.runDir(runId), ".active");
+    return (0, import_node_path11.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile3 } = await import("node:fs/promises");
+    await writeFile3(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -1344,32 +2111,32 @@ var RunStore = class {
   }
   /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
   async listRecoverable() {
-    const { readdir: readdir4, stat: stat4 } = await import("node:fs/promises");
+    const { readdir: readdir5, stat: stat7 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir5((0, import_node_path11.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const recoverable = [];
     for (const id of ids) {
-      const marked = await stat4(this.activeMarkerPath(id)).then(() => true).catch(() => false);
+      const marked = await stat7(this.activeMarkerPath(id)).then(() => true).catch(() => false);
       if (marked) {
         recoverable.push(id);
         continue;
       }
-      const migrated = await stat4((0, import_node_path7.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
+      const migrated = await stat7((0, import_node_path11.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
       if (!migrated) recoverable.push(id);
     }
     return recoverable;
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile((0, import_node_path7.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile3 } = await import("node:fs/promises");
+    await writeFile3((0, import_node_path11.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
-    return (0, import_node_path7.join)(this.root, "locks", `${sha256(lockKey)}.lock`);
+    return (0, import_node_path11.join)(this.root, "locks", `${sha256(lockKey)}.lock`);
   }
   async tryBreakStaleLock(path3) {
-    const observedInfo = await (0, import_promises4.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
+    const observedInfo = await (0, import_promises8.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
     if (!observedInfo) return false;
     const observedRecord = await readJson(path3).catch(() => null);
     if (ageFromRecordOrFile(observedRecord, observedInfo) < 1e3) return false;
@@ -1377,30 +2144,30 @@ var RunStore = class {
     const breakerPath = `${path3}.breaker`;
     let breaker;
     try {
-      breaker = await (0, import_promises4.open)(breakerPath, "wx", 384);
+      breaker = await (0, import_promises8.open)(breakerPath, "wx", 384);
       await breaker.writeFile(JSON.stringify({ pid: process.pid, startIdentity: await processStartIdentity(process.pid), at: (/* @__PURE__ */ new Date()).toISOString() }));
       await breaker.sync();
     } catch (error51) {
       if (breaker) {
         await breaker.close().catch(() => {
         });
-        await (0, import_promises4.unlink)(breakerPath).catch(() => {
+        await (0, import_promises8.unlink)(breakerPath).catch(() => {
         });
         breaker = null;
       }
       if (error51?.code !== "EEXIST") throw error51;
       const [breakerRecord, breakerInfo] = await Promise.all([
         readJson(breakerPath).catch(() => null),
-        (0, import_promises4.lstat)(breakerPath).catch(() => null)
+        (0, import_promises8.lstat)(breakerPath).catch(() => null)
       ]);
       const breakerAge = breakerInfo ? ageFromRecordOrFile(breakerRecord, breakerInfo) : 0;
       const ownerAlive = breakerRecord?.pid && breakerRecord?.startIdentity ? await processStartIdentity(breakerRecord.pid) === breakerRecord.startIdentity : false;
-      if (breakerAge >= 1e3 && !ownerAlive) await (0, import_promises4.unlink)(breakerPath).catch(() => {
+      if (breakerAge >= 1e3 && !ownerAlive) await (0, import_promises8.unlink)(breakerPath).catch(() => {
       });
       return false;
     }
     try {
-      const currentInfo = await (0, import_promises4.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
+      const currentInfo = await (0, import_promises8.lstat)(path3).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51));
       if (!sameFileIdentity(observedInfo, currentInfo)) return false;
       const current = await readJson(path3).catch(() => null);
       if (completeLockRecord(observedRecord)) {
@@ -1409,13 +2176,13 @@ var RunStore = class {
         return false;
       }
       if (completeLockRecord(current) && await processStartIdentity(current.pid) === current.startIdentity) return false;
-      await (0, import_promises4.unlink)(path3).catch((error51) => {
+      await (0, import_promises8.unlink)(path3).catch((error51) => {
         if (error51?.code !== "ENOENT") throw error51;
       });
       return true;
     } finally {
       await breaker.close();
-      await (0, import_promises4.unlink)(breakerPath).catch(() => {
+      await (0, import_promises8.unlink)(breakerPath).catch(() => {
       });
     }
   }
@@ -1425,7 +2192,7 @@ var RunStore = class {
     let nonce;
     for (let attempt = 0; attempt < 500; attempt += 1) {
       try {
-        handle = await (0, import_promises4.open)(path3, "wx", 384);
+        handle = await (0, import_promises8.open)(path3, "wx", 384);
         nonce = newId("lock");
         await handle.writeFile(JSON.stringify({ pid: process.pid, nonce, startIdentity: await processStartIdentity(process.pid), at: (/* @__PURE__ */ new Date()).toISOString() }));
         await handle.sync();
@@ -1435,12 +2202,12 @@ var RunStore = class {
           await handle.close().catch(() => {
           });
           handle = void 0;
-          await (0, import_promises4.unlink)(path3).catch(() => {
+          await (0, import_promises8.unlink)(path3).catch(() => {
           });
         }
         if (error51?.code !== "EEXIST") throw error51;
         await this.tryBreakStaleLock(path3);
-        await new Promise((resolve6) => setTimeout(resolve6, 10));
+        await new Promise((resolve10) => setTimeout(resolve10, 10));
       }
     }
     invariant(handle, "AO_LOCK_TIMEOUT", `Timed out acquiring run lock for ${runId}.`);
@@ -1449,7 +2216,7 @@ var RunStore = class {
     } finally {
       await handle.close();
       const current = await readJson(path3).catch(() => null);
-      if (current?.nonce === nonce) await (0, import_promises4.unlink)(path3).catch(() => {
+      if (current?.nonce === nonce) await (0, import_promises8.unlink)(path3).catch(() => {
       });
     }
   }
@@ -1464,7 +2231,7 @@ var RunStore = class {
   }
   async createUnlocked({ input, consumer, plan, idempotencyKey = null, parentRunId = null, launcher = null }) {
     const runId = newId("run");
-    await (0, import_promises4.mkdir)(this.runDir(runId), { recursive: false, mode: 448 });
+    await (0, import_promises8.mkdir)(this.runDir(runId), { recursive: false, mode: 448 });
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const snapshot = {
       schemaVersion: 1,
@@ -1486,7 +2253,7 @@ var RunStore = class {
       error: null
     };
     await this.appendEventUnlocked(snapshot, "run_created", { state: "queued" });
-    await atomicWriteJson(this.snapshotPath(runId), snapshot);
+    await this.writeSnapshot(snapshot);
     await this.markActive(runId);
     return snapshot;
   }
@@ -1513,7 +2280,7 @@ var RunStore = class {
     }
     invariant(snapshot || journalSnapshot, "AO_RUN_NOT_FOUND", `Run ${runId} does not exist.`);
     if (journalSnapshot && (!snapshot || journalSnapshot.revision > snapshot.revision)) {
-      await atomicWriteJson(this.snapshotPath(runId), journalSnapshot);
+      await this.writeSnapshot(journalSnapshot);
       return journalSnapshot;
     }
     if (journalSnapshot) {
@@ -1522,9 +2289,9 @@ var RunStore = class {
     return snapshot;
   }
   async list() {
-    const { readdir: readdir4 } = await import("node:fs/promises");
+    const { readdir: readdir5 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir4((0, import_node_path7.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir5((0, import_node_path11.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const settled = await Promise.allSettled(ids.map((id) => this.get(id)));
     const snapshots = [];
     for (const result of settled) {
@@ -1537,7 +2304,7 @@ var RunStore = class {
     return snapshots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   async findByIdempotencyKey(key, repositoryKey = void 0) {
-    return (await this.list()).find((run) => run.idempotencyKey === key && (!repositoryKey || run.consumer.repositoryKey === repositoryKey)) ?? null;
+    return (await this.list()).find((run2) => run2.idempotencyKey === key && (!repositoryKey || run2.consumer.repositoryKey === repositoryKey)) ?? null;
   }
   async transition(runId, expectedStates, nextState, patch = {}, eventType = "state_changed") {
     return this.withLock(runId, async () => {
@@ -1546,7 +2313,7 @@ var RunStore = class {
       invariant(expectedStates.includes(current.state), "AO_INVALID_STATE_TRANSITION", `Cannot transition ${runId} from ${current.state} to ${nextState}.`, { expectedStates });
       const next = { ...current, ...patch, state: nextState, revision: current.revision + 1, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
       await this.appendEventUnlocked(next, eventType, { from: current.state, to: nextState, patch });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       if (TERMINAL_STATES.has(nextState)) {
         await this.clearActive(runId);
         await this.markSwept(runId);
@@ -1562,7 +2329,7 @@ var RunStore = class {
       invariant(fields.every((field) => UPDATE_FIELDS.has(field)), "AO_IMMUTABLE_RUN_FIELD", "Run updates may only change whitelisted mutable fields.", { fields });
       const next = { ...current, ...patch, revision: current.revision + 1, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
       await this.appendEventUnlocked(next, eventType, { patch });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
@@ -1578,7 +2345,7 @@ var RunStore = class {
       };
       const next = { ...current, ...patch, revision: current.revision + 1, updatedAt: now };
       await this.appendEventUnlocked(next, "workspace_removed", { patch });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
@@ -1589,7 +2356,7 @@ var RunStore = class {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const next = { ...current, cancelRequestedAt: now, revision: current.revision + 1, updatedAt: now };
       await this.appendEventUnlocked(next, "cancel_requested", { at: now });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
@@ -1598,13 +2365,13 @@ var RunStore = class {
       const current = await this.get(runId);
       const next = { ...current, revision: current.revision + 1, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
       await this.appendEventUnlocked(next, type, { ...payload, updatedAt: next.updatedAt });
-      await atomicWriteJson(this.snapshotPath(runId), next);
+      await this.writeSnapshot(next);
       return next;
     });
   }
   async events(runId, after = 0) {
     assertRunId(runId);
-    const text = await (0, import_promises4.readFile)(this.eventsPath(runId), "utf8").catch((error51) => {
+    const text = await (0, import_promises8.readFile)(this.eventsPath(runId), "utf8").catch((error51) => {
       if (error51?.code === "ENOENT") return "";
       throw error51;
     });
@@ -1631,10 +2398,10 @@ var RunStore = class {
   }
   async appendEventUnlocked(snapshot, type, payload) {
     const eventPath = this.eventsPath(snapshot.runId);
-    const currentText = await (0, import_promises4.readFile)(eventPath, "utf8").catch((error51) => error51?.code === "ENOENT" ? "" : Promise.reject(error51));
+    const currentText = await (0, import_promises8.readFile)(eventPath, "utf8").catch((error51) => error51?.code === "ENOENT" ? "" : Promise.reject(error51));
     if (currentText && !currentText.endsWith("\n")) {
       const lastNewline = currentText.lastIndexOf("\n");
-      await (0, import_promises4.truncate)(eventPath, lastNewline + 1);
+      await (0, import_promises8.truncate)(eventPath, lastNewline + 1);
     }
     const existing = await this.events(snapshot.runId, 0);
     const previous = existing.at(-1) ?? null;
@@ -1649,9 +2416,9 @@ var RunStore = class {
       payload: type === "run_created" ? { ...payload, snapshot } : { ...payload, updatedAt: snapshot.updatedAt }
     };
     const event = { ...base, hash: sha256(JSON.stringify(base)) };
-    await (0, import_promises4.appendFile)(eventPath, `${JSON.stringify(event)}
+    await (0, import_promises8.appendFile)(eventPath, `${JSON.stringify(event)}
 `, { encoding: "utf8", mode: 384 });
-    const handle = await (0, import_promises4.open)(eventPath, process.platform === "win32" ? "r+" : "r");
+    const handle = await (0, import_promises8.open)(eventPath, process.platform === "win32" ? "r+" : "r");
     try {
       await handle.sync();
     } finally {
@@ -1693,9 +2460,9 @@ function launcherBinding(env = process.env) {
 }
 
 // src/runtime/engine.mjs
-var import_node_path12 = require("node:path");
-var import_promises10 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
+var import_node_path16 = require("node:path");
+var import_promises14 = require("node:fs/promises");
+var import_node_path17 = require("node:path");
 
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -13475,29 +14242,29 @@ var formatMap = {
   // do not set
 };
 var stringProcessor = (schema, ctx, _json, _params) => {
-  const json2 = _json;
-  json2.type = "string";
+  const json3 = _json;
+  json3.type = "string";
   const { minimum, maximum, format, patterns, contentEncoding } = schema._zod.bag;
   if (typeof minimum === "number")
-    json2.minLength = minimum;
+    json3.minLength = minimum;
   if (typeof maximum === "number")
-    json2.maxLength = maximum;
+    json3.maxLength = maximum;
   if (format) {
-    json2.format = formatMap[format] ?? format;
-    if (json2.format === "")
-      delete json2.format;
+    json3.format = formatMap[format] ?? format;
+    if (json3.format === "")
+      delete json3.format;
     if (format === "time") {
-      delete json2.format;
+      delete json3.format;
     }
   }
   if (contentEncoding)
-    json2.contentEncoding = contentEncoding;
+    json3.contentEncoding = contentEncoding;
   if (patterns && patterns.size > 0) {
     const regexes = [...patterns];
     if (regexes.length === 1)
-      json2.pattern = regexes[0].source;
+      json3.pattern = regexes[0].source;
     else if (regexes.length > 1) {
-      json2.allOf = [
+      json3.allOf = [
         ...regexes.map((regex) => ({
           ...ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0" ? { type: "string" } : {},
           pattern: regex.source
@@ -13507,40 +14274,40 @@ var stringProcessor = (schema, ctx, _json, _params) => {
   }
 };
 var numberProcessor = (schema, ctx, _json, _params) => {
-  const json2 = _json;
+  const json3 = _json;
   const { minimum, maximum, format, multipleOf, exclusiveMaximum, exclusiveMinimum } = schema._zod.bag;
   if (typeof format === "string" && format.includes("int"))
-    json2.type = "integer";
+    json3.type = "integer";
   else
-    json2.type = "number";
+    json3.type = "number";
   const exMin = typeof exclusiveMinimum === "number" && exclusiveMinimum >= (minimum ?? Number.NEGATIVE_INFINITY);
   const exMax = typeof exclusiveMaximum === "number" && exclusiveMaximum <= (maximum ?? Number.POSITIVE_INFINITY);
   const legacy = ctx.target === "draft-04" || ctx.target === "openapi-3.0";
   if (exMin) {
     if (legacy) {
-      json2.minimum = exclusiveMinimum;
-      json2.exclusiveMinimum = true;
+      json3.minimum = exclusiveMinimum;
+      json3.exclusiveMinimum = true;
     } else {
-      json2.exclusiveMinimum = exclusiveMinimum;
+      json3.exclusiveMinimum = exclusiveMinimum;
     }
   } else if (typeof minimum === "number") {
-    json2.minimum = minimum;
+    json3.minimum = minimum;
   }
   if (exMax) {
     if (legacy) {
-      json2.maximum = exclusiveMaximum;
-      json2.exclusiveMaximum = true;
+      json3.maximum = exclusiveMaximum;
+      json3.exclusiveMaximum = true;
     } else {
-      json2.exclusiveMaximum = exclusiveMaximum;
+      json3.exclusiveMaximum = exclusiveMaximum;
     }
   } else if (typeof maximum === "number") {
-    json2.maximum = maximum;
+    json3.maximum = maximum;
   }
   if (typeof multipleOf === "number")
-    json2.multipleOf = multipleOf;
+    json3.multipleOf = multipleOf;
 };
-var booleanProcessor = (_schema, _ctx, json2, _params) => {
-  json2.type = "boolean";
+var booleanProcessor = (_schema, _ctx, json3, _params) => {
+  json3.type = "boolean";
 };
 var bigintProcessor = (_schema, ctx, _json, _params) => {
   if (ctx.unrepresentable === "throw") {
@@ -13552,13 +14319,13 @@ var symbolProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("Symbols cannot be represented in JSON Schema");
   }
 };
-var nullProcessor = (_schema, ctx, json2, _params) => {
+var nullProcessor = (_schema, ctx, json3, _params) => {
   if (ctx.target === "openapi-3.0") {
-    json2.type = "string";
-    json2.nullable = true;
-    json2.enum = [null];
+    json3.type = "string";
+    json3.nullable = true;
+    json3.enum = [null];
   } else {
-    json2.type = "null";
+    json3.type = "null";
   }
 };
 var undefinedProcessor = (_schema, ctx, _json, _params) => {
@@ -13571,8 +14338,8 @@ var voidProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("Void cannot be represented in JSON Schema");
   }
 };
-var neverProcessor = (_schema, _ctx, json2, _params) => {
-  json2.not = {};
+var neverProcessor = (_schema, _ctx, json3, _params) => {
+  json3.not = {};
 };
 var anyProcessor = (_schema, _ctx, _json, _params) => {
 };
@@ -13583,16 +14350,16 @@ var dateProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("Date cannot be represented in JSON Schema");
   }
 };
-var enumProcessor = (schema, _ctx, json2, _params) => {
+var enumProcessor = (schema, _ctx, json3, _params) => {
   const def = schema._zod.def;
   const values = getEnumValues(def.entries);
   if (values.every((v) => typeof v === "number"))
-    json2.type = "number";
+    json3.type = "number";
   if (values.every((v) => typeof v === "string"))
-    json2.type = "string";
-  json2.enum = values;
+    json3.type = "string";
+  json3.enum = values;
 };
-var literalProcessor = (schema, ctx, json2, _params) => {
+var literalProcessor = (schema, ctx, json3, _params) => {
   const def = schema._zod.def;
   const vals = [];
   for (const val of def.values) {
@@ -13614,22 +14381,22 @@ var literalProcessor = (schema, ctx, json2, _params) => {
   if (vals.length === 0) {
   } else if (vals.length === 1) {
     const val = vals[0];
-    json2.type = val === null ? "null" : typeof val;
+    json3.type = val === null ? "null" : typeof val;
     if (ctx.target === "draft-04" || ctx.target === "openapi-3.0") {
-      json2.enum = [val];
+      json3.enum = [val];
     } else {
-      json2.const = val;
+      json3.const = val;
     }
   } else {
     if (vals.every((v) => typeof v === "number"))
-      json2.type = "number";
+      json3.type = "number";
     if (vals.every((v) => typeof v === "string"))
-      json2.type = "string";
+      json3.type = "string";
     if (vals.every((v) => typeof v === "boolean"))
-      json2.type = "boolean";
+      json3.type = "boolean";
     if (vals.every((v) => v === null))
-      json2.type = "null";
-    json2.enum = vals;
+      json3.type = "null";
+    json3.enum = vals;
   }
 };
 var nanProcessor = (_schema, ctx, _json, _params) => {
@@ -13637,16 +14404,16 @@ var nanProcessor = (_schema, ctx, _json, _params) => {
     throw new Error("NaN cannot be represented in JSON Schema");
   }
 };
-var templateLiteralProcessor = (schema, _ctx, json2, _params) => {
-  const _json = json2;
+var templateLiteralProcessor = (schema, _ctx, json3, _params) => {
+  const _json = json3;
   const pattern = schema._zod.pattern;
   if (!pattern)
     throw new Error("Pattern not found in template literal");
   _json.type = "string";
   _json.pattern = pattern.source;
 };
-var fileProcessor = (schema, _ctx, json2, _params) => {
-  const _json = json2;
+var fileProcessor = (schema, _ctx, json3, _params) => {
+  const _json = json3;
   const file2 = {
     type: "string",
     format: "binary",
@@ -13669,8 +14436,8 @@ var fileProcessor = (schema, _ctx, json2, _params) => {
     Object.assign(_json, file2);
   }
 };
-var successProcessor = (_schema, _ctx, json2, _params) => {
-  json2.type = "boolean";
+var successProcessor = (_schema, _ctx, json3, _params) => {
+  json3.type = "boolean";
 };
 var customProcessor = (_schema, ctx, _json, _params) => {
   if (ctx.unrepresentable === "throw") {
@@ -13698,27 +14465,27 @@ var setProcessor = (_schema, ctx, _json, _params) => {
   }
 };
 var arrayProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
   const { minimum, maximum } = schema._zod.bag;
   if (typeof minimum === "number")
-    json2.minItems = minimum;
+    json3.minItems = minimum;
   if (typeof maximum === "number")
-    json2.maxItems = maximum;
-  json2.type = "array";
-  json2.items = process2(def.element, ctx, {
+    json3.maxItems = maximum;
+  json3.type = "array";
+  json3.items = process2(def.element, ctx, {
     ...params,
     path: [...params.path, "items"]
   });
 };
 var objectProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
-  json2.type = "object";
-  json2.properties = {};
+  json3.type = "object";
+  json3.properties = {};
   const shape = def.shape;
   for (const key in shape) {
-    json2.properties[key] = process2(shape[key], ctx, {
+    json3.properties[key] = process2(shape[key], ctx, {
       ...params,
       path: [...params.path, "properties", key]
     });
@@ -13733,21 +14500,21 @@ var objectProcessor = (schema, ctx, _json, params) => {
     }
   }));
   if (requiredKeys.size > 0) {
-    json2.required = Array.from(requiredKeys);
+    json3.required = Array.from(requiredKeys);
   }
   if (def.catchall?._zod.def.type === "never") {
-    json2.additionalProperties = false;
+    json3.additionalProperties = false;
   } else if (!def.catchall) {
     if (ctx.io === "output")
-      json2.additionalProperties = false;
+      json3.additionalProperties = false;
   } else if (def.catchall) {
-    json2.additionalProperties = process2(def.catchall, ctx, {
+    json3.additionalProperties = process2(def.catchall, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
   }
 };
-var unionProcessor = (schema, ctx, json2, params) => {
+var unionProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   const isExclusive = def.inclusive === false;
   const options = def.options.map((x, i) => process2(x, ctx, {
@@ -13755,12 +14522,12 @@ var unionProcessor = (schema, ctx, json2, params) => {
     path: [...params.path, isExclusive ? "oneOf" : "anyOf", i]
   }));
   if (isExclusive) {
-    json2.oneOf = options;
+    json3.oneOf = options;
   } else {
-    json2.anyOf = options;
+    json3.anyOf = options;
   }
 };
-var intersectionProcessor = (schema, ctx, json2, params) => {
+var intersectionProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   const a = process2(def.left, ctx, {
     ...params,
@@ -13775,12 +14542,12 @@ var intersectionProcessor = (schema, ctx, json2, params) => {
     ...isSimpleIntersection(a) ? a.allOf : [a],
     ...isSimpleIntersection(b) ? b.allOf : [b]
   ];
-  json2.allOf = allOf;
+  json3.allOf = allOf;
 };
 var tupleProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
-  json2.type = "array";
+  json3.type = "array";
   const prefixPath = ctx.target === "draft-2020-12" ? "prefixItems" : "items";
   const restPath = ctx.target === "draft-2020-12" ? "items" : ctx.target === "openapi-3.0" ? "items" : "additionalItems";
   const prefixItems = def.items.map((x, i) => process2(x, ctx, {
@@ -13792,37 +14559,37 @@ var tupleProcessor = (schema, ctx, _json, params) => {
     path: [...params.path, restPath, ...ctx.target === "openapi-3.0" ? [def.items.length] : []]
   }) : null;
   if (ctx.target === "draft-2020-12") {
-    json2.prefixItems = prefixItems;
+    json3.prefixItems = prefixItems;
     if (rest) {
-      json2.items = rest;
+      json3.items = rest;
     }
   } else if (ctx.target === "openapi-3.0") {
-    json2.items = {
+    json3.items = {
       anyOf: prefixItems
     };
     if (rest) {
-      json2.items.anyOf.push(rest);
+      json3.items.anyOf.push(rest);
     }
-    json2.minItems = prefixItems.length;
+    json3.minItems = prefixItems.length;
     if (!rest) {
-      json2.maxItems = prefixItems.length;
+      json3.maxItems = prefixItems.length;
     }
   } else {
-    json2.items = prefixItems;
+    json3.items = prefixItems;
     if (rest) {
-      json2.additionalItems = rest;
+      json3.additionalItems = rest;
     }
   }
   const { minimum, maximum } = schema._zod.bag;
   if (typeof minimum === "number")
-    json2.minItems = minimum;
+    json3.minItems = minimum;
   if (typeof maximum === "number")
-    json2.maxItems = maximum;
+    json3.maxItems = maximum;
 };
 var recordProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
-  json2.type = "object";
+  json3.type = "object";
   const keyType = def.keyType;
   const keyBag = keyType._zod.bag;
   const patterns = keyBag?.patterns;
@@ -13831,18 +14598,18 @@ var recordProcessor = (schema, ctx, _json, params) => {
       ...params,
       path: [...params.path, "patternProperties", "*"]
     });
-    json2.patternProperties = {};
+    json3.patternProperties = {};
     for (const pattern of patterns) {
-      json2.patternProperties[pattern.source] = valueSchema;
+      json3.patternProperties[pattern.source] = valueSchema;
     }
   } else {
     if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
-      json2.propertyNames = process2(def.keyType, ctx, {
+      json3.propertyNames = process2(def.keyType, ctx, {
         ...params,
         path: [...params.path, "propertyNames"]
       });
     }
-    json2.additionalProperties = process2(def.valueType, ctx, {
+    json3.additionalProperties = process2(def.valueType, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -13851,19 +14618,19 @@ var recordProcessor = (schema, ctx, _json, params) => {
   if (keyValues) {
     const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
     if (validKeyValues.length > 0) {
-      json2.required = validKeyValues;
+      json3.required = validKeyValues;
     }
   }
 };
-var nullableProcessor = (schema, ctx, json2, params) => {
+var nullableProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   const inner = process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   if (ctx.target === "openapi-3.0") {
     seen.ref = def.innerType;
-    json2.nullable = true;
+    json3.nullable = true;
   } else {
-    json2.anyOf = [inner, { type: "null" }];
+    json3.anyOf = [inner, { type: "null" }];
   }
 };
 var nonoptionalProcessor = (schema, ctx, _json, params) => {
@@ -13872,22 +14639,22 @@ var nonoptionalProcessor = (schema, ctx, _json, params) => {
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
-var defaultProcessor = (schema, ctx, json2, params) => {
+var defaultProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
-  json2.default = JSON.parse(JSON.stringify(def.defaultValue));
+  json3.default = JSON.parse(JSON.stringify(def.defaultValue));
 };
-var prefaultProcessor = (schema, ctx, json2, params) => {
+var prefaultProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   if (ctx.io === "input")
-    json2._prefault = JSON.parse(JSON.stringify(def.defaultValue));
+    json3._prefault = JSON.parse(JSON.stringify(def.defaultValue));
 };
-var catchProcessor = (schema, ctx, json2, params) => {
+var catchProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
@@ -13898,7 +14665,7 @@ var catchProcessor = (schema, ctx, json2, params) => {
   } catch {
     throw new Error("Dynamic catch values are not supported in JSON Schema");
   }
-  json2.default = catchValue;
+  json3.default = catchValue;
 };
 var pipeProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
@@ -13908,12 +14675,12 @@ var pipeProcessor = (schema, ctx, _json, params) => {
   const seen = ctx.seen.get(schema);
   seen.ref = innerType;
 };
-var readonlyProcessor = (schema, ctx, json2, params) => {
+var readonlyProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
-  json2.readOnly = true;
+  json3.readOnly = true;
 };
 var promiseProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
@@ -14557,7 +15324,7 @@ var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
 var _ZodString = /* @__PURE__ */ $constructor("_ZodString", (inst, def) => {
   $ZodString.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => stringProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => stringProcessor(inst, ctx, json3, params);
   const bag = inst._zod.bag;
   inst.format = bag.format ?? null;
   inst.minLength = bag.minimum ?? null;
@@ -14828,7 +15595,7 @@ function hash(alg, params) {
 var ZodNumber = /* @__PURE__ */ $constructor("ZodNumber", (inst, def) => {
   $ZodNumber.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => numberProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => numberProcessor(inst, ctx, json3, params);
   _installLazyMethods(inst, "ZodNumber", {
     gt(value, params) {
       return this.check(_gt(value, params));
@@ -14908,7 +15675,7 @@ function uint32(params) {
 var ZodBoolean = /* @__PURE__ */ $constructor("ZodBoolean", (inst, def) => {
   $ZodBoolean.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => booleanProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => booleanProcessor(inst, ctx, json3, params);
 });
 function boolean2(params) {
   return _boolean(ZodBoolean, params);
@@ -14916,7 +15683,7 @@ function boolean2(params) {
 var ZodBigInt = /* @__PURE__ */ $constructor("ZodBigInt", (inst, def) => {
   $ZodBigInt.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => bigintProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => bigintProcessor(inst, ctx, json3, params);
   inst.gte = (value, params) => inst.check(_gte(value, params));
   inst.min = (value, params) => inst.check(_gte(value, params));
   inst.gt = (value, params) => inst.check(_gt(value, params));
@@ -14951,7 +15718,7 @@ function uint64(params) {
 var ZodSymbol = /* @__PURE__ */ $constructor("ZodSymbol", (inst, def) => {
   $ZodSymbol.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => symbolProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => symbolProcessor(inst, ctx, json3, params);
 });
 function symbol(params) {
   return _symbol(ZodSymbol, params);
@@ -14959,7 +15726,7 @@ function symbol(params) {
 var ZodUndefined = /* @__PURE__ */ $constructor("ZodUndefined", (inst, def) => {
   $ZodUndefined.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => undefinedProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => undefinedProcessor(inst, ctx, json3, params);
 });
 function _undefined3(params) {
   return _undefined2(ZodUndefined, params);
@@ -14967,7 +15734,7 @@ function _undefined3(params) {
 var ZodNull = /* @__PURE__ */ $constructor("ZodNull", (inst, def) => {
   $ZodNull.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nullProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nullProcessor(inst, ctx, json3, params);
 });
 function _null3(params) {
   return _null2(ZodNull, params);
@@ -14975,7 +15742,7 @@ function _null3(params) {
 var ZodAny = /* @__PURE__ */ $constructor("ZodAny", (inst, def) => {
   $ZodAny.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => anyProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => anyProcessor(inst, ctx, json3, params);
 });
 function any() {
   return _any(ZodAny);
@@ -14983,7 +15750,7 @@ function any() {
 var ZodUnknown = /* @__PURE__ */ $constructor("ZodUnknown", (inst, def) => {
   $ZodUnknown.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => unknownProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => unknownProcessor(inst, ctx, json3, params);
 });
 function unknown() {
   return _unknown(ZodUnknown);
@@ -14991,7 +15758,7 @@ function unknown() {
 var ZodNever = /* @__PURE__ */ $constructor("ZodNever", (inst, def) => {
   $ZodNever.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => neverProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => neverProcessor(inst, ctx, json3, params);
 });
 function never(params) {
   return _never(ZodNever, params);
@@ -14999,7 +15766,7 @@ function never(params) {
 var ZodVoid = /* @__PURE__ */ $constructor("ZodVoid", (inst, def) => {
   $ZodVoid.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => voidProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => voidProcessor(inst, ctx, json3, params);
 });
 function _void2(params) {
   return _void(ZodVoid, params);
@@ -15007,7 +15774,7 @@ function _void2(params) {
 var ZodDate = /* @__PURE__ */ $constructor("ZodDate", (inst, def) => {
   $ZodDate.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => dateProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => dateProcessor(inst, ctx, json3, params);
   inst.min = (value, params) => inst.check(_gte(value, params));
   inst.max = (value, params) => inst.check(_lte(value, params));
   const c = inst._zod.bag;
@@ -15020,7 +15787,7 @@ function date3(params) {
 var ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
   $ZodArray.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => arrayProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => arrayProcessor(inst, ctx, json3, params);
   inst.element = def.element;
   _installLazyMethods(inst, "ZodArray", {
     min(n, params) {
@@ -15050,7 +15817,7 @@ function keyof(schema) {
 var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
   $ZodObjectJIT.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => objectProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => objectProcessor(inst, ctx, json3, params);
   util_exports.defineLazy(inst, "shape", () => {
     return def.shape;
   });
@@ -15123,7 +15890,7 @@ function looseObject(shape, params) {
 var ZodUnion = /* @__PURE__ */ $constructor("ZodUnion", (inst, def) => {
   $ZodUnion.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => unionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => unionProcessor(inst, ctx, json3, params);
   inst.options = def.options;
 });
 function union(options, params) {
@@ -15136,7 +15903,7 @@ function union(options, params) {
 var ZodXor = /* @__PURE__ */ $constructor("ZodXor", (inst, def) => {
   ZodUnion.init(inst, def);
   $ZodXor.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => unionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => unionProcessor(inst, ctx, json3, params);
   inst.options = def.options;
 });
 function xor(options, params) {
@@ -15162,7 +15929,7 @@ function discriminatedUnion(discriminator, options, params) {
 var ZodIntersection = /* @__PURE__ */ $constructor("ZodIntersection", (inst, def) => {
   $ZodIntersection.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => intersectionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => intersectionProcessor(inst, ctx, json3, params);
 });
 function intersection(left, right) {
   return new ZodIntersection({
@@ -15174,7 +15941,7 @@ function intersection(left, right) {
 var ZodTuple = /* @__PURE__ */ $constructor("ZodTuple", (inst, def) => {
   $ZodTuple.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => tupleProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => tupleProcessor(inst, ctx, json3, params);
   inst.rest = (rest) => inst.clone({
     ...inst._zod.def,
     rest
@@ -15194,7 +15961,7 @@ function tuple(items, _paramsOrRest, _params) {
 var ZodRecord = /* @__PURE__ */ $constructor("ZodRecord", (inst, def) => {
   $ZodRecord.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => recordProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => recordProcessor(inst, ctx, json3, params);
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
 });
@@ -15236,7 +16003,7 @@ function looseRecord(keyType, valueType, params) {
 var ZodMap = /* @__PURE__ */ $constructor("ZodMap", (inst, def) => {
   $ZodMap.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => mapProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => mapProcessor(inst, ctx, json3, params);
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
   inst.min = (...args) => inst.check(_minSize(...args));
@@ -15255,7 +16022,7 @@ function map(keyType, valueType, params) {
 var ZodSet = /* @__PURE__ */ $constructor("ZodSet", (inst, def) => {
   $ZodSet.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => setProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => setProcessor(inst, ctx, json3, params);
   inst.min = (...args) => inst.check(_minSize(...args));
   inst.nonempty = (params) => inst.check(_minSize(1, params));
   inst.max = (...args) => inst.check(_maxSize(...args));
@@ -15271,7 +16038,7 @@ function set(valueType, params) {
 var ZodEnum = /* @__PURE__ */ $constructor("ZodEnum", (inst, def) => {
   $ZodEnum.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => enumProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => enumProcessor(inst, ctx, json3, params);
   inst.enum = def.entries;
   inst.options = Object.values(def.entries);
   const keys = new Set(Object.keys(def.entries));
@@ -15324,7 +16091,7 @@ function nativeEnum(entries, params) {
 var ZodLiteral = /* @__PURE__ */ $constructor("ZodLiteral", (inst, def) => {
   $ZodLiteral.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => literalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => literalProcessor(inst, ctx, json3, params);
   inst.values = new Set(def.values);
   Object.defineProperty(inst, "value", {
     get() {
@@ -15345,7 +16112,7 @@ function literal(value, params) {
 var ZodFile = /* @__PURE__ */ $constructor("ZodFile", (inst, def) => {
   $ZodFile.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => fileProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => fileProcessor(inst, ctx, json3, params);
   inst.min = (size, params) => inst.check(_minSize(size, params));
   inst.max = (size, params) => inst.check(_maxSize(size, params));
   inst.mime = (types, params) => inst.check(_mime(Array.isArray(types) ? types : [types], params));
@@ -15356,7 +16123,7 @@ function file(params) {
 var ZodTransform = /* @__PURE__ */ $constructor("ZodTransform", (inst, def) => {
   $ZodTransform.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => transformProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => transformProcessor(inst, ctx, json3, params);
   inst._zod.parse = (payload, _ctx) => {
     if (_ctx.direction === "backward") {
       throw new $ZodEncodeError(inst.constructor.name);
@@ -15396,7 +16163,7 @@ function transform(fn) {
 var ZodOptional = /* @__PURE__ */ $constructor("ZodOptional", (inst, def) => {
   $ZodOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => optionalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => optionalProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function optional(innerType) {
@@ -15408,7 +16175,7 @@ function optional(innerType) {
 var ZodExactOptional = /* @__PURE__ */ $constructor("ZodExactOptional", (inst, def) => {
   $ZodExactOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => optionalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => optionalProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function exactOptional(innerType) {
@@ -15420,7 +16187,7 @@ function exactOptional(innerType) {
 var ZodNullable = /* @__PURE__ */ $constructor("ZodNullable", (inst, def) => {
   $ZodNullable.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nullableProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nullableProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function nullable(innerType) {
@@ -15435,7 +16202,7 @@ function nullish2(innerType) {
 var ZodDefault = /* @__PURE__ */ $constructor("ZodDefault", (inst, def) => {
   $ZodDefault.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => defaultProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => defaultProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
   inst.removeDefault = inst.unwrap;
 });
@@ -15451,7 +16218,7 @@ function _default2(innerType, defaultValue) {
 var ZodPrefault = /* @__PURE__ */ $constructor("ZodPrefault", (inst, def) => {
   $ZodPrefault.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => prefaultProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => prefaultProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function prefault(innerType, defaultValue) {
@@ -15466,7 +16233,7 @@ function prefault(innerType, defaultValue) {
 var ZodNonOptional = /* @__PURE__ */ $constructor("ZodNonOptional", (inst, def) => {
   $ZodNonOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nonoptionalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nonoptionalProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function nonoptional(innerType, params) {
@@ -15479,7 +16246,7 @@ function nonoptional(innerType, params) {
 var ZodSuccess = /* @__PURE__ */ $constructor("ZodSuccess", (inst, def) => {
   $ZodSuccess.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => successProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => successProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function success(innerType) {
@@ -15491,7 +16258,7 @@ function success(innerType) {
 var ZodCatch = /* @__PURE__ */ $constructor("ZodCatch", (inst, def) => {
   $ZodCatch.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => catchProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => catchProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
   inst.removeCatch = inst.unwrap;
 });
@@ -15505,7 +16272,7 @@ function _catch2(innerType, catchValue) {
 var ZodNaN = /* @__PURE__ */ $constructor("ZodNaN", (inst, def) => {
   $ZodNaN.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nanProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nanProcessor(inst, ctx, json3, params);
 });
 function nan(params) {
   return _nan(ZodNaN, params);
@@ -15513,7 +16280,7 @@ function nan(params) {
 var ZodPipe = /* @__PURE__ */ $constructor("ZodPipe", (inst, def) => {
   $ZodPipe.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => pipeProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => pipeProcessor(inst, ctx, json3, params);
   inst.in = def.in;
   inst.out = def.out;
 });
@@ -15555,7 +16322,7 @@ var ZodPreprocess = /* @__PURE__ */ $constructor("ZodPreprocess", (inst, def) =>
 var ZodReadonly = /* @__PURE__ */ $constructor("ZodReadonly", (inst, def) => {
   $ZodReadonly.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => readonlyProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => readonlyProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function readonly(innerType) {
@@ -15567,7 +16334,7 @@ function readonly(innerType) {
 var ZodTemplateLiteral = /* @__PURE__ */ $constructor("ZodTemplateLiteral", (inst, def) => {
   $ZodTemplateLiteral.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => templateLiteralProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => templateLiteralProcessor(inst, ctx, json3, params);
 });
 function templateLiteral(parts, params) {
   return new ZodTemplateLiteral({
@@ -15579,7 +16346,7 @@ function templateLiteral(parts, params) {
 var ZodLazy = /* @__PURE__ */ $constructor("ZodLazy", (inst, def) => {
   $ZodLazy.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => lazyProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => lazyProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.getter();
 });
 function lazy(getter) {
@@ -15591,7 +16358,7 @@ function lazy(getter) {
 var ZodPromise = /* @__PURE__ */ $constructor("ZodPromise", (inst, def) => {
   $ZodPromise.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => promiseProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => promiseProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function promise(innerType) {
@@ -15603,7 +16370,7 @@ function promise(innerType) {
 var ZodFunction = /* @__PURE__ */ $constructor("ZodFunction", (inst, def) => {
   $ZodFunction.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => functionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => functionProcessor(inst, ctx, json3, params);
 });
 function _function(params) {
   return new ZodFunction({
@@ -15615,7 +16382,7 @@ function _function(params) {
 var ZodCustom = /* @__PURE__ */ $constructor("ZodCustom", (inst, def) => {
   $ZodCustom.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => customProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => customProcessor(inst, ctx, json3, params);
 });
 function check(fn) {
   const ch = new $ZodCheck({
@@ -16212,20 +16979,20 @@ function date4(params) {
 config(en_default());
 
 // src/workspace/worktrees.mjs
-var import_promises5 = require("node:fs/promises");
-var import_node_path8 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path12 = require("node:path");
 var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 function orchestrationWorktreeRoot(repository) {
-  const repoName = (0, import_node_path8.basename)(repository.checkoutRoot).replace(/[^A-Za-z0-9._-]/g, "-");
-  return (0, import_node_path8.resolve)((0, import_node_path8.dirname)(repository.checkoutRoot), `.${repoName}-worktrees`, "agent-orchestration", repository.repositoryKey);
+  const repoName = (0, import_node_path12.basename)(repository.checkoutRoot).replace(/[^A-Za-z0-9._-]/g, "-");
+  return (0, import_node_path12.resolve)((0, import_node_path12.dirname)(repository.checkoutRoot), `.${repoName}-worktrees`, "agent-orchestration", repository.repositoryKey);
 }
 function orchestrationWorktreePath(repository, runId, taskId = "primary") {
   invariant(SAFE_ID.test(runId), "AO_INVALID_RUN_ID", "runId contains unsafe characters.");
   invariant(SAFE_ID.test(taskId), "AO_INVALID_TASK_ID", "taskId contains unsafe characters.");
-  return (0, import_node_path8.join)(orchestrationWorktreeRoot(repository), runId, taskId);
+  return (0, import_node_path12.join)(orchestrationWorktreeRoot(repository), runId, taskId);
 }
 function orchestrationOwnershipPath(repository, runId, taskId = "primary") {
-  return (0, import_node_path8.join)((0, import_node_path8.dirname)(orchestrationWorktreePath(repository, runId, taskId)), ".broker-ownership", `${taskId}.json`);
+  return (0, import_node_path12.join)((0, import_node_path12.dirname)(orchestrationWorktreePath(repository, runId, taskId)), ".broker-ownership", `${taskId}.json`);
 }
 function registeredWorktreePaths(porcelain) {
   return porcelain.split("\0").filter((record2) => record2.startsWith("worktree ")).map((record2) => record2.slice("worktree ".length));
@@ -16249,9 +17016,9 @@ async function createOrchestrationWorktree(repository, { runId, taskId = "primar
   invariant(repository.dirty === false, "AO_CONSUMER_DIRTY", "A clean consumer repository is required before worktree creation.");
   const root = orchestrationWorktreeRoot(repository);
   const worktreePath = orchestrationWorktreePath(repository, runId, taskId);
-  await (0, import_promises5.mkdir)((0, import_node_path8.dirname)(worktreePath), { recursive: true, mode: 448 });
+  await (0, import_promises9.mkdir)((0, import_node_path12.dirname)(worktreePath), { recursive: true, mode: 448 });
   await git(repository.checkoutRoot, ["worktree", "add", "--detach", "--", worktreePath, baseSha], { timeoutMs: 12e4 });
-  const actualPath = await (0, import_promises5.realpath)(worktreePath);
+  const actualPath = await (0, import_promises9.realpath)(worktreePath);
   invariant(isPathWithin(root, actualPath), "AO_WORKTREE_ESCAPE", "Git created a worktree outside the consumer-derived orchestration root.");
   const [{ stdout: head }, { stdout: commonGitDir }, { stdout: gitDir }] = await Promise.all([
     git(actualPath, ["rev-parse", "HEAD"]),
@@ -16259,11 +17026,11 @@ async function createOrchestrationWorktree(repository, { runId, taskId = "primar
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"])
   ]);
   invariant(head === baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Created worktree does not match the requested base SHA.");
-  invariant(await (0, import_promises5.realpath)(commonGitDir) === repository.commonGitDir, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree belongs to a different repository.");
-  const actualGitDir = await (0, import_promises5.realpath)(gitDir);
-  const worktreeAdminRoot = await (0, import_promises5.realpath)((0, import_node_path8.join)(repository.commonGitDir, "worktrees"));
+  invariant(await (0, import_promises9.realpath)(commonGitDir) === repository.commonGitDir, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree belongs to a different repository.");
+  const actualGitDir = await (0, import_promises9.realpath)(gitDir);
+  const worktreeAdminRoot = await (0, import_promises9.realpath)((0, import_node_path12.join)(repository.commonGitDir, "worktrees"));
   invariant(isPathWithin(worktreeAdminRoot, actualGitDir) && actualGitDir !== worktreeAdminRoot, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree lacks a dedicated Git administration entry.");
-  const gitMarker = await (0, import_promises5.readFile)((0, import_node_path8.join)(actualPath, ".git"));
+  const gitMarker = await (0, import_promises9.readFile)((0, import_node_path12.join)(actualPath, ".git"));
   const ownershipPath = orchestrationOwnershipPath(repository, runId, taskId);
   const ownershipNonce = newId("workspace");
   const workspace = {
@@ -16279,7 +17046,7 @@ async function createOrchestrationWorktree(repository, { runId, taskId = "primar
     ownership: { nonce: ownershipNonce, path: ownershipPath }
   };
   try {
-    await (0, import_promises5.mkdir)((0, import_node_path8.dirname)(ownershipPath), { recursive: true, mode: 448 });
+    await (0, import_promises9.mkdir)((0, import_node_path12.dirname)(ownershipPath), { recursive: true, mode: 448 });
     await atomicWriteJson(ownershipPath, {
       schemaVersion: 1,
       nonce: ownershipNonce,
@@ -16309,18 +17076,18 @@ async function removeOrchestrationWorktree(repository, workspace) {
   invariant(typeof workspace.ownership?.nonce === "string" && workspace.ownership.nonce.length > 0 && typeof workspace.ownership.path === "string", "AO_WORKSPACE_OWNERSHIP_MISSING", "Workspace is missing its broker ownership record.");
   const expectedPath = orchestrationWorktreePath(repository, workspace.runId, workspace.taskId);
   const expectedOwnershipPath = orchestrationOwnershipPath(repository, workspace.runId, workspace.taskId);
-  invariant((0, import_node_path8.resolve)(workspace.path) === expectedPath && isPathWithin(root, expectedPath) && expectedPath !== root, "AO_UNSAFE_WORKTREE_REMOVAL", "Workspace path does not match its exact consumer-derived run path.");
-  invariant((0, import_node_path8.resolve)(workspace.ownership.path) === expectedOwnershipPath, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Workspace ownership record path does not match its exact broker-derived path.");
+  invariant((0, import_node_path12.resolve)(workspace.path) === expectedPath && isPathWithin(root, expectedPath) && expectedPath !== root, "AO_UNSAFE_WORKTREE_REMOVAL", "Workspace path does not match its exact consumer-derived run path.");
+  invariant((0, import_node_path12.resolve)(workspace.ownership.path) === expectedOwnershipPath, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Workspace ownership record path does not match its exact broker-derived path.");
   const [workspaceInfo, ownershipInfo] = await Promise.all([
-    (0, import_promises5.lstat)(expectedPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51)),
-    (0, import_promises5.lstat)(expectedOwnershipPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51))
+    (0, import_promises9.lstat)(expectedPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51)),
+    (0, import_promises9.lstat)(expectedOwnershipPath).catch((error51) => error51?.code === "ENOENT" ? null : Promise.reject(error51))
   ]);
   if (!workspaceInfo) {
     if (ownershipInfo) {
       invariant(ownershipInfo.isFile(), "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Workspace ownership metadata must be a regular file.");
       const record3 = await readJson(expectedOwnershipPath);
       assertOwnershipRecord(record3, workspace, expectedPath, expectedOwnershipPath);
-      await (0, import_promises5.unlink)(expectedOwnershipPath);
+      await (0, import_promises9.unlink)(expectedOwnershipPath);
     }
     return { removed: false, reason: "already_removed" };
   }
@@ -16328,51 +17095,51 @@ async function removeOrchestrationWorktree(repository, workspace) {
   invariant(ownershipInfo?.isFile(), "AO_WORKSPACE_OWNERSHIP_MISSING", "The broker ownership record is required before worktree removal.");
   const record2 = await readJson(expectedOwnershipPath);
   assertOwnershipRecord(record2, workspace, expectedPath, expectedOwnershipPath);
-  const actualPath = await (0, import_promises5.realpath)(expectedPath);
+  const actualPath = await (0, import_promises9.realpath)(expectedPath);
   invariant(actualPath === expectedPath, "AO_UNSAFE_WORKTREE_REMOVAL", "Workspace path resolves away from its exact broker-derived path.");
-  const markerInfo = await (0, import_promises5.lstat)((0, import_node_path8.join)(actualPath, ".git"));
+  const markerInfo = await (0, import_promises9.lstat)((0, import_node_path12.join)(actualPath, ".git"));
   invariant(markerInfo.isFile(), "AO_GIT_METADATA_CHANGED", "The worktree .git marker was replaced before cleanup.");
-  invariant(sha256(await (0, import_promises5.readFile)((0, import_node_path8.join)(actualPath, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed before cleanup.");
+  invariant(sha256(await (0, import_promises9.readFile)((0, import_node_path12.join)(actualPath, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed before cleanup.");
   const [{ stdout: commonGitDir }, { stdout: head }, { stdout: gitDir }, { stdout: worktreeList }] = await Promise.all([
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(actualPath, ["rev-parse", "HEAD"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
     git(repository.checkoutRoot, ["worktree", "list", "--porcelain", "-z"])
   ]);
-  invariant(await (0, import_promises5.realpath)(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
+  invariant(await (0, import_promises9.realpath)(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
   invariant(head === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
-  invariant(await (0, import_promises5.realpath)(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
-  const registeredPaths = await Promise.all(registeredWorktreePaths(worktreeList).map((path3) => (0, import_promises5.realpath)(path3).catch(() => (0, import_node_path8.resolve)(path3))));
+  invariant(await (0, import_promises9.realpath)(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
+  const registeredPaths = await Promise.all(registeredWorktreePaths(worktreeList).map((path3) => (0, import_promises9.realpath)(path3).catch(() => (0, import_node_path12.resolve)(path3))));
   invariant(registeredPaths.includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
   try {
     await git(repository.checkoutRoot, ["worktree", "remove", "--force", "--", actualPath], { timeoutMs: 12e4 });
   } catch (error51) {
-    const stillExists = await (0, import_promises5.lstat)(expectedPath).then(() => true, (failure) => failure?.code === "ENOENT" ? false : Promise.reject(failure));
+    const stillExists = await (0, import_promises9.lstat)(expectedPath).then(() => true, (failure) => failure?.code === "ENOENT" ? false : Promise.reject(failure));
     if (stillExists) throw error51;
-    await (0, import_promises5.unlink)(expectedOwnershipPath).catch((failure) => {
+    await (0, import_promises9.unlink)(expectedOwnershipPath).catch((failure) => {
       if (failure?.code !== "ENOENT") throw failure;
     });
     return { removed: false, reason: "already_removed" };
   }
-  await (0, import_promises5.unlink)(expectedOwnershipPath).catch((error51) => {
+  await (0, import_promises9.unlink)(expectedOwnershipPath).catch((error51) => {
     if (error51?.code !== "ENOENT") throw error51;
   });
   return { removed: true };
 }
 
 // src/runtime/acpx-driver.mjs
-var import_promises9 = require("node:fs/promises");
-var import_node_path11 = require("node:path");
-var import_node_os4 = __toESM(require("node:os"), 1);
+var import_promises13 = require("node:fs/promises");
+var import_node_path15 = require("node:path");
+var import_node_os5 = __toESM(require("node:os"), 1);
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
 var import_node_fs2 = __toESM(require("node:fs"), 1);
 var import_node_url2 = require("node:url");
-var import_node_path9 = __toESM(require("node:path"), 1);
-var import_promises6 = __toESM(require("node:fs/promises"), 1);
-var import_node_os3 = __toESM(require("node:os"), 1);
-var import_node_crypto4 = require("node:crypto");
-var import_node_child_process2 = require("node:child_process");
+var import_node_path13 = __toESM(require("node:path"), 1);
+var import_promises10 = __toESM(require("node:fs/promises"), 1);
+var import_node_os4 = __toESM(require("node:os"), 1);
+var import_node_crypto7 = require("node:crypto");
+var import_node_child_process3 = require("node:child_process");
 var import_node_stream = require("node:stream");
 
 // node_modules/@agentclientprotocol/sdk/dist/schema/index.js
@@ -18523,11 +19290,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve6, reject) => {
+    const response = new Promise((resolve10, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve6(mapResponse ? mapResponse(value) : value);
+            resolve10(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -18584,8 +19351,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve6) => {
-      this.abortController.signal.addEventListener("abort", () => resolve6());
+    this.closedPromise = new Promise((resolve10) => {
+      this.abortController.signal.addEventListener("abort", () => resolve10());
     });
     void this.receive();
   }
@@ -19322,8 +20089,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve6, reject) => {
-      this.waiters.push({ resolve: resolve6, reject });
+    return new Promise((resolve10, reject) => {
+      this.waiters.push({ resolve: resolve10, reject });
     });
   }
 };
@@ -20393,8 +21160,8 @@ var ClientSideConnection = class {
 };
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
-var import_promises7 = __toESM(require("node:readline/promises"), 1);
-var import_node_util2 = require("node:util");
+var import_promises11 = __toESM(require("node:readline/promises"), 1);
+var import_node_util3 = require("node:util");
 var AcpxOperationalError = class extends Error {
   outputCode;
   detailCode;
@@ -20813,15 +21580,15 @@ function findBuiltInAgentPackage(agentCommand) {
 }
 function defaultResolvePackageRoot(packageName) {
   const segments = packageName.split("/");
-  let cursor = import_node_path9.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
+  let cursor = import_node_path13.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
   while (true) {
-    const candidateRoot = import_node_path9.default.join(cursor, "node_modules", ...segments);
-    const manifestPath = import_node_path9.default.join(candidateRoot, "package.json");
+    const candidateRoot = import_node_path13.default.join(cursor, "node_modules", ...segments);
+    const manifestPath = import_node_path13.default.join(candidateRoot, "package.json");
     if (import_node_fs2.default.existsSync(manifestPath)) try {
       if (JSON.parse(import_node_fs2.default.readFileSync(manifestPath, "utf8")).name === packageName) return candidateRoot;
     } catch {
     }
-    const parent = import_node_path9.default.dirname(cursor);
+    const parent = import_node_path13.default.dirname(cursor);
     if (parent === cursor) throw new Error(`Built-in agent package not found: ${packageName}`);
     cursor = parent;
   }
@@ -20832,7 +21599,7 @@ function resolvePackageBin(spec, manifest) {
   return manifest.bin[spec.preferredBinName] ?? (Object.keys(manifest.bin).length === 1 ? Object.values(manifest.bin)[0] : void 0);
 }
 function defaultResolveNpmCliPath(execPath) {
-  const candidate = import_node_path9.default.resolve(import_node_path9.default.dirname(execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
+  const candidate = import_node_path13.default.resolve(import_node_path13.default.dirname(execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
   if (!import_node_fs2.default.existsSync(candidate)) throw new Error(`npm CLI not found for execPath: ${execPath}`);
   return candidate;
 }
@@ -20864,11 +21631,11 @@ function resolveInstalledBuiltInAgentLaunch(agentCommand, options = {}) {
 }
 function resolveInstalledBuiltInAgentPackage(spec, options) {
   const packageRoot = options.resolvePackageRoot(spec.packageName);
-  const manifest = JSON.parse(options.readFileSync(import_node_path9.default.join(packageRoot, "package.json"), "utf8"));
+  const manifest = JSON.parse(options.readFileSync(import_node_path13.default.join(packageRoot, "package.json"), "utf8"));
   if (manifest.name !== spec.packageName) return;
   const relativeBinPath = resolvePackageBin(spec, manifest);
   if (!relativeBinPath) return;
-  const binPath = import_node_path9.default.resolve(packageRoot, relativeBinPath);
+  const binPath = import_node_path13.default.resolve(packageRoot, relativeBinPath);
   return options.existsSync(binPath) ? {
     packageVersion: manifest.version,
     binPath
@@ -20934,8 +21701,8 @@ async function withTimeout(promise2, timeoutMs) {
     if (timer) clearTimeout(timer);
   }
 }
-async function withInterrupt(run, onInterrupt) {
-  return await new Promise((resolve6, reject) => {
+async function withInterrupt(run2, onInterrupt) {
+  return await new Promise((resolve10, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -20962,7 +21729,7 @@ async function withInterrupt(run, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run().then((result) => finish(() => resolve6(result)), (error51) => finish(() => reject(error51)));
+    run2().then((result) => finish(() => resolve10(result)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -21015,13 +21782,13 @@ function isSessionUpdateNotification(message) {
 }
 var DEFAULT_EVENT_SEGMENT_MAX_BYTES = 64 * 1024 * 1024;
 function sessionBaseDir$1() {
-  return import_node_path9.default.join(import_node_os3.default.homedir(), ".acpx", "sessions");
+  return import_node_path13.default.join(import_node_os4.default.homedir(), ".acpx", "sessions");
 }
 function safeSessionId(sessionId) {
   return encodeURIComponent(sessionId);
 }
 function sessionEventActivePath(sessionId) {
-  return import_node_path9.default.join(sessionBaseDir$1(), `${safeSessionId(sessionId)}.stream.ndjson`);
+  return import_node_path13.default.join(sessionBaseDir$1(), `${safeSessionId(sessionId)}.stream.ndjson`);
 }
 function defaultSessionEventLog(sessionId) {
   return {
@@ -21619,7 +22386,7 @@ function assertPersistedKeyPolicy(value) {
   throw new Error(`Persisted key policy violation (expected snake_case keys): ${violations.join(", ")}`);
 }
 function absolutePath(value) {
-  return import_node_path9.default.resolve(value);
+  return import_node_path13.default.resolve(value);
 }
 function isoNow$2() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -21631,7 +22398,7 @@ ${options.header}
 `);
   if (options.details && options.details.trim().length > 0) process.stderr.write(`${options.details}
 `);
-  const rl = import_promises7.default.createInterface({
+  const rl = import_promises11.default.createInterface({
     input: process.stdin,
     output: process.stderr
   });
@@ -21648,8 +22415,8 @@ function nowIso$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function isWithinRoot(rootDir, targetPath) {
-  const relative2 = import_node_path9.default.relative(rootDir, targetPath);
-  return relative2.length === 0 || !relative2.startsWith("..") && !import_node_path9.default.isAbsolute(relative2);
+  const relative3 = import_node_path13.default.relative(rootDir, targetPath);
+  return relative3.length === 0 || !relative3.startsWith("..") && !import_node_path13.default.isAbsolute(relative3);
 }
 function toWritePreview(content) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
@@ -21678,7 +22445,7 @@ var FileSystemHandlers = class {
   usesDefaultConfirmWrite;
   confirmWrite;
   constructor(options) {
-    this.rootDir = import_node_path9.default.resolve(options.cwd);
+    this.rootDir = import_node_path13.default.resolve(options.cwd);
     this.permissionMode = options.permissionMode;
     this.nonInteractivePermissions = options.nonInteractivePermissions ?? "deny";
     this.onOperation = options.onOperation;
@@ -21701,7 +22468,7 @@ var FileSystemHandlers = class {
     });
     try {
       if (this.permissionMode === "deny-all") throw new PermissionDeniedError("Permission denied for fs/read_text_file (--deny-all)");
-      const content = await import_promises6.default.readFile(filePath, "utf8");
+      const content = await import_promises10.default.readFile(filePath, "utf8");
       const sliced = this.sliceContent(content, params.line, params.limit);
       this.emitOperation({
         method: "fs/read_text_file",
@@ -21736,8 +22503,8 @@ var FileSystemHandlers = class {
     });
     try {
       if (!await this.isWriteApproved(filePath, preview)) throw new PermissionDeniedError("Permission denied for fs/write_text_file");
-      await import_promises6.default.mkdir(import_node_path9.default.dirname(filePath), { recursive: true });
-      await import_promises6.default.writeFile(filePath, params.content, "utf8");
+      await import_promises10.default.mkdir(import_node_path13.default.dirname(filePath), { recursive: true });
+      await import_promises10.default.writeFile(filePath, params.content, "utf8");
       this.emitOperation({
         method: "fs/write_text_file",
         status: "completed",
@@ -21765,8 +22532,8 @@ var FileSystemHandlers = class {
     return await this.confirmWrite(filePath, preview);
   }
   resolvePathWithinRoot(rawPath) {
-    if (!import_node_path9.default.isAbsolute(rawPath)) throw new Error(`Path must be absolute: ${rawPath}`);
-    const resolved = import_node_path9.default.resolve(rawPath);
+    if (!import_node_path13.default.isAbsolute(rawPath)) throw new Error(`Path must be absolute: ${rawPath}`);
+    const resolved = import_node_path13.default.resolve(rawPath);
     if (!isWithinRoot(this.rootDir, resolved)) throw new Error(`Path is outside allowed cwd subtree: ${resolved}`);
     return resolved;
   }
@@ -22045,11 +22812,11 @@ function windowsExecutableExtensions(env) {
   return (readWindowsEnvValue(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").split(";").map((value) => value.trim().toLowerCase()).filter((value) => value.length > 0);
 }
 function commandCandidates(command, env) {
-  if (import_node_path9.default.extname(command).length > 0) return [command];
+  if (import_node_path13.default.extname(command).length > 0) return [command];
   return windowsExecutableExtensions(env).map((extension) => `${command}${extension}`);
 }
 function commandHasPath(command) {
-  return command.includes("/") || command.includes("\\") || import_node_path9.default.isAbsolute(command);
+  return command.includes("/") || command.includes("\\") || import_node_path13.default.isAbsolute(command);
 }
 function resolveWindowsPathCommand(command, env) {
   const candidates = commandCandidates(command, env);
@@ -22063,13 +22830,13 @@ function resolveWindowsPathCommand(command, env) {
 function findExistingCommandInDirectory(directory, candidates) {
   const trimmedDirectory = directory.trim();
   if (trimmedDirectory.length === 0) return;
-  return candidates.map((candidate) => import_node_path9.default.join(trimmedDirectory, candidate)).find((resolved) => import_node_fs2.default.existsSync(resolved));
+  return candidates.map((candidate) => import_node_path13.default.join(trimmedDirectory, candidate)).find((resolved) => import_node_fs2.default.existsSync(resolved));
 }
 function resolveWindowsWrapperToken(token, wrapperPath) {
-  const relative2 = token.match(/%~?dp0%?\s*[\\/]*(.*)$/i)?.[1]?.trim();
-  if (!relative2) return;
-  const candidate = import_node_path9.default.resolve(import_node_path9.default.dirname(wrapperPath), relative2.replace(/[\\/]+/g, import_node_path9.default.sep).replace(/^[\\/]+/, ""));
-  return import_node_path9.default.extname(candidate).toLowerCase() === ".exe" && import_node_fs2.default.existsSync(candidate) ? candidate : void 0;
+  const relative3 = token.match(/%~?dp0%?\s*[\\/]*(.*)$/i)?.[1]?.trim();
+  if (!relative3) return;
+  const candidate = import_node_path13.default.resolve(import_node_path13.default.dirname(wrapperPath), relative3.replace(/[\\/]+/g, import_node_path13.default.sep).replace(/^[\\/]+/, ""));
+  return import_node_path13.default.extname(candidate).toLowerCase() === ".exe" && import_node_fs2.default.existsSync(candidate) ? candidate : void 0;
 }
 function resolveWindowsWrapperExecutable(wrapperPath) {
   if (!import_node_fs2.default.existsSync(wrapperPath)) return;
@@ -22087,8 +22854,8 @@ function resolveWindowsCommand(command, env = process.env) {
 function resolveWindowsExecutablePath(command, env = process.env) {
   const resolved = resolveWindowsCommand(command, env);
   if (!resolved) return;
-  const absolute = import_node_path9.default.resolve(resolved);
-  const extension = import_node_path9.default.extname(absolute).toLowerCase();
+  const absolute = import_node_path13.default.resolve(resolved);
+  const extension = import_node_path13.default.extname(absolute).toLowerCase();
   if (extension === ".exe") return absolute;
   if (extension !== ".cmd" && extension !== ".bat" && extension !== ".ps1") return;
   const siblingExecutable = `${absolute.slice(0, -extension.length)}.exe`;
@@ -22097,7 +22864,7 @@ function resolveWindowsExecutablePath(command, env = process.env) {
 function shouldUseWindowsBatchShell(command, platform = process.platform, env = process.env) {
   if (platform !== "win32") return false;
   const resolvedCommand = resolveWindowsCommand(command, env) ?? command;
-  const ext = import_node_path9.default.extname(resolvedCommand).toLowerCase();
+  const ext = import_node_path13.default.extname(resolvedCommand).toLowerCase();
   return ext === ".cmd" || ext === ".bat";
 }
 function buildSpawnCommandOptions(command, options, platform = process.platform, env = process.env) {
@@ -22132,7 +22899,7 @@ function buildTerminalShellSpawnCommand(command, platform = process.platform) {
   };
 }
 var UNKNOWN_VERSION = "0.0.0-unknown";
-var MODULE_DIR = import_node_path9.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
+var MODULE_DIR = import_node_path13.default.dirname((0, import_node_url2.fileURLToPath)(__aoImportMetaUrl));
 var cachedVersion = null;
 function parseVersion(value) {
   if (typeof value !== "string") return null;
@@ -22149,9 +22916,9 @@ function readPackageVersion(packageJsonPath) {
 function resolveVersionFromAncestors(startDir) {
   let current = startDir;
   while (true) {
-    const packageVersion = readPackageVersion(import_node_path9.default.join(current, "package.json"));
+    const packageVersion = readPackageVersion(import_node_path13.default.join(current, "package.json"));
     if (packageVersion) return packageVersion;
-    const parent = import_node_path9.default.dirname(current);
+    const parent = import_node_path13.default.dirname(current);
     if (parent === current) return null;
     current = parent;
   }
@@ -22172,15 +22939,15 @@ function getAcpxVersion() {
   cachedVersion = resolveAcpxVersion();
   return cachedVersion;
 }
-var execFileAsync = (0, import_node_util2.promisify)(import_node_child_process2.execFile);
+var execFileAsync = (0, import_node_util3.promisify)(import_node_child_process3.execFile);
 function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve10, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve6();
+      resolve10();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -22199,7 +22966,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve6) => {
+  return new Promise((resolve10) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -22210,7 +22977,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve6(value);
+      resolve10(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -22314,7 +23081,7 @@ function flushCommandLinePart(parts, current, hasPart) {
   if (hasPart) parts.push(current);
 }
 function asAbsoluteCwd(cwd) {
-  return import_node_path9.default.resolve(cwd);
+  return import_node_path13.default.resolve(cwd);
 }
 async function resolveAgentSessionCwd(cwd, agentCommand, options = {}) {
   const resolved = asAbsoluteCwd(cwd);
@@ -22346,7 +23113,7 @@ async function runWslpath(cwd) {
   return stdout;
 }
 function basenameToken(value) {
-  return import_node_path9.default.basename(value).toLowerCase().replace(/\.(cmd|exe|bat)$/u, "");
+  return import_node_path13.default.basename(value).toLowerCase().replace(/\.(cmd|exe|bat)$/u, "");
 }
 var DEFAULT_AGENT_CLOSE_AFTER_STDIN_END_MS = 100;
 var QODER_AGENT_CLOSE_AFTER_STDIN_END_MS = 750;
@@ -22464,8 +23231,8 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve6) => {
-    const child = (0, import_node_child_process2.spawn)(command, [...args], buildSpawnCommandOptions(command, {
+  return await new Promise((resolve10) => {
+    const child = (0, import_node_child_process3.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
         "pipe",
@@ -22483,7 +23250,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve6(value);
+      resolve10(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -22802,7 +23569,7 @@ function maybeWrapSessionControlError(method, error51, context) {
 }
 var DEFAULT_TERMINAL_OUTPUT_LIMIT_BYTES = 64 * 1024;
 var DEFAULT_KILL_GRACE_MS = 1500;
-function nowIso() {
+function nowIso2() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function toCommandLine(command, args) {
@@ -22837,10 +23604,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start);
 }
 function waitForSpawn(process3) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve10, reject) => {
     const onSpawn = () => {
       process3.off("error", onError);
-      resolve6();
+      resolve10();
     };
     const onError = (error51) => {
       process3.off("spawn", onSpawn);
@@ -22858,8 +23625,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve6) => {
-    setTimeout(resolve6, Math.max(0, ms));
+  return new Promise((resolve10) => {
+    setTimeout(resolve10, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -22891,7 +23658,7 @@ var TerminalManager = class {
       method: "terminal/create",
       status: "running",
       summary,
-      timestamp: nowIso()
+      timestamp: nowIso2()
     });
     try {
       if (!await this.isExecuteApproved(commandLine)) throw new PermissionDeniedError("Permission denied for terminal/create");
@@ -22899,8 +23666,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve6) => {
-        resolveExit = resolve6;
+      const exitPromise = new Promise((resolve10) => {
+        resolveExit = resolve10;
       });
       const terminal = {
         process: proc,
@@ -22937,14 +23704,14 @@ var TerminalManager = class {
           });
         })();
       });
-      const terminalId = (0, import_node_crypto4.randomUUID)();
+      const terminalId = (0, import_node_crypto7.randomUUID)();
       this.terminals.set(terminalId, terminal);
       this.emitOperation({
         method: "terminal/create",
         status: "completed",
         summary,
         details: `terminalId=${terminalId}`,
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       return { terminalId };
     } catch (error51) {
@@ -22954,7 +23721,7 @@ var TerminalManager = class {
         status: "failed",
         summary,
         details: message,
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       throw error51;
     }
@@ -22967,7 +23734,7 @@ var TerminalManager = class {
       method: "terminal/output",
       status: "completed",
       summary: `terminal/output: ${params.terminalId}`,
-      timestamp: nowIso()
+      timestamp: nowIso2()
     });
     return {
       output: terminal.output.toString("utf8"),
@@ -22987,7 +23754,7 @@ var TerminalManager = class {
       status: "completed",
       summary: `terminal/wait_for_exit: ${params.terminalId}`,
       details: `exitCode=${response.exitCode ?? "null"}, signal=${response.signal ?? "null"}`,
-      timestamp: nowIso()
+      timestamp: nowIso2()
     });
     return response;
   }
@@ -22999,7 +23766,7 @@ var TerminalManager = class {
       method: "terminal/kill",
       status: "running",
       summary,
-      timestamp: nowIso()
+      timestamp: nowIso2()
     });
     try {
       await this.killProcess(terminal);
@@ -23007,7 +23774,7 @@ var TerminalManager = class {
         method: "terminal/kill",
         status: "completed",
         summary,
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       return {};
     } catch (error51) {
@@ -23017,7 +23784,7 @@ var TerminalManager = class {
         status: "failed",
         summary,
         details: message,
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       throw error51;
     }
@@ -23028,7 +23795,7 @@ var TerminalManager = class {
       method: "terminal/release",
       status: "running",
       summary,
-      timestamp: nowIso()
+      timestamp: nowIso2()
     });
     const terminal = this.getTerminal(params.terminalId);
     if (!terminal) {
@@ -23037,7 +23804,7 @@ var TerminalManager = class {
         status: "completed",
         summary,
         details: "already released",
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       return {};
     }
@@ -23051,7 +23818,7 @@ var TerminalManager = class {
         method: "terminal/release",
         status: "completed",
         summary,
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       return {};
     } catch (error51) {
@@ -23061,7 +23828,7 @@ var TerminalManager = class {
         status: "failed",
         summary,
         details: message,
-        timestamp: nowIso()
+        timestamp: nowIso2()
       });
       throw error51;
     }
@@ -23163,7 +23930,7 @@ async function spawnTerminalProcess(params, defaultCwd) {
 async function spawnAndWait(spawnCommand, params, defaultCwd) {
   const spawnOptions = buildTerminalSpawnOptions(spawnCommand.command, params.cwd ?? defaultCwd, params.env);
   if (spawnCommand.killProcessGroup) spawnOptions.detached = true;
-  const proc = (0, import_node_child_process2.spawn)(spawnCommand.command, spawnCommand.args, spawnOptions);
+  const proc = (0, import_node_child_process3.spawn)(spawnCommand.command, spawnCommand.args, spawnOptions);
   await waitForSpawn(proc);
   return proc;
 }
@@ -23183,7 +23950,7 @@ function hasWindowsShellSyntax(command) {
 }
 function commandPathExists(command, cwd) {
   if (!/[\\/]/u.test(command)) return false;
-  const resolvedPath = import_node_path9.default.isAbsolute(command) ? command : import_node_path9.default.resolve(cwd, command);
+  const resolvedPath = import_node_path13.default.isAbsolute(command) ? command : import_node_path13.default.resolve(cwd, command);
   return import_node_fs2.default.existsSync(resolvedPath);
 }
 async function listDescendantPids(rootPid) {
@@ -23224,8 +23991,8 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve6, reject) => {
-    const child = (0, import_node_child_process2.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
+  return await new Promise((resolve10, reject) => {
+    const child = (0, import_node_child_process3.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
       "pipe"
@@ -23243,7 +24010,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve6(stdout);
+        resolve10(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -23277,8 +24044,8 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve6, reject) => {
-    const child = (0, import_node_child_process2.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
+  return await new Promise((resolve10, reject) => {
+    const child = (0, import_node_child_process3.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
       "pipe"
@@ -23296,7 +24063,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve6(stdout);
+        resolve10(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -23304,8 +24071,8 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve6, reject) => {
-    const child = (0, import_node_child_process2.spawn)("powershell.exe", [
+  return await new Promise((resolve10, reject) => {
+    const child = (0, import_node_child_process3.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
       "-Command",
@@ -23331,7 +24098,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve6(stdout);
+        resolve10(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -23345,8 +24112,8 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve6) => {
-    const child = (0, import_node_child_process2.spawn)("taskkill", args, {
+  await new Promise((resolve10) => {
+    const child = (0, import_node_child_process3.spawn)("taskkill", args, {
       stdio: [
         "ignore",
         "ignore",
@@ -23354,8 +24121,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve6());
-    child.once("close", () => resolve6());
+    child.once("error", () => resolve10());
+    child.once("close", () => resolve10());
   });
 }
 function sendSignal(pid, signal) {
@@ -23707,7 +24474,7 @@ var AcpClient = class {
     }
   }
   async spawnAgentProcess(plan) {
-    const spawnedChild = (0, import_node_child_process2.spawn)(plan.spawnCommand, plan.args, buildSpawnCommandOptions(plan.spawnCommand, plan.spawnOptions));
+    const spawnedChild = (0, import_node_child_process3.spawn)(plan.spawnCommand, plan.args, buildSpawnCommandOptions(plan.spawnCommand, plan.spawnOptions));
     try {
       await waitForSpawn$1(spawnedChild);
     } catch (error51) {
@@ -24090,8 +24857,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve6) => {
-      timer = setTimeout(resolve6, waitMs2);
+    const timeoutPromise = new Promise((resolve10) => {
+      timer = setTimeout(resolve10, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -24391,8 +25158,8 @@ var AcpClient = class {
     if (error51) this.promptPermissionFailures.delete(sessionId);
     return error51;
   }
-  async runConnectionRequest(run) {
-    return await new Promise((resolve6, reject) => {
+  async runConnectionRequest(run2) {
+    return await new Promise((resolve10, reject) => {
       const pending = {
         settled: false,
         reject
@@ -24404,7 +25171,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run).then((value) => finish(() => resolve6(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run2).then((value) => finish(() => resolve10(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -24519,8 +25286,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve6) => {
-        setTimeout(resolve6, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve10) => {
+        setTimeout(resolve10, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -24760,7 +25527,7 @@ function resourceToUserContent(content) {
   } };
 }
 function nextUserMessageId() {
-  return (0, import_node_crypto4.randomUUID)();
+  return (0, import_node_crypto7.randomUUID)();
 }
 function isUserMessage(message) {
   return typeof message === "object" && message !== null && hasOwn(message, "User");
@@ -25824,9 +26591,9 @@ var LiveSessionCheckpoint = class {
 };
 
 // node_modules/acpx/dist/runtime.js
-var import_node_path10 = __toESM(require("node:path"), 1);
-var import_promises8 = __toESM(require("node:fs/promises"), 1);
-var import_node_crypto5 = require("node:crypto");
+var import_node_path14 = __toESM(require("node:path"), 1);
+var import_promises12 = __toESM(require("node:fs/promises"), 1);
+var import_node_crypto8 = require("node:crypto");
 var AcpRuntimeError = class extends Error {
   code;
   cause;
@@ -26274,20 +27041,20 @@ function updateStatusEvent(payload, tag) {
 }
 function shouldReuseExistingRecord(record2, params) {
   if (record2.acpx?.reset_on_next_ensure === true) return false;
-  if (import_node_path10.default.resolve(record2.cwd) !== import_node_path10.default.resolve(params.cwd)) return false;
+  if (import_node_path14.default.resolve(record2.cwd) !== import_node_path14.default.resolve(params.cwd)) return false;
   if (record2.agentCommand !== params.agentCommand) return false;
   if (params.resumeSessionId && record2.acpSessionId !== params.resumeSessionId) return false;
   return true;
 }
 function createDeferred() {
-  let resolve6;
+  let resolve10;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve6 = res;
+      resolve10 = res;
       reject = rej;
     }),
-    resolve: resolve6,
+    resolve: resolve10,
     reject
   };
 }
@@ -26388,7 +27155,7 @@ function createInitialRecord(params) {
 }
 function createRecordId(sessionKey, mode) {
   if (mode === "persistent") return sessionKey;
-  return `${sessionKey}:oneshot:${(0, import_node_crypto5.randomUUID)()}`;
+  return `${sessionKey}:oneshot:${(0, import_node_crypto8.randomUUID)()}`;
 }
 function resumePolicyForSessionMode(mode) {
   return mode === "persistent" ? "same-session-only" : "allow-new";
@@ -26598,10 +27365,10 @@ var AcpRuntimeManager = class {
     });
     return true;
   }
-  async withRuntimeControlSession(record2, sessionMode, run) {
+  async withRuntimeControlSession(record2, sessionMode, run2) {
     const pendingClient = await this.readPendingPersistentClient(record2, { consume: false });
     if (pendingClient) {
-      const value = await run({
+      const value = await run2({
         client: pendingClient,
         sessionId: record2.acpSessionId,
         record: record2
@@ -26629,7 +27396,7 @@ var AcpRuntimeManager = class {
       verbose: this.options.verbose,
       timeoutMs: this.options.timeoutMs,
       resumePolicy: resumePolicyForSessionMode(sessionMode),
-      run
+      run: run2
     });
     return {
       value: result.value,
@@ -26637,7 +27404,7 @@ var AcpRuntimeManager = class {
     };
   }
   async ensureSession(input) {
-    const cwd = import_node_path10.default.resolve(input.cwd?.trim() || this.options.cwd);
+    const cwd = import_node_path14.default.resolve(input.cwd?.trim() || this.options.cwd);
     const agentCommand = this.options.agentRegistry.resolve(input.agent);
     const existing = await this.options.sessionStore.load(input.sessionKey);
     if (input.mode === "persistent" && existing && shouldReuseExistingRecord(existing, {
@@ -27174,19 +27941,19 @@ var FileSessionStore = class {
     this.stateDir = stateDir;
   }
   get sessionDir() {
-    return import_node_path10.default.join(this.stateDir, "sessions");
+    return import_node_path14.default.join(this.stateDir, "sessions");
   }
   filePath(sessionId) {
-    return import_node_path10.default.join(this.sessionDir, `${safeSessionId2(sessionId)}.json`);
+    return import_node_path14.default.join(this.sessionDir, `${safeSessionId2(sessionId)}.json`);
   }
   async ensureDir() {
-    await import_promises8.default.mkdir(this.sessionDir, { recursive: true });
+    await import_promises12.default.mkdir(this.sessionDir, { recursive: true });
   }
   async load(sessionId) {
     await this.ensureDir();
     let payload;
     try {
-      payload = await import_promises8.default.readFile(this.filePath(sessionId), "utf8");
+      payload = await import_promises12.default.readFile(this.filePath(sessionId), "utf8");
     } catch (error51) {
       if (error51.code === "ENOENT") return;
       throw error51;
@@ -27206,13 +27973,13 @@ var FileSessionStore = class {
     const file2 = this.filePath(record2.acpxRecordId);
     const tempFile = `${file2}.${process.pid}.${Date.now()}.tmp`;
     const payload = JSON.stringify(persisted, null, 2);
-    await import_promises8.default.writeFile(tempFile, `${payload}
+    await import_promises12.default.writeFile(tempFile, `${payload}
 `, "utf8");
-    await import_promises8.default.rename(tempFile, file2);
+    await import_promises12.default.rename(tempFile, file2);
   }
 };
 function createFileSessionStore(options) {
-  return new FileSessionStore(import_node_path10.default.resolve(options.stateDir));
+  return new FileSessionStore(import_node_path14.default.resolve(options.stateDir));
 }
 var ACPX_RUNTIME_HANDLE_PREFIX = "acpx:v2:";
 function encodeAcpxRuntimeHandleState(state) {
@@ -27367,12 +28134,12 @@ var AcpxRuntime = class {
     };
   }
   async ensureSession(input) {
-    const sessionName = input.sessionKey.trim();
-    if (!sessionName) throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP session key is required.");
+    const sessionName2 = input.sessionKey.trim();
+    if (!sessionName2) throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP session key is required.");
     const agent = input.agent.trim();
     if (!agent) throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP agent id is required.");
     const record2 = await (await this.getManager()).ensureSession({
-      sessionKey: sessionName,
+      sessionKey: sessionName2,
       agent,
       mode: input.mode,
       cwd: input.cwd ?? this.options.cwd,
@@ -27389,7 +28156,7 @@ var AcpxRuntime = class {
       agentSessionId: record2.agentSessionId
     };
     writeHandleState(handle, {
-      name: sessionName,
+      name: sessionName2,
       agent,
       cwd: record2.cwd,
       mode: input.mode,
@@ -27525,21 +28292,21 @@ var AUTH_BOOTSTRAP_PROMPT = "Respond with exactly AUTH_READY. Do not call tools,
 
 // src/runtime/acpx-driver.mjs
 async function createEphemeralScratch(kind) {
-  const scratchRoot = process.platform === "win32" ? import_node_os4.default.tmpdir() : "/dev/shm";
-  for (const entry of await (0, import_promises9.readdir)(scratchRoot, { withFileTypes: true })) {
+  const scratchRoot = process.platform === "win32" ? import_node_os5.default.tmpdir() : "/dev/shm";
+  for (const entry of await (0, import_promises13.readdir)(scratchRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-(?:turn|probe-[a-z0-9-]+)-(\d+)-/.exec(entry.name);
     if (!match) continue;
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await removeTree((0, import_node_path11.join)(scratchRoot, entry.name));
+      if (error51?.code === "ESRCH") await removeTree((0, import_node_path15.join)(scratchRoot, entry.name));
     }
   }
-  const path3 = await (0, import_promises9.mkdtemp)((0, import_node_path11.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
+  const path3 = await (0, import_promises13.mkdtemp)((0, import_node_path15.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path3;
 }
-function shellQuote(value) {
+function shellQuote2(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 function windowsQuote(value) {
@@ -27547,12 +28314,12 @@ function windowsQuote(value) {
 }
 function providerCommandOverrides(pluginRoot, sandboxEnvironment = {}) {
   if (process.platform === "win32") {
-    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path11.join)(pluginRoot, "dist", "provider-sandbox.cjs"))}`;
+    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path15.join)(pluginRoot, "dist", "provider-sandbox.cjs"))}`;
     return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${launcher2} ${windowsQuote(adapter.providerId)}`]));
   }
-  const launcher = shellQuote((0, import_node_path11.join)(pluginRoot, "bin", "provider-sandbox"));
-  const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ");
-  return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote(adapter.providerId)}`]));
+  const launcher = shellQuote2((0, import_node_path15.join)(pluginRoot, "bin", "provider-sandbox"));
+  const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote2(value)}`).join(" ");
+  return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote2(adapter.providerId)}`]));
 }
 function createProviderRuntime({ pluginRoot, sessionStateDir, cwd, commonGitDir, permissionProfile, permissionState = { bootstrapComplete: true }, verbose = process.env.AGENT_ORCHESTRATION_VERBOSE === "1", sandboxEnvironment = {}, runtimeTimeoutMs = 30 * 60 * 1e3 }) {
   return createAcpRuntime({
@@ -27710,9 +28477,9 @@ async function runProviderTurn({
 }
 async function checkBundledBridges(pluginRoot) {
   const checks = await Promise.all(["claude-agent-acp", "codex-acp", "provider-sandbox"].map(async (name) => {
-    const path3 = process.platform === "win32" ? (0, import_node_path11.join)(pluginRoot, "dist", `${name}${name === "provider-sandbox" ? ".cjs" : ".mjs"}`) : (0, import_node_path11.join)(pluginRoot, "bin", name);
+    const path3 = process.platform === "win32" ? (0, import_node_path15.join)(pluginRoot, "dist", `${name}${name === "provider-sandbox" ? ".cjs" : ".mjs"}`) : (0, import_node_path15.join)(pluginRoot, "bin", name);
     try {
-      await (0, import_promises9.access)(path3);
+      await (0, import_promises13.access)(path3);
       return { id: name, ok: true, path: path3 };
     } catch {
       return { id: name, ok: false, path: path3 };
@@ -27916,33 +28683,33 @@ function dependencyOutputs(stage, stages, outputs) {
   return outputs.filter((output) => needed.has(output.stageId));
 }
 async function validateWorkspace(workspace, consumer) {
-  const markerInfo = await (0, import_promises10.lstat)((0, import_node_path12.join)(workspace.path, ".git"));
+  const markerInfo = await (0, import_promises14.lstat)((0, import_node_path16.join)(workspace.path, ".git"));
   invariant(markerInfo.isFile(), "AO_GIT_METADATA_CHANGED", "The worktree .git marker was replaced.");
-  invariant(sha256(await (0, import_promises10.readFile)((0, import_node_path12.join)(workspace.path, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed during provider execution.");
+  invariant(sha256(await (0, import_promises14.readFile)((0, import_node_path16.join)(workspace.path, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed during provider execution.");
   invariant(await gitMetadataFingerprint(consumer) === workspace.gitMetadataFingerprint, "AO_GIT_METADATA_CHANGED", "Shared Git refs or configuration changed during provider execution.");
   const { stdout } = await git(workspace.path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   const changedPaths = stdout.split("\0").filter(Boolean).map((record2) => /^[ MADRCU?!]{2} /.test(record2) ? record2.slice(3) : record2);
   for (const path3 of changedPaths) {
-    invariant(!(0, import_node_path13.isAbsolute)(path3) && path3 !== ".." && !path3.startsWith("../") && !path3.includes("/../") && path3 !== ".git" && !path3.startsWith(".git/"), "AO_UNSAFE_AGENT_CHANGE", `Agent changed a forbidden path: ${path3}`);
+    invariant(!(0, import_node_path17.isAbsolute)(path3) && path3 !== ".." && !path3.startsWith("../") && !path3.includes("/../") && path3 !== ".git" && !path3.startsWith(".git/"), "AO_UNSAFE_AGENT_CHANGE", `Agent changed a forbidden path: ${path3}`);
   }
   return changedPaths;
 }
-async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot2 }) {
-  let run = await store.get(runId);
+async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot3 }) {
+  let run2 = await store.get(runId);
   let workspace = null;
   try {
-    run = await store.transition(runId, ["queued"], "preparing");
-    if (run.cancelRequestedAt) return store.transition(runId, ["preparing"], "cancelling", {}, "cancellation_observed_before_start");
-    if (run.input.permissionProfile === "write") {
-      workspace = await createOrchestrationWorktree(run.consumer, { runId });
-      run = await store.update(runId, { workspace }, "workspace_created");
+    run2 = await store.transition(runId, ["queued"], "preparing");
+    if (run2.cancelRequestedAt) return store.transition(runId, ["preparing"], "cancelling", {}, "cancellation_observed_before_start");
+    if (run2.input.permissionProfile === "write") {
+      workspace = await createOrchestrationWorktree(run2.consumer, { runId });
+      run2 = await store.update(runId, { workspace }, "workspace_created");
     }
-    const workspacePath = workspace?.path ?? run.consumer.checkoutRoot;
-    run = await store.transition(runId, ["preparing"], "running");
+    const workspacePath = workspace?.path ?? run2.consumer.checkoutRoot;
+    run2 = await store.transition(runId, ["preparing"], "running");
     const outputs = [];
     const sessions = [];
     let decision = null;
-    const plannedStages = planStages(run.plan);
+    const plannedStages = planStages(run2.plan);
     for (const stage of plannedStages) {
       invariant(["route", "reuse_stage_session", "persistent_session", "deterministic_gate"].includes(stage.selectionKind), "AO_PROTOCOL_EXECUTOR_MISSING", `No stage executor is registered for selection kind '${stage.selectionKind}'.`);
       const completedStageIds = new Set(outputs.map((output) => output.stageId));
@@ -27976,18 +28743,18 @@ async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot2 }) {
         try {
           result = await runProviderTurn({
             pluginRoot,
-            sessionStateDir: (0, import_node_path12.join)(stateRoot2, "sessions"),
+            sessionStateDir: (0, import_node_path16.join)(stateRoot3, "sessions"),
             workspacePath,
-            commonGitDir: run.consumer.commonGitDir,
-            providerExecutable: run.input.providerExecutables?.[candidate.providerId ?? candidate.provider],
-            permissionProfile: run.input.permissionProfile,
+            commonGitDir: run2.consumer.commonGitDir,
+            providerExecutable: run2.input.providerExecutables?.[candidate.providerId ?? candidate.provider],
+            permissionProfile: run2.input.permissionProfile,
             stage: candidate,
-            prompt: stagePrompt({ input: run.input, stage: candidate, priorOutputs: dependencyOutputs(stage, plannedStages, outputs), workspacePath }),
+            prompt: stagePrompt({ input: run2.input, stage: candidate, priorOutputs: dependencyOutputs(stage, plannedStages, outputs), workspacePath }),
             sessionKey,
             requestId: newId("turn"),
-            timeoutMs: run.input.timeoutMs,
-            maxTurns: run.input.maxTurns,
-            sessionMode: effectiveStage.requiresPersistentSession ? "persistent" : run.input.sessionMode ?? "oneshot",
+            timeoutMs: run2.input.timeoutMs,
+            maxTurns: run2.input.maxTurns,
+            sessionMode: effectiveStage.requiresPersistentSession ? "persistent" : run2.input.sessionMode ?? "oneshot",
             shouldCancel: async () => (await store.get(runId)).cancelRequestedAt !== null,
             onEvent: async (event) => {
               if (event.type === "tool_call" || event.type === "status") {
@@ -28015,20 +28782,20 @@ async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot2 }) {
         effort: selectedStage.effort,
         handle: result.handle,
         effortControl: result.effortControl,
-        sessionMode: effectiveStage.requiresPersistentSession ? "persistent" : run.input.sessionMode ?? "oneshot",
+        sessionMode: effectiveStage.requiresPersistentSession ? "persistent" : run2.input.sessionMode ?? "oneshot",
         resumeSupported: providerDescriptor?.capabilities?.persistent_session === "supported"
       });
       await store.update(runId, { outputs, sessions }, "stage_completed");
     }
-    run = await store.transition(runId, ["running"], "verifying", { outputs, sessions });
-    const changedPaths = workspace ? await validateWorkspace(workspace, run.consumer) : [];
+    run2 = await store.transition(runId, ["running"], "verifying", { outputs, sessions });
+    const changedPaths = workspace ? await validateWorkspace(workspace, run2.consumer) : [];
     const finalPatch = { outputs, sessions, changedPaths, decision };
     if (decision?.requiresHumanApproval) {
       return store.transition(runId, ["verifying"], "waiting_for_decision", finalPatch, "decision_waiting_for_approval");
     }
     return store.transition(runId, ["verifying"], "succeeded", finalPatch, "run_succeeded");
   } catch (error51) {
-    const current = await store.get(runId).catch(() => run);
+    const current = await store.get(runId).catch(() => run2);
     if (current && !["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(current.state)) {
       if (current.cancelRequestedAt) {
         return store.transition(runId, [current.state], "cancelling", { error: null }, "cancellation_observed").catch(() => ({ ...current, state: "recovery_required", error: serializeError(error51) }));
@@ -28042,20 +28809,20 @@ async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot2 }) {
   }
 }
 async function cleanupRun({ store, runId }) {
-  const run = await store.get(runId);
-  invariant(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(run.state), "AO_RUN_NOT_TERMINAL", "A run must be terminal before its worktree can be cleaned up.");
-  if (!run.workspace) return { cleaned: false, reason: "no_workspace", run };
-  const removal = await removeOrchestrationWorktree(run.consumer, run.workspace);
+  const run2 = await store.get(runId);
+  invariant(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(run2.state), "AO_RUN_NOT_TERMINAL", "A run must be terminal before its worktree can be cleaned up.");
+  if (!run2.workspace) return { cleaned: false, reason: "no_workspace", run: run2 };
+  const removal = await removeOrchestrationWorktree(run2.consumer, run2.workspace);
   return { cleaned: removal?.removed === true, reason: removal?.reason, run: await store.clearWorkspace(runId) };
 }
 
 // src/platform/linux-runtime.mjs
-var import_promises13 = require("node:fs/promises");
-var import_node_path15 = require("node:path");
+var import_promises17 = require("node:fs/promises");
+var import_node_path19 = require("node:path");
 
 // src/runtime/user-bus.mjs
-var import_promises11 = require("node:fs/promises");
-var import_node_child_process3 = require("node:child_process");
+var import_promises15 = require("node:fs/promises");
+var import_node_child_process4 = require("node:child_process");
 var USER_MANAGER_EXECUTABLES = /* @__PURE__ */ new Set(["/usr/bin/systemctl", "/usr/bin/systemd-run"]);
 function validateUserManagerCommand(command, args) {
   invariant(USER_MANAGER_EXECUTABLES.has(command), "AO_UNSAFE_USER_MANAGER_COMMAND", "Refusing to execute an unexpected user-manager command.");
@@ -28063,8 +28830,8 @@ function validateUserManagerCommand(command, args) {
 }
 async function canonicalUserBusEnvironment(environment = process.env, dependencies = {}) {
   const uid = dependencies.uid ?? process.getuid?.();
-  const inspectPath = dependencies.lstat ?? import_promises11.lstat;
-  const canonicalizePath = dependencies.realpath ?? import_promises11.realpath;
+  const inspectPath = dependencies.lstat ?? import_promises15.lstat;
+  const canonicalizePath = dependencies.realpath ?? import_promises15.realpath;
   invariant(Number.isInteger(uid) && uid >= 0, "AO_USER_BUS_UNAVAILABLE", "The current Unix user identity is unavailable.");
   const runtimeDir = `/run/user/${uid}`;
   const busPath = `${runtimeDir}/bus`;
@@ -28098,14 +28865,14 @@ async function runUserManagerFile(command, args, options = {}, dependencies = {}
 }
 async function spawnUserManagerFile(command, args, options = {}, dependencies = {}) {
   validateUserManagerCommand(command, args);
-  const spawnProcess = dependencies.spawn ?? import_node_child_process3.spawn;
+  const spawnProcess = dependencies.spawn ?? import_node_child_process4.spawn;
   const env = await canonicalUserBusEnvironment(options.env ?? process.env, dependencies);
   return spawnProcess(command, args, { ...options, env });
 }
 
 // src/platform/executable-resolvers.mjs
-var import_node_path14 = require("node:path");
-var import_promises12 = require("node:fs/promises");
+var import_node_path18 = require("node:path");
+var import_promises16 = require("node:fs/promises");
 var import_node_fs3 = require("node:fs");
 
 // src/platform/contracts.mjs
@@ -28181,8 +28948,8 @@ var PlatformRuntimeFactory = class {
 // src/platform/executable-resolvers.mjs
 async function canonicalExecutable(path3) {
   try {
-    await (0, import_promises12.access)(path3, import_node_fs3.constants.X_OK);
-    return await (0, import_promises12.realpath)(path3);
+    await (0, import_promises16.access)(path3, import_node_fs3.constants.X_OK);
+    return await (0, import_promises16.realpath)(path3);
   } catch {
     return null;
   }
@@ -28204,15 +28971,15 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
     this.runner = runner;
   }
   async findAll(command, { cwd } = {}) {
-    if ((0, import_node_path14.isAbsolute)(command)) {
+    if ((0, import_node_path18.isAbsolute)(command)) {
       const resolved = await canonicalExecutable(command);
       return resolved ? [resolved] : [];
     }
-    const names = (0, import_node_path14.extname)(command) ? [command] : (this.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((extension) => `${command}${extension.toLowerCase()}`);
+    const names = (0, import_node_path18.extname)(command) ? [command] : (this.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((extension) => `${command}${extension.toLowerCase()}`);
     const direct = [];
-    for (const directory of (this.env.PATH || "").split(import_node_path14.delimiter).filter(Boolean)) {
+    for (const directory of (this.env.PATH || "").split(import_node_path18.delimiter).filter(Boolean)) {
       for (const name of names) {
-        const resolved = await canonicalExecutable((0, import_node_path14.join)(directory, name));
+        const resolved = await canonicalExecutable((0, import_node_path18.join)(directory, name));
         if (resolved && !direct.includes(resolved)) direct.push(resolved);
       }
     }
@@ -28297,23 +29064,23 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (launchState.error) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker supervisor failed before registration.", { cause: launchState.error.message });
-      const run = await store.get(runId);
-      if (run.worker?.attachedAt) {
-        if (terminalStates.has(run.state)) return run;
-        const identity = await processStartIdentity(run.worker.pid);
-        invariant(identity && identity === run.worker.startIdentity, "AO_WORKER_REGISTRATION_LOST", "The registered worker disappeared before startup acknowledgement.");
+      const run2 = await store.get(runId);
+      if (run2.worker?.attachedAt) {
+        if (terminalStates.has(run2.state)) return run2;
+        const identity = await processStartIdentity(run2.worker.pid);
+        invariant(identity && identity === run2.worker.startIdentity, "AO_WORKER_REGISTRATION_LOST", "The registered worker disappeared before startup acknowledgement.");
         const scope = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", supervisorUnit, "--property=LoadState", "--property=ActiveState", "--property=ControlGroup"], { timeoutMs: 2e3 }).catch(() => null);
         const properties = scope && Object.fromEntries(scope.stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
-        if (properties?.LoadState === "loaded" && properties.ActiveState === "active" && properties.ControlGroup) return run;
+        if (properties?.LoadState === "loaded" && properties.ActiveState === "active" && properties.ControlGroup) return run2;
       }
-      if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
+      if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
+      await new Promise((resolve10) => setTimeout(resolve10, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
   }
-  async launch({ runId, pluginRoot, stateRoot: stateRoot2, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
-    const logDir = await ensurePrivateDir((0, import_node_path15.join)(stateRoot2, "logs"));
+  async launch({ runId, pluginRoot, stateRoot: stateRoot3, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
+    const logDir = await ensurePrivateDir((0, import_node_path19.join)(stateRoot3, "logs"));
     const unitBase = `agent-orchestration-run-${runId.replaceAll("_", "-")}`;
     const supervisorUnit = `${unitBase}.scope`;
     const args = [
@@ -28337,18 +29104,18 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       workerEntrypoint,
       "worker",
       "--state-root",
-      stateRoot2,
+      stateRoot3,
       "--run-id",
       runId
     ];
-    const stdout = await (0, import_promises13.open)((0, import_node_path15.join)(logDir, `${runId}.out.log`), "a", 384);
-    const stderr = await (0, import_promises13.open)((0, import_node_path15.join)(logDir, `${runId}.err.log`), "a", 384);
+    const stdout = await (0, import_promises17.open)((0, import_node_path19.join)(logDir, `${runId}.out.log`), "a", 384);
+    const stderr = await (0, import_promises17.open)((0, import_node_path19.join)(logDir, `${runId}.err.log`), "a", 384);
     let child;
     const launchState = { error: null, exited: null };
     try {
       child = await spawnUserManagerFile("/usr/bin/systemd-run", args, {
         cwd: pluginRoot,
-        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot2, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
+        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
         detached: true,
         stdio: ["ignore", stdout.fd, stderr.fd],
         shell: false
@@ -28381,22 +29148,22 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
   }
   async attach({ runId, store, terminalStates }) {
     const deadline = Date.now() + 5e3;
-    let run = await store.get(runId);
-    while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
-      run = await store.get(runId);
+    let run2 = await store.get(runId);
+    while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
+      await new Promise((resolve10) => setTimeout(resolve10, 25));
+      run2 = await store.get(runId);
     }
-    if (terminalStates.has(run.state)) return run;
-    const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
-    const ownCgroups = await (0, import_promises13.readFile)("/proc/self/cgroup", "utf8");
+    if (terminalStates.has(run2.state)) return run2;
+    const { stdout: controlGroup } = await runUserManagerFile("/usr/bin/systemctl", ["--user", "show", run2.worker?.supervisorUnit, "--property=ControlGroup", "--value"], { timeoutMs: 5e3 });
+    const ownCgroups = await (0, import_promises17.readFile)("/proc/self/cgroup", "utf8");
     invariant(controlGroup && ownCgroups.includes(controlGroup), "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered supervisor cgroup.");
-    return store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
+    return store.update(runId, { worker: { ...run2.worker, pid: process.pid, startIdentity: await processStartIdentity(process.pid), attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
   }
   async probe() {
     const supervisorUnit = newId("agent-orchestration-doctor").replaceAll("_", "-");
     return runUserManagerFile("/usr/bin/systemd-run", ["--user", "--wait", "--collect", "--quiet", `--unit=${supervisorUnit}`, "/usr/bin/true"], { timeoutMs: 1e4 }).then(() => ({ ok: true, kind: "systemd-user-cgroup" }), (error51) => ({ ok: false, kind: "systemd-user-cgroup", error: error51.message }));
   }
-  async runProbe({ pluginRoot, stateRoot: stateRoot2, providerId, candidate }) {
+  async runProbe({ pluginRoot, stateRoot: stateRoot3, providerId, candidate }) {
     const unitName = newId(`agent-orchestration-probe-${providerId}`).replaceAll("_", "-");
     const { stdout } = await runUserManagerFile("/usr/bin/systemd-run", [
       "--user",
@@ -28414,9 +29181,9 @@ var SystemdWorkerSupervisorStrategy = class extends WorkerSupervisorStrategy {
       "--fsize=268435456",
       "--",
       process.execPath,
-      (0, import_node_path15.join)(pluginRoot, "dist", "probe-worker.cjs"),
+      (0, import_node_path19.join)(pluginRoot, "dist", "probe-worker.cjs"),
       pluginRoot,
-      stateRoot2,
+      stateRoot3,
       pluginRoot,
       providerId,
       candidate
@@ -28441,12 +29208,12 @@ var LinuxRuntimeFactory = class extends PlatformRuntimeFactory {
 };
 
 // src/platform/windows-native-runtime.mjs
-var import_node_child_process4 = require("node:child_process");
-var import_node_path16 = require("node:path");
-var import_promises14 = require("node:fs/promises");
+var import_node_child_process5 = require("node:child_process");
+var import_node_path20 = require("node:path");
+var import_promises18 = require("node:fs/promises");
 var WindowsNativeHelperAdapter = class {
   constructor({ pluginRoot, runner = runFile, executable = "dotnet" } = {}) {
-    this.helperPath = (0, import_node_path16.join)(pluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll");
+    this.helperPath = (0, import_node_path20.join)(pluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll");
     this.executable = executable;
     this.runner = runner;
   }
@@ -28454,7 +29221,7 @@ var WindowsNativeHelperAdapter = class {
     return [this.helperPath, command, ...args];
   }
   async available() {
-    return (0, import_promises14.access)(this.helperPath).then(() => true, () => false);
+    return (0, import_promises18.access)(this.helperPath).then(() => true, () => false);
   }
   async runJson(command, args = [], options = {}) {
     invariant(await this.available(), "AO_WINDOWS_HELPER_MISSING", "The native Windows isolation helper is not installed.", { helperPath: this.helperPath });
@@ -28462,7 +29229,7 @@ var WindowsNativeHelperAdapter = class {
     return stdout ? JSON.parse(stdout) : {};
   }
   spawn(command, args = [], options = {}) {
-    return (0, import_node_child_process4.spawn)(this.executable, this.args(command, args), { windowsHide: true, shell: false, ...options });
+    return (0, import_node_child_process5.spawn)(this.executable, this.args(command, args), { windowsHide: true, shell: false, ...options });
   }
 };
 var WindowsAppContainerSandboxStrategy = class extends ProviderSandboxStrategy {
@@ -28514,20 +29281,20 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (launchState.error) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor failed before registration.", { cause: launchState.error.message });
-      const run = await store.get(runId);
-      if (run.worker?.attachedAt) {
-        invariant(await this.isAlive(run.worker), "AO_WORKER_REGISTRATION_LOST", "The registered Windows worker Job Object disappeared before startup acknowledgement.");
-        return run;
+      const run2 = await store.get(runId);
+      if (run2.worker?.attachedAt) {
+        invariant(await this.isAlive(run2.worker), "AO_WORKER_REGISTRATION_LOST", "The registered Windows worker Job Object disappeared before startup acknowledgement.");
+        return run2;
       }
-      if (terminalStates.has(run.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
+      if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
+      await new Promise((resolve10) => setTimeout(resolve10, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
   }
-  async launch({ runId, pluginRoot, stateRoot: stateRoot2, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
+  async launch({ runId, pluginRoot, stateRoot: stateRoot3, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
     const supervisorUnit = `Local\\ByteDesk-Agent-Orchestration-${runId.replaceAll("_", "-")}`;
-    const logDir = (0, import_node_path16.join)(stateRoot2, "logs");
+    const logDir = (0, import_node_path20.join)(stateRoot3, "logs");
     const launchState = { error: null, exited: null };
     let child;
     try {
@@ -28535,9 +29302,9 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
         "--job",
         supervisorUnit,
         "--stdout",
-        (0, import_node_path16.join)(logDir, `${runId}.out.log`),
+        (0, import_node_path20.join)(logDir, `${runId}.out.log`),
         "--stderr",
-        (0, import_node_path16.join)(logDir, `${runId}.err.log`),
+        (0, import_node_path20.join)(logDir, `${runId}.err.log`),
         "--memory-bytes",
         String(8 * 1024 * 1024 * 1024),
         "--process-limit",
@@ -28549,12 +29316,12 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
         workerEntrypoint,
         "worker",
         "--state-root",
-        stateRoot2,
+        stateRoot3,
         "--run-id",
         runId
       ], {
         cwd: pluginRoot,
-        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot2, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
+        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3, AGENT_ORCHESTRATION_CURRENT_WORKER_RUN_ID: runId },
         detached: false,
         stdio: "ignore"
       });
@@ -28579,15 +29346,15 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
   }
   async attach({ runId, store, terminalStates }) {
     const deadline = Date.now() + 5e3;
-    let run = await store.get(runId);
-    while (!run.worker?.supervisorUnit && !terminalStates.has(run.state) && Date.now() < deadline) {
-      await new Promise((resolve6) => setTimeout(resolve6, 25));
-      run = await store.get(runId);
+    let run2 = await store.get(runId);
+    while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
+      await new Promise((resolve10) => setTimeout(resolve10, 25));
+      run2 = await store.get(runId);
     }
-    if (terminalStates.has(run.state)) return run;
-    const result = await this.helper.runJson("contains", ["--job", this.validateJobName(run.worker?.supervisorUnit), "--pid", String(process.pid)], { timeoutMs: 5e3 });
+    if (terminalStates.has(run2.state)) return run2;
+    const result = await this.helper.runJson("contains", ["--job", this.validateJobName(run2.worker?.supervisorUnit), "--pid", String(process.pid)], { timeoutMs: 5e3 });
     invariant(result.contains === true, "AO_WORKER_REGISTRATION_MISSING", "The worker refused to execute outside its registered Windows Job Object.");
-    return store.update(runId, { worker: { ...run.worker, pid: process.pid, startIdentity: run.worker.supervisorUnit, attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
+    return store.update(runId, { worker: { ...run2.worker, pid: process.pid, startIdentity: run2.worker.supervisorUnit, attachedAt: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_attached_to_supervisor");
   }
   async probe() {
     try {
@@ -28597,7 +29364,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       return { ok: false, kind: "windows-job-object", helper: this.helper.helperPath, error: error51.message };
     }
   }
-  async runProbe({ pluginRoot, stateRoot: stateRoot2, providerId, candidate }) {
+  async runProbe({ pluginRoot, stateRoot: stateRoot3, providerId, candidate }) {
     const job = `Local\\ByteDesk-Agent-Orchestration-${newId(`probe-${providerId}`).replaceAll("_", "-")}`;
     return this.helper.runJson("run", [
       "--job",
@@ -28610,9 +29377,9 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       "30000",
       "--",
       process.execPath,
-      (0, import_node_path16.join)(pluginRoot, "dist", "probe-worker.cjs"),
+      (0, import_node_path20.join)(pluginRoot, "dist", "probe-worker.cjs"),
       pluginRoot,
-      stateRoot2,
+      stateRoot3,
       pluginRoot,
       providerId,
       candidate
@@ -28646,16 +29413,16 @@ function createPlatformRuntime(context = {}) {
 }
 
 // src/session/capability.mjs
-var import_node_crypto6 = require("node:crypto");
-var import_promises15 = require("node:fs/promises");
-var import_node_path17 = require("node:path");
+var import_node_crypto9 = require("node:crypto");
+var import_promises19 = require("node:fs/promises");
+var import_node_path21 = require("node:path");
 var SESSION_TTL_MS = 10 * 60 * 1e3;
 var COOKIE_NAME = "ao_session";
-function sessionMetaPath(stateRoot2, runId) {
-  return (0, import_node_path17.join)(stateRoot2, "runs", runId, "session.json");
+function sessionMetaPath(stateRoot3, runId) {
+  return (0, import_node_path21.join)(stateRoot3, "runs", runId, "session.json");
 }
 function mintCapability(now = Date.now()) {
-  const token = (0, import_node_crypto6.randomBytes)(32).toString("base64url");
+  const token = (0, import_node_crypto9.randomBytes)(32).toString("base64url");
   return {
     token,
     tokenHash: sha256(token),
@@ -28664,20 +29431,20 @@ function mintCapability(now = Date.now()) {
 }
 function hashesEqual(left, right) {
   if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) return false;
-  return (0, import_node_crypto6.timingSafeEqual)(Buffer.from(left), Buffer.from(right));
+  return (0, import_node_crypto9.timingSafeEqual)(Buffer.from(left), Buffer.from(right));
 }
-async function hasDurableRun(stateRoot2, runId) {
+async function hasDurableRun(stateRoot3, runId) {
   for (const name of ["snapshot.json", "events.ndjson"]) {
-    if (await (0, import_promises15.stat)((0, import_node_path17.join)(stateRoot2, "runs", runId, name)).then(() => true).catch(() => false)) return true;
+    if (await (0, import_promises19.stat)((0, import_node_path21.join)(stateRoot3, "runs", runId, name)).then(() => true).catch(() => false)) return true;
   }
   return false;
 }
-async function writeSessionMeta(stateRoot2, runId, record2) {
-  invariant(await hasDurableRun(stateRoot2, runId), "AO_RUN_NOT_FOUND", `Run ${runId} does not exist.`);
-  await atomicWriteJson(sessionMetaPath(stateRoot2, runId), record2);
+async function writeSessionMeta(stateRoot3, runId, record2) {
+  invariant(await hasDurableRun(stateRoot3, runId), "AO_RUN_NOT_FOUND", `Run ${runId} does not exist.`);
+  await atomicWriteJson(sessionMetaPath(stateRoot3, runId), record2);
 }
-async function readSessionMeta(stateRoot2, runId) {
-  return readJson(sessionMetaPath(stateRoot2, runId), null);
+async function readSessionMeta(stateRoot3, runId) {
+  return readJson(sessionMetaPath(stateRoot3, runId), null);
 }
 function capabilityUrl(port, token) {
   return `http://127.0.0.1:${port}/s/${token}`;
@@ -28706,13 +29473,13 @@ function assertLoopbackBind(address) {
 
 // src/session/host.mjs
 var import_node_http = require("node:http");
-var import_node_path19 = require("node:path");
-var import_node_child_process5 = require("node:child_process");
+var import_node_path23 = require("node:path");
+var import_node_child_process6 = require("node:child_process");
 
 // src/session/http.mjs
 var import_node_fs5 = require("node:fs");
-var import_promises16 = require("node:fs/promises");
-var import_node_path18 = require("node:path");
+var import_promises20 = require("node:fs/promises");
+var import_node_path22 = require("node:path");
 
 // src/session/sse.mjs
 var import_node_fs4 = require("node:fs");
@@ -28829,8 +29596,8 @@ function allowedHost(hostHeader, port) {
 }
 function safeUiFile(uiRoot, urlPath) {
   const decoded = decodeURIComponent(urlPath.split("?")[0] || "/");
-  const relative2 = decoded === "/" || decoded.endsWith("/") ? "index.html" : decoded.replace(/^\/+/, "");
-  const resolved = (0, import_node_path18.normalize)((0, import_node_path18.join)(uiRoot, relative2));
+  const relative3 = decoded === "/" || decoded.endsWith("/") ? "index.html" : decoded.replace(/^\/+/, "");
+  const resolved = (0, import_node_path22.normalize)((0, import_node_path22.join)(uiRoot, relative3));
   if (!resolved.startsWith(uiRoot)) return null;
   return resolved;
 }
@@ -28871,7 +29638,7 @@ function controlStatus(error51) {
   if (typeof error51?.code === "string" && error51.code.startsWith("AO_")) return 409;
   return 500;
 }
-function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, store = new RunStore(stateRoot2), controls = void 0 }) {
+function createSessionHandler({ stateRoot: stateRoot3, uiRoot, hostNonce, port, store = new RunStore(stateRoot3), controls = void 0 }) {
   return async function handle(req, res) {
     if (!allowedHost(req.headers.host, port)) {
       send(res, 421, { code: "AO_SESSION_HOST", message: "Session host is loopback-only." });
@@ -28885,17 +29652,17 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
     }
     const capMatch = path3.match(/^\/s\/([^/]+)$/);
     if (req.method === "GET" && capMatch) {
-      await exchangeCapability(stateRoot2, capMatch[1], res);
+      await exchangeCapability(stateRoot3, capMatch[1], res);
       return;
     }
     const apiSnap = path3.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/snapshot$/i);
     if (req.method === "GET" && apiSnap) {
       const runId = apiSnap[1];
-      if (!await authorizeRun(stateRoot2, runId, req)) {
+      if (!await authorizeRun(stateRoot3, runId, req)) {
         send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
         return;
       }
-      const snapshot = await readJson((0, import_node_path18.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
+      const snapshot = await readJson((0, import_node_path22.join)(stateRoot3, "runs", runId, "snapshot.json"), null);
       if (!snapshot) {
         send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
         return;
@@ -28906,7 +29673,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
     const apiEvents = path3.match(/^\/api\/runs\/(run_[0-9a-f-]{36})\/events$/i);
     if (req.method === "GET" && apiEvents) {
       const runId = apiEvents[1];
-      if (!await authorizeRun(stateRoot2, runId, req)) {
+      if (!await authorizeRun(stateRoot3, runId, req)) {
         send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
         return;
       }
@@ -28915,7 +29682,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
         send(res, 400, { code: "AO_SESSION_AFTER", message: "after / Last-Event-ID must be a non-negative integer." });
         return;
       }
-      const snapshot = await readJson((0, import_node_path18.join)(stateRoot2, "runs", runId, "snapshot.json"), null);
+      const snapshot = await readJson((0, import_node_path22.join)(stateRoot3, "runs", runId, "snapshot.json"), null);
       if (!snapshot) {
         send(res, 404, { code: "AO_RUN_NOT_FOUND", message: "Run snapshot is missing." });
         return;
@@ -28931,7 +29698,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
         send(res, 403, { code: "AO_SESSION_ORIGIN", message: "Session mutations require a loopback Origin or a non-browser client." });
         return;
       }
-      if (!await authorizeRun(stateRoot2, runId, req)) {
+      if (!await authorizeRun(stateRoot3, runId, req)) {
         send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
         return;
       }
@@ -28964,7 +29731,7 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
     if (req.method === "GET" && pageMatch) {
       const runId = pageMatch[1];
       const rest = pageMatch[2] || "";
-      if (!await authorizeRun(stateRoot2, runId, req)) {
+      if (!await authorizeRun(stateRoot3, runId, req)) {
         send(res, 401, { code: "AO_SESSION_UNAUTHORIZED", message: "Session cookie does not match this run." });
         return;
       }
@@ -28979,13 +29746,13 @@ function createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, 
     send(res, 404, { code: "AO_SESSION_NOT_FOUND", message: "Not found." });
   };
 }
-async function exchangeCapability(stateRoot2, token, res) {
+async function exchangeCapability(stateRoot3, token, res) {
   const tokenHash = sha256(token);
-  const dir = (0, import_node_path18.join)(stateRoot2, "runs");
-  const names = await (0, import_promises16.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
+  const dir = (0, import_node_path22.join)(stateRoot3, "runs");
+  const names = await (0, import_promises20.readdir)(dir).catch((error51) => error51?.code === "ENOENT" ? [] : Promise.reject(error51));
   let matched = null;
   for (const runId of names.filter((name) => RUN_ID3.test(name))) {
-    const meta3 = await readSessionMeta(stateRoot2, runId);
+    const meta3 = await readSessionMeta(stateRoot3, runId);
     if (meta3?.tokenHash && hashesEqual(meta3.tokenHash, tokenHash)) {
       matched = { runId, meta: meta3 };
       break;
@@ -28995,17 +29762,17 @@ async function exchangeCapability(stateRoot2, token, res) {
     send(res, 404, { code: "AO_SESSION_CAPABILITY", message: "Session capability is missing, expired, or already used." });
     return;
   }
-  await writeSessionMeta(stateRoot2, matched.runId, { ...matched.meta, exchangedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  await writeSessionMeta(stateRoot3, matched.runId, { ...matched.meta, exchangedAt: (/* @__PURE__ */ new Date()).toISOString() });
   res.writeHead(302, {
     location: runPagePath(matched.runId),
     "set-cookie": sessionCookie(token)
   });
   res.end();
 }
-async function authorizeRun(stateRoot2, runId, req) {
+async function authorizeRun(stateRoot3, runId, req) {
   const token = parseCookie(req.headers.cookie);
   if (!token) return false;
-  const meta3 = await readSessionMeta(stateRoot2, runId);
+  const meta3 = await readSessionMeta(stateRoot3, runId);
   return Boolean(meta3?.tokenHash && hashesEqual(meta3.tokenHash, sha256(token)));
 }
 function publicSnapshot(snapshot) {
@@ -29020,12 +29787,12 @@ async function streamUi(res, file2) {
     send(res, 403, { code: "AO_SESSION_FORBIDDEN", message: "Forbidden." });
     return;
   }
-  const info = await (0, import_promises16.lstat)(file2).catch(() => null);
+  const info = await (0, import_promises20.lstat)(file2).catch(() => null);
   if (!info?.isFile()) {
     send(res, 404, { code: "AO_SESSION_NOT_FOUND", message: "Not found." });
     return;
   }
-  res.writeHead(200, { "content-type": TYPES[(0, import_node_path18.extname)(file2)] ?? "application/octet-stream" });
+  res.writeHead(200, { "content-type": TYPES[(0, import_node_path22.extname)(file2)] ?? "application/octet-stream" });
   (0, import_node_fs5.createReadStream)(file2).pipe(res);
 }
 
@@ -29033,19 +29800,19 @@ async function streamUi(res, file2) {
 var BIND = "127.0.0.1";
 var PORT_MIN = 45e3;
 var PORT_MAX = 45032;
-function sessionHostDir(stateRoot2) {
-  return (0, import_node_path19.join)(stateRoot2, "session-host");
+function sessionHostDir(stateRoot3) {
+  return (0, import_node_path23.join)(stateRoot3, "session-host");
 }
-function leasePath(stateRoot2) {
-  return (0, import_node_path19.join)(sessionHostDir(stateRoot2), "lease.json");
+function leasePath(stateRoot3) {
+  return (0, import_node_path23.join)(sessionHostDir(stateRoot3), "lease.json");
 }
-async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requestedPort = void 0, controls = void 0 }) {
+async function startSessionHost({ stateRoot: stateRoot3, uiRoot, port: requestedPort = void 0, controls = void 0 }) {
   assertLoopbackBind(BIND);
-  await ensurePrivateDir(sessionHostDir(stateRoot2));
+  await ensurePrivateDir(sessionHostDir(stateRoot3));
   const hostNonce = newId("host");
-  const preferred = await preferredPort(stateRoot2, requestedPort);
+  const preferred = await preferredPort(stateRoot3, requestedPort);
   const { server, port } = await listenLoopback(preferred);
-  const handle = createSessionHandler({ stateRoot: stateRoot2, uiRoot, hostNonce, port, controls });
+  const handle = createSessionHandler({ stateRoot: stateRoot3, uiRoot, hostNonce, port, controls });
   server.on("request", (req, res) => {
     Promise.resolve(handle(req, res)).catch(() => {
       if (!res.headersSent) {
@@ -29063,22 +29830,22 @@ async function startSessionHost({ stateRoot: stateRoot2, uiRoot, port: requested
     bind: `${BIND}:${port}`,
     port
   };
-  await atomicWriteJson(leasePath(stateRoot2), lease);
-  await atomicWriteJson((0, import_node_path19.join)(sessionHostDir(stateRoot2), "port.json"), { port });
+  await atomicWriteJson(leasePath(stateRoot3), lease);
+  await atomicWriteJson((0, import_node_path23.join)(sessionHostDir(stateRoot3), "port.json"), { port });
   return {
     server,
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve6, reject) => {
+    close: () => new Promise((resolve10, reject) => {
       server.closeAllConnections?.();
-      server.close((error51) => error51 ? reject(error51) : resolve6());
+      server.close((error51) => error51 ? reject(error51) : resolve10());
     })
   };
 }
-async function preferredPort(stateRoot2, requestedPort) {
+async function preferredPort(stateRoot3, requestedPort) {
   if (Number.isInteger(requestedPort) && requestedPort > 0) return requestedPort;
-  const stored = await readJson((0, import_node_path19.join)(sessionHostDir(stateRoot2), "port.json"), null);
+  const stored = await readJson((0, import_node_path23.join)(sessionHostDir(stateRoot3), "port.json"), null);
   if (Number.isInteger(stored?.port) && stored.port >= PORT_MIN) return stored.port;
   return PORT_MIN;
 }
@@ -29101,7 +29868,7 @@ async function listenLoopback(preferred) {
   invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
 }
 function bindPort(port) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve10, reject) => {
     const server = (0, import_node_http.createServer)();
     const onError = (error51) => {
       server.off("listening", onListening);
@@ -29109,20 +29876,21 @@ function bindPort(port) {
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve6(server);
+      resolve10(server);
     };
     server.once("error", onError);
     server.once("listening", onListening);
     server.listen(port, BIND);
   });
 }
-async function probeSessionHost(stateRoot2) {
-  const lease = await readJson(leasePath(stateRoot2), null);
+async function probeSessionHost(stateRoot3) {
+  const lease = await readJson(leasePath(stateRoot3), null);
   if (!lease?.port || !lease.hostNonce) return null;
   if (await processStartIdentity(lease.pid) !== lease.startIdentity) return null;
   try {
     const response = await fetch(`http://127.0.0.1:${lease.port}/api/health`, {
-      headers: { host: `127.0.0.1:${lease.port}` }
+      headers: { host: `127.0.0.1:${lease.port}` },
+      signal: AbortSignal.timeout(2e3)
     });
     if (!response.ok) return null;
     const body = await response.json();
@@ -29136,7 +29904,7 @@ async function openSessionBrowser(url2) {
   if (process.env.AGENT_ORCHESTRATION_OPEN_BROWSER === "0") return false;
   if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
   try {
-    (0, import_node_child_process5.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
+    (0, import_node_child_process6.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
     return true;
   } catch {
     return false;
@@ -29144,23 +29912,23 @@ async function openSessionBrowser(url2) {
 }
 
 // src/session/supervisor.mjs
-var import_promises17 = require("node:fs/promises");
+var import_promises21 = require("node:fs/promises");
 var import_node_fs6 = require("node:fs");
-var import_node_path20 = require("node:path");
-var import_promises18 = require("node:timers/promises");
+var import_node_path24 = require("node:path");
+var import_promises22 = require("node:timers/promises");
 var SESSION_SUPERVISOR_UNIT_PATTERN = /^agent-orchestration-session-[a-f0-9]{12}\.scope$/;
-function sessionSupervisorUnitBase(stateRoot2) {
-  invariant(typeof stateRoot2 === "string" && (0, import_node_path20.isAbsolute)(stateRoot2), "AO_UNSAFE_SUPERVISOR_UNIT", "Session supervisor state root must be an absolute path.");
-  return `agent-orchestration-session-${sha256((0, import_node_path20.resolve)(stateRoot2)).slice(0, 12)}`;
+function sessionSupervisorUnitBase(stateRoot3) {
+  invariant(typeof stateRoot3 === "string" && (0, import_node_path24.isAbsolute)(stateRoot3), "AO_UNSAFE_SUPERVISOR_UNIT", "Session supervisor state root must be an absolute path.");
+  return `agent-orchestration-session-${sha256((0, import_node_path24.resolve)(stateRoot3)).slice(0, 12)}`;
 }
-function sessionSupervisorUnit(stateRoot2) {
-  return `${sessionSupervisorUnitBase(stateRoot2)}.scope`;
+function sessionSupervisorUnit(stateRoot3) {
+  return `${sessionSupervisorUnitBase(stateRoot3)}.scope`;
 }
 function assertSessionSupervisorUnit(unit) {
   invariant(SESSION_SUPERVISOR_UNIT_PATTERN.test(unit), "AO_UNSAFE_SUPERVISOR_UNIT", "Refusing to operate on an untrusted session supervisor unit name.");
 }
 function sessionHostCliPath(pluginRoot) {
-  return (0, import_node_path20.join)(pluginRoot, "dist", "cli.cjs");
+  return (0, import_node_path24.join)(pluginRoot, "dist", "cli.cjs");
 }
 function sessionSupervisorEnabled({ platform = process.platform, env = process.env } = {}) {
   if (env.AGENT_ORCHESTRATION_SESSION_SUPERVISOR === "0") return false;
@@ -29177,7 +29945,7 @@ async function shouldSuperviseSessionHost({
   if (!sessionSupervisorEnabled({ platform, env })) return false;
   if (typeof cliPath !== "string" || cliPath.length === 0) return false;
   try {
-    await (0, import_promises17.access)(cliPath, import_node_fs6.constants.F_OK);
+    await (0, import_promises21.access)(cliPath, import_node_fs6.constants.F_OK);
     return true;
   } catch {
     return false;
@@ -29186,9 +29954,9 @@ async function shouldSuperviseSessionHost({
 function sessionSupervisorArgs({
   nodePath = process.execPath,
   cliPath,
-  stateRoot: stateRoot2
+  stateRoot: stateRoot3
 }) {
-  const unitBase = sessionSupervisorUnitBase(stateRoot2);
+  const unitBase = sessionSupervisorUnitBase(stateRoot3);
   return [
     "--user",
     "--scope",
@@ -29211,36 +29979,36 @@ function sessionSupervisorArgs({
     cliPath,
     "session-host",
     "--state-root",
-    stateRoot2
+    stateRoot3
   ];
 }
-async function waitForSessionHostLease(stateRoot2, { timeoutMs = 5e3, intervalMs = 50, probe = probeSessionHost } = {}) {
+async function waitForSessionHostLease(stateRoot3, { timeoutMs = 5e3, intervalMs = 50, probe = probeSessionHost } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const live = await probe(stateRoot2);
+    const live = await probe(stateRoot3);
     if (live) return live;
-    await (0, import_promises18.setTimeout)(intervalMs);
+    await (0, import_promises22.setTimeout)(intervalMs);
   }
   return null;
 }
 async function launchSessionSupervisor({
   pluginRoot,
-  stateRoot: stateRoot2,
+  stateRoot: stateRoot3,
   cliPath = sessionHostCliPath(pluginRoot),
   nodePath = process.execPath,
   spawnUserManager = spawnUserManagerFile,
   openLog = defaultOpenLog
 } = {}) {
-  const unit = sessionSupervisorUnit(stateRoot2);
+  const unit = sessionSupervisorUnit(stateRoot3);
   assertSessionSupervisorUnit(unit);
-  const { stdout, stderr } = await openLog(stateRoot2);
+  const { stdout, stderr } = await openLog(stateRoot3);
   let child;
   try {
-    child = await spawnUserManager("/usr/bin/systemd-run", sessionSupervisorArgs({ nodePath, cliPath, stateRoot: stateRoot2 }), {
+    child = await spawnUserManager("/usr/bin/systemd-run", sessionSupervisorArgs({ nodePath, cliPath, stateRoot: stateRoot3 }), {
       cwd: pluginRoot,
       env: {
         ...process.env,
-        AGENT_ORCHESTRATION_STATE_HOME: stateRoot2,
+        AGENT_ORCHESTRATION_STATE_HOME: stateRoot3,
         AGENT_ORCHESTRATION_SESSION_HOST: "1"
       },
       detached: true,
@@ -29260,11 +30028,71 @@ async function launchSessionSupervisor({
     });
   }
 }
-async function defaultOpenLog(stateRoot2) {
-  const logDir = await ensurePrivateDir((0, import_node_path20.join)(stateRoot2, "logs"));
-  const stdout = await (0, import_promises17.open)((0, import_node_path20.join)(logDir, "session-host.out.log"), "a", 384);
-  const stderr = await (0, import_promises17.open)((0, import_node_path20.join)(logDir, "session-host.err.log"), "a", 384);
+async function defaultOpenLog(stateRoot3) {
+  const logDir = await ensurePrivateDir((0, import_node_path24.join)(stateRoot3, "logs"));
+  const stdout = await (0, import_promises21.open)((0, import_node_path24.join)(logDir, "session-host.out.log"), "a", 384);
+  const stderr = await (0, import_promises21.open)((0, import_node_path24.join)(logDir, "session-host.err.log"), "a", 384);
   return { stdout, stderr };
+}
+
+// src/diagnostics.mjs
+var import_node_crypto10 = require("node:crypto");
+var import_promises23 = require("node:fs/promises");
+var import_node_path26 = require("node:path");
+init_repoid();
+init_supervision();
+init_incarnation();
+var loadedBuild = {
+  mode: false ? "source" : "bundle",
+  sourceFingerprint: false ? null : "b2f89640f71862ecb322540c0f73c613df5c1e8f2f916e5d06842d4599d67f5e",
+  version: false ? null : "0.10.0"
+};
+var json2 = (path3) => (0, import_promises23.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
+var fingerprint = (path3) => (0, import_promises23.readFile)(path3).then((bytes) => (0, import_node_crypto10.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
+async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoot3, env = process.env }) {
+  let consumer = null, admission = { provided: Boolean(consumerCwd), admitted: null };
+  if (consumerCwd) {
+    try {
+      consumer = await resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot3 });
+      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
+    } catch (error51) {
+      admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
+    }
+  }
+  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path26.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path26.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json2((0, import_node_path26.join)(pluginRoot, "package.json"))]);
+  const effectiveTopologyRoot = stateRoot2(env);
+  const diagnostics = {
+    consumerAdmission: admission,
+    loadedBuild: { ...loadedBuild, diskVersion: pkg?.version ?? null, disk: { mcp, cli } },
+    runtimeModes: ["acp", "topology"],
+    stateRoots: { acp: stateRoot3, topology: effectiveTopologyRoot, aligned: stateRoot3 === effectiveTopologyRoot },
+    sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
+    repositorySupervision: null,
+    roles: []
+  };
+  if (!consumer) return diagnostics;
+  const opts = { consumer: consumer.checkoutRoot, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
+  diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
+  const key = repoKey(consumer.commonGitDir);
+  const census = await json2((0, import_node_path26.join)(stateRoot3, "census", `${key}.json`));
+  const at = Date.parse(census?.at);
+  const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
+  for (const role of ["lead", "reviewer"]) {
+    const record2 = await json2((0, import_node_path26.join)(stateRoot3, `${role}s`, `${key}.json`));
+    const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
+    diagnostics.roles.push({
+      role,
+      registered: Boolean(record2),
+      agentId: record2?.agent_id ?? null,
+      provider: record2?.provider ?? null,
+      incarnationRecorded: Boolean(record2?.binding),
+      censusFresh: fresh,
+      state: fresh && observed ? observed.state : "unknown",
+      ready: fresh && Boolean(observed?.dispatchable),
+      readinessScope: "recorded exact-incarnation census; ACP provider readiness is separate"
+    });
+  }
+  return diagnostics;
 }
 
 // src/service.mjs
@@ -29284,10 +30112,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths = [];
-  const canonicalPluginRoot = await (0, import_promises19.realpath)(pluginRoot).catch(() => (0, import_node_path21.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises19.realpath)(root).catch(() => (0, import_node_path21.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises24.realpath)(pluginRoot).catch(() => (0, import_node_path27.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises24.realpath)(root).catch(() => (0, import_node_path27.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises19.realpath)(candidate).catch(() => (0, import_node_path21.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises24.realpath)(candidate).catch(() => (0, import_node_path27.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths.includes(resolvedCandidate)) paths.push(resolvedCandidate);
@@ -29297,7 +30125,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path21.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path27.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -29307,9 +30135,9 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot2 = stateRoot(), workerEntrypoint = (0, import_node_path21.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot2 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path21.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path27.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path27.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
-    this.stateRoot = stateRoot2;
+    this.stateRoot = stateRoot3;
     this.workerEntrypoint = workerEntrypoint;
     this.maxConcurrentRuns = Number.isInteger(maxConcurrentRuns) && maxConcurrentRuns > 0 ? maxConcurrentRuns : 4;
     this.maxConcurrentPerProvider = Number.isInteger(maxConcurrentPerProvider) && maxConcurrentPerProvider > 0 ? maxConcurrentPerProvider : 2;
@@ -29319,7 +30147,7 @@ var OrchestrationService = class {
     this.requireAttestedApproval = requireAttestedApproval === true;
     this.platformRuntime = platformRuntime;
     this.sessionHost = null;
-    this.store = new RunStore(stateRoot2);
+    this.store = new RunStore(stateRoot3);
     this.availabilityCache = null;
     this.recoveryTimer = null;
   }
@@ -29383,24 +30211,24 @@ var OrchestrationService = class {
       if (!WORKER_STATES.has(candidate.state) || now - Date.parse(candidate.updatedAt) < this.recoveryGraceMs) continue;
       recovered += 1;
       await this.store.withLock(`recovery:${candidate.runId}`, async () => {
-        const run = await this.store.get(candidate.runId);
-        if (!WORKER_STATES.has(run.state)) return;
-        const workerAlive = await this.platformRuntime.workerSupervisor.isAlive(run.worker);
-        if (workerAlive && run.state !== "cleanup_required") return;
-        if (run.state === "queued") {
-          await this.launchWorker(run.runId);
+        const run2 = await this.store.get(candidate.runId);
+        if (!WORKER_STATES.has(run2.state)) return;
+        const workerAlive = await this.platformRuntime.workerSupervisor.isAlive(run2.worker);
+        if (workerAlive && run2.state !== "cleanup_required") return;
+        if (run2.state === "queued") {
+          await this.launchWorker(run2.runId);
           return;
         }
-        const descendantsStopped = await this.terminateRecordedProcessGroup(run.worker);
-        const nextState = descendantsStopped ? run.cancelRequestedAt ? "cancelled" : "recovery_required" : "cleanup_required";
+        const descendantsStopped = await this.terminateRecordedProcessGroup(run2.worker);
+        const nextState = descendantsStopped ? run2.cancelRequestedAt ? "cancelled" : "recovery_required" : "cleanup_required";
         const patch = {
           error: {
             code: descendantsStopped ? "AO_WORKER_LOST" : "AO_WORKER_GROUP_SURVIVED",
             message: descendantsStopped ? "The durable worker disappeared before reaching a terminal state; its recorded process group is stopped." : "The durable worker disappeared and its recorded process group could not be proven stopped."
           }
         };
-        if (nextState === run.state) await this.store.update(run.runId, patch, "worker_cleanup_still_required");
-        else await this.store.transition(run.runId, [run.state], nextState, patch, "worker_loss_detected");
+        if (nextState === run2.state) await this.store.update(run2.runId, patch, "worker_cleanup_still_required");
+        else await this.store.transition(run2.runId, [run2.state], nextState, patch, "worker_loss_detected");
       });
     }
     return recovered;
@@ -29472,14 +30300,14 @@ var OrchestrationService = class {
         const existing = await this.store.findByIdempotencyKey(input.idempotencyKey, prepared.consumer.repositoryKey);
         if (existing) return { run: existing, explanation: prepared.explanation, session: await this.sessionForRun(existing.runId) };
       }
-      const active = (await this.store.list()).filter((run2) => WORKER_STATES.has(run2.state));
+      const active = (await this.store.list()).filter((run3) => WORKER_STATES.has(run3.state));
       invariant(active.length < this.maxConcurrentRuns, "AO_CONCURRENCY_LIMIT", "The global orchestration concurrency limit is reached.", { limit: this.maxConcurrentRuns });
       const selectedProviders = [...new Set(prepared.plan.stages.map((stage) => stage.route?.selected?.providerId).filter(Boolean))];
       for (const providerId of selectedProviders) {
-        const providerActive = active.filter((run2) => run2.plan?.stages?.some((stage) => stage.route?.selected?.providerId === providerId));
+        const providerActive = active.filter((run3) => run3.plan?.stages?.some((stage) => stage.route?.selected?.providerId === providerId));
         invariant(providerActive.length < this.maxConcurrentPerProvider, "AO_PROVIDER_CONCURRENCY_LIMIT", `The concurrency limit for ${providerId} is reached.`, { providerId, limit: this.maxConcurrentPerProvider });
       }
-      const run = await this.store.create({
+      const run2 = await this.store.create({
         input: {
           intent: input.intent,
           task: input.task,
@@ -29500,7 +30328,7 @@ var OrchestrationService = class {
         parentRunId: parentRunIdFromEnv(),
         launcher: launcherBinding()
       });
-      const launchedRun = run.state === "queued" ? await this.launchWorker(run.runId) ?? await this.store.get(run.runId) : run;
+      const launchedRun = run2.state === "queued" ? await this.launchWorker(run2.runId) ?? await this.store.get(run2.runId) : run2;
       const session = await this.openRunSession(launchedRun.runId);
       return { run: launchedRun, explanation: prepared.explanation, session };
     });
@@ -29589,10 +30417,10 @@ var OrchestrationService = class {
   }
   async quarantineWorkerLaunchFailure(runId, supervisorUnit, error51) {
     const stopped = await this.terminateRecordedProcessGroup({ supervisorUnit }).catch(() => false);
-    const run = await this.store.get(runId);
-    if (TERMINAL_STATES.has(run.state)) return run;
+    const run2 = await this.store.get(runId);
+    if (TERMINAL_STATES.has(run2.state)) return run2;
     const nextState = stopped ? "failed" : "cleanup_required";
-    return this.store.transition(runId, [run.state], nextState, {
+    return this.store.transition(runId, [run2.state], nextState, {
       error: {
         code: error51?.code ?? "AO_WORKER_LAUNCH_FAILED",
         message: error51 instanceof Error ? error51.message : String(error51)
@@ -29611,19 +30439,19 @@ var OrchestrationService = class {
     });
   }
   async worker(runId) {
-    const run = await this.platformRuntime.workerSupervisor.attach({ runId, store: this.store, terminalStates: TERMINAL_STATES });
-    if (TERMINAL_STATES.has(run.state)) return run;
+    const run2 = await this.platformRuntime.workerSupervisor.attach({ runId, store: this.store, terminalStates: TERMINAL_STATES });
+    if (TERMINAL_STATES.has(run2.state)) return run2;
     return executeRun({ store: this.store, runId, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
   }
   async getRun(input) {
-    const [consumer, run] = await Promise.all([this.resolveConsumer(input.consumerCwd, false), this.store.get(input.runId)]);
-    invariant(consumer.repositoryKey === run.consumer.repositoryKey, "AO_RUN_REPOSITORY_MISMATCH", "The run belongs to a different consumer repository.");
-    const session = await this.sessionForRun(run.runId);
-    return { ...run, session };
+    const [consumer, run2] = await Promise.all([this.resolveConsumer(input.consumerCwd, false), this.store.get(input.runId)]);
+    invariant(consumer.repositoryKey === run2.consumer.repositoryKey, "AO_RUN_REPOSITORY_MISMATCH", "The run belongs to a different consumer repository.");
+    const session = await this.sessionForRun(run2.runId);
+    return { ...run2, session };
   }
   async list(input) {
     const consumer = await this.resolveConsumer(input.consumerCwd, false);
-    return (await this.store.list()).filter((run) => run.consumer.repositoryKey === consumer.repositoryKey);
+    return (await this.store.list()).filter((run2) => run2.consumer.repositoryKey === consumer.repositoryKey);
   }
   async events(input) {
     await this.getRun(input);
@@ -29632,9 +30460,9 @@ var OrchestrationService = class {
   async wait(input) {
     const deadline = Date.now() + Math.min(input.timeoutMs ?? 55e3, 55e3);
     while (true) {
-      const run = await this.getRun(input);
-      if (TERMINAL_STATES.has(run.state) || run.state === "waiting_for_decision" || Date.now() >= deadline) return run;
-      await new Promise((resolve6) => setTimeout(resolve6, Math.min(input.pollIntervalMs ?? 250, 2e3)));
+      const run2 = await this.getRun(input);
+      if (TERMINAL_STATES.has(run2.state) || run2.state === "waiting_for_decision" || Date.now() >= deadline) return run2;
+      await new Promise((resolve10) => setTimeout(resolve10, Math.min(input.pollIntervalMs ?? 250, 2e3)));
     }
   }
   async cancel(input) {
@@ -29642,56 +30470,56 @@ var OrchestrationService = class {
     return this.applyCancel(input.runId);
   }
   async applyCancel(runId) {
-    let run = await this.store.requestCancel(runId);
-    if (TERMINAL_STATES.has(run.state)) return run;
-    if (run.worker?.pid && WORKER_STATES.has(run.state)) {
+    let run2 = await this.store.requestCancel(runId);
+    if (TERMINAL_STATES.has(run2.state)) return run2;
+    if (run2.worker?.pid && WORKER_STATES.has(run2.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
-      while (Date.now() < cooperativeDeadline && processGroupExists(run.worker.processGroup)) {
-        await new Promise((resolve6) => setTimeout(resolve6, 100));
+      while (Date.now() < cooperativeDeadline && processGroupExists(run2.worker.processGroup)) {
+        await new Promise((resolve10) => setTimeout(resolve10, 100));
       }
-      const stopped = await this.terminateRecordedProcessGroup(run.worker);
-      run = await this.store.get(runId);
+      const stopped = await this.terminateRecordedProcessGroup(run2.worker);
+      run2 = await this.store.get(runId);
       if (!stopped) {
-        if (!TERMINAL_STATES.has(run.state)) {
+        if (!TERMINAL_STATES.has(run2.state)) {
           const patch = {
             cancellation: { state: "process_group_survived", at: (/* @__PURE__ */ new Date()).toISOString() }
           };
-          return run.state === "cleanup_required" ? this.store.update(runId, patch, "cancellation_still_unproven") : this.store.transition(runId, [run.state], "cleanup_required", patch, "cancellation_unproven");
+          return run2.state === "cleanup_required" ? this.store.update(runId, patch, "cancellation_still_unproven") : this.store.transition(runId, [run2.state], "cleanup_required", patch, "cancellation_unproven");
         }
         invariant(false, "AO_CANCELLATION_UNPROVEN", "The run reached a terminal state, but its recorded process group is still alive.");
       }
-      if (!TERMINAL_STATES.has(run.state)) {
-        run = await this.store.transition(runId, [run.state], "cancelled", { cancellation: { state: "confirmed_stopped", at: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_cancelled");
+      if (!TERMINAL_STATES.has(run2.state)) {
+        run2 = await this.store.transition(runId, [run2.state], "cancelled", { cancellation: { state: "confirmed_stopped", at: (/* @__PURE__ */ new Date()).toISOString() } }, "worker_cancelled");
       }
-    } else if (!TERMINAL_STATES.has(run.state)) {
-      const safelyInactive = ["queued", "waiting_for_decision"].includes(run.state);
-      run = await this.store.transition(runId, [run.state], safelyInactive ? "cancelled" : "cleanup_required", {}, safelyInactive ? "cancelled_without_worker" : "cancellation_worker_identity_missing");
+    } else if (!TERMINAL_STATES.has(run2.state)) {
+      const safelyInactive = ["queued", "waiting_for_decision"].includes(run2.state);
+      run2 = await this.store.transition(runId, [run2.state], safelyInactive ? "cancelled" : "cleanup_required", {}, safelyInactive ? "cancelled_without_worker" : "cancellation_worker_identity_missing");
     }
-    return run;
+    return run2;
   }
   async sessionFollowUp(runId, message) {
     const text = typeof message === "string" ? message.trim() : "";
     invariant(text.length > 0, "AO_INVALID_FOLLOWUP", "Follow-up message is required.");
-    const run = await this.store.get(runId);
-    if (["failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(run.state)) {
+    const run2 = await this.store.get(runId);
+    if (["failed", "cancelled", "timed_out", "rejected", "recovery_required"].includes(run2.state)) {
       invariant(false, "AO_RUN_NOT_READY_FOR_FOLLOWUP", "Run ended. Start a new run to continue.");
     }
-    invariant(run.input.permissionProfile === "read", "AO_WRITE_FOLLOWUP_REQUIRES_NEW_RUN", "Writable persistent-session follow-up is disabled until workspace leases can prevent cross-run cleanup; spawn a new scoped write run instead.");
+    invariant(run2.input.permissionProfile === "read", "AO_WRITE_FOLLOWUP_REQUIRES_NEW_RUN", "Writable persistent-session follow-up is disabled until workspace leases can prevent cross-run cleanup; spawn a new scoped write run instead.");
     await this.store.appendJournal(runId, "operator_message", { text: text.slice(0, 8e3) });
-    if (run.state === "succeeded") {
+    if (run2.state === "succeeded") {
       return this.send({
         runId,
-        consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
+        consumerCwd: run2.consumer.checkoutRoot ?? run2.consumer.requestedCwd,
         message: text
       });
     }
     return { queued: true, runId };
   }
   async sessionDecide(runId, body = {}) {
-    const run = await this.store.get(runId);
+    const run2 = await this.store.get(runId);
     return this.approveDecision({
       runId,
-      consumerCwd: run.consumer.checkoutRoot ?? run.consumer.requestedCwd,
+      consumerCwd: run2.consumer.checkoutRoot ?? run2.consumer.requestedCwd,
       approved: Boolean(body.approved),
       rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 500) : "",
       // The label of whoever held the capability token: "operator" when the session UI is driven by
@@ -29737,18 +30565,18 @@ var OrchestrationService = class {
       }]
     };
     return this.store.withLock("scheduler", async () => {
-      const active = (await this.store.list()).filter((run2) => WORKER_STATES.has(run2.state));
+      const active = (await this.store.list()).filter((run3) => WORKER_STATES.has(run3.state));
       invariant(active.length < this.maxConcurrentRuns, "AO_CONCURRENCY_LIMIT", "The global orchestration concurrency limit is reached.", { limit: this.maxConcurrentRuns });
-      const providerActive = active.filter((run2) => run2.plan?.stages?.some((stage) => stage.route?.selected?.providerId === session.providerId));
+      const providerActive = active.filter((run3) => run3.plan?.stages?.some((stage) => stage.route?.selected?.providerId === session.providerId));
       invariant(providerActive.length < this.maxConcurrentPerProvider, "AO_PROVIDER_CONCURRENCY_LIMIT", `The concurrency limit for ${session.providerId} is reached.`, { providerId: session.providerId, limit: this.maxConcurrentPerProvider });
-      const run = await this.store.create({
+      const run2 = await this.store.create({
         input: { ...parent.input, task: input.message, permissionProfile: "read", timeoutMs: input.timeoutMs ?? parent.input.timeoutMs },
         consumer: parent.consumer,
         plan,
         parentRunId: parent.runId
       });
-      await this.launchWorker(run.runId);
-      return { run: await this.store.get(run.runId), parentRunId: parent.runId };
+      await this.launchWorker(run2.runId);
+      return { run: await this.store.get(run2.runId), parentRunId: parent.runId };
     });
   }
   async cleanup(input) {
@@ -29756,14 +30584,14 @@ var OrchestrationService = class {
     return this.store.withLock(`cleanup:${input.runId}`, () => cleanupRun({ store: this.store, runId: input.runId }));
   }
   async decision(input) {
-    const run = await this.getRun(input);
-    invariant(run.input.intent === "architecture", "AO_NOT_AN_ARCHITECTURE_DECISION", "Only architecture runs produce an adversarial decision record.");
+    const run2 = await this.getRun(input);
+    invariant(run2.input.intent === "architecture", "AO_NOT_AN_ARCHITECTURE_DECISION", "Only architecture runs produce an adversarial decision record.");
     return {
-      runId: run.runId,
-      protocol: run.plan.protocol ?? run.plan.protocolId,
-      state: run.decision?.state ?? "pending_review",
-      evidence: run.outputs,
-      approval: run.decision?.approval ?? null
+      runId: run2.runId,
+      protocol: run2.plan.protocol ?? run2.plan.protocolId,
+      state: run2.decision?.state ?? "pending_review",
+      evidence: run2.outputs,
+      approval: run2.decision?.approval ?? null
     };
   }
   async approveDecision(input, { via: channel = "mcp" } = {}) {
@@ -29790,8 +30618,8 @@ var OrchestrationService = class {
       at: (/* @__PURE__ */ new Date()).toISOString()
     };
     const nextDecision = { ...current.decision, state: approval.state, approval };
-    const run = await this.store.transition(input.runId, ["waiting_for_decision"], input.approved ? "succeeded" : "rejected", { decision: nextDecision }, "decision_reviewed");
-    return { runId: run.runId, decision: run.decision, evidence: decision.evidence };
+    const run2 = await this.store.transition(input.runId, ["waiting_for_decision"], input.approved ? "succeeded" : "rejected", { decision: nextDecision }, "decision_reviewed");
+    return { runId: run2.runId, decision: run2.decision, evidence: decision.evidence };
   }
   /**
    * Resolution runs in the caller's directory, not this process's.
@@ -29804,11 +30632,11 @@ var OrchestrationService = class {
    * explicitly and falls back only to a directory that still exists.
    */
   async resolveDiscoveryCwd(preferred) {
-    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os5.homedir)()]) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os7.homedir)()]) {
       if (!candidate) continue;
       try {
-        const stats = await (0, import_promises19.stat)(candidate);
-        if (stats.isDirectory()) return await (0, import_promises19.realpath)(candidate).catch(() => candidate);
+        const stats = await (0, import_promises24.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises24.realpath)(candidate).catch(() => candidate);
       } catch {
       }
     }
@@ -29859,8 +30687,10 @@ var OrchestrationService = class {
       return { id: provider.providerId, ready, reason: ready ? "provider_authentication_and_acp_session_passed" : "provider_authentication_entitlement_or_acp_session_unavailable", selectedExecutable, sessionProbe };
     }));
     const bridges = await checkBundledBridges(this.pluginRoot);
+    const diagnostics = await runtimeDiagnostics({ consumerCwd, pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
     return {
-      ok: executableChecks.find((entry) => entry.id === "git")?.ok === true && sandbox.ok && supervisor.ok && bridges.every((entry) => entry.ok),
+      ok: executableChecks.find((entry) => entry.id === "git")?.ok === true && sandbox.ok && supervisor.ok && bridges.every((entry) => entry.ok) && diagnostics.consumerAdmission.admitted !== false,
+      diagnostics,
       runtime: this.platformRuntime.describe(),
       pluginRoot: this.pluginRoot,
       stateRoot: this.stateRoot,
@@ -29898,7 +30728,7 @@ var OrchestrationService = class {
 // src/cli.mjs
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const { values } = (0, import_node_util3.parseArgs)({
+  const { values } = (0, import_node_util4.parseArgs)({
     args: rest,
     options: {
       "state-root": { type: "string" },
@@ -29911,14 +30741,14 @@ async function main() {
   });
   if (command === "session-host") {
     process.env.AGENT_ORCHESTRATION_SESSION_HOST = "1";
-    const stateRoot2 = validateStateRoot(values["state-root"] || stateRoot(), PLUGIN_ROOT);
+    const stateRoot3 = validateStateRoot(values["state-root"] || stateRoot(), PLUGIN_ROOT);
     const service2 = await new OrchestrationService({
-      stateRoot: stateRoot2,
+      stateRoot: stateRoot3,
       autoRecover: false
     }).initialize();
     const host = await startSessionHost({
-      stateRoot: stateRoot2,
-      uiRoot: (0, import_node_path22.join)(PLUGIN_ROOT, "dist", "session-ui"),
+      stateRoot: stateRoot3,
+      uiRoot: (0, import_node_path28.join)(PLUGIN_ROOT, "dist", "session-ui"),
       controls: service2.sessionControls()
     });
     host.server.ref();
@@ -29936,7 +30766,7 @@ async function main() {
     return;
   }
   if (command === "doctor") {
-    process.stdout.write(`${JSON.stringify(await service.doctor(), null, 2)}
+    process.stdout.write(`${JSON.stringify(await service.doctor({ consumerCwd: values["consumer-cwd"] }), null, 2)}
 `);
     return;
   }

@@ -16,6 +16,7 @@ import { createPlatformRuntime } from "./platform/factory.mjs";
 import { capabilityUrl, isExpired, mintCapability, readSessionMeta, writeSessionMeta } from "./session/capability.mjs";
 import { openSessionBrowser, probeSessionHost, startSessionHost } from "./session/host.mjs";
 import { launchSessionSupervisor, shouldSuperviseSessionHost, waitForSessionHostLease } from "./session/supervisor.mjs";
+import { runtimeDiagnostics } from './diagnostics.mjs';
 
 const WORKER_STATES = new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 
@@ -669,11 +670,14 @@ export class OrchestrationService {
       return { id: provider.providerId, ready, reason: ready ? "provider_authentication_and_acp_session_passed" : "provider_authentication_entitlement_or_acp_session_unavailable", selectedExecutable, sessionProbe };
     }));
     const bridges = await checkBundledBridges(this.pluginRoot);
+    const diagnostics = await runtimeDiagnostics({consumerCwd,pluginRoot:this.pluginRoot,stateRoot:this.stateRoot});
     return {
       ok: executableChecks.find((entry) => entry.id === "git")?.ok === true
         && sandbox.ok
         && supervisor.ok
-        && bridges.every((entry) => entry.ok),
+        && bridges.every((entry) => entry.ok)
+        && diagnostics.consumerAdmission.admitted !== false,
+      diagnostics,
       runtime: this.platformRuntime.describe(),
       pluginRoot: this.pluginRoot,
       stateRoot: this.stateRoot,
