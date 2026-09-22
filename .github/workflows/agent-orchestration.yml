@@ -8,6 +8,7 @@ on:
       - ".github/workflows/agent-orchestration.yml"
       - ".github/quarantines/tm111.json"
       - ".github/scripts/tm111-quarantine.mjs"
+      - ".github/scripts/ao-sandbox-prerequisites.sh"
       - ".github/tests/tm111-quarantine.test.mjs"
       - ".github/tests/agent-orchestration-workflow.test.mjs"
       - ".github/tests/fixtures/tm111-runner-failure.json"
@@ -18,13 +19,14 @@ on:
       - ".github/workflows/agent-orchestration.yml"
       - ".github/quarantines/tm111.json"
       - ".github/scripts/tm111-quarantine.mjs"
+      - ".github/scripts/ao-sandbox-prerequisites.sh"
       - ".github/tests/tm111-quarantine.test.mjs"
       - ".github/tests/agent-orchestration-workflow.test.mjs"
       - ".github/tests/fixtures/tm111-runner-failure.json"
 
 jobs:
   unit-build-contracts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,7 +35,7 @@ jobs:
           cache: npm
           cache-dependency-path: agent-orchestration/package-lock.json
       - name: Install sandbox prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes bubblewrap slirp4netns
+        run: bash .github/scripts/ao-sandbox-prerequisites.sh
       - name: Install build dependencies
         run: npm ci --prefix agent-orchestration --ignore-scripts
       - name: Verify plugin-local design system (offline)
@@ -64,10 +66,18 @@ jobs:
         run: |
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.codex-plugin/plugin.json")); if("version" in c) process.exit(1)'
           node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("agent-orchestration/.claude-plugin/plugin.json")); if("version" in c) process.exit(1)'
+      - name: Publish sandbox prerequisite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AO-runtime-sandbox-prerequisites
+          path: ${{ runner.temp }}/ao-sandbox-prerequisites/
+          if-no-files-found: error
+          retention-days: 14
 
   installed-cache-contract:
     name: "Strict installed-cache contract (TM-111)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -76,8 +86,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: agent-orchestration/package-lock.json
-      - name: Install existing sandbox prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes bubblewrap slirp4netns
+      - name: Install sandbox prerequisites
+        run: bash .github/scripts/ao-sandbox-prerequisites.sh
       - run: npm ci --prefix agent-orchestration --ignore-scripts
       - name: Execute the exact installed-cache contract and record coverage
         working-directory: agent-orchestration
@@ -119,6 +129,14 @@ jobs:
         with:
           name: TM-111-installed-cache-coverage
           path: installed-cache-ci-result/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish sandbox prerequisite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AO-installed-cache-sandbox-prerequisites
+          path: ${{ runner.temp }}/ao-sandbox-prerequisites/
           if-no-files-found: error
           retention-days: 14
 
