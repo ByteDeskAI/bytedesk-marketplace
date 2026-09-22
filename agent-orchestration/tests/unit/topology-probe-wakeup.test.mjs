@@ -279,8 +279,17 @@ test("a readiness SCREEN answers from disk and mints nothing", async () => {
   assert.ok(!/ackTimeoutMs\s*:\s*1000/.test(source), "a screen must not mint a probe it cannot wait for");
   assert.match(source, /ackTimeoutMs\s*:\s*0/, "0 is the read-only contract");
 
-  const lead = await readFile(new URL("../../topology/lib/lead.mjs", import.meta.url), "utf8");
-  assert.match(lead, /if \(!\(ackTimeoutMs > 0\)\)/, "and the library has to honour it, or the caller's intent is decorative");
+  const lead = await import("../../topology/lib/lead.mjs");
+  const home = await probeDir();
+  const record = { repo_id: "repo-screen", agent_id: "lead-screen", session: "ao-lead-screen", pane: BINDING.paneId, binding: { ...BINDING } };
+  const ready = await lead.responsiveForTest(record, 0, {
+    registryDir: home,
+    alive: async () => true,
+    wake: async () => assert.fail("a readiness screen must not wake the lead"),
+  });
+  assert.equal(ready, false, "no cached proof means not ready");
+  const { readdir } = await import("node:fs/promises");
+  assert.deepEqual(await readdir(path(home, "probes")).catch(() => []), [], "a readiness screen must not mint a challenge");
 });
 
 // ── TM-187: the probe expired at the same instant the wait gave up ───────────

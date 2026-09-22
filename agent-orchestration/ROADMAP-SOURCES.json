@@ -79,8 +79,8 @@
       ]
     },
     "src/provider-sandbox.mjs": {
-      "sha256": "2068c4dc6a6de724a59522e100358c07dbaf2dd08e86fe8e4e45871c75337dcd",
-      "lineCount": 793,
+      "sha256": "7ac702259c457ac06e3a409e5e67b1c2c49a08e5b3981ad76470253120703f2a",
+      "lineCount": 798,
       "anchors": [
         "\"AO_ACP_PROVIDER_REQUEST_LIMIT\""
       ]
