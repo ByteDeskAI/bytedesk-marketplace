@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { PassThrough } from 'node:stream';
 import test from 'node:test';
+import { sandboxNetworkSmoke } from '../scripts/ao-sandbox-network-smoke.mjs';
 
 const execute = promisify(execFile);
 const workflow = await readFile(new URL('../workflows/agent-orchestration.yml', import.meta.url), 'utf8');
@@ -49,6 +52,7 @@ test('CI keeps runtime and installed-cache gates strict and runs tmux contracts 
     assert.match(body, /path: \$\{\{ runner\.temp \}\}\/ao-sandbox-prerequisites\//);
   }
   assert.equal(workflow.split('      - ".github/scripts/ao-sandbox-prerequisites.sh"').length - 1, 2, 'helper changes must trigger both push and pull-request validation');
+  assert.equal(workflow.split('      - ".github/scripts/ao-sandbox-network-smoke.mjs"').length - 1, 2, 'network smoke changes must trigger both validation events');
 });
 
 test('the actual CI shell records coverage only for one exact passing installed-cache test', async t => {
@@ -105,7 +109,7 @@ sysctl() {
 }
 dpkg-query() { echo 'apparmor-profiles fixture-version'; }
 sha256sum() {
-  [[ "$1" == /usr/share/apparmor/extra-profiles/bwrap-userns-restrict ]] || return 92
+  [[ "$1" == /usr/share/apparmor/extra-profiles/bwrap-userns-restrict || "$1" == /etc/apparmor.d/slirp4netns ]] || return 92
   echo 'fixture-hash official-profile'
 }
 sudo() {
@@ -117,6 +121,9 @@ sudo() {
     'apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict')
       [[ "\${AO_FIXTURE_PARSER_FAILURE:-0}" == 0 ]] || return 93
       touch "$RUNNER_TEMP/profile-loaded" ;;
+    'apparmor_parser -r /etc/apparmor.d/slirp4netns')
+      [[ "\${AO_FIXTURE_NETWORK_PROFILE_FAILURE:-0}" == 0 ]] || return 98
+      touch "$RUNNER_TEMP/network-profile-loaded" ;;
     'journalctl -k --no-pager --since 5 minutes ago --grep apparmor=.*DENIED.*comm="bwrap"')
       echo 'apparmor="DENIED" comm="bwrap" capname="net_admin"' ;;
     *) echo "Unexpected privileged command: $*" >&2; return 94 ;;
@@ -127,7 +134,11 @@ function /usr/bin/bwrap() {
   if [[ "$1" == --version ]]; then echo 'bubblewrap fixture-version'; return; fi
   [[ "$*" == *--unshare-all* && "$*" != *--share-net* ]] || return 95
   if [[ "$*" == *'/bin/true' ]]; then echo 'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted' >&2; return 1; fi
-  [[ "$*" == *'--clearenv --setenv PATH /usr/bin:/bin'* ]] || return 96
+  return 96
+}
+node() {
+  [[ "$1" == */ao-sandbox-network-smoke.mjs && -f "$RUNNER_TEMP/network-profile-loaded" ]] || return 96
+  printf '%s\n' 'node network smoke' >> "$RUNNER_TEMP/calls.log"
   [[ "\${AO_FIXTURE_SMOKE_FAILURE:-0}" == 0 ]] || return 97
   printf '%s\n' "$AO_FIXTURE_SMOKE"
 }
@@ -140,6 +151,7 @@ ao_sandbox_prerequisites
     { label: 'self-hosted runner is refused before privileged commands', env: { RUNNER_ENVIRONMENT: 'self-hosted' }, guard: true },
     { label: 'different distribution is refused before privileged commands', env: { AO_FIXTURE_DISTRO: 'LinuxMint' }, guard: true },
     { label: 'profile loading failure stays failed', env: { AO_FIXTURE_PARSER_FAILURE: '1' } },
+    { label: 'network helper profile failure stays failed', env: { AO_FIXTURE_NETWORK_PROFILE_FAILURE: '1' } },
     { label: 'smoke execution failure stays failed', env: { AO_FIXTURE_SMOKE_FAILURE: '1' } },
     { label: 'unconfined child is rejected', env: { AO_FIXTURE_SMOKE: 'child_profile=unconfined\nCapEff=0000000000000000' } },
     { label: 'effective capabilities are rejected', env: { AO_FIXTURE_SMOKE: 'child_profile=bwrap//&unpriv_bwrap (enforce)\nCapEff=0000000000001000' } },
@@ -152,6 +164,7 @@ ao_sandbox_prerequisites
         env: { ...process.env, GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', ImageOS: 'ubuntu24', RUNNER_TEMP: root,
           AO_PREREQUISITE_SCRIPT: fileURLToPath(new URL('../scripts/ao-sandbox-prerequisites.sh', import.meta.url)),
           AO_FIXTURE_DISTRO: 'Ubuntu', AO_FIXTURE_SYSCTL_CHANGED: '0', AO_FIXTURE_PARSER_FAILURE: '0', AO_FIXTURE_SMOKE_FAILURE: '0',
+          AO_FIXTURE_NETWORK_PROFILE_FAILURE: '0',
           AO_FIXTURE_SMOKE: passingSmoke, ...fixture.env },
       }).then(value => ({ code: 0, ...value }), error => ({ code: error.code, stdout: error.stdout, stderr: error.stderr }));
       assert.equal(result.code === 0, Boolean(fixture.pass), `${result.stdout}\n${result.stderr}`);
@@ -163,9 +176,87 @@ ao_sandbox_prerequisites
         assert.match(await readFile(join(root, 'ao-sandbox-prerequisites/diagnostics.log'), 'utf8'), /Before: restrict_unprivileged_userns=1 restrict_unprivileged_unconfined=1/);
       }
       if (fixture.pass) {
+        assert.match(calls, /sudo apparmor_parser -r \/etc\/apparmor.d\/slirp4netns/);
+        assert.match(calls, /node network smoke/);
         assert.equal(await readFile(join(root, 'ao-sandbox-prerequisites/bwrap-after.log'), 'utf8'), `${passingSmoke}\n`);
         assert.match(result.stdout, /Sandbox prerequisites passed/);
       } else assert.doesNotMatch(result.stdout, /Sandbox prerequisites passed/);
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+});
+
+test('network smoke checks the real namespace handshake and cleans up only its own subprocesses', async t => {
+  const passingOutput = 'child_profile=bwrap//&unpriv_bwrap (enforce)\nCapEff=0000000000000000\n';
+  for (const fixture of [
+    { label: 'isolated network ready before child release', pass: true },
+    { label: 'namespace permission failure', networkFailure: true, error: /setns\(CLONE_NEWNET\): Operation not permitted/ },
+    { label: 'missing readiness is bounded', noReadiness: true, error: /timed out/ },
+    { label: 'blocked process diagnostics cannot delay cleanup indefinitely', stalledMetadata: true, error: /observation timed out/ },
+    { label: 'unnamed network helper profile is refused', networkProfile: 'unconfined', error: /official executable profile/ },
+    { label: 'unconfined workload is refused', output: 'child_profile=unconfined\nCapEff=0000000000000000\n', error: /enforced profile/ },
+    { label: 'effective workload capabilities are refused', output: passingOutput.replace(/0{16}/, '0000000000001000'), error: /zero effective capabilities/ },
+    { label: 'missing namespace record fails promptly', missingInfo: true, error: /without a child PID/ },
+    { label: 'owned cleanup escalates when TERM is ignored', networkFailure: true, ignoreTerm: true, error: /setns\(CLONE_NEWNET\)/ },
+  ]) await t.test(fixture.label, async () => {
+    const children = [];
+    let networkReady = false;
+    let released = false;
+    const spawn = (command, args, options) => {
+      const child = new EventEmitter();
+      child.pid = 100 + children.length;
+      child.exitCode = null; child.signalCode = null;
+      child.stdio = options.stdio.map(mode => mode === 'pipe' ? new PassThrough() : null);
+      child.stdout = child.stdio[1]; child.stderr = child.stdio[2];
+      child.signals = [];
+      const close = (code, signal = null) => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        child.exitCode = code; child.signalCode = signal;
+        child.stdout?.end(); child.stderr.end();
+        child.emit('close', code, signal);
+      };
+      child.kill = signal => {
+        child.signals.push(signal);
+        if (!(fixture.ignoreTerm && signal === 'SIGTERM')) close(null, signal);
+        return true;
+      };
+      children.push({ child, command, args, options });
+      if (command === '/usr/bin/bwrap') {
+        assert.ok(args.includes('--unshare-all'));
+        assert.ok(args.includes('--die-with-parent'));
+        assert.ok(args.includes('--clearenv'));
+        let release = '';
+        child.stdio[4].on('data', data => { release += data; });
+        child.stdio[4].on('finish', () => {
+          if (release !== '1') return;
+          assert.equal(networkReady, true, 'workload must remain blocked until the network acknowledges readiness');
+          released = true;
+          child.stdout.write(fixture.output || passingOutput);
+          close(0);
+        });
+        queueMicrotask(() => child.stdio[3].end(fixture.missingInfo ? '' : JSON.stringify({ 'child-pid': 500 })));
+      } else {
+        assert.equal(command, '/usr/bin/slirp4netns');
+        assert.deepEqual(args, ['--configure', '--mtu=65520', '--disable-host-loopback', '--enable-sandbox', '--ready-fd=3', '--exit-fd=4', '500', 'tap0']);
+        child.stdio[4].on('finish', () => { if (!fixture.ignoreTerm) close(0); });
+        queueMicrotask(() => {
+          if (fixture.networkFailure) { child.stderr.write('setns(CLONE_NEWNET): Operation not permitted'); close(1); }
+          else if (!fixture.noReadiness) { networkReady = true; child.stdio[3].write('1'); }
+        });
+      }
+      return child;
+    };
+    const readFile = async path => fixture.stalledMetadata ? new Promise(() => {}) : path.endsWith('/wchan') ? 'fixture_wait' : (fixture.networkProfile || 'slirp4netns (unconfined)');
+    const result = sandboxNetworkSmoke({ spawn, readFile, timeoutMs: 50 });
+    if (fixture.pass) {
+      assert.deepEqual(await result, { output: passingOutput.trim(), networkProfile: 'slirp4netns (unconfined)' });
+      assert.equal(released, true);
+    } else await assert.rejects(result, fixture.error);
+    for (const { child, options } of children) {
+      assert.ok(child.exitCode !== null || child.signalCode !== null, 'every owned subprocess must close');
+      assert.deepEqual(Object.keys(options.env).sort(), ['LANG', 'PATH']);
+      assert.equal(options.shell, false);
+    }
+    if (fixture.ignoreTerm) assert.deepEqual(children[0].child.signals, ['SIGTERM', 'SIGKILL']);
+    if (fixture.networkFailure || fixture.noReadiness || fixture.networkProfile || fixture.missingInfo) assert.equal(released, false);
   });
 });

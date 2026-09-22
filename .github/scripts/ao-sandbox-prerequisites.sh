@@ -18,6 +18,9 @@ ao_sandbox_prerequisites() {
   mkdir -p "$diagnostics"
   {
     local profile=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+    local network_profile=/etc/apparmor.d/slirp4netns
+    local script_dir
+    script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
     local userns_before unconfined_before userns_after unconfined_after smoke
     uname -sr
     printf 'AppArmor enabled: '
@@ -33,8 +36,9 @@ ao_sandbox_prerequisites() {
     /usr/bin/bwrap --version
     printf 'Official profile: '
     sha256sum "$profile"
+    sha256sum "$network_profile"
     printf 'Relevant profiles before loading:\n'
-    sudo cat /sys/kernel/security/apparmor/profiles | awk '$1 ~ /^(bwrap|unpriv_bwrap)(\/\/|$)/ { print }'
+    sudo cat /sys/kernel/security/apparmor/profiles | awk '$1 ~ /^(bwrap|unpriv_bwrap|slirp4netns)(\/\/|$)/ { print }'
 
     # Preserve direct evidence of the runner policy before loading the profile.
     if /usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev -- /bin/true > "$diagnostics/bwrap-before.log" 2>&1; then
@@ -48,8 +52,12 @@ ao_sandbox_prerequisites() {
     # Load this executable-specific, child-restricting profile only. Keep both
     # AppArmor sysctls and the producer's sandbox command unchanged.
     sudo apparmor_parser -r "$profile"
+    # Ubuntu's named slirp profile permits this fixed network helper to enter
+    # the namespace. Its unconfined mode never applies to the provider child.
+    # Keep --enable-sandbox and --disable-host-loopback in the handshake smoke.
+    sudo apparmor_parser -r "$network_profile"
     printf 'Relevant profiles after loading:\n'
-    sudo cat /sys/kernel/security/apparmor/profiles | awk '$1 ~ /^(bwrap|unpriv_bwrap)(\/\/|$)/ { print }'
+    sudo cat /sys/kernel/security/apparmor/profiles | awk '$1 ~ /^(bwrap|unpriv_bwrap|slirp4netns)(\/\/|$)/ { print }'
     userns_after=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)
     unconfined_after=$(sysctl -n kernel.apparmor_restrict_unprivileged_unconfined)
     printf 'After: restrict_unprivileged_userns=%s restrict_unprivileged_unconfined=%s\n' "$userns_after" "$unconfined_after"
@@ -58,12 +66,7 @@ ao_sandbox_prerequisites() {
       return 1
     fi
 
-    smoke=$(/usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev \
-      --clearenv --setenv PATH /usr/bin:/bin --chdir / -- /bin/sh -eu -c '
-        printf "child_profile="
-        cat /proc/self/attr/current
-        sed -n "s/^CapEff:[[:space:]]*/CapEff=/p" /proc/self/status
-      ')
+    smoke=$(node "$script_dir/ao-sandbox-network-smoke.mjs")
     printf '%s\n' "$smoke" | tee "$diagnostics/bwrap-after.log"
     local -a smoke_lines
     mapfile -t smoke_lines <<< "$smoke"
