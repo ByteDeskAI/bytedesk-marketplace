@@ -41,7 +41,31 @@ async function initRepo(path) {
   await run("git", ["-C", path, "commit", "-qm", "fixture"]);
 }
 
-test("tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd", async () => {
+// Observe only this transport's current descendant PIDs. Do not read argv,
+// environment, open files, or provider/configuration contents into diagnostics.
+async function ownedProcessSnapshot(rootPid) {
+  const observations = [];
+  const visit = async (pid, expectedParent = null, depth = 0) => {
+    if (!Number.isSafeInteger(pid) || pid < 1 || observations.length >= 64 || depth > 12) return;
+    try {
+      const status = await readFile(`/proc/${pid}/status`, "utf8");
+      const fields = Object.fromEntries(status.split("\n").map((line) => line.split(/:\s*/, 2)));
+      if (expectedParent !== null && Number(fields.PPid) !== expectedParent) return;
+      const [children, waitChannel, profile] = await Promise.all([
+        readFile(`/proc/${pid}/task/${pid}/children`, "utf8"),
+        readFile(`/proc/${pid}/wchan`, "utf8").catch(() => "unavailable"),
+        readFile(`/proc/${pid}/attr/current`, "utf8").catch(() => "unavailable"),
+      ]);
+      observations.push({ pid, parent: Number(fields.PPid), name: fields.Name, state: fields.State,
+        namespacePids: fields.NSpid, effectiveCapabilities: fields.CapEff, waitChannel: waitChannel.trim(), profile: profile.trim() });
+      for (const child of children.trim().split(/\s+/).filter(Boolean)) await visit(Number(child), pid, depth + 1);
+    } catch { /* An owned process may exit during observation. */ }
+  };
+  await visit(rootPid);
+  return observations;
+}
+
+test("tracked install bundle starts from plugin cwd but resolves only explicit consumerCwd", async (t) => {
   const root = await mkdtemp(join(os.tmpdir(), "ao-clean-install-"));
   const installed = join(root, "cache", "agent-orchestration");
   const stateRoot = join(root, "state");
@@ -98,6 +122,9 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS,
       XDG_STATE_HOME: stateRoot,
       AGENT_ORCHESTRATION_STATE_HOME: stateRoot,
+      // Only fake Kimi's bounded probe error is exposed by the readiness
+      // assertion below. ACPX then includes its test-only lifecycle breadcrumbs.
+      AGENT_ORCHESTRATION_VERBOSE: "1",
     };
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
@@ -118,13 +145,28 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       const planTool = tools.tools.find((tool) => tool.name === "orchestration_plan");
       assert.equal(planTool.inputSchema.properties.effort.enum.includes("none"), true);
 
-      const doctor = await client.callTool({ name: "orchestration_doctor", arguments: {} });
-      const doctorPayload = JSON.parse(doctor.content[0].text);
-      if (process.platform === "win32") {
-        assert.equal(doctorPayload.ok, true, JSON.stringify(doctorPayload, null, 2));
-        assert.equal(doctorPayload.runtime.id, "windows-native");
-      } else {
-        assert.equal(doctorPayload.providerProbes.find((entry) => entry.id === "kimi").ready, true, JSON.stringify(doctorPayload.providerProbes.find((entry) => entry.id === "kimi"), null, 2));
+      const doctorSnapshots = [];
+      const snapshotTimers = process.platform === "linux" ? [5_000, 15_000, 25_000].map((delay) => {
+        const timer = setTimeout(() => {
+          ownedProcessSnapshot(transport.pid).then((processes) => doctorSnapshots.push({ afterMs: delay, processes }));
+        }, delay);
+        timer.unref();
+        return timer;
+      }) : [];
+      try {
+        const doctor = await client.callTool({ name: "orchestration_doctor", arguments: {} });
+        const doctorPayload = JSON.parse(doctor.content[0].text);
+        if (process.platform === "win32") {
+          assert.equal(doctorPayload.ok, true, JSON.stringify(doctorPayload, null, 2));
+          assert.equal(doctorPayload.runtime.id, "windows-native");
+        } else {
+          assert.equal(doctorPayload.providerProbes.find((entry) => entry.id === "kimi").ready, true, JSON.stringify(doctorPayload.providerProbes.find((entry) => entry.id === "kimi"), null, 2));
+        }
+      } catch (error) {
+        t.diagnostic(`Owned doctor process observations: ${JSON.stringify(doctorSnapshots)}`);
+        throw error;
+      } finally {
+        snapshotTimers.forEach(clearTimeout);
       }
 
       const cliDoctor = await run(join(installed, "bin", "agent-orchestration"), ["doctor", "--consumer-cwd", consumer, "--json"], {
