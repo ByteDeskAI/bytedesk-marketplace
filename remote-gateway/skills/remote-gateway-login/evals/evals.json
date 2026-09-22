@@ -1,0 +1,46 @@
+{
+  "skill_name": "remote-gateway-login",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Log into the ByteDesk gateway at http://127.0.0.1:18765. Use method local, username ada, and password eval-only-pass. Talk only to that origin. Put the login result JSON in the outputs directory and do not print the password back.",
+      "expected_output": "Exit 0 JSON with ok true, method local, user ada, a cookie jar, and session username ada.",
+      "files": [],
+      "expectations": [
+        "result.json has ok true",
+        "result.json method is local and user is ada",
+        "result.json session.username is ada",
+        "The cookieJar file exists and contains bytedesk_emote_gateway_session",
+        "result.json does not contain the password eval-only-pass",
+        "The run executed scripts/login.sh or scripts/login.py"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Log into the gateway the usual way, with no --url, --method, --username, or --password. The login file for this run is /tmp/rg-eval/agent-login.yaml (set BYTEDESK_AGENT_LOGIN to that path) and cookies go in /tmp/rg-eval/cookies-bare (set BYTEDESK_GATEWAY_COOKIE_DIR). Do not contact any host except the URL inside that file.",
+      "expected_output": "Bare mode reads the yaml, posts login_mode=local, and returns ok true without echoing the password.",
+      "files": [],
+      "expectations": [
+        "result.json has ok true",
+        "result.json method is local and user is ada",
+        "result.json session.username is ada",
+        "result.json does not contain the password eval-only-pass",
+        "The run invoked scripts/login.sh or login.py with no --url, --method, --username, or --password flags",
+        "The cookieJar file exists and is mode 600"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "The gateway at http://127.0.0.1:18765 just rejected a login. Try once with method local, username ada, password wrong-pass. Record the JSON and the exit code. Do not retry, and do not include the password in anything you save.",
+      "expected_output": "Non-zero exit, ok false, error login rejected, and the password string absent from the output.",
+      "files": [],
+      "expectations": [
+        "result.json has ok false",
+        "result.json error is login rejected",
+        "result.json exitCode is 3",
+        "result.json does not contain the password wrong-pass",
+        "The transcript shows a single login attempt and no retry"
+      ]
+    }
+  ]
+}

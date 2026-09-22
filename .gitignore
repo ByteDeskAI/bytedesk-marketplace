@@ -76,5 +76,8 @@ project-management/.pm/
 **/graft/.cache/
 **/graft/.graph/
 
+# skill-creator eval runs for remote-gateway-login
+remote-gateway/skills/remote-gateway-login-workspace/
+
 # machine-local Claude Code settings
 .claude/settings.local.json

@@ -19,6 +19,7 @@ ByteDesk's Claude and Codex plugin marketplace. Plugins for parallel orchestrati
 | **[teamcity-mcp](./teamcity-mcp)** | TeamCity CI/CD over MCP — builds, logs, tests, queue, configs, agents |
 | **[design-system](./design-system)** | Versioned design context, four specialist roles, 31 workflows, offline sync, and a read-only MCP for Claude and Codex |
 | **[plugin-rsync](./plugin-rsync)** | Rsync marketplace source into globally installed Claude/Grok/Codex caches (user-scope only) |
+| **[remote-gateway](./remote-gateway)** | Gateway operator skills and `/remote-gateway-login` |
 
 ## Installation
 

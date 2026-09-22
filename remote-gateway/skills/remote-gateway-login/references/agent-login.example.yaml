@@ -1,0 +1,7 @@
+# Copy to ~/.bytedesk/remote-gateway/agent-login.yaml and chmod 600.
+# Do not commit the real file. method is vault or local.
+url: http://localhost:8443
+method: local
+user: your-user
+pass: "replace-me"
+# code: "123456"   # only when this gateway requires a TOTP code

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "remote-gateway",
+  "description": "ByteDesk remote gateway operator skills copied from the gateway repo, plus /remote-gateway-login so an agent can authenticate with a local agent-login.yaml or with explicit flags and then reuse the session cookie.",
+  "author": {
+    "name": "ByteDesk AI",
+    "url": "https://github.com/ByteDeskAI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/remote-gateway",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "remote-gateway",
+    "login",
+    "vault",
+    "bytedesk"
+  ]
+}
