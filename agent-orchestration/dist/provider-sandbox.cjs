@@ -223,6 +223,76 @@ function getProviderAdapter(providerId) {
 // src/runtime/bootstrap.mjs
 var AUTH_BOOTSTRAP_PROMPT = "Respond with exactly AUTH_READY. Do not call tools, inspect files, or read the workspace.";
 
+// src/platform/linux-network.mjs
+var NETWORK_LAUNCHER = String.raw`
+import fcntl
+import os
+import sys
+import time
+
+def main():
+    if len(sys.argv) != 3:
+        raise ValueError("Expected the owned Bubblewrap child PID and network namespace inode.")
+    pid, expected_net = map(int, sys.argv[1:])
+    if pid <= 0 or expected_net <= 0:
+        raise ValueError("Bubblewrap child PID and network namespace inode must be positive.")
+    net = os.open("/proc/%d/ns/net" % pid, os.O_RDONLY | os.O_CLOEXEC)
+    if os.fstat(net).st_ino != expected_net:
+        raise ValueError("Bubblewrap network namespace identity changed; refusing to attach.")
+    if os.stat("/proc/self/ns/net").st_ino == expected_net:
+        raise ValueError("Refusing to attach the provider network to the host namespace.")
+    # Linux nsfs.h: NS_GET_USERNS = _IO(0xb7, 0x1). The returned descriptor
+    # pins the owner even when no process remains in that user namespace.
+    owner = fcntl.ioctl(net, 0xb701)
+    if os.fstat(owner).st_ino == os.stat("/proc/self/ns/user").st_ino:
+        raise ValueError("Provider network must belong to a separate user namespace.")
+    # --info-fd may precede Bubblewrap's initial ID mapping as well. Both
+    # mappings must exist before nsenter can preserve the mapped credentials.
+    deadline = time.monotonic() + 5
+    while True:
+        with open("/proc/%d/uid_map" % pid) as uid_map, open("/proc/%d/gid_map" % pid) as gid_map:
+            if uid_map.read().strip() and gid_map.read().strip():
+                break
+        if time.monotonic() >= deadline:
+            raise ValueError("Timed out waiting for Bubblewrap's user namespace mappings.")
+        time.sleep(.01)
+    for executable in ("/usr/bin/nsenter", "/usr/bin/slirp4netns"):
+        if not os.access(executable, os.X_OK):
+            raise ValueError("Required Linux sandbox executable is missing: " + executable)
+    os.set_inheritable(net, True)
+    os.set_inheritable(owner, True)
+    user_path = "/proc/self/fd/%d" % owner
+    net_path = "/proc/self/fd/%d" % net
+    # Enter only the helper's owning user namespace. slirp keeps host networking
+    # for outbound traffic and creates its own mount sandbox. Pre-entry also
+    # avoids slirp 1.2.x's second, PID-based userns lookup in --enable-sandbox.
+    os.execv("/usr/bin/nsenter", [
+        "/usr/bin/nsenter", "--user=" + user_path,
+        "--preserve-credentials", "--no-fork", "--",
+        "/usr/bin/slirp4netns", "--netns-type=path", "--userns-path=" + user_path,
+        "--configure", "--mtu=65520", "--disable-host-loopback", "--enable-sandbox",
+        "--ready-fd=3", "--exit-fd=4", net_path, "tap0",
+    ])
+
+try:
+    main()
+except (OSError, ValueError) as error:
+    print("[agent-orchestration-network] Namespace attachment failed: %s. "
+          "Linux requires /usr/bin/python3, /usr/bin/nsenter, slirp4netns, "
+          "and NS_GET_USERNS support (Linux 4.9 or newer)." % error, file=sys.stderr)
+    sys.exit(1)
+`;
+function linuxNetworkCommand(info) {
+  const pid = info?.["child-pid"];
+  const inode = info?.["net-namespace"];
+  invariant(Number.isSafeInteger(pid) && pid > 0, "AO_SANDBOX_NAMESPACE_IDENTITY_MISSING", "Bubblewrap did not report a valid owned child PID.");
+  invariant(Number.isSafeInteger(inode) && inode > 0, "AO_SANDBOX_NAMESPACE_IDENTITY_MISSING", "Bubblewrap did not report its network namespace inode; refusing an unbound network attachment.");
+  return {
+    executable: "/usr/bin/python3",
+    args: ["-I", "-c", NETWORK_LAUNCHER, String(pid), String(inode)]
+  };
+}
+
 // src/provider-sandbox.mjs
 var BASE_ENV_KEYS = Object.freeze([
   "LANG",
@@ -451,6 +521,13 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
   if (permissionProfile === "write") invariant(gitMarker.isFile(), "AO_UNSAFE_GIT_LAYOUT", "A write workspace must be a linked worktree with a .git pointer file.");
   const wslHosted = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32";
   await Promise.all([(0, import_promises3.access)("/usr/bin/bwrap"), (0, import_promises3.access)(wslHosted ? "/usr/bin/pasta" : "/usr/bin/slirp4netns")]);
+  if (!wslHosted) {
+    for (const executable2 of ["/usr/bin/python3", "/usr/bin/nsenter"]) {
+      await (0, import_promises3.access)(executable2, import_node_fs.constants.X_OK).catch(() => {
+        throw new AgentOrchestrationError("AO_SANDBOX_DEPENDENCY_MISSING", `Linux provider networking requires ${executable2}; install python3 and util-linux before launching.`);
+      });
+    }
+  }
   const controlDir = await (0, import_promises3.realpath)(brokerControlDir);
   const controlInfo = await (0, import_promises3.lstat)(controlDir);
   invariant(controlInfo.isDirectory() && !controlInfo.isSymbolicLink(), "AO_UNSAFE_BROKER_CONTROL_DIR", "Broker control path must be a real directory.");
@@ -987,16 +1064,8 @@ async function main() {
         })
       ]);
     } else {
-      network = (0, import_node_child_process2.spawn)("/usr/bin/slirp4netns", [
-        "--configure",
-        "--mtu=65520",
-        "--disable-host-loopback",
-        "--enable-sandbox",
-        "--ready-fd=3",
-        "--exit-fd=4",
-        String(info["child-pid"]),
-        "tap0"
-      ], {
+      const networkCommand = linuxNetworkCommand(info);
+      network = (0, import_node_child_process2.spawn)(networkCommand.executable, networkCommand.args, {
         stdio: ["ignore", "ignore", "inherit", "pipe", "pipe"],
         env: { PATH: "/usr/bin:/bin", LANG: process.env.LANG ?? "C.UTF-8" },
         shell: false

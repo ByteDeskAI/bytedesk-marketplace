@@ -2,6 +2,7 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { readFile as read } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { linuxNetworkCommand } from '../../agent-orchestration/src/platform/linux-network.mjs';
 
 // This checks the producer's namespace/network handshake without loading a
 // provider or changing host policy. Dependencies are injectable for safe tests.
@@ -58,10 +59,8 @@ export async function sandboxNetworkSmoke({ spawn = spawnProcess, readFile = rea
       sandbox.child.stdio[3].once('end', () => rejectInfo(new Error('Bubblewrap ended its namespace stream without a child PID.')));
       sandbox.child.stdio[3].once('error', rejectInfo);
     }), sandbox);
-    const network = launch('/usr/bin/slirp4netns', [
-      '--configure', '--mtu=65520', '--disable-host-loopback', '--enable-sandbox',
-      '--ready-fd=3', '--exit-fd=4', String(info['child-pid']), 'tap0',
-    ], ['ignore', 'ignore', 'pipe', 'pipe', 'pipe']);
+    const networkCommand = linuxNetworkCommand(info);
+    const network = launch(networkCommand.executable, networkCommand.args, ['ignore', 'ignore', 'pipe', 'pipe', 'pipe']);
     await waitFor(new Promise((resolveReady, rejectReady) => {
       network.child.stdio[3].once('data', resolveReady);
       network.child.stdio[3].once('end', () => rejectReady(new Error('slirp4netns ended its readiness stream without acknowledgement.')));

@@ -63,8 +63,11 @@ work exists only when the MCP server starts a provider execution.
 
 - Node.js 22.13 or newer.
 - One supported execution backend:
-  - **Linux:** Bubblewrap (`bwrap`), `slirp4netns`, `prlimit`, and an active systemd user manager
-    (`systemd-run --user`).
+  - **Linux:** Bubblewrap (`bwrap`), `slirp4netns`, `/usr/bin/python3`, `/usr/bin/nsenter`
+    (from `util-linux`), `prlimit`, and an active systemd user manager (`systemd-run --user`).
+    Kernel namespace-owner lookup (`NS_GET_USERNS`, Linux 4.9 or newer) is required. The fixed
+    network launcher uses Python's standard library and `nsenter` to attach the network helper
+    to Bubblewrap's verified namespace owner; provider permissions and host policy stay unchanged.
   - **Windows native:** Windows 10 version 1809 or newer, .NET 8, AppContainer, and Job Objects.
   - **Windows with WSL2:** Node.js, Git, Bubblewrap (`bwrap`), `pasta` from the `passt` package,
     `unshare`, `prlimit`, and an active systemd user manager inside the distribution.

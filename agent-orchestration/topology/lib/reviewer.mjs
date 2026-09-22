@@ -197,7 +197,7 @@ const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record)
 export const PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 20_000);
 export const PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
 
-export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive = bindingAlive }) {
+export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive = bindingAlive, readOnly = false }) {
   if (!record?.agent_id || !incarnationOf(record.binding) || !await alive(record)) return false;
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
   // TM-157: an ack that cost a model turn is kept. See the same block in lead.mjs for why — a
@@ -214,9 +214,10 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
     const pending = await readJson(join(dir, `${stale}.json`)).catch(() => null);
     const ack = await readJson(join(dir, name)).catch(() => null);
     const mine = ack?.nonce === stale && pending?.nonce === stale && ack.agent_id === record.agent_id && ack.repo_id === record.repo_id && ack.session === record.session && sameIncarnation(ack.binding, record.binding) && sameIncarnation(pending.binding, record.binding);
-    await Promise.all([rm(join(dir, `${stale}.json`), { force: true }), rm(join(dir, name), { force: true })]);
-    if (mine && Number(pending.expires_at) >= Date.now() && await alive(record)) { await rememberReviewerAck(dir, record); return true; }
+    if (!readOnly) await Promise.all([rm(join(dir, `${stale}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+    if (mine && Number(pending.expires_at) >= Date.now() && await alive(record)) { if (!readOnly) await rememberReviewerAck(dir, record); return true; }
   }
+  if (readOnly) return false;
   const nonce = randomUUID();
   const path = join(dir, `${nonce}.json`), ackPath = join(dir, `${nonce}.ack.json`);
   // TM-187: the probe outlives the wait by LATE_ACK_GRACE_MS. These were one number, which is what
@@ -476,7 +477,7 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
  * deep in a diff is alive, unacknowledged, and perfectly healthy. Callers that need one boolean
  * derive it (see reviewerAvailability); callers reporting to a human must not.
  */
-export async function reviewerStanding({ consumer, env = process.env, home = homedir(), probes = null }) {
+export async function reviewerStanding({ consumer, env = process.env, home = homedir(), probes = null, readOnly = false }) {
   const session = { ...defaultProbes(), ...probes };
   const record = await readReviewerRecord(consumer, env, home);
   if (!record) {
@@ -487,7 +488,7 @@ export async function reviewerStanding({ consumer, env = process.env, home = hom
   }
   const responsive = probes?.responsive
     ? await probes.responsive(record)
-    : await reviewerProbeReady({ consumer, record, env, home });
+    : await reviewerProbeReady({ consumer, record, env, home, readOnly });
   return { registered: true, alive: true, responsive, record, reason: responsive ? null : "reviewer is alive but has not acknowledged a readiness nonce" };
 }
 
@@ -497,8 +498,8 @@ export async function reviewerStanding({ consumer, env = process.env, home = hom
  * instead of pretending a review can happen. The three facts behind the one boolean are in
  * reviewerStanding; this is the merge gate's view, where only "yes or no, and why not" matters.
  */
-export async function reviewerAvailability({ consumer, env = process.env, home = homedir(), probes = null }) {
-  const standing = await reviewerStanding({ consumer, env, home, probes });
+export async function reviewerAvailability({ consumer, env = process.env, home = homedir(), probes = null, readOnly = false }) {
+  const standing = await reviewerStanding({ consumer, env, home, probes, readOnly });
   return { available: standing.registered && standing.alive && standing.responsive, record: standing.record, reason: standing.reason };
 }
 

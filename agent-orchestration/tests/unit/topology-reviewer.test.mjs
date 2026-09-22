@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
@@ -44,6 +44,30 @@ test('alive reviewer is unavailable without nonce; only current reviewer can ack
     await reviewerNonceAck({ ...f, alive: async () => true, nonce: p.nonce, env: { ...f.env, AO_AGENT_ID: record.agent_id } });
   } });
   assert.equal(ready, true);
+});
+
+test('read-only reviewer readiness neither rings nor consumes missing, invalid or valid proof', async t => {
+  const f = await fixture(t);
+  const { record } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', pane: binding.paneId, binding }) } });
+  const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'probes');
+  const options = { ...f, record, readOnly: true, alive: async () => true,
+    wake: async () => assert.fail('diagnostics cannot ring'), output: async () => assert.fail('diagnostics cannot collect output'),
+    onProbe: async () => assert.fail('diagnostics cannot mint probes') };
+  assert.equal(await reviewerProbeReady(options), false);
+  assert.deepEqual(await readdir(dir).catch(() => []), []);
+  const nonce = 'read-only-reviewer-proof';
+  const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding, expires_at: Date.now() + 60000 };
+  const snapshot = async () => Promise.all((await readdir(dir)).sort().map(async name => {
+    const path = join(dir, name), metadata = await stat(path);
+    return { name, contents: await readFile(path, 'utf8'), mtime: metadata.mtimeMs, ctime: metadata.ctimeMs };
+  }));
+  await writeJson(join(dir, `${nonce}.json`), probe);
+  for (const [ack, expected] of [[{ ...probe, binding: { ...binding, panePid: 999 } }, false], [probe, true]]) {
+    await writeJson(join(dir, `${nonce}.ack.json`), ack);
+    const before = await snapshot();
+    assert.equal(await reviewerProbeReady(options), expected);
+    assert.deepEqual(await snapshot(), before, 'proof remains unchanged for the supervising producer to collect');
+  }
 });
 
 test('review record rejects impersonation, self review, findings and abbreviated commits', async t => {

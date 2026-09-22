@@ -113,7 +113,7 @@ async function defaultPane(record) {
  * pointer naming the ack command, and wait for the ack file. A send failure or a timeout both mean
  * "unresponsive" — they never mean "dead", so nothing here kills anything.
  */
-async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false }) {
+async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false, readOnly = false }) {
   const binding = incarnationOf(record?.binding);
   const current = async () => sameIncarnation(binding, record?.binding) && await alive(record) && sameIncarnation(binding, record?.binding);
   if (!record?.pane || !binding || !await current()) return false;
@@ -133,8 +133,8 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // new nonce, look for an ack against a probe still inside its own expiry — that is a lead which
   // was MID-TURN when the last ring landed, read it at its next boundary, and ran the command
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
-  const late = await lateAck(dir, record, log);
-  if (late && await current()) { await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
+  const late = await lateAck(dir, record, log, { readOnly });
+  if (late && await current()) { if (!readOnly) await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
   // TM-161. `ackTimeoutMs <= 0` means READ ONLY: answer from proof already on disk, mint nothing.
   //
   // A fast readiness SCREEN — `startupCheck`, which runs on a SessionStart hook for every Claude
@@ -146,7 +146,7 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // that never intended to wait.
   //
   // So a screen asks; it does not interrogate. Not proven is an honest answer for it to give.
-  if (!(ackTimeoutMs > 0)) { log("readiness screen: cached proof only, no probe minted"); return false; }
+  if (readOnly || !(ackTimeoutMs > 0)) { log("readiness screen: cached proof only, no probe minted"); return false; }
   const nonce = randomUUID();
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
@@ -196,7 +196,7 @@ export async function lateAckForTest(dir, record, log = () => {}) { return lateA
 /** The real probe-minting path, so a test can assert which files survive the wait. */
 export async function responsiveForTest(record, ackTimeoutMs, opts) { return defaultResponsive(record, ackTimeoutMs, opts); }
 
-async function lateAck(dir, record, log = () => {}) {
+async function lateAck(dir, record, log = () => {}, { readOnly = false } = {}) {
   for (const name of await readdir(dir).catch(() => [])) {
     if (!name.endsWith(".ack.json")) continue;
     const nonce = name.slice(0, -".ack.json".length);
@@ -207,14 +207,14 @@ async function lateAck(dir, record, log = () => {}) {
     // The probe's own expiry is the line, exactly as `leadNonceAck` enforces it at write time.
     const bound = probe?.nonce === nonce && probe.repo_id === record.repo_id && probe.agent_id === record.agent_id && probe.session === record.session && ack.session === record.session && sameIncarnation(probe.binding, record.binding) && sameIncarnation(ack.binding, record.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
-      await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+      if (!readOnly) await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
       return nonce;
     }
     // TM-187. Discarding is right — with the probe expired or swept, timeliness cannot be proven —
     // but a SILENT discard is indistinguishable from a lead that never answered, and that is the
     // reading that put a responsive lead on the board as `unresponsive`. Say which, and say why.
-    log(`discarded ack for probe ${nonce}: ${!probe ? "the probe was already swept" : !bound ? "the probe or acknowledgement names another or unrecorded incarnation" : "the probe had expired"} — not proof of a timely answer`);
-    await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+    log(`${readOnly ? "ignored" : "discarded"} ack for probe ${nonce}: ${!probe ? "the probe was already swept" : !bound ? "the probe or acknowledgement names another or unrecorded incarnation" : "the probe had expired"} — not proof of a timely answer`);
+    if (!readOnly) await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
   }
   return null;
 }
@@ -275,7 +275,7 @@ function resolveProbes(probes, { registryDir, log }) {
   const alive = probes?.alive ?? defaultAlive;
   return {
     alive,
-    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true })),
+    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true, readOnly: options.readOnly === true })),
     open: probes?.open ?? ((args) => openRoleSession(args)),
     pane: probes?.pane ?? defaultPane,
     kill: probes?.kill ?? (async (record) => {
@@ -299,7 +299,7 @@ function resolveProbes(probes, { registryDir, log }) {
  * store problem that ensureLead must fail loudly on — not a fifth state callers would have to
  * guess at.
  */
-export async function leadState({ consumer, home = homedir(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {} }) {
+export async function leadState({ consumer, home = homedir(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {}, readOnly = false }) {
   const identity = await canonicalRepoId(consumer);
   const registration = await readLeadRegistration({ consumer, env, home });
   const libraryLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
@@ -310,7 +310,7 @@ export async function leadState({ consumer, home = homedir(), env = process.env,
   if (!(await p.alive(record))) {
     status = "registered";
   } else {
-    status = (await p.responsive(record, ackTimeoutMs)) ? "responsive" : "unresponsive";
+    status = (await p.responsive(record, ackTimeoutMs, { readOnly })) ? "responsive" : "unresponsive";
   }
   return { identity, record, status, library_lead: libraryLead?.id ?? null };
 }

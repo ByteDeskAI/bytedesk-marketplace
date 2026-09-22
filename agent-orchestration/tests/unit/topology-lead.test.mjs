@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,28 @@ async function readinessFixture(t) {
  const recordPath = join(registryDir, `${repoKey(identity.id)}.json`);
  return { consumer, home, env, record, recordPath, registryDir, dir: join(registryDir, 'probes') };
 }
+
+test('read-only lead readiness preserves missing, invalid and valid acknowledgement evidence', async t => {
+ const f = await readinessFixture(t);
+ await writeJson(f.recordPath, f.record);
+ const options = { ...f, readOnly: true, ackTimeoutMs: 1000, probes: { alive: async () => true } };
+ assert.equal((await leadState(options)).status, 'unresponsive');
+ assert.equal(await exists(f.dir), false, 'read-only diagnostics mint no probe directory');
+ const nonce = 'read-only-lead-proof';
+ const probe = { nonce, repo_id: f.record.repo_id, agent_id: f.record.agent_id, session: f.record.session, binding: BINDING, expires_at: Date.now() + 60000 };
+ const snapshot = async () => Promise.all((await readdir(f.dir)).sort().map(async name => {
+   const path = join(f.dir, name), metadata = await stat(path);
+   return { name, contents: await readFile(path, 'utf8'), mtime: metadata.mtimeMs, ctime: metadata.ctimeMs };
+ }));
+ await writeJson(join(f.dir, `${nonce}.json`), probe);
+ for (const [ack, expected] of [[{ ...probe, binding: { ...BINDING, panePid: 999 } }, 'unresponsive'], [probe, 'responsive']]) {
+   await writeJson(join(f.dir, `${nonce}.ack.json`), ack);
+   const before = await snapshot();
+   assert.equal((await leadState(options)).status, expected);
+   assert.deepEqual(await snapshot(), before, 'screening cannot consume, rewrite, or replace proof files');
+   assert.equal(await exists(join(f.dir, `${f.record.agent_id}.answered.json`)), false, 'screening cannot publish a memo');
+ }
+});
 
 test('lead readiness stores an exact-incarnation proof and rejects stale or unbound memos', async t => {
  const f = await readinessFixture(t);

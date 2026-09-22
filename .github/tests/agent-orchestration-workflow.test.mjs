@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { sandboxNetworkSmoke } from '../scripts/ao-sandbox-network-smoke.mjs';
+import { linuxNetworkCommand } from '../../agent-orchestration/src/platform/linux-network.mjs';
 
 const execute = promisify(execFile);
 const workflow = await readFile(new URL('../workflows/agent-orchestration.yml', import.meta.url), 'utf8');
@@ -115,7 +116,7 @@ sha256sum() {
 sudo() {
   printf '%s\n' "sudo $*" >> "$RUNNER_TEMP/calls.log"
   case "$*" in
-    'apt-get update'|'apt-get install --yes bubblewrap slirp4netns apparmor-profiles') ;;
+    'apt-get update'|'apt-get install --yes bubblewrap slirp4netns python3 util-linux apparmor-profiles') ;;
     'cat /sys/kernel/security/apparmor/profiles')
       if [[ -f "$RUNNER_TEMP/profile-loaded" ]]; then printf '%s\n' 'bwrap (enforce)' 'unpriv_bwrap (enforce)'; fi ;;
     'apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict')
@@ -126,6 +127,8 @@ sudo() {
       touch "$RUNNER_TEMP/network-profile-loaded" ;;
     'journalctl -k --no-pager --since 5 minutes ago --grep apparmor=.*DENIED.*comm="bwrap"')
       echo 'apparmor="DENIED" comm="bwrap" capname="net_admin"' ;;
+    'journalctl -k --no-pager --since 5 minutes ago --grep apparmor=.*DENIED.*comm="(bwrap|slirp4netns|nsenter|python3)"')
+      echo 'fixture post-smoke audit evidence' ;;
     *) echo "Unexpected privileged command: $*" >&2; return 94 ;;
   esac
 }
@@ -196,6 +199,7 @@ test('network smoke checks the real namespace handshake and cleans up only its o
     { label: 'unconfined workload is refused', output: 'child_profile=unconfined\nCapEff=0000000000000000\n', error: /enforced profile/ },
     { label: 'effective workload capabilities are refused', output: passingOutput.replace(/0{16}/, '0000000000001000'), error: /zero effective capabilities/ },
     { label: 'missing namespace record fails promptly', missingInfo: true, error: /without a child PID/ },
+    { label: 'missing namespace inode refuses network launch', missingInode: true, error: /network namespace inode/ },
     { label: 'owned cleanup escalates when TERM is ignored', networkFailure: true, ignoreTerm: true, error: /setns\(CLONE_NEWNET\)/ },
   ]) await t.test(fixture.label, async () => {
     const children = [];
@@ -233,10 +237,11 @@ test('network smoke checks the real namespace handshake and cleans up only its o
           child.stdout.write(fixture.output || passingOutput);
           close(0);
         });
-        queueMicrotask(() => child.stdio[3].end(fixture.missingInfo ? '' : JSON.stringify({ 'child-pid': 500 })));
+        queueMicrotask(() => child.stdio[3].end(fixture.missingInfo ? '' : JSON.stringify({ 'child-pid': 500, ...(fixture.missingInode ? {} : { 'net-namespace': 123456 }) })));
       } else {
-        assert.equal(command, '/usr/bin/slirp4netns');
-        assert.deepEqual(args, ['--configure', '--mtu=65520', '--disable-host-loopback', '--enable-sandbox', '--ready-fd=3', '--exit-fd=4', '500', 'tap0']);
+        const expected = linuxNetworkCommand({ 'child-pid': 500, 'net-namespace': 123456 });
+        assert.equal(command, expected.executable);
+        assert.deepEqual(args, expected.args);
         child.stdio[4].on('finish', () => { if (!fixture.ignoreTerm) close(0); });
         queueMicrotask(() => {
           if (fixture.networkFailure) { child.stderr.write('setns(CLONE_NEWNET): Operation not permitted'); close(1); }
@@ -257,6 +262,6 @@ test('network smoke checks the real namespace handshake and cleans up only its o
       assert.equal(options.shell, false);
     }
     if (fixture.ignoreTerm) assert.deepEqual(children[0].child.signals, ['SIGTERM', 'SIGKILL']);
-    if (fixture.networkFailure || fixture.noReadiness || fixture.networkProfile || fixture.missingInfo) assert.equal(released, false);
+    if (fixture.networkFailure || fixture.noReadiness || fixture.networkProfile || fixture.missingInfo || fixture.missingInode) assert.equal(released, false);
   });
 });

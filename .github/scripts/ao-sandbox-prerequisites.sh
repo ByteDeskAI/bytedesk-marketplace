@@ -31,8 +31,8 @@ ao_sandbox_prerequisites() {
     printf 'Before: restrict_unprivileged_userns=%s restrict_unprivileged_unconfined=%s\n' "$userns_before" "$unconfined_before"
 
     sudo apt-get update
-    sudo apt-get install --yes bubblewrap slirp4netns apparmor-profiles
-    dpkg-query -W -f='${binary:Package} ${Version}\n' bubblewrap slirp4netns apparmor apparmor-profiles
+    sudo apt-get install --yes bubblewrap slirp4netns python3 util-linux apparmor-profiles
+    dpkg-query -W -f='${binary:Package} ${Version}\n' bubblewrap slirp4netns python3 util-linux apparmor apparmor-profiles
     /usr/bin/bwrap --version
     printf 'Official profile: '
     sha256sum "$profile"
@@ -52,9 +52,9 @@ ao_sandbox_prerequisites() {
     # Load this executable-specific, child-restricting profile only. Keep both
     # AppArmor sysctls and the producer's sandbox command unchanged.
     sudo apparmor_parser -r "$profile"
-    # Ubuntu's named slirp profile permits this fixed network helper to enter
-    # the namespace. Its unconfined mode never applies to the provider child.
-    # Keep --enable-sandbox and --disable-host-loopback in the handshake smoke.
+    # Verify the packaged executable label for the network helper. This profile
+    # does not solve Bubblewrap's nested-userns ownership race; the producer's
+    # pinned-owner launcher does. Keep both slirp isolation flags in the smoke.
     sudo apparmor_parser -r "$network_profile"
     printf 'Relevant profiles after loading:\n'
     sudo cat /sys/kernel/security/apparmor/profiles | awk '$1 ~ /^(bwrap|unpriv_bwrap|slirp4netns)(\/\/|$)/ { print }'
@@ -66,7 +66,10 @@ ao_sandbox_prerequisites() {
       return 1
     fi
 
-    smoke=$(node "$script_dir/ao-sandbox-network-smoke.mjs")
+    if ! smoke=$(node "$script_dir/ao-sandbox-network-smoke.mjs"); then
+      sudo journalctl -k --no-pager --since '5 minutes ago' --grep 'apparmor=.*DENIED.*comm="(bwrap|slirp4netns|nsenter|python3)"' || true
+      return 1
+    fi
     printf '%s\n' "$smoke" | tee "$diagnostics/bwrap-after.log"
     local -a smoke_lines
     mapfile -t smoke_lines <<< "$smoke"
