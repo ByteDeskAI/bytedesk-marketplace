@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 export async function sourceFingerprint(root) {
   const paths=[];
   const walk=async dir=>{
     for(const entry of await readdir(join(root,dir),{withFileTypes:true})) {
-      const path=join(dir,entry.name);
+      // Verification can leave Python bytecode beside the contract fixtures.
+      // Generated caches must not make a local build differ from a clean clone.
+      if(entry.name.startsWith('.') || entry.name === '__pycache__' || entry.name === 'node_modules' || /\.py[co]$/.test(entry.name)) continue;
+      const path=posix.join(dir,entry.name);
       if(entry.isDirectory()) await walk(path);
       else if(entry.isFile()) paths.push(path);
     }
