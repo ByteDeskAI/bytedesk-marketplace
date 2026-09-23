@@ -1,0 +1,28 @@
+{
+  "name": "remote-gateway",
+  "description": "ByteDesk remote gateway operator skills, plus /remote-gateway-login so an agent can authenticate from a local agent-login.yaml or from explicit flags and reuse the session cookie.",
+  "author": {
+    "name": "ByteDesk AI"
+  },
+  "homepage": "https://github.com/ByteDeskAI/bytedesk-marketplace/tree/main/remote-gateway",
+  "repository": "https://github.com/ByteDeskAI/bytedesk-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "remote-gateway",
+    "login",
+    "vault",
+    "bytedesk",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Remote Gateway",
+    "shortDescription": "Gateway operator skills and a login that stores a session cookie.",
+    "developerName": "ByteDesk AI",
+    "category": "Engineering",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace"
+  }
+}
