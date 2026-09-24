@@ -10,7 +10,15 @@
   never the literal `HEAD` — and refuses to dispatch when nothing resolves (a detached HEAD),
   naming the config key to set. The resolved branch is pinned into the worker's env as
   `TM_DISPATCH_INTEGRATION_BRANCH`, stated in the handoff's `gh pr create --base <branch>`, and
-  the worker guard refuses a `gh pr create` whose `--base` is missing or does not match it.
+  the worker guard refuses a `gh pr create` — or its alias `gh pr new` — whose `--base` is
+  missing or does not match it. The base cannot be moved afterwards either: `gh pr edit --base
+  <other>` and `gh api` writes to `repos/*/pulls` carrying a `base` field (or an unreadable
+  `--input` body) are refused by the same rule. The handoff prompt reads the branch and base from
+  the task record only, never from `TM_DISPATCH_BRANCH` / `_INTEGRATION_BRANCH` in its
+  environment, so a dispatch run from inside another worker's shell cannot pass that worker's
+  stale values on; the detached pool strips `TM_DISPATCH_INTEGRATION_BRANCH` with the other
+  worker markers. The hook glue tests now shed an inherited `TM_ROOT` too — run from a worker's
+  shell they read the real store, found the sample task done, and watched the guard release.
 - A bare `tm override` prints usage and arms nothing; before, it armed an "unspecified" token.
   `tm override --clear` disarms an unspent token and logs `override_cleared` (TM-224).
 - Governed completion accepts an approving review whose findings are all minor, nit or note,

@@ -144,6 +144,28 @@ describe("dispatch — the PR base is always resolved, never left implicit", () 
     assert.ok(fake.calls[0].prompt.includes("--base develop"), "the worker is told the PR base literally");
   });
 
+  it("ignores a stale TM_DISPATCH_INTEGRATION_BRANCH inherited from the dispatching shell", async (t) => {
+    // A dispatch run from inside another worker's shell inherits that worker's pinned base.
+    const prior = process.env.TM_DISPATCH_INTEGRATION_BRANCH;
+    process.env.TM_DISPATCH_INTEGRATION_BRANCH = "stale-from-another-worker";
+    t.after(() => {
+      if (prior === undefined) delete process.env.TM_DISPATCH_INTEGRATION_BRANCH;
+      else process.env.TM_DISPATCH_INTEGRATION_BRANCH = prior;
+    });
+    const p = repoStore();
+    execFileSync("git", ["-C", p.root, "branch", "develop"]);
+    writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
+    const t1 = create("task", { title: "dispatch me", labels: ["ready-for-agent"] }, "", p);
+    const fake = fakeBackend("fake");
+
+    const res = await dispatch(t1.id, { backend: fake, session: "s1", p });
+
+    assert.equal(res.ok, true);
+    assert.equal(fake.calls[0].integrationBranch, "develop");
+    assert.ok(fake.calls[0].prompt.includes("--base develop"), "the prompt names the freshly resolved base");
+    assert.ok(!fake.calls[0].prompt.includes("stale-from-another-worker"), "and never the inherited one");
+  });
+
   it("refuses rather than dispatch a worker with no resolvable PR base", async () => {
     const p = repoStore();
     execFileSync("git", ["-C", p.root, "checkout", "-q", "--detach"]);

@@ -371,16 +371,16 @@ export function handoff(id, p = paths()) {
    */
   if (t.governance || (t.labels || []).includes("ready-for-agent")) {
     /**
-     * The branch, stated literally whenever it is known: `TM_DISPATCH_BRANCH` is what the
-     * worker guard measures a push against (lib/worker-guard.mjs), and the task's own
-     * `branch` is what provisioning recorded. "Your branch" is not a command anybody can
-     * paste, so the placeholder reads as one when neither is set.
+     * The branch and the PR base, stated literally whenever they are known, and read from the
+     * task alone: provisioning records `branch`, and dispatch() records `integrationBranch` —
+     * the base it resolved, or refused to start a worker without (lib/dispatch/index.mjs). The
+     * worker's own env (TM_DISPATCH_BRANCH / _INTEGRATION_BRANCH, what the guard measures
+     * against) is deliberately NOT read here: a dispatch run from inside another worker's shell
+     * inherits that worker's values, which are stale for this task (TM-235). "Your branch" is
+     * not a command anybody can paste, so the placeholder reads as one when none is recorded.
      */
-    const branch = String(process.env.TM_DISPATCH_BRANCH || t.branch || "").trim() || "<your tm/ branch>";
-    // TM-235: state the PR base literally, or a worker's `gh pr create` silently targets the
-    // repository default instead of the configured integration branch. dispatch() refuses to
-    // start a worker before this resolves to a real branch (lib/dispatch/index.mjs).
-    const base = String(process.env.TM_DISPATCH_INTEGRATION_BRANCH || t.integrationBranch || resolveIntegrationBranch(p, config(p)) || "").trim();
+    const branch = String(t.branch || "").trim() || "<your tm/ branch>";
+    const base = String(t.integrationBranch || resolveIntegrationBranch(p, config(p)) || "").trim();
     const prBase = base ? ` --base ${base}` : "";
     out.push(
       "## When you finish",

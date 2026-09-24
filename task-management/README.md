@@ -309,18 +309,21 @@ that sent it. The handoff brief for a `ready-for-agent` task ends with the compl
 contract spelled out, because the worker may never read anything else: tick each criterion
 once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its own branch
 (`git push -u origin <the task's tm/ branch>`) and open a pull request
-(`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>"`)**,
+(`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`)**,
 attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
 error instead. **A worker never merges**; the PR is where its run ends and a human takes over.
 
 **A guard makes that contract hard to break by accident.** A dispatched worker runs
-`--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`) and
-a PreToolUse hook, injected with the same `--settings`, refuses: force pushes and pushes to any
-branch but the worker's own; branch, tag and ref deletion, `reset --hard`, history rewrites and
-rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets, variables and `gh api`
-writes; deploy and secret tools, package publishing, chat webhooks and mail. It **allows**
-exactly what the finish line needs — pushing the worker's own branch, and `gh pr create`. Every
+`--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`,
+`_INTEGRATION_BRANCH`) and a PreToolUse hook, injected with the same `--settings`, refuses: force
+pushes and pushes to any branch but the worker's own; branch, tag and ref deletion, `reset --hard`,
+history rewrites and rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
+variables and `gh api` writes; a `gh pr create` / `gh pr new` whose `--base` is missing or is not
+the integration branch, and any later retargeting of it (`gh pr edit --base`, a `gh api` write to
+`repos/*/pulls` with a `base` field); deploy and secret tools, package publishing, chat webhooks
+and mail. It **allows** exactly what the finish line needs — pushing the worker's own branch, and
+`gh pr create --base <dispatch.integrationBranch>`. Every
 refusal names why and what to do instead. It is a guard against accidents, not against an
 adversary: the rules live in one table in `lib/worker-guard.mjs`.
 

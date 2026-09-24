@@ -213,6 +213,28 @@ describe("TM-178 — ensure starts one detached pool per repo", () => {
   });
 });
 
+describe("TM-235 — the detached pool sheds a worker's pinned PR base", () => {
+  it("strips TM_DISPATCH_INTEGRATION_BRANCH alongside the other worker markers", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    const seen = [];
+    const spawnImpl = (_cmd, _args, options) => {
+      seen.push(options.env);
+      return { pid: 4242, unref() {} };
+    };
+    const env = { PATH: process.env.PATH, TM_DISPATCH_WORKER: "1", TM_DISPATCH_BRANCH: "tm/TM-001-x", TM_DISPATCH_INTEGRATION_BRANCH: "develop", TM_DISPATCH_REGISTRY: REGISTRY, TMUX: "" };
+    const res = pool.ensurePool(p, { spawnImpl, env });
+    assert.equal(res.action, "started");
+    assert.equal(seen.length, 1, "one pool spawned");
+    for (const key of ["TM_DISPATCH_WORKER", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH"]) {
+      assert.equal(key in seen[0], false, `${key} does not reach the pool`);
+    }
+    assert.equal(seen[0].TM_ROOT, p.root, "the store still does");
+  });
+});
+
 describe("TM-178 — the detached pool follows config and comes back", () => {
   it("setting dispatch.enabled false makes the running pool exit within one poll", async (t) => {
     const p = repoStore({}, t);

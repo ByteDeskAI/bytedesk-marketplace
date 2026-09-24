@@ -190,7 +190,10 @@ in production once shipped unreleased commits onto the release branch that way. 
 resolves the integration branch before starting a worker — unconfigured, that means the main
 checkout's own branch name, never the literal `HEAD` — and refuses to dispatch rather than start
 a worker with no resolvable base (a detached HEAD). The resolved branch is pinned into the
-worker's env as `TM_DISPATCH_INTEGRATION_BRANCH` and stated in the handoff prompt.
+worker's env as `TM_DISPATCH_INTEGRATION_BRANCH` and recorded on the task, which is where the
+handoff prompt reads it from — never from the environment, so a dispatch run inside another
+worker's shell cannot hand its own stale base to the new worker. The detached pool sheds it
+with the other worker markers for the same reason.
 
 **The worker guard** enforces that. A dispatched worker runs with permissions skipped, so it
 is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` / `_INTEGRATION_BRANCH` and a PreToolUse
@@ -198,9 +201,12 @@ is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` / `_INTEGRATION_BRANCH` and
 and pushes to any branch but the worker's own; branch, tag and ref deletion, `reset --hard`,
 history rewrites, rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
 variables, `gh api` writes; deploy and secret tools, package publishing, chat webhooks and mail;
-and a `gh pr create` whose `--base` is missing or does not match `TM_DISPATCH_INTEGRATION_BRANCH`.
-It **allows** pushing the worker's own branch and a `gh pr create` based against the configured
-integration branch. One table, `lib/worker-guard.mjs`; it stops accidents, not an adversary.
+a `gh pr create` (or its alias `gh pr new`) whose `--base` is missing or does not match
+`TM_DISPATCH_INTEGRATION_BRANCH`; and retargeting that base afterwards — `gh pr edit --base
+<other>`, or a `gh api` write to `repos/*/pulls` carrying a `base` field or an unreadable
+`--input` body. It **allows** pushing the worker's own branch and a `gh pr create` based against
+the configured integration branch. One table, `lib/worker-guard.mjs`; it stops accidents, not an
+adversary.
 Topology defaults to Claude then Codex, using configured CLI models. A candidate that cannot
 enforce the task guard stays held; Grok remains outside unattended topology dispatch.
 
