@@ -31,6 +31,9 @@
   when this session owns it, its finish report is collected, and it is idle (a shell with no running
   harness); otherwise it refuses with a recovery path. `manage cleanup` now uses the same closer by
   default, and no longer throws when it has to close a worker without an injected state probe.
+  After a stop, `start-worker` starts the next round's worker and keeps the stopped binding in
+  `previous_workers`. Adoption refuses a session created before the task was admitted and a login
+  shell, so an operator's terminal is never closed. Idle detection is Linux-only.
 - **`manage integrate` is usable in a repository whose tools write into the main checkout
   (TM-224).** The clean-checkout check ignores the tool store paths `.bytedesk/task-management/`,
   `.bytedesk/agent-orchestration/agents/` and `.bytedesk/knowledge/.km/`, still refuses any other

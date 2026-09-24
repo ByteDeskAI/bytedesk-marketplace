@@ -516,3 +516,46 @@ test('bind adopts a live worker only after verifying it and fails closed on unkn
   doc.dispatched = { backend: 'tmux', run: 'tmux:x', session: 'author' };
   await assert.rejects(bindTaskWorker({ ...actual, pane }), /has a tm dispatch/);
 });
+
+test('a stopped worker is history: start-worker starts the next round and the old binding is kept', async t => {
+  const { opts, doc, finish } = await fixture(t);
+  const s = await paneServer(t, opts); if (!s) return;
+  const { startTaskWorker, stopTaskWorker } = await import('../../topology/lib/management.mjs');
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  let round = 0;
+  opts.store.dispatch = async task => {
+    round++;
+    await s.tmux(['new-session', '-d', '-s', `tm-${task}`, '-c', doc.worktree, 'sh']);
+    doc.dispatched = { backend: 'tmux', run: `tmux:tm-${task}`, session: 'author' };
+    opts.store.workers = async () => [{ name: 'agent:TM-1', backend: 'tmux', runId: doc.dispatched.run, session: 'author', registeredAt: `round-${round}`, status: 'active', pid: null }];
+    return { ok: true, backend: 'tmux', run: doc.dispatched.run };
+  };
+  await admitTask(actual);
+  const first = await startTaskWorker(actual); assert.equal(first.bound, true, first.reason);
+  await finish();
+  const stopped = await stopTaskWorker(actual); assert.equal(stopped.stopped, true, stopped.reason);
+  const second = await startTaskWorker(actual); assert.equal(second.bound, true, second.reason);
+  assert.notEqual(second.worker.binding.paneId, first.worker.binding.paneId);
+  const record = (await managementStatus(actual)).management;
+  assert.equal(record.previous_workers.length, 1); assert.equal(record.previous_workers[0].binding.paneId, first.worker.binding.paneId);
+  assert.equal(record.worker.stopped_at, undefined);
+  await assert.rejects(startTaskWorker(actual), /second writer/, 'a live next-round worker still blocks a third');
+});
+
+test('bind never adopts an operator shell: pre-admission sessions and login shells are refused', async t => {
+  const { opts, doc } = await fixture(t);
+  const s = await paneServer(t, opts); if (!s) return;
+  const { stopTaskWorker } = await import('../../topology/lib/management.mjs');
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  await s.tmux(['new-session', '-d', '-s', 'early', '-c', opts.consumer, 'sleep', '120']);
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  await admitTask(actual);
+  // Same pre-admission session, now pointed at the worktree:
+  await s.tmux(['respawn-pane', '-k', '-t', await s.paneOf('early'), '-c', doc.worktree, 'sleep', '120']);
+  await assert.rejects(bindTaskWorker({ ...actual, pane: await s.paneOf('early') }), /created after the task was admitted/);
+  await s.tmux(['new-session', '-d', '-s', 'login', '-c', doc.worktree, 'sh', '-l']);
+  await assert.rejects(bindTaskWorker({ ...actual, pane: await s.paneOf('login') }), /login shell/);
+  const refused = await stopTaskWorker({ ...actual, owner: 'peer' });
+  assert.equal(refused.stopped, false);
+  assert.ok(!((await managementStatus(actual)).management.events.some(e => e.event === 'worker-stop-refused')), 'a non-owner leaves no event in the owner record');
+});

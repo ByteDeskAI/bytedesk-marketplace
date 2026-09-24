@@ -177,6 +177,7 @@ async function observeWorker(ctx, doc, owner) {
 }
 
 /** A pane is idle only when its own process is a shell with no children: the harness exited.
+ * Reads /proc, so it is Linux-only: elsewhere a live pane is never idle and is never closed.
  * A harness running as the pane process itself is never idle while alive; unreadable is not idle. */
 const SHELLS = new Set(['bash', 'zsh', 'sh', 'dash', 'fish', 'ksh']);
 async function idleShell(pid) {
@@ -184,6 +185,14 @@ async function idleShell(pid) {
     const comm = (await readFile(`/proc/${pid}/comm`, 'utf8')).trim();
     return SHELLS.has(comm) && (await readFile(`/proc/${pid}/task/${pid}/children`, 'utf8')).trim() === '';
   } catch { return false; }
+}
+
+/** A login shell (argv0 "-zsh", or -l/--login) is an operator's terminal. Unreadable is refused. */
+async function loginShell(pid) {
+  try {
+    const argv = (await readFile(`/proc/${pid}/cmdline`, 'utf8')).split('\0').filter(Boolean);
+    return !argv.length || argv[0].startsWith('-') || argv.slice(1).some(arg => arg === '-l' || arg === '--login');
+  } catch { return true; }
 }
 
 /** TM-218: a worker the lead started before this verb existed, proved from the live pane or process.
@@ -204,6 +213,11 @@ async function observeAdoptedWorker(ctx, doc, options) {
     const pane = panes.find(p => p.paneId === options.pane && p.alive);
     invariant(pane && await realpath(pane.cwd).catch(() => null) === worktree, 'TOPOLOGY_MANAGEMENT_WORKER', 'Pane must be observed alive in the task-owned worktree.');
     invariant(panes.filter(p => p.alive && p.sessionId === pane.sessionId).length === 1, 'TOPOLOGY_MANAGEMENT_WORKER', 'Adopted pane must be the only live pane in its session; multi-pane ownership needs explicit reconciliation.');
+    // Adopting a pane authorizes stop-worker and cleanup to close it, so an operator's own shell is
+    // never adoptable: the session must postdate admission and the pane must not be a login shell.
+    const admitted = Date.parse([...(options.record?.events || [])].reverse().find(e => e.event === 'start')?.at || '');
+    invariant(Number.isFinite(admitted) && pane.sessionCreated >= Math.floor(admitted / 1000), 'TOPOLOGY_MANAGEMENT_WORKER', 'Adopted session must have been created after the task was admitted.');
+    invariant(!(await loginShell(pane.panePid)), 'TOPOLOGY_MANAGEMENT_WORKER', 'Pane process is an interactive login shell, not a worker; refusing to adopt a session stop-worker would then close.');
     const binding = Object.fromEntries(bindingKeys.map(key => [key, pane[key]]));
     invariant(!others.some(w => w.binding?.serverKey === binding.serverKey && w.binding?.paneId === binding.paneId), 'TOPOLOGY_MANAGEMENT_WORKER', 'Pane is already bound to another task.');
     return { ...base, run: `tmux:${pane.sessionName}`, backend: 'tmux', kind: 'tmux', session_name: pane.sessionName, binding };
@@ -226,7 +240,9 @@ export async function bindTaskWorker(options) {
     const doc = await ownedTask(ctx, options.task, options.owner);
     const adopt = Boolean(options.pane || options.pid);
     invariant(!adopt || !doc.dispatched, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task has a tm dispatch; bind it without --pane/--pid so the registry row is verified.');
-    const worker = adopt ? await observeAdoptedWorker(ctx, doc, options) : await observeWorker(ctx, doc, options.owner);
+    const worker = adopt ? await observeAdoptedWorker(ctx, doc, { ...options, record: prior }) : await observeWorker(ctx, doc, options.owner);
+    // A stopped worker is history: the next round's worker replaces it (TM-218 review round 1).
+    if (prior.worker?.stopped_at) { prior.previous_workers = [...(prior.previous_workers || []), prior.worker]; delete prior.worker; }
     invariant(!prior.worker || JSON.stringify({ ...prior.worker, observed_at: null }) === JSON.stringify({ ...worker, observed_at: null }), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker incarnation changed; preserve work and reconcile rather than rebinding a successor.');
     const record = await recordEvent(ctx, options.task, prior, 'worker-bound', { worker, workflow_run_id: prior.workflow_run_id ?? null });
     record.worker = worker; await writeJson(ctx.path, record);
@@ -242,7 +258,7 @@ export async function startTaskWorker(options) {
   const dispatched = await withLock(`${ctx.path}.lock`, async () => {
     const prior = await loadRecord(ctx.path);
     invariant(prior?.started && prior.owner === options.owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Admit the task with manage admit before starting its worker.');
-    invariant(!prior.worker, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task already has a bound worker; a second writer is refused. Stop and collect it first.');
+    invariant(!prior.worker || prior.worker.stopped_at, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task already has a bound worker; a second writer is refused. Stop it with manage stop-worker first.');
     await ownedTask(ctx, options.task, options.owner);
     invariant(typeof ctx.store.dispatch === 'function', 'TOPOLOGY_MANAGEMENT_WORKER', 'Task store has no dispatch adapter.');
     const result = await ctx.store.dispatch(options.task, backend);
@@ -280,11 +296,13 @@ export async function stopTaskWorker(options) {
         await (options.closeWorker || (value => closeOwnedPane(value, ctx.env)))(record);
         invariant((await observe(record)).alive === false, 'TOPOLOGY_MANAGEMENT_STOP', 'Owned worker did not stop.');
       }
-      await recordEvent(ctx, options.task, record, 'worker-stopped', { worker: record.worker, proof: state.proof, closed: state.alive === true });
+      const next = await recordEvent(ctx, options.task, record, 'worker-stopped', { worker: record.worker, proof: state.proof, closed: state.alive === true });
+      next.worker = { ...record.worker, stopped_at: next.updated_at };
+      await writeJson(ctx.path, next);
       return { stopped: true, closed: state.alive === true, proof: state.proof };
     } catch (error) {
       const recovery = 'Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker.';
-      if (record) await recordEvent(ctx, options.task, record, 'worker-stop-refused', { reason: error.message, recovery });
+      if (record && record.owner === options.owner) await recordEvent(ctx, options.task, record, 'worker-stop-refused', { reason: error.message, recovery });
       return { stopped: false, reason: error.message, recovery };
     }
   });
