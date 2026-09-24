@@ -348,7 +348,7 @@ test('record-landing records an operator landing that governed completion accept
   await git(opts.consumer, ['merge', '--ff-only', revision]); // the operator's own landing
   const recorded = await recordLanding({ ...landing, landed: 'main' });
   assert.equal(recorded.state, 'merged'); assert.equal(recorded.collected, true);
-  assert.deepEqual({ ...recorded.merge, authorization: undefined }, { revision, landed: revision, checks: [], target_branch: 'main', authorization: undefined });
+  assert.deepEqual({ ...recorded.merge, authorization: undefined }, { revision, landed: revision, checks: [], checks_skipped: true, target_branch: 'main', authorization: undefined });
   assert.equal(recorded.merge.authorization.decision, 'integrate'); assert.equal(recorded.merge.authorization.authorized, true);
   assert.equal(recorded.merge.authorization.actor, 'operator'); assert.equal(recorded.merge.authorization.revision, revision);
   assert.ok(calls.includes('recorded-landing') && calls.includes('collect'));
@@ -377,5 +377,42 @@ test('record-landing refuses without review, ancestry, target branch, actor or r
   await assert.rejects(recordLanding({ ...landing, landed: revision, reviewGate: async () => ({ eligible: true, reasons: [], status: {} }) }), { code: 'TOPOLOGY_MANAGEMENT_REVIEW' });
   for (const bad of [{ actor: '' }, { actor: '  ' }, { reason: '' }, { reason: undefined }])
     await assert.rejects(recordLanding({ ...landing, landed: revision, ...bad }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  // Authority: without policy auto_merge, only an explicit --authorized records the landing.
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  await assert.rejects(recordLanding({ ...landing, landed: revision }), err => err.code === 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' && /authority/.test(err.message));
   assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+  const explicit = await recordLanding({ ...landing, landed: revision, authorized: true });
+  assert.equal(explicit.merge.authorization.authorized, true); assert.equal(explicit.merge.authorization.explicit, true);
+  assert.equal(explicit.merge.authorization.policy_auto_merge, false);
+});
+
+test('integration refuses a task that cannot fast-forward the target branch', async t => {
+  const { opts, finish, git } = await fixture(t);
+  await admitTask(opts); await finish();
+  await writeFile(join(opts.consumer, 'other.txt'), 'moved on');
+  await git(opts.consumer, ['add', 'other.txt']); await git(opts.consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'main moved']);
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  await assert.rejects(integrateTask(opts), err => err.code === 'TOPOLOGY_MANAGEMENT_TARGET' && /Cannot fast-forward/.test(err.message));
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before);
+});
+
+// TM-224 review: this repository's committed policy must satisfy the integration policy gate.
+test("this repository's committed management policy raises no policy reasons", async t => {
+  const { fileURLToPath } = await import('node:url');
+  const { readFile } = await import('node:fs/promises');
+  const { loadConfig } = await import('../../topology/lib/config.mjs');
+  const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const pluginRoot = fileURLToPath(new URL('../../', import.meta.url));
+  const { opts, finish } = await fixture(t);
+  const loaded = await loadConfig({ consumer: repoRoot, pluginRoot, home: opts.home, env: opts.env });
+  assert.deepEqual(loaded.errors, []);
+  assert.equal(loaded.config.management.target_branch, 'main');
+  assert.ok(loaded.config.management.required_checks.length >= 6);
+  await mkdir(join(opts.consumer, '.bytedesk/agent-orchestration'), { recursive: true });
+  await writeFile(join(opts.consumer, '.bytedesk/agent-orchestration/config.json'), await readFile(join(repoRoot, '.bytedesk/agent-orchestration/config.json')));
+  const policyOpts = { ...opts, pluginRoot };
+  await admitTask(policyOpts); await finish();
+  const gate = await integrationEligibility(policyOpts);
+  assert.deepEqual(gate.reasons.filter(r => /configure management|integration authority|configuration is invalid/.test(r)), []);
+  assert.deepEqual(gate.policy, loaded.config.management);
 });

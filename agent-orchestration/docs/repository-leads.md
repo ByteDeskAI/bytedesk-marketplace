@@ -242,7 +242,7 @@ by hand. A governed task then cannot close, because completion needs the merge r
 integration writes. Record that landing with:
 
 ```bash
-ao-topology manage record-landing --task TM-123 --landed <commit> --actor <name> --reason "<why>"
+ao-topology manage record-landing --task TM-123 --landed <commit> --actor <name> --reason "<why>" [--authorized]
 ```
 
 The command never merges, pushes or changes a branch. It accepts the landing only when all of
@@ -254,6 +254,12 @@ these hold:
 - An eligible independent review of that exact finish revision exists. This is the same review
   gate integration uses, so the designated reviewer must be available and unchanged.
 - `--actor` and `--reason` are non-empty.
+- Integration authority exists, exactly as for `manage integrate`: `management.auto_merge` is true,
+  or you pass `--authorized`.
+
+`record-landing` runs no required checks. The actor attests to the checks that were run when the
+change landed, so `--reason` should name them. The merge record says so with `checks: []` and
+`checks_skipped: true`.
 
 It collects the management record as task evidence. It then writes the same `merge` record that
 integration writes, with `authorization.channel` set to `recorded-landing` and the reason

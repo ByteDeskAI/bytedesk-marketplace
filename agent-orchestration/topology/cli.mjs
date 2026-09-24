@@ -109,7 +109,7 @@ Standing repository services
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
-  manage record-landing --task <TM-id> --landed <sha> --actor <name> --reason <text>
+  manage record-landing --task <TM-id> --landed <sha> --actor <name> --reason <text> [--authorized]
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   quota status [--agent <id>] [--json] | resolve --agent <id> --state applied|declined|closed
                                                provider quota incidents raised by the supervise tick.
@@ -443,7 +443,8 @@ const commands = {
     const options = { ...supplied, ...ctx, task: flags.task || supplied.task, owner: process.env.TM_SESSION_ID || process.env.AO_AGENT_ID,
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
-      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null };
+      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
+      authorized: flags.authorized === true || supplied.authorized === true };
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
       assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment' };
     const method = methods[positional[0] || 'status'];

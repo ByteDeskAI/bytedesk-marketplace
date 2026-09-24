@@ -24,12 +24,15 @@
 - **`manage integrate` is usable in a repository whose tools write into the main checkout
   (TM-224).** The clean-checkout check ignores the tool store paths `.bytedesk/task-management/`,
   `.bytedesk/agent-orchestration/agents/` and `.bytedesk/knowledge/.km/`, still refuses any other
-  dirty path and names it, and refuses a landing that would change a store path.
+  dirty path and names it, and refuses a landing that would change a store path. A task that cannot
+  fast-forward the target branch is refused with that reason before any store-path comparison.
   `docs/repository-leads.md` documents the `management.target_branch` and
   `management.required_checks` shape, with this repository's policy as a worked example.
 - **`manage record-landing` records a landing that already happened (TM-224).** It never merges.
   It requires the reviewed finish revision to be an ancestor of `--landed`, `--landed` to be on the
-  target branch, an eligible independent review, and a non-empty `--actor` and `--reason`. It writes
+  target branch, an eligible independent review, integration authority (`--authorized` or
+  `management.auto_merge`), and a non-empty `--actor` and `--reason`. It runs no checks: the merge
+  record carries `checks_skipped: true`, and `--reason` should cite the checks run at landing. It writes
   the same merge record as integration plus a `recorded-landing` event, so governed tasks landed by
   hand can close.
 - **Reviewer findings are structured (TM-215).** Each finding is `{severity, file, line, claim,
