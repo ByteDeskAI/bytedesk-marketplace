@@ -6,6 +6,12 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
+// TM-221: mirrors agent-orchestration topology/lib/reviewer.mjs SEVERITIES (TM-215); a conformance test holds them equal.
+export const REVIEW_SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
+const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
+/** Approve may carry findings only when every one is a known, non-blocking severity. */
+export const approvableFindings = (findings) => Array.isArray(findings) && findings.every((finding) =>
+  finding && typeof finding === "object" && !Array.isArray(finding) && REVIEW_SEVERITIES.includes(finding.severity) && !BLOCKING_SEVERITIES.has(finding.severity));
 const bindingKeys = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
 const real = (value) => { try { return realpathSync(value); } catch { return resolve(value); } };
 export function governanceGit(root, ...args) {
@@ -60,7 +66,7 @@ export function governedCompletion(task, p) {
         governanceGit(task.worktree, "status", "--porcelain") !== "") return refuse("task worktree changed after review");
     }
     if (!review || review.task !== task.id || review.repo_id !== record.repo_id || review.revision !== revision || review.verified_commit !== revision ||
-      review.verdict !== "approve" || !Array.isArray(review.findings) || review.findings.length || !review.request_nonce ||
+      review.verdict !== "approve" || !approvableFindings(review.findings) || !review.request_nonce ||
       !bindingKeys.every((key) => review.binding?.[key] !== undefined && review.binding[key] !== null && review.binding[key] !== "") ||
       !review.reviewer_id || review.reviewer_id === record.owner || review.reviewer_id === g.leadId || !Array.isArray(review.author_agent_ids) ||
       review.author_agent_ids.includes(review.reviewer_id)) return refuse("an independent review of this exact revision and reviewer incarnation is required");

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Governed completion accepts an approving review whose findings are all minor, nit or note,
+  matching agent-orchestration since TM-215 (TM-221). A blocker or major finding, a finding that is
+  not an object, or an unknown severity still refuses. A conformance test fails if the two plugins'
+  severity lists drift apart.
 - Governed tasks now persist their workflow and lead identity. Workers submit a producer finish
   report, which records the exact revision, updates `tm review-ready`, and queues independent review.
   CLI, MCP, dashboard, and shared writes require independent review and

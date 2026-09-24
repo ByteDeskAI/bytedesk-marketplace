@@ -2,14 +2,14 @@ import { after, afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, read, seedGitContract, state, update, write, writeConfig } from "../../lib/store.mjs";
 import { provision, removeWorktree } from "../../lib/worktree.mjs";
 import { governTask, readyForReview } from "../../lib/governance.mjs";
-import { governedCompletion, managementIdentity } from "../../lib/governance-check.mjs";
+import { governedCompletion, managementIdentity, REVIEW_SEVERITIES } from "../../lib/governance-check.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
 import { dispatch } from "../../lib/dispatch/index.mjs";
@@ -90,6 +90,30 @@ describe("governed completion is shared by every task write surface", () => {
     save(f.path, f.record);
     process.env.TM_DISPATCH_WORKER = "1";
     assert.equal(gateDone(f.task.id, f.p).allow, false, "worker cannot close even after integration");
+  });
+
+  it("accepts approval with only minor, nit or note findings and refuses blocking or malformed ones (TM-221)", () => {
+    const f = fixture(); approved(f);
+    const finding = (severity) => ({ severity, file: "result.txt", line: 1, claim: "c", evidence: "e", fix: "f" });
+    const gate = (findings) => {
+      const r = structuredClone(f.record); r.review.findings = findings; save(f.path, r);
+      return governedCompletion(read(f.task.id, f.p), f.p).allow;
+    };
+    assert.equal(gate([]), true);
+    assert.equal(gate([finding("minor"), finding("nit"), finding("note")]), true);
+    for (const bad of [[finding("major")], [finding("blocker")], [finding("minor"), finding("major")],
+      [finding("critical")], [{ file: "result.txt" }], ["minor"], [null], [[finding("minor")]]]) {
+      assert.equal(gate(bad), false, JSON.stringify(bad));
+    }
+    assert.equal(gate(undefined), false);
+    save(f.path, f.record);
+  });
+
+  it("review severities match agent-orchestration's reviewer (conformance)", () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../agent-orchestration/topology/lib/reviewer.mjs"), "utf8");
+    const list = (re) => JSON.parse(src.match(re)[1]);
+    assert.deepEqual(REVIEW_SEVERITIES, list(/const SEVERITIES = (\[[^\]]*\]);/));
+    assert.deepEqual(REVIEW_SEVERITIES.slice(0, 2), list(/const BLOCKING_SEVERITIES = new Set\((\[[^\]]*\])\);/));
   });
 
   it("retains exact review evidence after owned worktree cleanup", () => {
