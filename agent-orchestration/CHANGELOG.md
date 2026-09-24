@@ -25,7 +25,7 @@
   evidence, fix}` with severity `blocker`, `major`, `minor`, `nit` or `note`. A note needs no
   action and may omit `evidence` and `fix`. Malformed findings, and findings about a file outside
   the reviewed diff, are refused. An approval may carry minor, nit and note findings; a blocker or major finding still blocks it, and `changes_requested` needs at least one
-  finding. The reviewer gets its own common prompt (`prompts.common_by_role.reviewer`) without the
+  blocker or major finding. The reviewer gets its own common prompt (`prompts.common_by_role.reviewer`) without the
   reply-file and command steps it cannot perform, and is told to cite evidence in the request rather
   than claim checks it cannot run.
 
@@ -37,8 +37,10 @@
 - Report `changes_requested` as its own review state instead of `blocked` (TM-215).
 - Keep every review record under `history/` so a re-review no longer overwrites the earlier one;
   `<revision>.json` stays the current record (TM-215).
-- Mark a review request `failed` after five undelivered wakes, tell the repository lead through its
-  standing mailbox, and let a new request replace it, instead of waiting forever (TM-215).
+- Mark a review request `failed` after five undelivered wakes, or when collection refuses the
+  reviewer's response (not JSON, copies that disagree, or findings the schema refuses). Tell the
+  repository lead once through its standing mailbox, and let a new request with a fresh nonce
+  replace it, instead of retrying the same nonce forever (TM-215).
 
 - Preserve nested workflow participants when saving and reloading composed specifications; process-only approval defaults no longer create an invalid participant field.
 - Derive census role icons from the original display role, matching presence for observers, custom roles and missing roles while preserving repository-lead authority.

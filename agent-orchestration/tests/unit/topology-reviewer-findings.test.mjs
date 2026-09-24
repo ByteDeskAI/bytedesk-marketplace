@@ -235,6 +235,54 @@ test('after the last failed wake a request is marked failed, the lead is told on
   assert.notEqual(fresh.nonce, request.nonce);
 });
 
+test('a refused verdict fails its request once; a corrected verdict on the fresh request records', async t => {
+  const f = await fixture(t);
+  const sent = [];
+  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+  const first = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const refused = say(first.nonce, { verdict: 'approve', findings: [finding({ severity: 'major' })] });
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => refused }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  const stored = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_FINDINGS');
+  assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead'); assert.match(sent[0].body, /response was refused/);
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
+  const [pending] = await collectPendingReviews({ ...f, ...mail, output: async () => refused });
+  assert.equal(pending, undefined, 'a failed request is not collected again');
+  assert.equal(sent.length, 1, 'and the lead is told once');
+  const second = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  assert.notEqual(second.nonce, first.nonce);
+  // The refused copy is still on screen above the corrected one; it carries the old nonce.
+  const screen = [refused, say(second.nonce, { verdict: 'approve', findings: [finding()] })].join('\n');
+  const review = await collectReview({ ...f.args, ...mail, output: async () => screen });
+  assert.equal(review.request_nonce, second.nonce);
+  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
+});
+
+test('unparseable and disagreeing responses are refusals too; no response yet is not', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => null, deliver: async () => assert.fail('no lead registered') };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => 'still reading the patch' }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
+  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', 'waiting for an answer is not a refusal');
+  const twice = [say(request.nonce, { verdict: 'blocked', findings: [] }), say(request.nonce, { verdict: 'approve', findings: [] })].join('\n');
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => twice }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
+  const stored = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(stored.state, 'failed'); assert.equal(stored.escalation.status, 'skipped');
+});
+
+test('changes_requested needs a blocker or major finding', async t => {
+  const f = await fixture(t);
+  for (const severity of ['minor', 'nit', 'note']) {
+    await assert.rejects(recordReview({ ...f.args, verdict: 'changes_requested', findings: [finding({ severity })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' }, severity);
+  }
+  for (const severity of ['blocker', 'major']) {
+    assert.equal((await recordReview({ ...f.args, verdict: 'changes_requested', findings: [finding(), finding({ severity })] })).verdict, 'changes_requested');
+  }
+});
+
 test('the reviewer gets a common prompt without reply files or commands; other roles keep the shared one', async t => {
   const root = await mkdtemp(join(tmpdir(), 'ao-common-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -2058,7 +2058,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path32.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os8.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -2492,7 +2492,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
   const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
   invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
-  invariant2(verdict !== "changes_requested" || structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one finding saying what to change.");
+  invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   const record2 = {
     base_revision: range.base,
     patch_sha256: range.patch_sha256,
@@ -2705,7 +2705,7 @@ function parseReviewResponse(screen, nonce) {
   invariant2(parsed.every((response) => JSON.stringify(response) === JSON.stringify(last)), "TOPOLOGY_REVIEWER_RESPONSE", "The pane shows different review responses for one nonce.");
   return last;
 }
-async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput }) {
+async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration }) {
   const path3 = (0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
@@ -2721,10 +2721,22 @@ async function collectReview({ consumer, task, revision, env = process.env, home
       return prior;
     }
     invariant2((0, import_node_crypto13.createHash)("sha256").update(await (0, import_promises27.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
-    const response = parseReviewResponse(await output(record2), request.nonce);
-    const current = await readReviewerRecord(consumer, env, home);
-    invariant2(current?.agent_id === record2.agent_id && sameIncarnation(current.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer changed while collecting output.");
-    const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot });
+    const screen = await output(record2);
+    invariant2(reviewResponsesOnScreen(screen, request.nonce).length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
+    let review;
+    try {
+      const response = parseReviewResponse(screen, request.nonce);
+      const current = await readReviewerRecord(consumer, env, home);
+      invariant2(current?.agent_id === record2.agent_id && sameIncarnation(current.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer changed while collecting output.");
+      review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot });
+    } catch (error51) {
+      if (REFUSED_RESPONSE_CODES.has(error51.code)) {
+        const failed = { ...request, state: "failed", failure: { at: nowIso(), code: error51.code, reason: `The reviewer's response was refused: ${error51.message}` } };
+        failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
+        await writeJson(path3, failed);
+      }
+      throw error51;
+    }
     await writeJson(path3, { ...request, collected_at: nowIso(), verdict: review.verdict, state: "collected" });
     return review;
   });
@@ -2764,6 +2776,11 @@ async function collectPendingReviews(options) {
         const current = await readJson3(path3).catch(() => null);
         if (!current || current.nonce !== request.nonce || current.collected_at) return;
         Object.assign(request, current);
+        if (request.state === "failed") {
+          state = "failed";
+          await writeJson(path3, { ...request, collection });
+          return;
+        }
         if (error51.code === "TOPOLOGY_REVIEWER_RESPONSE" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) < MAX_REVIEW_WAKES && Date.now() - Date.parse(request.delivery?.at ?? 0) >= 1e4) {
           const record2 = await readReviewerRecord(options.consumer, options.env, options.home);
           if (record2 && sameIncarnation(record2.binding, request.binding)) {
@@ -2792,7 +2809,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     `REVIEW REQUEST FAILED: ${request.task} at ${request.revision}.`,
     "",
     request.failure.reason,
-    "No verdict was recorded and nothing was approved. Check the reviewer session, then request the review again;",
+    "No verdict was recorded and nothing was approved. Check the reviewer session and its prompt, then request the review again;",
     "a new request replaces this failed one."
   ].join("\n");
   return deliver({
@@ -2805,7 +2822,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, reviewQueueCache;
+var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_crypto13 = require("node:crypto");
@@ -2841,6 +2858,7 @@ var init_reviewer = __esm({
     PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
     RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
     reviewerAckMemo = (dir, record2) => (0, import_node_path32.join)(dir, `${record2.agent_id}.answered.json`);
+    REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
 });
@@ -35805,7 +35823,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "3f9fae6e11f5b7b20113b02e5bff95a4e7baa25aedc1d66c6a6729659fbb0c6f",
+  sourceFingerprint: false ? null : "0117653c9268037364bb85cb908b85cacc29b3868c4d02acfa9847dc5ecd1b3c",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

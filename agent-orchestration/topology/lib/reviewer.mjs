@@ -74,7 +74,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 
 /**
@@ -711,7 +711,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
   const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
   invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
-  invariant(verdict !== "changes_requested" || structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one finding saying what to change.");
+  invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   const record = {
     base_revision: range.base,
     patch_sha256: range.patch_sha256,
@@ -940,7 +940,10 @@ export function parseReviewResponse(screen, nonce) {
 /** Host collects a restricted reviewer's explicit response from its verified pane. The reviewer
  * writes no files and receives no execution tool just to deliver a verdict.
  */
-export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput }) {
+/** A response the reviewer DID give that collection refuses. Not "no answer yet", not a changed identity. */
+const REFUSED_RESPONSE_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_FINDINGS', 'TOPOLOGY_REVIEWER_VERDICT']);
+
+export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration }) {
   const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
@@ -956,10 +959,25 @@ export async function collectReview({ consumer, task, revision, env = process.en
     return prior;
   }
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
-  const response = parseReviewResponse(await output(record), request.nonce);
+  const screen = await output(record);
+  invariant(reviewResponsesOnScreen(screen, request.nonce).length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
+  let review;
+  try {
+  const response = parseReviewResponse(screen, request.nonce);
   const current = await readReviewerRecord(consumer,env,home);
   invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
-  const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
+  review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
+  } catch (error) {
+    // TM-215 review 1: a refused answer used to leave the request pending forever — retried under
+    // the same nonce, and a corrected answer then disagreed with the refused copy still on screen.
+    // Now the request fails, the lead is told once, and requestReview mints a fresh nonce.
+    if (REFUSED_RESPONSE_CODES.has(error.code)) {
+      const failed = { ...request, state: 'failed', failure: { at: nowIso(), code: error.code, reason: `The reviewer's response was refused: ${error.message}` } };
+      failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
+      await writeJson(path, failed);
+    }
+    throw error;
+  }
   await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict,state:'collected' });
   return review;
   });
@@ -1006,6 +1024,7 @@ export async function collectPendingReviews(options) {
       const current=await readJson(path).catch(()=>null);
       if(!current || current.nonce!==request.nonce || current.collected_at) return;
       Object.assign(request,current);
+      if(request.state==='failed') { state='failed'; await writeJson(path,{...request,collection}); return; }
       if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)<MAX_REVIEW_WAKES && Date.now()-Date.parse(request.delivery?.at??0)>=10_000) {
         const record=await readReviewerRecord(options.consumer,options.env,options.home);
         if(record && sameIncarnation(record.binding,request.binding)) {
@@ -1040,7 +1059,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     `REVIEW REQUEST FAILED: ${request.task} at ${request.revision}.`,
     '',
     request.failure.reason,
-    'No verdict was recorded and nothing was approved. Check the reviewer session, then request the review again;',
+    'No verdict was recorded and nothing was approved. Check the reviewer session and its prompt, then request the review again;',
     'a new request replaces this failed one.',
   ].join('\n');
   return deliver({ id: createHash('sha256').update(`review-failed:${request.nonce}`).digest('hex').slice(0, 32), consumer, to: leadId,
