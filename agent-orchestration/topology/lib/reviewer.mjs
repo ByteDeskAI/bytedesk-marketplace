@@ -919,7 +919,11 @@ export function reviewResponsesOnScreen(screen, nonce) {
       return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
     };
     const fitted = parts.reduce((text, part, k) => text + glue(k) + part);
-    responses.push([fitted, parts.join(" "), parts.join("")].map(text => { const close = jsonObjectEnd(text); return close < 0 ? text : text.slice(0, close + 1); }));
+    const texts = [fitted, parts.join(" "), parts.join("")].map(text => { const close = jsonObjectEnd(text); return close < 0 ? text : text.slice(0, close + 1); });
+    // Braces that never close before the capture ends (or before the next unindented line) are a
+    // verdict still being printed, not a malformed one.
+    texts.closed = jsonObjectEnd(parts.join("")) >= 0;
+    responses.push(texts);
   }
   return responses;
 }
@@ -960,7 +964,11 @@ export async function collectReview({ consumer, task, revision, env = process.en
   }
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
   const screen = await output(record);
-  invariant(reviewResponsesOnScreen(screen, request.nonce).length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
+  const shown = reviewResponsesOnScreen(screen, request.nonce);
+  invariant(shown.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
+  // TM-215 review 2: Claude Code prints a long line gradually. A capture taken mid-line is not a
+  // refusal; it is collected on a later tick, so it throws a code that does not fail the request.
+  invariant(shown.at(-1).closed, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', 'The review response is still being printed; collect it again later.');
   let review;
   try {
   const response = parseReviewResponse(screen, request.nonce);

@@ -33,7 +33,8 @@
 
 - Collect a reviewer verdict that Claude Code hard-wrapped across indented pane lines, one repeated
   on screen, or one followed by more output; the capture now reaches 5,000 lines back. Copies that
-  disagree are still refused (TM-215).
+  disagree are still refused. A verdict whose braces have not closed yet is still being printed, so
+  it is collected on a later tick rather than refused (TM-215).
 - Report `changes_requested` as its own review state instead of `blocked` (TM-215).
 - Keep every review record under `history/` so a re-review no longer overwrites the earlier one;
   `<revision>.json` stays the current record (TM-215).

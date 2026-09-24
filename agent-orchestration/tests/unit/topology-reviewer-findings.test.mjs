@@ -16,6 +16,20 @@ const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', ses
 const finding = (extra = {}) => ({ severity: 'minor', file: 'src/a.js', line: 2, claim: 'Name is unclear.', evidence: 'Line 2 adds `x`.', fix: 'Rename it.', ...extra });
 const say = (nonce, response) => `AO_REVIEW ${nonce} ${JSON.stringify(response)}`;
 
+// Captured read-only from the live reviewer pane %289 (TM-214 round 3) with
+// `tmux capture-pane -p -J -S -3000`, kept verbatim: the first verdict row fills the 2000-column pane
+// and ends with the space it wrapped at; the continuation is indented two spaces.
+const LIVE_WRAPPED_VERDICT = [
+  "",
+  "● AO_REVIEW 9168d438-f7ab-4b16-9b94-46328896f3c6 {\"verdict\":\"approve\",\"revision\":\"8965c3a55f4e620b66dbea1b6d426315f2af998f\",\"base_revision\":\"7f15ac95745d8028bc2b2553367eeb03b393526c\",\"task\":\"TM-214\",\"findings\":[{\"id\":1,\"severity\":\"note\",\"file\":\"agent-orchestration/tests/live/two-projects.sh:146\",\"summary\":\"The edited live tmux assertion is still unrun. Its expected text 'auto_approve is on for boss' matches the warning in launch.mjs.\",\"resolve\":\"Run it before merge, or record in the gate that it was not run.\"},{\"id\":2,\"severity\":\"note\",\"file\":\"agent-orchestration/topology/lib/spec.mjs:347\",\"summary\":\"Behaviour change: a spec that references the stored reviewer with an agent entry is now refused with TOPOLOGY_REVIEWER_READ_ONLY. Before, it launched a prompting pane. No shipped workflow uses an agent entry. agentAddress also goes through expandAgentRefs, so it fails early with the same code. The CHANGELOG covers this.\",\"resolve\":\"None required.\"}],\"previous_findings\":{\"reviewed_revision\":\"6c93e69fee0e82d78e86784bcbba7d471912b7ff\",\"1_spec_reference_to_reviewer\":\"resolved: expandAgentRefs refuses any stored agent with role reviewer before the inline merge, so an inline auto_approve true cannot override the stored false (spec.mjs:344-349, invariant is imported at line 7). The new test covers an id reference with inline auto_approve true and a full-name reference, plus a worker control case. The existing library-reference test is moved to a worker role, and its assertions still hold.\",\"2_live_test\":\"still open, see finding 1\"},\"verified\":[\"Reviewed the whole base..revision patch, 19 files, all under agent-orchestration/. The only change from 6c93e69 is the spec.mjs reviewer-reference refusal, its test, the adjusted library test and the CHANGELOG line.\",\"AC1: a missing key is on and explicit false opts out, in validateSpec and createAgent. A library agent's stored false wins when the entry omits the key.\",\"AC2: the consent gate is removed, --allow-auto-approve is a no-op  ",
+  "  and the TM-090 tests are rewritten. The dead error-code check is removed.\",\"AC3: buildReviewerArgv is unchanged (--restricted --safe-mode, empty auto_approve_args). The reviewer is stored with auto_approve false when created and when assigned. session open refuses it, and so does a spec agent reference. Tests assert each of these.\",\"AC4: CHANGELOG, README, topology.md, ADR 0001 supersession note, EP-018-DEMO, claude.json notes and the workflow text are updated. The dist createAgent and assignReviewer match source.\",\"Limit: I did not run any tests, by read-only policy. I relied on the author's reported checks and read the worktree assuming its HEAD is 8965c3a.\"]}",
+  "",
+  "✻ Baked for 20s · done 1:39 PM",
+  "",
+  "❯",
+  "",
+].join('\n');
+
 // A task whose admitted range changes src/a.js, so findings have a real file to point at.
 async function fixture(t, reviewerBinding = binding, changed = ['src/a.js']) {
   const root = await mkdtemp(join(tmpdir(), 'ao-findings-'));
@@ -153,9 +167,7 @@ test('a verdict Claude Code hard-wrapped across indented pane lines is rejoined'
 });
 
 test('a live verdict wrapped by Claude Code in a 2000-column pane parses (TM-214 round 3, pane %289)', async () => {
-  // Captured read-only with `tmux capture-pane -p -J -S -3000`. The first row fills the pane and ends
-  // with the space it wrapped at; the continuation is indented two spaces.
-  const screen = await readFile(join(PLUGIN, 'tests', 'fixtures', 'reviewer-wrapped-verdict.txt'), 'utf8');
+  const screen = LIVE_WRAPPED_VERDICT;
   const response = parseReviewResponse(screen, '9168d438-f7ab-4b16-9b94-46328896f3c6');
   assert.equal(response.verdict, 'approve');
   assert.deepEqual(response.findings.map(f => f.severity), ['note', 'note']);
@@ -167,13 +179,13 @@ test('a live verdict wrapped by Claude Code in a 2000-column pane parses (TM-214
 
 test('the live TM-214 round-3 verdict (approve, two notes) records as satisfied once its findings use the schema fields', async t => {
   const nonce = '9168d438-f7ab-4b16-9b94-46328896f3c6';
-  const live = parseReviewResponse(await readFile(join(PLUGIN, 'tests', 'fixtures', 'reviewer-wrapped-verdict.txt'), 'utf8'), nonce);
+  const live = parseReviewResponse(LIVE_WRAPPED_VERDICT, nonce);
   const paths = live.findings.map(finding => finding.file.replace(/:\d+$/, ''));
   const f = await fixture(t, binding, paths);
   // The live notes carry `file:line`, summary and resolve. The same notes in the schema's fields:
   const findings = live.findings.map(({ severity, file, summary, resolve }) => ({ severity, file: file.replace(/:\d+$/, ''), line: Number(file.split(':').at(-1)), claim: summary, fix: resolve }));
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const screen = (await readFile(join(PLUGIN, 'tests', 'fixtures', 'reviewer-wrapped-verdict.txt'), 'utf8'))
+  const screen = LIVE_WRAPPED_VERDICT
     .replace(nonce, request.nonce).replace(JSON.stringify(live.findings), JSON.stringify(findings));
   const review = await collectReview({ ...f.args, output: async () => screen });
   assert.equal(review.verdict, 'approve');
@@ -271,6 +283,28 @@ test('unparseable and disagreeing responses are refusals too; no response yet is
   await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => twice }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
   const stored = JSON.parse(await readFile(path, 'utf8'));
   assert.equal(stored.state, 'failed'); assert.equal(stored.escalation.status, 'skipped');
+});
+
+test('a verdict captured while it is still printing waits for a later capture instead of failing', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async () => assert.fail('an incomplete answer is not escalated') };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
+  for (const partial of [full.slice(0, full.indexOf('"claim"')), `${full.slice(0, 120)}\n> `]) {
+    await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => partial }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+    assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed');
+  }
+  const [tick] = await collectPendingReviews({ ...f, ...mail, output: async () => full.slice(0, 150) });
+  assert.equal(tick.state, 'awaiting-review'); assert.equal(tick.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
+  const [done] = await collectPendingReviews({ ...f, ...mail, output: async () => full });
+  assert.equal(done.state, 'collected');
+  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
+  // Closed but invalid is still a refusal.
+  const other = await fixture(t);
+  const second = await requestReview({ ...other.args, wake: async () => ({ rang: true }) });
+  await assert.rejects(collectReview({ ...other.args, lead: async () => null, output: async () => `AO_REVIEW ${second.nonce} {"verdict":approve}` }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
+  assert.equal(JSON.parse(await readFile(join(await reviewerInboxRoot(other.consumer, other.env, other.home), 'requests', `TM-1-${other.revision}.json`), 'utf8')).state, 'failed');
 });
 
 test('changes_requested needs a blocker or major finding', async t => {

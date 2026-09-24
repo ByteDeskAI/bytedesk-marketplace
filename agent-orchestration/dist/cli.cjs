@@ -2682,10 +2682,12 @@ function reviewResponsesOnScreen(screen, nonce) {
       return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
     };
     const fitted = parts.reduce((text, part, k) => text + glue(k) + part);
-    responses.push([fitted, parts.join(" "), parts.join("")].map((text) => {
+    const texts = [fitted, parts.join(" "), parts.join("")].map((text) => {
       const close = jsonObjectEnd(text);
       return close < 0 ? text : text.slice(0, close + 1);
-    }));
+    });
+    texts.closed = jsonObjectEnd(parts.join("")) >= 0;
+    responses.push(texts);
   }
   return responses;
 }
@@ -2722,7 +2724,9 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     }
     invariant2((0, import_node_crypto13.createHash)("sha256").update(await (0, import_promises27.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
     const screen = await output(record2);
-    invariant2(reviewResponsesOnScreen(screen, request.nonce).length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
+    const shown = reviewResponsesOnScreen(screen, request.nonce);
+    invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
+    invariant2(shown.at(-1).closed, "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", "The review response is still being printed; collect it again later.");
     let review;
     try {
       const response = parseReviewResponse(screen, request.nonce);
@@ -35823,7 +35827,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "0117653c9268037364bb85cb908b85cacc29b3868c4d02acfa9847dc5ecd1b3c",
+  sourceFingerprint: false ? null : "51c11fd6ec46d4ac55105cc4b080fdfa1ffbb47692a81527ffd71f2319b52fc8",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
