@@ -183,6 +183,83 @@ worker, removes the task worktree through `tm`, and safely deletes its local bra
 proof or any dirty/uncollected state returns a blocked reason and recovery path. Deployment,
 publication and spending retain separate authorization.
 
+### Integration policy for a repository
+
+`manage eligible` and `manage integrate` refuse every task until the repository sets two keys in
+`<repo>/.bytedesk/agent-orchestration/config.json`. That file merges over the global layer.
+
+- `management.target_branch` is the branch the main checkout must have checked out. Integration
+  fast-forwards only that branch.
+- `management.required_checks` is a non-empty array of `{ "name", "argv", "timeout_ms"? }`. `name`
+  is a non-empty string. `argv` is a non-empty array of strings. It is executed directly, without a
+  shell, with the task worktree root as its working directory. `timeout_ms` defaults to 120000.
+  Every check must exit 0. Integration runs the checks again itself and never trusts a worker's
+  report. A fresh task worktree has no `node_modules`, so install dependencies in a check before
+  any check that needs them.
+
+This is the policy for the bytedesk-marketplace repository. It runs the unit suites of
+agent-orchestration and task-management, the agent-orchestration bundle check, and
+`claude plugin validate` for both plugins:
+
+```json
+{
+  "enabled": true,
+  "management": {
+    "target_branch": "main",
+    "required_checks": [
+      { "name": "agent-orchestration: npm ci", "argv": ["npm", "--prefix", "agent-orchestration", "ci", "--no-audit", "--no-fund"], "timeout_ms": 300000 },
+      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs"], "timeout_ms": 900000 },
+      { "name": "agent-orchestration: build:check", "argv": ["npm", "--prefix", "agent-orchestration", "run", "-s", "build:check"], "timeout_ms": 300000 },
+      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
+      { "name": "agent-orchestration: plugin validate", "argv": ["claude", "plugin", "validate", "./agent-orchestration"], "timeout_ms": 120000 },
+      { "name": "task-management: plugin validate", "argv": ["claude", "plugin", "validate", "./task-management"], "timeout_ms": 120000 }
+    ]
+  }
+}
+```
+
+Use plain `claude plugin validate`, never `--strict`. The strict form fails every versionless
+internal plugin.
+
+### Tool store paths in the integration checkout
+
+The main checkout must be clean before integration, with one exception. Task management and
+orchestration write their own state into these paths, so they may be dirty or untracked:
+
+- `.bytedesk/task-management/`
+- `.bytedesk/agent-orchestration/agents/`
+- `.bytedesk/knowledge/.km/`
+
+Any other modified, staged or untracked path still blocks integration, and the refusal names it.
+Integration also refuses a landing whose commits change any of these paths, so the fast-forward
+never overwrites store state. Land such a change by hand and record it with `record-landing`. The
+list is `INTEGRATION_STORE_PATHS` in `topology/lib/management.mjs`.
+
+### Recording a landing that already happened
+
+An operator sometimes lands a reviewed task without `manage integrate`, for example by merging it
+by hand. A governed task then cannot close, because completion needs the merge record that only
+integration writes. Record that landing with:
+
+```bash
+ao-topology manage record-landing --task TM-123 --landed <commit> --actor <name> --reason "<why>"
+```
+
+The command never merges, pushes or changes a branch. It accepts the landing only when all of
+these hold:
+
+- The task has a finished worker revision in `ready-for-review` and no recorded landing yet.
+- The finish revision is an ancestor of `<commit>`.
+- `<commit>` is on `management.target_branch`.
+- An eligible independent review of that exact finish revision exists. This is the same review
+  gate integration uses, so the designated reviewer must be available and unchanged.
+- `--actor` and `--reason` are non-empty.
+
+It collects the management record as task evidence. It then writes the same `merge` record that
+integration writes, with `authorization.channel` set to `recorded-landing` and the reason
+attached, and it logs a `recorded-landing` event. The task's normal completion (`tm done`, or
+`manage cleanup`) then passes the governed completion gate unchanged. That gate has no override.
+
 ## Presence v1
 
 `presence watch` maintains a complete read-only projection every TTL/3; `presence publish` is a

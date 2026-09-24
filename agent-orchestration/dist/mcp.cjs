@@ -52297,7 +52297,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "03d66360a306ea9b80fee9b952eec91eb0837243621f64b131020b62a0208344",
+  sourceFingerprint: false ? null : "a0d5ce30f3521622116f5f3c3943958bcb13781a5504181660bbc768825b3129",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
