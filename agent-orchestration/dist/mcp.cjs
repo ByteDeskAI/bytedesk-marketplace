@@ -7745,10 +7745,13 @@ function validateConfigShape(raw, label) {
     if (!isPlainObject3(raw.prompts)) errors.push(`${label}: "prompts" must be an object`);
     else if (raw.prompts.roles !== void 0 && !isPlainObject3(raw.prompts.roles)) {
       errors.push(`${label}: "prompts.roles" must be an object mapping role to a Markdown path`);
+    } else if (raw.prompts.common_by_role !== void 0 && !isPlainObject3(raw.prompts.common_by_role)) {
+      errors.push(`${label}: "prompts.common_by_role" must be an object mapping role to a Markdown path`);
     }
   }
   if (isPlainObject3(raw.prompts)) {
-    const paths2 = { common: raw.prompts.common, ...isPlainObject3(raw.prompts.roles) ? raw.prompts.roles : {} };
+    const byRole = isPlainObject3(raw.prompts.common_by_role) ? Object.fromEntries(Object.entries(raw.prompts.common_by_role).map(([role, path3]) => [`common_by_role.${role}`, path3])) : {};
+    const paths2 = { common: raw.prompts.common, ...byRole, ...isPlainObject3(raw.prompts.roles) ? raw.prompts.roles : {} };
     for (const [key, value] of Object.entries(paths2)) {
       if (value !== void 0 && (typeof value !== "string" || !value.trim())) errors.push(`${label}: prompt "${key}" must be a nonempty Markdown path`);
     }
@@ -8057,7 +8060,7 @@ async function composePrompt({ agent, consumer, dir, loaded, templateName = null
   for (const scope of ["defaults", "global", "repo"]) {
     const raw = loaded.layers.find((item) => item.scope === scope && item.ok && item.present)?.raw;
     if (!raw?.prompts) continue;
-    const commonPath = resolveConfigPath(raw.prompts.common, dirs[scope]);
+    const commonPath = resolveConfigPath(raw.prompts.common_by_role?.[role] ?? raw.prompts.common, dirs[scope]);
     const rolePath = resolveConfigPath(raw.prompts.roles?.[role], dirs[scope]);
     for (const [name, path3] of [[`${scope} common`, commonPath], [`${scope} role:${role}`, rolePath]]) {
       if (!path3) continue;
@@ -8910,6 +8913,7 @@ var reviewer_exports = {};
 __export(reviewer_exports, {
   PROBE_POLL_MS: () => PROBE_POLL_MS,
   PROBE_TIMEOUT_MS: () => PROBE_TIMEOUT_MS,
+  approvable: () => approvable,
   assignReviewer: () => assignReviewer,
   buildReviewerArgv: () => buildReviewerArgv,
   collectPendingReviews: () => collectPendingReviews,
@@ -8919,11 +8923,13 @@ __export(reviewer_exports, {
   ensureReviewer: () => ensureReviewer,
   independentReviewStatus: () => independentReviewStatus,
   latestReview: () => latestReview,
+  parseReviewResponse: () => parseReviewResponse,
   readReviewerRecord: () => readReviewerRecord,
   readySignalOnScreen: () => readySignalOnScreen,
   recordReview: () => recordReview,
   requestReview: () => requestReview,
   reviewEligibility: () => reviewEligibility,
+  reviewResponsesOnScreen: () => reviewResponsesOnScreen,
   reviewerAvailability: () => reviewerAvailability,
   reviewerInboxRoot: () => reviewerInboxRoot,
   reviewerNonceAck: () => reviewerNonceAck,
@@ -8932,7 +8938,8 @@ __export(reviewer_exports, {
   reviewerProtocolPrompt: () => reviewerProtocolPrompt,
   reviewerStanding: () => reviewerStanding,
   reviewersRoot: () => reviewersRoot,
-  reviewsRoot: () => reviewsRoot
+  reviewsRoot: () => reviewsRoot,
+  validateFindings: () => validateFindings
 });
 function reviewersRoot(env = process.env, home = (0, import_node_os8.homedir)()) {
   return (0, import_node_path32.join)(stateRoot2(env, home), REGISTRY_KIND);
@@ -8941,7 +8948,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path32.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON with verdict (approve, changes_requested, blocked) and findings array. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}. Approve only when every finding is minor or nit; changes_requested needs at least one finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os8.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -9007,7 +9014,7 @@ async function bindingAlive(record2) {
 }
 async function reviewerOutput(record2) {
   if (!await bindingAlive(record2)) return "";
-  const result2 = await run("tmux", ["-S", record2.binding.serverKey, "capture-pane", "-p", "-J", "-t", record2.binding.paneId, "-S", "-160"], { allowFailure: true });
+  const result2 = await run("tmux", ["-S", record2.binding.serverKey, "capture-pane", "-p", "-J", "-t", record2.binding.paneId, "-S", `-${REVIEW_CAPTURE_LINES}`], { allowFailure: true });
   return result2.code === 0 && await bindingAlive(record2) ? result2.stdout : "";
 }
 async function reviewerProbeReady({ consumer, record: record2, env = process.env, home = (0, import_node_os8.homedir)(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive: alive2 = bindingAlive, readOnly = false }) {
@@ -9323,6 +9330,28 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   invariant2(patch.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Cannot produce the complete task diff.");
   return { base, patch: patch.stdout, patch_sha256: (0, import_node_crypto13.createHash)("sha256").update(patch.stdout).digest("hex"), owner: management.owner };
 }
+async function reviewedFiles(consumer, base, revision) {
+  const listed = await run("git", ["-C", consumer, "diff", "--name-only", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
+  invariant2(listed.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Cannot list the files in the reviewed task diff.");
+  return new Set(listed.stdout.split("\0").filter(Boolean));
+}
+function validateFindings(findings, files) {
+  invariant2(Array.isArray(findings), "TOPOLOGY_REVIEWER_FINDINGS", "Findings must be an array.");
+  return findings.map((finding, index) => {
+    const at = `Finding ${index + 1}`;
+    invariant2(finding && typeof finding === "object" && !Array.isArray(finding), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must be an object with severity, file, line, claim, evidence and fix.`);
+    invariant2(SEVERITIES.includes(finding.severity), "TOPOLOGY_REVIEWER_FINDINGS", `${at} severity must be one of ${SEVERITIES.join(", ")}.`);
+    invariant2(typeof finding.file === "string" && finding.file.trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must name the file.`);
+    const file2 = finding.file.trim().replace(/^\.\//, "");
+    invariant2(files.has(file2), "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file2}, which is not in the reviewed diff.`, { file: file2 });
+    invariant2(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
+    for (const key of FINDING_TEXT_FIELDS) invariant2(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
+    return { severity: finding.severity, file: file2, line: finding.line, claim: finding.claim.trim(), evidence: finding.evidence.trim(), fix: finding.fix.trim() };
+  });
+}
+function approvable(findings) {
+  return Array.isArray(findings) && findings.every((finding) => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
+}
 async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant2(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
@@ -9334,7 +9363,6 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   const verified = await run("git", ["-C", consumer, "rev-parse", "--verify", `${revision}^{commit}`], { allowFailure: true });
   invariant2(verified.code === 0 && verified.stdout.trim() === revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "Review revision must exist as an exact commit in this repository.");
   invariant2(Array.isArray(findings), "TOPOLOGY_REVIEWER_FINDINGS", "Findings must be an array.");
-  invariant2(verdict !== "approve" || findings.length === 0, "TOPOLOGY_REVIEWER_FINDINGS", "Any unresolved finding blocks approval.");
   invariant2(
     revision !== void 0 && revision !== null && String(revision).trim() !== "",
     "TOPOLOGY_REVIEWER_REVISION_REQUIRED",
@@ -9347,13 +9375,16 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, env, home });
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
+  const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
+  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
+  invariant2(verdict !== "changes_requested" || structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one finding saying what to change.");
   const record2 = {
     base_revision: range.base,
     patch_sha256: range.patch_sha256,
     task: String(task ?? "").trim(),
     revision: String(revision).trim(),
     verdict,
-    findings: Array.isArray(findings) ? findings : [String(findings)],
+    findings: structured,
     reviewer_id: reviewerId,
     binding: incarnationOf(registered.binding),
     request_nonce: requestNonce,
@@ -9363,8 +9394,10 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
     created_at: nowIso()
   };
   invariant2(record2.task, "TOPOLOGY_REVIEWER_TASK", "A review must name the task it covers.");
-  const path3 = (0, import_node_path32.join)(await reviewsRoot(consumer, env, home), segment(record2.task, "TOPOLOGY_REVIEWER_TASK", "the task"), `${segment(record2.revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "the exact revision")}.json`);
-  await writeJson(path3, record2);
+  const dir = (0, import_node_path32.join)(await reviewsRoot(consumer, env, home), segment(record2.task, "TOPOLOGY_REVIEWER_TASK", "the task"));
+  const name = segment(record2.revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "the exact revision");
+  await writeJson((0, import_node_path32.join)(dir, "history", `${name}-${Date.now()}-${(0, import_node_crypto13.randomUUID)().slice(0, 8)}.json`), record2);
+  await writeJson((0, import_node_path32.join)(dir, `${name}.json`), record2);
   return record2;
 }
 async function latestReview(consumer, task, env = process.env, home = (0, import_node_os8.homedir)()) {
@@ -9383,7 +9416,8 @@ async function currentReviewStatus(consumer, task, currentRevision, env = proces
   const review = await latestReview(consumer, task, env, home);
   if (!review) return { state: "missing", review: null };
   if (String(review.revision) !== String(currentRevision)) return { state: "stale", review };
-  return { state: review.verdict === "approve" && review.findings?.length === 0 && review.verified_commit === currentRevision ? "satisfied" : "blocked", review };
+  if (review.verdict === "changes_requested") return { state: "changes_requested", review };
+  return { state: review.verdict === "approve" && approvable(review.findings) && review.verified_commit === currentRevision ? "satisfied" : "blocked", review };
 }
 async function reviewEligibility({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null }) {
   const availability = await reviewerAvailability({ consumer, env, home, probes });
@@ -9425,6 +9459,7 @@ async function independentReviewStatus({ consumer, task, env = process.env, home
     const request = await readJson3((0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${key}.json`)).catch(() => null);
     if (!request) return { ...result2, status: "awaiting-review", reason: "No independent review request is recorded for this revision." };
     Object.assign(result2, { reviewerId: request.reviewer_id, requestedAt: request.created_at ?? null, collectedAt: request.collected_at ?? null });
+    if (request.state === "failed") return { ...result2, status: "failed", reason: request.failure?.reason ?? "The review request could not be delivered to the reviewer." };
     if (!request.collected_at) return { ...result2, status: "awaiting-review", reason: request.collection?.reason ?? "The reviewer verdict has not been collected." };
     const reviewer = await readReviewerRecord(consumer, env, home);
     const review = await readJson3((0, import_node_path32.join)(await reviewsRoot(consumer, env, home), task, `${result2.sourceRevision}.json`)).catch(() => null);
@@ -9451,7 +9486,8 @@ async function independentReviewStatus({ consumer, task, env = process.env, home
       "The reviewer must be independent of every recorded author and the repository lead."
     );
     result2.verdict = review.verdict;
-    return { ...result2, status: review.verdict === "approve" && Array.isArray(review.findings) && review.findings.length === 0 ? "approved" : "blocked", reason: review.verdict === "approve" ? "Independent review is recorded. Integration requires a separate authorized decision." : "The reviewer has not approved this revision." };
+    const approved = review.verdict === "approve" && approvable(review.findings);
+    return { ...result2, status: approved ? "approved" : review.verdict === "changes_requested" ? "changes-requested" : "blocked", reason: approved ? "Independent review is recorded. Integration requires a separate authorized decision." : "The reviewer has not approved this revision." };
   } catch (error51) {
     return { ...result2, status: "invalid", reason: error51.message };
   }
@@ -9472,7 +9508,7 @@ async function requestReview({ consumer, task, revision, authorAgentIds, baseRev
       throw error51;
     });
     invariant2(incarnationOf(record2.binding), "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Review requires the exact designated reviewer incarnation.");
-    if (prior && sameIncarnation(prior.binding, record2.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record2.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path: path3 };
+    if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record2.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record2.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path: path3 };
     const patchPath = (0, import_node_path32.join)(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
     const request = { base_revision: range.base, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto13.randomUUID)(), task, revision, repo_id: record2.repo_id, reviewer_id: record2.agent_id, binding: incarnationOf(record2.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
@@ -9494,6 +9530,66 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
   });
 }
+function jsonObjectEnd(text) {
+  let depth = 0, inString = false, escaped = false, started = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{") {
+      depth++;
+      started = true;
+    } else if (c === "}" && started && --depth === 0) return i;
+  }
+  return -1;
+}
+function reviewResponsesOnScreen(screen, nonce) {
+  const prefix = `AO_REVIEW ${nonce} `;
+  const lines = String(screen ?? "").split(/\r?\n/);
+  const responses = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = protocolOutputLine(lines[i]);
+    if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
+    const raw = [lines[i]], parts = [line.slice(prefix.length)];
+    while (jsonObjectEnd(parts.join("")) < 0 && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
+      raw.push(lines[++i]);
+      parts.push(protocolOutputLine(lines[i]));
+    }
+    const width = Math.max(...raw.slice(0, -1).map((text) => text.trimEnd().length));
+    const glue = (k) => {
+      if (/\s$/.test(raw[k - 1]) || raw[k - 1].trimEnd().length < width) return " ";
+      const word = parts[k - 1].split(" ").at(-1) + parts[k].split(" ")[0];
+      return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
+    };
+    const fitted = parts.reduce((text, part, k) => text + glue(k) + part);
+    responses.push([fitted, parts.join(" "), parts.join("")].map((text) => {
+      const close = jsonObjectEnd(text);
+      return close < 0 ? text : text.slice(0, close + 1);
+    }));
+  }
+  return responses;
+}
+function parseReviewResponse(screen, nonce) {
+  const candidates = reviewResponsesOnScreen(screen, nonce);
+  invariant2(candidates.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
+  const parsed = candidates.map((texts) => {
+    for (const text of texts) {
+      try {
+        return JSON.parse(text);
+      } catch {
+      }
+    }
+    return fail("TOPOLOGY_REVIEWER_RESPONSE", "Review response must be JSON.");
+  });
+  const last = parsed[parsed.length - 1];
+  invariant2(parsed.every((response) => JSON.stringify(response) === JSON.stringify(last)), "TOPOLOGY_REVIEWER_RESPONSE", "The pane shows different review responses for one nonce.");
+  return last;
+}
 async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput }) {
   const path3 = (0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
@@ -9510,15 +9606,7 @@ async function collectReview({ consumer, task, revision, env = process.env, home
       return prior;
     }
     invariant2((0, import_node_crypto13.createHash)("sha256").update(await (0, import_promises27.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
-    const prefix = `AO_REVIEW ${request.nonce} `;
-    const lines = String(await output(record2)).split(/\r?\n/).map(protocolOutputLine).filter((line) => line.startsWith(prefix));
-    invariant2(lines.length === 1, "TOPOLOGY_REVIEWER_RESPONSE", "Expected exactly one nonce-bound review response from the designated pane.");
-    let response;
-    try {
-      response = JSON.parse(lines[0].slice(prefix.length));
-    } catch {
-      fail("TOPOLOGY_REVIEWER_RESPONSE", "Review response must be JSON.");
-    }
+    const response = parseReviewResponse(await output(record2), request.nonce);
     const current = await readReviewerRecord(consumer, env, home);
     invariant2(current?.agent_id === record2.agent_id && sameIncarnation(current.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer changed while collecting output.");
     const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot });
@@ -9544,7 +9632,7 @@ async function collectPendingReviews(options) {
       entry = { signature, request: await readJson3(path3).catch(() => null) };
       cache.files.set(name, entry);
     }
-    if (entry.request && !entry.request.collected_at) pending.push({ name, request: entry.request });
+    if (entry.request && !entry.request.collected_at && entry.request.state !== "failed") pending.push({ name, request: entry.request });
   }
   const start = pending.findIndex((entry) => entry.name > cache.cursor);
   const batch = [...pending.slice(start < 0 ? 0 : start), ...pending.slice(0, start < 0 ? 0 : start)].slice(0, 100);
@@ -9556,25 +9644,53 @@ async function collectPendingReviews(options) {
       results.push({ task: request.task, revision: request.revision, state: "collected", verdict: review.verdict });
     } catch (error51) {
       const collection = { at: nowIso(), code: error51.code ?? "TOPOLOGY_REVIEW_COLLECTION_FAILED", reason: error51.message };
+      let state = "awaiting-review";
       await withLock(path3.replace(/\.json$/, ".lock"), async () => {
         const current = await readJson3(path3).catch(() => null);
         if (!current || current.nonce !== request.nonce || current.collected_at) return;
         Object.assign(request, current);
-        if (error51.code === "TOPOLOGY_REVIEWER_RESPONSE" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) < 5 && Date.now() - Date.parse(request.delivery?.at ?? 0) >= 1e4) {
+        if (error51.code === "TOPOLOGY_REVIEWER_RESPONSE" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) < MAX_REVIEW_WAKES && Date.now() - Date.parse(request.delivery?.at ?? 0) >= 1e4) {
           const record2 = await readReviewerRecord(options.consumer, options.env, options.home);
           if (record2 && sameIncarnation(record2.binding, request.binding)) {
             const delivery = await wakeReviewRequest({ ...options, record: record2, request, path: path3 }).catch((error52) => ({ rang: false, reason: error52.code ?? error52.message }));
             request.delivery = { ...delivery, attempts: (request.delivery?.attempts ?? 0) + 1, at: nowIso() };
           }
         }
+        if (error51.code === "TOPOLOGY_REVIEWER_RESPONSE" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) >= MAX_REVIEW_WAKES) {
+          state = "failed";
+          request.state = "failed";
+          request.failure = { at: nowIso(), reason: `The review request could not be delivered to the reviewer after ${MAX_REVIEW_WAKES} wake attempts (${request.delivery?.reason ?? "no reason reported"}).` };
+          request.escalation = await escalateFailedReview({ ...options, request });
+        }
         await writeJson(path3, { ...request, collection });
       });
-      results.push({ task: request.task, revision: request.revision, state: "awaiting-review", ...collection });
+      results.push({ task: request.task, revision: request.revision, state, ...collection });
     }
   }
   return results;
 }
-var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, reviewQueueCache;
+async function escalateFailedReview({ consumer, request, env = process.env, home = (0, import_node_os8.homedir)(), deliver = sendStandingMessage, lead = readLeadRegistration }) {
+  const registration = await lead({ consumer, env, home }).catch(() => null);
+  const leadId = registration?.record?.agent_id ?? null;
+  if (!leadId) return { status: "skipped", reason: "no lead is registered for this repository" };
+  const body = [
+    `REVIEW REQUEST FAILED: ${request.task} at ${request.revision}.`,
+    "",
+    request.failure.reason,
+    "No verdict was recorded and nothing was approved. Check the reviewer session, then request the review again;",
+    "a new request replaces this failed one."
+  ].join("\n");
+  return deliver({
+    id: (0, import_node_crypto13.createHash)("sha256").update(`review-failed:${request.nonce}`).digest("hex").slice(0, 32),
+    consumer,
+    to: leadId,
+    subject: `review request failed: ${request.task}`,
+    body,
+    task: request.task,
+    provenance: { source: "ao-topology review" }
+  }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
+}
+var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_crypto13 = require("node:crypto");
@@ -9582,6 +9698,8 @@ var init_reviewer = __esm({
     import_node_os8 = require("node:os");
     import_node_path32 = require("node:path");
     init_agents();
+    init_lead();
+    init_standing_mailbox();
     init_config();
     init_identity();
     init_delivery();
@@ -9598,6 +9716,11 @@ var init_reviewer = __esm({
     DEFAULT_REVIEWER_PROVIDERS = ["claude", "codex"];
     DEFAULT_TEMPLATE = "reviewer-default";
     VERDICTS = /* @__PURE__ */ new Set(["approve", "changes_requested", "blocked"]);
+    SEVERITIES = ["blocker", "major", "minor", "nit"];
+    BLOCKING_SEVERITIES = /* @__PURE__ */ new Set(["blocker", "major"]);
+    FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
+    MAX_REVIEW_WAKES = 5;
+    REVIEW_CAPTURE_LINES = 5e3;
     defaultProbes = () => ({ alive: (_session, record2) => bindingAlive(record2), open: defaultOpen });
     PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 2e4);
     PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
@@ -52145,7 +52268,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "723aef5e5b5dba918b5b4b095e6e78412c0f50ebb3f77ee1327d921d6151b04a",
+  sourceFingerprint: false ? null : "8daeaa16e5b2cd4a5ec7c50d71473106fc15ce419afe739a1ad2010b11bdd8f9",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

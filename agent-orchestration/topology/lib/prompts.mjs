@@ -4,7 +4,7 @@
 //
 //   1. generated      identity + path discipline + protocol (code, not config — see agents.mjs)
 //   2. template       the named template's prompt file / inline instructions
-//   3. defaults common  bundled prompts.common
+//   3. defaults common  bundled prompts.common (or prompts.common_by_role[role] in its place, per layer)
 //   4. defaults role    bundled prompts.roles[role]
 //   5. global common  prompts.common from the global config layer
 //   6. global role    prompts.roles[role] from the global config layer
@@ -124,7 +124,9 @@ export async function composePrompt({ agent, consumer, dir, loaded, templateName
   for (const scope of ["defaults", "global", "repo"]) {
     const raw = loaded.layers.find((item) => item.scope === scope && item.ok && item.present)?.raw;
     if (!raw?.prompts) continue;
-    const commonPath = resolveConfigPath(raw.prompts.common, dirs[scope]);
+    // TM-215 e: a role that cannot follow the shared common layer (the restricted reviewer cannot
+    // write reply files or run commands) gets its own variant in place of it, per layer.
+    const commonPath = resolveConfigPath(raw.prompts.common_by_role?.[role] ?? raw.prompts.common, dirs[scope]);
     const rolePath = resolveConfigPath(raw.prompts.roles?.[role], dirs[scope]);
     for (const [name, path] of [[`${scope} common`, commonPath], [`${scope} role:${role}`, rolePath]]) {
       if (!path) continue;

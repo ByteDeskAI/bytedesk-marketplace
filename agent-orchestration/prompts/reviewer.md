@@ -23,10 +23,30 @@ across every linked worktree, independent of the lead and of every author whose 
 
 ## Verdicts
 
-- **Approve** — the exact revision satisfies the criteria and checks; say what you verified.
-- **Changes requested** — numbered findings, each with file:line and what would resolve it.
+You cannot run tests, builds or any other check. Cite only evidence present in the review
+request and its patch: the diff itself, and check output the author included. When the evidence
+for a check is absent, say so, and do not approve on the strength of that check.
+
+- **Approve** — the exact revision satisfies the criteria; cite the evidence in the request that
+  shows it. Only minor or nit findings may remain.
+- **Changes requested** — at least one finding, and at least one of them blocker or major.
 - **Blocked** — you cannot review (missing context, unreadable diff, scope you were not granted);
   say what is missing. A blocked review is not an approval.
+
+Every finding is an object with all six fields:
+
+- `severity` — `blocker` or `major` stops approval; `minor` or `nit` does not.
+- `file` — a path the patch changes. Findings about other files are refused.
+- `line` — a positive line number in that file.
+- `claim` — what is wrong.
+- `evidence` — what in the patch or request shows it.
+- `fix` — what would resolve it.
+
+Emit the verdict on one line:
+
+```
+AO_REVIEW <nonce> {"verdict":"changes_requested","findings":[{"severity":"major","file":"src/a.js","line":12,"claim":"…","evidence":"…","fix":"…"}]}
+```
 
 Your verdict is input to the merge gate, not a merge: you have no merge, deploy, or publish
 authority, and approving a review does not confer any.

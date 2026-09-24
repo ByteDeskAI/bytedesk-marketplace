@@ -15,6 +15,9 @@
   },
   "prompts": {
     "common": "./prompts/common.md",
+    "common_by_role": {
+      "reviewer": "./prompts/common-reviewer.md"
+    },
     "roles": {
       "observer": "./roles/observer.md"
     }

@@ -33,6 +33,8 @@ import { readdir, readFile, rm, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
+import { readLeadRegistration } from "./lead.mjs";
+import { sendStandingMessage } from "./standing-mailbox.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
@@ -50,6 +52,15 @@ const REGISTRY_KIND = "reviewers";
 const DEFAULT_REVIEWER_PROVIDERS = ["claude", "codex"];
 const DEFAULT_TEMPLATE = "reviewer-default";
 const VERDICTS = new Set(["approve", "changes_requested", "blocked"]);
+// TM-215: findings are structured. Only blocker and major findings stop an approval; minor and nit
+// findings ride along with it as advice the author may take or leave.
+const SEVERITIES = ["blocker", "major", "minor", "nit"];
+const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
+const FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
+/** Wake attempts after publication before an undeliverable request is marked failed (TM-215 f). */
+const MAX_REVIEW_WAKES = 5;
+/** Scrollback captured when collecting a verdict; the reviewer may keep printing after it (TM-215 a). */
+const REVIEW_CAPTURE_LINES = 5000;
 
 /** Host-local reviewer registry, one record per canonical repository. */
 export function reviewersRoot(env = process.env, home = homedir()) {
@@ -62,7 +73,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON with verdict (approve, changes_requested, blocked) and findings array. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}. Approve only when every finding is minor or nit; changes_requested needs at least one finding. Never execute code or change files.`;
 }
 
 /**
@@ -173,7 +184,7 @@ async function bindingAlive(record) {
 }
 async function reviewerOutput(record) {
   if (!await bindingAlive(record)) return "";
-  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-J", "-t", record.binding.paneId, "-S", "-160"], { allowFailure: true });
+  const result = await run("tmux", ["-S", record.binding.serverKey, "capture-pane", "-p", "-J", "-t", record.binding.paneId, "-S", `-${REVIEW_CAPTURE_LINES}`], { allowFailure: true });
   return result.code === 0 && await bindingAlive(record) ? result.stdout : "";
 }
 
@@ -633,6 +644,38 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   return { base, patch: patch.stdout, patch_sha256: createHash('sha256').update(patch.stdout).digest('hex'), owner: management.owner };
 }
 
+/** Every path the reviewed range touches, both sides of a rename, so a finding can be held to it. */
+async function reviewedFiles(consumer, base, revision) {
+  const listed = await run("git", ["-C", consumer, "diff", "--name-only", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
+  invariant(listed.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Cannot list the files in the reviewed task diff.");
+  return new Set(listed.stdout.split("\0").filter(Boolean));
+}
+
+/**
+ * TM-215: a finding is {severity, file, line, claim, evidence, fix}. Anything else is refused, and
+ * so is a finding about a file the reviewed diff does not touch — the review covers that range
+ * and nothing else. Returns the findings reduced to exactly those six fields.
+ */
+export function validateFindings(findings, files) {
+  invariant(Array.isArray(findings), "TOPOLOGY_REVIEWER_FINDINGS", "Findings must be an array.");
+  return findings.map((finding, index) => {
+    const at = `Finding ${index + 1}`;
+    invariant(finding && typeof finding === "object" && !Array.isArray(finding), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must be an object with severity, file, line, claim, evidence and fix.`);
+    invariant(SEVERITIES.includes(finding.severity), "TOPOLOGY_REVIEWER_FINDINGS", `${at} severity must be one of ${SEVERITIES.join(", ")}.`);
+    invariant(typeof finding.file === "string" && finding.file.trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must name the file.`);
+    const file = finding.file.trim().replace(/^\.\//, "");
+    invariant(files.has(file), "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file}, which is not in the reviewed diff.`, { file });
+    invariant(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
+    for (const key of FINDING_TEXT_FIELDS) invariant(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
+    return { severity: finding.severity, file, line: finding.line, claim: finding.claim.trim(), evidence: finding.evidence.trim(), fix: finding.fix.trim() };
+  });
+}
+
+/** Approval stands when no remaining finding is a blocker or major one. */
+export function approvable(findings) {
+  return Array.isArray(findings) && findings.every(finding => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
+}
+
 /**
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
@@ -648,7 +691,6 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   const verified = await run("git", ["-C", consumer, "rev-parse", "--verify", `${revision}^{commit}`], { allowFailure: true });
   invariant(verified.code === 0 && verified.stdout.trim() === revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "Review revision must exist as an exact commit in this repository.");
   invariant(Array.isArray(findings), "TOPOLOGY_REVIEWER_FINDINGS", "Findings must be an array.");
-  invariant(verdict !== "approve" || findings.length === 0, "TOPOLOGY_REVIEWER_FINDINGS", "Any unresolved finding blocks approval.");
   invariant(
     revision !== undefined && revision !== null && String(revision).trim() !== "",
     "TOPOLOGY_REVIEWER_REVISION_REQUIRED",
@@ -661,13 +703,16 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, env, home });
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
+  const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
+  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
+  invariant(verdict !== "changes_requested" || structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one finding saying what to change.");
   const record = {
     base_revision: range.base,
     patch_sha256: range.patch_sha256,
     task: String(task ?? "").trim(),
     revision: String(revision).trim(),
     verdict,
-    findings: Array.isArray(findings) ? findings : [String(findings)],
+    findings: structured,
     reviewer_id: reviewerId,
     binding: incarnationOf(registered.binding),
     request_nonce: requestNonce,
@@ -677,8 +722,12 @@ export async function recordReview({ consumer, task, revision, verdict, findings
     created_at: nowIso(),
   };
   invariant(record.task, "TOPOLOGY_REVIEWER_TASK", "A review must name the task it covers.");
-  const path = join(await reviewsRoot(consumer, env, home), segment(record.task, "TOPOLOGY_REVIEWER_TASK", "the task"), `${segment(record.revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "the exact revision")}.json`);
-  await writeJson(path, record);
+  const dir = join(await reviewsRoot(consumer, env, home), segment(record.task, "TOPOLOGY_REVIEWER_TASK", "the task"));
+  const name = segment(record.revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "the exact revision");
+  // TM-215 d: <revision>.json is the CURRENT record and a re-review replaces it, so every record is
+  // also kept under history/. latestReview reads only the top level, so history never competes.
+  await writeJson(join(dir, "history", `${name}-${Date.now()}-${randomUUID().slice(0, 8)}.json`), record);
+  await writeJson(join(dir, `${name}.json`), record);
   return record;
 }
 
@@ -699,9 +748,10 @@ export async function latestReview(consumer, task, env = process.env, home = hom
 
 /**
  * Does the task's latest review satisfy the gate for `currentRevision`?
- *   satisfied          approved, of THIS exact revision
+ *   satisfied          approved, of THIS exact revision, with only minor or nit findings left
  *   changes_requested  the reviewer asked for changes on this revision
- *   blocked            the reviewer could not review this revision
+ *   blocked            the reviewer could not review this revision (or an approval carries a
+ *                      blocker/major finding, which recordReview refuses and only a hand edit makes)
  *   stale              the latest review covers a DIFFERENT revision — any edit since invalidated it
  *   missing            no review exists at all
  */
@@ -709,7 +759,8 @@ export async function currentReviewStatus(consumer, task, currentRevision, env =
   const review = await latestReview(consumer, task, env, home);
   if (!review) return { state: "missing", review: null };
   if (String(review.revision) !== String(currentRevision)) return { state: "stale", review };
-  return { state: review.verdict === "approve" && review.findings?.length === 0 && review.verified_commit === currentRevision ? "satisfied" : "blocked", review };
+  if (review.verdict === "changes_requested") return { state: "changes_requested", review };
+  return { state: review.verdict === "approve" && approvable(review.findings) && review.verified_commit === currentRevision ? "satisfied" : "blocked", review };
 }
 
 /**
@@ -758,6 +809,7 @@ export async function independentReviewStatus({ consumer, task, env = process.en
     const request=await readJson(join(await reviewerInboxRoot(consumer,env,home),'requests',`${key}.json`)).catch(()=>null);
     if(!request) return {...result,status:'awaiting-review',reason:'No independent review request is recorded for this revision.'};
     Object.assign(result,{reviewerId:request.reviewer_id,requestedAt:request.created_at??null,collectedAt:request.collected_at??null});
+    if(request.state==='failed') return {...result,status:'failed',reason:request.failure?.reason??'The review request could not be delivered to the reviewer.'};
     if(!request.collected_at) return {...result,status:'awaiting-review',reason:request.collection?.reason??'The reviewer verdict has not been collected.'};
     const reviewer=await readReviewerRecord(consumer,env,home);
     const review=await readJson(join(await reviewsRoot(consumer,env,home),task,`${result.sourceRevision}.json`)).catch(()=>null);
@@ -772,7 +824,8 @@ export async function independentReviewStatus({ consumer, task, env = process.en
     invariant(Array.isArray(review.author_agent_ids) && review.author_agent_ids.includes(admitted.owner) && JSON.stringify(review.author_agent_ids)===JSON.stringify(request.author_agent_ids) && !review.author_agent_ids.includes(review.reviewer_id) && lead?.id!==review.reviewer_id,
       'TOPOLOGY_REVIEWER_CONFLICT','The reviewer must be independent of every recorded author and the repository lead.');
     result.verdict=review.verdict;
-    return {...result,status:review.verdict==='approve' && Array.isArray(review.findings) && review.findings.length===0?'approved':'blocked',reason:review.verdict==='approve'?'Independent review is recorded. Integration requires a separate authorized decision.':'The reviewer has not approved this revision.'};
+    const approved=review.verdict==='approve' && approvable(review.findings);
+    return {...result,status:approved?'approved':review.verdict==='changes_requested'?'changes-requested':'blocked',reason:approved?'Independent review is recorded. Integration requires a separate authorized decision.':'The reviewer has not approved this revision.'};
   } catch(error) { return {...result,status:'invalid',reason:error.message}; }
 }
 
@@ -790,7 +843,7 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
     const path = join(dir, `${key}.json`);
     const prior = await readJson(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     invariant(incarnationOf(record.binding), 'TOPOLOGY_REVIEWER_BINDING_REQUIRED', 'Review requires the exact designated reviewer incarnation.');
-    if (prior && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path };
+    if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path };
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
     const request = { base_revision: range.base, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
@@ -807,6 +860,75 @@ async function wakeReviewRequest({consumer,record,request,path,env,home}) {
   const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
   return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
     text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
+}
+
+/** End index of the first balanced JSON object in `text`, or -1 while it is still open. */
+function jsonObjectEnd(text) {
+  let depth = 0, inString = false, escaped = false, started = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) { if (escaped) escaped = false; else if (c === "\\") escaped = true; else if (c === '"') inString = false; continue; }
+    if (c === '"') inString = true;
+    else if (c === "{") { depth++; started = true; }
+    else if (c === "}" && started && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Every AO_REVIEW response for `nonce` on the pane, as candidate JSON texts, oldest first.
+ *
+ * TM-215 h. Claude Code's renderer wraps a long line into several pane lines, indenting the
+ * continuations, and `capture-pane -J` does not rejoin them — the first line ended after
+ * `"findings":` and "Review response must be JSON" was the result. So an unbalanced response keeps
+ * absorbing the following indented lines until its braces close.
+ *
+ * Each break is one of two kinds. A word wrap drops the space it broke at; a word longer than the
+ * width (compact JSON has few spaces) is cut mid-token and drops nothing. A cut line fills the full
+ * width, and only a word longer than a row gets cut. So a break after a shorter line gets its space
+ * back, and a break after a full-width line is a cut only when the word across it is longer than a
+ * row. Plain all-space and no-space joins follow as fallbacks.
+ *
+ * ponytail: the width is estimated from the response's own rows, so it can only be too small. A
+ * real cut is therefore always read as a cut (no space ever lands inside a path or enum); when no
+ * row fills the true width, an occasional word wrap reads as a cut and one space of prose is lost
+ * (about 2% of widths 60-160 in a sweep). Pass the pane width in if that ever matters.
+ */
+export function reviewResponsesOnScreen(screen, nonce) {
+  const prefix = `AO_REVIEW ${nonce} `;
+  const lines = String(screen ?? "").split(/\r?\n/);
+  const responses = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = protocolOutputLine(lines[i]);
+    if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
+    const raw = [lines[i]], parts = [line.slice(prefix.length)];
+    while (jsonObjectEnd(parts.join("")) < 0 && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
+      raw.push(lines[++i]); parts.push(protocolOutputLine(lines[i]));
+    }
+    const width = Math.max(...raw.slice(0, -1).map(text => text.trimEnd().length));
+    const glue = k => {
+      if (/\s$/.test(raw[k - 1]) || raw[k - 1].trimEnd().length < width) return " ";
+      // A full row is a cut only when the word across the break could not fit on a row of its own.
+      const word = parts[k - 1].split(" ").at(-1) + parts[k].split(" ")[0];
+      return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
+    };
+    const fitted = parts.reduce((text, part, k) => text + glue(k) + part);
+    responses.push([fitted, parts.join(" "), parts.join("")].map(text => { const close = jsonObjectEnd(text); return close < 0 ? text : text.slice(0, close + 1); }));
+  }
+  return responses;
+}
+
+/** The reviewer's one verdict for `nonce`. Repeats are fine when they agree; the last one is taken. */
+export function parseReviewResponse(screen, nonce) {
+  const candidates = reviewResponsesOnScreen(screen, nonce);
+  invariant(candidates.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
+  const parsed = candidates.map(texts => {
+    for (const text of texts) { try { return JSON.parse(text); } catch { /* next candidate */ } }
+    return fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.');
+  });
+  const last = parsed[parsed.length - 1];
+  invariant(parsed.every(response => JSON.stringify(response) === JSON.stringify(last)), 'TOPOLOGY_REVIEWER_RESPONSE', 'The pane shows different review responses for one nonce.');
+  return last;
 }
 
 /** Host collects a restricted reviewer's explicit response from its verified pane. The reviewer
@@ -828,11 +950,7 @@ export async function collectReview({ consumer, task, revision, env = process.en
     return prior;
   }
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
-  const prefix = `AO_REVIEW ${request.nonce} `;
-  const lines = String(await output(record)).split(/\r?\n/).map(protocolOutputLine).filter(line => line.startsWith(prefix));
-  invariant(lines.length === 1, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected exactly one nonce-bound review response from the designated pane.');
-  let response;
-  try { response = JSON.parse(lines[0].slice(prefix.length)); } catch { fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.'); }
+  const response = parseReviewResponse(await output(record), request.nonce);
   const current = await readReviewerRecord(consumer,env,home);
   invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
   const review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
@@ -863,7 +981,7 @@ export async function collectPendingReviews(options) {
       entry={signature,request:await readJson(path).catch(()=>null)};
       cache.files.set(name,entry);
     }
-    if(entry.request && !entry.request.collected_at) pending.push({name,request:entry.request});
+    if(entry.request && !entry.request.collected_at && entry.request.state!=='failed') pending.push({name,request:entry.request});
   }
   // Completed history never consumes the batch. Rotate among pending requests so
   // even more than one batch of unanswered reviews cannot starve newer work.
@@ -877,23 +995,50 @@ export async function collectPendingReviews(options) {
       results.push({task:request.task,revision:request.revision,state:'collected',verdict:review.verdict});
     } catch(error) {
       const collection={at:nowIso(),code:error.code??'TOPOLOGY_REVIEW_COLLECTION_FAILED',reason:error.message};
+      let state='awaiting-review';
       await withLock(path.replace(/\.json$/,'.lock'),async()=>{
       const current=await readJson(path).catch(()=>null);
       if(!current || current.nonce!==request.nonce || current.collected_at) return;
       Object.assign(request,current);
-      if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)<5 && Date.now()-Date.parse(request.delivery?.at??0)>=10_000) {
+      if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)<MAX_REVIEW_WAKES && Date.now()-Date.parse(request.delivery?.at??0)>=10_000) {
         const record=await readReviewerRecord(options.consumer,options.env,options.home);
         if(record && sameIncarnation(record.binding,request.binding)) {
           const delivery=await wakeReviewRequest({...options,record,request,path}).catch(error=>({rang:false,reason:error.code??error.message}));
           request.delivery={...delivery,attempts:(request.delivery?.attempts??0)+1,at:nowIso()};
         }
       }
+      // TM-215 f: a request no wake could deliver used to stay awaiting-review forever. After the
+      // last attempt it is failed, the lead is told once, and requestReview mints a fresh one.
+      if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)>=MAX_REVIEW_WAKES) {
+        state='failed';
+        request.state='failed';
+        request.failure={at:nowIso(),reason:`The review request could not be delivered to the reviewer after ${MAX_REVIEW_WAKES} wake attempts (${request.delivery?.reason??'no reason reported'}).`};
+        request.escalation=await escalateFailedReview({...options,request});
+      }
       // Retain publication and collection failures separately. Never change a
       // verdict or mark an unparsed response as an approval.
       await writeJson(path,{...request,collection});
       });
-      results.push({task:request.task,revision:request.revision,state:'awaiting-review',...collection});
+      results.push({task:request.task,revision:request.revision,state,...collection});
     }
   }
   return results;
+}
+
+/** Tell the repository lead, through its standing mailbox, that a review request failed. Best effort. */
+async function escalateFailedReview({ consumer, request, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration }) {
+  const registration = await lead({ consumer, env, home }).catch(() => null);
+  const leadId = registration?.record?.agent_id ?? null;
+  if (!leadId) return { status: 'skipped', reason: 'no lead is registered for this repository' };
+  const body = [
+    `REVIEW REQUEST FAILED: ${request.task} at ${request.revision}.`,
+    '',
+    request.failure.reason,
+    'No verdict was recorded and nothing was approved. Check the reviewer session, then request the review again;',
+    'a new request replaces this failed one.',
+  ].join('\n');
+  return deliver({ id: createHash('sha256').update(`review-failed:${request.nonce}`).digest('hex').slice(0, 32), consumer, to: leadId,
+    subject: `review request failed: ${request.task}`, body, task: request.task, provenance: { source: 'ao-topology review' } }, { env, home })
+    .then(sent => ({ status: sent?.status ?? 'sent', to: leadId, message_id: sent?.envelope?.id ?? null }))
+    .catch(error => ({ status: 'failed', to: leadId, reason: error?.code ?? String(error) }));
 }

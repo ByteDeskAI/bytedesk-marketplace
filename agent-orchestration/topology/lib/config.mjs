@@ -78,10 +78,13 @@ export function validateConfigShape(raw, label) {
     if (!isPlainObject(raw.prompts)) errors.push(`${label}: "prompts" must be an object`);
     else if (raw.prompts.roles !== undefined && !isPlainObject(raw.prompts.roles)) {
       errors.push(`${label}: "prompts.roles" must be an object mapping role to a Markdown path`);
+    } else if (raw.prompts.common_by_role !== undefined && !isPlainObject(raw.prompts.common_by_role)) {
+      errors.push(`${label}: "prompts.common_by_role" must be an object mapping role to a Markdown path`);
     }
   }
   if (isPlainObject(raw.prompts)) {
-    const paths = { common: raw.prompts.common, ...(isPlainObject(raw.prompts.roles) ? raw.prompts.roles : {}) };
+    const byRole = isPlainObject(raw.prompts.common_by_role) ? Object.fromEntries(Object.entries(raw.prompts.common_by_role).map(([role, path]) => [`common_by_role.${role}`, path])) : {};
+    const paths = { common: raw.prompts.common, ...byRole, ...(isPlainObject(raw.prompts.roles) ? raw.prompts.roles : {}) };
     for (const [key, value] of Object.entries(paths)) {
       if (value !== undefined && (typeof value !== "string" || !value.trim())) errors.push(`${label}: prompt "${key}" must be a nonempty Markdown path`);
     }
