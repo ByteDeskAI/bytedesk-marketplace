@@ -32,7 +32,9 @@ or invent a second production control plane. Dev default probe:
 Resolve the skill root (directory containing this `SKILL.md`). All commands use:
 
 ```bash
-SKILL_DIR="<path-to-setup/skills/cutover>"   # or $CLAUDE_PLUGIN_ROOT/skills/cutover
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/cutover}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 DEPLOY="$SKILL_DIR/scripts/deploy-safe.sh"
 # Windows: pwsh -File "$SKILL_DIR/scripts/deploy-safe.ps1" <mode>
 ```

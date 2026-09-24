@@ -34,7 +34,9 @@ cd bytedesk-vault
 ## Skill scripts (self-contained; setup plugin)
 
 ```bash
-SKILL_DIR="<setup/skills/vault-install>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/vault-install}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 "$SKILL_DIR/scripts/install-vault.sh" --bind 127.0.0.1:18765 --start
 # Windows: pwsh -File "$SKILL_DIR/scripts/install.ps1" --start
 ```

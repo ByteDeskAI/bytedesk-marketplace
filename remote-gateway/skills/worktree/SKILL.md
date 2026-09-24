@@ -32,9 +32,10 @@ bare branch name if that branch is already checked out.
    `--worktree` only when the operator asked to isolate.
 2. Write-capable **Grok/Claude** isolation (when requested): unique
    `--worktree` name per tab. Community `using-git-worktrees` is not SoT.
-3. **Codex / Kimi / terminal** (when isolating): run
-   `scripts/lib/worktree-bootstrap.sh` after `git worktree add` to
-   `<main>/.worktrees/<slug>-<id>`.
+3. **Codex / Kimi / terminal** (when isolating): from the gateway
+   checkout, run `scripts/lib/worktree-bootstrap.sh` after `git worktree add`
+   to `<main>/.worktrees/<slug>-<id>`. That helper is in the gateway repo,
+   not in this plugin.
 4. Do **not** call `setActiveWorktree` / switch the Projects desk as a side
    effect of creating a tree.
 5. Cutover uses the **acting** git toplevel. If
@@ -62,21 +63,26 @@ claude --worktree iso-feat-x
 slug=iso-feat-x
 dest="$(git rev-parse --show-toplevel)/.worktrees/${slug}-$(openssl rand -hex 3)"
 git worktree add -b "$slug" "$dest" || git worktree add -b "${slug}-x" "$dest"
-bash scripts/lib/worktree-bootstrap.sh "$dest"
+bash "$(git rev-parse --show-toplevel)/scripts/lib/worktree-bootstrap.sh" "$dest"
 cd "$dest"
 ```
 
 ## After /commit (merge + cleanup)
 
-`/commit` detects a linked worktree (`setup/skills/commit/scripts/worktree-after-commit.sh detect`).
-After a successful commit it **offers** to merge this branch into the main
-checkout’s branch and remove the tree. Authorize in the same turn with
-“commit and merge” / “land and cleanup”, or confirm after the offer.
+`/commit` detects a linked worktree with the commit skill's
+`scripts/worktree-after-commit.sh` (the directory that contains
+`skills/commit/SKILL.md`). After a successful commit it **offers** to merge
+this branch into the main checkout’s branch and remove the tree. Authorize
+in the same turn with “commit and merge” / “land and cleanup”, or confirm
+after the offer.
 
 ```bash
 # From the isolation tree, after commit is clean
-setup/skills/commit/scripts/worktree-after-commit.sh detect
-setup/skills/commit/scripts/worktree-after-commit.sh land   # merge + remove
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+COMMIT_DIR="${ROOT:+$ROOT/skills/commit}"
+COMMIT_DIR="${COMMIT_DIR:-<directory containing skills/commit/SKILL.md>}"
+"$COMMIT_DIR/scripts/worktree-after-commit.sh" detect
+"$COMMIT_DIR/scripts/worktree-after-commit.sh" land   # merge + remove
 ```
 
 Grok-native trees (`~/.grok/worktrees/…`) also run `grok worktree rm` on cleanup.
@@ -91,4 +97,4 @@ Grok-native trees (`~/.grok/worktrees/…`) also run `grok worktree rm` on clean
 
 ## Install
 
-Canonical path: `setup/skills/worktree/`. Link with `./scripts/install-agent-skills.sh`.
+This plugin copy lives next to this SKILL.md. The gateway repo also keeps `setup/skills/worktree/` for its in-repo skill links.

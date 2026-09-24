@@ -43,13 +43,21 @@ mkdir -p "$tmp/alias" "$tmp/outside"
 ln -s "$tmp/outside" "$tmp/alias/libexec"
 if bdgw_containment_unit_contract "$tmp/alias" bytedesk-gateway.service >/dev/null 2>&1; then exit 1; fi
 [[ ! -e "$tmp/outside/gateway-containment.py" ]]
-root="$(cd "$here/../../../.." && pwd)"
-if [[ -f "$root/cli" ]]; then
+cmp "$home/libexec/gateway-containment.py" "$here/../../gateway-doctor/scripts/containment.py"
+root=""
+d="$here"
+while [[ -n "$d" && "$d" != "/" ]]; do
+  if [[ -f "$d/cli" && -f "$d/src/main.go" ]]; then
+    root="$d"
+    break
+  fi
+  d="$(dirname "$d")"
+done
+if [[ -n "$root" ]]; then
   for file in "$root/cli" "$root/scripts/commercial/install.sh"; do
     sed -n '/^# BEGIN gateway containment unit contract v1/,/^# END gateway containment unit contract v1/p' "$file" >"$tmp/copy"
     cmp "$tmp/contract.sh" "$tmp/copy"
   done
-  cmp "$home/libexec/gateway-containment.py" "$root/setup/skills/gateway-doctor/scripts/containment.py"
   for file in "$root/cli" "$here/install.sh" "$root/scripts/commercial/install.sh"; do
     grep -q '^KillMode=process$' "$file"
     grep -q '^\$containment_unit_contract$' "$file"

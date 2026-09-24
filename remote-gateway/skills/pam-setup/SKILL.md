@@ -8,7 +8,9 @@ description: >
 # pam-setup
 
 ```bash
-SKILL_DIR="<setup/skills/pam-setup>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/pam-setup}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 ```
 
 ```bash

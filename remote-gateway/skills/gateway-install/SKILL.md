@@ -11,7 +11,9 @@ description: >
 ## Resolve scripts
 
 ```bash
-SKILL_DIR="<setup/skills/gateway-install>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/gateway-install}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 # Linux/macOS/Git Bash:
 "$SKILL_DIR/scripts/install.sh" --profile desktop --start
 # Windows PowerShell:

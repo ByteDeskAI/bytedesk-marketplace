@@ -74,7 +74,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Resolve monorepo / task-store root (script may live under setup/skills/cutover/scripts).
+# Resolve the gateway checkout (this script may live in the plugin or in setup/skills).
 find_repo_root() {
   local d="$1"
   while [[ -n "$d" && "$d" != "/" ]]; do
