@@ -37,7 +37,7 @@ import { readLeadRegistration } from "./lead.mjs";
 import { sendStandingMessage } from "./standing-mailbox.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
-import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
+import { composerEmptyOnScreen, composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
@@ -60,6 +60,8 @@ const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
 const FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
 /** Wake attempts after publication before an undeliverable request is marked failed (TM-215 f). */
 const MAX_REVIEW_WAKES = 5;
+/** An unclosed verdict this old, or printed to an already-idle pane, is stuck rather than pending (TM-217). */
+export const REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 120_000);
 /** Scrollback captured when collecting a verdict; the reviewer may keep printing after it (TM-215 a). */
 const REVIEW_CAPTURE_LINES = 5000;
 
@@ -985,7 +987,38 @@ export function parseReviewResponse(screen, nonce) {
 /** A response the reviewer DID give that collection refuses. Not "no answer yet", not a changed identity. */
 const REFUSED_RESPONSE_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_FINDINGS', 'TOPOLOGY_REVIEWER_VERDICT']);
 
-export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration }) {
+/**
+ * TM-217. An unclosed verdict is retried, never failed, right up until it is stuck: either it has
+ * been incomplete longer than `REVIEW_INCOMPLETE_BOUND_MS`, or the pane has already gone idle at
+ * its own empty prompt, which means nothing more is coming no matter how long we wait. Idleness is
+ * read from the provider's own composer pattern, not from the absence of a busy spinner: this
+ * screen is often a short, artificial fragment (a probe, a test, a capture mid-render) with no
+ * spinner in it either way, so "no spinner" would fail every incomplete capture immediately.
+ *
+ * The first-seen time is persisted on the request (`incomplete_since`) so it survives across the
+ * polling ticks that `collectPendingReviews` makes one at a time.
+ */
+async function ageOutIncompleteReview({ consumer, record, request, path, screen, env, home, pluginRoot, boundMs, deliver, lead }) {
+  const since = request.incomplete_since ?? nowIso();
+  const overBound = Date.now() - Date.parse(since) >= boundMs;
+  const idle = !overBound && composerEmptyOnScreen(
+    adapterFor({ cli: record.provider, model: null, args: [], skills: [] }, await loadAdapters(providerDirs({ pluginRoot, consumer, home, env }))),
+    screen,
+  ) === true;
+  if (!overBound && !idle) {
+    if (!request.incomplete_since) await writeJson(path, { ...request, incomplete_since: since });
+    return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', 'The review response is still being printed; collect it again later.');
+  }
+  const reason = idle
+    ? 'The reviewer pane is idle at its own empty prompt with an unclosed verdict; nothing more will be printed.'
+    : `The review response stayed incomplete for over ${Math.round(boundMs / 1000)}s without closing.`;
+  const failed = { ...request, incomplete_since: since, state: 'failed', failure: { at: nowIso(), code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason } };
+  failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
+  await writeJson(path, failed);
+  return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason);
+}
+
+export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS }) {
   const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
@@ -1006,7 +1039,11 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(shown.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
   // TM-215 review 2: Claude Code prints a long line gradually. A capture taken mid-line is not a
   // refusal; it is collected on a later tick, so it throws a code that does not fail the request.
-  invariant(shown.at(-1).closed, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', 'The review response is still being printed; collect it again later.');
+  // TM-217: but a verdict that stays unclosed forever (the reviewer truncated, crashed, or was
+  // never going to finish) must not retry forever either. Age it out once it has been incomplete
+  // longer than the bound, or once the pane has gone idle at its own prompt with nothing more to
+  // print.
+  if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, record, request, path, screen, env, home, pluginRoot, boundMs: incompleteBoundMs, deliver, lead });
   let review;
   try {
   const response = parseReviewResponse(screen, request.nonce);

@@ -307,6 +307,54 @@ test('a verdict captured while it is still printing waits for a later capture in
   assert.equal(JSON.parse(await readFile(join(await reviewerInboxRoot(other.consumer, other.env, other.home), 'requests', `TM-1-${other.revision}.json`), 'utf8')).state, 'failed');
 });
 
+test('an incomplete verdict older than the bound fails the request once and notifies the lead; a fresh request mints a new nonce', async t => {
+  const f = await fixture(t);
+  const incompleteBoundMs = 2000;
+  const sent = [];
+  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
+  const partial = full.slice(0, full.indexOf('"claim"'));
+  await assert.rejects(collectReview({ ...f.args, ...mail, incompleteBoundMs, output: async () => partial }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', 'first sighting only records when it was first seen incomplete');
+  assert.equal(sent.length, 0, 'not aged out yet, so not escalated');
+  // Back-date the first sighting past the bound instead of sleeping for it.
+  const stale = JSON.parse(await readFile(path, 'utf8'));
+  await writeJson(path, { ...stale, incomplete_since: new Date(Date.now() - 10_000).toISOString() });
+  await assert.rejects(collectReview({ ...f.args, ...mail, incompleteBoundMs, output: async () => partial }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  const stored = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
+  assert.match(stored.failure.reason, /incomplete for over/);
+  assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead'); assert.match(sent[0].body, /REVIEW REQUEST FAILED: TM-1/);
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
+  const [pending] = await collectPendingReviews({ ...f, ...mail, incompleteBoundMs, output: async () => partial });
+  assert.equal(pending, undefined, 'a failed request is not collected again');
+  assert.equal(sent.length, 1, 'a failed request is not escalated again');
+  const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  assert.notEqual(fresh.nonce, request.nonce);
+});
+
+test('an incomplete verdict on a pane that has already gone idle at its prompt fails immediately, within the bound', async t => {
+  const f = await fixture(t);
+  const sent = [];
+  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  // The fixture's reviewer runs on codex (config.defaults.json above); this is codex's own
+  // composer-empty pattern (providers/codex.json), so the screen reads as "back at its prompt".
+  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
+  const idleScreen = `${full.slice(0, full.indexOf('"claim"'))}\n› Ask Codex to do anything`;
+  await assert.rejects(collectReview({ ...f.args, ...mail, pluginRoot: PLUGIN, output: async () => idleScreen }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  const stored = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
+  assert.match(stored.failure.reason, /idle at its own empty prompt/);
+  assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead');
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
+  const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  assert.notEqual(fresh.nonce, request.nonce);
+});
+
 test('changes_requested needs a blocker or major finding', async t => {
   const f = await fixture(t);
   for (const severity of ['minor', 'nit', 'note']) {
