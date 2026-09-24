@@ -23,7 +23,7 @@ import { create, seedGitContract, update } from "../../lib/store.mjs";
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HOOK = join(PLUGIN_ROOT, "hooks", "tm-hook.sh");
 const OWN = "tm/TM-001-fix-the-thing";
-const AT_HOME = { branch: OWN, head: OWN };
+const AT_HOME = { branch: OWN, head: OWN, integrationBranch: "main" };
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -62,6 +62,7 @@ const BLOCKED = {
   "git-update-ref-delete": ["git update-ref -d refs/heads/main"],
   "git-stash-destroy": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git stash pop", "git stash pop --index stash@{0}"],
   "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin"],
+  "gh-pr-create-base": ["gh pr create --title x --body y", "gh pr create --base develop --title x", "gh -R o/r pr create --base wrong --fill"],
   "gh-release": ["gh release create v1.0.0", "gh release delete v1.0.0 --yes"],
   "gh-repo-delete": ["gh repo delete o/r --yes", "gh repo archive o/r"],
   "gh-secret": ["gh secret set TOKEN --body x", "gh secret delete TOKEN"],
@@ -126,7 +127,7 @@ describe("guardCommand — the table", () => {
       "git push -u origin HEAD",
       `git push origin HEAD:${OWN}`,
       `git push origin refs/heads/${OWN}`,
-      "gh pr create --title 'TM-001: fix' --body 'done'",
+      "gh pr create --title 'TM-001: fix' --body 'done' --base main",
       "gh pr view 12",
       "gh pr list",
       "gh pr checks 12",
@@ -168,6 +169,34 @@ describe("guardCommand — the table", () => {
       const v = guardCommand(cmd, AT_HOME);
       assert.equal(v.allow, true, `allowed: ${cmd} — refused by ${v.rule}: ${v.reason}`);
     }
+  });
+});
+
+describe("guardCommand — TM-235: a PR must target the configured integration branch", () => {
+  it("blocks a PR with no --base", () => {
+    const v = guardCommand("gh pr create --title x --body y", AT_HOME);
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-create-base");
+    assert.match(v.reason, /main/, "names the expected base");
+  });
+
+  it("blocks a PR based against the wrong branch", () => {
+    const v = guardCommand("gh pr create --base develop --title x", AT_HOME);
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-create-base");
+    assert.match(v.reason, /main/, "names the expected base");
+  });
+
+  it("allows a PR based against the configured integration branch", () => {
+    assert.equal(guardCommand("gh pr create --base main --title x", AT_HOME).allow, true);
+    assert.equal(guardCommand("gh pr create --title x --base=main", AT_HOME).allow, true, "the --base=value form");
+  });
+
+  it("fails safe when no integration branch is known for this worker", () => {
+    const v = guardCommand("gh pr create --base main --title x", { branch: OWN, head: OWN });
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-create-base");
+    assert.match(v.reason, /TM_DISPATCH_INTEGRATION_BRANCH/);
   });
 });
 
@@ -300,7 +329,7 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     const repo = tempRepo();
     trash.push(repo);
     execFileSync("git", ["-C", repo, "checkout", "-q", "-b", OWN]);
-    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001", TM_DISPATCH_BRANCH: OWN });
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001", TM_DISPATCH_BRANCH: OWN, TM_DISPATCH_INTEGRATION_BRANCH: "main" });
     const hook = (command) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload(command, repo), env, encoding: "utf8" });
 
     for (const [id, [sample]] of Object.entries(BLOCKED)) {
@@ -311,7 +340,7 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     }
     assert.match(hook(`git push --force origin ${OWN}`).stderr, /force/i);
 
-    for (const cmd of [`git push -u origin ${OWN}`, "git push origin HEAD", "gh pr create --fill", "git commit -m x", "npm test"]) {
+    for (const cmd of [`git push -u origin ${OWN}`, "git push origin HEAD", "gh pr create --fill --base main", "git commit -m x", "npm test"]) {
       const r = hook(cmd);
       assert.equal(r.status, 0, `${cmd}: ${r.stderr}`);
       assert.equal(r.stderr, "");

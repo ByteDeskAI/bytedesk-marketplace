@@ -7,6 +7,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,6 +106,57 @@ describe("dispatch — the happy path", () => {
     const res = await dispatch("TM-404", { backend: fakeBackend("fake"), p });
     assert.equal(res.ok, false);
     assert.match(res.reason, /not found/);
+  });
+});
+
+/**
+ * TM-235. A worker's `gh pr create` targeted the repository default branch, not
+ * dispatch.integrationBranch, because dispatch never resolved and stated one. Unconfigured now
+ * resolves to the main checkout's real branch name and is passed to the backend explicitly, rather
+ * than left as "HEAD" for gh to guess at; only a truly unresolvable HEAD (detached) refuses.
+ */
+describe("dispatch — the PR base is always resolved, never left implicit", () => {
+  it("resolves an unconfigured integration branch to the main checkout's own branch name", async () => {
+    const p = repoStore();
+    const t = create("task", { title: "dispatch me" }, "", p);
+    const fake = fakeBackend("fake");
+
+    const res = await dispatch(t.id, { backend: fake, session: "s1", p });
+
+    assert.equal(res.ok, true);
+    const head = execFileSync("git", ["-C", p.root, "symbolic-ref", "--short", "HEAD"], { encoding: "utf8" }).trim();
+    assert.equal(fake.calls[0].integrationBranch, head, "the backend gets a real branch name, never 'HEAD'");
+    assert.equal(read(t.id, p).integrationBranch, head, "and it is recorded on the task, not only pinned into the worker's env");
+  });
+
+  it("uses the configured integration branch when one is set", async () => {
+    const p = repoStore();
+    execFileSync("git", ["-C", p.root, "branch", "develop"]);
+    const { writeConfig } = await import("../../lib/store.mjs");
+    writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
+    const t = create("task", { title: "dispatch me", labels: ["ready-for-agent"] }, "", p);
+    const fake = fakeBackend("fake");
+
+    const res = await dispatch(t.id, { backend: fake, session: "s1", p });
+
+    assert.equal(res.ok, true);
+    assert.equal(fake.calls[0].integrationBranch, "develop");
+    assert.ok(fake.calls[0].prompt.includes("--base develop"), "the worker is told the PR base literally");
+  });
+
+  it("refuses rather than dispatch a worker with no resolvable PR base", async () => {
+    const p = repoStore();
+    execFileSync("git", ["-C", p.root, "checkout", "-q", "--detach"]);
+    const t = create("task", { title: "dispatch me" }, "", p);
+    const fake = fakeBackend("fake");
+
+    const res = await dispatch(t.id, { backend: fake, session: "s1", p });
+
+    assert.equal(res.ok, false);
+    assert.match(res.reason, /dispatch\.integrationBranch/, "names the config key to set");
+    assert.equal(fake.calls.length, 0, "no worker is launched with an unstated PR base");
+    assert.equal(state(p).claims[t.id], undefined, "nothing is claimed");
+    assert.equal(read(t.id, p).status, "open", "status untouched");
   });
 });
 

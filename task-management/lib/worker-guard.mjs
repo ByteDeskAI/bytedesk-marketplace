@@ -79,6 +79,25 @@ function rebaseRewritesProtected(args, ctx) {
 const GH_VALUED = ["-R", "--repo"];
 const gh = (when) => (args) => when(positionals(args, GH_VALUED));
 
+/** The value of a `--name value` / `--name=value` / `-x value` option; the last occurrence wins. */
+function optionValue(args, names) {
+  let val;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (names.includes(a)) {
+      val = args[i + 1];
+      i++;
+      continue;
+    }
+    const eq = names.find((n) => n.startsWith("--") && a.startsWith(`${n}=`));
+    if (eq) val = a.slice(eq.length + 1);
+  }
+  return val;
+}
+
+/** The PR base this worker must open against (pinned at spawn as TM_DISPATCH_INTEGRATION_BRANCH), or null when unknown. */
+const ownBase = (ctx) => ctx.integrationBranch || null;
+
 const GH_API_VALUED = ["-X", "--method", "-f", "-F", "--field", "--raw-field", "-H", "--header", "--input", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview", "-R", "--repo"];
 const GH_API_SENSITIVE = /(^|\/)(merges?|git\/refs|releases|secrets|variables|deployments|environments|dispatches)(\/|$)/;
 /** `gh api` with a writing method against merges, refs, releases, secrets, variables or deployments. */
@@ -160,6 +179,21 @@ export const RULES = [
 
   // External: merges, releases, repository settings.
   { id: "gh-pr-merge", tools: ["gh"], when: gh(([a, b]) => a === "pr" && b === "merge"), reason: "merging is a human's call. Open or update your PR and stop there." },
+  {
+    // TM-235: a `gh pr create` with no --base (or the wrong one) targets the repository default
+    // branch, not this repo's configured integration branch — that shipped merged develop commits
+    // onto main. Missing and wrong are the same failure: an unstated base.
+    id: "gh-pr-create-base",
+    tools: ["gh"],
+    when: (a, ctx) => {
+      const [sub, verb] = positionals(a, GH_VALUED);
+      return sub === "pr" && verb === "create" && optionValue(a, ["--base", "-B"]) !== ownBase(ctx);
+    },
+    reason: (ctx) =>
+      ownBase(ctx)
+        ? `a dispatch worker opens its PR against ${ownBase(ctx)}, this repo's configured integration branch — not the repository default. Run \`gh pr create --base ${ownBase(ctx)} ...\`.`
+        : "no integration branch is known for this worker (TM_DISPATCH_INTEGRATION_BRANCH is unset), so no PR base can be confirmed safe. Ask the dispatcher to set dispatch.integrationBranch and re-dispatch.",
+  },
   { id: "gh-release", tools: ["gh"], when: gh(([a, b]) => a === "release" && !["list", "view", "download"].includes(b)), reason: `publishing or changing a release is ${EXTERNAL}` },
   { id: "gh-repo-delete", tools: ["gh"], when: gh(([a, b]) => a === "repo" && ["delete", "archive", "rename"].includes(b)), reason: `deleting, archiving or renaming a repository is ${EXTERNAL}` },
   { id: "gh-secret", tools: ["gh"], when: gh(([a, b]) => a === "secret" && b !== "list"), reason: `changing repository secrets is ${EXTERNAL}` },
@@ -498,9 +532,10 @@ function check(src, ctx, depth) {
  * Classify one Bash command for a dispatch worker.
  *
  * `branch` is the worker's own branch (pinned at spawn as TM_DISPATCH_BRANCH); `head` is the branch
- * checked out where the command runs, when known. Returns `{ allow, reason, rule }` — `rule` is the
- * RULES id that blocked, or "unparsed" for the fail-safe.
+ * checked out where the command runs, when known; `integrationBranch` is the PR base this worker
+ * must target (pinned at spawn as TM_DISPATCH_INTEGRATION_BRANCH). Returns `{ allow, reason, rule }`
+ * — `rule` is the RULES id that blocked, or "unparsed" for the fail-safe.
  */
-export function guardCommand(command, { branch = null, head = branch } = {}) {
-  return check(String(command ?? ""), { branch: branch || null, head: head || null }, 0);
+export function guardCommand(command, { branch = null, head = branch, integrationBranch = null } = {}) {
+  return check(String(command ?? ""), { branch: branch || null, head: head || null, integrationBranch: integrationBranch || null }, 0);
 }

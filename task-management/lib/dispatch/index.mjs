@@ -34,7 +34,7 @@
 import { claimTask, claimant, heartbeatClaim, releaseClaim } from "../claims.mjs";
 import { join } from "node:path";
 import { listAgents, registerAgent } from "../agents.mjs";
-import { provision } from "../worktree.mjs";
+import { provision, resolveIntegrationBranch } from "../worktree.mjs";
 import { handoff } from "../render.mjs";
 import { RESOLVED, config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
@@ -102,6 +102,21 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (!task) return { ok: false, reason: `not found: ${id}` };
   if (RESOLVED.has(task.status)) {
     return { ok: false, reason: `${id} is ${task.status} — dispatch is for open work. Reopen it first if it genuinely needs doing.` };
+  }
+  /**
+   * A dispatched worker's PR base comes from this value, stated literally (render.mjs, the
+   * worker guard). Unconfigured resolves to the main checkout's actual branch name, so `gh pr
+   * create` is always given a concrete `--base` rather than falling back to the repository
+   * default silently (TM-235) — refusing only when there is truly nothing to resolve to, e.g. a
+   * detached HEAD.
+   */
+  const integration = resolveIntegrationBranch(p, config(p));
+  if (!integration) {
+    return {
+      ok: false,
+      reason: `no integration branch could be resolved — dispatch.integrationBranch is unset and the main checkout's HEAD is not on a branch (detached?). Set it: \`tm config dispatch.integrationBranch <branch>\`.`,
+      failureScope: "config",
+    };
   }
   if (config(p).dispatch?.governed === true || task.governance) {
     const gate = governedAdmission(task, p);
@@ -185,16 +200,19 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   update(id, { status: "in_progress", ...(session ? { session } : {}), ...(actor ? { actor } : {}) }, p);
 
   try {
-    prov = provision(task, { session, actor, steal, p });
+    prov = provision(task, { base: integration, session, actor, steal, p });
   } catch (err) {
     return fail(`worktree provisioning failed: ${err.message}`);
   }
   if (!prov.ok) return fail(prov.reason, { holder: prov.holder });
+  // Recorded on the task, not just pinned into the worker's env, so `tm show` and a later
+  // `handoff()` call (dashboard, `tm handoff`) state the same PR base this dispatch resolved.
+  update(id, { integrationBranch: integration }, p);
 
   const prompt = handoff(id, p);
   let res;
   try {
-    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, prompt, session, actor, p });
+    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, prompt, session, actor, p });
   } catch (err) {
     return fail(`worker launch failed: ${err.message}`, { failureScope: failureScope({ reason: err.message }, "backend") });
   }

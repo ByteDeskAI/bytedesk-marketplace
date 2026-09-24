@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A dispatched worker's PR now always states its base explicitly.** `gh pr create` with no
+  `--base` targets the repository default branch, not `dispatch.integrationBranch` — a dispatched
+  worker in `bytedesk-remote-gateway` shipped unreleased `develop` commits onto `main` this way,
+  merged before anyone checked the PR's base (TM-235). `dispatch()` now resolves the integration
+  branch before starting a worker — unconfigured resolves to the main checkout's own branch name,
+  never the literal `HEAD` — and refuses to dispatch when nothing resolves (a detached HEAD),
+  naming the config key to set. The resolved branch is pinned into the worker's env as
+  `TM_DISPATCH_INTEGRATION_BRANCH`, stated in the handoff's `gh pr create --base <branch>`, and
+  the worker guard refuses a `gh pr create` whose `--base` is missing or does not match it.
 - A bare `tm override` prints usage and arms nothing; before, it armed an "unspecified" token.
   `tm override --clear` disarms an unspent token and logs `override_cleared` (TM-224).
 - Governed completion accepts an approving review whose findings are all minor, nit or note,

@@ -1245,7 +1245,7 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 | `dispatch.topologyAgent` | first worker | stored worker identity; standing lead and reviewer roles are reserved |
 | `dispatch.topologyCandidates` | `"claude,codex"` | approved topology candidate order; each candidate needs an enforced ownership guard |
 | `dispatch.governed` | `false` | require persistent-lead admission before dispatch and exact independent review plus authorized integration before done |
-| `dispatch.integrationBranch` | `HEAD` | branch used for new task checkouts and integrated duplicate evidence |
+| `dispatch.integrationBranch` | `HEAD` | branch used for new task checkouts and integrated duplicate evidence. A dispatched worker's PR always opens against this branch, stated literally as `gh pr create --base <branch>` and enforced by the worker guard — never the repository default. Unconfigured, dispatch resolves `HEAD` to the main checkout's actual branch name rather than leave it unstated; it refuses to dispatch only when that also fails to resolve (a detached HEAD) |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |
 | `dispatch.enabled` / `dispatch.poolWip` / `dispatch.pollSeconds` | `true` / `3` / `30` | the worker pool: on by default (`false` turns it off for the repo), WIP cap, poll interval |
 | `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage labels to hand |

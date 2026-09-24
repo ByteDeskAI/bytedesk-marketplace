@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { acceptanceOpen, config, list, nextTasks, openTasks, read, readEvents, staleTasks, state } from "./store.mjs";
 import { paths } from "./paths.mjs";
+import { resolveIntegrationBranch } from "./worktree.mjs";
 import { CATALOG } from "./ntfy.mjs";
 
 /**
@@ -376,12 +377,17 @@ export function handoff(id, p = paths()) {
      * paste, so the placeholder reads as one when neither is set.
      */
     const branch = String(process.env.TM_DISPATCH_BRANCH || t.branch || "").trim() || "<your tm/ branch>";
+    // TM-235: state the PR base literally, or a worker's `gh pr create` silently targets the
+    // repository default instead of the configured integration branch. dispatch() refuses to
+    // start a worker before this resolves to a real branch (lib/dispatch/index.mjs).
+    const base = String(process.env.TM_DISPATCH_INTEGRATION_BRANCH || t.integrationBranch || resolveIntegrationBranch(p, config(p)) || "").trim();
+    const prBase = base ? ` --base ${base}` : "";
     out.push(
       "## When you finish",
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",
       `- Push your own branch: git push -u origin ${branch}`,
-      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"`,
+      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"${prBase}`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       ...(t.governance ? governedFinishSteps(t, p) : [`- Then close: .bytedesk/task-management/bin/tm done ${t.id}`]),
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,
