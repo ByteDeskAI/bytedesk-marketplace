@@ -915,3 +915,31 @@ describe("render", () => {
     assert.match(text, /dropped TM-999/);
   });
 });
+
+describe("duplicate worker comments (TM-238)", () => {
+  const dupe = { author: "worker:tmux", text: "tmux worker exited after submitting its revision; independent review and integration remain required" };
+
+  it("names the repeats; --fix keeps the first in place and leaves people's repeats alone", () => {
+    const p = store();
+    const t = create("task", { title: "reviewed" }, "", p);
+    update(t.id, {
+      comments: [
+        { ...dupe, ts: "1" },
+        { ...dupe, ts: "2" },
+        { author: "main", ts: "3", text: "Ownership note" },
+        { ...dupe, ts: "4" },
+        { author: "main", ts: "5", text: "Ownership note" },
+      ],
+    }, p);
+
+    const f = find(p, "duplicate-worker-comments");
+    assert.ok(f, "doctor names the repeats");
+    assert.equal(f.id, t.id);
+    assert.match(f.message, /^2 repeated worker comments/);
+    assert.equal(f.fixable, true);
+
+    repair([f], p);
+    assert.deepEqual(read(t.id, p).comments.map((c) => `${c.author}@${c.ts}`), ["worker:tmux@1", "main@3", "main@5"]);
+    assert.equal(find(p, "duplicate-worker-comments"), undefined);
+  });
+});

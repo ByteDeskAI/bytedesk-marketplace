@@ -101,6 +101,17 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     if (!OUTCOMES.has(outcome)) return { ok: false, reason: `unknown outcome: ${outcome}` };
     if (run && run !== task.dispatched.run) return { ok: false, reason: "worker result belongs to an earlier or different dispatch", failureScope: "task" };
 
+    /**
+     * One result per dispatch run (TM-238). The ready-for-review path changes no state, so the
+     * pool collected the same exited worker on every tick: 109 identical comments on TM-217.
+     * The stamp lives on the dispatch record, which a re-dispatch replaces wholesale, so a new
+     * review round is collected once again. A repeat writes nothing: no comment, no event.
+     */
+    const runKey = run ?? task.dispatched.run;
+    if (task.dispatched.collected?.run === runKey) {
+      return { ok: true, id, outcome: task.dispatched.collected.outcome, duplicate: true, downgraded: false, parked: false };
+    }
+
     let final = outcome;
     let note = String(summary || "").trim();
     const reviewReady = task.governance?.state === "ready-for-review";
@@ -130,7 +141,8 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     const pr = ["done", "ready-for-review"].includes(final) ? recordPullRequest(task, p, exec) : null;
 
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
-    logEvent("task_result", { id, run: run ?? task.dispatched.run, outcome: final }, p);
+    mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, collected: { run: runKey, outcome: final, at: now() } } }), p);
+    logEvent("task_result", { id, run: runKey, outcome: final }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
     return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: failureScope({ ...result, summary: note }), ...(pr ? { pr } : {}) };
   } catch (err) {

@@ -597,3 +597,55 @@ describe("the done path records the pull request (TM-180)", () => {
     assert.equal(execB.calls.length, 0, "a failure has no PR to record");
   });
 });
+
+describe("recordResult — one result per dispatch run (TM-238)", () => {
+  const worker = (p, id) => (read(id, p).comments || []).filter((c) => c.author === "worker:tmux");
+  const dead = () => spawnReturning({ status: 1 });
+
+  it("collects an exited ready-for-review worker once; the next tick writes nothing", () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux" });
+    mutate(id, () => ({ governance: { state: "ready-for-review" } }), p);
+
+    const first = collectTmux(id, { p, spawnImpl: dead() });
+    assert.equal(first.ok, true);
+    assert.equal(first.outcome, "ready-for-review");
+    assert.equal(read(id, p).status, "in_progress", "review keeps the task open — which is why the pool comes back");
+
+    const second = collectTmux(id, { p, spawnImpl: dead() });
+    assert.equal(second.ok, true);
+    assert.equal(second.duplicate, true);
+    assert.equal(second.outcome, "ready-for-review");
+    assert.equal(worker(p, id).length, 1, "exactly one worker comment");
+    assert.equal(results(p).length, 1, "exactly one task_result event");
+    assert.equal(read(id, p).dispatched.collected.run, `tmux:tm-${id}`);
+  });
+
+  it("keys on the run: a re-dispatch of the same task is collected once more", () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux" });
+    mutate(id, () => ({ governance: { state: "ready-for-review" } }), p);
+    collectTmux(id, { p, spawnImpl: dead() });
+    collectTmux(id, { p, spawnImpl: dead() });
+
+    // A new review round: dispatch writes a fresh record, as lib/dispatch/index.mjs does.
+    mutate(id, () => ({ dispatched: { backend: "tmux", run: `tmux:tm-${id}-r2`, session: SESSION, at: now() } }), p);
+    const again = collectTmux(id, { p, spawnImpl: dead() });
+    assert.equal(again.duplicate, undefined, "a new run is a new result");
+    collectTmux(id, { p, spawnImpl: dead() });
+
+    assert.equal(worker(p, id).length, 2);
+    assert.deepEqual(results(p).map((e) => e.run), [`tmux:tm-${id}`, `tmux:tm-${id}-r2`]);
+  });
+
+  it("guards every outcome, not only review: the same done run records once", () => {
+    const p = store();
+    const id = dispatched(p, { status: "done", claim: false });
+    recordResult(id, { outcome: "done", summary: "closed" }, p);
+    const res = recordResult(id, { outcome: "done", summary: "closed" }, p);
+    assert.equal(res.ok, true);
+    assert.equal(res.duplicate, true);
+    assert.equal(results(p).length, 1);
+    assert.equal((read(id, p).comments || []).length, 1);
+  });
+});
