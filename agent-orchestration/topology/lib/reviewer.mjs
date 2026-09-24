@@ -868,37 +868,73 @@ async function wakeReviewRequest({consumer,record,request,path,env,home}) {
     text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
 }
 
-/** End index of the first balanced JSON object in `text`, or -1 while it is still open. */
-function jsonObjectEnd(text) {
-  let depth = 0, inString = false, escaped = false, started = false;
+// Values whose text must never gain a space at a wrap: a cut inside them is always a cut.
+const STRICT_VALUE_KEYS = new Set(["verdict", "severity", "file"]);
+
+/**
+ * The first JSON object in `text`, repaired for what Claude Code's renderer does to it.
+ *
+ * TM-233. The renderer treats the reply as Markdown, and Markdown's backslash escape turns `\"`
+ * into a bare `"`. So a claim quoting `{"enabled": true}` reaches the pane with unescaped quotes,
+ * and a reviewer's `\u{2014}` is not a JSON escape at all. Every long verdict with a quote in it
+ * was refused as "Review response must be JSON".
+ *
+ * A key closes at its first quote. A value quote closes the string only where JSON continues after
+ * it (`,"key":`, `,"` in an array, `]`, or a `}` followed by more structure); any other quote is
+ * prose and is re-escaped. A backslash that starts no valid escape is kept as a literal backslash.
+ *
+ * `glueAt(i, strict)` returns what to insert before `text[i]` when a wrap boundary falls there;
+ * `strict` is true outside strings and inside verdict, severity and file values.
+ *
+ * ponytail: prose that itself contains `","key":` or `"]` is read as structure. That shape does
+ * not occur in review prose; the schema check after parsing refuses the rare mis-split.
+ */
+function lenientJson(text, glueAt = () => "") {
+  let out = "", depth = 0, key = null, lastKey = null, inString = false, before = "";
+  const stack = [];
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (inString) { if (escaped) escaped = false; else if (c === "\\") escaped = true; else if (c === '"') inString = false; continue; }
-    if (c === '"') inString = true;
-    else if (c === "{") { depth++; started = true; }
-    else if (c === "}" && started && --depth === 0) return i;
+    if (!inString) {
+      out += glueAt(i, true) + c;
+      if (c === '"') { inString = true; key = stack.at(-1) === "{" && (before === "{" || before === ",") ? "" : null; }
+      else if (c === "{" || c === "[") { stack.push(c); depth++; }
+      else if ((c === "}" || c === "]") && depth > 0) { stack.pop(); if (--depth === 0) return { text: out, closed: true }; }
+      if (!/\s/.test(c)) before = c;
+      continue;
+    }
+    out += glueAt(i, key !== null || STRICT_VALUE_KEYS.has(lastKey));
+    if (c === "\\") {
+      const unicode = /^u\{([0-9a-fA-F]{1,6})\}/.exec(text.slice(i + 1));
+      if (/^u[0-9a-fA-F]{4}/.test(text.slice(i + 1, i + 6))) { out += text.slice(i, i + 6); i += 5; }
+      else if (unicode && Number.parseInt(unicode[1], 16) <= 0x10ffff) { out += JSON.stringify(String.fromCodePoint(Number.parseInt(unicode[1], 16))).slice(1, -1); i += unicode[0].length; }
+      else if (/["\\/bfnrt]/.test(text[i + 1] ?? "")) { out += c + text[++i]; }
+      else out += "\\\\";
+      continue;
+    }
+    if (c !== '"') { out += c; if (key !== null) key += c; continue; }
+    const rest = text.slice(i + 1);
+    const closes = key !== null
+      || (stack.at(-1) === "[" ? /^\s*(?:,\s*"|\])/.test(rest)
+        : /^\s*(?:,\s*"[^"\\]*"\s*:|\}\s*(?:[,\]}]|$))/.test(rest) || (depth === 1 && /^\s*\}/.test(rest)));
+    if (!closes) { out += '\\"'; continue; }
+    out += c; inString = false; before = c;
+    if (key !== null) { lastKey = key; key = null; } else lastKey = null;
   }
-  return -1;
+  return { text: out, closed: false };
 }
 
 /**
  * Every AO_REVIEW response for `nonce` on the pane, as candidate JSON texts, oldest first.
  *
  * TM-215 h. Claude Code's renderer wraps a long line into several pane lines, indenting the
- * continuations, and `capture-pane -J` does not rejoin them — the first line ended after
- * `"findings":` and "Review response must be JSON" was the result. So an unbalanced response keeps
+ * continuations, and `capture-pane -J` does not rejoin them. So an unbalanced response keeps
  * absorbing the following indented lines until its braces close.
  *
- * Each break is one of two kinds. A word wrap drops the space it broke at; a word longer than the
- * width (compact JSON has few spaces) is cut mid-token and drops nothing. A cut line fills the full
- * width, and only a word longer than a row gets cut. So a break after a shorter line gets its space
- * back, and a break after a full-width line is a cut only when the word across it is longer than a
- * row. Plain all-space and no-space joins follow as fallbacks.
- *
- * ponytail: the width is estimated from the response's own rows, so it can only be too small. A
- * real cut is therefore always read as a cut (no space ever lands inside a path or enum); when no
- * row fills the true width, an occasional word wrap reads as a cut and one space of prose is lost
- * (about 2% of widths 60-160 in a sweep). Pass the pane width in if that ever matters.
+ * TM-233. Where a break falls decides the join. Outside strings and inside verdict, severity and
+ * file values, nothing is lost at a break, so the rows join with nothing: those are the fields the
+ * schema checks exactly. Inside prose a word wrap drops a space and a cut through a word longer
+ * than a row drops nothing; TM-215's width estimate tells the two apart, and when it is wrong the
+ * claim differs by one space at the break, never in a field the schema checks.
  */
 export function reviewResponsesOnScreen(screen, nonce) {
   const prefix = `AO_REVIEW ${nonce} `;
@@ -908,21 +944,23 @@ export function reviewResponsesOnScreen(screen, nonce) {
     const line = protocolOutputLine(lines[i]);
     if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
     const raw = [lines[i]], parts = [line.slice(prefix.length)];
-    while (jsonObjectEnd(parts.join("")) < 0 && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
+    while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
       raw.push(lines[++i]); parts.push(protocolOutputLine(lines[i]));
     }
     const width = Math.max(...raw.slice(0, -1).map(text => text.trimEnd().length));
-    const glue = k => {
-      if (/\s$/.test(raw[k - 1]) || raw[k - 1].trimEnd().length < width) return " ";
+    const prose = k => {
+      if (raw[k - 1].trimEnd().length < width) return " ";
       // A full row is a cut only when the word across the break could not fit on a row of its own.
       const word = parts[k - 1].split(" ").at(-1) + parts[k].split(" ")[0];
       return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
     };
-    const fitted = parts.reduce((text, part, k) => text + glue(k) + part);
-    const texts = [fitted, parts.join(" "), parts.join("")].map(text => { const close = jsonObjectEnd(text); return close < 0 ? text : text.slice(0, close + 1); });
+    const breaks = new Map();
+    parts.reduce((offset, part, k) => { if (k) breaks.set(offset, k); return offset + part.length; }, 0);
+    const fitted = lenientJson(parts.join(""), (at, strict) => !breaks.has(at) || strict ? "" : prose(breaks.get(at)));
+    const texts = [fitted.text, lenientJson(parts.join(" ")).text, lenientJson(parts.join("")).text];
     // Braces that never close before the capture ends (or before the next unindented line) are a
     // verdict still being printed, not a malformed one.
-    texts.closed = jsonObjectEnd(parts.join("")) >= 0;
+    texts.closed = fitted.closed;
     responses.push(texts);
   }
   return responses;
