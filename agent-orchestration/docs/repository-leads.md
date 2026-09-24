@@ -169,6 +169,31 @@ or reused identities fail closed. Finish requires
 artifacts, the exact committed revision, checks and risks, and records `ready-for-review`, never
 automatic task completion.
 
+### Starting, adopting and stopping a worker
+
+Leads do not launch workers ad hoc. A hand-made tmux session or an unrecorded subagent has no
+ownership record, so `manage eligible` refuses the task with "Task dispatch must name the claim
+owner and worker run.", and `manage cleanup` cannot prove it may close the session. Use these verbs,
+run as the session that admitted the task (`TM_SESSION_ID`):
+
+1. **Start.** After `manage admit`, run `manage start-worker --task TM-id [--backend tmux|topology]`.
+   It calls `tm dispatch` in the admitted worktree, then binds the observed worker: tmux server,
+   session, pane, pane PID and creation time, plus the workflow run ID. It refuses a task that is not
+   admitted or already has a bound worker. If the worker cannot be observed yet, the result says
+   `bound: false`; run `manage bind --task TM-id` then. Do not launch a second worker.
+2. **Adopt.** For a worker started before this rule, run `manage bind --task TM-id --pane <id>
+   [--server <socket>]` or `--pid <pid>`. The pane must be live, the only live pane in its session,
+   and in the task worktree; the process must be live in the task worktree. The server defaults to
+   the caller's own tmux server. The caller itself, a pane or process another task already binds, and
+   a respawned pane are refused. An in-process subagent runs in the lead's own process, so it cannot
+   be adopted; finish it and start the next worker with `start-worker`.
+3. **Stop.** Run `manage stop-worker --task TM-id`. It closes the bound pane only when this session
+   owns the binding, the worker's finish report is recorded, and the pane is idle: its process is a
+   shell with no children, so the harness has exited. A worker whose pane already exited is recorded
+   as stopped. Anything else is refused with a recovery path, and the worker keeps running. It never
+   closes a session it did not start or bind, and never an active one. `manage cleanup` uses the same
+   rule.
+
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
 review. `reviewer collect` accepts the challenge-bound response from the registered reviewer.
 Findings, a changed revision, wrong identity, or an unavailable reviewer block integration.

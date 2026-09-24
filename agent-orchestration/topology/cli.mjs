@@ -111,6 +111,9 @@ Standing repository services
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> --actor <name> --reason <text> [--authorized]
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
+  manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
+  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
+  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
   quota status [--agent <id>] [--json] | resolve --agent <id> --state applied|declined|closed
                                                provider quota incidents raised by the supervise tick.
                                                Detection writes the incident; it restarts nothing.
@@ -444,11 +447,13 @@ const commands = {
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
       landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
-      authorized: flags.authorized === true || supplied.authorized === true };
+      authorized: flags.authorized === true || supplied.authorized === true,
+      // TM-218 worker start/adopt. Adoption is fail-closed; flags never assert idleness or ownership.
+      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null };
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment' };
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
     const method = methods[positional[0] || 'status'];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
     return out(await api[method](options));
   },
   async 'startup-check'({ flags }) {

@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { readFile, readdir, realpath } from 'node:fs/promises';
-import { listServerPanes } from './tmux.mjs';
+import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
 import { agentDirs, findLead } from './agents.mjs';
@@ -62,6 +62,9 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     comment: async (id, value) => exec(['comment', taskId(id), value]),
     evidence: async (id, path) => exec(['evidence', taskId(id), path]),
     removeWorktree: async id => exec(['worktree', 'rm', taskId(id)]),
+    // TM-218: the lead's one launcher. tm claims under TM_SESSION_ID=owner, reuses the admitted
+    // worktree, spawns the backend, and writes the dispatch + registry row observeWorker reads.
+    dispatch: async (id, backend) => JSON.parse((await exec(['dispatch', taskId(id), '--backend', backend, '--json'])).stdout),
     done: async id => exec(['done', taskId(id)]),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
@@ -173,18 +176,117 @@ async function observeWorker(ctx, doc, owner) {
   return { ...base, kind: 'process', pid: row.pid, process_start: process.start, boot: process.boot };
 }
 
-/** Bind observed ownership after tm dispatch, without trusting caller-supplied pid/idle flags. */
+/** A pane is idle only when its own process is a shell with no children: the harness exited.
+ * A harness running as the pane process itself is never idle while alive; unreadable is not idle. */
+const SHELLS = new Set(['bash', 'zsh', 'sh', 'dash', 'fish', 'ksh']);
+async function idleShell(pid) {
+  try {
+    const comm = (await readFile(`/proc/${pid}/comm`, 'utf8')).trim();
+    return SHELLS.has(comm) && (await readFile(`/proc/${pid}/task/${pid}/children`, 'utf8')).trim() === '';
+  } catch { return false; }
+}
+
+/** TM-218: a worker the lead started before this verb existed, proved from the live pane or process.
+ * Fails closed on an unnamed server, a dead/unknown pane, a shared session, the caller itself, a
+ * process outside the task worktree, or a pane/pid another task's record already binds. */
+async function observeAdoptedWorker(ctx, doc, options) {
+  const worktree = await realpath(doc.worktree), base = { name: `adopted:${doc.id}`, owner: options.owner, adopted: true, observed_at: nowIso() };
+  const others = [];
+  for (const name of (await readdir(ctx.root).catch(() => [])).filter(n => /^TM-[0-9]+\.json$/.test(n) && n !== `${doc.id}.json`)) {
+    const other = await readJson(join(ctx.root, name)).catch(() => null);
+    if (other?.worker && other.state !== 'cleaned') others.push(other.worker);
+  }
+  if (options.pane) {
+    const server = options.tmuxServer || callerServer(ctx.env);
+    invariant(server, 'TOPOLOGY_MANAGEMENT_WORKER', 'Name the tmux server (--server <socket>) or run inside it; a pane id means nothing on an implicit server.');
+    invariant(options.pane !== ctx.env.TMUX_PANE, 'TOPOLOGY_MANAGEMENT_WORKER', 'Refusing to bind the calling pane as its own worker.');
+    const panes = await listServerPanes({ tmuxServer: server, env: ctx.env });
+    const pane = panes.find(p => p.paneId === options.pane && p.alive);
+    invariant(pane && await realpath(pane.cwd).catch(() => null) === worktree, 'TOPOLOGY_MANAGEMENT_WORKER', 'Pane must be observed alive in the task-owned worktree.');
+    invariant(panes.filter(p => p.alive && p.sessionId === pane.sessionId).length === 1, 'TOPOLOGY_MANAGEMENT_WORKER', 'Adopted pane must be the only live pane in its session; multi-pane ownership needs explicit reconciliation.');
+    const binding = Object.fromEntries(bindingKeys.map(key => [key, pane[key]]));
+    invariant(!others.some(w => w.binding?.serverKey === binding.serverKey && w.binding?.paneId === binding.paneId), 'TOPOLOGY_MANAGEMENT_WORKER', 'Pane is already bound to another task.');
+    return { ...base, run: `tmux:${pane.sessionName}`, backend: 'tmux', kind: 'tmux', session_name: pane.sessionName, binding };
+  }
+  const pid = Number(options.pid);
+  invariant(Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid && pid !== process.ppid, 'TOPOLOGY_MANAGEMENT_WORKER', 'Bind an existing worker with --pane <id> or --pid <pid> (not the caller).');
+  const observed = await processStart(pid);
+  invariant(observed && observed.cwd === worktree, 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker PID must be observed alive in the task-owned worktree.');
+  invariant(!others.some(w => w.pid === pid && w.process_start === observed.start), 'TOPOLOGY_MANAGEMENT_WORKER', 'Process is already bound to another task.');
+  return { ...base, run: `process:${pid}`, backend: 'process', kind: 'process', pid, process_start: observed.start, boot: observed.boot };
+}
+
+/** Bind observed ownership after tm dispatch, without trusting caller-supplied pid/idle flags.
+ * With --pane/--pid and no tm dispatch, adopt a worker the lead already started (TM-218). */
 export async function bindTaskWorker(options) {
   const ctx = await context(options);
   return withLock(`${ctx.path}.lock`, async () => {
     const prior = await loadRecord(ctx.path);
     invariant(prior?.started && prior.owner === options.owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Admit the task and reconcile ownership before binding a worker.');
     const doc = await ownedTask(ctx, options.task, options.owner);
-    const worker = await observeWorker(ctx, doc, options.owner);
+    const adopt = Boolean(options.pane || options.pid);
+    invariant(!adopt || !doc.dispatched, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task has a tm dispatch; bind it without --pane/--pid so the registry row is verified.');
+    const worker = adopt ? await observeAdoptedWorker(ctx, doc, options) : await observeWorker(ctx, doc, options.owner);
     invariant(!prior.worker || JSON.stringify({ ...prior.worker, observed_at: null }) === JSON.stringify({ ...worker, observed_at: null }), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker incarnation changed; preserve work and reconcile rather than rebinding a successor.');
-    const record = await recordEvent(ctx, options.task, prior, 'worker-bound', { worker });
+    const record = await recordEvent(ctx, options.task, prior, 'worker-bound', { worker, workflow_run_id: prior.workflow_run_id ?? null });
     record.worker = worker; await writeJson(ctx.path, record);
     return { bound: true, worker };
+  });
+}
+
+/** TM-218: the lead's one supported worker launch for an admitted task: tm dispatch, then bind.
+ * A launched worker that cannot be bound yet is reported, never relaunched. */
+export async function startTaskWorker(options) {
+  const ctx = await context(options), backend = options.backend || 'tmux';
+  invariant(['tmux', 'topology'].includes(backend), 'TOPOLOGY_MANAGEMENT_WORKER', 'start-worker supports --backend tmux or topology; both leave an observable worker to bind.');
+  const dispatched = await withLock(`${ctx.path}.lock`, async () => {
+    const prior = await loadRecord(ctx.path);
+    invariant(prior?.started && prior.owner === options.owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Admit the task with manage admit before starting its worker.');
+    invariant(!prior.worker, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task already has a bound worker; a second writer is refused. Stop and collect it first.');
+    await ownedTask(ctx, options.task, options.owner);
+    invariant(typeof ctx.store.dispatch === 'function', 'TOPOLOGY_MANAGEMENT_WORKER', 'Task store has no dispatch adapter.');
+    const result = await ctx.store.dispatch(options.task, backend);
+    await recordEvent(ctx, options.task, prior, 'worker-started', { backend: result.backend ?? backend, run: result.run ?? null, workflow_run_id: prior.workflow_run_id ?? null });
+    return result;
+  });
+  try {
+    const bound = await bindTaskWorker(options);
+    return { started: true, bound: true, run: dispatched.run ?? null, worker: bound.worker };
+  } catch (error) {
+    return { started: true, bound: false, run: dispatched.run ?? null, reason: error.message,
+      recovery: `tm dispatch launched the worker; do not launch another. Run manage bind --task ${options.task} once it is observable.` };
+  }
+}
+
+/** Close exactly the bound tmux pane, on its recorded server. */
+async function closeOwnedPane(record, env) {
+  const binding = record.worker?.binding;
+  invariant(record.worker?.kind === 'tmux' && binding?.paneId && binding.serverKey, 'TOPOLOGY_MANAGEMENT_WORKER', 'Only an owned tmux pane can be closed; stop other workers through their own runtime.');
+  await tmux(['kill-pane', '-t', binding.paneId], { tmuxServer: binding.serverKey, env });
+}
+
+/** TM-218: stop the bound worker only when owned, idle and its finish collected; otherwise refuse. */
+export async function stopTaskWorker(options) {
+  const ctx = await context(options);
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record = await loadRecord(ctx.path);
+    const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
+    try {
+      invariant(record?.worker && record.owner === options.owner, 'TOPOLOGY_MANAGEMENT_STOP', 'No worker binding owned by this session; start it with manage start-worker or adopt it with manage bind. A session this lead did not start or bind is never closed.');
+      const state = await observe(record);
+      invariant(state.owned, 'TOPOLOGY_MANAGEMENT_STOP', state.reason || 'Worker ownership is unproven.');
+      invariant(state.active === false, 'TOPOLOGY_MANAGEMENT_STOP', state.reason || 'Worker is still active.');
+      if (state.alive) {
+        await (options.closeWorker || (value => closeOwnedPane(value, ctx.env)))(record);
+        invariant((await observe(record)).alive === false, 'TOPOLOGY_MANAGEMENT_STOP', 'Owned worker did not stop.');
+      }
+      await recordEvent(ctx, options.task, record, 'worker-stopped', { worker: record.worker, proof: state.proof, closed: state.alive === true });
+      return { stopped: true, closed: state.alive === true, proof: state.proof };
+    } catch (error) {
+      const recovery = 'Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker.';
+      if (record) await recordEvent(ctx, options.task, record, 'worker-stop-refused', { reason: error.message, recovery });
+      return { stopped: false, reason: error.message, recovery };
+    }
   });
 }
 
@@ -194,9 +296,10 @@ export async function bindTaskWorker(options) {
 export async function taskWorkerState(options, record) {
   const ctx = await context(options);
   try {
-    const doc = await ownedTask(ctx, options.task, record?.owner);
-    const row = await registeredWorker(ctx, doc, record.owner), worker = record.worker;
-    invariant(worker && worker.owner === record.owner && worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt, 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
+    const doc = await ownedTask(ctx, options.task, record?.owner), worker = record.worker;
+    // An adopted worker (TM-218) has no tm dispatch; its binding in this record is the registry.
+    const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record.owner);
+    invariant(worker && worker.owner === record.owner && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
     invariant(record.finish && record.events?.some(event => event.event === 'finish' && event.report?.revision === record.finish.revision), 'TOPOLOGY_MANAGEMENT_WORKER', 'Task worker result has not been collected through the finish protocol.');
     if (row.backend === 'topology') {
       invariant(worker.kind === 'topology' && worker.native_identity, 'TOPOLOGY_MANAGEMENT_WORKER', 'Legacy native ownership must be reconciled through a new verified finish report.');
@@ -221,6 +324,7 @@ export async function taskWorkerState(options, record) {
       invariant(!panes.some(p => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || resolve(p.cwd) === resolve(doc.worktree))), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker session contains a replacement live pane.');
       return { owned: true, active: false, alive: false, proof: 'observed-pane-exited', worker };
     }
+    if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: 'observed-pane-idle-shell', worker };
     return { owned: true, active: true, alive: true, reason: 'Observed worker pane is still alive; its activity is not safely known.' };
   } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
 }
@@ -412,12 +516,12 @@ export async function cleanupTask(options) {
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');
       invariant(await gitText(doc.worktree, ['rev-parse', 'HEAD']) === record.merge.revision, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task branch changed after integration.');
       invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.merge.revision, `refs/heads/${record.merge.target_branch}`], true)).code === 0, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Merge ancestry is no longer established.');
-      const worker = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
+      const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
+      const worker = await observe(record);
       invariant(worker.owned && worker.active === false, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Worker ownership or idle state is unproven.');
       if (worker.alive) {
-        invariant(typeof options.closeWorker === 'function', 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Owned-worker closer is unavailable.');
-        await options.closeWorker(record);
-        invariant((await options.workerState(record)).alive === false, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Owned worker did not stop.');
+        await (options.closeWorker || (value => closeOwnedPane(value, ctx.env)))(record);
+        invariant((await observe(record)).alive === false, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Owned worker did not stop.');
       }
       await ctx.store.removeWorktree(options.task);
       await git(ctx.store.root, ['branch', '-d', '--', record.branch]);

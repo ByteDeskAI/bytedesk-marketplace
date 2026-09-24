@@ -416,3 +416,103 @@ test("this repository's committed management policy raises no policy reasons", a
   assert.deepEqual(gate.reasons.filter(r => /configure management|integration authority|configuration is invalid/.test(r)), []);
   assert.deepEqual(gate.policy, loaded.config.management);
 });
+
+// ── TM-218: lead-owned worker start, adoption and stop ──────────────────────────
+async function paneServer(t, opts) {
+  if ((await run('tmux', ['-V'], { allowFailure: true })).code !== 0) { t.skip('tmux unavailable'); return null; }
+  await mkdir(opts.home, { recursive: true });
+  const socket = join(opts.home, 'w.sock');
+  const tmux = args => run('tmux', ['-S', socket, ...args]);
+  await tmux(['new-session', '-d', '-s', 'keepalive', 'sleep', '120']);
+  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { allowFailure: true }));
+  const serverPid = (await tmux(['display-message', '-p', '#{pid}'])).stdout.trim();
+  const env = { ...opts.env, TMUX: `${socket},${serverPid},0`, TMUX_PANE: '' };
+  const paneOf = async session => (await listServerPanes({ tmuxServer: socket, session })).find(p => p.alive)?.paneId;
+  return { socket, tmux, env, paneOf };
+}
+const DISPATCH_REASON = 'Task dispatch must name the claim owner and worker run.';
+
+test('start-worker dispatches through tm, records the pane binding and clears the dispatch-owner reason', async t => {
+  const { opts, doc, finish } = await fixture(t);
+  const s = await paneServer(t, opts); if (!s) return;
+  const { startTaskWorker } = await import('../../topology/lib/management.mjs');
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  await assert.rejects(startTaskWorker(actual), { code: 'TOPOLOGY_MANAGEMENT_WORKER' }, 'an unadmitted task cannot start a worker');
+  await admitTask(actual); await finish();
+  assert.ok((await integrationEligibility(actual)).reasons.includes(DISPATCH_REASON));
+  let dispatches = 0;
+  opts.store.dispatch = async (task, backend) => {
+    dispatches++; assert.equal(backend, 'tmux');
+    await s.tmux(['new-session', '-d', '-s', `tm-${task}`, '-c', doc.worktree, 'sleep', '120']);
+    doc.dispatched = { backend: 'tmux', run: `tmux:tm-${task}`, session: 'author' };
+    opts.store.workers = async () => [{ name: 'agent:TM-1', backend: 'tmux', runId: doc.dispatched.run, session: 'author', registeredAt: 'now', status: 'active', pid: null }];
+    return { ok: true, backend: 'tmux', run: doc.dispatched.run };
+  };
+  const started = await startTaskWorker(actual);
+  assert.equal(started.bound, true, started.reason);
+  assert.equal(started.worker.binding.serverKey, s.socket);
+  for (const key of ['sessionId', 'paneId', 'panePid', 'sessionCreated', 'serverPid']) assert.ok(started.worker.binding[key], key);
+  const status = (await managementStatus(actual)).management;
+  assert.ok(status.events.some(e => e.event === 'worker-started' && e.workflow_run_id === status.workflow_run_id));
+  const gate = await integrationEligibility(actual);
+  assert.ok(!gate.reasons.includes(DISPATCH_REASON), gate.reasons.join('; '));
+  assert.ok(gate.reasons.some(r => r.includes('still alive')), 'the live worker still blocks integration');
+  await assert.rejects(startTaskWorker(actual), /second writer/); assert.equal(dispatches, 1);
+});
+
+test('stop-worker refuses unowned, uncollected and active workers and closes an owned idle pane', async t => {
+  const { opts, doc, finish } = await fixture(t);
+  const s = await paneServer(t, opts); if (!s) return;
+  const { stopTaskWorker } = await import('../../topology/lib/management.mjs');
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  await admitTask(actual);
+  const none = await stopTaskWorker(actual);
+  assert.equal(none.stopped, false); assert.match(none.reason, /never closed/); assert.match(none.recovery, /Leave the worker running/);
+  await s.tmux(['new-session', '-d', '-s', 'busy', '-c', doc.worktree, 'sleep', '120']);
+  await bindTaskWorker({ ...actual, pane: await s.paneOf('busy') });
+  const uncollected = await stopTaskWorker(actual);
+  assert.equal(uncollected.stopped, false); assert.match(uncollected.reason, /finish protocol/);
+  await finish();
+  const active = await stopTaskWorker(actual);
+  assert.equal(active.stopped, false); assert.match(active.reason, /still alive/);
+  assert.ok(await s.paneOf('busy'), 'an active worker is never closed');
+  const peer = await stopTaskWorker({ ...actual, owner: 'peer' });
+  assert.equal(peer.stopped, false); assert.ok(await s.paneOf('busy'), 'another session never closes it');
+
+  // Owned idle: a fresh admitted task whose adopted pane is a shell with no running harness.
+  const f2 = await fixture(t); const s2 = await paneServer(t, f2.opts); if (!s2) return;
+  const a2 = { ...f2.opts, workerState: undefined, env: s2.env };
+  await admitTask(a2);
+  await s2.tmux(['new-session', '-d', '-s', 'idle', '-c', f2.doc.worktree, 'sh']);
+  await bindTaskWorker({ ...a2, pane: await s2.paneOf('idle') });
+  await f2.finish();
+  const stopped = await stopTaskWorker(a2);
+  assert.equal(stopped.stopped, true, stopped.reason); assert.equal(stopped.closed, true); assert.equal(stopped.proof, 'observed-pane-idle-shell');
+  assert.equal(await s2.paneOf('idle'), undefined);
+  assert.ok((await managementStatus(a2)).management.events.some(e => e.event === 'worker-stopped'));
+});
+
+test('bind adopts a live worker only after verifying it and fails closed on unknown or reused identities', async t => {
+  const { opts, doc } = await fixture(t);
+  const s = await paneServer(t, opts); if (!s) return;
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  await admitTask(actual);
+  const code = { code: 'TOPOLOGY_MANAGEMENT_WORKER' };
+  await assert.rejects(bindTaskWorker({ ...actual, pane: '%9999' }), code, 'unknown pane');
+  await assert.rejects(bindTaskWorker({ ...actual, env: opts.env, pane: '%0' }), /Name the tmux server/, 'implicit server');
+  await s.tmux(['new-session', '-d', '-s', 'elsewhere', '-c', opts.home, 'sleep', '120']);
+  await assert.rejects(bindTaskWorker({ ...actual, pane: await s.paneOf('elsewhere') }), /task-owned worktree/, 'pane outside the worktree');
+  await s.tmux(['new-session', '-d', '-s', 'split', '-c', doc.worktree, 'sleep', '120']);
+  await s.tmux(['split-window', '-d', '-t', 'split', '-c', doc.worktree, 'sleep', '120']);
+  await assert.rejects(bindTaskWorker({ ...actual, pane: await s.paneOf('split') }), /only live pane/, 'shared session');
+  await assert.rejects(bindTaskWorker({ ...actual, pid: process.pid }), code, 'the caller itself');
+  await s.tmux(['new-session', '-d', '-s', 'worker', '-c', doc.worktree, 'sleep', '120']);
+  const pane = await s.paneOf('worker');
+  const bound = await bindTaskWorker({ ...actual, pane });
+  assert.equal(bound.worker.adopted, true); assert.equal(bound.worker.binding.paneId, pane);
+  assert.equal((await bindTaskWorker({ ...actual, pane })).bound, true, 'rebinding the same incarnation is idempotent');
+  await s.tmux(['respawn-pane', '-k', '-t', pane, '-c', doc.worktree, 'sleep', '120']);
+  await assert.rejects(bindTaskWorker({ ...actual, pane }), /incarnation changed/, 'a reused pane is a successor, not the worker');
+  doc.dispatched = { backend: 'tmux', run: 'tmux:x', session: 'author' };
+  await assert.rejects(bindTaskWorker({ ...actual, pane }), /has a tm dispatch/);
+});

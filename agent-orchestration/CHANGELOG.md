@@ -21,6 +21,16 @@
 
 ### Changed
 
+- **A lead starts, adopts and stops task workers through `manage`, with ownership recorded
+  (TM-218).** `manage start-worker --task TM-id [--backend tmux|topology]` launches the worker for an
+  admitted task through `tm dispatch` and binds its observed pane, so `manage eligible` no longer
+  reports "Task dispatch must name the claim owner and worker run." `manage bind --task TM-id
+  --pane <id> [--server <socket>]` or `--pid <pid>` adopts a worker the lead already started, after
+  verifying it is live, alone in its session and in the task worktree; unknown, shared, reused or
+  already-bound identities fail closed. `manage stop-worker --task TM-id` closes the bound pane only
+  when this session owns it, its finish report is collected, and it is idle (a shell with no running
+  harness); otherwise it refuses with a recovery path. `manage cleanup` now uses the same closer by
+  default, and no longer throws when it has to close a worker without an injected state probe.
 - **`manage integrate` is usable in a repository whose tools write into the main checkout
   (TM-224).** The clean-checkout check ignores the tool store paths `.bytedesk/task-management/`,
   `.bytedesk/agent-orchestration/agents/` and `.bytedesk/knowledge/.km/`, still refuses any other
