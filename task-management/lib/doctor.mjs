@@ -18,7 +18,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { planFindings } from "./plans.mjs";
 import { missingFields } from "./completeness.mjs";
-import { RESOLVED, config, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
+import { RESOLVED, config, list, logEvent, missingContractRules, mutate, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
@@ -98,6 +98,28 @@ export function ignoreRule(p) {
   }
 }
 
+/**
+ * A worker's result comment repeated verbatim is the TM-238 signature: before results were keyed
+ * by dispatch run, collect re-recorded an exited ready-for-review worker on every pool tick. Only
+ * `worker:*` authors qualify; a person may say the same thing twice on purpose. One implementation
+ * for the report and the fix, so what doctor counts is exactly what --fix drops.
+ */
+export function dedupeWorkerComments(comments = []) {
+  const seen = new Set();
+  const kept = [];
+  let dropped = 0;
+  for (const c of comments) {
+    const key = /^worker:/.test(c?.author || "") ? `${c.author}\n${c.text}` : null;
+    if (key && seen.has(key)) {
+      dropped += 1;
+      continue;
+    }
+    if (key) seen.add(key);
+    kept.push(c);
+  }
+  return { kept, dropped };
+}
+
 export function diagnose(p = paths()) {
   const tasks = list("task", { includeDeleted: true }, p);
   const live = tasks.filter((t) => t.status !== "deleted");
@@ -123,6 +145,17 @@ export function diagnose(p = paths()) {
   const out = [];
 
   for (const t of live) {
+    const repeated = dedupeWorkerComments(t.comments).dropped;
+    if (repeated) {
+      const n = `${repeated} repeated worker comment${repeated === 1 ? "" : "s"}`;
+      out.push(
+        finding("warning", "duplicate-worker-comments", t.id, `${n} — the same result was recorded more than once (TM-238)`, () => {
+          mutate(t.id, (doc) => ({ comments: dedupeWorkerComments(doc.comments).kept }), p);
+          return `dropped ${n} from ${t.id}, keeping the first`;
+        }),
+      );
+    }
+
     // A blockedBy pointing at nothing makes `tm why`/`tm next` treat the task as
     // waiting forever on a task that cannot ever complete.
     const dangling = (t.blockedBy || []).filter((d) => !byId.has(d));

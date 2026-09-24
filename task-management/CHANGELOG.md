@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A worker's result is recorded once per dispatch run (TM-238). Collecting an exited worker whose
+  task is `ready-for-review` changed no state, so the pool re-recorded it on every tick: 109
+  identical `worker:tmux` comments on TM-217. The dispatch record now carries `collected`; a repeat
+  collect returns `{ ok, duplicate: true }` and writes neither comment nor `task_result`, and a
+  re-dispatch starts fresh. `tm doctor` reports `duplicate-worker-comments` and `--fix` keeps the
+  first of each.
 - A bare `tm override` prints usage and arms nothing; before, it armed an "unspecified" token.
   `tm override --clear` disarms an unspent token and logs `override_cleared` (TM-224).
 - Governed completion accepts an approving review whose findings are all minor, nit or note,
