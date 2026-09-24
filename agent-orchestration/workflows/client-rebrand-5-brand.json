@@ -110,6 +110,6 @@
   ],
   "artifacts": {
     "dir": "artifacts",
-    "promote_to": "Nothing is promoted out of the case file here, and nothing is published. `rebrand collect brand` records 05-brand/*.png against the approval digest; keep every superseded round under artifacts/ so the operator can see what the criticism actually bought. This spec runs the illustrator with auto_approve, so `ao-topology launch` needs --allow-auto-approve."
+    "promote_to": "Nothing is promoted out of the case file here, and nothing is published. `rebrand collect brand` records 05-brand/*.png against the approval digest; keep every superseded round under artifacts/ so the operator can see what the criticism actually bought. Agents run with auto_approve by default (TM-214); set auto_approve: false on one to keep its permission prompts."
   }
 }

@@ -248,7 +248,9 @@ tmux attach -t brand-vault-<run_id>
   the chain past missing CLIs and usage/rate/auth failures; `ao-topology failover --agent <id>`
   moves a running agent to the next provider and re-delivers its unanswered messages.
 - **Provider adapters** — `providers/<cli>.json`: how to launch a CLI, pass a model, append a
-  system prompt, auto-approve, and detect its idle prompt. Unknown `cli` ids fall back to the
+  system prompt, auto-approve, and detect its idle prompt. Agents auto-approve by default (TM-214):
+  a spec with no `auto_approve` key launches without permission prompts, `auto_approve: false`
+  opts an agent out, and the reviewer always stays read-only. Unknown `cli` ids fall back to the
   generic adapter, so any installed CLI can be an agent.
 - **Role packs** — `roles/*.md`: domain-free contracts for orchestrator, worker, designer, judge,
   reviewer, researcher, implementer. Domain skills (e.g. `brand-brief`, `brand-concept`,

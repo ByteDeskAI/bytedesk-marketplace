@@ -70,7 +70,7 @@ node $PLUG/bin/ao-topology role status reviewer --json
 
 node $PLUG/bin/ao-topology launch \
   --spec "$REPO/.bytedesk/agent-orchestration/workflows/ep018-demo.json" \
-  --allow-auto-approve --json
+  --json
 ```
 
 `launch` refuses with `TOPOLOGY_STARTUP_NOT_READY` unless **both** roles are responsive, and creates
@@ -124,5 +124,5 @@ Then verify: `git -C "$REPO" status --porcelain` is empty, and your own tmux ses
   submit reads as an unsent draft. Wrong in the safe direction; check the outbox.
 - **TM-155** — an untrusted repository stalls silently at the folder-trust modal.
 - **TM-151** — a ready composer showing a placeholder hint can read as not-ready.
-- The agents run with `auto_approve` (`--dangerously-skip-permissions`). That is why the demo repo
-  should be idle and disposable, and why `--allow-auto-approve` is required to launch it.
+- The agents run with `auto_approve` (`--dangerously-skip-permissions`), which is the default since
+  TM-214. That is why the demo repo should be idle and disposable.

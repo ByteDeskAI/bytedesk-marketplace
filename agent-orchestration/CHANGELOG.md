@@ -19,6 +19,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Agents launch without permission prompts by default (TM-214).** A spec, template or stored agent
+  with no `auto_approve` key now gets its provider's `auto_approve_args` (claude:
+  `--dangerously-skip-permissions`); `auto_approve: false` still opts an agent out. The TM-090
+  consent gate is removed: `ao-topology launch` no longer refuses without `--allow-auto-approve`,
+  which is accepted as a no-op, and the launch warning naming auto-approved agents stays. The
+  repository reviewer is unchanged and stays read-only (`--restricted --safe-mode`, never
+  `--dangerously-skip-permissions`).
+
 ### Fixed
 
 - Preserve nested workflow participants when saving and reloading composed specifications; process-only approval defaults no longer create an invalid participant field.

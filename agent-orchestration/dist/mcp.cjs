@@ -8350,7 +8350,8 @@ async function createAgent(consumer, spec = {}, dirs = null, context = {}) {
     instructions_file: spec.instructions_file || PROMPT,
     args: Array.isArray(spec.args) ? spec.args : [],
     env: spec.env && typeof spec.env === "object" ? spec.env : {},
-    auto_approve: spec.auto_approve === true,
+    auto_approve: spec.auto_approve !== false,
+    // TM-214: absent means on; explicit false opts out
     created_at: nowIso()
   };
   const dir = (0, import_node_path29.join)(agentsRoot(consumer), agentDirName(agent));
@@ -52145,7 +52146,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "723aef5e5b5dba918b5b4b095e6e78412c0f50ebb3f77ee1327d921d6151b04a",
+  sourceFingerprint: false ? null : "31f015daa8acba0036cb9d85582b117d8593a9f09842d413598f763169d998fa",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

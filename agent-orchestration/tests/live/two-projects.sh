@@ -147,16 +147,14 @@ assert_fails "a cwd outside the repo is refused" "TOPOLOGY_PATH_ESCAPES_REPO" \
 escaped=$("$AO" launch --spec "$ROOT/escape.json" --consumer "$P1" --dry-run --allow-outside 2>&1)
 assert_contains "--allow-outside is a real escape hatch, not a dead flag" "$escaped" '"cwd": "/tmp"'
 
-step "safety: auto_approve needs explicit operator consent"
+step "safety: auto_approve is the default (TM-214) and the launch names who it applies to"
 cat > "$ROOT/yolo.json" <<JSON
 { "version": 1, "name": "yolo-probe",
-  "agents": [{ "id": "boss", "role": "orchestrator", "cli": "claude", "auto_approve": true }],
+  "agents": [{ "id": "boss", "role": "orchestrator", "cli": "claude" }],
   "workflow": [{ "stage": "go", "from": "boss", "to": ["boss"] }] }
 JSON
-assert_fails "auto_approve without consent refuses to launch" "auto_approve" \
-  "$AO" launch --spec "$ROOT/yolo.json" --consumer "$P1" --dry-run
-consented=$("$AO" launch --spec "$ROOT/yolo.json" --consumer "$P1" --dry-run --allow-auto-approve 2>&1)
-assert_contains "consented auto_approve launches and says which agents are affected" "$consented" "boss"
+defaulted=$("$AO" launch --spec "$ROOT/yolo.json" --consumer "$P1" --dry-run 2>&1)
+assert_contains "a spec with no auto_approve key launches and says which agents are affected" "$defaulted" "auto_approve is on for boss"
 
 step "launch: a real tmux run in project-1, on a fake agent CLI"
 # A test double rather than a model: what is under test is the orchestration layer, not the agent.

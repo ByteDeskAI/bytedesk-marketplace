@@ -112,6 +112,18 @@ test('host collects nonce-bound read-only output and rejects forged response non
   assert.ok(argv.includes('--restricted')); assert.ok(argv.includes('--strict-mcp-config')); assert.ok(!argv.includes('--dangerously-skip-permissions'));
 });
 
+test('TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve', async () => {
+  const { buildReviewerArgv } = await import('../../topology/lib/reviewer.mjs');
+  const { loadAdapters } = await import('../../topology/lib/providers.mjs');
+  const claude = (await loadAdapters([new URL('../../providers', import.meta.url).pathname])).get('claude');
+  assert.ok(claude.auto_approve_args.includes('--dangerously-skip-permissions'), 'the real adapter must carry the flag, or this test proves nothing');
+  // auto_approve: true is what createAgent now stores for a reviewer whose template omits the key.
+  const argv = buildReviewerArgv(claude, { args: [], env: {}, mcp: [], auto_approve: true }, {}, { consumer: '/repo' });
+  assert.ok(argv.includes('--restricted'), argv.join(' '));
+  assert.ok(argv.includes('--safe-mode'), argv.join(' '));
+  assert.ok(!argv.includes('--dangerously-skip-permissions'), argv.join(' '));
+});
+
 test('concurrent review collectors record one response and replaced reviewer bindings require a fresh nonce',async t=>{
   const {requestReview,collectReview,independentReviewStatus}=await import('../../topology/lib/reviewer.mjs');
   const f=await fixture(t);

@@ -51,7 +51,8 @@ Launch and stop
   launch (--workflow <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
          [--dry-run] [--json]
          [--allow-outside]       permit a cwd or run_dir outside the invoking repository
-         [--allow-auto-approve]  permit agents that run without their own permission prompts
+         [--allow-auto-approve]  accepted, no effect: agents run without permission prompts by
+                                 default (TM-214); set auto_approve: false on an agent to opt out
   stop (--run <run_dir> | --session <name>) [--keep-files]
   status --run <run_dir> [--json]
   journal --run <run_dir> [--limit 50]
@@ -810,7 +811,6 @@ const commands = {
         skillSearchDirs: ctx.skillDirs,
         roleSearchDirs: ctx.roleDirs,
         cliBin: CLI_BIN,
-        allowAutoApprove: Boolean(flags["allow-auto-approve"]),
         ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
         lineage: childLineage,
         replyToken,
@@ -821,10 +821,9 @@ const commands = {
     };
     const inputs = resolveInputs(spec, inputPairs(flags.input));
     const runId = flags["run-id"] && flags["run-id"] !== true ? String(flags["run-id"]) : newRunId();
-    // Two deliberate escape hatches, both off unless the operator asks. `--allow-outside` lets a
-    // spec resolve a cwd or run_dir outside the invoking repo; `--allow-auto-approve` lets an agent
-    // run without its own permission prompts. Neither is inferable from the spec, because the spec
-    // is the thing being trusted less.
+    // A deliberate escape hatch, off unless the operator asks: `--allow-outside` lets a spec resolve
+    // a cwd or run_dir outside the invoking repo. It is not inferable from the spec, because the spec
+    // is the thing being trusted less. `--allow-auto-approve` is accepted and ignored (TM-214).
     // Address the session by WHO when the run is a spawn of one known agent, and by what-and-when
     // otherwise. Only when the spec did not name a session itself — a spec that states its own name
     // is stating a requirement, and guessing over it would break whoever is reading that name.
@@ -850,7 +849,6 @@ const commands = {
       roleSearchDirs: ctx.roleDirs,
       cliBin: CLI_BIN,
       dryRun: Boolean(flags["dry-run"]),
-      allowAutoApprove: Boolean(flags["allow-auto-approve"]),
       ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
       launchChild,
       log: (line) => process.stderr.write(`${line}\n`),

@@ -25,8 +25,10 @@ test("nested workflow normalization survives raw and serialized roundtrips", () 
   assert.deepEqual(validateSpec(normalized), normalized);
   assert.deepEqual(validateSpec(JSON.parse(JSON.stringify(normalized))), normalized);
   assert.equal(Object.hasOwn(normalized.agents[2], "auto_approve"), false);
-  assert.equal(normalized.agents[0].auto_approve, false);
+  // TM-214: absent means on; only an explicit false opts out.
+  assert.equal(normalized.agents[0].auto_approve, true);
   assert.equal(normalized.agents[1].auto_approve, true);
+  assert.equal(validateSpec({ ...raw, agents: [{ ...raw.agents[0], auto_approve: false }] }).agents[0].auto_approve, false);
   assert.deepEqual(raw, before, "normalization must not change the input agents");
 });
 

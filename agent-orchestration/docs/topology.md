@@ -208,9 +208,13 @@ around them:
   and confirms their absence before recording `stopped`. A changed binding or partial child stop
   returns a failure with retained evidence. Repository lead and reviewer role sessions are outside
   the run and survive its stop.
-- **`auto_approve` removes the boundary entirely**, so it requires explicit consent:
-  `--allow-auto-approve`. Without it a spec requesting it refuses to launch, on the dry-run path
-  too, naming the agents affected.
+- **`auto_approve` is on by default (TM-214).** An agent whose spec or template has no
+  `auto_approve` key launches with its provider's `auto_approve_args` (claude:
+  `--dangerously-skip-permissions`), so it runs without its own permission prompts. Set
+  `auto_approve: false` on an agent to keep them. Every launch, dry run included, warns and names
+  the agents affected. `--allow-auto-approve` is accepted and has no effect. The repository
+  reviewer is the exception: it always launches read-only (`--restricted --safe-mode`), whatever
+  its template says.
 
 ## Provider chains and failover
 

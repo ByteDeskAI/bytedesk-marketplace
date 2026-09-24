@@ -162,7 +162,7 @@ export async function createAgent(consumer, spec = {}, dirs = null, context = {}
     instructions_file: spec.instructions_file || PROMPT,
     args: Array.isArray(spec.args) ? spec.args : [],
     env: spec.env && typeof spec.env === "object" ? spec.env : {},
-    auto_approve: spec.auto_approve === true,
+    auto_approve: spec.auto_approve !== false, // TM-214: absent means on; explicit false opts out
     created_at: nowIso(),
   };
 

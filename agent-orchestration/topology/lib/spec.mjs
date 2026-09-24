@@ -178,7 +178,9 @@ export function validateSpec(raw) {
     normalized.instructions = typeof normalized.instructions === "string" ? normalized.instructions : "";
     // Participants have no process permission mode. Keep the field absent so a
     // composed/saved spec passes the same strict validation when loaded again.
-    if (!isParticipant) normalized.auto_approve = normalized.auto_approve === true;
+    // TM-214: absent means ON — agents launch without permission prompts unless the spec says
+    // `auto_approve: false`. The reviewer ignores this and stays read-only (buildReviewerArgv).
+    if (!isParticipant) normalized.auto_approve = normalized.auto_approve !== false;
     // A coordinator delegates and does not implement. It travels on the agent rather than being
     // inferred from the role, because a repo's lead appears in a run as an orchestrator — there is
     // no lead role pack, and a spec must have exactly one orchestrator. A spec written by hand can

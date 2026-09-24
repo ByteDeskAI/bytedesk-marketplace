@@ -820,7 +820,7 @@ export async function launchRun(options) {
   }
 }
 
-async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, allowAutoApprove = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {} }) {
+async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {} }) {
   const warnings = [];
 
   // Where this run sits in the tree, decided before anything is created. A run launched by an agent
@@ -828,22 +828,13 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
   // just as it does for one a spec asked for — which is the case that actually runs away.
   const refusal = lineageRefusal({ name: spec.name, lineage, ...(maxDepth === undefined ? {} : { maxDepth }) });
   invariant(!refusal, refusal && refusal.startsWith("workflow") ? "TOPOLOGY_WORKFLOW_CYCLE" : "TOPOLOGY_DEPTH_EXCEEDED", refusal || "");
-  // Consent, not just a warning. auto_approve strips the agent's own permission prompts, which
-  // docs/topology.md names as this layer's safety boundary; a spec is data, often committed data,
-  // so removing that boundary has to be an operator's decision at the moment of launch.
+  // TM-214: auto_approve is the default (operator decision 2026-09-24), so there is no consent gate
+  // any more — `--allow-auto-approve` is accepted and ignored. The warning stays so a launch still names
+  // every agent that runs without its own permission prompts; `auto_approve: false` opts one out.
   const autoApproved = spec.agents.filter((agent) => agent.auto_approve);
   if (autoApproved.length > 0) {
     warnings.push(
-      `auto_approve is on for ${autoApproved.map((agent) => agent.id).join(", ")} — ${autoApproved.length === 1 ? "that agent" : "those agents"} will run without permission prompts in ${spec.cwd}. Their own prompts are normally the safety boundary.`,
-    );
-    // The gate fires on --dry-run as well. A dry run is how an operator inspects a spec, so it is
-    // exactly where the consent question belongs: finding out about it only after panes exist is
-    // finding out too late.
-    invariant(
-      allowAutoApprove,
-      "TOPOLOGY_AUTO_APPROVE_UNCONFIRMED",
-      `This spec runs ${autoApproved.length === 1 ? "an agent" : "agents"} without permission prompts (auto_approve): ${autoApproved.map((agent) => `${agent.id} (${agent.role})`).join(", ")}. Their own prompts are the safety boundary this layer relies on, and the spec removes it in ${spec.cwd}. Re-run with --allow-auto-approve if that is genuinely intended.`,
-      { agents: autoApproved.map((agent) => agent.id) },
+      `auto_approve is on for ${autoApproved.map((agent) => agent.id).join(", ")} — ${autoApproved.length === 1 ? "that agent" : "those agents"} will run without permission prompts in ${spec.cwd}. Set auto_approve: false on an agent to keep its prompts.`,
     );
   }
   if (!dryRun && spec.agents.some(agent => !agent.workflow && agent.candidates.some(candidate => adapters.get(candidate.cli)?.requires_repository_readiness === true))) {
