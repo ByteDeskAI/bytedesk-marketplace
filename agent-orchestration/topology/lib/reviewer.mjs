@@ -550,7 +550,7 @@ export async function assignReviewer({ consumer, agentRef, session: existingSess
       ? await probes.responsive(candidate)
       : await reviewerProbeReady({ consumer, record: candidate, env, home });
     invariant(responsive && sameIncarnation(candidate.binding, binding) && await session.alive(name, candidate) && sameIncarnation(candidate.binding, binding), "TOPOLOGY_REVIEWER_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged readiness nonce; the existing session was preserved.");
-    await writeJson(agent._file, { ...Object.fromEntries(Object.entries(agent).filter(([key]) => !key.startsWith("_"))), role: "reviewer" });
+    await writeJson(agent._file, { ...Object.fromEntries(Object.entries(agent).filter(([key]) => !key.startsWith("_"))), role: "reviewer", auto_approve: false }); // TM-214: a reviewer is never auto-approved
     const now = nowIso();
     const record = {
       version: 1,

@@ -112,16 +112,38 @@ test('host collects nonce-bound read-only output and rejects forged response non
   assert.ok(argv.includes('--restricted')); assert.ok(argv.includes('--strict-mcp-config')); assert.ok(!argv.includes('--dangerously-skip-permissions'));
 });
 
-test('TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve', async () => {
+test('TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve', async t => {
   const { buildReviewerArgv } = await import('../../topology/lib/reviewer.mjs');
   const { loadAdapters } = await import('../../topology/lib/providers.mjs');
   const claude = (await loadAdapters([new URL('../../providers', import.meta.url).pathname])).get('claude');
   assert.ok(claude.auto_approve_args.includes('--dangerously-skip-permissions'), 'the real adapter must carry the flag, or this test proves nothing');
-  // auto_approve: true is what createAgent now stores for a reviewer whose template omits the key.
+  // The fixture's reviewer template has no auto_approve key — the case TM-214 turned on for everyone else.
+  const f = await fixture(t);
+  const { agent } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  assert.equal(JSON.parse(await readFile(agent._file, 'utf8')).auto_approve, false, 'the minted reviewer agent.json must store auto_approve false');
+  // Even if a stored definition said otherwise, the reviewer argv ignores it.
   const argv = buildReviewerArgv(claude, { args: [], env: {}, mcp: [], auto_approve: true }, {}, { consumer: '/repo' });
   assert.ok(argv.includes('--restricted'), argv.join(' '));
   assert.ok(argv.includes('--safe-mode'), argv.join(' '));
   assert.ok(!argv.includes('--dangerously-skip-permissions'), argv.join(' '));
+});
+
+test('TM-214: createAgent stores auto_approve false for any reviewer, and session open refuses the reviewer role', async t => {
+  const { createAgent } = await import('../../topology/lib/agents.mjs');
+  const f = await fixture(t);
+  const reviewer = await createAgent(f.consumer, { role: 'reviewer', cli: 'claude', auto_approve: true }, null, { pluginRoot: f.pluginRoot, home: f.home, env: f.env });
+  assert.equal(reviewer.auto_approve, false);
+  const worker = await createAgent(f.consumer, { role: 'worker', cli: 'claude' }, null, { pluginRoot: f.pluginRoot, home: f.home, env: f.env });
+  assert.equal(worker.auto_approve, true, 'control: a non-reviewer with no key defaults on');
+  const { execFile } = await import('node:child_process');
+  const cli = new URL('../../topology/cli.mjs', import.meta.url).pathname;
+  // TMUX blank and a private TMUX_TMPDIR: the refusal must come before any tmux call, but if it ever
+  // did not, nothing may reach the operator's server.
+  const env = { ...f.env, TMUX: '', TMUX_TMPDIR: f.home };
+  const result = await new Promise(resolve => execFile(process.execPath, [cli, 'session', 'open', reviewer.id, '--consumer', f.consumer, '--home', f.home, '--json'], { env, timeout: 15000 },
+    (error, stdout, stderr) => resolve({ code: error?.code ?? 0, output: stdout + stderr })));
+  assert.notEqual(result.code, 0, result.output);
+  assert.match(result.output, /TOPOLOGY_REVIEWER_READ_ONLY/, result.output);
 });
 
 test('concurrent review collectors record one response and replaced reviewer bindings require a fresh nonce',async t=>{
@@ -271,10 +293,13 @@ test('assignment observes binding before the default liveness probe and leaves e
     const observed=(await listServerPanes({tmuxServer:socket}))[0];
     const {agent}=await ensureReviewer({...f,probes:{alive:async()=>false,open:async()=>({session:'review',pane:observed.paneId,binding:observed})}});
     await writeJson(join(agent._dir,'session.json'),{session:'review',binding:observed});
+    // TM-214: an adopted agent may carry auto_approve true from its old role; assignment must clear it.
+    await writeJson(agent._file,{...JSON.parse(await readFile(agent._file,'utf8')),auto_approve:true});
     const assigned=await assignReviewer({...f,agentRef:agent.id,session:'review',probes:{responsive:async record=>{
       assert.equal(record.provider,'codex');assert.equal(record.consumer,f.consumer);assert.equal(record.binding.panePid,observed.panePid);return true;
     }}});
     assert.equal(assigned.record.managed,false);
+    assert.equal(JSON.parse(await readFile(agent._file,'utf8')).auto_approve,false,'an assigned reviewer must be stored with auto_approve false');
     await run('tmux',['-S',socket,'split-window','-d','-t','review','sleep 60']);
     await assert.rejects(assignReviewer({...f,agentRef:agent.id,session:'review',probes:{responsive:async()=>true}}),{code:'TOPOLOGY_REVIEWER_PANE_AMBIGUOUS'});
     await run('tmux',['-S',socket,'kill-server']);

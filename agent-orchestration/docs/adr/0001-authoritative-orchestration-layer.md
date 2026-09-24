@@ -1,5 +1,10 @@
 # ADR-0001: The authoritative orchestration layer, and who owns the worktree
 
+> **Superseded in part by TM-214 (2026-09-24).** Topology agents now run with `auto_approve` by
+> default, so their own permission prompts are no longer the topology layer's safety boundary, and
+> the `--allow-auto-approve` consent gate is removed. `auto_approve: false` opts an agent out; the
+> reviewer is always read-only. The text below is kept as the original decision record.
+
 ## Status
 
 Accepted — 2026-09-05. Supersedes nothing; settles TM-088 and unblocks TM-096, TM-098, TM-099.

@@ -26,8 +26,10 @@
   `--dangerously-skip-permissions`); `auto_approve: false` still opts an agent out. The TM-090
   consent gate is removed: `ao-topology launch` no longer refuses without `--allow-auto-approve`,
   which is accepted as a no-op, and the launch warning naming auto-approved agents stays. The
-  repository reviewer is unchanged and stays read-only (`--restricted --safe-mode`, never
-  `--dangerously-skip-permissions`).
+  repository reviewer stays read-only (`--restricted --safe-mode`, never
+  `--dangerously-skip-permissions`): its `agent.json` always stores `auto_approve: false`, including
+  after `reviewer assign`, and `ao-topology session open` refuses the reviewer role
+  (`TOPOLOGY_REVIEWER_READ_ONLY`) because it would not use the reviewer's read-only argv.
 
 ### Fixed
 

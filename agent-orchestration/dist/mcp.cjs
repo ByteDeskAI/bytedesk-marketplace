@@ -8350,8 +8350,9 @@ async function createAgent(consumer, spec = {}, dirs = null, context = {}) {
     instructions_file: spec.instructions_file || PROMPT,
     args: Array.isArray(spec.args) ? spec.args : [],
     env: spec.env && typeof spec.env === "object" ? spec.env : {},
-    auto_approve: spec.auto_approve !== false,
-    // TM-214: absent means on; explicit false opts out
+    // TM-214: absent means on; explicit false opts out. A reviewer is never auto-approved (TM-150):
+    // its stored definition must say false, so no path that reads agent.json can launch it unprompted.
+    auto_approve: role === "reviewer" ? false : spec.auto_approve !== false,
     created_at: nowIso()
   };
   const dir = (0, import_node_path29.join)(agentsRoot(consumer), agentDirName(agent));
@@ -9258,7 +9259,7 @@ async function assignReviewer({ consumer, agentRef, session: existingSession = n
     invariant2(await session.alive(name, candidate), "TOPOLOGY_REVIEWER_NOT_ALIVE", "Assignment requires a live session at the exact observed incarnation; no session was changed.");
     const responsive2 = probes?.responsive ? await probes.responsive(candidate) : await reviewerProbeReady({ consumer, record: candidate, env, home });
     invariant2(responsive2 && sameIncarnation(candidate.binding, binding) && await session.alive(name, candidate) && sameIncarnation(candidate.binding, binding), "TOPOLOGY_REVIEWER_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged readiness nonce; the existing session was preserved.");
-    await writeJson(agent._file, { ...Object.fromEntries(Object.entries(agent).filter(([key]) => !key.startsWith("_"))), role: "reviewer" });
+    await writeJson(agent._file, { ...Object.fromEntries(Object.entries(agent).filter(([key]) => !key.startsWith("_"))), role: "reviewer", auto_approve: false });
     const now = nowIso();
     const record2 = {
       version: 1,
@@ -52146,7 +52147,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "31f015daa8acba0036cb9d85582b117d8593a9f09842d413598f763169d998fa",
+  sourceFingerprint: false ? null : "bc5bffb812df8800052ba1f58bccc4a98e7f045681b25f8954b24cdedb00c636",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -803,7 +803,7 @@ export async function launchRun(options) {
     return await start();
   }
   catch (error) {
-    if (!options.dryRun && error.code !== 'TOPOLOGY_RUN_EXISTS' && error.code !== 'TOPOLOGY_AUTO_APPROVE_UNCONFIRMED') {
+    if (!options.dryRun && error.code !== 'TOPOLOGY_RUN_EXISTS') {
       await mkdir(spec.run_dir, { recursive: true, mode: 0o700 });
       const run = await readJson(join(spec.run_dir, 'run.json')).catch(() => ({ version: 1, run_id: spec.run_id, name: spec.name,
         consumer: spec.consumer, workload_cwd: spec.cwd, run_dir: spec.run_dir, repository: spec.repository, state_home: spec.state_home,

@@ -8,8 +8,9 @@ permissions and execution remain separate: the topology layer does not inherit t
 
 Use the broker for untrusted, autonomous, writable work against product repositories. Use the
 topology layer when a human wants to watch and steer a team in real time — design tournaments,
-competing reviews, research fan-outs — and the agents' own permission prompts are the safety
-boundary.
+competing reviews, research fan-outs. Topology agents run without their own permission prompts
+by default (TM-214), so the safety boundary is the containment below plus a disposable or watched
+repository, not the prompts.
 
 ## Pieces
 
@@ -196,8 +197,8 @@ The whole arrangement is exercised end to end against two real repositories by
 
 ## Safety boundaries
 
-The agents' own permission prompts are this layer's safety boundary, so two things are guarded
-around them:
+Agents run without their own permission prompts by default (TM-214), so the prompts are no longer
+this layer's safety boundary. What is guarded:
 
 - **A spec may not expand workload authority outside the repository that invoked it.** `cwd` and the requested `run_dir` are
   contained to the consumer; `/`, `~` and `../../other-repo` are refused. A spec is data, often
@@ -213,8 +214,8 @@ around them:
   `--dangerously-skip-permissions`), so it runs without its own permission prompts. Set
   `auto_approve: false` on an agent to keep them. Every launch, dry run included, warns and names
   the agents affected. `--allow-auto-approve` is accepted and has no effect. The repository
-  reviewer is the exception: it always launches read-only (`--restricted --safe-mode`), whatever
-  its template says.
+  reviewer is the exception: its stored `auto_approve` is always `false`, it launches only
+  read-only (`--restricted --safe-mode`), and `session open` refuses it — use `reviewer ensure`.
 
 ## Provider chains and failover
 

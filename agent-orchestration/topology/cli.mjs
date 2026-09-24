@@ -976,6 +976,8 @@ const commands = {
     }
 
     invariant(sub === "open", "TOPOLOGY_SUBCOMMAND_UNKNOWN", `Unknown: session ${sub}. Use open, list, or close.`);
+    // TM-214: the plain buildArgv below is not the reviewer's read-only argv (buildReviewerArgv).
+    invariant(agent.role !== "reviewer", "TOPOLOGY_REVIEWER_READ_ONLY", `${displayName(agent)} is the reviewer; it launches only read-only. Use: ao-topology reviewer ensure.`, { agent_id: agent.id });
     const adapters = await loadAdapters(ctx.providerDirs);
     const adapter = adapterFor(agent, adapters);
     const session = roleSessionName(agent.id);
