@@ -398,7 +398,7 @@ that list, then resolves inputs and normal producer admission on the server side
 `independentReview` is a read-only producer validation of the task's exact reviewed revision,
 request nonce, reviewer incarnation, patch scope and independent authors. Missing or invalid
 evidence is shown as unavailable/waiting with no accepted verdict. `status` is `approved` (only
-minor or nit findings remain), `changes-requested`, `blocked`, `awaiting-review`, or `failed` (no
+minor, nit or note findings remain), `changes-requested`, `blocked`, `awaiting-review`, or `failed` (no
 wake reached the reviewer; the lead was told and a new request replaces it). It is separate from the run's
 `human_decisions` and does not itself authorize integration.
 `inspection` reports exact observed `sessionAlive`, `observedAt`, `error`, and member `alive`

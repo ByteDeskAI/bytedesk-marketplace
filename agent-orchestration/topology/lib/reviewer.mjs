@@ -52,9 +52,10 @@ const REGISTRY_KIND = "reviewers";
 const DEFAULT_REVIEWER_PROVIDERS = ["claude", "codex"];
 const DEFAULT_TEMPLATE = "reviewer-default";
 const VERDICTS = new Set(["approve", "changes_requested", "blocked"]);
-// TM-215: findings are structured. Only blocker and major findings stop an approval; minor and nit
-// findings ride along with it as advice the author may take or leave.
-const SEVERITIES = ["blocker", "major", "minor", "nit"];
+// TM-215: findings are structured. Only blocker and major findings stop an approval; minor, nit and
+// note findings ride along with it. A note is informational and needs no action, so it may omit
+// evidence and fix; it still names a file and line in the diff.
+const SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
 const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
 const FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
 /** Wake attempts after publication before an undeliverable request is marked failed (TM-215 f). */
@@ -73,7 +74,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}. Approve only when every finding is minor or nit; changes_requested needs at least one finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one finding. Never execute code or change files.`;
 }
 
 /**
@@ -666,12 +667,17 @@ export function validateFindings(findings, files) {
     const file = finding.file.trim().replace(/^\.\//, "");
     invariant(files.has(file), "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file}, which is not in the reviewed diff.`, { file });
     invariant(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
-    for (const key of FINDING_TEXT_FIELDS) invariant(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
-    return { severity: finding.severity, file, line: finding.line, claim: finding.claim.trim(), evidence: finding.evidence.trim(), fix: finding.fix.trim() };
+    const text = {};
+    for (const key of FINDING_TEXT_FIELDS) {
+      if (finding.severity === "note" && key !== "claim" && finding[key] === undefined) continue;
+      invariant(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
+      text[key] = finding[key].trim();
+    }
+    return { severity: finding.severity, file, line: finding.line, ...text };
   });
 }
 
-/** Approval stands when no remaining finding is a blocker or major one. */
+/** Approval stands when no remaining finding is a blocker or major one (minor, nit and note may remain). */
 export function approvable(findings) {
   return Array.isArray(findings) && findings.every(finding => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
 }
@@ -748,7 +754,7 @@ export async function latestReview(consumer, task, env = process.env, home = hom
 
 /**
  * Does the task's latest review satisfy the gate for `currentRevision`?
- *   satisfied          approved, of THIS exact revision, with only minor or nit findings left
+ *   satisfied          approved, of THIS exact revision, with only minor, nit or note findings left
  *   changes_requested  the reviewer asked for changes on this revision
  *   blocked            the reviewer could not review this revision (or an approval carries a
  *                      blocker/major finding, which recordReview refuses and only a hand edit makes)

@@ -28,16 +28,17 @@ request and its patch: the diff itself, and check output the author included. Wh
 for a check is absent, say so, and do not approve on the strength of that check.
 
 - **Approve** — the exact revision satisfies the criteria; cite the evidence in the request that
-  shows it. Only minor or nit findings may remain.
+  shows it. Only minor, nit or note findings may remain.
 - **Changes requested** — at least one finding, and at least one of them blocker or major.
 - **Blocked** — you cannot review (missing context, unreadable diff, scope you were not granted);
   say what is missing. A blocked review is not an approval.
 
-Every finding is an object with all six fields:
+Every finding is an object with these six fields:
 
-- `severity` — `blocker` or `major` stops approval; `minor` or `nit` does not.
+- `severity` — `blocker` or `major` stops approval; `minor` or `nit` does not. `note` is
+  information that needs no action; a note may leave out `evidence` and `fix`.
 - `file` — a path the patch changes. Findings about other files are refused.
-- `line` — a positive line number in that file.
+- `line` — a positive line number in that file, as its own field (not `file:line`).
 - `claim` — what is wrong.
 - `evidence` — what in the patch or request shows it.
 - `fix` — what would resolve it.

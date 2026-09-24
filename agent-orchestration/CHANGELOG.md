@@ -22,9 +22,9 @@
 ### Changed
 
 - **Reviewer findings are structured (TM-215).** Each finding is `{severity, file, line, claim,
-  evidence, fix}` with severity `blocker`, `major`, `minor` or `nit`. Malformed findings, and
-  findings about a file outside the reviewed diff, are refused. An approval may carry minor and nit
-  findings; a blocker or major finding still blocks it, and `changes_requested` needs at least one
+  evidence, fix}` with severity `blocker`, `major`, `minor`, `nit` or `note`. A note needs no
+  action and may omit `evidence` and `fix`. Malformed findings, and findings about a file outside
+  the reviewed diff, are refused. An approval may carry minor, nit and note findings; a blocker or major finding still blocks it, and `changes_requested` needs at least one
   finding. The reviewer gets its own common prompt (`prompts.common_by_role.reviewer`) without the
   reply-file and command steps it cannot perform, and is told to cite evidence in the request rather
   than claim checks it cannot run.

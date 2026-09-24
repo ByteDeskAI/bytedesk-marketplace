@@ -8948,7 +8948,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path32.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}. Approve only when every finding is minor or nit; changes_requested needs at least one finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os8.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -9345,8 +9345,13 @@ function validateFindings(findings, files) {
     const file2 = finding.file.trim().replace(/^\.\//, "");
     invariant2(files.has(file2), "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file2}, which is not in the reviewed diff.`, { file: file2 });
     invariant2(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
-    for (const key of FINDING_TEXT_FIELDS) invariant2(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
-    return { severity: finding.severity, file: file2, line: finding.line, claim: finding.claim.trim(), evidence: finding.evidence.trim(), fix: finding.fix.trim() };
+    const text = {};
+    for (const key of FINDING_TEXT_FIELDS) {
+      if (finding.severity === "note" && key !== "claim" && finding[key] === void 0) continue;
+      invariant2(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
+      text[key] = finding[key].trim();
+    }
+    return { severity: finding.severity, file: file2, line: finding.line, ...text };
   });
 }
 function approvable(findings) {
@@ -9716,7 +9721,7 @@ var init_reviewer = __esm({
     DEFAULT_REVIEWER_PROVIDERS = ["claude", "codex"];
     DEFAULT_TEMPLATE = "reviewer-default";
     VERDICTS = /* @__PURE__ */ new Set(["approve", "changes_requested", "blocked"]);
-    SEVERITIES = ["blocker", "major", "minor", "nit"];
+    SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
     BLOCKING_SEVERITIES = /* @__PURE__ */ new Set(["blocker", "major"]);
     FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
     MAX_REVIEW_WAKES = 5;
@@ -52268,7 +52273,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "8daeaa16e5b2cd4a5ec7c50d71473106fc15ce419afe739a1ad2010b11bdd8f9",
+  sourceFingerprint: false ? null : "3f9fae6e11f5b7b20113b02e5bff95a4e7baa25aedc1d66c6a6729659fbb0c6f",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

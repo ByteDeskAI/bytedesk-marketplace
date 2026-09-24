@@ -9,7 +9,7 @@ import { run, writeJson } from '../../topology/lib/util.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 import { composePrompt } from '../../topology/lib/prompts.mjs';
 import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewStatus, ensureReviewer, independentReviewStatus, latestReview,
-  parseReviewResponse, recordReview, requestReview, reviewEligibility, reviewerInboxRoot, reviewsRoot } from '../../topology/lib/reviewer.mjs';
+  parseReviewResponse, recordReview, requestReview, reviewEligibility, reviewerInboxRoot, reviewsRoot, validateFindings } from '../../topology/lib/reviewer.mjs';
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 20 };
@@ -17,7 +17,7 @@ const finding = (extra = {}) => ({ severity: 'minor', file: 'src/a.js', line: 2,
 const say = (nonce, response) => `AO_REVIEW ${nonce} ${JSON.stringify(response)}`;
 
 // A task whose admitted range changes src/a.js, so findings have a real file to point at.
-async function fixture(t, reviewerBinding = binding) {
+async function fixture(t, reviewerBinding = binding, changed = ['src/a.js']) {
   const root = await mkdtemp(join(tmpdir(), 'ao-findings-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const consumer = join(root, 'repo'), pluginRoot = join(root, 'plugin'), home = join(root, 'home');
@@ -25,7 +25,10 @@ async function fixture(t, reviewerBinding = binding) {
   await mkdir(join(consumer, 'src'), { recursive: true }); await run('git', ['init', '-q', consumer]);
   await git(['commit', '--allow-empty', '-q', '-m', 'base']);
   const base = (await git(['rev-parse', 'HEAD'])).stdout.trim();
-  await writeFile(join(consumer, 'src', 'a.js'), 'export const a = 1;\nexport const x = 2;\n');
+  for (const path of changed) {
+    await mkdir(dirname(join(consumer, path)), { recursive: true });
+    await writeFile(join(consumer, path), Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join('\n') + '\n');
+  }
   await git(['add', '.']); await git(['commit', '-q', '-m', 'change']);
   const revision = (await git(['rev-parse', 'HEAD'])).stdout.trim();
   await writeJson(join(pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'codex', instructions: 'Review.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
@@ -147,6 +150,51 @@ test('a verdict Claude Code hard-wrapped across indented pane lines is rejoined'
     assert.ok(screen.split('\n').length > 4, `width ${width} actually wraps`);
     assert.deepEqual(parseReviewResponse(screen, nonce), response, `width ${width}`);
   }
+});
+
+test('a live verdict wrapped by Claude Code in a 2000-column pane parses (TM-214 round 3, pane %289)', async () => {
+  // Captured read-only with `tmux capture-pane -p -J -S -3000`. The first row fills the pane and ends
+  // with the space it wrapped at; the continuation is indented two spaces.
+  const screen = await readFile(join(PLUGIN, 'tests', 'fixtures', 'reviewer-wrapped-verdict.txt'), 'utf8');
+  const response = parseReviewResponse(screen, '9168d438-f7ab-4b16-9b94-46328896f3c6');
+  assert.equal(response.verdict, 'approve');
+  assert.deepEqual(response.findings.map(f => f.severity), ['note', 'note']);
+  assert.ok(response.verified.some(line => line.includes('--allow-auto-approve is a no-op and the TM-090 tests are rewritten')));
+  // That reviewer predates the structured schema: `file:line` in one field, summary/resolve instead
+  // of claim/fix. It is refused rather than guessed at; the updated prompt asks for the new shape.
+  assert.throws(() => validateFindings(response.findings, new Set(['agent-orchestration/tests/live/two-projects.sh', 'agent-orchestration/topology/lib/spec.mjs'])), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+});
+
+test('the live TM-214 round-3 verdict (approve, two notes) records as satisfied once its findings use the schema fields', async t => {
+  const nonce = '9168d438-f7ab-4b16-9b94-46328896f3c6';
+  const live = parseReviewResponse(await readFile(join(PLUGIN, 'tests', 'fixtures', 'reviewer-wrapped-verdict.txt'), 'utf8'), nonce);
+  const paths = live.findings.map(finding => finding.file.replace(/:\d+$/, ''));
+  const f = await fixture(t, binding, paths);
+  // The live notes carry `file:line`, summary and resolve. The same notes in the schema's fields:
+  const findings = live.findings.map(({ severity, file, summary, resolve }) => ({ severity, file: file.replace(/:\d+$/, ''), line: Number(file.split(':').at(-1)), claim: summary, fix: resolve }));
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const screen = (await readFile(join(PLUGIN, 'tests', 'fixtures', 'reviewer-wrapped-verdict.txt'), 'utf8'))
+    .replace(nonce, request.nonce).replace(JSON.stringify(live.findings), JSON.stringify(findings));
+  const review = await collectReview({ ...f.args, output: async () => screen });
+  assert.equal(review.verdict, 'approve');
+  assert.deepEqual(review.findings.map(x => [x.severity, x.file, x.line]), [['note', paths[0], 146], ['note', paths[1], 347]]);
+  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
+});
+
+test('a note is informational: it may omit evidence and fix, never blocks approve, and still needs a file and line in the diff', async t => {
+  const f = await fixture(t);
+  const note = { severity: 'note', file: 'src/a.js', line: 1, claim: 'The live test is still unrun.' };
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [{ ...note, claim: undefined }] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [{ ...note, line: undefined }] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [{ ...note, file: 'src/other.js' }] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [{ ...note, fix: '' }] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [finding({ severity: 'minor', fix: undefined })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' }, 'only a note may omit fix');
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const review = await collectReview({ ...f.args, output: async () => say(request.nonce, { verdict: 'approve', findings: [note, { ...note, line: 2, fix: 'None required.' }] }) });
+  assert.deepEqual(review.findings, [note, { ...note, line: 2, fix: 'None required.' }]);
+  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
+  assert.equal((await reviewEligibility({ ...f.args, probes: { alive: async () => true, responsive: async () => true } })).eligible, true);
 });
 
 test('collection reads a verdict that has scrolled far above the bottom of the pane', async t => {
