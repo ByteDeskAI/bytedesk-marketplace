@@ -21,6 +21,24 @@ const list = value => Array.isArray(value) && value.every(nonempty);
 const git = async (cwd, args, allowFailure = false) => run('git', ['-C', cwd, ...args], { allowFailure });
 const gitText = async (cwd, args) => (await git(cwd, args)).stdout.trim();
 
+/** Store paths the task store and orchestration write into the main checkout on their own.
+ * Integration tolerates them being dirty and refuses any landing that would touch them.
+ * Documented in docs/repository-leads.md; a change here changes that list. */
+export const INTEGRATION_STORE_PATHS = Object.freeze(['.bytedesk/task-management/', '.bytedesk/agent-orchestration/agents/', '.bytedesk/knowledge/.km/']);
+const storePath = path => INTEGRATION_STORE_PATHS.some(prefix => path.startsWith(prefix));
+/** Dirty paths in the checkout other than the tools' own store paths (renames report both sides). */
+export async function foreignDirtyPaths(cwd) {
+  const fields = (await git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all'])).stdout.split('\0');
+  const paths = [];
+  for (let i = 0; i < fields.length; i++) {
+    const entry = fields[i];
+    if (!entry) continue;
+    paths.push(entry.slice(3));
+    if (/^[RC]/.test(entry)) paths.push(fields[++i]);
+  }
+  return paths.filter(path => path && !storePath(path));
+}
+
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */
 export async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
@@ -312,7 +330,11 @@ export async function integrateTask(options) {
     const { record, doc, policy } = gate, checks = [];
     const targetBefore = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant(await gitText(ctx.store.root, ['symbolic-ref', '--short', 'HEAD']) === policy.target_branch, 'TOPOLOGY_MANAGEMENT_TARGET', 'Canonical checkout must be on the configured integration branch.');
-    invariant(!(await gitText(ctx.store.root, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_DIRTY', 'Integration checkout has uncommitted or uncollected work.');
+    const foreign = await foreignDirtyPaths(ctx.store.root);
+    invariant(!foreign.length, 'TOPOLOGY_MANAGEMENT_DIRTY', `Integration checkout has uncommitted or uncollected work outside the tool store paths: ${foreign.slice(0, 5).join(', ')}`);
+    invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', targetBefore, record.finish.revision], true)).code === 0, 'TOPOLOGY_MANAGEMENT_TARGET', `Cannot fast-forward ${policy.target_branch} to ${record.finish.revision}; rebase the task onto the target branch and obtain a new review.`);
+    const incoming = (await git(ctx.store.root, ['diff', '--name-only', '-z', targetBefore, record.finish.revision])).stdout.split('\0').filter(Boolean);
+    invariant(!incoming.some(storePath), 'TOPOLOGY_MANAGEMENT_STORE_PATHS', `The landing would change tool store paths (${INTEGRATION_STORE_PATHS.join(', ')}); land it by hand and record it with manage record-landing.`);
     for (const check of policy.required_checks) {
       const result = await run(check.argv[0], check.argv.slice(1), { cwd: doc.worktree, allowFailure: true, timeoutMs: check.timeout_ms || 120000 });
       checks.push({ name: check.name, code: result.code, revision: record.finish.revision });
@@ -321,7 +343,7 @@ export async function integrateTask(options) {
     // Reread claims, revision and reviewer readiness after potentially long checks.
     const fresh = await integrationEligibility(options);
     invariant(fresh.eligible && fresh.record.finish.revision === record.finish.revision && JSON.stringify(fresh.policy) === JSON.stringify(policy), 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', fresh.reasons.join('; ') || 'Revision changed during checks.');
-    invariant(await gitText(ctx.store.root, ['symbolic-ref', '--short', 'HEAD']) === policy.target_branch && await gitText(ctx.store.root, ['rev-parse', 'HEAD']) === targetBefore && !(await gitText(ctx.store.root, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_TARGET', 'Integration target changed during checks.');
+    invariant(await gitText(ctx.store.root, ['symbolic-ref', '--short', 'HEAD']) === policy.target_branch && await gitText(ctx.store.root, ['rev-parse', 'HEAD']) === targetBefore && !(await foreignDirtyPaths(ctx.store.root)).length, 'TOPOLOGY_MANAGEMENT_TARGET', 'Integration target changed during checks.');
     record.review = fresh.review.status?.review || null;
     await ctx.store.evidence(options.task, ctx.path);
     record.collected = true;
@@ -333,6 +355,46 @@ export async function integrateTask(options) {
       authorized:options.authorized===true,revision:record.finish.revision,channel:options.actor?'gateway-or-explicit-actor':'local-operator',policy_auto_merge:policy.auto_merge===true,at:nowIso()};
     const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
     Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization } });
+    await writeJson(ctx.path, next);
+    return next;
+  });
+}
+
+/** Record an operator-authorized landing that ALREADY happened (TM-224). It never merges.
+ * It writes the same merge record integrateTask writes, so governed completion accepts it
+ * unchanged, and only for the exact reviewed finish revision reachable from the target branch. */
+export async function recordLanding(options) {
+  const ctx = await context(options);
+  return withLock(join(ctx.root, 'integration.lock'), async () => {
+    const { task, actor, reason } = options;
+    invariant(nonempty(actor) && nonempty(reason), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --actor and --reason.');
+    const record = await loadRecord(ctx.path);
+    const revision = record?.finish?.revision;
+    invariant(!record?.merge, 'TOPOLOGY_MANAGEMENT_LANDING', 'Task already has a recorded landing.');
+    invariant(record?.state === 'ready-for-review' && nonempty(revision), 'TOPOLOGY_MANAGEMENT_LANDING', 'Task has no finished worker revision ready for review.');
+    const policy = (await loadConfig(options)).config.management || {};
+    invariant(nonempty(policy.target_branch), 'TOPOLOGY_MANAGEMENT_TARGET', 'Configure management.target_branch before recording a landing.');
+    // Same authority integrate requires: explicit --authorized, or policy auto_merge.
+    const authorized = options.authorized === true || policy.auto_merge === true;
+    invariant(authorized, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'Configured policy requires explicit integration authority; pass --authorized.');
+    invariant(nonempty(options.landed), 'TOPOLOGY_MANAGEMENT_LANDING', 'record-landing requires --landed <commit>.');
+    const resolved = await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', `${options.landed}^{commit}`], true);
+    invariant(resolved.code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Landed commit ${options.landed} does not exist.`);
+    const landed = resolved.stdout.trim();
+    const ancestor = async (a, b) => (await git(ctx.store.root, ['merge-base', '--is-ancestor', a, b], true)).code === 0;
+    invariant(await ancestor(revision, landed), 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of ${landed}.`);
+    invariant(await ancestor(landed, `refs/heads/${policy.target_branch}`), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch}.`);
+    const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
+    invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');
+    record.review = review.status.review;
+    await ctx.store.evidence(task, ctx.path);
+    record.collected = true;
+    await writeJson(ctx.path, record);
+    const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: 'recorded-landing', reason: reason.trim(), policy_auto_merge: policy.auto_merge === true, at: nowIso() };
+    // No checks run here: the actor attests to the checks run at landing time, cited in --reason.
+    const merge = { revision, landed, checks: [], checks_skipped: true, target_branch: policy.target_branch, authorization };
+    const next = await recordEvent(ctx, task, record, 'recorded-landing', merge);
+    Object.assign(next, { state: 'merged', collected: true, merge });
     await writeJson(ctx.path, next);
     return next;
   });

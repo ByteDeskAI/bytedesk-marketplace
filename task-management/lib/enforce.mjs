@@ -5,6 +5,7 @@
  * Escape hatches (the plan calls these non-negotiable):
  *   - TM_ENFORCE=off / config.enforce=false  → all gates open
  *   - `tm override <reason>`                 → one-shot token, consumed by the next gate
+ *   - `tm override --clear`                  → disarms an unspent token
  *   - the Stop gate never blocks twice in a row for the same task set
  */
 import { acceptanceOpen, config, list, logEvent, now, read, state, withLock, writeState } from "./store.mjs";
@@ -22,6 +23,17 @@ export function enforcementOff(p = paths()) {
 export function setOverride(reason, p = paths()) {
   writeState({ override: { reason, ts: now() } }, p);
   logEvent("override", { reason }, p);
+}
+
+/** Disarms an unspent token. Returns the reason it held, or null when none was armed. */
+export function clearOverride(p = paths()) {
+  return withLock(p, () => {
+    const s = state(p);
+    if (!s.override) return null;
+    writeState({ override: null }, p);
+    logEvent("override_cleared", { reason: s.override.reason }, p);
+    return s.override.reason;
+  });
 }
 
 /**

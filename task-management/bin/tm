@@ -46,7 +46,7 @@ import {
   OPEN,
   RESOLVED,
 } from "../lib/store.mjs";
-import { enforcementOff, gateDone, gateStart, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
+import { clearOverride, enforcementOff, gateDone, gateStart, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
 import { board, briefFor, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { launcherStatus, pluginBin, writeLaunchers } from "../lib/launcher.mjs";
@@ -1045,9 +1045,16 @@ const VERBS = {
     );
   },
 
-  override(...reason) {
+  override(...words) {
     requireInit();
-    setOverride(reason.join(" ") || "unspecified", P);
+    // TM-224: a bare `tm override` used to arm an "unspecified" token by accident.
+    if (words.length === 1 && words[0] === "--clear") {
+      const held = clearOverride(P);
+      return out(held === null ? "no override armed" : `override cleared (was: ${held})`);
+    }
+    const reason = words.join(" ").trim();
+    if (!reason || words.some((w) => w.startsWith("--"))) die('usage: tm override "<reason>"   (arms one gate bypass)   |   tm override --clear   (disarms it)');
+    setOverride(reason, P);
     out("override armed — the next gate will pass and clear it");
   },
 
@@ -1676,7 +1683,7 @@ const VERBS = {
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
-        "  reindex | override <reason> | config [key value] | context",
+        "  reindex | override <reason> | override --clear | config [key value] | context",
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",

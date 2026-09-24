@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 
@@ -302,4 +302,117 @@ test('a native fallback requires a new verified finish and incomplete or foreign
   delete f.doc.dispatched.nativeRunId;
   const legacy = await taskWorkerState(f.actual, record);
   assert.equal(legacy.owned, false); assert.match(legacy.reason, /authentic native run ID/);
+});
+
+// TM-224: the tools' own store paths may be dirty in the integration checkout; nothing else may.
+test('integration tolerates dirty tool store paths but refuses any other dirty path', async t => {
+  const { opts, finish, git } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  await mkdir(join(opts.consumer, 'src'), { recursive: true });
+  await writeFile(join(opts.consumer, 'src/stray.txt'), 'uncommitted source');
+  await assert.rejects(integrateTask(opts), err => err.code === 'TOPOLOGY_MANAGEMENT_DIRTY' && /src\/stray\.txt/.test(err.message));
+  await rm(join(opts.consumer, 'src'), { recursive: true });
+  for (const dir of ['.bytedesk/task-management', '.bytedesk/agent-orchestration/agents/lead', '.bytedesk/knowledge/.km']) {
+    await mkdir(join(opts.consumer, dir), { recursive: true }); await writeFile(join(opts.consumer, dir, 'state.json'), '{}');
+  }
+  const integrated = await integrateTask(opts);
+  assert.equal(integrated.merge.landed, report.finish.revision);
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), report.finish.revision);
+});
+
+test('integration refuses a landing that would change tool store paths', async t => {
+  const { opts, doc, git } = await fixture(t);
+  doc.touches = ['code.txt', '.bytedesk/task-management/'];
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeFile(join(worktree, 'code.txt'), 'implemented');
+  await mkdir(join(worktree, '.bytedesk/task-management'), { recursive: true }); await writeFile(join(worktree, '.bytedesk/task-management/x.md'), 'x');
+  await git(worktree, ['add', '-A']); await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'impl']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture', revision } });
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_STORE_PATHS' });
+});
+
+// TM-224: a landing an operator already made is recorded, never performed, and only for the reviewed revision.
+const fullReview = (record, revision) => async () => ({ eligible: true, reasons: [], status: { review: { task: record.task, repo_id: record.repo_id, revision, verified_commit: revision,
+  verdict: 'approve', findings: [], reviewer_id: 'fixture-reviewer', author_agent_ids: ['author'], request_nonce: 'fixture-review-nonce',
+  binding: { serverKey: '/fixture/socket', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } } } });
+
+test('record-landing records an operator landing that governed completion accepts, without merging', async t => {
+  const { opts, finish, git, calls } = await fixture(t);
+  const admitted = await admitTask(opts); const report = await finish(); const revision = report.finish.revision;
+  const landing = { ...opts, actor: 'operator', reason: 'landed by hand before integrate was usable', reviewGate: fullReview(admitted.record, revision) };
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  await assert.rejects(recordLanding({ ...landing, landed: revision }), { code: 'TOPOLOGY_MANAGEMENT_TARGET' }, 'not yet on main');
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'record-landing never merges');
+  await git(opts.consumer, ['merge', '--ff-only', revision]); // the operator's own landing
+  const recorded = await recordLanding({ ...landing, landed: 'main' });
+  assert.equal(recorded.state, 'merged'); assert.equal(recorded.collected, true);
+  assert.deepEqual({ ...recorded.merge, authorization: undefined }, { revision, landed: revision, checks: [], checks_skipped: true, target_branch: 'main', authorization: undefined });
+  assert.equal(recorded.merge.authorization.decision, 'integrate'); assert.equal(recorded.merge.authorization.authorized, true);
+  assert.equal(recorded.merge.authorization.actor, 'operator'); assert.equal(recorded.merge.authorization.revision, revision);
+  assert.ok(calls.includes('recorded-landing') && calls.includes('collect'));
+  await assert.rejects(recordLanding({ ...landing, landed: 'main' }), /already has a recorded landing/);
+
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const task = { id: 'TM-1', worktree: recorded.worktree, branch: recorded.branch,
+    governance: { version: 1, runtime: 'topology', workflowRunId: recorded.workflow_run_id, leadId: recorded.lead_id, revision, state: 'ready-for-review' } };
+  const gate = governedCompletion(task, { root: opts.consumer });
+  assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'operator');
+});
+
+test('record-landing refuses without review, ancestry, target branch, actor or reason', async t => {
+  const { opts, finish, git } = await fixture(t);
+  const admitted = await admitTask(opts);
+  const base = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const report = await finish(); const revision = report.finish.revision;
+  const landing = { ...opts, actor: 'operator', reason: 'hand landing', reviewGate: fullReview(admitted.record, revision) };
+  await git(opts.consumer, ['branch', 'side', revision]);
+  await assert.rejects(recordLanding({ ...landing, landed: 'side' }), { code: 'TOPOLOGY_MANAGEMENT_TARGET' }, 'not on the target branch');
+  await assert.rejects(recordLanding({ ...landing, landed: base }), { code: 'TOPOLOGY_MANAGEMENT_LANDING' }, 'finish revision not an ancestor');
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  await assert.rejects(recordLanding({ ...landing, landed: revision, reviewGate: async () => ({ eligible: false, reasons: ['no review of TM-1 exists'] }) }), err => err.code === 'TOPOLOGY_MANAGEMENT_REVIEW' && /no review/.test(err.message));
+  await assert.rejects(recordLanding({ ...landing, landed: revision, reviewGate: async () => ({ eligible: true, reasons: [], status: {} }) }), { code: 'TOPOLOGY_MANAGEMENT_REVIEW' });
+  for (const bad of [{ actor: '' }, { actor: '  ' }, { reason: '' }, { reason: undefined }])
+    await assert.rejects(recordLanding({ ...landing, landed: revision, ...bad }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  // Authority: without policy auto_merge, only an explicit --authorized records the landing.
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  await assert.rejects(recordLanding({ ...landing, landed: revision }), err => err.code === 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' && /authority/.test(err.message));
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+  const explicit = await recordLanding({ ...landing, landed: revision, authorized: true });
+  assert.equal(explicit.merge.authorization.authorized, true); assert.equal(explicit.merge.authorization.explicit, true);
+  assert.equal(explicit.merge.authorization.policy_auto_merge, false);
+});
+
+test('integration refuses a task that cannot fast-forward the target branch', async t => {
+  const { opts, finish, git } = await fixture(t);
+  await admitTask(opts); await finish();
+  await writeFile(join(opts.consumer, 'other.txt'), 'moved on');
+  await git(opts.consumer, ['add', 'other.txt']); await git(opts.consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'main moved']);
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  await assert.rejects(integrateTask(opts), err => err.code === 'TOPOLOGY_MANAGEMENT_TARGET' && /Cannot fast-forward/.test(err.message));
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before);
+});
+
+// TM-224 review: this repository's committed policy must satisfy the integration policy gate.
+test("this repository's committed management policy raises no policy reasons", async t => {
+  const { fileURLToPath } = await import('node:url');
+  const { readFile } = await import('node:fs/promises');
+  const { loadConfig } = await import('../../topology/lib/config.mjs');
+  const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const pluginRoot = fileURLToPath(new URL('../../', import.meta.url));
+  const { opts, finish } = await fixture(t);
+  const loaded = await loadConfig({ consumer: repoRoot, pluginRoot, home: opts.home, env: opts.env });
+  assert.deepEqual(loaded.errors, []);
+  assert.equal(loaded.config.management.target_branch, 'main');
+  assert.ok(loaded.config.management.required_checks.length >= 6);
+  await mkdir(join(opts.consumer, '.bytedesk/agent-orchestration'), { recursive: true });
+  await writeFile(join(opts.consumer, '.bytedesk/agent-orchestration/config.json'), await readFile(join(repoRoot, '.bytedesk/agent-orchestration/config.json')));
+  const policyOpts = { ...opts, pluginRoot };
+  await admitTask(policyOpts); await finish();
+  const gate = await integrationEligibility(policyOpts);
+  assert.deepEqual(gate.reasons.filter(r => /configure management|integration authority|configuration is invalid/.test(r)), []);
+  assert.deepEqual(gate.policy, loaded.config.management);
 });
