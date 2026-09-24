@@ -120,6 +120,7 @@ export const CATALOG = {
     subagent_stop: { group: "writes", label: "A subagent finishes", priority: "min", tags: "robot" },
     override: { group: "writes", label: "A gate is bypassed with `tm override`", priority: "default", tags: "key" },
     override_used: { group: "writes", label: "An override token was spent by a gate", priority: "default", tags: "key" },
+    override_cleared: { group: "writes", label: "An armed override was disarmed with `tm override --clear`", priority: "low", tags: "key" },
 
     // noise
     init: { group: "noise", label: "A store is initialized", priority: "min", tags: "package" },

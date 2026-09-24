@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A bare `tm override` prints usage and arms nothing; before, it armed an "unspecified" token.
+  `tm override --clear` disarms an unspent token and logs `override_cleared` (TM-224).
 - Governed completion accepts an approving review whose findings are all minor, nit or note,
   matching agent-orchestration since TM-215 (TM-221). A blocker or major finding, a finding that is
   not an object, or an unknown severity still refuses. A conformance test fails if the two plugins'
