@@ -13,20 +13,17 @@ log() { echo "release-gitflow: $*"; }
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 find_repo_root() {
-  local d cand
-  d="$(pwd)"
-  while [[ -n "$d" && "$d" != "/" ]]; do
-    if [[ -f "$d/VERSION" && -f "$d/CHANGELOG.md" && -d "$d/.git" ]]; then
-      printf '%s\n' "$d"
-      return 0
-    fi
-    d="$(dirname "$d")"
+  local d start
+  for start in "$(pwd)" "$script_dir"; do
+    d="$start"
+    while [[ -n "$d" && "$d" != "/" ]]; do
+      if [[ -f "$d/VERSION" && -f "$d/CHANGELOG.md" && -f "$d/src/main.go" ]]; then
+        printf '%s\n' "$d"
+        return 0
+      fi
+      d="$(dirname "$d")"
+    done
   done
-  cand="$(cd "$script_dir/../../../.." && pwd)"
-  if [[ -f "$cand/VERSION" && -f "$cand/CHANGELOG.md" ]]; then
-    printf '%s\n' "$cand"
-    return 0
-  fi
   return 1
 }
 
@@ -501,8 +498,8 @@ RF=$script_dir/release-gitflow.sh
 # Prove artifacts (TeamCity must have published after the v* push)
 "\$RF" verify
 
-# Host process (dev first) — other skill
-# setup/skills/cutover/scripts/deploy-safe.sh preflight && stage && restart-cutover
+# Host process (dev first) — cutover skill, scripts/deploy-safe.sh next to that SKILL.md
+# "$CUTOVER_DIR/scripts/deploy-safe.sh" preflight && stage && restart-cutover
 EOF
 }
 

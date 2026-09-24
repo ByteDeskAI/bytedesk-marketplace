@@ -8,7 +8,9 @@ description: >
 # gateway-doctor
 
 ```bash
-SKILL_DIR="<setup/skills/gateway-doctor>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/gateway-doctor}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 "$SKILL_DIR/scripts/doctor.sh"
 # Windows: pwsh -File "$SKILL_DIR/scripts/doctor.ps1"
 ```

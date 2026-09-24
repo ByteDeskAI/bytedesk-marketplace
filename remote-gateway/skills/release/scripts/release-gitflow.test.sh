@@ -199,7 +199,20 @@ fi
 pass "start pushes release branch and tag without updating main"
 
 # Shipped URL helper + verify uses it
-URL_TEST="$(cd "$(dirname "$RF")/../../../.." && pwd)/scripts/commercial/lib/release-url_test.sh"
+URL_TEST=""
+_search="$RF"
+while [[ -n "$_search" && "$_search" != "/" ]]; do
+  if [[ -f "$_search/scripts/commercial/lib/release-url_test.sh" ]]; then
+    URL_TEST="$_search/scripts/commercial/lib/release-url_test.sh"
+    break
+  fi
+  if [[ -f "$_search/../bytedesk-remote-gateway/scripts/commercial/lib/release-url_test.sh" ]]; then
+    URL_TEST="$(cd "$_search/../bytedesk-remote-gateway" && pwd)/scripts/commercial/lib/release-url_test.sh"
+    break
+  fi
+  _search="$(dirname "$_search")"
+done
+[[ -n "$URL_TEST" && -f "$URL_TEST" ]] || fail "release-url_test.sh not found in the gateway checkout"
 [[ -x "$URL_TEST" ]] || chmod +x "$URL_TEST"
 "$URL_TEST" || fail "release-url helper"
 grep -q 'bytedesk_gateway_release_url' "$RF" || fail "verify must call bytedesk_gateway_release_url"

@@ -8,7 +8,9 @@ description: >
 # desktop-deps
 
 ```bash
-SKILL_DIR="<setup/skills/desktop-deps>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/desktop-deps}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 ```
 
 ```bash
