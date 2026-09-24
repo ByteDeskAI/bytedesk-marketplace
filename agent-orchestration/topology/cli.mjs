@@ -68,6 +68,13 @@ Conduct (used by the orchestrator agent)
   delegate --task <id> --to <agent> [--for <external-agent>]
                                                open a direct channel to one of your agents
   delegations [--json]                         open delegations in this repo
+  delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing
+           [--expires <duration>] [--reason <text>]
+                                               OPERATOR-ONLY: grant standing authority a lead can
+                                               later exercise instead of an explicit --authorized.
+                                               Refuses inside any managed agent session.
+  delegate list [--repo <consumer>] [--json]    standing delegations granted for a repository
+  delegate revoke <id> [--repo <consumer>]      OPERATOR-ONLY: revoke a standing delegation
 
   send --run <run_dir> --from <id> --to <id>[,<id>] --stage <slug> (--file <md> | --body <text>)
        [--to @run|@repo|@role:<role>|@idle]    audiences, unioned by the same comma; [--max-recipients <n>]
@@ -110,6 +117,8 @@ Standing repository services
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> --actor <name> --reason <text> [--authorized]
+                                               in place of --authorized, integrate and record-landing
+                                               also accept a standing delegation (see delegate grant)
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
@@ -1030,7 +1039,25 @@ const commands = {
     });
   },
 
-  async delegate({ flags }) {
+  async delegate({ flags, positional }) {
+    const sub = positional[0];
+    // TM-234: standing authorization delegation (grant/list/revoke) is a distinct concept from the
+    // routing delegation below (opening a channel for an external agent). Dispatching on the first
+    // positional keeps both under the one verb the operator already knows without colliding: the
+    // routing form below never reads a positional argument.
+    if (sub === 'grant' || sub === 'list' || sub === 'revoke') {
+      const ctx = context(flags), api = await import('./lib/delegation.mjs');
+      const consumer = flags.repo && flags.repo !== true ? absolutize(String(flags.repo)) : ctx.consumer;
+      if (sub === 'grant') {
+        const grant = await api.grantDelegation({ consumer, to: flags.to, scopes: list(flags.scope), expires: flags.expires, reason: flags.reason });
+        return out({ ok: true, ...grant });
+      }
+      if (sub === 'list') return out({ ok: true, delegations: await api.listStandingDelegations({ consumer }) });
+      const id = flags.id && flags.id !== true ? String(flags.id) : positional[1];
+      invariant(typeof id === 'string' && id, 'TOPOLOGY_DELEGATION_ID', 'Pass the delegation id to revoke: delegate revoke <id>.');
+      return out(await api.revokeDelegation({ consumer, id }));
+    }
+    invariant(sub === undefined, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use delegate grant|list|revoke, or delegate --to <agent> [--task <id>] [--for <external-agent>] to open a direct channel.');
     const ctx = context(flags);
     const local = await requireAgent(String(flags.to && flags.to !== true ? flags.to : ""), ctx.agentDirs);
     const lead = await findLead(ctx.agentDirs);

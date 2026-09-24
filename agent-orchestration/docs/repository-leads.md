@@ -297,6 +297,46 @@ integration writes, with `authorization.channel` set to `recorded-landing` and t
 attached, and it logs a `recorded-landing` event. The task's normal completion (`tm done`, or
 `manage cleanup`) then passes the governed completion gate unchanged. That gate has no override.
 
+### Standing delegation of integration authority
+
+`--authorized` on `manage integrate` and `manage record-landing` is the lead attesting its own
+authority to itself. When a coding-agent harness treats that as self-approval and refuses to run
+it unattended, the operator otherwise has to type the command by hand every time. A standing
+delegation lets the operator grant that authority once, in advance, so the lead can exercise it
+without attesting to it itself:
+
+```bash
+ao-topology delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing \
+  [--expires <duration>] [--reason <text>]
+ao-topology delegate list [--repo <consumer>]
+ao-topology delegate revoke <id> [--repo <consumer>]
+```
+
+- **Operator-only.** `grant` and `revoke` refuse when run inside any managed agent session (one
+  with `AO_AGENT_ID` set), and `grant` separately refuses a grantee granting to itself. Only an
+  interactive operator shell can create or remove a delegation.
+- **Scope is a fixed allowlist**: `integrate` and `record-landing` only. The grant never covers
+  deploy, publish, push or spend; those keep their own separate authorization and this command
+  cannot widen to them.
+- **`--expires`** takes the same duration form as elsewhere (`90s`, `20m`, `1h`); omitted, the
+  grant does not expire on its own and only `revoke` ends it.
+- Records are **append-only**, under the state home
+  (`$XDG_STATE_HOME/bytedesk/agent-orchestration/delegations/<repositoryKey>.json`): a grant event
+  and, if it happens, a later revoke event. Nothing is ever rewritten in place.
+
+`manage integrate` and `manage record-landing` accept a live, unexpired, unrevoked grant that
+names the caller's own `AO_AGENT_ID`, this repository, and the scope in use, in place of an
+explicit `--authorized`. The merge record then carries `authorization.authorized: true` alongside
+`authorization.delegated_by` (the grantor) and `authorization.delegation_id`, so the evidence shows
+who actually granted the authority the lead exercised. Governed completion's checks
+(`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
+and `authorization.actor` exactly as before and simply ignore the added fields.
+
+If your harness gates commands by name, pair this with a permission rule for
+`ao-topology manage integrate` / `ao-topology manage record-landing` themselves — the delegation
+record is what makes running them without `--authorized` safe; a harness-level rule is what lets
+the lead run them at all.
+
 ## Presence v1
 
 `presence watch` maintains a complete read-only projection every TTL/3; `presence publish` is a

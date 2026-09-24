@@ -7,6 +7,7 @@ import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
+import { findActiveDelegation } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
@@ -422,7 +423,12 @@ export async function integrationEligibility(options) {
   const loaded = await loadConfig(options);
   const policy = loaded.config.management || {};
   if (loaded.errors.length) reasons.push('management configuration is invalid');
-  if (policy.auto_merge !== true && options.authorized !== true) reasons.push('configured policy requires explicit integration authority');
+  // TM-234: a standing delegation the operator granted this exact caller stands in for --authorized,
+  // so a lead exercising authority it was given never has to attest to authority it grants itself.
+  const delegation = policy.auto_merge !== true && options.authorized !== true
+    ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', env: ctx.env, home: ctx.home })
+    : null;
+  if (policy.auto_merge !== true && options.authorized !== true && !delegation) reasons.push('configured policy requires explicit integration authority or a valid standing delegation');
   if (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length)) reasons.push('configure named management.required_checks with executable argv');
   if (!nonempty(policy.target_branch)) reasons.push('configure management.target_branch before integration');
   if (doc && record?.finish) {
@@ -440,7 +446,7 @@ export async function integrationEligibility(options) {
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) reasons.push(writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
-  return { eligible: reasons.length === 0, reasons, record, doc, policy, review };
+  return { eligible: reasons.length === 0, reasons, record, doc, policy, review, delegation };
 }
 
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
@@ -474,7 +480,10 @@ export async function integrateTask(options) {
     const landed = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.finish.revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', 'Landing ancestry verification failed.');
     const authorization={decision:'integrate',actor:options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id,
-      authorized:options.authorized===true,revision:record.finish.revision,channel:options.actor?'gateway-or-explicit-actor':'local-operator',policy_auto_merge:policy.auto_merge===true,at:nowIso()};
+      authorized:options.authorized===true || fresh.delegation!=null,revision:record.finish.revision,
+      channel:options.actor?'gateway-or-explicit-actor':(fresh.delegation?'standing-delegation':'local-operator'),
+      policy_auto_merge:policy.auto_merge===true,
+      ...(fresh.delegation?{delegated_by:fresh.delegation.grantor,delegation_id:fresh.delegation.id}:{}),at:nowIso()};
     const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
     Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization } });
     await writeJson(ctx.path, next);
@@ -496,9 +505,13 @@ export async function recordLanding(options) {
     invariant(record?.state === 'ready-for-review' && nonempty(revision), 'TOPOLOGY_MANAGEMENT_LANDING', 'Task has no finished worker revision ready for review.');
     const policy = (await loadConfig(options)).config.management || {};
     invariant(nonempty(policy.target_branch), 'TOPOLOGY_MANAGEMENT_TARGET', 'Configure management.target_branch before recording a landing.');
-    // Same authority integrate requires: explicit --authorized, or policy auto_merge.
-    const authorized = options.authorized === true || policy.auto_merge === true;
-    invariant(authorized, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'Configured policy requires explicit integration authority; pass --authorized.');
+    // Same authority integrate requires: explicit --authorized, policy auto_merge, or a standing
+    // delegation (TM-234) covering this exact caller, repository and the record-landing scope.
+    const delegation = options.authorized !== true && policy.auto_merge !== true
+      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', env: ctx.env, home: ctx.home })
+      : null;
+    const authorized = options.authorized === true || policy.auto_merge === true || delegation != null;
+    invariant(authorized, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'Configured policy requires explicit integration authority; pass --authorized, or have the operator grant a standing delegation with ao-topology delegate grant.');
     invariant(nonempty(options.landed), 'TOPOLOGY_MANAGEMENT_LANDING', 'record-landing requires --landed <commit>.');
     const resolved = await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', `${options.landed}^{commit}`], true);
     invariant(resolved.code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Landed commit ${options.landed} does not exist.`);
@@ -512,7 +525,8 @@ export async function recordLanding(options) {
     await ctx.store.evidence(task, ctx.path);
     record.collected = true;
     await writeJson(ctx.path, record);
-    const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: 'recorded-landing', reason: reason.trim(), policy_auto_merge: policy.auto_merge === true, at: nowIso() };
+    const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: 'recorded-landing', reason: reason.trim(), policy_auto_merge: policy.auto_merge === true,
+      ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id } : {}), at: nowIso() };
     // No checks run here: the actor attests to the checks run at landing time, cited in --reason.
     const merge = { revision, landed, checks: [], checks_skipped: true, target_branch: policy.target_branch, authorization };
     const next = await recordEvent(ctx, task, record, 'recorded-landing', merge);
