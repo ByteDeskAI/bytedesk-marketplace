@@ -9537,23 +9537,60 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
   });
 }
-function jsonObjectEnd(text) {
-  let depth = 0, inString = false, escaped = false, started = false;
+function lenientJson(text, glueAt = () => "") {
+  let out = "", depth = 0, key = null, lastKey = null, inString = false, before = "";
+  const stack = [];
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
+    if (!inString) {
+      out += glueAt(i, true) + c;
+      if (c === '"') {
+        inString = true;
+        key = stack.at(-1) === "{" && (before === "{" || before === ",") ? "" : null;
+      } else if (c === "{" || c === "[") {
+        stack.push(c);
+        depth++;
+      } else if ((c === "}" || c === "]") && depth > 0) {
+        stack.pop();
+        if (--depth === 0) return { text: out, closed: true };
+      }
+      if (!/\s/.test(c)) before = c;
       continue;
     }
-    if (c === '"') inString = true;
-    else if (c === "{") {
-      depth++;
-      started = true;
-    } else if (c === "}" && started && --depth === 0) return i;
+    out += glueAt(i, key !== null || STRICT_VALUE_KEYS.has(lastKey));
+    if (c === "\\") {
+      const unicode = /^u\{([0-9a-fA-F]{1,6})\}/.exec(text.slice(i + 1));
+      if (/^u[0-9a-fA-F]{4}/.test(text.slice(i + 1, i + 6))) {
+        out += text.slice(i, i + 6);
+        i += 5;
+      } else if (unicode && Number.parseInt(unicode[1], 16) <= 1114111) {
+        out += JSON.stringify(String.fromCodePoint(Number.parseInt(unicode[1], 16))).slice(1, -1);
+        i += unicode[0].length;
+      } else if (/["\\/bfnrt]/.test(text[i + 1] ?? "")) {
+        out += c + text[++i];
+      } else out += "\\\\";
+      continue;
+    }
+    if (c !== '"') {
+      out += c;
+      if (key !== null) key += c;
+      continue;
+    }
+    const rest = text.slice(i + 1);
+    const closes = key !== null || (stack.at(-1) === "[" ? /^\s*(?:,\s*"|\])/.test(rest) : /^\s*(?:,\s*"[^"\\]*"\s*:|\}\s*(?:[,\]}]|$))/.test(rest) || depth === 1 && /^\s*\}/.test(rest));
+    if (!closes) {
+      out += '\\"';
+      continue;
+    }
+    out += c;
+    inString = false;
+    before = c;
+    if (key !== null) {
+      lastKey = key;
+      key = null;
+    } else lastKey = null;
   }
-  return -1;
+  return { text: out, closed: false };
 }
 function reviewResponsesOnScreen(screen, nonce) {
   const prefix = `AO_REVIEW ${nonce} `;
@@ -9563,22 +9600,24 @@ function reviewResponsesOnScreen(screen, nonce) {
     const line = protocolOutputLine(lines[i]);
     if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
     const raw = [lines[i]], parts = [line.slice(prefix.length)];
-    while (jsonObjectEnd(parts.join("")) < 0 && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
+    while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
       raw.push(lines[++i]);
       parts.push(protocolOutputLine(lines[i]));
     }
     const width = Math.max(...raw.slice(0, -1).map((text) => text.trimEnd().length));
-    const glue = (k) => {
-      if (/\s$/.test(raw[k - 1]) || raw[k - 1].trimEnd().length < width) return " ";
+    const prose = (k) => {
+      if (raw[k - 1].trimEnd().length < width) return " ";
       const word = parts[k - 1].split(" ").at(-1) + parts[k].split(" ")[0];
       return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
     };
-    const fitted = parts.reduce((text, part, k) => text + glue(k) + part);
-    const texts = [fitted, parts.join(" "), parts.join("")].map((text) => {
-      const close = jsonObjectEnd(text);
-      return close < 0 ? text : text.slice(0, close + 1);
-    });
-    texts.closed = jsonObjectEnd(parts.join("")) >= 0;
+    const breaks = /* @__PURE__ */ new Map();
+    parts.reduce((offset, part, k) => {
+      if (k) breaks.set(offset, k);
+      return offset + part.length;
+    }, 0);
+    const fitted = lenientJson(parts.join(""), (at, strict) => !breaks.has(at) || strict ? "" : prose(breaks.get(at)));
+    const texts = [fitted.text, lenientJson(parts.join(" ")).text, lenientJson(parts.join("")).text];
+    texts.closed = fitted.closed;
     responses.push(texts);
   }
   return responses;
@@ -9718,7 +9757,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_crypto13 = require("node:crypto");
@@ -9754,6 +9793,7 @@ var init_reviewer = __esm({
     PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
     RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
     reviewerAckMemo = (dir, record2) => (0, import_node_path32.join)(dir, `${record2.agent_id}.answered.json`);
+    STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
@@ -52297,7 +52337,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "03d66360a306ea9b80fee9b952eec91eb0837243621f64b131020b62a0208344",
+  sourceFingerprint: false ? null : "c1ce67c1329026c34f67b3a44b8204547c2c05ee0b0a3c0d9b2c23d91efca3b3",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

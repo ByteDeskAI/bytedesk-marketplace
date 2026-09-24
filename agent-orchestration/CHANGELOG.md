@@ -41,6 +41,14 @@
 
 ### Fixed
 
+- **Rendered reviewer verdicts parse again (TM-233).** Claude Code shows the reviewer's reply as
+  Markdown, which turns `\"` into a bare `"`, and it hard-wraps long lines however wide the pane is.
+  Every verdict that quoted text was refused as "Review response must be JSON". Collection now
+  re-escapes a quote that JSON does not continue after, keeps a backslash that starts no valid
+  escape, reads `\u{2014}` as the character, and joins wrapped rows with nothing outside strings and
+  inside `verdict`, `severity` and `file`. Only prose can differ, by one space at a break. An
+  unclosed verdict still waits as incomplete; a closed malformed one is still refused.
+
 - Collect a reviewer verdict that Claude Code hard-wrapped across indented pane lines, one repeated
   on screen, or one followed by more output; the capture now reaches 5,000 lines back. Copies that
   disagree are still refused. A verdict whose braces have not closed yet is still being printed, so
