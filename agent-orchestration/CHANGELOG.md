@@ -29,7 +29,8 @@
   repository reviewer stays read-only (`--restricted --safe-mode`, never
   `--dangerously-skip-permissions`): its `agent.json` always stores `auto_approve: false`, including
   after `reviewer assign`, and `ao-topology session open` refuses the reviewer role
-  (`TOPOLOGY_REVIEWER_READ_ONLY`) because it would not use the reviewer's read-only argv.
+  (`TOPOLOGY_REVIEWER_READ_ONLY`) because it would not use the reviewer's read-only argv. For the
+  same reason a spec may not reference the stored reviewer with `{ "agent": "<reviewer>" }`.
 
 ### Fixed
 
