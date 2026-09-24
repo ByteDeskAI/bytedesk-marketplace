@@ -178,7 +178,9 @@ export function validateSpec(raw) {
     normalized.instructions = typeof normalized.instructions === "string" ? normalized.instructions : "";
     // Participants have no process permission mode. Keep the field absent so a
     // composed/saved spec passes the same strict validation when loaded again.
-    if (!isParticipant) normalized.auto_approve = normalized.auto_approve === true;
+    // TM-214: absent means ON — agents launch without permission prompts unless the spec says
+    // `auto_approve: false`. The reviewer ignores this and stays read-only (buildReviewerArgv).
+    if (!isParticipant) normalized.auto_approve = normalized.auto_approve !== false;
     // A coordinator delegates and does not implement. It travels on the agent rather than being
     // inferred from the role, because a repo's lead appears in a run as an orchestrator — there is
     // no lead role pack, and a spec must have exactly one orchestrator. A spec written by hand can
@@ -339,6 +341,12 @@ function expandAgentRefs(spec, context) {
         { ref: entry.agent, searched: dirs },
       );
     }
+    // TM-214: a run launches with plain buildArgv, and an inline `auto_approve: true` would override
+    // the reviewer's stored false. The reviewer launches only through buildReviewerArgv, as
+    // `session open` also enforces.
+    invariant(stored.role !== "reviewer", "TOPOLOGY_REVIEWER_READ_ONLY",
+      `agents[${index}].agent references ${stored.full_name || stored.id}, the repository reviewer; it launches only read-only. Use: ao-topology reviewer ensure.`,
+      { ref: entry.agent, agent_id: stored.id });
     const inline = new Set(entry._inline || []);
     const merged = { ...entry, _agent: stored.id, _agent_dir: stored._dir, full_name: stored.full_name, title: stored.title };
     for (const field of FROM_LIBRARY) {

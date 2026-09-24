@@ -146,7 +146,8 @@ test("a spec entry may reference a stored agent, and anything inline overrides t
   const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-library-"));
   try {
     const conductor = await createAgent(consumer, { role: "orchestrator", cli: "claude", skills: ["review"], mcp: ["filesystem"] });
-    const reviewer = await createAgent(consumer, { role: "reviewer", cli: "claude", candidates: ["claude:opus", "codex"] });
+    // TM-214: not a reviewer — a stored reviewer may not be referenced from a spec at all.
+    const reviewer = await createAgent(consumer, { role: "worker", cli: "claude", candidates: ["claude:opus", "codex"] });
 
     const spec = validateSpec({
       name: "library-run",
@@ -172,9 +173,36 @@ test("a spec entry may reference a stored agent, and anything inline overrides t
     assert.equal(first._agent, conductor.id, "the materialized agent still points at its library identity");
 
     assert.equal(second.id, "second", "an explicit id wins over the derived one");
-    assert.equal(second.role, "reviewer", "the stored role is used when the entry does not state one");
+    assert.equal(second.role, "worker", "the stored role is used when the entry does not state one");
     assert.equal(second.cli, "codex", "an inline cli overrides the stored candidate chain");
     assert.deepEqual(second.skills, [], "an inline empty list is an override, not an absence");
+  } finally {
+    await rm(consumer, { recursive: true, force: true });
+  }
+});
+
+test("TM-214: a spec may not reference the stored reviewer, even with an inline auto_approve", async () => {
+  const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-reviewer-ref-"));
+  try {
+    const conductor = await createAgent(consumer, { role: "orchestrator", cli: "claude" });
+    const reviewer = await createAgent(consumer, { role: "reviewer", cli: "claude" });
+    assert.equal(reviewer.auto_approve, false, "precondition: the stored reviewer says false");
+    for (const entry of [{ id: "r", agent: reviewer.id, auto_approve: true }, { id: "r", agent: reviewer.full_name }]) {
+      const spec = validateSpec({ name: "reviewer-ref", agents: [{ agent: conductor.id }, entry] });
+      assert.throws(
+        () => materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: {} }),
+        (error) => {
+          assert.equal(error.code, "TOPOLOGY_REVIEWER_READ_ONLY", error.message);
+          assert.match(error.message, /reviewer ensure/);
+          return true;
+        },
+        JSON.stringify(entry),
+      );
+    }
+    // Control: the same spec shape with a non-reviewer reference materializes.
+    const worker = await createAgent(consumer, { role: "worker", cli: "claude" });
+    const ok = materializeSpec(validateSpec({ name: "worker-ref", agents: [{ agent: conductor.id }, { id: "w", agent: worker.id, auto_approve: true }] }), { runId: "r", consumer, home: "/h", inputs: {} });
+    assert.equal(ok.agents[1].auto_approve, true);
   } finally {
     await rm(consumer, { recursive: true, force: true });
   }

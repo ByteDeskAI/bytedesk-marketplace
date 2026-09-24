@@ -8,7 +8,9 @@ description: >
 # tunnel-funnel
 
 ```bash
-SKILL_DIR="<setup/skills/tunnel-funnel>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/tunnel-funnel}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 ```
 
 ```bash

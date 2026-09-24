@@ -1,4 +1,4 @@
-// Launch-time behaviour that has to hold without a tmux server: the auto_approve consent gate,
+// Launch-time behaviour that has to hold without a tmux server: the auto_approve default (TM-214),
 // readiness (the shell-prompt false positive, the reachable ready:false, the failure matcher), the
 // per-agent memory declaration each provider carries, and session naming for concurrent spawns.
 import assert from "node:assert/strict";
@@ -69,53 +69,48 @@ const claudeAdapters = () =>
     ["claude", normalizeAdapter({ id: "claude", command: "claude", add_dir_args: ["--add-dir", "{{dir}}"] }, "claude")],
   ]);
 
-// ---------------------------------------------------------------- TM-090 auto_approve consent
+// ---------------------------------------------------------------- TM-214 auto_approve by default
+// TM-090 made auto_approve a consent gate. TM-214 (operator decision 2026-09-24) makes it the
+// default: no refusal, --allow-auto-approve is a no-op, and the launch still names who it applies to.
 
-const autoApproveSpec = (consumer) =>
+const autoApproveSpec = (consumer, agents) =>
   materializeSpec(
     validateSpec({
       name: "gate",
-      agents: [
-        { id: "conductor", role: "orchestrator", cli: "claude", auto_approve: true },
-        { id: "hand", role: "worker", cli: "claude", auto_approve: true },
+      agents: agents ?? [
+        { id: "conductor", role: "orchestrator", cli: "claude" },
+        { id: "hand", role: "worker", cli: "claude" },
       ],
     }),
     { runId: "r1", consumer, home: consumer, inputs: {} },
   );
 
-test("a spec with auto_approve refuses to launch without explicit consent — dry run included", async () => {
+test("a spec with no auto_approve key launches auto-approved without consent — dry run included", async () => {
   const spec = autoApproveSpec(process.cwd());
-  // A dry run is how an operator inspects a spec, so the gate has to fire there too: learning about
-  // it only after panes exist is learning about it too late.
-  for (const dryRun of [false, true]) {
-    await assert.rejects(
-      () => launchRun({ spec, adapters: claudeAdapters(), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun }),
-      (error) => {
-        assert.equal(error.code, "TOPOLOGY_AUTO_APPROVE_UNCONFIRMED");
-        assert.match(error.message, /auto_approve/, "the harness greps the message for auto_approve");
-        assert.match(error.message, /conductor \(orchestrator\)/, "the error must name the affected agents");
-        assert.match(error.message, /hand \(worker\)/);
-        assert.match(error.message, /--allow-auto-approve/, "the error must name the flag that grants consent");
-        return true;
-      },
-      `dryRun: ${dryRun}`,
-    );
-  }
-});
-
-test("consent gets past the gate, and the launch still names the agents it applies to", async () => {
-  const spec = autoApproveSpec(process.cwd());
-  const result = await launchRun({
-    spec,
-    adapters: claudeAdapters(),
-    skillSearchDirs: [],
-    roleSearchDirs: [],
-    cliBin: "ao",
-    dryRun: true,
-    allowAutoApprove: true,
-  });
+  assert.deepEqual(spec.agents.map((agent) => agent.auto_approve), [true, true]);
+  const result = await launchRun({ spec, adapters: claudeAdapters(), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true });
   assert.equal(result.dryRun, true);
   assert.ok(result.warnings.some((w) => w.includes("auto_approve is on for conductor, hand")), result.warnings.join("\n"));
+});
+
+test("the legacy allowAutoApprove option is accepted and changes nothing", async () => {
+  const spec = autoApproveSpec(process.cwd());
+  const result = await launchRun({ spec, adapters: claudeAdapters(), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true, allowAutoApprove: true });
+  assert.ok(result.warnings.some((w) => w.includes("auto_approve is on for conductor, hand")), result.warnings.join("\n"));
+});
+
+test("explicit auto_approve: false opts an agent out, and the real claude adapter argv reflects both", async () => {
+  const spec = autoApproveSpec(process.cwd(), [
+    { id: "conductor", role: "orchestrator", cli: "claude" },
+    { id: "careful", role: "worker", cli: "claude", auto_approve: false },
+  ]);
+  assert.deepEqual(spec.agents.map((agent) => agent.auto_approve), [true, false]);
+  const result = await launchRun({ spec, adapters: claudeAdapters(), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true });
+  assert.ok(result.warnings.some((w) => w.includes("auto_approve is on for conductor —")), result.warnings.join("\n"));
+  const claude = (await loadAdapters([providersDir])).get("claude");
+  const [on, off] = spec.agents.map((agent) => buildArgv(claude, { ...agent, add_dirs: [] }, {}));
+  assert.ok(on.includes("--dangerously-skip-permissions"), on.join(" "));
+  assert.ok(!off.includes("--dangerously-skip-permissions"), off.join(" "));
 });
 
 test("the runs root is gitignored before a run writes into it", async (t) => {

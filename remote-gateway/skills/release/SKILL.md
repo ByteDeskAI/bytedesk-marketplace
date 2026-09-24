@@ -48,7 +48,9 @@ and `docs/RELEASEFLOW.md` (TeamCity SoT).
 Resolve the skill root (directory containing this `SKILL.md`):
 
 ```bash
-SKILL_DIR="<path-to-setup/skills/release>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/release}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 RF="$SKILL_DIR/scripts/release-gitflow.sh"
 ```
 

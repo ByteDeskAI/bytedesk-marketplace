@@ -21,7 +21,9 @@ delivery workflow before relying on their guard.
 ## Skill-local script
 
 ```bash
-SKILL_DIR=<path-to-setup/skills/cutover>
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/cutover}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 DEPLOY="$SKILL_DIR/scripts/deploy-safe.sh"
 ```
 

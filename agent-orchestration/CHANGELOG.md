@@ -28,6 +28,16 @@
   blocker or major finding. The reviewer gets its own common prompt (`prompts.common_by_role.reviewer`) without the
   reply-file and command steps it cannot perform, and is told to cite evidence in the request rather
   than claim checks it cannot run.
+- **Agents launch without permission prompts by default (TM-214).** A spec, template or stored agent
+  with no `auto_approve` key now gets its provider's `auto_approve_args` (claude:
+  `--dangerously-skip-permissions`); `auto_approve: false` still opts an agent out. The TM-090
+  consent gate is removed: `ao-topology launch` no longer refuses without `--allow-auto-approve`,
+  which is accepted as a no-op, and the launch warning naming auto-approved agents stays. The
+  repository reviewer stays read-only (`--restricted --safe-mode`, never
+  `--dangerously-skip-permissions`): its `agent.json` always stores `auto_approve: false`, including
+  after `reviewer assign`, and `ao-topology session open` refuses the reviewer role
+  (`TOPOLOGY_REVIEWER_READ_ONLY`) because it would not use the reviewer's read-only argv. For the
+  same reason a spec may not reference the stored reviewer with `{ "agent": "<reviewer>" }`.
 
 ### Fixed
 

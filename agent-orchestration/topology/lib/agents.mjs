@@ -162,7 +162,9 @@ export async function createAgent(consumer, spec = {}, dirs = null, context = {}
     instructions_file: spec.instructions_file || PROMPT,
     args: Array.isArray(spec.args) ? spec.args : [],
     env: spec.env && typeof spec.env === "object" ? spec.env : {},
-    auto_approve: spec.auto_approve === true,
+    // TM-214: absent means on; explicit false opts out. A reviewer is never auto-approved (TM-150):
+    // its stored definition must say false, so no path that reads agent.json can launch it unprompted.
+    auto_approve: role === 'reviewer' ? false : spec.auto_approve !== false,
     created_at: nowIso(),
   };
 

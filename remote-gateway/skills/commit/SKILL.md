@@ -83,7 +83,9 @@ git diff --stat
 git diff --cached --stat
 git log -5 --format='%h %an <%ae> %s'
 # Linked worktree? (linked=1 means offer merge+cleanup after land)
-SKILL_DIR="$(git rev-parse --show-toplevel)/setup/skills/commit"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/commit}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 "$SKILL_DIR/scripts/worktree-after-commit.sh" detect
 ```
 
@@ -231,7 +233,9 @@ Offer copy (fill from detect):
 When landing:
 
 ```bash
-SKILL_DIR="$(git rev-parse --show-toplevel)/setup/skills/commit"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/commit}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 # From the isolation tree (still the acting cwd):
 "$SKILL_DIR/scripts/worktree-after-commit.sh" land
 # Then continue from the main checkout (script prints switch_cwd=…):
@@ -283,16 +287,9 @@ Reply with:
   (unless this turn already authorized merge/cleanup).
 - Merge a worktree into `main` unless the user named `main`.
 
-## Cross-terminal install
+## Where the script lives
 
-Canonical path: `setup/skills/commit/` (this skill). Dev symlinks may point here from `.agents/skills/commit`.
-
-```bash
-./scripts/install-agent-skills.sh
-```
-
-Links project (and optional user) Claude/Grok skill roots to `setup/skills/*`.
-Codex/Kimi/Grok: follow `setup/AGENTS.md`; natural language “commit and push” is enough.
+`scripts/worktree-after-commit.sh` is next to this SKILL.md. Use that copy. The gateway repo also keeps `setup/skills/commit/` for its in-repo skill links; do not prefer that path when this plugin skill is the one you loaded.
 
 ## Related
 

@@ -8,7 +8,9 @@ description: >
 # gateway-lifecycle
 
 ```bash
-SKILL_DIR="<setup/skills/gateway-lifecycle>"
+ROOT="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+SKILL_DIR="${ROOT:+$ROOT/skills/gateway-lifecycle}"
+SKILL_DIR="${SKILL_DIR:-<directory containing this SKILL.md>}"
 # Linux / macOS / Git Bash:
 "$SKILL_DIR/scripts/start.sh"
 "$SKILL_DIR/scripts/stop.sh"
@@ -19,7 +21,9 @@ SKILL_DIR="<setup/skills/gateway-lifecycle>"
 
 ```powershell
 # Windows PowerShell / pwsh:
-$SKILL_DIR = "<setup/skills/gateway-lifecycle>"
+if ($env:GROK_PLUGIN_ROOT) { $SKILL_DIR = "$env:GROK_PLUGIN_ROOT/skills/gateway-lifecycle" }
+elseif ($env:CLAUDE_PLUGIN_ROOT) { $SKILL_DIR = "$env:CLAUDE_PLUGIN_ROOT/skills/gateway-lifecycle" }
+else { $SKILL_DIR = "<directory containing this SKILL.md>" }
 pwsh -File "$SKILL_DIR/scripts/start.ps1"
 pwsh -File "$SKILL_DIR/scripts/stop.ps1"
 pwsh -File "$SKILL_DIR/scripts/status.ps1"
