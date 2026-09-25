@@ -88,3 +88,23 @@ A fresh `ao-topology manage start-worker --backend tmux` end to end on this mach
 need an admitted governed task and a live lead. The tmux env path is covered by the argv test and by
 the live `tm show` run above with the run id set; the topology launcher change is one env key
 beside the three that already reach the pane the same way.
+
+## Criterion 5 — plugin independence (2026-09-25)
+
+Commit base `7037f98`; tree dirty only with this change plus the pre-existing `.claude/settings.json`
+and `opencode.json`. Tests run with this shell's `TM_DISPATCH_*`, `TM_SESSION_ID`, `TMUX` and
+`TMUX_PANE` cleared — this session is itself a dispatched worker, and with them present `tm govern`
+refuses inside the ao fixtures (4 failures, identical on a clean detached worktree at `7037f98`).
+
+- No import crosses the boundary in shipped code: 0 matches across `task-management/{lib,bin}` and
+  `agent-orchestration/{topology,src,bin}`. The same grep finds 4 in `agent-orchestration/tests`
+  (fixtures), so it can find one.
+- No manifest dependency: neither `.claude-plugin/plugin.json` mentions one.
+- ao side: `taskStore` now checks the `tm` launcher exists (`TOPOLOGY_MANAGEMENT_TM_ABSENT`), and
+  `managementStatus` skips the task and claim on that code. New assertion in the production-proof test:
+  status with a non-existent `tmBin` returns `task: null`, `claim: null`, `worker.self: true`. The same
+  test file on clean `7037f98` fails with `spawn …/no-task-management/tm ENOENT` — the check can fail.
+  `topology-*.test.mjs`: 509/509 pass.
+- tm side: new test runs `tm show --json` with `PATH` of node's dir, `/usr/bin`, `/bin`, first asserting
+  `command -v ao-topology` fails there; the dispatched record and both events are still `self: true`.
+  `dispatch*.test.mjs` + `pool-ensure.test.mjs`: 124/124 pass.

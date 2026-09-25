@@ -9,6 +9,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { create, update } from "../../lib/store.mjs";
@@ -152,6 +153,18 @@ describe("TM-236 — tm show and tm agent list, run as the worker's descendant",
     const byRun = JSON.parse(tm(p, ["show", id, "--json"], { TM_DISPATCH_RUN: "tmux:tm-TM-001" }));
     assert.equal(byRun.dispatched.self, true, "TM_DISPATCH_RUN names the dispatched run");
     assert.deepEqual(byRun.comments.map((c) => c.self ?? false), [true, true], "and both events carry that run");
+  });
+
+  it("works with agent-orchestration absent: no ao-topology on PATH, and the bound record is still self", () => {
+    const p = tempStore();
+    trash.push(p.root);
+    const PATH = [dirname(process.execPath), "/usr/bin", "/bin"].join(":");
+    const probe = spawnSync("sh", ["-c", "command -v ao-topology"], { env: { PATH }, encoding: "utf8" });
+    assert.notEqual(probe.status, 0, `ao-topology must be absent for this test to mean anything: ${probe.stdout}`);
+    const id = boundTask(p, { panePid: process.pid });
+    const doc = JSON.parse(tm(p, ["show", id, "--json"], { PATH, TM_DISPATCH_RUN: "tmux:tm-TM-001" }));
+    assert.equal(doc.dispatched.self, true);
+    assert.deepEqual(doc.comments.map((c) => c.self ?? false), [true, true]);
   });
 
   it("tm agent list marks the registry row that is the caller", () => {

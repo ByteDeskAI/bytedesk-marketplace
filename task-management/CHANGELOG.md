@@ -20,6 +20,9 @@
   strips `TM_DISPATCH_RUN` with the other markers. `TM_SESSION_ID` is deliberately not a self signal: the
   dispatcher injects its own session id into the worker, so the lead would otherwise read the worker as
   itself.
+- **Self-recognition needs no agent-orchestration (TM-236).** `tm show` and `tm agent list` read only the
+  store and the caller's own environment; a test runs `tm show` with `ao-topology` absent from `PATH`
+  and still sees the bound record marked self.
 - **A dispatched worker's PR now always states its base explicitly.** `gh pr create` with no
   `--base` targets the repository default branch, not `dispatch.integrationBranch` — a dispatched
   worker in `bytedesk-remote-gateway` shipped unreleased `develop` commits onto `main` this way,

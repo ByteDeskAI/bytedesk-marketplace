@@ -3,7 +3,7 @@
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
@@ -50,6 +50,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
   invariant(root && isAbsolute(root), 'TOPOLOGY_MANAGEMENT_REPO', 'No non-bare checkout exists for the task store.');
   const bin = tmBin || join(root, '.bytedesk/task-management/bin/tm');
   invariant(isAbsolute(bin), 'TOPOLOGY_MANAGEMENT_TM', 'tm launcher must be absolute.');
+  // Independence (TM-236): task-management may be absent. Say so with a code a read surface can skip on.
+  invariant(existsSync(bin), 'TOPOLOGY_MANAGEMENT_TM_ABSENT', `task-management is not installed in this repository: no tm launcher at ${bin}.`);
   const exec = async (args, cwd = root) => run(bin, args, { cwd, env: { ...env, TM_ROOT: root, CLAUDE_PROJECT_DIR: cwd, ...(owner ? { TM_SESSION_ID: owner } : {}) } });
   const where = JSON.parse((await exec(['where'])).stdout);
   invariant(isAbsolute(where.store), 'TOPOLOGY_MANAGEMENT_STORE', 'tm did not identify its task store.');
@@ -587,7 +589,13 @@ export function workerIsSelf(worker, env = process.env, pids = ownPids()) {
 }
 
 export async function managementStatus(options) {
-  const ctx = await context(options);
+  // Independence (TM-236): the binding and its self mark come from this plugin's own record, so with
+  // task-management absent, report them and leave the task and claim unknown rather than failing.
+  const store = options.store || await taskStore(options).catch(error => {
+    if (error.code !== 'TOPOLOGY_MANAGEMENT_TM_ABSENT') throw error;
+    return { show: async () => null, claim: async () => null };
+  });
+  const ctx = await context({ ...options, store });
   const management = await loadRecord(ctx.path);
   return { task: await ctx.store.show(options.task),
     management: management?.worker ? { ...management, worker: { ...management.worker, self: workerIsSelf(management.worker, ctx.env) } } : management,

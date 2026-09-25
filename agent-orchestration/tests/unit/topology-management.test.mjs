@@ -159,6 +159,11 @@ test('production worker proof uses actual tm registry and observed process exit 
   // the worker's own environment (its run id, pinned at dispatch) is self.
   assert.equal((await managementStatus(actual)).management.worker.self, false, 'a different live pid is another worker');
   assert.equal((await managementStatus({ ...actual, env: { ...env, TM_DISPATCH_RUN: workerRun } })).management.worker.self, true, 'the worker reading its own binding sees self');
+  // Independence: with task-management absent, status still reports the binding and its self mark, and skips
+  // the task and claim it can no longer read, rather than failing.
+  const absent = await managementStatus({ ...actual, tmBin: join(opts.consumer, 'no-task-management', 'tm'), env: { ...env, TM_DISPATCH_RUN: workerRun } });
+  assert.equal(absent.task, null); assert.equal(absent.claim, null);
+  assert.equal(absent.management.worker.self, true, 'self is computed from this plugin\'s own record');
   await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
   await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
   const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
