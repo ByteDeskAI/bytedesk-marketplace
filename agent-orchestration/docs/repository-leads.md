@@ -297,6 +297,62 @@ integration writes, with `authorization.channel` set to `recorded-landing` and t
 attached, and it logs a `recorded-landing` event. The task's normal completion (`tm done`, or
 `manage cleanup`) then passes the governed completion gate unchanged. That gate has no override.
 
+### Standing delegation of integration authority
+
+`--authorized` on `manage integrate` and `manage record-landing` is the lead attesting its own
+authority to itself. When a coding-agent harness treats that as self-approval and refuses to run
+it unattended, the operator otherwise has to type the command by hand every time. A standing
+delegation lets the operator grant that authority once, in advance, so the lead can exercise it
+without attesting to it itself:
+
+```bash
+ao-topology delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing \
+  [--expires <duration>] [--reason <text>]
+ao-topology delegate list [--repo <consumer>]
+ao-topology delegate revoke <id> [--repo <consumer>]
+```
+
+- **Interactive same-user channel.** `grant` requires stdin and stdout to be a terminal and asks
+  the operator to retype `<grantee> <scopes>` exactly. `grant` and `revoke` refuse a shell that
+  carries any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  `CODEX_*`), that has a Claude Code or Codex process among its ancestors, or that sits in a tmux
+  pane the census binds to an agent. `grant` also refuses a grantee granting to itself. Each grant
+  records the checks it passed under `channel`, with `kind: "interactive-same-user"`,
+  `agent_proof: false` and a `note`. `manage integrate` and `manage record-landing` refuse the
+  whole delegations file if any grant lacks that evidence.
+- **Not agent-proof.** These checks stop an agent that runs the command the ordinary way. They do
+  **not** stop a deliberate agent running as the same OS user. Such an agent can unset the
+  markers, start a shell outside its own process tree, and drive a TTY through tmux or `script`.
+  It can also write the delegations file directly, evidence fields included. Read a grant as
+  "made through the interactive channel", not as "proven operator".
+- **Future work: a stronger channel.** Excluding a same-user agent needs a channel it cannot
+  reach. One option is a grant store owned by a different OS user; another is a capability
+  channel on the session host that agents cannot call. Choosing one is an operator decision.
+- **Scope is a fixed allowlist**: `integrate` and `record-landing` only. The grant never covers
+  deploy, publish, push or spend; those keep their own separate authorization and this command
+  cannot widen to them.
+- **`--expires`** takes the same duration form as elsewhere (`90s`, `20m`, `1h`); omitted, the
+  grant does not expire on its own and only `revoke` ends it.
+- Records are **append-only**, under the state home
+  (`$XDG_STATE_HOME/bytedesk/agent-orchestration/delegations/<repositoryKey>.json`): a grant event
+  and, if it happens, a later revoke event. Nothing is ever rewritten in place.
+
+`manage integrate` and `manage record-landing` accept a live, unexpired, unrevoked grant that
+names the caller's own `AO_AGENT_ID`, this repository, and the scope in use, in place of an
+explicit `--authorized`. The merge record then carries `authorization.authorized: true`, with
+`authorization.actor` set to the grantee that exercised the grant, and
+`authorization.delegated_by` (the grantor's OS user) and `authorization.delegation_id` alongside.
+The evidence shows both who acted and who granted the authority. Under a delegation, an `--actor`
+naming anyone but the grantee is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` does
+not need `--actor`. Governed completion's checks
+(`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
+and `authorization.actor` exactly as before and simply ignore the added fields.
+
+If your harness gates commands by name, pair this with a permission rule for
+`ao-topology manage integrate` / `ao-topology manage record-landing` themselves — the delegation
+record is what makes running them without `--authorized` safe; a harness-level rule is what lets
+the lead run them at all.
+
 ## Presence v1
 
 `presence watch` maintains a complete read-only projection every TTL/3; `presence publish` is a
