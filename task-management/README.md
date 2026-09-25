@@ -316,7 +316,7 @@ error instead. **A worker never merges**; the PR is where its run ends and a hum
 
 **A guard makes that contract hard to break by accident.** A dispatched worker runs
 `--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`,
-`_INTEGRATION_BRANCH`) and a PreToolUse hook, injected with the same `--settings`, refuses: force
+`_INTEGRATION_BRANCH`, `_RUN`) and a PreToolUse hook, injected with the same `--settings`, refuses: force
 pushes and pushes to any branch but the worker's own; branch, tag and ref deletion, `reset --hard`,
 history rewrites and rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
 variables and `gh api` writes; a `gh pr create` / `gh pr new` whose `--base` is missing or is not

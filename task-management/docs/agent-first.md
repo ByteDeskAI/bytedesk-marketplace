@@ -196,7 +196,7 @@ worker's shell cannot hand its own stale base to the new worker. The detached po
 with the other worker markers for the same reason.
 
 **The worker guard** enforces that. A dispatched worker runs with permissions skipped, so it
-is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` / `_INTEGRATION_BRANCH` and a PreToolUse
+is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` / `_INTEGRATION_BRANCH` / `_RUN` and a PreToolUse
 `pre-bash` hook, applied separately to each supported provider candidate, blocks: force pushes
 and pushes to any branch but the worker's own; branch, tag and ref deletion, `reset --hard`,
 history rewrites, rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
@@ -209,6 +209,8 @@ the configured integration branch. One table, `lib/worker-guard.mjs`; it stops a
 adversary.
 Topology defaults to Claude then Codex, using configured CLI models. A candidate that cannot
 enforce the task guard stays held; Grok remains outside unattended topology dispatch.
+
+**The worker is told who it is.** `TM_DISPATCH_RUN` is the run id dispatch recorded (`tmux:tm-<id>`, `topology:<session>`), tmux sets `TMUX_PANE`, and the pane process is an ancestor of every `tm` the worker runs. `tm show` and `tm agent list` mark the `dispatched` record, a `worker-bound` / `worker-started` event and a registry row that names that run, pane or pid as `self`, and the handoff states that such a record is the reader. A worker once read its own bound record — its own session, pane and pid — as another session already working the task and exited without working (TM-236, gateway TM-455).
 
 ## Pool
 

@@ -286,6 +286,22 @@ function governedFinishSteps(task, p) {
   ];
 }
 
+/**
+ * TM-236 (gateway TM-455): a worker read the `worker-bound` event on its own task — its own tmux
+ * session, pane and pid — as another session already working it, and exited. The handoff now says
+ * who the reader is, in the words the worker will look for, before anything it might read as a
+ * conflict. The same three facts are what `tm show` and `tm agent list` mark `self` (dispatch/self.mjs).
+ */
+function selfSection(id) {
+  return [
+    "## You are the dispatched worker",
+    `You are the bound worker for ${id}. Your environment names you: TM_DISPATCH_TASK=${id}, TM_DISPATCH_RUN (your run id) and TMUX_PANE (your pane).`,
+    `A worker-bound, worker-started, dispatched or agent-registry record for ${id} naming that run, that tmux session, that pane or your own process is you — not another session. tm show and tm agent list mark it "self".`,
+    "Do not exit because of it. Only a record naming a different live pane or pid is a second worker.",
+    "",
+  ];
+}
+
 export function workerBrief(id, p = paths()) {
   const t = read(id, p);
   if (!t) return "";
@@ -294,6 +310,7 @@ export function workerBrief(id, p = paths()) {
     "",
     t.governance ? `Your session holds ${t.id}; lead ${t.governance.leadId} owns review and integration for workflow ${t.governance.workflowRunId}.`
       : `Your session holds the claim on ${t.id} "${t.title}"${t.epic ? ` (${t.epic})` : ""}. There is no parent to report to — record the outcome yourself. Your edits are recorded as touches on the task.`,
+    `You are the bound worker for ${t.id}: a worker-bound or dispatched record naming your own run, tmux session, pane or pid is you, not a second worker.`,
   ];
   // Put the producer protocol before variable-length criteria so a bounded hook brief
   // cannot leave a governed worker with only a task-store state change to perform.
@@ -383,6 +400,7 @@ export function handoff(id, p = paths()) {
     const base = String(t.integrationBranch || resolveIntegrationBranch(p, config(p)) || "").trim();
     const prBase = base ? ` --base ${base}` : "";
     out.push(
+      ...selfSection(t.id),
       "## When you finish",
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",

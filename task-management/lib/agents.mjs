@@ -227,6 +227,7 @@ export function renderAgents(list) {
         a.pid ? `pid=${a.pid}` : "",
         a.session ? `session=${a.session}` : "",
         `heartbeat=${a.heartbeatAt || "never"}`,
+        a.self ? "(self — this is you)" : "",
       ]
         .filter(Boolean)
         .join("  "),

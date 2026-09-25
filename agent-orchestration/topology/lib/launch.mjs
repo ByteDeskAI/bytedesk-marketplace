@@ -641,7 +641,8 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
       ? { AO_REPLY_TO_RUN_DIR: lineage.run_dir, AO_REPLY_AS_AGENT: lineage.agent_id ?? "", AO_REPLY_TOKEN: replyToken }
       : {};
     const env = { ...agent.env, ...descend, ...upward, AO_RUN_DIR: spec.run_dir, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate),
-      ...(workerGuard ? { TM_DISPATCH_WORKER: '1', TM_DISPATCH_TASK: workerGuard.task_id, TM_DISPATCH_BRANCH: workerGuard.branch } : {}),
+      // TM-236: the run id tm dispatch records for this launch (`topology:<session>`), so the worker can tell its own bound record from another's.
+      ...(workerGuard ? { TM_DISPATCH_WORKER: '1', TM_DISPATCH_TASK: workerGuard.task_id, TM_DISPATCH_BRANCH: workerGuard.branch, TM_DISPATCH_RUN: `topology:${spec.session}` } : {}),
       AO_CONSUMER: spec.consumer || spec.cwd, AO_AGENT_ID: agent.id, AO_AGENT_TOKEN: token };
     return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, guard, workerGuard, runtime_dirs: coordinator ? [] : runtimeDirs,
       add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
