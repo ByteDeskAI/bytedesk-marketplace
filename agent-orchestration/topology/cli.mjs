@@ -72,7 +72,8 @@ Conduct (used by the orchestrator agent)
            [--expires <duration>] [--reason <text>]
                                                Grant standing authority a lead can later exercise
                                                instead of --authorized. Needs an interactive TTY and
-                                               a typed confirmation; refuses agent-session markers.
+                                               a typed confirmation; refuses agent markers and agent
+                                               ancestor processes.
                                                Does NOT exclude a same-OS-user agent (see docs).
   delegate list [--repo <consumer>] [--json]    standing delegations granted for a repository
   delegate revoke <id> [--repo <consumer>]      revoke a standing delegation (refuses agent sessions)

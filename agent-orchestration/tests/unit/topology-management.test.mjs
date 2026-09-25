@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant } from '../../topology/lib/delegation.mjs';
-const grantDelegation = opts => rawGrant({ io: { isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] }, ...opts });
+const grantDelegation = opts => rawGrant({ io: { ancestors: async () => ['zsh'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] }, ...opts });
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 

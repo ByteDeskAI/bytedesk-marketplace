@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { grantDelegation as rawGrant, listStandingDelegations, revokeDelegation, findActiveDelegation, DELEGATION_SCOPES, GRANT_ASSURANCE } from '../../topology/lib/delegation.mjs';
+import { grantDelegation as rawGrant, listStandingDelegations, revokeDelegation as rawRevoke, findActiveDelegation, DELEGATION_SCOPES, GRANT_NOTE } from '../../topology/lib/delegation.mjs';
 
-// An interactive operator who retypes exactly what the prompt asks for.
-const operatorIo = { isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] };
+// An interactive operator, with no agent process above it, who retypes exactly what the prompt asks for.
+const operatorIo = { ancestors: async () => ['zsh', 'tmux: server'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] };
 const grantDelegation = opts => rawGrant({ io: operatorIo, ...opts });
+const revokeDelegation = opts => rawRevoke({ io: operatorIo, ...opts });
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-delegation-')); t.after(() => rm(root, { recursive: true, force: true }));
@@ -103,44 +104,43 @@ test('grant refuses a caller sitting in a tmux pane the census binds to an agent
 
 test('grant requires an interactive terminal and an exact typed confirmation', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
-  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { isTTY: () => false, ask: async () => 'lead-1 integrate' } }), { code: 'TOPOLOGY_DELEGATION_TTY' });
-  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { isTTY: () => true, ask: async () => 'y' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
-  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { isTTY: () => true, ask: async () => 'lead-1 integrate,record-landing' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
+  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, isTTY: () => false, ask: async () => 'lead-1 integrate' } }), { code: 'TOPOLOGY_DELEGATION_TTY' });
+  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ask: async () => 'y' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
+  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ask: async () => 'lead-1 integrate,record-landing' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
   assert.deepEqual(await listStandingDelegations({ consumer, home, env: operatorEnv }), [], 'a refused grant writes nothing');
 });
 
-test('a grant records its channel evidence and states plainly that a same-user agent is not excluded', async t => {
+test('grant and revoke refuse when a Claude Code or Codex process is an ancestor, even with a clean env', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
-  const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate', 'record-landing'] });
-  assert.equal(grant.channel.kind, 'interactive-tty');
-  assert.equal(grant.channel.stdin_tty, true); assert.equal(grant.channel.stdout_tty, true);
-  assert.equal(grant.channel.confirmation, 'lead-1 integrate,record-landing');
-  assert.ok(grant.channel.agent_markers_checked.includes('AO_AGENT_ID') && grant.channel.agent_markers_checked.includes('CLAUDE_CODE_*'));
-  assert.equal(grant.assurance, GRANT_ASSURANCE); assert.match(grant.assurance, /NOT excluded/);
-  assert.match(grant.mac, /^[0-9a-f]{64}$/);
-  const key = await import('node:fs/promises').then(fs => fs.stat(join(delegationsDir(home), '.grant-key')));
-  assert.equal(key.mode & 0o777, 0o600);
+  for (const chain of [['bash', 'claude'], ['sh', 'node /usr/lib/node_modules/@openai/codex/bin/codex.js'], ['zsh', 'codex-acp']]) {
+    await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ancestors: async () => chain } }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', message: /agent process is an ancestor/ });
+  }
+  const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
+  await assert.rejects(rawRevoke({ consumer, home, env: operatorEnv, id: grant.id, io: { ancestors: async () => ['claude'] } }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY' });
 });
 
-test('a hand-appended, edited or evidence-less record makes the whole file refused', async t => {
+test('a grant records its channel evidence and is labelled plainly as not agent-proof', async t => {
+  const { consumer, home, operatorEnv } = await fixture(t);
+  const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate', 'record-landing'] });
+  assert.equal(grant.channel.kind, 'interactive-same-user');
+  assert.equal(grant.channel.stdin_tty, true); assert.equal(grant.channel.stdout_tty, true);
+  assert.equal(grant.channel.no_agent_ancestor, true);
+  assert.equal(grant.channel.confirmation, 'lead-1 integrate,record-landing');
+  assert.ok(grant.channel.agent_markers_checked.includes('AO_AGENT_ID') && grant.channel.agent_markers_checked.includes('CLAUDE_CODE_*'));
+  assert.equal(grant.channel.agent_proof, false);
+  assert.equal(grant.channel.note, GRANT_NOTE); assert.match(grant.channel.note, /Not agent-proof/); assert.match(grant.channel.note, /tmux or `script`/);
+  assert.equal('mac' in grant, false, 'no signature that would look like proof');
+});
+
+test('a delegations file holding a grant without channel evidence is refused outright', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
   const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
   const file = join(delegationsDir(home), `${await repoKeyOf(consumer, home, operatorEnv)}.json`);
   const original = await readFile(file, 'utf8');
-  const lookup = () => findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-2', scope: 'integrate' });
-  // Appended without a signature (what `echo >> file` or a naive writer produces).
-  await writeFile(file, JSON.stringify([...JSON.parse(original), { ...grant, id: 'forged', grantee: 'lead-2', mac: undefined }]));
-  await assert.rejects(lookup(), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
-  // An existing signed record with its grantee edited.
-  await writeFile(file, JSON.stringify([{ ...grant, grantee: 'lead-2' }]));
-  await assert.rejects(lookup(), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
-  // Round-1 shape: no channel evidence at all.
-  const { channel, assurance, mac, ...bare } = grant;
-  await writeFile(file, JSON.stringify([bare]));
-  await assert.rejects(lookup(), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
-  // Restored, it verifies again; a key readable by others is refused.
+  const { channel, ...bare } = grant;
+  await writeFile(file, JSON.stringify([...JSON.parse(original), { ...bare, id: 'hand-written', grantee: 'lead-2' }]));
+  await assert.rejects(findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-2', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
+  await assert.rejects(findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' }, 'one bad grant poisons the file, not just itself');
   await writeFile(file, original);
   assert.equal((await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate' })).id, grant.id);
-  await chmod(join(delegationsDir(home), '.grant-key'), 0o644);
-  await assert.rejects(lookup(), { code: 'TOPOLOGY_DELEGATION_INTEGRITY', message: /chmod 600/ });
 });

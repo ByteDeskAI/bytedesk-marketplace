@@ -312,22 +312,22 @@ ao-topology delegate list [--repo <consumer>]
 ao-topology delegate revoke <id> [--repo <consumer>]
 ```
 
-- **Interactive operator channel.** `grant` requires stdin and stdout to be a terminal and asks
+- **Interactive same-user channel.** `grant` requires stdin and stdout to be a terminal and asks
   the operator to retype `<grantee> <scopes>` exactly. `grant` and `revoke` refuse a shell that
   carries any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
-  `CODEX_*`) or sits in a tmux pane the census binds to an agent. `grant` also refuses a grantee
-  granting to itself. Each grant records this evidence under `channel` (TTY flags, markers checked,
-  pane, typed confirmation).
-- **Signed records.** Every grant and revoke event carries an HMAC keyed from
-  `delegations/.grant-key` (mode 600, created on first grant). `manage integrate` and
-  `manage record-landing` refuse the whole delegations file if any event is unsigned, edited, or
-  lacks the channel evidence, or if the key is missing or readable by group or others.
-- **What this does not prove.** These checks stop an agent that runs the command the ordinary
-  way, and a hand-written or edited record. They do **not** stop a deliberate agent running as
-  the same OS user. Such an agent can unset the markers, drive a pseudo-terminal, and read the
-  key. Every grant says so in its `assurance` field. Read a grant as "made through the interactive
-  channel", not as "proven operator". To exclude a same-user agent, keep the grant key under a
-  different OS user, or issue grants through a channel agents cannot reach.
+  `CODEX_*`), that has a Claude Code or Codex process among its ancestors, or that sits in a tmux
+  pane the census binds to an agent. `grant` also refuses a grantee granting to itself. Each grant
+  records the checks it passed under `channel`, with `kind: "interactive-same-user"`,
+  `agent_proof: false` and a `note`. `manage integrate` and `manage record-landing` refuse the
+  whole delegations file if any grant lacks that evidence.
+- **Not agent-proof.** These checks stop an agent that runs the command the ordinary way. They do
+  **not** stop a deliberate agent running as the same OS user. Such an agent can unset the
+  markers, start a shell outside its own process tree, and drive a TTY through tmux or `script`.
+  It can also write the delegations file directly, evidence fields included. Read a grant as
+  "made through the interactive channel", not as "proven operator".
+- **Future work: a stronger channel.** Excluding a same-user agent needs a channel it cannot
+  reach. One option is a grant store owned by a different OS user; another is a capability
+  channel on the session host that agents cannot call. Choosing one is an operator decision.
 - **Scope is a fixed allowlist**: `integrate` and `record-landing` only. The grant never covers
   deploy, publish, push or spend; those keep their own separate authorization and this command
   cannot widen to them.

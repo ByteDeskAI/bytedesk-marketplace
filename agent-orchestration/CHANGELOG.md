@@ -99,11 +99,11 @@
   under the state home; `delegate list` and `delegate revoke <id>` read and end it. `grant` needs an
   interactive terminal and a typed confirmation of the grantee and scopes. Grant and revoke refuse a
   shell carrying any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
-  `CODEX_*`) or sitting in a tmux pane the census binds to an agent, and a grantee cannot grant to
-  itself. Every event is HMAC-signed with a mode-600 key, and `integrate`/`record-landing` refuse a
-  delegations file with any unsigned, edited or evidence-less event. The grant records its channel
-  evidence and states that an agent running as the same OS user is NOT excluded; see
-  docs/repository-leads.md. Scope is a fixed allowlist of `integrate` and `record-landing`
+  `CODEX_*`), a Claude Code or Codex ancestor process, or a tmux pane the census binds to an agent,
+  and a grantee cannot grant to itself. The grant records the checks as `channel` evidence, labelled
+  `interactive-same-user` and `agent_proof: false`: an agent running as the same OS user can still
+  get around them. `integrate`/`record-landing` refuse a delegations file holding a grant without
+  that evidence. Scope is a fixed allowlist of `integrate` and `record-landing`
   only — deploy, publish, push and spend keep their own separate authorization. `manage integrate`
   and `manage record-landing` now accept a live, unexpired, unrevoked grant naming the caller's own
   `AO_AGENT_ID`, this repository and the scope in use, in place of an explicit `--authorized`; the
