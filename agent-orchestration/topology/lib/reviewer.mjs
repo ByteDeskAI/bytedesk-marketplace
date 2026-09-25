@@ -57,6 +57,10 @@ const VERDICTS = new Set(["approve", "changes_requested", "blocked"]);
 // evidence and fix; it still names a file and line in the diff.
 const SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
 const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
+// The reviewed range is text-only (no --binary): git already renders binary changes as a one-line
+// "Binary files ... differ" marker, so screenshot-heavy ranges never inflate the buffered diff.
+// This cap is a documented ceiling for the remaining text diff, well above the 8 MiB run() default.
+const REVIEW_PATCH_MAX_BYTES = 64 * 1024 * 1024;
 const FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
 /** Wake attempts after publication before an undeliverable request is marked failed (TM-215 f). */
 const MAX_REVIEW_WAKES = 5;
@@ -640,9 +644,58 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(base)) && (!baseRevision || baseRevision === base), 'TOPOLOGY_REVIEWER_RANGE', 'Review base must equal the original task admission commit.');
   const ancestor = await run('git', ['-C', consumer, 'merge-base', '--is-ancestor', base, revision], { allowFailure: true });
   invariant(ancestor.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Task admission base must be an ancestor of the finished revision.');
-  const patch = await run('git', ['-C', consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', base, revision, '--'], { allowFailure: true });
-  invariant(patch.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Cannot produce the complete task diff.');
-  return { base, patch: patch.stdout, patch_sha256: createHash('sha256').update(patch.stdout).digest('hex'), owner: management.owner };
+  // No --binary: git renders a binary change as a one-line "Binary files ... differ" marker instead
+  // of embedding its bytes, so a range with large binary files (screenshots, etc.) never inflates
+  // this buffer. The manifest below replaces those markers with path + blob sha256 + size.
+  const diff = await run('git', ['-C', consumer, 'diff', '--no-ext-diff', '--no-textconv', base, revision, '--'], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
+  if (diff.code === 'ERR_CHILD_PROCESS_STDOUT_MAXBUFFER') {
+    fail('TOPOLOGY_REVIEWER_RANGE', `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
+  }
+  invariant(diff.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` — ${diff.stderr.trim()}` : ''}.`);
+  const binaryFiles = await binaryFileManifest(consumer, base, revision);
+  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
+  return { base, patch, patch_sha256: createHash('sha256').update(patch).digest('hex'), owner: management.owner, binaryFiles };
+}
+
+/** path + old/new blob sha256 + size for every binary file in the range, in place of its bytes. */
+async function binaryFileManifest(consumer, base, revision) {
+  const numstat = await run('git', ['-C', consumer, 'diff', '--numstat', '-z', '--no-renames', base, revision, '--'], { allowFailure: true });
+  invariant(numstat.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot list binary files in the task diff: git exited ${numstat.code}${numstat.stderr?.trim() ? ` — ${numstat.stderr.trim()}` : ''}.`);
+  const binaryPaths = new Set(numstat.stdout.split('\0').filter(Boolean)
+    .map(entry => entry.split('\t')).filter(([added, removed]) => added === '-' && removed === '-').map(([, , path]) => path));
+  if (binaryPaths.size === 0) return [];
+  const raw = await run('git', ['-C', consumer, 'diff', '--raw', '-z', '--no-renames', base, revision, '--'], { allowFailure: true });
+  invariant(raw.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot resolve binary blob identities: git exited ${raw.code}${raw.stderr?.trim() ? ` — ${raw.stderr.trim()}` : ''}.`);
+  const fields = raw.stdout.split('\0').filter(Boolean);
+  const entries = [];
+  for (let i = 0; i < fields.length; i += 2) {
+    const [, , oldSha, newSha] = fields[i].split(' ');
+    const path = fields[i + 1];
+    if (!binaryPaths.has(path)) continue;
+    entries.push({ path, old_sha256: await blobSha256(consumer, oldSha), new_sha256: await blobSha256(consumer, newSha),
+      old_size: await blobSize(consumer, oldSha), new_size: await blobSize(consumer, newSha) });
+  }
+  return entries;
+}
+
+const ZERO_BLOB = /^0+$/;
+
+async function blobSize(consumer, sha) {
+  if (ZERO_BLOB.test(sha)) return 0;
+  const result = await run('git', ['-C', consumer, 'cat-file', '-s', sha], { allowFailure: true });
+  return result.code === 0 ? Number(result.stdout.trim()) : null;
+}
+
+/** git's diff blob sha is content-addressed but not sha256; hash the actual blob bytes for the manifest. */
+async function blobSha256(consumer, sha) {
+  if (ZERO_BLOB.test(sha)) return null;
+  const result = await run('git', ['-C', consumer, 'cat-file', 'blob', sha], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES, encoding: null });
+  return result.code === 0 ? createHash('sha256').update(result.stdout).digest('hex') : null;
+}
+
+function renderBinaryManifest(binaryFiles) {
+  const rows = binaryFiles.map(f => `${f.path}\told sha256=${f.old_sha256 ?? '(absent)'} size=${f.old_size ?? 0}\tnew sha256=${f.new_sha256 ?? '(absent)'} size=${f.new_size ?? 0}`);
+  return `\n--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---\n${rows.join('\n')}\n`;
 }
 
 /** Every path the reviewed range touches, both sides of a rename, so a finding can be held to it. */
@@ -865,7 +918,7 @@ async function wakeReviewRequest({consumer,record,request,path,env,home}) {
   const loaded=await loadAdapters(providerDirs({consumer,home,env}));
   const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
   return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
-    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
+    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
 }
 
 // Values whose text must never gain a space at a wrap: a cut inside them is always a cut.

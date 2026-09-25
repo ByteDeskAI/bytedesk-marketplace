@@ -34,7 +34,7 @@ export async function run(command, args, options = {}) {
     const result = await execFile(command, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
-      encoding: "utf8",
+      encoding: options.encoding ?? "utf8",
       maxBuffer: options.maxBuffer ?? 8 * 1024 * 1024,
       timeout: timeoutMs,
       windowsHide: true,

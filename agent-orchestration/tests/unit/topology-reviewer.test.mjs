@@ -326,3 +326,49 @@ test('automatic review collection skips retained history and rotates unanswered 
   assert.equal(first.length,100);assert.equal(second.length,100);
   assert.ok(second.some(result=>result.task==='PENDING-100'),'later pending requests must be visited despite earlier unanswered requests');
 });
+
+test('TM-241: a range over 8 MiB of binary files produces a request with a size manifest, not a generic refusal', async t => {
+  const f = await fixture(t);
+  const { writeFile: write } = await import('node:fs/promises');
+  const pngPath = join(f.consumer, 'evidence.png');
+  const { randomBytes } = await import('node:crypto');
+  const bytes = randomBytes(9 * 1024 * 1024); // 9 MiB of real (NUL-containing) bytes git detects as binary, well past the old 8 MiB default buffer
+  await write(pngPath, bytes);
+  await run('git', ['-C', f.consumer, 'add', 'evidence.png']);
+  await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'add evidence']);
+  const finish = (await run('git', ['-C', f.consumer, 'rev-parse', 'HEAD'])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, finish: { revision: finish } });
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  const request = await requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  assert.equal(request.state, 'published');
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.ok(patch.includes('Binary files'), 'text diff still names the binary change');
+  assert.ok(patch.includes('evidence.png'));
+  assert.match(patch, /new sha256=[0-9a-f]{64} size=9437184/, 'manifest carries the real blob sha256 and size, not the bytes');
+});
+
+test('TM-241: a forced git diff failure is reported with git\'s own exit code and stderr, not the generic sentence', async t => {
+  const f = await fixture(t);
+  const { chmod, writeFile: write } = await import('node:fs/promises');
+  await write(join(f.consumer, 'f.txt'), 'hello');
+  await run('git', ['-C', f.consumer, 'add', 'f.txt']);
+  await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'add f']);
+  const finish = (await run('git', ['-C', f.consumer, 'rev-parse', 'HEAD'])).stdout.trim();
+  const blob = (await run('git', ['-C', f.consumer, 'rev-parse', `${finish}:f.txt`])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, finish: { revision: finish } });
+  // Corrupt the blob's loose object so `git diff` fails to read it while `merge-base --is-ancestor`
+  // (which only walks commit parents, not blob content) still succeeds — isolating the diff failure.
+  const objectPath = join(f.consumer, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+  await chmod(objectPath, 0o644);
+  await write(objectPath, 'corrupted');
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  await assert.rejects(
+    requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
+    error => {
+      assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
+      assert.match(error.message, /git diff exited 128/);
+      assert.match(error.message, /unable to read/);
+      return true;
+    }
+  );
+});
