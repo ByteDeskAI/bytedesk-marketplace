@@ -1,10 +1,15 @@
 // The per-repo agent library. Agents are a first-class resource type alongside templates, skills,
 // roles and providers: one directory per agent under `.bytedesk/agent-orchestration/agents/<id>/`,
-// holding the definition, the file-backed system prompt, and the agent's own working directory.
+// holding the definition, the file-backed system prompt, and the agent's own scratch directory
+// (session record, launcher, pane.log — see AO_AGENT_DIR in launch.mjs's openRoleSession).
 //
-// The directory doubles as the agent's cwd at spawn time. That is deliberate — Claude Code keys its
-// memory by working directory, so a per-agent cwd gives each agent its own memory without inventing
-// a memory layer. The real work tree is reached with --add-dir and explained in the prompt.
+// TM-242: a STANDING agent's pane launches with the repo root as its cwd, not this directory —
+// Claude Code resolves CLAUDE_PROJECT_DIR from the pane's actual cwd when it runs a project hook,
+// an exported/inherited value is not honoured, and this directory nests under the repo, so nothing
+// is lost by not cwd-ing into it. That also means Claude Code's own cwd-keyed memory is shared
+// across every standing agent in one repo rather than kept per agent — a real change from the older
+// per-agent-directory cwd, traded for hooks that actually work. ao-topology's own per-agent state
+// (this directory's contents) stays isolated regardless, because it is keyed by agent id, not cwd.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";

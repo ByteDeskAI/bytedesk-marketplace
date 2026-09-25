@@ -117,11 +117,14 @@ function assertIndependent(agentId, { lead, notAgentIds }) {
 }
 
 /**
- * The real session opener, used when no probes are injected. Mirrors the CLI's `session open`:
- * the session's cwd is the agent's own directory (that is what gives it memory of its own), the
- * repo is granted explicitly, and the reviewer's coordinates_only flag keeps the grant read-only
- * on CLIs that can express it. Review verdicts go back to the author; the reviewer never writes
- * the project.
+ * The real session opener, used when no probes are injected. Mirrors the CLI's `session open`.
+ * `openRoleSession` (TM-242) launches the pane's actual cwd at the repo root — not the agent's own
+ * directory — because that cwd is what Claude Code resolves `CLAUDE_PROJECT_DIR` from when it runs
+ * a project hook, and an exported/inherited value is not honoured. The agent's own directory (still
+ * the agent's own directory the whole library keys by) stays reachable because it lives inside the
+ * repo tree, and is carried forward as `AO_AGENT_DIR` for anything that specifically needs it. The
+ * reviewer's coordinates_only flag keeps the grant read-only on CLIs that can express it. Review
+ * verdicts go back to the author; the reviewer never writes the project.
  */
 async function defaultOpen({ agent, consumer, home, pluginRoot, provider, model, log, env = process.env }) {
   const adapters = await loadAdapters(providerDirs({ pluginRoot, consumer, home }));

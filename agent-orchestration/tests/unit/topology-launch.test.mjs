@@ -2,7 +2,7 @@
 // readiness (the shell-prompt false positive, the reachable ready:false, the failure matcher), the
 // per-agent memory declaration each provider carries, and session naming for concurrent spawns.
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -593,6 +593,47 @@ test("reattaching to a live role-session returns the same session rather than a 
   assert.ok(record.command.includes(record.launcher));
   assert.ok(!record.command.includes("/runs/"), "the restore command must not point into a run directory");
   assert.ok(record.restore_contract.length > 40, "the contract is stated in the record, for whoever reads it");
+});
+
+// TM-242: a standing agent's pane used to launch in its own agent directory. Claude Code sets
+// CLAUDE_PROJECT_DIR from the launch cwd (an exported value is overwritten — measured live), so every
+// project hook reading it resolved to the agent directory. openRoleSession now launches at
+// AO_CONSUMER when present; the test above, with no AO_CONSUMER, covers the agent-directory fallback.
+// Isolated per .claude/rules/tmux-test-isolation.md: TMUX blank, own TMUX_TMPDIR, own -L server.
+test("a standing agent's pane launches at the repo root, not its own directory, so CLAUDE_PROJECT_DIR resolves correctly", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao-role-consumer-"));
+  const agentId = "consumer1";
+  const consumer = join(root, "repo");
+  await mkdir(consumer, { recursive: true });
+  const server = `ao-tm242-${process.pid}`;
+  const saved = { TMUX: process.env.TMUX, TMUX_TMPDIR: process.env.TMUX_TMPDIR };
+  Object.assign(process.env, { TMUX: "", TMUX_TMPDIR: root });
+  t.after(async () => {
+    await promisify(execFile)("tmux", ["-L", server, "kill-server"], { env: { ...process.env, TMUX: "", TMUX_TMPDIR: root } }).catch(() => {});
+    for (const [key, value] of Object.entries(saved)) value === undefined ? delete process.env[key] : (process.env[key] = value);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const agent = { id: agentId, role: "lead", full_name: "Consumer Lead", _dir: join(root, agentId), instructions: "first" };
+  await refreshPrompt({ agent, consumer, session: roleSessionName(agentId), home: root, env: { XDG_CONFIG_HOME: join(root, "config") } });
+  const result = await tmux.withServer(server, () => openRoleSession({
+    agentsDir: root,
+    agentId,
+    adapter: { id: "fake", ready: { delay_ms: 50 }, submit_keys: ["Enter"] },
+    argv: ["sh", "-c", "echo READY; cat"],
+    env: { AO_AGENT_ID: agentId, AO_CONSUMER: consumer },
+    role: "lead",
+  }));
+  assert.equal(result.created, true);
+
+  const record = JSON.parse(await readFile(roleSessionPath(root, agentId), "utf8"));
+  assert.equal(record.cwd, consumer, "the launched cwd is the repo root, which is what CLAUDE_PROJECT_DIR resolves from");
+  assert.equal(record.agent_dir, join(root, agentId), "the agent's own directory is still recorded");
+  const { stdout } = await promisify(execFile)("tmux", ["-L", server, "display-message", "-p", "-t", result.pane, "#{pane_current_path}"], { env: { ...process.env, TMUX: "" } });
+  assert.equal(stdout.trim(), consumer, "the real pane's cwd is the repo root");
+  const launcherSource = await readFile(record.launcher, "utf8");
+  assert.ok(launcherSource.includes(`cd ${consumer}\n`), "the launcher cds to the repo root");
+  assert.ok(launcherSource.includes(`export AO_AGENT_DIR=${join(root, agentId)}`), "and carries the agent directory forward");
 });
 
 test("healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation", { skip: haveTmux ? false : "no tmux" }, async t => {
