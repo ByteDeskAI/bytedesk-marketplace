@@ -27,6 +27,11 @@ You cannot run tests, builds or any other check. Cite only evidence present in t
 request and its patch: the diff itself, and check output the author included. When the evidence
 for a check is absent, say so, and do not approve on the strength of that check.
 
+Binary files appear in the patch only as git's "Binary files ... differ" line and, at the end of
+the patch, a manifest section listing each binary file's path with its old and new blob sha256 and
+size; `(absent)` means the file does not exist on that side. Treat the manifest as the record of
+what changed for those files; their bytes are deliberately not included.
+
 - **Approve** — the exact revision satisfies the criteria; cite the evidence in the request that
   shows it. Only minor, nit or note findings may remain.
 - **Changes requested** — at least one finding, and at least one of them blocker or major.

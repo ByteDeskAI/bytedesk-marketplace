@@ -68,6 +68,15 @@
 
 ### Fixed
 
+- **A review range over 8 MiB produces a review request (TM-241).** The reviewer patch no longer
+  embeds binary bytes. Each binary file appears as git's "Binary files ... differ" line plus a
+  manifest at the end of the patch listing its path, old and new blob sha256 and size, covered by
+  `patch_sha256`. Text diffs, and the hash of a text-only range, are unchanged. Blob hashes are
+  streamed, so no file size is capped. When the diff cannot be produced, `TOPOLOGY_REVIEWER_RANGE`
+  names the cause: a revision that is not a commit, the size cap (64 MiB of text diff) with the
+  bytes read, git's exit code and stderr, or the binary file that could not be read, with its size.
+  A range that contains binary files hashes differently from before, so an outstanding request or
+  approval for such a range must be requested again. The reviewer prompt explains the manifest.
 - **Rendered reviewer verdicts parse again (TM-233).** Claude Code shows the reviewer's reply as
   Markdown, which turns `\"` into a bare `"`, and it hard-wraps long lines however wide the pane is.
   Every verdict that quoted text was refused as "Review response must be JSON". Collection now
