@@ -21,6 +21,15 @@
 
 ### Changed
 
+- **Tasks in a repository with a standing reviewer are admitted before dispatch (TM-240).**
+  task-management now refuses to dispatch an unadmitted task when this plugin has registered a
+  reviewer for the repository, unless `dispatch.governed` is explicitly `false`. Before, an unset
+  value skipped `manage admit`, and `reviewer request` then refused the finished work with
+  `TOPOLOGY_REVIEWER_RANGE` because no admission record held its base revision — design-system
+  TM-136 (PR 121) and marketplace TM-235 (PR 125). No code in this plugin changed. New tests run the
+  real `tm` CLI through refusal, `manage admit`, dispatch and finish to an accepted review request,
+  and run `reviewer request` from a copy of `topology/` with task-management absent.
+
 - **A lead starts, adopts and stops task workers through `manage`, with ownership recorded
   (TM-218).** `manage start-worker --task TM-id [--backend tmux|topology]` launches the worker for an
   admitted task through `tm dispatch` and binds its observed pane, so `manage eligible` no longer

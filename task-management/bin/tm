@@ -1383,7 +1383,9 @@ const VERBS = {
       p: P,
       registry: await envRegistry(),
     });
-    if (!res.ok) die(res.reason, 2);
+    if (!res.ok) die(res.code ? `${res.code}: ${res.reason}` : res.reason, 2);
+    // TM-240: an explicit governance opt-out is said on stderr in every output mode.
+    if (res.ungoverned) process.stderr.write(`WARNING: ${res.ungoverned}\n`);
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.
