@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join, resolve } from "node:path";
@@ -330,7 +329,7 @@ test("a spec may not launch outside the repo that invoked it", async () => {
   }
 });
 
-test("a library agent runs in its own directory; an inline agent still follows the spec cwd", async () => {
+test("a library agent runs in the spec cwd, like an inline agent (TM-242)", async () => {
   const consumer = await mkdtemp(join(os.tmpdir(), "ao-topology-cwd-"));
   try {
     const conductor = await createAgent(consumer, { role: "orchestrator" });
@@ -347,10 +346,10 @@ test("a library agent runs in its own directory; an inline agent still follows t
     const rendered = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: {} });
     const [fromLibrary, pinned, inline] = rendered.agents;
 
-    // cwd is what scopes a CLI's memory, so a roster agent gets its own directory and its own memory.
-    assert.equal(fromLibrary.cwd, conductor._dir, "a library agent defaults to its own agent directory");
-    assert.notEqual(fromLibrary.cwd, consumer, "two library agents must not share the repo root as cwd");
-    assert.ok(existsSync(fromLibrary.cwd), "the directory must exist before a launcher cd's into it");
+    // TM-242: this cwd is what new-session, new-window and split-window receive, and Claude Code
+    // derives CLAUDE_PROJECT_DIR from it. An agent-directory cwd broke every project hook.
+    assert.equal(fromLibrary.cwd, consumer, "a library agent launches at the repo root, not its own directory");
+    assert.notEqual(fromLibrary.cwd, conductor._dir);
 
     assert.equal(pinned.cwd, join(consumer, "sub", "dir"), "an explicit cwd on the entry still wins");
     assert.equal(inline.cwd, consumer, "an inline agent is unaffected — the shipped templates rely on this");
@@ -366,10 +365,8 @@ test("a library agent found outside the consumer still works inside it", async (
     const shared = await createAgent(library, { role: "orchestrator" });
     const spec = validateSpec({ name: "shared-agent", agents: [{ agent: shared.id }] });
     const rendered = materializeSpec(spec, { runId: "r", consumer, home: "/h", inputs: {}, agentDirs: [agentsRoot(library)] });
-    // Memory is per project: a definition shared across repos must not give one repo's run a working
-    // directory in another repo — and a cwd outside the consumer would not survive containment.
-    assert.equal(rendered.agents[0].cwd, join(consumer, ".bytedesk", "agent-orchestration", "agents", shared.id));
-    assert.ok(existsSync(rendered.agents[0].cwd));
+    // A definition shared across repos must not give one repo's run a working directory in another.
+    assert.equal(rendered.agents[0].cwd, consumer);
     assert.equal(rendered.agents[0].full_name, shared.full_name, "shared identity is retained for fresh composition");
     assert.equal(rendered.agents[0].instructions_file,undefined,"generated library output is not recursively composed");
   } finally {

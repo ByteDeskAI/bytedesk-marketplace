@@ -989,9 +989,9 @@ const commands = {
     const adapters = await loadAdapters(ctx.providerDirs);
     const adapter = adapterFor(agent, adapters);
     const session = roleSessionName(agent.id);
-    // The session's cwd is the agent's own directory — that is what gives it memory of its own under
-    // every shipped CLI. The repo is therefore granted explicitly, exactly as `launch` does it, and
-    // a coordinator is granted nothing beyond its own directory.
+    // openRoleSession starts the pane at AO_CONSUMER, the repo root (TM-242), so project hooks get the
+    // right CLAUDE_PROJECT_DIR. A coordinator is granted no extra directory; an observer also gets
+    // the orchestration state root.
     const addDirs = agent.role === 'observer' ? [stateRoot(process.env, ctx.home)] : agent.coordinates_only === true ? [] : [ctx.consumer];
     const vars = {
       session,

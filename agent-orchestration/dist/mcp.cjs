@@ -10420,6 +10420,8 @@ async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, pr
 } }) {
   const session = roleSessionName(agentId, { prefix });
   const dir = (0, import_node_path35.join)(agentsDir, String(agentId));
+  const launchCwd = env.AO_CONSUMER || dir;
+  env = { ...env, AO_AGENT_DIR: dir };
   const recordPath = roleSessionPath(agentsDir, agentId);
   const stored = await readJson3((0, import_node_path35.join)(dir, "agent.json")).catch(() => null);
   const display = { agent: stored ? displayName(stored) : agentId, role, ...roleVisual({ role }) };
@@ -10445,7 +10447,7 @@ async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, pr
       await writeJson(recordPath, record3);
       const shell2 = await clearAndWaitForShell(observed.paneId, `ao-role-${(0, import_node_crypto15.randomUUID)().slice(0, 8)}`);
       invariant2(shell2.ok, "TOPOLOGY_SESSION_START", "Restarted shell did not become ready.");
-      await writeText(record3.launcher, launcherScript({ agent: { id: agentId, role, cwd: dir }, candidate: { cli: adapter.id }, argv, env }), 448);
+      await writeText(record3.launcher, launcherScript({ agent: { id: agentId, role, cwd: launchCwd }, candidate: { cli: adapter.id }, argv, env }), 448);
       await sendText(observed.paneId, `exec bash ${shellQuote(record3.launcher)}`);
       if (env.AO_CONSUMER) {
         const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 3e4, { baseline: shell2.baseline });
@@ -10465,13 +10467,17 @@ async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, pr
   const launcher = (0, import_node_path35.join)(dir, "session.sh");
   const command = `bash ${shellQuote(launcher)}`;
   await (0, import_promises30.mkdir)(dir, { recursive: true });
-  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: dir }, candidate: { cli: adapter.id }, argv, env }), 448);
+  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: launchCwd }, candidate: { cli: adapter.id }, argv, env }), 448);
   const record2 = {
     version: 1,
     session,
     agent_id: agentId,
     role,
-    cwd: dir,
+    cwd: launchCwd,
+    // The agent's own directory — session.json, prompt.md, the launcher and pane.log all live here
+    // regardless of what `cwd` is, so per-agent state stays isolated even though the pane's actual
+    // working directory (and hence CLAUDE_PROJECT_DIR) is now the repo root.
+    agent_dir: dir,
     provider: adapter.id,
     launcher,
     command,
@@ -10480,7 +10486,7 @@ async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, pr
     created_at: nowIso()
   };
   await writeJson(recordPath, record2);
-  const pane = await newSession(session, { cwd: dir, windowName: agentId });
+  const pane = await newSession(session, { cwd: launchCwd, windowName: agentId });
   const sessionServer = await serverOf(pane);
   record2.binding = (await panesOn(sessionServer)).find((p) => p.paneId === pane && p.sessionName === session);
   await writeJson(recordPath, record2);
@@ -52337,7 +52343,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "949ab8b832b5f69983b008169c0fa78ead6a6069647c6abe48b2526ef792ea69",
+  sourceFingerprint: false ? null : "4e0c44afa43ca27350e9018371f4d6385e10ffaf15f8b161c9e9bad75d8b9a27",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

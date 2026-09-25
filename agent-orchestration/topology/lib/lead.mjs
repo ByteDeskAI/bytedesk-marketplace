@@ -363,7 +363,8 @@ async function createLeadAgent({ consumer, home, pluginRoot, env }) {
 
 /**
  * Open (or reattach) the lead's durable role-session. Mirrors `ao-topology session open`: the
- * session's cwd is the agent's own directory, and a coordinator is granted nothing beyond it.
+ * session's cwd is the repo (TM-242, so project hooks see the right CLAUDE_PROJECT_DIR), and a
+ * coordinator gets no extra directories and no write tools.
  * AO_LEAD_ID rides in the environment — that is the recursion guard ensureLead checks first.
  */
 async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, open }) {

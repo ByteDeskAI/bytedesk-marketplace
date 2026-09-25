@@ -1,11 +1,11 @@
 // Orchestration spec: the declarative object that natural language compiles into and that a
 // template stores. Validation is deliberately strict and explains every failure so that an LLM
 // composing a spec can fix it from the error text alone.
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { absolutize, exists, fail, invariant, readJson, renderDeep, slug, consumerResourceDirs, isInside } from "./util.mjs";
-import { agentDirs, agentsRoot, listAgentsSync, matchAgent } from "./agents.mjs";
+import { agentDirs, listAgentsSync, matchAgent } from "./agents.mjs";
 
 export const SPEC_VERSION = 1;
 export const LAYOUTS = ["main-vertical", "grid", "windows"];
@@ -374,26 +374,6 @@ function expandAgentRefs(spec, context) {
 }
 
 /**
- * An agent from the repo's library runs in its OWN directory, not in the repo root. That is what
- * gives it private memory: Claude Code and its peers key their memory off the working directory, so
- * a per-agent cwd is per-agent memory with no memory layer to invent. The work tree is granted
- * separately (the launcher passes it to the adapter's add-dir mechanism) and mapped in the prompt.
- *
- * Scoped to library agents deliberately: an inline spec agent is an ad-hoc pane, not a durable
- * roster member, and the shipped templates set `spec.cwd` to a repo their agents must work in.
- * An `agent:` entry or an agent record that states its own `cwd` still wins over this default.
- */
-function libraryCwd(agent, context) {
-  if (!agent._agent_dir) return null;
-  // A definition found outside the consumer (user config, plugin) still gets its working directory
-  // inside this repo — memory is per project, and a cwd outside the repo would not survive containment.
-  const dir = isInside(context.consumer, agent._agent_dir) ? agent._agent_dir : join(agentsRoot(context.consumer), String(agent._agent));
-  // The launcher `cd`s here. A missing directory fails inside the pane, where nobody sees it.
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-/**
  * Read a file-backed system prompt. It is resolved against the stored agent's own directory when
  * the entry came from the library — that is where its `prompt.md` lives — and against the consumer
  * repo otherwise. A missing file is fatal: launching with a silently empty system prompt produces
@@ -449,7 +429,11 @@ export function materializeSpec(rawSpec, context) {
   rendered.agents = rendered.agents.map((agent) => {
     const agentVars = { ...vars, agent: { id: agent.id, role: agent.role } };
     const withAgent = renderDeep(agent, agentVars);
-    withAgent.cwd = absolutize(withAgent.cwd ?? libraryCwd(withAgent, context) ?? rendered.cwd, context.consumer);
+    // TM-242: a library agent runs in the spec's cwd (the repo by default), not its own directory.
+    // Claude Code sets CLAUDE_PROJECT_DIR from the launch cwd and ignores an exported value (measured
+    // live), so an agent-directory cwd broke every project hook that reads it. The cost: CLIs that key
+    // memory by cwd now share one memory per repo instead of one per agent.
+    withAgent.cwd = absolutize(withAgent.cwd ?? rendered.cwd, context.consumer);
     if (!context.runDir || withAgent.cwd !== join(runDir, 'agents', agent.id)) containPath(withAgent.cwd, context.consumer, `agents.${agent.id}.cwd`, context);
     // A participant has no provider chain, and running the chain logic over one produced the STRING
     // "undefined" as its cli plus a candidates array to match. Nothing read it — `prepared` skips

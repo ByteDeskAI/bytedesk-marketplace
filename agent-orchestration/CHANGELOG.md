@@ -21,6 +21,15 @@
 
 ### Changed
 
+- **Standing agents start in the repository root, so project hooks find it (TM-242).** Lead,
+  reviewer and observer panes, and library agents in a run, used to start in their own agent
+  directory. Claude Code sets `CLAUDE_PROJECT_DIR` from the launch directory and overwrites an
+  exported value (measured with Claude Code 2.1.282), so every project hook reading it failed — the
+  design-system lead hit "Cannot find module …/agents/d04c2baa/.claude/helpers/graft-hooks.cjs" on
+  every `Stop`. Panes now start at the repository root; the agent directory is exported as
+  `AO_AGENT_DIR` and recorded as `agent_dir` in `session.json`. Claude Code memory is now shared per
+  repository rather than per agent, and a coordinator's containment rests on `coordinator_args` and
+  permission prompts, not on a withheld directory. See docs/topology.md, *Working directory*.
 - **A lead starts, adopts and stops task workers through `manage`, with ownership recorded
   (TM-218).** `manage start-worker --task TM-id [--backend tmux|topology]` launches the worker for an
   admitted task through `tm dispatch` and binds its observed pane, so `manage eligible` no longer

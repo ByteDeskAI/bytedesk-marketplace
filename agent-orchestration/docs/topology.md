@@ -99,13 +99,15 @@ message envelopes, event payloads and agent-to-agent traffic all carry the id, d
 
 **One lead per repository**, enforced at creation rather than by convention. A lead is the repo's
 front door and may be `coordinates_only`, which is a capability rather than an instruction. Three
-things follow mechanically: work cannot be delegated to one; it is launched with **no directory
-granted at all**, including any a spec tried to supply, so its own agent directory is the only
-writable path it has; and its adapter's `coordinator_args` withhold its write tools.
+things follow mechanically: work cannot be delegated to one; it is launched with **no extra
+directory granted**, including any a spec tried to supply; and its adapter's `coordinator_args`
+withhold its write tools.
 
 Be precise about how far that goes. For Claude, `Bash` is deliberately *not* denied — the conductor
-delegates by running `ao-topology send`/`wait`/`reply`, so denying it would break the role. The tool
-flag is defence in depth; **the containment that actually holds is the withheld directory grant**.
+delegates by running `ao-topology send`/`wait`/`reply`, so denying it would break the role. Since
+TM-242 a coordinator's cwd is the repo root (see *Working directory* below), so the directory grant
+no longer fences it off from the work tree: **what holds is `coordinator_args` removing the write
+tools, plus the permission prompt on every `Bash` command when `auto_approve` is off**.
 Three adapters declare a verified coordinator form (claude, codex, gemini); the rest declare an
 empty one and name their candidate flag in `notes` rather than guessing, and a coordinator whose
 adapter declares nothing produces a warning saying exactly what is and is not containing it.
@@ -146,10 +148,26 @@ ao-topology session list                   # which of this repo's agents are liv
 ao-topology session close "Mira Halloran"  # end the session; the agent survives it
 ```
 
-The session's cwd is the agent's own directory, which is what gives it memory of its own under
-every CLI that keys session state by working directory; the repo is granted explicitly through the
-adapter's `add_dir_args`, and a `coordinates_only` agent is granted nothing beyond its own
-directory.
+**Working directory (TM-242).** Every standing agent — lead, reviewer, observer, and any library
+agent in a run — starts with the **repository root** as its cwd, and Claude Code therefore sets
+`CLAUDE_PROJECT_DIR` to the repository root when it runs a project hook. Measured on 2026-09-25 with
+Claude Code 2.1.282: Claude Code overwrites an exported `CLAUDE_PROJECT_DIR` with the launch
+directory, so only the cwd works. Before this, panes started in the agent's own directory and every
+hook that reads `${CLAUDE_PROJECT_DIR:-.}` (for example graft's `Stop` hook) failed with "Cannot find
+module".
+
+| Role | cwd / `CLAUDE_PROJECT_DIR` | Agent directory |
+|---|---|---|
+| lead, reviewer, observer (`session open`, `lead ensure`, `reviewer ensure`) | repository root (`AO_CONSUMER`) | `.bytedesk/agent-orchestration/agents/<id>/`, exported as `AO_AGENT_DIR` |
+| library agent in a run | the spec's `cwd` (repository root by default) | same path; its prompt is still read from there |
+| inline agent in a run | the spec's `cwd`, unchanged | none |
+| a role session opened without `AO_CONSUMER` | the agent directory (fallback) | same |
+
+The agent directory still holds `agent.json`, `prompt.md`, `session.json`, the launcher and
+`pane.log`, so ao-topology's per-agent state is unchanged. What changed is memory for CLIs that key
+it by cwd, such as Claude Code's `~/.claude/projects/<cwd>/memory`: standing agents in one
+repository now share that repository's memory instead of each having its own. An agent that wants
+private notes writes them under `$AO_AGENT_DIR`.
 
 **The record is the restore contract.** `session.json` lives beside the agent, never inside a run
 directory that will be torn down, and it names one idempotent command. That matters because the

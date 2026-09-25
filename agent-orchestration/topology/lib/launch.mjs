@@ -599,9 +599,9 @@ export function assertAutomaticFallbackPolicy(config, candidates) {
 function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage = null, replyToken = null }) {
   // A coordinator is granted nothing. It delegates rather than implements, and it is the only
   // address an outsider may reach directly in cross-repo routing — the most exposed agent in the
-  // system should be the least capable one. Its cwd is its own agent directory, so withholding the
-  // work-tree grant leaves that directory the only writable path it has: "cannot write the repo" is
-  // then a property of what it was launched with, not a sentence in its prompt.
+  // system should be the least capable one. Its write tools are removed by the adapter's
+  // coordinator_args. TM-242: its cwd is the spec cwd (the repo), no longer its own agent directory,
+  // so "cannot write the repo" rests on coordinator_args, not on where it was launched.
   const coordinator = agent.coordinates_only === true;
   const runtimeDirs = runtimeGrantDirs({ runDir: spec.run_dir, agentId: agent.id, artifactsDir: spec.artifacts.dir });
   // Any other agent whose cwd is not the repo has its own memory (every shipped CLI keys session
@@ -1212,6 +1212,16 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
 export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {} }) {
   const session = roleSessionName(agentId, { prefix });
   const dir = join(agentsDir, String(agentId));
+  // TM-242: the pane's cwd is what Claude Code resolves CLAUDE_PROJECT_DIR from when it runs a
+  // project hook — measured live, an exported/inherited CLAUDE_PROJECT_DIR is NOT honoured; Claude
+  // Code overwrites it with the launch cwd before invoking the hook. `dir` (the agent's own
+  // directory) is what has always been used for launch, which is what gave the agent its own
+  // Claude-Code-native memory keyed by cwd (agents.mjs) — but it also means every project hook
+  // that reads `${CLAUDE_PROJECT_DIR:-.}` resolves to the agent directory, not the repo, and fails.
+  // Repo-root cwd is the only lever that fixes the hook; AO_AGENT_DIR carries the per-agent
+  // directory forward for anything (this launcher, the agent's own notes) that still needs it.
+  const launchCwd = env.AO_CONSUMER || dir;
+  env = { ...env, AO_AGENT_DIR: dir };
   const recordPath = roleSessionPath(agentsDir, agentId);
   // TM-168 title bar. Read-only: the stored definition supplies the readable name, and agent.json is
   // never written back. An agent with no definition on disk is shown by its id.
@@ -1243,7 +1253,7 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       await writeJson(recordPath,record);
       const shell = await tmux.clearAndWaitForShell(observed.paneId, `ao-role-${randomUUID().slice(0,8)}`);
       invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Restarted shell did not become ready.');
-      await writeText(record.launcher, launcherScript({ agent: { id:agentId, role, cwd:dir }, candidate:{cli:adapter.id}, argv, env }), 0o700);
+      await writeText(record.launcher, launcherScript({ agent: { id:agentId, role, cwd:launchCwd }, candidate:{cli:adapter.id}, argv, env }), 0o700);
       await tmux.sendText(observed.paneId, `exec bash ${shellQuote(record.launcher)}`);
       if (env.AO_CONSUMER) {
         const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
@@ -1265,14 +1275,18 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   // The one command the session is ever started by — ours to run, and the gateway's to restore from.
   const command = `bash ${shellQuote(launcher)}`;
   await mkdir(dir, { recursive: true });
-  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: dir }, candidate: { cli: adapter.id }, argv, env }), 0o700);
+  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: launchCwd }, candidate: { cli: adapter.id }, argv, env }), 0o700);
 
   const record = {
     version: 1,
     session,
     agent_id: agentId,
     role,
-    cwd: dir,
+    cwd: launchCwd,
+    // The agent's own directory — session.json, prompt.md, the launcher and pane.log all live here
+    // regardless of what `cwd` is, so per-agent state stays isolated even though the pane's actual
+    // working directory (and hence CLAUDE_PROJECT_DIR) is now the repo root.
+    agent_dir: dir,
     provider: adapter.id,
     launcher,
     command,
@@ -1282,7 +1296,7 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   };
   await writeJson(recordPath, record);
 
-  const pane = await tmux.newSession(session, { cwd: dir, windowName: agentId });
+  const pane = await tmux.newSession(session, { cwd: launchCwd, windowName: agentId });
   const sessionServer = await tmux.serverOf(pane);
   record.binding=(await panesOn(sessionServer)).find(p=>p.paneId===pane && p.sessionName===session);
   await writeJson(recordPath,record);
