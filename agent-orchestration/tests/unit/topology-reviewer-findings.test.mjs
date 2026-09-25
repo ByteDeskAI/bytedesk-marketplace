@@ -31,7 +31,7 @@ const LIVE_WRAPPED_VERDICT = [
 ].join('\n');
 
 // A task whose admitted range changes src/a.js, so findings have a real file to point at.
-async function fixture(t, reviewerBinding = binding, changed = ['src/a.js']) {
+async function fixture(t, reviewerBinding = binding, changed = ['src/a.js'], cli = 'codex') {
   const root = await mkdtemp(join(tmpdir(), 'ao-findings-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const consumer = join(root, 'repo'), pluginRoot = join(root, 'plugin'), home = join(root, 'home');
@@ -45,7 +45,7 @@ async function fixture(t, reviewerBinding = binding, changed = ['src/a.js']) {
   }
   await git(['add', '.']); await git(['commit', '-q', '-m', 'change']);
   const revision = (await git(['rev-parse', 'HEAD'])).stdout.trim();
-  await writeJson(join(pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'codex', instructions: 'Review.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
+  await writeJson(join(pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli, instructions: 'Review.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
   const env = { ...process.env, XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
   const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
   const identity = await canonicalRepoId(consumer);
@@ -335,20 +335,48 @@ test('an incomplete verdict older than the bound fails the request once and noti
   assert.notEqual(fresh.nonce, request.nonce);
 });
 
-test('an incomplete verdict on a pane that has already gone idle at its prompt fails immediately, within the bound', async t => {
+test('a Claude verdict still printing above its empty input box is not failed, even across polls (TM-217 review 1)', async t => {
+  const f = await fixture(t, binding, ['src/a.js'], 'claude');
+  assert.equal(f.record.provider, 'claude');
+  const sent = [];
+  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
+  // Claude Code draws its empty `❯` box below a turn that is still streaming; only the spinner and
+  // the verdict text move between captures. Each of these matches claude.json's composer.empty_pattern.
+  const claudeScreen = (cut, secs) => `● ${full.slice(0, cut)}\n\n✻ Brewing… (${secs}s · esc to interrupt)\n\n╭────╮\n│ ❯\u00a0 │\n╰────╯`;
+  const cuts = [full.indexOf('"file"'), full.indexOf('"claim"'), full.indexOf('"fix"')];
+  for (const [i, cut] of cuts.entries()) {
+    await assert.rejects(collectReview({ ...f.args, ...mail, pluginRoot: PLUGIN, output: async () => claudeScreen(cut, 10 + i) }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+    // Back-date every sighting past the stall window: a changing screen still is not stalled.
+    const stored = JSON.parse(await readFile(path, 'utf8'));
+    assert.notEqual(stored.state, 'failed', `poll ${i + 1}: an empty composer is not idle while Claude prints`);
+    await writeJson(path, { ...stored, incomplete_screen: { ...stored.incomplete_screen, at: new Date(Date.now() - 60_000).toISOString() } });
+  }
+  assert.equal(sent.length, 0);
+  const review = await collectReview({ ...f.args, ...mail, pluginRoot: PLUGIN, output: async () => `● ${full}\n\n✻ Baked for 14s\n\n│ ❯\u00a0 │` });
+  assert.equal(review.verdict, 'approve', 'the verdict records once it closes');
+});
+
+test('an incomplete verdict whose pane capture stops changing fails once the stall window passes, within the bound', async t => {
   const f = await fixture(t);
   const sent = [];
   const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  // The fixture's reviewer runs on codex (config.defaults.json above); this is codex's own
-  // composer-empty pattern (providers/codex.json), so the screen reads as "back at its prompt".
   const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
-  const idleScreen = `${full.slice(0, full.indexOf('"claim"'))}\n› Ask Codex to do anything`;
-  await assert.rejects(collectReview({ ...f.args, ...mail, pluginRoot: PLUGIN, output: async () => idleScreen }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  const frozen = `● ${full.slice(0, full.indexOf('"claim"'))}\n\n│ ❯\u00a0 │`;
+  const collect = () => collectReview({ ...f.args, ...mail, output: async () => frozen });
+  await assert.rejects(collect(), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  await assert.rejects(collect(), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', 'identical polls inside the stall window are not stalled yet');
   const stored = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
-  assert.match(stored.failure.reason, /idle at its own empty prompt/);
+  await writeJson(path, { ...stored, incomplete_screen: { ...stored.incomplete_screen, at: new Date(Date.now() - 60_000).toISOString() } });
+  await assert.rejects(collect(), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  const failed = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(failed.state, 'failed'); assert.equal(failed.failure.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
+  assert.match(failed.failure.reason, /has not changed for over/);
   assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead');
   assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
   const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });

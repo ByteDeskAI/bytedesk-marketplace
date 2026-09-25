@@ -52,10 +52,11 @@
   `collectReview` used to throw `TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE` for an unclosed verdict and
   leave the request pending no matter how long it stayed unclosed. It now records the first time a
   request is seen incomplete and fails it — once, with the lead notified exactly like a refusal —
-  once that has been true for `AO_REVIEW_INCOMPLETE_BOUND_MS` (default 120s), or as soon as the
-  reviewer pane goes idle at its own empty prompt (read from the provider's composer pattern, not
-  from the absence of a busy spinner). A fresh `requestReview` mints a new nonce as usual. A verdict
-  that closes before either condition is met still records normally.
+  once that has been true for `AO_REVIEW_INCOMPLETE_BOUND_MS` (default 120s), or once the pane
+  capture has not changed at all for `AO_REVIEW_INCOMPLETE_STALL_MS` (default 30s, at least two
+  supervision polls). An empty composer is deliberately not read as idle: Claude Code draws its empty
+  input box below a verdict it is still printing. A fresh `requestReview` mints a new nonce as usual.
+  A verdict that closes before either condition is met still records normally.
 - **Reviewer findings are structured (TM-215).** Each finding is `{severity, file, line, claim,
   evidence, fix}` with severity `blocker`, `major`, `minor`, `nit` or `note`. A note needs no
   action and may omit `evidence` and `fix`. Malformed findings, and findings about a file outside
