@@ -79,20 +79,60 @@ function rebaseRewritesProtected(args, ctx) {
 const GH_VALUED = ["-R", "--repo"];
 const gh = (when) => (args) => when(positionals(args, GH_VALUED));
 
+/** The value of a `--name value` / `--name=value` / `-x value` option; the last occurrence wins. */
+function optionValue(args, names) {
+  let val;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (names.includes(a)) {
+      val = args[i + 1];
+      i++;
+      continue;
+    }
+    const eq = names.find((n) => n.startsWith("--") && a.startsWith(`${n}=`));
+    if (eq) val = a.slice(eq.length + 1);
+  }
+  return val;
+}
+
+/** The PR base this worker must open against (pinned at spawn as TM_DISPATCH_INTEGRATION_BRANCH), or null when unknown. */
+const ownBase = (ctx) => ctx.integrationBranch || null;
+
 const GH_API_VALUED = ["-X", "--method", "-f", "-F", "--field", "--raw-field", "-H", "--header", "--input", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview", "-R", "--repo"];
 const GH_API_SENSITIVE = /(^|\/)(merges?|git\/refs|releases|secrets|variables|deployments|environments|dispatches)(\/|$)/;
-/** `gh api` with a writing method against merges, refs, releases, secrets, variables or deployments. */
-function ghApiMutates(args) {
+const GH_API_PULLS = /(^|\/)repos\/[^/]+\/[^/]+\/pulls(\/\d+)?(\?|$)/;
+
+/** Read a `gh api` call: its HTTP verb (gh defaults to POST once a body field is given), endpoint, body field names, and whether a body file was passed. */
+function ghApiRequest(args) {
   let method = null;
-  let body = false;
+  const fields = [];
+  let input = false;
   args.forEach((a, i) => {
     if (a === "-X" || a === "--method") method = args[i + 1];
     else if (a.startsWith("--method=")) method = a.slice("--method=".length);
     else if (/^-X./.test(a)) method = a.slice(2);
-    else if (/^(-f|-F|--field|--raw-field|--input)(=|$)/.test(a)) body = true;
+    else if (["-f", "-F", "--field", "--raw-field"].includes(a)) fields.push(String(args[i + 1] ?? "").split("=")[0]);
+    else if (/^--(field|raw-field)=/.test(a)) fields.push(a.slice(a.indexOf("=") + 1).split("=")[0]);
+    else if (/^--input(=|$)/.test(a)) input = true;
   });
-  const verb = String(method ?? (body ? "POST" : "GET")).toUpperCase();
-  return verb !== "GET" && GH_API_SENSITIVE.test(positionals(args, GH_API_VALUED)[0] ?? "");
+  const verb = String(method ?? (fields.length || input ? "POST" : "GET")).toUpperCase();
+  return { verb, endpoint: positionals(args, GH_API_VALUED)[0] ?? "", fields, input };
+}
+
+/** `gh api` with a writing method against merges, refs, releases, secrets, variables or deployments. */
+function ghApiMutates(args) {
+  const { verb, endpoint } = ghApiRequest(args);
+  return verb !== "GET" && GH_API_SENSITIVE.test(endpoint);
+}
+
+/**
+ * `gh api` creating or patching a pull request with a `base` field — the raw-API way to open or
+ * retarget a PR off the integration branch. A body file (`--input`) cannot be read here, so it
+ * counts as carrying one.
+ */
+function ghApiSetsPrBase(args) {
+  const { verb, endpoint, fields, input } = ghApiRequest(args);
+  return verb !== "GET" && GH_API_PULLS.test(endpoint) && (input || fields.includes("base"));
 }
 
 const WEBHOOK_HOST = /hooks\.slack\.com|discord(app)?\.com\/api\/webhooks/i;
@@ -160,6 +200,40 @@ export const RULES = [
 
   // External: merges, releases, repository settings.
   { id: "gh-pr-merge", tools: ["gh"], when: gh(([a, b]) => a === "pr" && b === "merge"), reason: "merging is a human's call. Open or update your PR and stop there." },
+  {
+    // TM-235: a `gh pr create` with no --base (or the wrong one) targets the repository default
+    // branch, not this repo's configured integration branch — that shipped merged develop commits
+    // onto main. Missing and wrong are the same failure: an unstated base. `gh pr new` is gh's
+    // alias for create and is read the same way.
+    id: "gh-pr-create-base",
+    tools: ["gh"],
+    when: (a, ctx) => {
+      const [sub, verb] = positionals(a, GH_VALUED);
+      return sub === "pr" && (verb === "create" || verb === "new") && optionValue(a, ["--base", "-B"]) !== ownBase(ctx);
+    },
+    reason: (ctx) =>
+      ownBase(ctx)
+        ? `a dispatch worker opens its PR against ${ownBase(ctx)}, this repo's configured integration branch — not the repository default. Run \`gh pr create --base ${ownBase(ctx)} ...\`.`
+        : "no integration branch is known for this worker (TM_DISPATCH_INTEGRATION_BRANCH is unset), so no PR base can be confirmed safe. Ask the dispatcher to set dispatch.integrationBranch and re-dispatch.",
+  },
+  {
+    // TM-235: the base set at create time must stay put. Retargeting is refused whether it is done
+    // through `gh pr edit --base` or through the raw API with a `base` field.
+    id: "gh-pr-retarget",
+    tools: ["gh"],
+    when: (a, ctx) => {
+      const [sub, verb] = positionals(a, GH_VALUED);
+      if (sub === "pr" && verb === "edit") {
+        const base = optionValue(a, ["--base", "-B"]);
+        return base !== undefined && base !== ownBase(ctx);
+      }
+      return sub === "api" && ghApiSetsPrBase(a.slice(a.indexOf("api") + 1));
+    },
+    reason: (ctx) =>
+      ownBase(ctx)
+        ? `a dispatch worker's PR stays based on ${ownBase(ctx)}, this repo's configured integration branch; moving it is a change ${HUMAN}. Open the PR with \`gh pr create --base ${ownBase(ctx)} ...\` and leave its base alone.`
+        : "no integration branch is known for this worker (TM_DISPATCH_INTEGRATION_BRANCH is unset), so no PR base can be confirmed safe. Ask the dispatcher to set dispatch.integrationBranch and re-dispatch.",
+  },
   { id: "gh-release", tools: ["gh"], when: gh(([a, b]) => a === "release" && !["list", "view", "download"].includes(b)), reason: `publishing or changing a release is ${EXTERNAL}` },
   { id: "gh-repo-delete", tools: ["gh"], when: gh(([a, b]) => a === "repo" && ["delete", "archive", "rename"].includes(b)), reason: `deleting, archiving or renaming a repository is ${EXTERNAL}` },
   { id: "gh-secret", tools: ["gh"], when: gh(([a, b]) => a === "secret" && b !== "list"), reason: `changing repository secrets is ${EXTERNAL}` },
@@ -498,9 +572,10 @@ function check(src, ctx, depth) {
  * Classify one Bash command for a dispatch worker.
  *
  * `branch` is the worker's own branch (pinned at spawn as TM_DISPATCH_BRANCH); `head` is the branch
- * checked out where the command runs, when known. Returns `{ allow, reason, rule }` — `rule` is the
- * RULES id that blocked, or "unparsed" for the fail-safe.
+ * checked out where the command runs, when known; `integrationBranch` is the PR base this worker
+ * must target (pinned at spawn as TM_DISPATCH_INTEGRATION_BRANCH). Returns `{ allow, reason, rule }`
+ * — `rule` is the RULES id that blocked, or "unparsed" for the fail-safe.
  */
-export function guardCommand(command, { branch = null, head = branch } = {}) {
-  return check(String(command ?? ""), { branch: branch || null, head: head || null }, 0);
+export function guardCommand(command, { branch = null, head = branch, integrationBranch = null } = {}) {
+  return check(String(command ?? ""), { branch: branch || null, head: head || null, integrationBranch: integrationBranch || null }, 0);
 }

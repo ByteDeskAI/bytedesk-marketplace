@@ -179,19 +179,34 @@ Ordinary overrides do not bypass these completion gates.
 
 For an ungoverned task, the handoff ends with the legacy completion contract, in order: tick
 each criterion (`tm accept`), **commit**, **`git push -u origin <the task's tm/ branch>`**,
-**`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>"`**,
+**`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`**,
 attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no remote, no
 `gh`, no auth — `tm block <id> "<the error>"` instead of closing. Never leave the task
 `in_progress`, and **never merge**: the PR is where the worker's run ends.
 
+**A worker's PR always states its base explicitly (TM-235).** `gh pr create` with no `--base`
+targets the repository default branch, not `dispatch.integrationBranch` — a dispatched worker
+in production once shipped unreleased commits onto the release branch that way. dispatch()
+resolves the integration branch before starting a worker — unconfigured, that means the main
+checkout's own branch name, never the literal `HEAD` — and refuses to dispatch rather than start
+a worker with no resolvable base (a detached HEAD). The resolved branch is pinned into the
+worker's env as `TM_DISPATCH_INTEGRATION_BRANCH` and recorded on the task, which is where the
+handoff prompt reads it from — never from the environment, so a dispatch run inside another
+worker's shell cannot hand its own stale base to the new worker. The detached pool sheds it
+with the other worker markers for the same reason.
+
 **The worker guard** enforces that. A dispatched worker runs with permissions skipped, so it
-is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` and a PreToolUse `pre-bash` hook,
-applied separately to each supported provider candidate, blocks: force pushes and pushes to any branch but the
-worker's own; branch, tag and ref deletion, `reset --hard`, history rewrites, rebasing main;
-`stash drop|clear|pop`; `gh pr merge`, releases, secrets, variables, `gh api` writes; deploy
-and secret tools, package publishing, chat webhooks and mail. It **allows** pushing the
-worker's own branch and `gh pr create`. One table, `lib/worker-guard.mjs`; it stops
-accidents, not an adversary.
+is marked `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` / `_INTEGRATION_BRANCH` and a PreToolUse
+`pre-bash` hook, applied separately to each supported provider candidate, blocks: force pushes
+and pushes to any branch but the worker's own; branch, tag and ref deletion, `reset --hard`,
+history rewrites, rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
+variables, `gh api` writes; deploy and secret tools, package publishing, chat webhooks and mail;
+a `gh pr create` (or its alias `gh pr new`) whose `--base` is missing or does not match
+`TM_DISPATCH_INTEGRATION_BRANCH`; and retargeting that base afterwards — `gh pr edit --base
+<other>`, or a `gh api` write to `repos/*/pulls` carrying a `base` field or an unreadable
+`--input` body. It **allows** pushing the worker's own branch and a `gh pr create` based against
+the configured integration branch. One table, `lib/worker-guard.mjs`; it stops accidents, not an
+adversary.
 Topology defaults to Claude then Codex, using configured CLI models. A candidate that cannot
 enforce the task guard stays held; Grok remains outside unattended topology dispatch.
 
@@ -333,7 +348,7 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 | `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
 | `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly |
 | `dispatch.governed` | `false` | require persistent-lead admission, independent exact-revision review and a separate integration decision |
-| `dispatch.integrationBranch` | `HEAD` | base for new worktrees and ancestry source for duplicate checks |
+| `dispatch.integrationBranch` | `HEAD` | base for new worktrees, ancestry source for duplicate checks, and — resolved to a concrete branch name, never left as `HEAD` — the required `--base` on a worker's `gh pr create` (TM-235) |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
 | `dispatch.enabled` | `true` | the pool runs unless this is `false`; re-read every poll, so it also stops a running pool |
 | `dispatch.autoReady` | `"label"` | keep `ready-for-agent` / `needs-triage` in sync on every write; `"off"` leaves triage to hand |

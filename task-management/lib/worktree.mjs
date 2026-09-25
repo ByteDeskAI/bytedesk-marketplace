@@ -292,13 +292,31 @@ export function taskPlacement(task, { p = paths(), config = readConfig(p) } = {}
   return { path, branch, reused: false };
 }
 
+/** The configured integration branch, unresolved — "HEAD" (the repo default, unnamed) when nothing is set. */
+export function integrationBranch(config) {
+  return String(config.dispatch?.integrationBranch ?? config.integrationBranch ?? "HEAD").trim() || "HEAD";
+}
+
+/**
+ * `integrationBranch()`, resolved to a concrete branch name a `gh pr create --base` can use.
+ *
+ * "HEAD" is a valid `git worktree add` base — it just means "whatever the main checkout has
+ * checked out" — but it names no branch a PR can target, so `gh` falls back to the repository
+ * default silently (TM-235). When nothing is configured, this resolves HEAD to the main
+ * checkout's actual branch name; null only for a detached HEAD, which names nothing to resolve.
+ */
+export function resolveIntegrationBranch(p, config = readConfig(p)) {
+  const configured = integrationBranch(config);
+  return configured === "HEAD" ? tryGit(p.root, "symbolic-ref", "--short", "HEAD") : configured;
+}
+
 export function createWorktree(task, { base, share = true, p = paths(), config = readConfig(p) } = {}) {
   const { path, branch, reused } = taskPlacement(task, { p, config });
   if (reused) {
     ignoreTmArtifacts(path, p.root);
     return { path, branch, shared: [], reused: true };
   }
-  base ??= config.dispatch?.integrationBranch ?? config.integrationBranch ?? "HEAD";
+  base ??= integrationBranch(config);
   if (!tryGit(p.root, "rev-parse", "--verify", `${base}^{commit}`)) throw new Error(`configured integration branch does not resolve: ${base}`);
   mkdirSync(p.worktrees, { recursive: true });
   // Resuming a task reuses its branch; only a new one gets -b.
