@@ -21,6 +21,20 @@
 
 ### Changed
 
+- **A dispatched worker can tell its own binding from another session's (TM-236).** Gateway TM-455,
+  started with `manage start-worker --backend tmux`, read the `worker-bound` event this producer had
+  written on its task — session `tm-TM-455`, pane `%879`, pid `1607748` — as a worker already active,
+  concluded it was a duplicate session in the same worktree, and exited without working; the pid was its
+  own. `manage status` now reports `management.worker.self: true` when the bound worker names the
+  caller's run (`TM_DISPATCH_RUN`), pane (`TMUX_PANE`) or a pid in its own process ancestry, and `false`
+  for any other live worker; a topology launch pins `TM_DISPATCH_RUN=topology:<session>` into the pane
+  beside the other `TM_DISPATCH_*` markers so the record tm dispatch keeps matches the worker's own
+  environment. task-management marks the same event `self` in `tm show` and states in the handoff that
+  such a record is the reader.
+- **`manage status` works with task-management absent (TM-236).** The binding and its `self` mark come
+  from this plugin's own record, so with no `tm` launcher in the repository status now reports them with
+  `task: null` and `claim: null` instead of failing on `spawn … ENOENT`. A missing launcher is refused
+  with the code `TOPOLOGY_MANAGEMENT_TM_ABSENT` by every verb that genuinely needs the store.
 - **A lead starts, adopts and stops task workers through `manage`, with ownership recorded
   (TM-218).** `manage start-worker --task TM-id [--backend tmux|topology]` launches the worker for an
   admitted task through `tm dispatch` and binds its observed pane, so `manage eligible` no longer

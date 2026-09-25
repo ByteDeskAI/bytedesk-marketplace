@@ -3,6 +3,7 @@
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
@@ -49,6 +50,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
   invariant(root && isAbsolute(root), 'TOPOLOGY_MANAGEMENT_REPO', 'No non-bare checkout exists for the task store.');
   const bin = tmBin || join(root, '.bytedesk/task-management/bin/tm');
   invariant(isAbsolute(bin), 'TOPOLOGY_MANAGEMENT_TM', 'tm launcher must be absolute.');
+  // Independence (TM-236): task-management may be absent. Say so with a code a read surface can skip on.
+  invariant(existsSync(bin), 'TOPOLOGY_MANAGEMENT_TM_ABSENT', `task-management is not installed in this repository: no tm launcher at ${bin}.`);
   const exec = async (args, cwd = root) => run(bin, args, { cwd, env: { ...env, TM_ROOT: root, CLAUDE_PROJECT_DIR: cwd, ...(owner ? { TM_SESSION_ID: owner } : {}) } });
   const where = JSON.parse((await exec(['where'])).stdout);
   invariant(isAbsolute(where.store), 'TOPOLOGY_MANAGEMENT_STORE', 'tm did not identify its task store.');
@@ -557,9 +560,46 @@ export async function cleanupTask(options) {
   });
 }
 
+/** This process and every ancestor (/proc walk, Linux); elsewhere just pid and ppid. */
+function ownPids() {
+  // init (pid 1) is every process's ancestor and no worker's identity, so it is never in the set.
+  const pids = new Set([process.pid, process.ppid].filter(n => n > 1));
+  let cur = process.pid;
+  for (let hops = 0; hops < 64 && cur > 1; hops += 1) {
+    let stat;
+    try { stat = readFileSync(`/proc/${cur}/stat`, 'utf8'); } catch { break; }
+    const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+    if (!Number.isInteger(ppid) || ppid <= 1) break;
+    pids.add(cur); pids.add(ppid); cur = ppid;
+  }
+  return pids;
+}
+
+/** TM-236 (gateway TM-455): does this bound worker name the caller — its own run (TM_DISPATCH_RUN, pinned
+ * at dispatch), its own pane (TMUX_PANE, set by tmux), or a pid in its own process ancestry (the pane
+ * process is an ancestor of every command the worker runs)? A worker that read its own binding as another
+ * session's exited without working. The same predicate lives in task-management/lib/dispatch/self.mjs;
+ * TM_SESSION_ID is not a signal, because the lead that dispatched the worker shares it. */
+export function workerIsSelf(worker, env = process.env, pids = ownPids()) {
+  if (!worker || typeof worker !== 'object') return false;
+  if (env.TM_DISPATCH_RUN && worker.run === env.TM_DISPATCH_RUN) return true;
+  const panes = [worker.binding?.paneId, ...(worker.native_identity?.members ?? []).flatMap(m => [m.pane, m.binding?.paneId])];
+  if (env.TMUX_PANE && panes.includes(env.TMUX_PANE)) return true;
+  return [worker.pid, worker.binding?.panePid].some(pid => Number.isInteger(pid) && pids.has(pid));
+}
+
 export async function managementStatus(options) {
-  const ctx = await context(options);
-  return { task: await ctx.store.show(options.task), management: await loadRecord(ctx.path), claim: await ctx.store.claim(options.task) };
+  // Independence (TM-236): the binding and its self mark come from this plugin's own record, so with
+  // task-management absent, report them and leave the task and claim unknown rather than failing.
+  const store = options.store || await taskStore(options).catch(error => {
+    if (error.code !== 'TOPOLOGY_MANAGEMENT_TM_ABSENT') throw error;
+    return { show: async () => null, claim: async () => null };
+  });
+  const ctx = await context({ ...options, store });
+  const management = await loadRecord(ctx.path);
+  return { task: await ctx.store.show(options.task),
+    management: management?.worker ? { ...management, worker: { ...management.worker, self: workerIsSelf(management.worker, ctx.env) } } : management,
+    claim: await ctx.store.claim(options.task) };
 }
 
 // ── Idle dispatch: handing a ready task to an agent that is ALREADY running ───

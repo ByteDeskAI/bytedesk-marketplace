@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **A dispatched worker no longer reads its own bound record as another session (TM-236).** Gateway
+  TM-455 was started through `ao-topology manage start-worker`, which dispatches and then writes a
+  `worker-bound` event on the task naming the worker's tmux session, pane and pid. The worker read that
+  event — pid `1607748`, itself — as a session already working the task, and exited without working; tm
+  recorded "worker exited without closing". Nothing it could read said the record was the reader. Now
+  the worker's environment carries its own run id, `TM_DISPATCH_RUN` (`tmux:tm-<id>`, set by the tmux
+  backend; `topology:<session>`, set by ao-topology's launcher), beside the `TMUX_PANE` tmux already
+  sets and the pane process that is an ancestor of every `tm` it runs. One predicate
+  (`lib/dispatch/self.mjs`) matches a record against those three, and every surface a worker reads to
+  decide whether the task is taken goes through it: `tm show` prints the `dispatched` record (it was
+  `--json`-only) and marks it, a `worker-bound` / `worker-started` comment and — in `--json` —
+  `dispatched.self` / `comments[].self` when they name the caller; `tm agent list` marks the registry
+  row. The handoff states literally "You are the bound worker for <id>" and that a record naming its own
+  run, session, pane or process is the reader, and the SubagentStart worker brief says the same. A
+  record naming a different live pane or pid is still reported as a second worker. The detached pool
+  strips `TM_DISPATCH_RUN` with the other markers. `TM_SESSION_ID` is deliberately not a self signal: the
+  dispatcher injects its own session id into the worker, so the lead would otherwise read the worker as
+  itself.
+- **Self-recognition needs no agent-orchestration (TM-236).** `tm show` and `tm agent list` read only the
+  store and the caller's own environment; a test runs `tm show` with `ao-topology` absent from `PATH`
+  and still sees the bound record marked self.
 - **A dispatched worker's PR now always states its base explicitly.** `gh pr create` with no
   `--base` targets the repository default branch, not `dispatch.integrationBranch` — a dispatched
   worker in `bytedesk-remote-gateway` shipped unreleased `develop` commits onto `main` this way,

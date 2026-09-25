@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding, workerIsSelf } from '../../topology/lib/management.mjs';
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 
@@ -155,6 +155,15 @@ test('production worker proof uses actual tm registry and observed process exit 
   update('TM-001', { dispatched: { backend: 'fixture-process', run: workerRun, session: 'author' } }, p);
   registerAgent({ name: 'fixture-task-worker', backend: 'fixture-process', runId: workerRun, pid: child.pid, session: 'author' }, p);
   await bindTaskWorker(actual);
+  // TM-236: the bound worker is a different live pid, so it is not the caller; the same record read from
+  // the worker's own environment (its run id, pinned at dispatch) is self.
+  assert.equal((await managementStatus(actual)).management.worker.self, false, 'a different live pid is another worker');
+  assert.equal((await managementStatus({ ...actual, env: { ...env, TM_DISPATCH_RUN: workerRun } })).management.worker.self, true, 'the worker reading its own binding sees self');
+  // Independence: with task-management absent, status still reports the binding and its self mark, and skips
+  // the task and claim it can no longer read, rather than failing.
+  const absent = await managementStatus({ ...actual, tmBin: join(opts.consumer, 'no-task-management', 'tm'), env: { ...env, TM_DISPATCH_RUN: workerRun } });
+  assert.equal(absent.task, null); assert.equal(absent.claim, null);
+  assert.equal(absent.management.worker.self, true, 'self is computed from this plugin\'s own record');
   await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
   await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
   const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
@@ -558,4 +567,21 @@ test('bind never adopts an operator shell: pre-admission sessions and login shel
   const refused = await stopTaskWorker({ ...actual, owner: 'peer' });
   assert.equal(refused.stopped, false);
   assert.ok(!((await managementStatus(actual)).management.events.some(e => e.event === 'worker-stop-refused')), 'a non-owner leaves no event in the owner record');
+});
+
+test('TM-236: a bound worker naming the caller\'s run, pane or own pid is self; another live pid is not', async t => {
+  const { spawn } = await import('node:child_process');
+  const { once } = await import('node:events');
+  const other = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  await once(other, 'spawn'); t.after(() => other.kill());
+  const env = { TM_DISPATCH_RUN: 'tmux:tm-TM-455', TMUX_PANE: '%879' };
+  const bound = { run: 'tmux:tm-TM-455', kind: 'tmux', session_name: 'tm-TM-455', binding: { serverKey: '/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%879', panePid: other.pid } };
+  assert.equal(workerIsSelf(bound, env), true, 'by run');
+  assert.equal(workerIsSelf({ ...bound, run: 'tmux:tm-TM-1' }, env), true, 'by pane');
+  assert.equal(workerIsSelf({ ...bound, run: 'tmux:tm-TM-1', binding: { ...bound.binding, paneId: '%1' } }, env), false, 'a different live pid, run and pane: another worker');
+  assert.equal(workerIsSelf({ ...bound, run: 'tmux:tm-TM-1', binding: { ...bound.binding, paneId: '%1', panePid: process.pid } }, env), true, 'the pane process is the caller');
+  assert.equal(workerIsSelf({ kind: 'process', run: `process:${process.ppid}`, pid: process.ppid }, {}), true, 'an ancestor pid, with no env at all');
+  assert.equal(workerIsSelf({ kind: 'process', run: `process:${other.pid}`, pid: other.pid }, {}), false);
+  assert.equal(workerIsSelf({ kind: 'topology', run: 'topology:s', native_identity: { members: [{ id: 'worker', pane: '%879', binding: null }] } }, env), true, 'a topology member pane');
+  assert.equal(workerIsSelf(null, env), false);
 });

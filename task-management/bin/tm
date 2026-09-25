@@ -70,6 +70,7 @@ import { attachEvidence, evidenceSyncReport, detachEvidence } from "../lib/evide
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
+import { SELF_MARK, isSelf, markSelf, selfIdentity } from "../lib/dispatch/self.mjs";
 import { getPath, setPath } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
@@ -862,10 +863,13 @@ const VERBS = {
     if (!id) die("usage: tm show <id>");
     const doc = read(id, P);
     if (!doc) die(`not found: ${id}`);
-    const detail =
+    // TM-236: the entries that name the caller's own run, pane or pid say so, so a dispatched
+    // worker never reads its own bound record as another session's (lib/dispatch/self.mjs).
+    const detail = markSelf(
       kindOf(id) === "epic"
         ? { ...doc, tasks: list("task", { epic: id }, P).map(({ body, file, ...t }) => t) }
-        : doc;
+        : doc,
+    );
     emit(detail, () => renderShow(detail));
   },
 
@@ -1487,7 +1491,8 @@ const VERBS = {
   agent(action, name) {
     requireInit();
     if (!action || action === "list") {
-      const rows = listAgents(P);
+      const self = selfIdentity();
+      const rows = listAgents(P).map((a) => (isSelf(a, self) ? { ...a, self: true } : a));
       emit(rows, () => renderAgents(rows));
       return;
     }
@@ -1858,6 +1863,12 @@ function renderShow(doc) {
   if ((doc.labels || []).length) lines.push(`labels: ${doc.labels.join(", ")}`);
   if ((doc.links || []).length) lines.push(`links: ${doc.links.map((l) => `${l.type} ${l.id}`).join(", ")}`);
   if (doc.branch || doc.worktree) lines.push(`branch: ${doc.branch || "—"}   worktree: ${doc.worktree || "—"}`);
+  // The dispatch record was in --json and nowhere in the text view; a worker deciding whether the
+  // task is already being worked reads it here, with the self mark when it names the reader.
+  if (doc.dispatched) {
+    const d = doc.dispatched;
+    lines.push(["dispatched:", d.backend, d.run ? `run=${d.run}` : "", d.session ? `session=${d.session}` : "", d.self ? SELF_MARK : ""].filter(Boolean).join(" "));
+  }
   if ((doc.acceptance || []).length) {
     lines.push("", "acceptance:", ...doc.acceptance.map((a) => `  [${a.done ? "x" : " "}] ${a.text}`));
   }
@@ -1870,7 +1881,7 @@ function renderShow(doc) {
     lines.push(
       "",
       "comments:",
-      ...doc.comments.map((c) => `  ${c.author ?? "?"} · ${String(c.ts ?? "").slice(0, 16).replace("T", " ")} — ${c.text}`),
+      ...doc.comments.map((c) => `  ${c.author ?? "?"} · ${String(c.ts ?? "").slice(0, 16).replace("T", " ")} — ${c.text}${c.self ? `  ${SELF_MARK}` : ""}`),
     );
   }
   if ((doc.tasks || []).length) lines.push("", "tasks:", ...doc.tasks.map((t) => `  ${t.id} ${t.title} (${t.status})`));

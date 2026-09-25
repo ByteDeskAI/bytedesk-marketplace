@@ -438,7 +438,7 @@ describe("tmux backend", () => {
 
   it("TM-177: marks the pane as a dispatch worker and carries the guard hook on the command line", () => {
     const args = argvOf(req);
-    for (const [k, v] of [["TM_DISPATCH_WORKER", "1"], ["TM_DISPATCH_TASK", "TM-001"], ["TM_DISPATCH_BRANCH", "tm/TM-001-x"]]) {
+    for (const [k, v] of [["TM_DISPATCH_WORKER", "1"], ["TM_DISPATCH_TASK", "TM-001"], ["TM_DISPATCH_BRANCH", "tm/TM-001-x"], ["TM_DISPATCH_RUN", "tmux:tm-TM-001"]]) {
       const at = args.indexOf(`${k}=${v}`);
       assert.ok(at > 0 && args[at - 1] === "-e", `env ${k}=${v} injected via tmux -e; argv was ${JSON.stringify(args)}`);
     }

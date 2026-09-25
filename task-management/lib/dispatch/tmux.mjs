@@ -22,6 +22,10 @@
  * (TM_DISPATCH_WORKER / _TASK / _BRANCH) and launched with the guard hook in
  * `--settings` — see ../worker-guard.mjs. The hook rides on the command line so it
  * holds whether or not this plugin is enabled in the project the worker works in.
+ *
+ * TM-236: the worker also carries its own run id (TM_DISPATCH_RUN — the same `tmux:tm-<id>`
+ * dispatch() records and ao-topology binds), so a record naming that run reads as self, not
+ * as a second worker. tmux adds TMUX_PANE on its own. See ./self.mjs.
  */
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -71,6 +75,8 @@ export function workerEnv(req) {
     TM_DISPATCH_BRANCH: req.branch,
     // TM-235: the PR base the worker guard requires on `gh pr create` — see ../worker-guard.mjs.
     TM_DISPATCH_INTEGRATION_BRANCH: req.integrationBranch,
+    // TM-236: the worker's own run id, so it can tell its own bound record from another's — see ./self.mjs.
+    TM_DISPATCH_RUN: req.run,
   }).filter(([, v]) => v);
 }
 
@@ -133,11 +139,13 @@ export function spawn(req, { spawnImpl = spawnSync, writeImpl = writeFileSync } 
   const file = join(req.worktree, PROMPT_FILE);
   writeImpl(file, req.prompt);
   const cfg = config(req.p);
-  const args = argvFor({ ...req, branch: workerBranch(req, cfg) }, cfg.dispatch?.tmuxCommand);
+  // The run handle is known before the pane exists, so the pane is told what it will be called.
+  const run = `tmux:${sessionName(req.task.id)}`;
+  const args = argvFor({ ...req, branch: workerBranch(req, cfg), run }, cfg.dispatch?.tmuxCommand);
   const res = spawnImpl("tmux", args, { shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (res.error) return { ok: false, reason: `tmux failed to start: ${res.error.message}`, detail: { args } };
   if (res.status !== 0) {
     return { ok: false, reason: `tmux new-session exited ${res.status}: ${String(res.stderr || "").trim()}`, detail: { args } };
   }
-  return { ok: true, run: `tmux:${sessionName(req.task.id)}`, detail: { args, promptFile: file } };
+  return { ok: true, run, detail: { args, promptFile: file } };
 }
