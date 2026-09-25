@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
-import { grantDelegation } from '../../topology/lib/delegation.mjs';
+import { grantDelegation as rawGrant } from '../../topology/lib/delegation.mjs';
+const grantDelegation = opts => rawGrant({ io: { isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] }, ...opts });
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 
@@ -397,7 +398,10 @@ test('record-landing accepts a standing delegation instead of --authorized, and 
   const leadOpts = { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1' }, actor: 'lead-1', reason: 'exercising a standing delegation', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
   await assert.rejects(recordLanding(leadOpts), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'no grant yet');
   await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['record-landing'] });
-  const recorded = await recordLanding(leadOpts);
+  // Authority from the grant is exercised by lead-1; an --actor naming anyone else is refused.
+  await assert.rejects(recordLanding({ ...leadOpts, actor: 'operator' }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  const recorded = await recordLanding({ ...leadOpts, actor: null });
+  assert.equal(recorded.merge.authorization.actor, 'lead-1', 'the recorded actor is the lead that exercised the grant');
   assert.equal(recorded.merge.authorization.authorized, true);
   assert.equal(recorded.merge.authorization.explicit, false);
   assert.equal(recorded.merge.authorization.delegated_by, 'operator');
@@ -418,7 +422,9 @@ test('integrate accepts a standing delegation instead of --authorized, and recor
   const leadOpts = { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1' } };
   await assert.rejects(integrateTask(leadOpts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' }, 'no grant yet');
   await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate'] });
+  await assert.rejects(integrateTask({ ...leadOpts, actor: 'operator' }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
   const integrated = await integrateTask(leadOpts);
+  assert.equal(integrated.merge.authorization.actor, 'lead-1', 'the recorded actor is the lead that exercised the grant, not the OS user');
   assert.equal(integrated.merge.authorization.authorized, true);
   assert.equal(integrated.merge.authorization.channel, 'standing-delegation');
   assert.equal(integrated.merge.authorization.delegated_by, 'operator');

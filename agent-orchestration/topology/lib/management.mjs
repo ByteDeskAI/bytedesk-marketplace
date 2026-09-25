@@ -456,6 +456,9 @@ export async function integrateTask(options) {
     const gate = await integrationEligibility(options);
     invariant(gate.eligible, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', gate.reasons.join('; '));
     const { record, doc, policy } = gate, checks = [];
+    // TM-234: authority from a delegation is exercised by the matched grantee and recorded as such;
+    // a different --actor would misattribute it.
+    invariant(!gate.delegation || !options.actor || options.actor === gate.delegation.grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Under a standing delegation the actor is the grantee ${gate.delegation?.grantee}; refusing --actor ${options.actor}.`);
     const targetBefore = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant(await gitText(ctx.store.root, ['symbolic-ref', '--short', 'HEAD']) === policy.target_branch, 'TOPOLOGY_MANAGEMENT_TARGET', 'Canonical checkout must be on the configured integration branch.');
     const foreign = await foreignDirtyPaths(ctx.store.root);
@@ -479,9 +482,9 @@ export async function integrateTask(options) {
     await git(ctx.store.root, ['merge', '--ff-only', record.finish.revision]);
     const landed = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.finish.revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', 'Landing ancestry verification failed.');
-    const authorization={decision:'integrate',actor:options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id,
+    const authorization={decision:'integrate',actor:fresh.delegation?fresh.delegation.grantee:(options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id),
       authorized:options.authorized===true || fresh.delegation!=null,revision:record.finish.revision,
-      channel:options.actor?'gateway-or-explicit-actor':(fresh.delegation?'standing-delegation':'local-operator'),
+      channel:fresh.delegation?'standing-delegation':(options.actor?'gateway-or-explicit-actor':'local-operator'),
       policy_auto_merge:policy.auto_merge===true,
       ...(fresh.delegation?{delegated_by:fresh.delegation.grantor,delegation_id:fresh.delegation.id}:{}),at:nowIso()};
     const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
@@ -497,8 +500,8 @@ export async function integrateTask(options) {
 export async function recordLanding(options) {
   const ctx = await context(options);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
-    const { task, actor, reason } = options;
-    invariant(nonempty(actor) && nonempty(reason), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --actor and --reason.');
+    const { task, reason } = options;
+    invariant(nonempty(reason), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --reason.');
     const record = await loadRecord(ctx.path);
     const revision = record?.finish?.revision;
     invariant(!record?.merge, 'TOPOLOGY_MANAGEMENT_LANDING', 'Task already has a recorded landing.');
@@ -511,6 +514,10 @@ export async function recordLanding(options) {
       ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', env: ctx.env, home: ctx.home })
       : null;
     const authorized = options.authorized === true || policy.auto_merge === true || delegation != null;
+    // TM-234: under a delegation the actor IS the grantee that exercised it; --actor may only repeat it.
+    invariant(!delegation || !nonempty(options.actor) || options.actor.trim() === delegation.grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Under a standing delegation the actor is the grantee ${delegation?.grantee}; refusing --actor ${options.actor}.`);
+    const actor = delegation ? delegation.grantee : options.actor;
+    invariant(nonempty(actor), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --actor.');
     invariant(authorized, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'Configured policy requires explicit integration authority; pass --authorized, or have the operator grant a standing delegation with ao-topology delegate grant.');
     invariant(nonempty(options.landed), 'TOPOLOGY_MANAGEMENT_LANDING', 'record-landing requires --landed <commit>.');
     const resolved = await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', `${options.landed}^{commit}`], true);

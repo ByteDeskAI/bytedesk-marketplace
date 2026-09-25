@@ -312,9 +312,22 @@ ao-topology delegate list [--repo <consumer>]
 ao-topology delegate revoke <id> [--repo <consumer>]
 ```
 
-- **Operator-only.** `grant` and `revoke` refuse when run inside any managed agent session (one
-  with `AO_AGENT_ID` set), and `grant` separately refuses a grantee granting to itself. Only an
-  interactive operator shell can create or remove a delegation.
+- **Interactive operator channel.** `grant` requires stdin and stdout to be a terminal and asks
+  the operator to retype `<grantee> <scopes>` exactly. `grant` and `revoke` refuse a shell that
+  carries any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  `CODEX_*`) or sits in a tmux pane the census binds to an agent. `grant` also refuses a grantee
+  granting to itself. Each grant records this evidence under `channel` (TTY flags, markers checked,
+  pane, typed confirmation).
+- **Signed records.** Every grant and revoke event carries an HMAC keyed from
+  `delegations/.grant-key` (mode 600, created on first grant). `manage integrate` and
+  `manage record-landing` refuse the whole delegations file if any event is unsigned, edited, or
+  lacks the channel evidence, or if the key is missing or readable by group or others.
+- **What this does not prove.** These checks stop an agent that runs the command the ordinary
+  way, and a hand-written or edited record. They do **not** stop a deliberate agent running as
+  the same OS user. Such an agent can unset the markers, drive a pseudo-terminal, and read the
+  key. Every grant says so in its `assurance` field. Read a grant as "made through the interactive
+  channel", not as "proven operator". To exclude a same-user agent, keep the grant key under a
+  different OS user, or issue grants through a channel agents cannot reach.
 - **Scope is a fixed allowlist**: `integrate` and `record-landing` only. The grant never covers
   deploy, publish, push or spend; those keep their own separate authorization and this command
   cannot widen to them.
@@ -326,9 +339,12 @@ ao-topology delegate revoke <id> [--repo <consumer>]
 
 `manage integrate` and `manage record-landing` accept a live, unexpired, unrevoked grant that
 names the caller's own `AO_AGENT_ID`, this repository, and the scope in use, in place of an
-explicit `--authorized`. The merge record then carries `authorization.authorized: true` alongside
-`authorization.delegated_by` (the grantor) and `authorization.delegation_id`, so the evidence shows
-who actually granted the authority the lead exercised. Governed completion's checks
+explicit `--authorized`. The merge record then carries `authorization.authorized: true`, with
+`authorization.actor` set to the grantee that exercised the grant, and
+`authorization.delegated_by` (the grantor's OS user) and `authorization.delegation_id` alongside.
+The evidence shows both who acted and who granted the authority. Under a delegation, an `--actor`
+naming anyone but the grantee is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` does
+not need `--actor`. Governed completion's checks
 (`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
 and `authorization.actor` exactly as before and simply ignore the added fields.
 

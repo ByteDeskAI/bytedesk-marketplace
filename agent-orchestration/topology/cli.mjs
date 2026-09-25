@@ -70,11 +70,12 @@ Conduct (used by the orchestrator agent)
   delegations [--json]                         open delegations in this repo
   delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing
            [--expires <duration>] [--reason <text>]
-                                               OPERATOR-ONLY: grant standing authority a lead can
-                                               later exercise instead of an explicit --authorized.
-                                               Refuses inside any managed agent session.
+                                               Grant standing authority a lead can later exercise
+                                               instead of --authorized. Needs an interactive TTY and
+                                               a typed confirmation; refuses agent-session markers.
+                                               Does NOT exclude a same-OS-user agent (see docs).
   delegate list [--repo <consumer>] [--json]    standing delegations granted for a repository
-  delegate revoke <id> [--repo <consumer>]      OPERATOR-ONLY: revoke a standing delegation
+  delegate revoke <id> [--repo <consumer>]      revoke a standing delegation (refuses agent sessions)
 
   send --run <run_dir> --from <id> --to <id>[,<id>] --stage <slug> (--file <md> | --body <text>)
        [--to @run|@repo|@role:<role>|@idle]    audiences, unioned by the same comma; [--max-recipients <n>]
@@ -116,9 +117,10 @@ Standing repository services
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
-  manage record-landing --task <TM-id> --landed <sha> --actor <name> --reason <text> [--authorized]
+  manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
-                                               also accept a standing delegation (see delegate grant)
+                                               also accept a standing delegation (see delegate grant);
+                                               the actor is then the grantee, --actor optional
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker

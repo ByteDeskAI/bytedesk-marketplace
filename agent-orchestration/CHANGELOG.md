@@ -96,15 +96,21 @@
 - **The operator can grant a lead standing integration authority instead of running `--authorized`
   by hand (TM-234, EP-021).** `ao-topology delegate grant --to <agent-id> --repo <consumer> --scope
   integrate,record-landing [--expires <duration>] [--reason <text>]` writes an append-only grant
-  under the state home; `delegate list` and `delegate revoke <id>` read and end it. Grant and revoke
-  are operator-only: both refuse inside any managed agent session (`AO_AGENT_ID` set), and a
-  grantee cannot grant to itself. Scope is a fixed allowlist of `integrate` and `record-landing`
+  under the state home; `delegate list` and `delegate revoke <id>` read and end it. `grant` needs an
+  interactive terminal and a typed confirmation of the grantee and scopes. Grant and revoke refuse a
+  shell carrying any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  `CODEX_*`) or sitting in a tmux pane the census binds to an agent, and a grantee cannot grant to
+  itself. Every event is HMAC-signed with a mode-600 key, and `integrate`/`record-landing` refuse a
+  delegations file with any unsigned, edited or evidence-less event. The grant records its channel
+  evidence and states that an agent running as the same OS user is NOT excluded; see
+  docs/repository-leads.md. Scope is a fixed allowlist of `integrate` and `record-landing`
   only — deploy, publish, push and spend keep their own separate authorization. `manage integrate`
   and `manage record-landing` now accept a live, unexpired, unrevoked grant naming the caller's own
   `AO_AGENT_ID`, this repository and the scope in use, in place of an explicit `--authorized`; the
-  merge record then carries `authorization.delegated_by` and `authorization.delegation_id`
-  alongside the unchanged `authorization.authorized`/`authorization.actor` fields governed
-  completion already checks. This removes the self-approval a lead would otherwise be attesting
+  merge record then sets `authorization.actor` to the grantee that exercised it, with
+  `authorization.delegated_by` and `authorization.delegation_id` alongside; an `--actor` naming
+  anyone else is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` no longer needs
+  `--actor` under a delegation. This removes the self-approval a lead would otherwise be attesting
   when it authorizes integration of its own work.
 
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
