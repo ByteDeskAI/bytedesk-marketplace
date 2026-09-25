@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **A repository with a standing reviewer now gates dispatch on admission by default (TM-240).**
+  `dispatch.governed` unset used to skip governed admission, so a task could be dispatched,
+  finished and PR-ready with no admission record — and agent-orchestration's reviewer refuses
+  review without one (`TOPOLOGY_REVIEWER_RANGE`). This happened to design-system TM-136 (PR 121)
+  and marketplace TM-235 (PR 125); both were reviewed out of band. Now, when agent-orchestration
+  has registered a reviewer for the repository, `tm dispatch` and the pool refuse an unadmitted
+  task with `TM_GOVERNED_ADMISSION_REQUIRED`, naming `ao-topology manage admit --task <id>`. The
+  CLI prints the code. Only an explicit `dispatch.governed: false` opts out: dispatch proceeds,
+  warns on stderr, and records `governanceOptOut` on the task. `tm doctor` reports
+  `governance-opted-out` for that configuration. One predicate, `governanceMode`, serves dispatch,
+  the pool and doctor. It reads the reviewer record from agent-orchestration's state directory
+  without importing that plugin, so task-management still works with it absent (tested from a copy
+  of the plugin with no sibling).
+
 - **A dispatched worker's PR now always states its base explicitly.** `gh pr create` with no
   `--base` targets the repository default branch, not `dispatch.integrationBranch` — a dispatched
   worker in `bytedesk-remote-gateway` shipped unreleased `develop` commits onto `main` this way,
