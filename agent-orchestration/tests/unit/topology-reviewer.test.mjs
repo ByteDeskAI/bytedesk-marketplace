@@ -372,3 +372,58 @@ test('TM-241: a forced git diff failure is reported with git\'s own exit code an
     }
   );
 });
+
+async function commitFile(f, name, bytes) {
+  await writeFile(join(f.consumer, name), bytes);
+  await run('git', ['-C', f.consumer, 'add', name]);
+  await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', `add ${name}`]);
+  const finish = (await run('git', ['-C', f.consumer, 'rev-parse', 'HEAD'])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, finish: { revision: finish } });
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  return finish;
+}
+
+test('TM-241: a text-only range hashes exactly as the pre-TM-241 --binary diff did', async t => {
+  const f = await fixture(t);
+  const finish = await commitFile(f, 'notes.txt', 'line one\nline two\n');
+  const request = await requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  const legacy = await run('git', ['-C', f.consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', f.revision, finish, '--']);
+  const { createHash } = await import('node:crypto');
+  assert.equal(request.patch_sha256, createHash('sha256').update(legacy.stdout).digest('hex'));
+});
+
+test('TM-241: a missing revision is named, not reported as a failed ancestor check', async t => {
+  const f = await fixture(t);
+  const missing = 'f'.repeat(40);
+  await writeJson(f.managementPath, { ...f.management, finish: { revision: missing } });
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  await assert.rejects(
+    requestReview({ ...f, task: 'TM-1', revision: missing, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
+    error => {
+      assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
+      assert.match(error.message, new RegExp(`finished revision ${missing} is not a commit`));
+      return true;
+    }
+  );
+});
+
+test('TM-241: an unreadable binary blob refuses with its path and size instead of reporting it absent', async t => {
+  const f = await fixture(t);
+  const finish = await commitFile(f, 'shot.png', Buffer.from([0, 1, 2, 0, 255, 0, 7]));
+  // A git shim that fails only `cat-file blob`, after diff and size lookup succeeded.
+  const realGit = (await run('sh', ['-c', 'command -v git'])).stdout.trim();
+  const shimDir = join(f.consumer, '..', 'shim');
+  await mkdir(shimDir);
+  await writeFile(join(shimDir, 'git'), `#!/bin/sh\n[ "$3" = cat-file ] && [ "$4" = blob ] && { echo "fatal: simulated unreadable blob" >&2; exit 128; }\nexec ${realGit} "$@"\n`, { mode: 0o755 });
+  const path = process.env.PATH;
+  process.env.PATH = `${shimDir}:${path}`;
+  t.after(() => { process.env.PATH = path; });
+  await assert.rejects(
+    requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
+    error => {
+      assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
+      assert.match(error.message, /Cannot hash binary file shot\.png \(7 bytes, blob [0-9a-f]{40}\): git exited 128 — fatal: simulated unreadable blob/);
+      return true;
+    }
+  );
+});

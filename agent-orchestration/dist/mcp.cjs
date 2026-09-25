@@ -9326,11 +9326,65 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   invariant2(management?.started && management.repo_id === identity.id && management.task === task && management.finish?.revision === revision, "TOPOLOGY_REVIEWER_RANGE", "Review requires the task admission record and its current completed revision.");
   const base = management.base_revision;
   invariant2(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(base)) && (!baseRevision || baseRevision === base), "TOPOLOGY_REVIEWER_RANGE", "Review base must equal the original task admission commit.");
+  for (const [label, rev] of [["admission base", base], ["finished revision", revision]]) {
+    const found = await run("git", ["-C", consumer, "cat-file", "-e", `${rev}^{commit}`], { allowFailure: true });
+    invariant2(found.code === 0, "TOPOLOGY_REVIEWER_RANGE", `The ${label} ${rev} is not a commit in ${consumer}; fetch it or re-finish the task.`);
+  }
   const ancestor = await run("git", ["-C", consumer, "merge-base", "--is-ancestor", base, revision], { allowFailure: true });
   invariant2(ancestor.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Task admission base must be an ancestor of the finished revision.");
-  const patch = await run("git", ["-C", consumer, "diff", "--no-ext-diff", "--no-textconv", "--binary", base, revision, "--"], { allowFailure: true });
-  invariant2(patch.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Cannot produce the complete task diff.");
-  return { base, patch: patch.stdout, patch_sha256: (0, import_node_crypto13.createHash)("sha256").update(patch.stdout).digest("hex"), owner: management.owner };
+  const diff = await run("git", ["-C", consumer, "diff", "--no-ext-diff", "--no-textconv", base, revision, "--"], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
+  if (diff.code === "ERR_CHILD_PROCESS_STDOUT_MAXBUFFER") {
+    fail("TOPOLOGY_REVIEWER_RANGE", `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
+  }
+  invariant2(diff.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` \u2014 ${diff.stderr.trim()}` : ""}.`);
+  const binaryFiles = await binaryFileManifest(consumer, base, revision);
+  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
+  return { base, patch, patch_sha256: (0, import_node_crypto13.createHash)("sha256").update(patch).digest("hex"), owner: management.owner, binaryFiles };
+}
+async function binaryFileManifest(consumer, base, revision) {
+  const numstat = await run("git", ["-C", consumer, "diff", "--numstat", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
+  invariant2(numstat.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot list binary files in the task diff: git exited ${numstat.code}${numstat.stderr?.trim() ? ` \u2014 ${numstat.stderr.trim()}` : ""}.`);
+  const binaryPaths = new Set(numstat.stdout.split("\0").filter(Boolean).map((entry) => entry.split("	")).filter(([added, removed]) => added === "-" && removed === "-").map(([, , path3]) => path3));
+  if (binaryPaths.size === 0) return [];
+  const raw = await run("git", ["-C", consumer, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, revision, "--"], { allowFailure: true });
+  invariant2(raw.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot resolve binary blob identities: git exited ${raw.code}${raw.stderr?.trim() ? ` \u2014 ${raw.stderr.trim()}` : ""}.`);
+  const fields = raw.stdout.split("\0").filter(Boolean);
+  const entries2 = [];
+  for (let i = 0; i < fields.length; i += 2) {
+    const [, , oldSha, newSha] = fields[i].split(" ");
+    const path3 = fields[i + 1];
+    if (!binaryPaths.has(path3)) continue;
+    const old_size = await blobSize(consumer, oldSha, path3), new_size = await blobSize(consumer, newSha, path3);
+    entries2.push({ path: path3, old_sha256: await blobSha256(consumer, oldSha, path3, old_size), new_sha256: await blobSha256(consumer, newSha, path3, new_size), old_size, new_size });
+  }
+  return entries2;
+}
+async function blobSize(consumer, sha2, path3) {
+  if (ZERO_BLOB.test(sha2)) return 0;
+  const result2 = await run("git", ["-C", consumer, "cat-file", "-s", sha2], { allowFailure: true });
+  invariant2(result2.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot read the size of binary file ${path3} (blob ${sha2}): git exited ${result2.code}${result2.stderr?.trim() ? ` \u2014 ${result2.stderr.trim()}` : ""}.`);
+  return Number(result2.stdout.trim());
+}
+function blobSha256(consumer, sha2, path3, size) {
+  if (ZERO_BLOB.test(sha2)) return Promise.resolve(null);
+  return new Promise((resolve16, reject) => {
+    const hash2 = (0, import_node_crypto13.createHash)("sha256");
+    let stderr = "";
+    const child = (0, import_node_child_process9.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.on("data", (chunk) => hash2.update(chunk));
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error51) => reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes): ${error51.message}.`)));
+    child.on("close", (code) => code === 0 ? resolve16(hash2.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
+  });
+}
+function renderBinaryManifest(binaryFiles) {
+  const rows = binaryFiles.map((f) => `${f.path}	old sha256=${f.old_sha256 ?? "(absent)"} size=${f.old_size}	new sha256=${f.new_sha256 ?? "(absent)"} size=${f.new_size}`);
+  return `
+--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---
+${rows.join("\n")}
+`;
 }
 async function reviewedFiles(consumer, base, revision) {
   const listed = await run("git", ["-C", consumer, "diff", "--name-only", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
@@ -9534,7 +9588,7 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     adapter,
     format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
     binding: record2.binding,
-    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
+    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
   });
 }
 function lenientJson(text, glueAt = () => "") {
@@ -9757,9 +9811,10 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process9, import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, ZERO_BLOB, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
+    import_node_child_process9 = require("node:child_process");
     import_node_crypto13 = require("node:crypto");
     import_promises27 = require("node:fs/promises");
     import_node_os8 = require("node:os");
@@ -9785,6 +9840,7 @@ var init_reviewer = __esm({
     VERDICTS = /* @__PURE__ */ new Set(["approve", "changes_requested", "blocked"]);
     SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
     BLOCKING_SEVERITIES = /* @__PURE__ */ new Set(["blocker", "major"]);
+    REVIEW_PATCH_MAX_BYTES = 64 * 1024 * 1024;
     FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
     MAX_REVIEW_WAKES = 5;
     REVIEW_CAPTURE_LINES = 5e3;
@@ -9793,6 +9849,7 @@ var init_reviewer = __esm({
     PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
     RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
     reviewerAckMemo = (dir, record2) => (0, import_node_path32.join)(dir, `${record2.agent_id}.answered.json`);
+    ZERO_BLOB = /^0+$/;
     STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
@@ -12520,14 +12577,14 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
     panes.set(bindingKey3(pane), pane);
   }
   const agents = /* @__PURE__ */ new Map();
-  const add = (record2, { agentId, kind = "role-session", runRole = null, roleName = null, membership: member = null, enrollment = "enrolled", spawn: spawn7 = null } = {}) => {
+  const add = (record2, { agentId, kind = "role-session", runRole = null, roleName = null, membership: member = null, enrollment = "enrolled", spawn: spawn8 = null } = {}) => {
     const binding = bindingOf(record2);
     if (!validBinding2(binding)) return;
     const pane = panes.get(bindingKey3(binding));
     if (!pane) return;
     const def = library.get(agentId);
     if (!idValid(agentId)) agentId = (0, import_node_crypto20.createHash)("sha256").update(bindingKey3(binding)).digest("hex").slice(0, 8);
-    invariant2(kind !== "spawn" || pane.sessionName === `${agentId}-${spawn7}`, "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation name; refusing an invalid snapshot.");
+    invariant2(kind !== "spawn" || pane.sessionName === `${agentId}-${spawn8}`, "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation name; refusing an invalid snapshot.");
     const key = bindingKey3(binding);
     let entry = agents.get(key);
     if (entry) {
@@ -12554,7 +12611,7 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
       enrollment,
       lifecycle,
       readinessCheckedAt: typeof (record2.readiness_checked_at ?? record2.readinessCheckedAt) === "string" ? record2.readiness_checked_at ?? record2.readinessCheckedAt : null,
-      session: { kind, ...Object.fromEntries(PRESENCE_BINDING_FIELDS.map((k) => [k, pane[k]])), sessionName: pane.sessionName, spawn: spawn7 },
+      session: { kind, ...Object.fromEntries(PRESENCE_BINDING_FIELDS.map((k) => [k, pane[k]])), sessionName: pane.sessionName, spawn: spawn8 },
       memberships: member ? [member] : [],
       primaryRunId: member?.runId ?? null
     };
@@ -12564,9 +12621,9 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
   for (const record2 of [...runs.values()].sort((a, b) => a.run_id.localeCompare(b.run_id))) {
     const member = await membership(record2, identity.id);
     for (const agent of record2.agents ?? []) {
-      const spawn7 = typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
+      const spawn8 = typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
       const declared = typeof agent.role === "string" && agent.role ? agent.role : null;
-      add(agent, { agentId: agent.agent_id ?? agent.id, kind: spawn7 ? "spawn" : "run", spawn: spawn7, runRole: ROLES.has(declared) ? declared : NEAREST_RUN_ROLE, roleName: declared, membership: member });
+      add(agent, { agentId: agent.agent_id ?? agent.id, kind: spawn8 ? "spawn" : "run", spawn: spawn8, runRole: ROLES.has(declared) ? declared : NEAREST_RUN_ROLE, roleName: declared, membership: member });
     }
   }
   for (const record2 of pending) {
@@ -13400,7 +13457,7 @@ async function startRepositorySupervision(options) {
     const log = await (0, import_promises38.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
-      const child = (0, import_node_child_process9.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
+      const child = (0, import_node_child_process10.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
       await new Promise((resolve16, reject) => {
         child.once("spawn", resolve16);
         child.once("error", reject);
@@ -13431,12 +13488,12 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path44, import_node_crypto22, import_node_child_process9, import_node_url5, import_node_os19, import_promises38, import_promises39, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS;
+var import_node_path44, import_node_crypto22, import_node_child_process10, import_node_url5, import_node_os19, import_promises38, import_promises39, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path44 = require("node:path");
     import_node_crypto22 = require("node:crypto");
-    import_node_child_process9 = require("node:child_process");
+    import_node_child_process10 = require("node:child_process");
     import_node_url5 = require("node:url");
     import_node_os19 = require("node:os");
     import_promises38 = require("node:fs/promises");
@@ -52337,7 +52394,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "949ab8b832b5f69983b008169c0fa78ead6a6069647c6abe48b2526ef792ea69",
+  sourceFingerprint: false ? null : "ee1417a6d190cbf18bcff2c1ef8b02a110e1127332a16d14474dff8df6ce1f31",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
