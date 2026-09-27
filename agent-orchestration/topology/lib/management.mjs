@@ -11,7 +11,7 @@ import { findActiveDelegation } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
-import { reviewEligibility, reviewerAvailability, requestReview } from './reviewer.mjs';
+import { reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -447,8 +447,12 @@ export async function integrationEligibility(options) {
     if (review.eligible !== true && review.reasons.length === 0) reasons.push('review eligibility was not established');
     if (!record.base_revision || !list(doc.touches) || !doc.touches.length) reasons.push('approved file scope or task base revision is unavailable');
     else {
-      const paths = (await git(doc.worktree, ['diff', '--name-only', '-z', record.base_revision, record.finish.revision])).stdout.split('\0').filter(Boolean);
-      if (paths.some(path => !doc.touches.some(scope => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/')))) reasons.push('implementation changed files outside the approved task scope');
+      // TM-257: the same effective base the review range uses, so a merged default branch's landed files are not out of scope.
+      try {
+        const { effective_base: base } = await reviewRangeBase({ ...options, revision: record.finish.revision, admittedBase: record.base_revision });
+        const paths = (await git(doc.worktree, ['diff', '--name-only', '-z', base, record.finish.revision])).stdout.split('\0').filter(Boolean);
+        if (paths.some(path => !doc.touches.some(scope => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/')))) reasons.push('implementation changed files outside the approved task scope');
+      } catch (error) { reasons.push(error.message); }
     }
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) reasons.push(writer.reason || 'worker ownership or absence of an active writer is unproven');
