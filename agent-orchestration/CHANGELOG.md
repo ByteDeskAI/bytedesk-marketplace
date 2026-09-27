@@ -19,6 +19,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **An operator installs allow rules so the lead runs its governed verbs without a per-command
+  prompt (TM-243).** `ao-topology permissions install [--mcp <mcp__server>] [--dry-run]` writes
+  `Bash(ao-topology manage record-landing|integrate|start-worker|stop-worker|admit|report *)` and
+  `Bash(tm *)`, plus each opted-in MCP name, to `<lead agent dir>/.claude/settings.local.json`.
+  Only that lead reads the file. Install prints the exact diff, is idempotent and says to restart
+  the lead; `uninstall` removes only the rules install recorded as its own. Both refuse inside
+  any agent session (the TM-234 operator gate, now shared). Install also refuses when the lead
+  launches outside its own agent directory (TM-242), because the file would then be shared. The
+  rules grant no authority: `record-landing` and `integrate` still need a proven TM-234
+  delegation.
+- Governed `manage` verbs run as bare commands: with no `AO_AGENT_ID`, the caller is named from
+  the census binding of its live pane. `--summary` prints one line instead of JSON, so a lead
+  never pipes to `jq`. A dispatched worker (`TM_DISPATCH_WORKER`) is refused every `manage` verb
+  except `report`, `status`, `eligible` and `assignment`.
+
 ### Fixed
 
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**

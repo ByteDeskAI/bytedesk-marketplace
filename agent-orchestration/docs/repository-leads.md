@@ -360,10 +360,88 @@ not need `--actor`. Governed completion's checks
 (`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
 and `authorization.actor` exactly as before and simply ignore the added fields.
 
-If your harness gates commands by name, pair this with a permission rule for
-`ao-topology manage integrate` / `ao-topology manage record-landing` themselves — the delegation
-record is what makes running them without `--authorized` safe; a harness-level rule is what lets
-the lead run them at all.
+If your harness gates commands by name, pair this with a permission rule for the governed verbs
+themselves (next section). The delegation record is what makes running them without `--authorized`
+safe; a harness-level rule is what lets the lead run them without a prompt.
+
+### Permission rules for the lead
+
+Claude Code's auto mode can refuse a lead running `manage record-landing` or `manage admit` as
+self-approval, and the same command may pass one minute and be refused the next. Only a settings
+allow rule stops that check; a plugin cannot ship one. So the operator installs the rules once per
+repository:
+
+```bash
+ao-topology permissions install [--mcp mcp__plugin_teamcity-mcp_teamcity] [--dry-run]
+ao-topology permissions uninstall [--dry-run]
+```
+
+**The rules change no authority.** They only remove the per-command prompt:
+
+- `record-landing` and `integrate` still refuse without a live, unexpired standing delegation that
+  covers the proven caller, this repository and the scope (see above).
+- `admit`, `start-worker` and `stop-worker` keep their claim-owner checks.
+- A dispatched worker session (`TM_DISPATCH_WORKER` set by `tm dispatch`) is refused every
+  `manage` verb except `report`, `status`, `eligible` and `assignment`, and a worker never reads
+  the file the rules live in.
+
+**Exact rules written** (Ryan, 2026-09-25), plus each `--mcp` name the operator passes:
+
+```text
+Bash(ao-topology manage record-landing *)
+Bash(ao-topology manage integrate *)
+Bash(ao-topology manage start-worker *)
+Bash(ao-topology manage stop-worker *)
+Bash(ao-topology manage admit *)
+Bash(ao-topology manage report *)
+Bash(tm *)
+```
+
+`Bash(tm *)` covers every `tm` subcommand, as Ryan decided; a narrower `tm accept` / `tm done`
+pair was suggested and not adopted. No rule is ever written for `gh pr merge`, `git push`, or a
+deploy command. `--mcp` takes an MCP server name (`mcp__<server>`) or a tool name
+(`mcp__<server>__<tool>`), with no wildcards. An allow rule does not load a server: a standing lead
+runs with `--strict-mcp-config`, so the server must also be declared in the lead's `agent.json`
+`mcp` field.
+
+**Where the rules go.** `install` writes to `<lead agent dir>/.claude/settings.local.json`. Claude
+Code reads project settings from the directory a session starts in, and a standing lead starts in
+its own agent directory, so only that lead reads the file. Workers start in task worktrees. The
+file is machine-local; keep it out of git (a `**/.claude/settings.local.json` ignore rule). The
+target is taken from the lead's launch record, `session.json` `cwd`. If that record is missing,
+`install` asks you to start the lead first. If the lead launches anywhere other than its own agent
+directory (TM-242 moves standing agents to the repository root), `install` refuses with
+`TOPOLOGY_PERMISSIONS_TARGET_SHARED`, because every session started at the root would read the
+file. A per-lead equivalent there needs the lead's launcher to pass
+`--settings <agent dir>/.claude/settings.local.json`; that is not built yet.
+
+**Behaviour.**
+
+- **Operator only.** `install` and `uninstall` apply the same refusal as `delegate grant`: any agent
+  marker, a Claude Code or Codex ancestor process, or a tmux pane the census binds to an agent.
+- **Prints the exact diff** of the settings file, then tells you to **restart the lead**. Permission
+  rules and MCP tools load at session start.
+- **Idempotent.** A second `install` changes nothing and prints `(no change)`. Every other key and
+  every other rule in the file is preserved.
+- **`uninstall` removes exactly what `install` added.** The rules it added are recorded in
+  `$XDG_STATE_HOME/bytedesk/agent-orchestration/permissions/<repositoryKey>.json`. A rule you had
+  before installing, such as your own `Bash(tm *)`, is not in that record and stays.
+
+**Bare commands.** Rules match the command text, so an `AO_AGENT_ID=... ao-topology ...` prefix or
+a pipe (`| jq`) makes a rule miss. A lead therefore runs the verbs bare. Without `AO_AGENT_ID`, a
+governed verb names its caller from the census binding of the caller's live tmux pane. Add
+`--summary` for one line of output instead of JSON. Examples of commands the rules match:
+
+<!-- lead-commands: tests/unit/topology-permissions.test.mjs checks these match an installed rule -->
+```bash
+ao-topology manage admit --task TM-123 --file /abs/protocol.json --summary
+ao-topology manage start-worker --task TM-123 --backend tmux --summary
+ao-topology manage report --task TM-123 --file /abs/finish-report.json --summary
+ao-topology manage stop-worker --task TM-123 --summary
+ao-topology manage integrate --task TM-123 --summary
+ao-topology manage record-landing --task TM-123 --landed 1a2b3c4 --reason "merged PR 130 after review" --summary
+tm done TM-123
+```
 
 ## Presence v1
 
