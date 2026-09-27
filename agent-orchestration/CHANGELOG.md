@@ -21,6 +21,21 @@
 
 ### Added
 
+- **`manage integrate` merges the task's pull request itself, behind its own guardrails
+  (TM-249, ADR-0022).** With `management.integrate_via: "pull-request"`, integrate runs
+  `gh pr merge <n> --merge --match-head-commit <approved sha>` only when the task is in the
+  caller's plan grant, the PR base is the integration branch, the PR head equals both the approved
+  review's revision and the finish revision, CI is green, the review verdict is approve and the PR
+  is mergeable. Each unmet condition is refused by name. It then records the landing and closes the
+  task through the store's gates with the grant's actor, `delegated_by` and `delegation_id`. It
+  never accepts acceptance criteria on the task's behalf: if the store refuses `tm done`, the
+  landing stands and integrate returns `TOPOLOGY_INTEGRATE_UNCLOSED` naming each unaccepted
+  criterion, and a rerun after they are accepted closes the task. The close-retry runs the same
+  `caller` and `plan` gate as the merge (one shared helper), and both integrate paths build the
+  authorization record with one function, so an operator-shell `auto_merge` integrate without
+  `--authorized` or a grant records `authorized: false`. An already-merged PR at the approved head
+  is recorded, never merged twice. Leads never run raw `gh pr merge`; TM-243's `manage integrate`
+  rule already covers the verb.
 - **An operator installs allow rules so the lead runs its governed verbs without a per-command
   prompt (TM-243).** `ao-topology permissions install [--mcp <mcp__server>] [--dry-run]` writes
   `Bash(ao-topology manage record-landing|integrate|start-worker|stop-worker|admit|report *)` and
