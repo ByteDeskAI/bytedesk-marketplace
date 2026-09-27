@@ -339,7 +339,19 @@ ao-topology delegate revoke <id> [--repo <consumer>]
 
 `manage integrate` and `manage record-landing` accept a live, unexpired, unrevoked grant that
 names the caller's own `AO_AGENT_ID`, this repository, and the scope in use, in place of an
-explicit `--authorized`. The merge record then carries `authorization.authorized: true`, with
+explicit `--authorized`, **but only after proving the caller is the grantee**. The caller's
+`TMUX_PANE` must be a live pane whose `pane_pid` the census binds to the grantee, and that pane
+process must be an ancestor of the caller, which is checked by walking `/proc/<pid>/stat`. Setting
+`AO_AGENT_ID` or `TMUX_PANE` alone is refused with `TOPOLOGY_DELEGATION_ACTOR`.
+
+- **Linux only.** The ancestry proof reads `/proc`. Where `/proc` is unavailable, for example on
+  macOS, it fails closed. Standing delegation then never applies, and every attempt is refused
+  with `TOPOLOGY_DELEGATION_ACTOR` ("process ancestry is unreadable"). Pass `--authorized` from an
+  operator shell instead.
+- **Remaining limit.** A process that can ptrace or inject code into the lead's process tree, or
+  that is started by typing into the lead's pane, still passes as the lead. This is the same-user
+  limit above.
+ The merge record then carries `authorization.authorized: true`, with
 `authorization.actor` set to the grantee that exercised the grant, and
 `authorization.delegated_by` (the grantor's OS user) and `authorization.delegation_id` alongside.
 The evidence shows both who acted and who granted the authority. Under a delegation, an `--actor`
