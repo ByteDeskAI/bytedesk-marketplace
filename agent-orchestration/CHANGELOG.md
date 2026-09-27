@@ -146,6 +146,42 @@
 
 ### Added
 
+- **The operator can grant a lead standing integration authority instead of running `--authorized`
+  by hand (TM-234, EP-021).** `ao-topology delegate grant --to <agent-id> --repo <consumer> --scope
+  integrate,record-landing [--expires <duration>] [--reason <text>]` writes an append-only grant
+  under the state home; `delegate list` and `delegate revoke <id>` read and end it. `grant` needs an
+  interactive terminal and a typed confirmation of the grantee and scopes. Grant and revoke refuse a
+  shell carrying any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  `CODEX_*`), a Claude Code or Codex ancestor process, or a tmux pane the census binds to an agent,
+  and a grantee cannot grant to itself. The grant records the checks as `channel` evidence, labelled
+  `interactive-same-user` and `agent_proof: false`: an agent running as the same OS user can still
+  get around them. `integrate`/`record-landing` refuse a delegations file holding a grant without
+  that evidence. Scope is a fixed allowlist of `integrate` and `record-landing`
+  only — deploy, publish, push and spend keep their own separate authorization. `manage integrate`
+  and `manage record-landing` now accept a live, unexpired, unrevoked grant naming the caller's own
+  `AO_AGENT_ID`, this repository and the scope in use, in place of an explicit `--authorized`; the
+  merge record then sets `authorization.actor` to the grantee that exercised it, with
+  `authorization.delegated_by` and `authorization.delegation_id` alongside; an `--actor` naming
+  anyone else is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` no longer needs
+  `--actor` under a delegation. This removes the self-approval a lead would otherwise be attesting
+  when it authorizes integration of its own work.
+  Review fixes: `AO_AGENT_ID` alone no longer proves the caller is the grantee, since any same-user
+  process can set it. A matching grant now counts only when the caller's `TMUX`/`TMUX_PANE` resolve
+  to a live pane incarnation (the tmux six-tuple slots already check) that this repository's census
+  binds to the grantee; otherwise `integrate` and `record-landing` refuse with
+  `TOPOLOGY_DELEGATION_ACTOR`. The check lives in the one lookup both verbs and eligibility share.
+  Second review fix: those env vars only NAME a pane, so a worker on the same tmux server could set
+  `TMUX_PANE` to the lead's pane and pass. The lookup now also requires the lead's pane process to be
+  an ancestor of the calling process (`callerRunsInPane` in `topology/lib/slots.mjs`, walking
+  `/proc/<pid>/stat`), and refuses when the live pane's `pane_pid` differs from the census binding.
+  PID equality is compared, not start times (nothing records one); it is sound because the pane is
+  seen live first and every ancestor predates the caller. Where `/proc` cannot be read, including
+  macOS, it fails closed. Remaining same-uid limit: ptrace or code injection into the lead's process
+  tree, or a process started by typing into the lead's own pane. Setting env vars is no longer enough.
+  `manage eligible` and status no longer throw on a corrupt delegations file or an unproven
+  grantee: they report `eligible: false` with the error code as a reason. `delegate grant` refuses a
+  `--to` that names no agent registered in the repository.
+
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
   `POST /api/runs/{runId}/cleanup` on the session host removes a terminal run's worktree, the same
   work `orchestration_cleanup` does over MCP. Until now the seam carried cancel, follow-up and
