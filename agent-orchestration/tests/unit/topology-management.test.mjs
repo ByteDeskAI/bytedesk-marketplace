@@ -460,9 +460,17 @@ test('record-landing refuses without review, ancestry, target branch, actor or r
 // TM-234 review: a delegation counts only for a caller whose LIVE pane the census binds to the
 // grantee. These inject the pane listing and census; no real tmux is touched.
 const LEAD_PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+// Injected /proc (pid -> [comm, ppid]): the lead's node -> claude -> pane shell 5151; a worker's never reaches 5151.
+const procTree = tree => ({ pid: Math.max(...Object.keys(tree).map(Number)), readStat: async p => {
+  if (!tree[p]) throw Object.assign(new Error(`no /proc/${p}`), { code: 'ENOENT' });
+  return `${p} (${tree[p][0]}) S ${tree[p][1]} 1 1 0 -1`;
+} });
+const LEAD_PROC = procTree({ 903: ['node', 902], 902: ['claude', 5151], 5151: ['zsh', 4242], 4242: ['tmux: server', 1] });
+const WORKER_PROC = procTree({ 703: ['node', 702], 702: ['claude', 6161], 6161: ['zsh', 4242], 4242: ['tmux: server', 1] });
 const paneOf = (agentId, boundTo = agentId) => ({
   listPanesFn: async () => [{ ...LEAD_PANE, alive: true }],
   readCensusFn: async () => ({ agents: [{ agentId: boundTo, binding: { ...LEAD_PANE } }] }),
+  callerProc: LEAD_PROC,
   paneEnv: { AO_AGENT_ID: agentId, TMUX: `${LEAD_PANE.serverKey},${LEAD_PANE.serverPid},0`, TMUX_PANE: LEAD_PANE.paneId },
 });
 const asCaller = (opts, agentId, boundTo) => { const { paneEnv, ...lookups } = paneOf(agentId, boundTo); return { ...opts, ...lookups, env: { ...opts.env, ...paneEnv } }; };
@@ -530,11 +538,18 @@ test('a worker naming the lead in AO_AGENT_ID cannot use the lead\'s grant on in
     const gate = await integrationEligibility(spoof);
     assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_ACTOR')), gate.reasons.join('; '));
   }
+  const attack = { ...asCaller(opts, 'lead-1'), callerProc: WORKER_PROC };
+  await assert.rejects(integrateTask(attack), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
+  const attackGate = await integrationEligibility(attack);
+  assert.equal(attackGate.eligible, false); assert.ok(attackGate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_ACTOR') && /not an ancestor/.test(r)), attackGate.reasons.join('; '));
   assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'a refused integrate merges nothing');
   await git(opts.consumer, ['merge', '--ff-only', revision]);
   const landing = { actor: 'lead-1', reason: 'spoof attempt', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
   await assert.rejects(recordLanding({ ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1' }, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
   await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1', 'worker-7'), ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+  // THE ATTACK, now on record-landing: the lead's pane in env, but ancestry never reaches its process.
+  await assert.rejects(recordLanding({ ...attack, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
   assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
   // The genuinely bound lead is accepted.
   const recorded = await recordLanding({ ...asCaller(opts, 'lead-1'), ...landing, reason: 'lead in its own pane' });

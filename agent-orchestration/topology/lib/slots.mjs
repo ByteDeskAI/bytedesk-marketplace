@@ -24,7 +24,7 @@
 // closed with TOPOLOGY_LOCK_TIMEOUT. Slot RECLAMATION is unaffected — the six-tuple is portable —
 // but a mutation blocked behind a crashed lock owner still needs an operator on macOS.
 import { createHash, timingSafeEqual } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { withLock } from "./lockfile.mjs";
@@ -162,6 +162,28 @@ export async function resolveBinding({ env = process.env, listPanesFn = listServ
   const pane = panes.find((row) => row.paneId === env.TMUX_PANE && row.serverKey === match[1] && row.serverPid === Number(match[2]));
   invariant(pane && pane.alive !== false, "TOPOLOGY_SLOT_BINDING_REQUIRED", `Pane ${env.TMUX_PANE} is not on server ${match[1]}; this incarnation cannot be identified.`);
   return Object.fromEntries(PRESENCE_BINDING_FIELDS.map((field) => [field, pane[field]]));
+}
+
+/**
+ * True only if `binding.panePid` is the calling process or one of its ancestors. TMUX/TMUX_PANE
+ * NAME a pane; any same-user process can set them. Process ancestry proves the caller actually runs
+ * in it. Walks /proc/<pid>/stat (ppid is the second field after the last ')'), at most 64 hops.
+ * Throws when /proc is unreadable (macOS, a hardened mount): callers must fail closed on that, never
+ * fall back to the env vars. PID equality is enough WITHOUT a start-time check provided the caller
+ * saw the pane live in `tmux list-panes` before walking: every ancestor at walk time was alive when
+ * this process started (a reparent only moves us to an existing subreaper or init), so it was alive
+ * at the listing, and a live pid is unique. Start times are not compared because no binding or
+ * census records one. Used by delegation (TM-234); TM-172's prompt ack should use it too.
+ */
+export async function callerRunsInPane(binding, { pid = process.pid, readStat = (p) => readFile(`/proc/${p}/stat`, "utf8") } = {}) {
+  const target = binding?.panePid;
+  if (!Number.isSafeInteger(target) || target <= 1) return false;
+  for (let i = 0; i < 64 && Number.isSafeInteger(pid) && pid > 1; i++) {
+    if (pid === target) return true;
+    const stat = await readStat(pid);
+    pid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+  }
+  return false;
 }
 
 /** Write only when the bytes would actually differ: a polling agent must cost a read, not a write. */

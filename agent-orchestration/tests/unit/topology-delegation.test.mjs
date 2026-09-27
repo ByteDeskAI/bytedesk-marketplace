@@ -23,12 +23,22 @@ async function fixture(t) {
   return { consumer, home, operatorEnv, agentEnv };
 }
 
+// An injected /proc: pid -> [comm, ppid]. The lead: node under claude under the pane's shell (5151).
+const LEAD_TREE = { 903: ['node', 902], 902: ['claude', 5151], 5151: ['zsh', 4242], 4242: ['tmux: server', 1] };
+// A worker on the same tmux server, in its own pane (6161), with no path to the lead's pane process.
+const WORKER_TREE = { 703: ['node', 702], 702: ['claude', 6161], 6161: ['zsh', 4242], 4242: ['tmux: server', 1] };
+const procTree = (tree, pid = Math.max(...Object.keys(tree).map(Number))) => ({ pid, readStat: async p => {
+  if (!tree[p]) throw Object.assign(new Error(`no /proc/${p}`), { code: 'ENOENT' });
+  return `${p} (${tree[p][0]}) S ${tree[p][1]} 1 1 0 -1`;
+} });
+
 // A caller whose live pane the census binds to `bindTo`: the injected lookups stand in for tmux.
 const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
 const inPane = (bindTo, pane = PANE) => ({
   env: { USER: 'ryan', AO_AGENT_ID: 'lead-1', TMUX: `${pane.serverKey},${pane.serverPid},0`, TMUX_PANE: pane.paneId },
   listPanesFn: async () => [{ ...pane, alive: true }],
   readCensusFn: async () => ({ agents: [{ agentId: bindTo, binding: { ...pane } }] }),
+  callerProc: procTree(LEAD_TREE),
 });
 
 test('grant requires --to and only accepts scopes from the fixed allowlist', async t => {
@@ -174,4 +184,29 @@ test('a matching grant counts only for a caller whose live pane the census binds
   assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate' })).id, grant.id);
   // No grant for this caller: nothing to prove, plain null (a worker's own id is never refused for lacking a grant).
   assert.equal(await findActiveDelegation({ consumer, home, env: { USER: 'ryan' }, agentId: 'worker-7', scope: 'integrate' }), null);
+});
+
+test('callerRunsInPane walks the injected parent chain and stops at 64 hops', async () => {
+  const { callerRunsInPane } = await import('../../topology/lib/slots.mjs');
+  assert.equal(await callerRunsInPane({ panePid: 5151 }, procTree(LEAD_TREE)), true);
+  assert.equal(await callerRunsInPane({ panePid: 5151 }, procTree(WORKER_TREE)), false);
+  const loop = { 10: ['a', 11], 11: ['b', 10] };
+  assert.equal(await callerRunsInPane({ panePid: 5151 }, procTree(loop, 10)), false, 'a cycle terminates');
+  await assert.rejects(callerRunsInPane({ panePid: 5151 }, { pid: 903, readStat: async () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); } }), { code: 'EACCES' });
+});
+
+test('THE ATTACK: env naming the lead\'s pane is refused unless the lead\'s pane process is an ancestor', async t => {
+  const { consumer, home, operatorEnv } = await fixture(t);
+  const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
+  // Worker keeps TMUX, sets TMUX_PANE=%7 and AO_AGENT_ID=lead-1; its ancestry never reaches 5151.
+  const attack = { ...inPane('lead-1'), callerProc: procTree(WORKER_TREE) };
+  await assert.rejects(findActiveDelegation({ consumer, home, ...attack, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
+  // /proc unreadable (non-Linux, hardened mount): fail closed, never trust the env vars.
+  const blind = { ...inPane('lead-1'), callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('nope'), { code: 'ENOENT' }); } } };
+  await assert.rejects(findActiveDelegation({ consumer, home, ...blind, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /unreadable/ });
+  // TMUX_PANE's live pane_pid differs from the census binding: refused before ancestry is consulted.
+  const swapped = { ...inPane('lead-1'), listPanesFn: async () => [{ ...PANE, panePid: 6161, alive: true }], callerProc: procTree(WORKER_TREE) };
+  await assert.rejects(findActiveDelegation({ consumer, home, ...swapped, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /pane_pid 6161/ });
+  // The genuine lead: node -> claude -> the pane's shell 5151. Accepted.
+  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate' })).id, grant.id);
 });

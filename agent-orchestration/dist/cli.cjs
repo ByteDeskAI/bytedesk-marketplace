@@ -1322,8 +1322,8 @@ async function promotePromptForIncarnation({ agent, binding, consumer, session }
     const exact = incarnationOf(binding);
     invariant2(exact, "TOPOLOGY_PROMPT_INCARNATION", "A complete live process incarnation is required before staging its prompt.");
     if (state.status === "queued" || state.status === "restart-required") {
-      const { readFile: readFile21 } = await import("node:fs/promises");
-      const text = await readFile21((0, import_node_path28.join)(agent._dir, "prompt.pending.md"), "utf8");
+      const { readFile: readFile22 } = await import("node:fs/promises");
+      const text = await readFile22((0, import_node_path28.join)(agent._dir, "prompt.pending.md"), "utf8");
       await writeText((0, import_node_path28.join)(agent._dir, "prompt.md"), text);
     }
     const nonce = (0, import_node_crypto12.randomUUID)();
@@ -35965,7 +35965,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "25346ce657dda31588f75740f2d9ef05b215f1835e5a8f5acb92358721d0ddad",
+  sourceFingerprint: false ? null : "8b7c38baec0150f599cd5f9522f3697b29f5c85464355c3424657542fe0053c0",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

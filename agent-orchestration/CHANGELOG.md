@@ -161,6 +161,14 @@
   to a live pane incarnation (the tmux six-tuple slots already check) that this repository's census
   binds to the grantee; otherwise `integrate` and `record-landing` refuse with
   `TOPOLOGY_DELEGATION_ACTOR`. The check lives in the one lookup both verbs and eligibility share.
+  Second review fix: those env vars only NAME a pane, so a worker on the same tmux server could set
+  `TMUX_PANE` to the lead's pane and pass. The lookup now also requires the lead's pane process to be
+  an ancestor of the calling process (`callerRunsInPane` in `topology/lib/slots.mjs`, walking
+  `/proc/<pid>/stat`), and refuses when the live pane's `pane_pid` differs from the census binding.
+  PID equality is compared, not start times (nothing records one); it is sound because the pane is
+  seen live first and every ancestor predates the caller. Where `/proc` cannot be read, including
+  macOS, it fails closed. Remaining same-uid limit: ptrace or code injection into the lead's process
+  tree, or a process started by typing into the lead's own pane. Setting env vars is no longer enough.
   `manage eligible` and status no longer throw on a corrupt delegations file or an unproven
   grantee: they report `eligible: false` with the error code as a reason. `delegate grant` refuses a
   `--to` that names no agent registered in the repository.

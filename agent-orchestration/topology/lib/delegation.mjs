@@ -20,7 +20,7 @@ import { agentDirs, listAgents } from './agents.mjs';
 import { readCensus } from './census.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
-import { resolveBinding, sameBinding } from './slots.mjs';
+import { callerRunsInPane, resolveBinding, sameBinding } from './slots.mjs';
 import { listServerPanes } from './tmux.mjs';
 import { fail, invariant, nowIso, parseDuration, readJson, writeJson } from './util.mjs';
 
@@ -172,17 +172,27 @@ export async function revokeDelegation({ consumer, id, env = process.env, home =
   });
 }
 
-/** Proof the caller IS the grantee, not merely claims to be: AO_AGENT_ID is set by the caller, so
- * any same-user process could name the lead. The caller's TMUX/TMUX_PANE must resolve to a LIVE pane
- * incarnation (the tmux six-tuple, as slot release and enrollment check it) that this repository's
- * census binds to the grantee. Same assurance limit as the grant: a same-user process that can type
- * into the lead's own pane is the lead, as far as anything here can tell. */
-export async function requireGranteeCaller({ consumer, grantee, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus }) {
+/** Proof the caller IS the grantee, not merely claims to be. AO_AGENT_ID, TMUX and TMUX_PANE are all
+ * set by the caller, so any same-user process could name the lead and the lead's pane. Three checks:
+ * the caller's TMUX/TMUX_PANE resolve to a LIVE pane incarnation (the tmux six-tuple, as slot release
+ * and enrollment check it); this repository's census binds that exact incarnation, including its
+ * pane_pid, to the grantee; and the lead's pane process is an ancestor of the calling process
+ * (callerRunsInPane), so setting env vars is not enough. Where /proc cannot be read it fails closed.
+ * REMAINING LIMIT, same uid: ptrace or code injection into the lead's process tree, or a process
+ * started by typing into the lead's own pane, is the lead as far as anything here can tell. */
+export async function requireGranteeCaller({ consumer, grantee, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
   const here = await resolveBinding({ env, listPanesFn }).catch(() => null);
   invariant(here, 'TOPOLOGY_DELEGATION_ACTOR', `A standing delegation is exercised only from the grantee's own live tmux pane; ${env.TMUX_PANE || 'no pane'} is not a live pane incarnation, so the caller cannot be proven to be ${grantee}.`);
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
-  const bound = (census?.agents || []).find(a => sameBinding(here, a.binding));
+  const agents = census?.agents || [];
+  const recorded = agents.find(a => a.agentId === grantee && a.binding?.paneId === here.paneId && a.binding?.serverKey === here.serverKey);
+  invariant(!recorded || recorded.binding.panePid === here.panePid, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} now runs pane_pid ${here.panePid}, not the ${recorded?.binding?.panePid} the census recorded for ${grantee}; a different incarnation holds that pane.`);
+  const bound = agents.find(a => sameBinding(here, a.binding));
   invariant(bound?.agentId === grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} is bound to ${bound ? `agent ${bound.agentId}` : 'no agent in this repository\'s census'}, not to the grantee ${grantee}; AO_AGENT_ID alone does not prove identity.`);
+  let inPane;
+  try { inPane = await callerRunsInPane(here, callerProc); }
+  catch (error) { fail('TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting TMUX_PANE.`); }
+  invariant(inPane, 'TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
   return here;
 }
 
@@ -191,12 +201,12 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
  * holding any grant without channel evidence is refused outright, not skipped. A matching grant
  * counts only once requireGranteeCaller proves the caller is the grantee; otherwise it throws
  * TOPOLOGY_DELEGATION_ACTOR rather than silently falling back. */
-export async function findActiveDelegation({ consumer, agentId, scope, env = process.env, home = homedir(), now = Date.now(), listPanesFn, readCensusFn }) {
+export async function findActiveDelegation({ consumer, agentId, scope, env = process.env, home = homedir(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
   if (!agentId) return null;
   const live = (await listStandingDelegations({ consumer, env, home }))
     .filter(g => g.grantee === agentId && g.scopes.includes(scope) && !g.revoked_at && (!g.expires_at || Date.parse(g.expires_at) > now))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   if (!live[0]) return null;
-  await requireGranteeCaller({ consumer, grantee: live[0].grantee, env, home, listPanesFn, readCensusFn });
+  await requireGranteeCaller({ consumer, grantee: live[0].grantee, env, home, listPanesFn, readCensusFn, callerProc });
   return live[0];
 }
