@@ -419,7 +419,7 @@ export async function workerReport(options) {
 /** TM-248: why the caller is a managed agent session (agent marker in env, or a Claude Code / Codex
  * ancestor), or [] for an operator shell. A managed session always needs a covering plan grant,
  * whatever management.auto_merge says, and --actor / --authorized there are self-assertion. */
-const managedSession = (options, ctx) => managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors });
+const managedSession = (options, ctx) => managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors, home: ctx.home });
 function refuseSelfAssertion(options, managed) {
   const asserted = [...(options.authorized === true ? ['--authorized'] : []), ...(nonempty(options.actor) ? ['--actor'] : [])];
   invariant(!asserted.length || !managed.length, 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', `${asserted.join(' and ')} cannot be self-asserted inside a managed agent session (${managed.join('; ')}); there, authority comes only from an operator plan grant (ao-topology delegate grant) and the actor is its grantee.`);

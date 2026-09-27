@@ -566,6 +566,49 @@ test('a worker naming the lead in AO_AGENT_ID cannot use the lead\'s grant on in
   assert.equal(recorded.merge.authorization.actor, 'lead-1');
 });
 
+// TM-243: an installed allow rule removes the prompt, never the authority check. With the rules in
+// the lead's settings file: lead-with-grant allowed, lead-without-grant, expired grant and a worker
+// (its own live pane, or naming the lead) all refused, on both record-landing and integrate.
+test('with permission rules installed, integrate and record-landing still need a live delegation proven for the caller', async t => {
+  const { installPermissions } = await import('../../topology/lib/permissions.mjs');
+  const { findActiveDelegation } = await import('../../topology/lib/delegation.mjs');
+  const { opts, finish, git } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const admitted = await admitTask(opts); const report = await finish(); const revision = report.finish.revision;
+  await registerAgent(opts.consumer, 'lead-1');
+  const leadDir = join(opts.consumer, '.bytedesk', 'agent-orchestration', 'agents', 'lead-1');
+  await writeJson(join(leadDir, 'session.json'), { agent_id: 'lead-1', cwd: leadDir });
+  const installed = await installPermissions({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, ancestors: async () => ['zsh'] });
+  assert.ok(installed.added.includes('Bash(ao-topology manage record-landing *)') && installed.added.includes('Bash(ao-topology manage integrate *)'));
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const lead = asCaller(opts, 'lead-1'), worker = asCaller(opts, 'lead-1', 'worker-7'), workerProc = { ...lead, callerProc: WORKER_PROC };
+  const landing = { reason: 'rules installed', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  const expired = { findDelegation: o => findActiveDelegation({ ...o, now: Date.now() + 2 * 3600_000 }) };
+  // Lead without a grant.
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+  // Expired grant.
+  await operatorGrant(opts, ['integrate', 'record-landing']); // then revoked: a revoked grant is not live either
+  const { listStandingDelegations, revokeDelegation } = await import('../../topology/lib/delegation.mjs');
+  await revokeDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, io: { ancestors: async () => ['zsh'] }, id: (await listStandingDelegations({ consumer: opts.consumer, home: opts.home, env: opts.env }))[0].id });
+  await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate', 'record-landing'], expires: '1h' });
+  await assert.rejects(integrateTask({ ...lead, ...expired }), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' }, 'expired grant');
+  // Worker: its own pane naming the lead, or the lead's pane named without running in it.
+  for (const w of [worker, workerProc, { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }])
+    await assert.rejects(integrateTask(w), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'nothing merged by a refusal');
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  await revokeDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, io: { ancestors: async () => ['zsh'] }, id: (await listStandingDelegations({ consumer: opts.consumer, home: opts.home, env: opts.env })).find(g => !g.revoked_at).id });
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'lead without a live grant');
+  await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['record-landing'], expires: '1h' });
+  await assert.rejects(recordLanding({ ...lead, ...landing, ...expired }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'expired grant');
+  for (const w of [worker, workerProc, { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }])
+    await assert.rejects(recordLanding({ ...w, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing recorded by a refusal');
+  // Lead with a live grant, running in its own pane.
+  const recorded = await recordLanding({ ...lead, ...landing });
+  assert.equal(recorded.merge.authorization.actor, 'lead-1'); assert.ok(recorded.merge.authorization.delegation_id);
+});
+
 test('a corrupt delegations file makes eligibility false with a named reason instead of throwing', async t => {
   const { opts, finish } = await fixture(t);
   await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
@@ -922,6 +965,23 @@ test('TM-248 auto_merge: a managed session with no grant is refused on integrate
   // A scrubbed env under a claude ancestor is still a managed session.
   await assert.rejects(recordLanding({ ...opts, ancestors: AGENT_ANCESTRY, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
   assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+});
+
+test('TM-248 + TM-243 auto_merge: a bare verb from the lead\'s census-bound pane still needs a covering grant', async t => {
+  const { opts, finish } = await fixture(t); // auto_merge: true
+  await admitTask(opts); await finish(); await registerAgent(opts.consumer, 'lead-1');
+  // What `ao-topology manage integrate` (bare) runs as: no marker in the shell env, no claude ancestor,
+  // but its TMUX_PANE is the lead's census-bound pane. The CLI would also name it via bindingAgentId.
+  const { paneEnv, ...lookups } = paneOf('lead-1');
+  await writeJson(join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'census', 'fixture.json'), { agents: [{ agentId: 'lead-1', binding: { ...LEAD_PANE } }] });
+  const bare = { ...opts, ...lookups, env: { ...opts.env, TMUX: paneEnv.TMUX, TMUX_PANE: paneEnv.TMUX_PANE } };
+  const gate = await integrationEligibility(bare);
+  assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => /managed agent session needs a valid standing delegation/.test(r)), gate.reasons.join('; '));
+  const named = { ...bare, env: { ...bare.env, AO_AGENT_ID: 'lead-1' } }; // as bindingAgentId names it
+  await assert.rejects(integrateTask(named), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /whatever management.auto_merge says/ });
+  const grant = await planGrant(opts);
+  const integrated = await integrateTask(named);
+  assert.equal(integrated.merge.authorization.delegation_id, grant.id); assert.equal(integrated.merge.authorization.actor, 'lead-1');
 });
 
 test('TM-248 auto_merge: the same managed session with a covering grant is allowed, and the grant names the actor', async t => {

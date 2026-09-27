@@ -292,11 +292,22 @@ test('a grant without a plan (written before TM-248) covers no task', async t =>
   assert.ok(grant.id);
 });
 
-test('managedSessionEvidence names every marker, including TM_DISPATCH_WORKER, and an agent ancestor', async () => {
+test('managedSessionEvidence names every marker, including TM_DISPATCH_WORKER, and an agent ancestor', async t => {
   const { managedSessionEvidence } = await import('../../topology/lib/delegation.mjs');
   const shell = async () => ['zsh', 'tmux: server'];
   assert.deepEqual(await managedSessionEvidence({ env: { USER: 'ryan' }, ancestors: shell }), []);
   for (const marker of ['AO_AGENT_ID', 'TM_SESSION_ID', 'TM_DISPATCH_WORKER', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CODEX_SANDBOX'])
     assert.match((await managedSessionEvidence({ env: { [marker]: '1' }, ancestors: shell })).join(), new RegExp(marker));
   assert.match((await managedSessionEvidence({ env: {}, ancestors: async () => ['bash', '/home/u/.local/share/claude/versions/2.1.280'] })).join(), /agent process is an ancestor/);
+  // TM-243 merged: with `home`, a tmux pane a census binds to an agent is managed too (the one helper
+  // requireNoAgentSession delegates to).
+  const home = await mkdtemp(join(tmpdir(), 'ao-evidence-')); t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(home, 'state'), TMUX: '/tmp/ao-fake/default,1,0', TMUX_PANE: '%3' };
+  await mkdir(join(home, 'state', 'census'), { recursive: true });
+  await writeFile(join(home, 'state', 'census', 'x.json'), JSON.stringify({ agents: [{ agentId: 'lead-9', binding: { paneId: '%3', serverKey: '/tmp/ao-fake/default' } }] }));
+  assert.deepEqual(await managedSessionEvidence({ env, ancestors: shell }), [], 'no home, no pane lookup');
+  assert.match((await managedSessionEvidence({ env, ancestors: shell, home })).join(), /%3 is registered to agent lead-9/);
+  const { requireNoAgentSession } = await import('../../topology/lib/delegation.mjs');
+  await assert.rejects(requireNoAgentSession(env, home, 'install', shell, 'lead permission rules', 'TOPOLOGY_PERMISSIONS_OPERATOR_ONLY'), { code: 'TOPOLOGY_PERMISSIONS_OPERATOR_ONLY', message: /registered to agent lead-9/ });
+  await assert.rejects(requireNoAgentSession({ TM_DISPATCH_WORKER: '1' }, home, 'install', shell), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', message: /TM_DISPATCH_WORKER/ });
 });

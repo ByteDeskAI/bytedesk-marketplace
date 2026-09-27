@@ -19,6 +19,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **An operator installs allow rules so the lead runs its governed verbs without a per-command
+  prompt (TM-243).** `ao-topology permissions install [--mcp <mcp__server>] [--dry-run]` writes
+  `Bash(ao-topology manage record-landing|integrate|start-worker|stop-worker|admit|report *)` and
+  `Bash(tm *)`, plus each opted-in MCP name, to `<lead agent dir>/.claude/settings.local.json`.
+  Only that lead reads the file. Install prints the exact diff, is idempotent and says to restart
+  the lead; `uninstall` removes only the rules install recorded as its own. Both refuse inside
+  any agent session (the TM-234 operator gate, now shared). Install also refuses when the lead
+  launches outside its own agent directory (TM-242), because the file would then be shared. The
+  rules grant no authority: `record-landing` and `integrate` still need a proven TM-234
+  delegation.
+- Governed `manage` verbs run as bare commands: with no `AO_AGENT_ID`, the caller is named from
+  the census binding of its live pane. `--summary` prints one line instead of JSON, so a lead
+  never pipes to `jq`. A dispatched worker (`TM_DISPATCH_WORKER`) is refused every `manage` verb
+  except `report`, `status`, `eligible` and `assignment`.
+
 ### Changed
 
 - **An approved plan is a checkable grant, and managed sessions cannot self-assert authority
@@ -33,10 +50,13 @@
   grant without a frozen list, covers nothing. The merge record's
   `authorization` carries `actor` (the grantee), `delegated_by`, `delegation_id` and `plan`.
   Inside a managed agent session (an agent marker such as `AO_AGENT_ID`, `TM_SESSION_ID`,
-  `TM_DISPATCH_WORKER`, `CLAUDECODE` or `CLAUDE_CODE_*`, or a Claude Code or Codex ancestor)
+  `TM_DISPATCH_WORKER`, `CLAUDECODE`, `CLAUDE_CODE_*` or `CODEX_*`, a Claude Code or Codex
+  ancestor, or a tmux pane a census binds to an agent; one helper, shared with TM-243's
+  `permissions install` gate)
   `--actor` and `--authorized` are refused with `TOPOLOGY_MANAGEMENT_SELF_ASSERT`; an operator
   shell keeps both. A managed session always needs a covering grant on both verbs, whatever
-  `management.auto_merge` says; `auto_merge` applies only to an operator shell. `--expires` accepts
+  `management.auto_merge` says, including a bare verb named by its pane binding (TM-243);
+  `auto_merge` applies only to an operator shell. `--expires` accepts
   days (`7d`).
 
 ### Fixed
