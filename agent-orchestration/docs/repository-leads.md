@@ -284,14 +284,25 @@ When every condition holds, integrate runs exactly
 `--squash`, `--rebase` or `--auto`, and never forces anything. It then reads the merge commit
 from `gh pr view`, fast-forwards the local integration branch to it (fetching `origin`), writes
 the same landing record `record-landing` writes, and closes the task through the store's gates:
-it accepts each open criterion, attaches the management record as evidence, and runs `tm done`
-as the grant's actor. The landing and a `close` comment carry `actor`, `delegated_by` and
-`delegation_id` from the grant.
+it attaches the management record as evidence and runs `tm done` as the authorized actor. The
+landing and a `close` comment carry `actor`, `delegated_by` and `delegation_id` from the grant.
+The authorization record is built exactly as the fast-forward path builds it: `authorized` is true
+only for `--authorized` from an operator shell or a covering grant, so an operator-shell integrate
+under `auto_merge` alone records `authorized: false, policy_auto_merge: true`.
+
+**Integrate never accepts acceptance criteria on the task's behalf.** The lead is a managed
+session; attesting that criteria are met is not its call. If the store refuses `tm done` because
+criteria are unaccepted, or for any other gate, the merge and landing stand and integrate returns
+`TOPOLOGY_INTEGRATE_UNCLOSED`, naming each unaccepted criterion by index and text
+(`details.unaccepted`). Whoever can attest them accepts them (`tm accept <TM-id> <n>`, from the
+worker's evidence or by the operator), and a rerun of `manage integrate` closes the task.
 
 Rerunning is safe. A PR already merged at the approved head is recorded rather than merged again;
 one merged at a different head is refused as `head`. If the merge succeeded but recording failed,
 integrate says so (`TOPOLOGY_INTEGRATE_UNRECORDED`) and a rerun records it. If the landing is
-recorded but closing failed (`TOPOLOGY_INTEGRATE_UNCLOSED`), a rerun retries only the close.
+recorded but the task is not closed, a rerun retries only the close, and only after the same
+`caller` and `plan` checks the merge needed: a worker, or a managed session without a covering
+grant, is refused by name (`TOPOLOGY_INTEGRATE_REFUSED`) and the task stays open.
 
 ### Tool store paths in the integration checkout
 

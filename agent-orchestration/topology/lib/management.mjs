@@ -68,7 +68,6 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     dispatch: async (id, backend) => JSON.parse((await exec(['dispatch', taskId(id), '--backend', backend, '--json'])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
     done: async (id, actor = null) => exec(['done', taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
-    accept: async (id, n) => exec(['accept', taskId(id), String(n)]),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
@@ -428,23 +427,16 @@ function refuseSelfAssertion(options, managed) {
 }
 const MANAGED_NEEDS_GRANT = 'a managed agent session needs a valid standing delegation (an operator plan grant covering this caller, repository and task), whatever management.auto_merge says';
 
-/** Read-only integration gate; tests are rerun by integrateTask, never trusted from reports. */
-export async function integrationEligibility(options) {
-  const ctx = await context(options), record = await loadRecord(ctx.path), reasons = [], refusals = [];
-  // TM-249: every reason carries the condition it fails, so manage integrate refuses each by name.
-  const refuse = (condition, reason) => { reasons.push(reason); refusals.push({ condition, reason }); };
-  if (!record || record.state !== 'ready-for-review') refuse('protocol', 'task has no completed worker protocol ready for review');
-  let doc, review = null;
-  try { doc = await ownedTask(ctx, options.task, record?.owner); } catch (error) { refuse('ownership', error.message); }
-  const loaded = await loadConfig(options);
-  const policy = loaded.config.management || {};
-  if (loaded.errors.length) refuse('config', 'management configuration is invalid');
-  const viaPullRequest = policy.integrate_via === 'pull-request';
+/** TM-249: the one authority gate integrate applies: caller (no self-assertion; the grantee in its own
+ * pane), plan (a live grant covering caller, repository and task). The merge path and the close-retry
+ * path both run it, so a recorded landing never lets an unauthorized caller close the task. */
+async function integrationAuthority(options, ctx, policy) {
   // TM-234: a standing delegation the operator granted this exact caller stands in for --authorized,
   // so a lead exercising authority it was given never has to attest to authority it grants itself.
   // A corrupt delegations file or an unproven grantee is a reason, not a crash: `manage eligible`
   // and status must still answer for every task. integrateTask rethrows delegationError.
   // TM-248: a managed session always needs a covering grant; auto_merge speaks only for an operator shell.
+  const refusals = [], refuse = (condition, reason) => refusals.push({ condition, reason });
   let delegation = null, delegationError = null, authorized = options.authorized === true;
   const managed = await managedSession(options, ctx);
   try { refuseSelfAssertion(options, managed); }
@@ -458,6 +450,33 @@ export async function integrationEligibility(options) {
     }
   }
   if (needsGrant && !delegation) refuse('plan', managed.length ? MANAGED_NEEDS_GRANT : 'configured policy requires explicit integration authority or a valid standing delegation');
+  if (delegation && nonempty(options.actor) && options.actor !== delegation.grantee) refuse('caller', `under a standing delegation the actor is the grantee ${delegation.grantee}; refusing --actor ${options.actor}`);
+  return { refusals, delegation, delegationError };
+}
+
+/** TM-249: the authorization record both integrate paths write; governed completion reads `authorized`. */
+const integrationAuthorization = (options, ctx, { record, policy, delegation, revision }) => ({
+  decision: 'integrate', actor: delegation ? delegation.grantee : (options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id),
+  authorized: options.authorized === true || delegation != null, explicit: options.authorized === true, revision,
+  channel: delegation ? 'standing-delegation' : (options.actor ? 'gateway-or-explicit-actor' : 'local-operator'),
+  policy_auto_merge: policy.auto_merge === true,
+  ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}), at: nowIso() });
+
+/** Read-only integration gate; tests are rerun by integrateTask, never trusted from reports. */
+export async function integrationEligibility(options) {
+  const ctx = await context(options), record = await loadRecord(ctx.path), reasons = [], refusals = [];
+  // TM-249: every reason carries the condition it fails, so manage integrate refuses each by name.
+  const refuse = (condition, reason) => { reasons.push(reason); refusals.push({ condition, reason }); };
+  if (!record || record.state !== 'ready-for-review') refuse('protocol', 'task has no completed worker protocol ready for review');
+  let doc, review = null;
+  try { doc = await ownedTask(ctx, options.task, record?.owner); } catch (error) { refuse('ownership', error.message); }
+  const loaded = await loadConfig(options);
+  const policy = loaded.config.management || {};
+  if (loaded.errors.length) refuse('config', 'management configuration is invalid');
+  const viaPullRequest = policy.integrate_via === 'pull-request';
+  const authority = await integrationAuthority(options, ctx, policy);
+  for (const { condition, reason } of authority.refusals) refuse(condition, reason);
+  const { delegation, delegationError } = authority;
   if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse('config', 'configure named management.required_checks with executable argv');
   if (!nonempty(policy.target_branch)) refuse('config', 'configure management.target_branch before integration');
   if (doc && record?.finish) {
@@ -492,9 +511,6 @@ export async function integrateTask(options) {
     if (gate.delegationError) throw gate.delegationError;
     invariant(gate.eligible, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', gate.reasons.join('; '));
     const { record, doc, policy } = gate, checks = [];
-    // TM-234: authority from a delegation is exercised by the matched grantee and recorded as such;
-    // a different --actor would misattribute it.
-    invariant(!gate.delegation || !options.actor || options.actor === gate.delegation.grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Under a standing delegation the actor is the grantee ${gate.delegation?.grantee}; refusing --actor ${options.actor}.`);
     const targetBefore = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant(await gitText(ctx.store.root, ['symbolic-ref', '--short', 'HEAD']) === policy.target_branch, 'TOPOLOGY_MANAGEMENT_TARGET', 'Canonical checkout must be on the configured integration branch.');
     const foreign = await foreignDirtyPaths(ctx.store.root);
@@ -518,11 +534,7 @@ export async function integrateTask(options) {
     await git(ctx.store.root, ['merge', '--ff-only', record.finish.revision]);
     const landed = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.finish.revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', 'Landing ancestry verification failed.');
-    const authorization={decision:'integrate',actor:fresh.delegation?fresh.delegation.grantee:(options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id),
-      authorized:options.authorized===true || fresh.delegation!=null,revision:record.finish.revision,
-      channel:fresh.delegation?'standing-delegation':(options.actor?'gateway-or-explicit-actor':'local-operator'),
-      policy_auto_merge:policy.auto_merge===true,
-      ...(fresh.delegation?{delegated_by:fresh.delegation.grantor,delegation_id:fresh.delegation.id,plan:fresh.delegation.plan}:{}),at:nowIso()};
+    const authorization = integrationAuthorization(options, ctx, { record, policy, delegation: fresh.delegation, revision: record.finish.revision });
     const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
     Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization } });
     await writeJson(ctx.path, next);
@@ -589,28 +601,40 @@ async function writeLanding(ctx, task, record, review, event, merge) {
   return next;
 }
 
-/** Close a landed task through the store's gates: every criterion, the evidence, then done as the grant's actor. */
-async function closeLandedTask(ctx, task, record) {
-  const auth = record.merge.authorization, pr = record.merge.pull_request?.number;
+/** Close a landed task through the store's gates only: attach the evidence, then `tm done` as the
+ * caller's authorized actor. It never accepts a criterion: the worker's evidence or the operator does
+ * that. When the store refuses, the landing stands and the result names the unaccepted criteria. */
+async function closeLandedTask(ctx, task, record, auth) {
+  const pr = record.merge.pull_request?.number, who = { actor: auth.actor, delegated_by: auth.delegated_by ?? null, delegation_id: auth.delegation_id ?? null };
   try {
-    const next = await recordEvent(ctx, task, record, 'close', { actor: auth.actor, delegated_by: auth.delegated_by ?? null, delegation_id: auth.delegation_id ?? null, pull_request: pr ?? null });
-    const doc = await ctx.store.show(task);
-    for (const [index, criterion] of (doc.acceptance || []).entries()) if (!criterion.done) await ctx.store.accept(task, index + 1);
     await ctx.store.evidence(task, ctx.path);
     await ctx.store.done(task, auth.actor);
-    next.closed = { actor: auth.actor, delegated_by: auth.delegated_by ?? null, delegation_id: auth.delegation_id ?? null, at: nowIso() };
-    await writeJson(ctx.path, next);
-    return next;
   } catch (error) {
-    fail('TOPOLOGY_INTEGRATE_UNCLOSED', `PR #${pr} is merged and its landing is recorded, but ${task} was not closed: ${error.message}. Rerun manage integrate to retry closing; it never merges again.`, { merged: true, recorded: true, closed: false, pull_request: pr });
+    let unaccepted = [];
+    try { unaccepted = ((await ctx.store.show(task)).acceptance || []).map((c, i) => ({ index: i + 1, text: c.text, done: c.done })).filter(c => !c.done).map(({ index, text }) => ({ index, text })); } catch { /* the store's own refusal below still names the cause */ }
+    const criteria = unaccepted.length ? ` Unaccepted acceptance criteria: ${unaccepted.map(c => `#${c.index} "${c.text}"`).join('; ')}. Integrate never accepts criteria on the task's behalf; the worker's evidence or the operator accepts them (tm accept ${task} <n>), then rerun manage integrate to close the task.` : ' Rerun manage integrate to retry closing.';
+    fail('TOPOLOGY_INTEGRATE_UNCLOSED', `PR #${pr} is merged and its landing is recorded, but the store refused to close ${task}: ${error.message.trim()}.${criteria} A rerun never merges again.`, { merged: true, recorded: true, closed: false, pull_request: pr, unaccepted });
   }
+  const next = await recordEvent(ctx, task, record, 'close', { ...who, pull_request: pr ?? null });
+  next.closed = { ...who, at: nowIso() };
+  await writeJson(ctx.path, next);
+  return next;
 }
+
+const refuseIntegrate = (refusals, pr) => fail('TOPOLOGY_INTEGRATE_REFUSED', `manage integrate refused (${[...new Set(refusals.map(r => r.condition))].join(', ')}): ${refusals.map(r => `${r.condition}: ${r.reason}`).join('; ')}`, { refusals, pull_request: pr ?? null });
 
 async function integrateViaPullRequest(options, ctx) {
   const gh = options.gh || defaultGh(ctx.store.root);
   const prior = await loadRecord(ctx.path);
   // A landing already recorded by this path: only closing can remain, and it never merges again.
-  if (prior?.state === 'merged' && prior.merge?.pull_request) return prior.closed ? prior : closeLandedTask(ctx, options.task, prior);
+  // Closing still needs the same caller and plan authority the merge needed.
+  if (prior?.state === 'merged' && prior.merge?.pull_request) {
+    if (prior.closed) return prior;
+    const policy = (await loadConfig(options)).config.management || {};
+    const { refusals, delegation } = await integrationAuthority(options, ctx, policy);
+    if (refusals.length) refuseIntegrate(refusals, prior.merge.pull_request.number);
+    return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy, delegation, revision: prior.merge.revision }));
+  }
   const gate = await integrationEligibility(options);
   const { record, doc, policy, delegation } = gate, refusals = [...gate.refusals];
   const refuse = (condition, reason) => refusals.push({ condition, reason });
@@ -645,11 +669,7 @@ async function integrateViaPullRequest(options, ctx) {
       else if (incoming.stdout.split('\0').some(path => path && storePath(path))) refuse('scope', `the PR changes tool store paths (${INTEGRATION_STORE_PATHS.join(', ')}); land it by hand and record it with manage record-landing`);
     }
   }
-  if (delegation && nonempty(options.actor) && options.actor !== delegation.grantee) refuse('caller', `under a standing delegation the actor is the grantee ${delegation.grantee}; refusing --actor ${options.actor}`);
-  if (refusals.length) {
-    const names = [...new Set(refusals.map(r => r.condition))];
-    fail(`TOPOLOGY_INTEGRATE_REFUSED`, `manage integrate refused (${names.join(', ')}): ${refusals.map(r => `${r.condition}: ${r.reason}`).join('; ')}`, { refusals, pull_request: pr?.number ?? null });
-  }
+  if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
     // The only merge this verb performs. Exactly these flags; nothing forces, bypasses or defers.
     const result = await gh(['pr', 'merge', String(pr.number), '--merge', '--match-head-commit', revision]);
@@ -663,15 +683,13 @@ async function integrateViaPullRequest(options, ctx) {
     const landed = v.mergeCommit.oid;
     await syncTarget(ctx.store.root, policy.target_branch, landed);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
-    const authorization = { decision: 'integrate', actor: delegation ? delegation.grantee : (options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id),
-      authorized: true, explicit: options.authorized === true, revision, channel: delegation ? 'standing-delegation' : (options.actor ? 'gateway-or-explicit-actor' : 'local-operator'),
-      policy_auto_merge: policy.auto_merge === true, ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}), at: nowIso() };
+    const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
       pull_request: { number: pr.number, head: revision, already_merged: pr.state === 'MERGED' }, authorization });
   } catch (error) {
     fail('TOPOLOGY_INTEGRATE_UNRECORDED', `PR #${pr.number} is merged, but its landing was not recorded: ${error.message}. Do not merge again; rerun manage integrate, which records an already-merged PR.`, { pull_request: pr.number, merged: true, recorded: false });
   }
-  return closeLandedTask(ctx, options.task, next);
+  return closeLandedTask(ctx, options.task, next, next.merge.authorization);
 }
 
 /** Record an operator-authorized landing that ALREADY happened (TM-224). It never merges.
