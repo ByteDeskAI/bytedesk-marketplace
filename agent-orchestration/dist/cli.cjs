@@ -2025,6 +2025,8 @@ var reviewer_exports = {};
 __export(reviewer_exports, {
   PROBE_POLL_MS: () => PROBE_POLL_MS,
   PROBE_TIMEOUT_MS: () => PROBE_TIMEOUT_MS,
+  REVIEW_INCOMPLETE_BOUND_MS: () => REVIEW_INCOMPLETE_BOUND_MS,
+  REVIEW_INCOMPLETE_STALL_MS: () => REVIEW_INCOMPLETE_STALL_MS,
   approvable: () => approvable,
   assignReviewer: () => assignReviewer,
   buildReviewerArgv: () => buildReviewerArgv,
@@ -2748,7 +2750,24 @@ function parseReviewResponse(screen, nonce) {
   invariant2(parsed.every((response) => JSON.stringify(response) === JSON.stringify(last)), "TOPOLOGY_REVIEWER_RESPONSE", "The pane shows different review responses for one nonce.");
   return last;
 }
-async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration }) {
+async function ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs, stallMs, deliver, lead }) {
+  const now = Date.now();
+  const since = request.incomplete_since ?? new Date(now).toISOString();
+  const sha2562 = (0, import_node_crypto13.createHash)("sha256").update(screen).digest("hex");
+  const seen = request.incomplete_screen?.sha256 === sha2562 ? request.incomplete_screen : { sha256: sha2562, at: new Date(now).toISOString() };
+  const overBound = now - Date.parse(since) >= boundMs;
+  const stalled = !overBound && now - Date.parse(seen.at) >= stallMs;
+  if (!overBound && !stalled) {
+    await writeJson(path3, { ...request, incomplete_since: since, incomplete_screen: seen });
+    return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", "The review response is still being printed; collect it again later.");
+  }
+  const reason = stalled ? `The reviewer pane has not changed for over ${Math.round(stallMs / 1e3)}s with an unclosed verdict; nothing more will be printed.` : `The review response stayed incomplete for over ${Math.round(boundMs / 1e3)}s without closing.`;
+  const failed = { ...request, incomplete_since: since, incomplete_screen: seen, state: "failed", failure: { at: nowIso(), code: "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason } };
+  failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
+  await writeJson(path3, failed);
+  return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason);
+}
+async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS }) {
   const path3 = (0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
@@ -2767,7 +2786,7 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     const screen = await output(record2);
     const shown = reviewResponsesOnScreen(screen, request.nonce);
     invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
-    invariant2(shown.at(-1).closed, "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", "The review response is still being printed; collect it again later.");
+    if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
     let review;
     try {
       const response = parseReviewResponse(screen, request.nonce);
@@ -2867,7 +2886,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_crypto13 = require("node:crypto");
@@ -2897,6 +2916,8 @@ var init_reviewer = __esm({
     BLOCKING_SEVERITIES = /* @__PURE__ */ new Set(["blocker", "major"]);
     FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
     MAX_REVIEW_WAKES = 5;
+    REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 12e4);
+    REVIEW_INCOMPLETE_STALL_MS = Number(process.env.AO_REVIEW_INCOMPLETE_STALL_MS ?? 3e4);
     REVIEW_CAPTURE_LINES = 5e3;
     defaultProbes = () => ({ alive: (_session, record2) => bindingAlive(record2), open: defaultOpen });
     PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 2e4);
@@ -35869,7 +35890,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "949ab8b832b5f69983b008169c0fa78ead6a6069647c6abe48b2526ef792ea69",
+  sourceFingerprint: false ? null : "dccece6c497b5616e519f46dad181e29e188059258827ba4dcbbe409c2e002ec",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
