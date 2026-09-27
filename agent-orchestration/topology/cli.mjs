@@ -126,6 +126,11 @@ Standing repository services
                                                grant); the actor is then the grantee. Inside a managed
                                                agent session --actor and --authorized are refused, and
                                                a covering grant is required even under auto_merge.
+                                               With management.integrate_via "pull-request", integrate
+                                               merges the task's PR itself (gh pr merge --merge
+                                               --match-head-commit <approved sha>), refusing by name
+                                               unless plan, base, head, ci, review and mergeable hold,
+                                               then records the landing and closes the task.
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
@@ -153,7 +158,7 @@ function manageSummary(verb, task, r) {
     case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
     case 'stop-worker': return r.stopped ? `${task} worker stopped (${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
     case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}` : ''}`;
-    case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${auth(r.merge?.authorization)}`;
+    case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;

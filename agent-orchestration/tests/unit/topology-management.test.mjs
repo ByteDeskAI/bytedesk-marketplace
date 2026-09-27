@@ -1061,3 +1061,173 @@ test('TM-248 frozen plan (d): a tampered plan.tasks or plan.sha256 is refused as
   // Tampering both consistently is the documented same-user limit; the digest catches casual edits only.
   assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
 });
+
+// TM-249: with management.integrate_via "pull-request", manage integrate merges the task's PR itself
+// through ONE injected gh, and refuses each unmet condition by name. No network and no real gh: the
+// fake answers from a PR object and performs the merge as a real merge commit in a local bare origin,
+// so the local fast-forward and the store's governed-completion ancestry run for real.
+const IDENTITY = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, required } = {}) {
+  const f = await fixture(t);
+  await writeJson(join(f.opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', integrate_via: 'pull-request' } });
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  const base = (await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim();
+  const origin = join(f.opts.consumer, '..', 'origin.git');
+  await run('git', ['clone', '-q', '--bare', f.opts.consumer, origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
+  await registerAgent(f.opts.consumer, 'lead-1');
+  const granted = grant === null ? null : await planGrant(f.opts, grant);
+  const pr = { number: 7, state: 'OPEN', baseRefName: 'main', headRefOid: revision, mergeable: 'MERGEABLE', ...prPatch };
+  const state = { pr, checks: checks || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }, { name: 'docs-only', state: 'SKIPPED', bucket: 'skipping' }], required: required || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }], argv: [], viewFails: false };
+  const mergeInOrigin = async head => {
+    const tree = (await run('git', ['-C', origin, 'rev-parse', `${head}^{tree}`])).stdout.trim();
+    const oid = (await run('git', ['-C', origin, ...IDENTITY, 'commit-tree', tree, '-p', 'main', '-p', head, '-m', `Merge pull request #${pr.number}`])).stdout.trim();
+    await run('git', ['-C', origin, 'update-ref', 'refs/heads/main', oid]);
+    Object.assign(pr, { state: 'MERGED', mergeCommit: { oid } });
+  };
+  const ok = value => ({ code: 0, stdout: JSON.stringify(value), stderr: '' });
+  const gh = async args => {
+    state.argv.push(args);
+    const [noun, verb] = args;
+    if (noun !== 'pr') return { code: 1, stdout: '', stderr: 'unexpected' };
+    if (verb === 'list') return ok([pr]);
+    if (verb === 'checks') return ok(args.includes('--required') ? state.required : state.checks);
+    if (verb === 'merge') { await mergeInOrigin(pr.headRefOid); return { code: 0, stdout: '', stderr: '' }; }
+    if (verb === 'view') return state.viewFails ? { code: 1, stdout: '', stderr: 'HTTP 502' } : ok({ state: pr.state, headRefOid: pr.headRefOid, baseRefName: pr.baseRefName, mergeCommit: pr.mergeCommit ?? null });
+    return { code: 1, stdout: '', stderr: `unknown gh pr ${verb}` };
+  };
+  const closed = { accepted: [], doneBy: [] };
+  f.doc.acceptance = [{ text: 'first', done: false }, { text: 'second', done: true }, { text: 'third', done: false }];
+  Object.assign(f.opts.store, { accept: async (_task, n) => { closed.accepted.push(n); }, done: async (_task, actor) => { closed.doneBy.push(actor); f.doc.status = 'done'; } });
+  const lead = { ...asCaller(f.opts, 'lead-1'), gh, reviewGate: review || fullReview(admitted.record, revision) };
+  return { ...f, admitted, revision, base, origin, pr, state, gh, lead, grant: granted, closed, mergeInOrigin };
+}
+const merges = state => state.argv.filter(a => a[1] === 'merge');
+async function refusedAs(p, options, condition, message) {
+  await assert.rejects(integrateTask(options), err => {
+    assert.equal(err.code, 'TOPOLOGY_INTEGRATE_REFUSED', err.message);
+    const named = err.details.refusals.filter(r => r.condition === condition);
+    assert.ok(named.length, `expected a "${condition}" refusal, got: ${err.message}`);
+    if (message) assert.ok(named.some(r => message.test(r.reason)), `"${condition}" refusal should match ${message}: ${err.message}`);
+    return true;
+  });
+  assert.deepEqual(merges(p.state), [], 'a refusal never reaches gh pr merge');
+  assert.equal((await managementStatus(p.opts)).management.merge, undefined, 'a refusal records nothing');
+  assert.deepEqual(p.closed.doneBy, [], 'a refusal closes nothing');
+}
+
+test('TM-249 success: integrate merges the PR with exactly --merge --match-head-commit, records the landing from the grant and closes the task', async t => {
+  const p = await prTask(t);
+  const result = await integrateTask(p.lead);
+  assert.deepEqual(merges(p.state), [['pr', 'merge', '7', '--merge', '--match-head-commit', p.revision]]);
+  for (const argv of p.state.argv) for (const flag of ['--admin', '--squash', '--rebase', '--auto', '--force'])
+    assert.ok(!argv.includes(flag), `gh was never given ${flag}: ${argv.join(' ')}`);
+  const auth = result.merge.authorization;
+  assert.equal(auth.actor, 'lead-1'); assert.equal(auth.delegated_by, 'operator'); assert.equal(auth.delegation_id, p.grant.id); assert.equal(auth.authorized, true);
+  assert.equal(result.merge.pull_request.number, 7); assert.equal(result.merge.landed, p.pr.mergeCommit.oid);
+  assert.deepEqual(result.merge.checks.map(c => c.name), ['unit', 'docs-only'], 'a skipped check not listed as required is allowed');
+  assert.equal((await p.git(p.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), p.pr.mergeCommit.oid, 'local main fast-forwarded to the merge commit');
+  assert.deepEqual(p.closed.accepted, [1, 3], 'every unmet criterion accepted');
+  assert.deepEqual(p.closed.doneBy, ['lead-1'], 'done as the grant\'s actor');
+  assert.deepEqual(result.closed && { actor: result.closed.actor, delegated_by: result.closed.delegated_by, delegation_id: result.closed.delegation_id }, { actor: 'lead-1', delegated_by: 'operator', delegation_id: p.grant.id });
+  assert.ok(p.calls.indexOf('merge') < p.calls.indexOf('close'), 'landing recorded before closing');
+  // The store's real governed-completion gate accepts the record.
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = p.opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const gate = governedCompletion({ id: 'TM-1', worktree: result.worktree, branch: result.branch, governance: { version: 1, runtime: 'topology', workflowRunId: result.workflow_run_id, leadId: result.lead_id, revision: p.revision, state: 'ready-for-review' } }, { root: p.opts.consumer });
+  assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'lead-1');
+  // Rerunning is a no-op: nothing merges twice.
+  await integrateTask(p.lead); assert.equal(merges(p.state).length, 1);
+});
+
+test('TM-249 refusal plan: a grant whose plan does not cover the task', async t => {
+  const p = await prTask(t, { grant: { plan: { tasks: ['TM-2'] } } });
+  await refusedAs(p, p.lead, 'plan', /TOPOLOGY_DELEGATION_PLAN/);
+});
+
+test('TM-249 refusal plan: a managed lead session without any grant', async t => {
+  const p = await prTask(t, { grant: null });
+  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+});
+
+test('TM-249 refusal caller: a worker session cannot use the lead\'s grant', async t => {
+  const p = await prTask(t);
+  await refusedAs(p, { ...asCaller(p.opts, 'lead-1', 'worker-7'), gh: p.gh, reviewGate: p.lead.reviewGate }, 'caller', /TOPOLOGY_DELEGATION_ACTOR/);
+  // A dispatched worker naming the lead from outside the lead's pane.
+  await refusedAs(p, { ...p.opts, ancestors: AGENT_ANCESTRY, gh: p.gh, reviewGate: p.lead.reviewGate, env: { ...p.opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }, 'caller', /TOPOLOGY_DELEGATION_ACTOR/);
+});
+
+test('TM-249 refusal base: the PR does not target the integration branch', async t => {
+  const p = await prTask(t, { pr: { baseRefName: 'develop' } });
+  await refusedAs(p, p.lead, 'base', /targets develop, not the integration branch main/);
+});
+
+test('TM-249 refusal head: the PR head is not the reviewed and approved revision', async t => {
+  const p = await prTask(t);
+  const review = fullReview(p.admitted.record, p.base);
+  await refusedAs(p, { ...p.lead, reviewGate: review }, 'head', /not the reviewed and approved revision/);
+});
+
+test('TM-249 refusal head: the PR head is not the task\'s recorded finish revision', async t => {
+  const p = await prTask(t);
+  p.pr.headRefOid = p.base; // reviewed and PR agree with each other, not with the finish report
+  await assert.rejects(integrateTask({ ...p.lead, reviewGate: fullReview(p.admitted.record, p.base) }), err =>
+    err.details.refusals.some(r => r.condition === 'head' && /recorded finish revision/.test(r.reason)) &&
+    !err.details.refusals.some(r => /reviewed and approved/.test(r.reason)));
+  assert.deepEqual(merges(p.state), []);
+});
+
+test('TM-249 refusal ci: a pending check', async t => {
+  const p = await prTask(t, { checks: [{ name: 'unit', state: 'IN_PROGRESS', bucket: 'pending' }] });
+  await refusedAs(p, p.lead, 'ci', /unit is pending/);
+});
+
+test('TM-249 refusal ci: a failed check, a skipped required check, and no checks at all', async t => {
+  const p = await prTask(t, { checks: [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }, { name: 'lint', state: 'FAILURE', bucket: 'fail' }] });
+  await refusedAs(p, p.lead, 'ci', /lint is fail/);
+  p.state.checks = [{ name: 'unit', state: 'SKIPPED', bucket: 'skipping' }];
+  await refusedAs(p, p.lead, 'ci', /unit is skipping \(required\)/);
+  p.state.checks = [];
+  await refusedAs(p, p.lead, 'ci', /no CI checks are reported/);
+});
+
+test('TM-249 refusal review: the verdict is not approve', async t => {
+  const p = await prTask(t);
+  const approved = await fullReview(p.admitted.record, p.revision)();
+  await refusedAs(p, { ...p.lead, reviewGate: async () => ({ ...approved, status: { review: { ...approved.status.review, verdict: 'request-changes' } } }) }, 'review', /request-changes, not approve/);
+  await refusedAs(p, { ...p.lead, reviewGate: async () => ({ eligible: false, reasons: ['reviewer is not independent of the lead and authors'] }) }, 'review', /not independent/);
+});
+
+test('TM-249 refusal mergeable: the PR has conflicts', async t => {
+  const p = await prTask(t, { pr: { mergeable: 'CONFLICTING' } });
+  await refusedAs(p, p.lead, 'mergeable', /CONFLICTING, not MERGEABLE/);
+});
+
+test('TM-249 idempotent: a PR already merged at the approved head is recorded and closed without merging again', async t => {
+  const p = await prTask(t);
+  await p.mergeInOrigin(p.revision);
+  const result = await integrateTask(p.lead);
+  assert.deepEqual(merges(p.state), [], 'no second merge');
+  assert.equal(result.merge.pull_request.already_merged, true); assert.equal(result.merge.landed, p.pr.mergeCommit.oid);
+  assert.equal(result.merge.authorization.actor, 'lead-1'); assert.deepEqual(p.closed.doneBy, ['lead-1']);
+});
+
+test('TM-249 idempotent: a PR merged at a different head is refused by name', async t => {
+  const p = await prTask(t);
+  await p.mergeInOrigin(p.revision);
+  p.pr.headRefOid = p.base;
+  await refusedAs(p, p.lead, 'head', /already merged at .*not the task's recorded finish revision/);
+});
+
+test('TM-249 merged but unrecorded is reported explicitly, and a rerun records it without merging again', async t => {
+  const p = await prTask(t);
+  p.state.viewFails = true;
+  await assert.rejects(integrateTask(p.lead), err => err.code === 'TOPOLOGY_INTEGRATE_UNRECORDED' && err.details.merged === true && /Do not merge again/.test(err.message));
+  assert.equal((await managementStatus(p.opts)).management.merge, undefined);
+  p.state.viewFails = false;
+  const result = await integrateTask(p.lead);
+  assert.equal(merges(p.state).length, 1, 'the merge ran exactly once'); assert.equal(result.merge.pull_request.already_merged, true);
+  assert.deepEqual(p.closed.doneBy, ['lead-1']);
+});

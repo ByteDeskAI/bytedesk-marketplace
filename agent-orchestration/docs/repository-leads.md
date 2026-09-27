@@ -254,6 +254,45 @@ agent-orchestration and task-management, the agent-orchestration bundle check, a
 Use plain `claude plugin validate`, never `--strict`. The strict form fails every versionless
 internal plugin.
 
+### Integrating through the task's pull request (TM-249)
+
+Set `management.integrate_via` to `"pull-request"` and `manage integrate` merges the task's pull
+request itself instead of fast-forwarding the main checkout. `management.required_checks` is then
+not required: the pull request's CI replaces the local checks. **Leads never run raw
+`gh pr merge`.** They run `ao-topology manage integrate --task <TM-id>`, which TM-243's installed
+rule `Bash(ao-topology manage integrate *)` already covers; no rule is ever written for `gh pr merge`.
+
+The pull request is the one open PR whose head branch is the task's branch. Integrate refuses,
+naming each unmet condition in the error (`TOPOLOGY_INTEGRATE_REFUSED`, with a `refusals` list):
+
+| Condition | Holds when |
+|---|---|
+| `plan` | A live plan grant covers this caller, repository and task. A managed session always needs one; an operator shell keeps `--authorized` and `auto_merge`. |
+| `caller` | The caller is the grantee in its own pane: never a worker, never a self-asserted `--authorized` or `--actor`. |
+| `pr` | Exactly one open PR has the task's branch as its head. |
+| `base` | The PR's base is `management.target_branch`. |
+| `head` | The PR head equals the approved review's revision **and** the task's recorded finish revision. |
+| `ci` | Every check `gh pr checks` reports is `pass`. `skipping` is allowed only for a check not listed by `gh pr checks --required`; if that list cannot be read, every check counts as required. No checks, or none passing, is refused. |
+| `review` | Review eligibility holds (independent reviewer, range covering the head) and the verdict is `approve`. |
+| `mergeable` | GitHub reports the PR `MERGEABLE`. |
+
+The eligibility conditions integrate always had (`protocol`, `ownership`, `config`, `scope`,
+`dirty`, `worker`) are refused by name the same way.
+
+When every condition holds, integrate runs exactly
+`gh pr merge <n> --merge --match-head-commit <approved sha>`. It never passes `--admin`,
+`--squash`, `--rebase` or `--auto`, and never forces anything. It then reads the merge commit
+from `gh pr view`, fast-forwards the local integration branch to it (fetching `origin`), writes
+the same landing record `record-landing` writes, and closes the task through the store's gates:
+it accepts each open criterion, attaches the management record as evidence, and runs `tm done`
+as the grant's actor. The landing and a `close` comment carry `actor`, `delegated_by` and
+`delegation_id` from the grant.
+
+Rerunning is safe. A PR already merged at the approved head is recorded rather than merged again;
+one merged at a different head is refused as `head`. If the merge succeeded but recording failed,
+integrate says so (`TOPOLOGY_INTEGRATE_UNRECORDED`) and a rerun records it. If the landing is
+recorded but closing failed (`TOPOLOGY_INTEGRATE_UNCLOSED`), a rerun retries only the close.
+
 ### Tool store paths in the integration checkout
 
 The main checkout must be clean before integration, with one exception. Task management and
