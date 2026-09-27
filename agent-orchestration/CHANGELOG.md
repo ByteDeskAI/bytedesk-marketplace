@@ -36,6 +36,29 @@
   never pipes to `jq`. A dispatched worker (`TM_DISPATCH_WORKER`) is refused every `manage` verb
   except `report`, `status`, `eligible` and `assignment`.
 
+### Changed
+
+- **An approved plan is a checkable grant, and managed sessions cannot self-assert authority
+  (TM-248, ADR-0022).** `delegate grant` now requires a plan (`--epic EP-nnn` and/or
+  `--tasks TM-nnn,...`) and `--expires` of at most 14 days, and the operator retypes the plan in the
+  confirmation. `manage integrate` and `manage record-landing` accept a grant only when its plan
+  covers the task; otherwise they refuse with `TOPOLOGY_DELEGATION_PLAN`. An epic plan is frozen at
+  grant time: `--epic` resolves to the epic's task ids in the store, recorded as `plan.tasks` with
+  `plan.sha256`, and listed in the confirmation. Coverage is membership in that list only, so a task
+  moved into or created under the epic later needs a new grant. A `plan.sha256` that does not match
+  `plan.tasks` is refused with `TOPOLOGY_DELEGATION_INTEGRITY`. A grant without a plan, or an epic
+  grant without a frozen list, covers nothing. The merge record's
+  `authorization` carries `actor` (the grantee), `delegated_by`, `delegation_id` and `plan`.
+  Inside a managed agent session (an agent marker such as `AO_AGENT_ID`, `TM_SESSION_ID`,
+  `TM_DISPATCH_WORKER`, `CLAUDECODE`, `CLAUDE_CODE_*` or `CODEX_*`, a Claude Code or Codex
+  ancestor, or a tmux pane a census binds to an agent; one helper, shared with TM-243's
+  `permissions install` gate)
+  `--actor` and `--authorized` are refused with `TOPOLOGY_MANAGEMENT_SELF_ASSERT`; an operator
+  shell keeps both. A managed session always needs a covering grant on both verbs, whatever
+  `management.auto_merge` says, including a bare verb named by its pane binding (TM-243);
+  `auto_merge` applies only to an operator shell. `--expires` accepts
+  days (`7d`).
+
 ### Fixed
 
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
