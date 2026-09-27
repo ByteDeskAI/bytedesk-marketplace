@@ -307,14 +307,19 @@ without attesting to it itself:
 
 ```bash
 ao-topology delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing \
-  [--expires <duration>] [--reason <text>]
+  --epic <EP-nnn> | --tasks <TM-nnn,...> --expires <duration> [--reason <text>]
 ao-topology delegate list [--repo <consumer>]
 ao-topology delegate revoke <id> [--repo <consumer>]
 ```
 
+- **An approved plan (TM-248, ADR-0022).** A grant is how an approved plan becomes checkable. It
+  names a `plan`: an epic (`--epic EP-19`), a task list (`--tasks TM-248,TM-249`), or both. A task
+  is covered when the plan lists it, or when the task store (`tm show --json`) records it under the
+  plan's epic. A grant with no plan, including one written before TM-248, covers no task.
 - **Interactive same-user channel.** `grant` requires stdin and stdout to be a terminal and asks
-  the operator to retype `<grantee> <scopes>` exactly. `grant` and `revoke` refuse a shell that
-  carries any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  the operator to retype `<grantee> <scopes> <plan>` exactly, for example
+  `lead-1 integrate,record-landing EP-19`. `grant` and `revoke` refuse a shell that
+  carries any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `TM_DISPATCH_WORKER`, `CLAUDECODE`, `CLAUDE_CODE_*`,
   `CODEX_*`), that has a Claude Code or Codex process among its ancestors, or that sits in a tmux
   pane the census binds to an agent. `grant` also refuses a grantee granting to itself. Each grant
   records the checks it passed under `channel`, with `kind: "interactive-same-user"`,
@@ -331,15 +336,16 @@ ao-topology delegate revoke <id> [--repo <consumer>]
 - **Scope is a fixed allowlist**: `integrate` and `record-landing` only. The grant never covers
   deploy, publish, push or spend; those keep their own separate authorization and this command
   cannot widen to them.
-- **`--expires`** takes the same duration form as elsewhere (`90s`, `20m`, `1h`); omitted, the
-  grant does not expire on its own and only `revoke` ends it.
+- **`--expires` is required**, at most 14 days (`72h`, `7d`, `14d`). Set it to the plan's expected
+  close; `revoke` ends a grant early.
 - Records are **append-only**, under the state home
   (`$XDG_STATE_HOME/bytedesk/agent-orchestration/delegations/<repositoryKey>.json`): a grant event
   and, if it happens, a later revoke event. Nothing is ever rewritten in place.
 
 `manage integrate` and `manage record-landing` accept a live, unexpired, unrevoked grant that
-names the caller's own `AO_AGENT_ID`, this repository, and the scope in use, in place of an
-explicit `--authorized`, **but only after proving the caller is the grantee**. The caller's
+names the caller's own `AO_AGENT_ID`, this repository, the scope in use, and a plan covering the
+task, in place of an explicit `--authorized`, **but only after proving the caller is the grantee**.
+A task outside every live grant's plan is refused with `TOPOLOGY_DELEGATION_PLAN`. The caller's
 `TMUX_PANE` must be a live pane whose `pane_pid` the census binds to the grantee, and that pane
 process must be an ancestor of the caller, which is checked by walking `/proc/<pid>/stat`. Setting
 `AO_AGENT_ID` or `TMUX_PANE` alone is refused with `TOPOLOGY_DELEGATION_ACTOR`.
@@ -351,12 +357,26 @@ process must be an ancestor of the caller, which is checked by walking `/proc/<p
 - **Remaining limit.** A process that can ptrace or inject code into the lead's process tree, or
   that is started by typing into the lead's pane, still passes as the lead. This is the same-user
   limit above.
- The merge record then carries `authorization.authorized: true`, with
+The merge record then carries `authorization.authorized: true`, with
 `authorization.actor` set to the grantee that exercised the grant, and
-`authorization.delegated_by` (the grantor's OS user) and `authorization.delegation_id` alongside.
-The evidence shows both who acted and who granted the authority. Under a delegation, an `--actor`
-naming anyone but the grantee is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` does
-not need `--actor`. Governed completion's checks
+`authorization.delegated_by` (the grantor's OS user), `authorization.delegation_id` and
+`authorization.plan` alongside. The evidence shows who acted, who granted the authority and for
+which plan.
+
+**Managed sessions cannot self-assert (TM-248).** Inside a managed agent session, `--actor` and
+`--authorized` are refused with `TOPOLOGY_MANAGEMENT_SELF_ASSERT`, even when `--actor` names the
+grantee. A managed session is one with any agent marker listed above in its environment, or a
+Claude Code or Codex process among its ancestors (so `env -u AO_AGENT_ID` does not escape it).
+There, authority comes only from a covering plan grant, and the actor only from that grant. In an
+operator shell, `--actor` and `--authorized` keep working as before.
+
+**The `management.auto_merge` policy path is separate, and unchanged.** With `auto_merge: true`
+(the shipped default in `config.defaults.json`), neither verb consults a grant. A managed session
+can then run `manage integrate` with no grant and no flags. Its recorded actor is `TM_ACTOR`,
+`USER` or the lead id, none of them proven, and plan coverage is not checked. `manage
+record-landing` from a managed session needs an actor it can no longer self-assert, so without a
+grant it is refused. A repository that wants every lead landing bound to a plan sets
+`management.auto_merge: false`. Governed completion's checks
 (`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
 and `authorization.actor` exactly as before and simply ignore the added fields.
 

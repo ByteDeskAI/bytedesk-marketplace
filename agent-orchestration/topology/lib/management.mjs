@@ -7,7 +7,7 @@ import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
-import { findActiveDelegation } from './delegation.mjs';
+import { findActiveDelegation, managedSessionEvidence } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
@@ -414,6 +414,18 @@ export async function workerReport(options) {
   });
 }
 
+/** TM-248: inside a managed agent session (agent marker in env, or a Claude Code / Codex ancestor)
+ * --actor and --authorized are self-assertion, so they are refused; authority there comes only from
+ * an operator plan grant, and the actor from that grant. An operator shell keeps both. */
+async function refuseSelfAssertion(options, ctx) {
+  const asserted = [...(options.authorized === true ? ['--authorized'] : []), ...(nonempty(options.actor) ? ['--actor'] : [])];
+  if (!asserted.length) return;
+  const evidence = await managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors });
+  invariant(!evidence.length, 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', `${asserted.join(' and ')} cannot be self-asserted inside a managed agent session (${evidence.join('; ')}); there, authority comes only from an operator plan grant (ao-topology delegate grant) and the actor is its grantee.`);
+}
+/** The task as plan coverage sees it: its id and the epic the task store records for it. */
+const planTask = async (ctx, task, doc) => ({ id: task, epic: (doc || await ctx.store.show(task).catch(() => null))?.epic ?? null });
+
 /** Read-only integration gate; tests are rerun by integrateTask, never trusted from reports. */
 export async function integrationEligibility(options) {
   const ctx = await context(options), record = await loadRecord(ctx.path), reasons = [];
@@ -427,15 +439,17 @@ export async function integrationEligibility(options) {
   // so a lead exercising authority it was given never has to attest to authority it grants itself.
   // A corrupt delegations file or an unproven grantee is a reason, not a crash: `manage eligible`
   // and status must still answer for every task. integrateTask rethrows delegationError.
-  let delegation = null, delegationError = null;
-  if (policy.auto_merge !== true && options.authorized !== true) {
-    try { delegation = await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc }); }
+  let delegation = null, delegationError = null, authorized = options.authorized === true;
+  try { await refuseSelfAssertion(options, ctx); }
+  catch (error) { if (error.code !== 'TOPOLOGY_MANAGEMENT_SELF_ASSERT') throw error; reasons.push(`${error.code}: ${error.message}`); authorized = false; }
+  if (policy.auto_merge !== true && !authorized) {
+    try { delegation = await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', task: await planTask(ctx, options.task, doc), env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc }); }
     catch (error) {
-      if (!['TOPOLOGY_DELEGATION_INTEGRITY', 'TOPOLOGY_DELEGATION_ACTOR'].includes(error.code)) throw error;
+      if (!['TOPOLOGY_DELEGATION_INTEGRITY', 'TOPOLOGY_DELEGATION_ACTOR', 'TOPOLOGY_DELEGATION_PLAN'].includes(error.code)) throw error;
       delegationError = error; reasons.push(`${error.code}: ${error.message}`);
     }
   }
-  if (policy.auto_merge !== true && options.authorized !== true && !delegation) reasons.push('configured policy requires explicit integration authority or a valid standing delegation');
+  if (policy.auto_merge !== true && !authorized && !delegation) reasons.push('configured policy requires explicit integration authority or a valid standing delegation');
   if (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length)) reasons.push('configure named management.required_checks with executable argv');
   if (!nonempty(policy.target_branch)) reasons.push('configure management.target_branch before integration');
   if (doc && record?.finish) {
@@ -463,6 +477,7 @@ export async function integrationEligibility(options) {
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
 export async function integrateTask(options) {
   const ctx = await context(options);
+  await refuseSelfAssertion(options, ctx);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const gate = await integrationEligibility(options);
     if (gate.delegationError) throw gate.delegationError;
@@ -498,7 +513,7 @@ export async function integrateTask(options) {
       authorized:options.authorized===true || fresh.delegation!=null,revision:record.finish.revision,
       channel:fresh.delegation?'standing-delegation':(options.actor?'gateway-or-explicit-actor':'local-operator'),
       policy_auto_merge:policy.auto_merge===true,
-      ...(fresh.delegation?{delegated_by:fresh.delegation.grantor,delegation_id:fresh.delegation.id}:{}),at:nowIso()};
+      ...(fresh.delegation?{delegated_by:fresh.delegation.grantor,delegation_id:fresh.delegation.id,plan:fresh.delegation.plan}:{}),at:nowIso()};
     const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
     Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization } });
     await writeJson(ctx.path, next);
@@ -511,6 +526,7 @@ export async function integrateTask(options) {
  * unchanged, and only for the exact reviewed finish revision reachable from the target branch. */
 export async function recordLanding(options) {
   const ctx = await context(options);
+  await refuseSelfAssertion(options, ctx);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const { task, reason } = options;
     invariant(nonempty(reason), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --reason.');
@@ -523,7 +539,7 @@ export async function recordLanding(options) {
     // Same authority integrate requires: explicit --authorized, policy auto_merge, or a standing
     // delegation (TM-234) covering this exact caller, repository and the record-landing scope.
     const delegation = options.authorized !== true && policy.auto_merge !== true
-      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc })
+      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', task: await planTask(ctx, task), env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc })
       : null;
     const authorized = options.authorized === true || policy.auto_merge === true || delegation != null;
     // TM-234: under a delegation the actor IS the grantee that exercised it; --actor may only repeat it.
@@ -545,7 +561,7 @@ export async function recordLanding(options) {
     record.collected = true;
     await writeJson(ctx.path, record);
     const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: 'recorded-landing', reason: reason.trim(), policy_auto_merge: policy.auto_merge === true,
-      ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id } : {}), at: nowIso() };
+      ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}), at: nowIso() };
     // No checks run here: the actor attests to the checks run at landing time, cited in --reason.
     const merge = { revision, landed, checks: [], checks_skipped: true, target_branch: policy.target_branch, authorization };
     const next = await recordEvent(ctx, task, record, 'recorded-landing', merge);

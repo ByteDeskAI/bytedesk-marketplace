@@ -36022,7 +36022,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ff08e139108c44733448216132b8198c95f4512db34aceb22fd7d44bb862d377",
+  sourceFingerprint: false ? null : "10beda183f520e57b77ebb876847127e437e370a73289a0bffb22234cb1f0c3e",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

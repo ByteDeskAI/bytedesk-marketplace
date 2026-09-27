@@ -19,6 +19,21 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **An approved plan is a checkable grant, and managed sessions cannot self-assert authority
+  (TM-248, ADR-0022).** `delegate grant` now requires a plan (`--epic EP-nnn` and/or
+  `--tasks TM-nnn,...`) and `--expires` of at most 14 days, and the operator retypes the plan in the
+  confirmation. `manage integrate` and `manage record-landing` accept a grant only when its plan
+  covers the task (listed, or in the plan's epic per the task store); otherwise they refuse with
+  `TOPOLOGY_DELEGATION_PLAN`. A grant without a plan covers nothing. The merge record's
+  `authorization` carries `actor` (the grantee), `delegated_by`, `delegation_id` and `plan`.
+  Inside a managed agent session (an agent marker such as `AO_AGENT_ID`, `TM_SESSION_ID`,
+  `TM_DISPATCH_WORKER`, `CLAUDECODE` or `CLAUDE_CODE_*`, or a Claude Code or Codex ancestor)
+  `--actor` and `--authorized` are refused with `TOPOLOGY_MANAGEMENT_SELF_ASSERT`; an operator
+  shell keeps both. The `management.auto_merge: true` policy path is unchanged: a managed session
+  can still integrate there without a grant. `--expires` accepts days (`7d`).
+
 ### Fixed
 
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**

@@ -7,7 +7,10 @@ import { grantDelegation as rawGrant, listStandingDelegations, revokeDelegation 
 
 // An interactive operator, with no agent process above it, who retypes exactly what the prompt asks for.
 const operatorIo = { ancestors: async () => ['zsh', 'tmux: server'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] };
-const grantDelegation = opts => rawGrant({ io: operatorIo, ...opts });
+// TM-248: every grant names an approved plan and an expiry; the default here is epic EP-19 for 7 days.
+const PLAN = { plan: { epic: 'EP-19' }, expires: '7d' };
+const grantDelegation = opts => rawGrant({ io: operatorIo, ...PLAN, ...opts });
+const IN_PLAN = { id: 'TM-248', epic: 'EP-19' };
 const revokeDelegation = opts => rawRevoke({ io: operatorIo, ...opts });
 
 async function fixture(t) {
@@ -61,7 +64,8 @@ test('an operator grant is append-only, listed and readable straight off disk', 
   const { consumer, home, operatorEnv } = await fixture(t);
   const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate', 'record-landing'], reason: 'lead needs to close its own landings' });
   assert.equal(grant.grantor, 'ryan'); assert.equal(grant.grantee, 'lead-1');
-  assert.deepEqual(grant.scopes, ['integrate', 'record-landing']); assert.equal(grant.expires_at, null);
+  assert.deepEqual(grant.scopes, ['integrate', 'record-landing']); assert.deepEqual(grant.plan, { epic: 'EP-19', tasks: [] });
+  assert.ok(Date.parse(grant.expires_at) > Date.now() + 6 * 86_400_000 && Date.parse(grant.expires_at) <= Date.now() + 7 * 86_400_000);
   assert.ok(grant.id && grant.created_at);
   const listed = await listStandingDelegations({ consumer, home, env: operatorEnv });
   assert.equal(listed.length, 1); assert.deepEqual({ ...listed[0], revoked_at: undefined, revoked_by: undefined }, { ...grant, revoked_at: undefined, revoked_by: undefined });
@@ -94,15 +98,15 @@ test('findActiveDelegation matches only the exact grantee, repository and scope,
   await mkdir(other, { recursive: true });
   await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
   await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-2', scopes: ['record-landing'], expires: '1h' });
-  assert.equal(await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate' }) !== null, true);
-  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'record-landing' }), null, 'grant does not cover an unlisted scope');
-  assert.equal(await findActiveDelegation({ consumer, home, ...inPane('lead-2'), agentId: 'lead-2', scope: 'record-landing' }) !== null, true);
-  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-2', scope: 'record-landing', now: Date.now() + 2 * 3600_000 }), null, 'expired grant no longer stands in for authorization');
-  assert.equal(await findActiveDelegation({ consumer: other, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate' }), null, 'a grant scoped to one repository never authorizes another');
-  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'unknown-agent', scope: 'integrate' }), null);
+  assert.equal(await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }) !== null, true);
+  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'record-landing', task: IN_PLAN }), null, 'grant does not cover an unlisted scope');
+  assert.equal(await findActiveDelegation({ consumer, home, ...inPane('lead-2'), agentId: 'lead-2', scope: 'record-landing', task: IN_PLAN }) !== null, true);
+  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-2', scope: 'record-landing', task: IN_PLAN, now: Date.now() + 2 * 3600_000 }), null, 'expired grant no longer stands in for authorization');
+  assert.equal(await findActiveDelegation({ consumer: other, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), null, 'a grant scoped to one repository never authorizes another');
+  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'unknown-agent', scope: 'integrate', task: IN_PLAN }), null);
   const grant = (await listStandingDelegations({ consumer, home, env: operatorEnv }))[0];
   await revokeDelegation({ consumer, home, env: operatorEnv, id: grant.id });
-  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate' }), null, 'a revoked grant authorizes nothing');
+  assert.equal(await findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), null, 'a revoked grant authorizes nothing');
 });
 
 const delegationsDir = home => join(home, '.local', 'state', 'bytedesk', 'agent-orchestration', 'delegations');
@@ -127,16 +131,16 @@ test('grant refuses a caller sitting in a tmux pane the census binds to an agent
 
 test('grant requires an interactive terminal and an exact typed confirmation', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
-  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, isTTY: () => false, ask: async () => 'lead-1 integrate' } }), { code: 'TOPOLOGY_DELEGATION_TTY' });
-  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ask: async () => 'y' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
-  await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ask: async () => 'lead-1 integrate,record-landing' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
+  await assert.rejects(rawGrant({ ...PLAN, consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, isTTY: () => false, ask: async () => 'lead-1 integrate EP-19' } }), { code: 'TOPOLOGY_DELEGATION_TTY' });
+  await assert.rejects(rawGrant({ ...PLAN, consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ask: async () => 'y' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' });
+  await assert.rejects(rawGrant({ ...PLAN, consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ask: async () => 'lead-1 integrate' } }), { code: 'TOPOLOGY_DELEGATION_CONFIRM' }, 'the plan must be retyped too');
   assert.deepEqual(await listStandingDelegations({ consumer, home, env: operatorEnv }), [], 'a refused grant writes nothing');
 });
 
 test('grant and revoke refuse when a Claude Code or Codex process is an ancestor, even with a clean env', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
   for (const chain of [['bash', 'claude'], ['sh', 'node /usr/lib/node_modules/@openai/codex/bin/codex.js'], ['zsh', 'codex-acp']]) {
-    await assert.rejects(rawGrant({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ancestors: async () => chain } }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', message: /agent process is an ancestor/ });
+    await assert.rejects(rawGrant({ ...PLAN, consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'], io: { ...operatorIo, ancestors: async () => chain } }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', message: /agent process is an ancestor/ });
   }
   const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
   await assert.rejects(rawRevoke({ consumer, home, env: operatorEnv, id: grant.id, io: { ancestors: async () => ['claude'] } }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY' });
@@ -148,7 +152,7 @@ test('a grant records its channel evidence and is labelled plainly as not agent-
   assert.equal(grant.channel.kind, 'interactive-same-user');
   assert.equal(grant.channel.stdin_tty, true); assert.equal(grant.channel.stdout_tty, true);
   assert.equal(grant.channel.no_agent_ancestor, true);
-  assert.equal(grant.channel.confirmation, 'lead-1 integrate,record-landing');
+  assert.equal(grant.channel.confirmation, 'lead-1 integrate,record-landing EP-19');
   assert.ok(grant.channel.agent_markers_checked.includes('AO_AGENT_ID') && grant.channel.agent_markers_checked.includes('CLAUDE_CODE_*'));
   assert.equal(grant.channel.agent_proof, false);
   assert.equal(grant.channel.note, GRANT_NOTE); assert.match(grant.channel.note, /Not agent-proof/); assert.match(grant.channel.note, /tmux or `script`/);
@@ -162,28 +166,28 @@ test('a delegations file holding a grant without channel evidence is refused out
   const original = await readFile(file, 'utf8');
   const { channel, ...bare } = grant;
   await writeFile(file, JSON.stringify([...JSON.parse(original), { ...bare, id: 'hand-written', grantee: 'lead-2' }]));
-  await assert.rejects(findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-2', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
-  await assert.rejects(findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' }, 'one bad grant poisons the file, not just itself');
+  await assert.rejects(findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-2', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
+  await assert.rejects(findActiveDelegation({ consumer, home, env: operatorEnv, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' }, 'one bad grant poisons the file, not just itself');
   await writeFile(file, original);
-  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate' })).id, grant.id);
+  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN })).id, grant.id);
 });
 
 test('a matching grant counts only for a caller whose live pane the census binds to the grantee', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
   const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
   // A worker naming the lead from outside tmux, or from its own pane, is refused, not silently ignored.
-  await assert.rejects(findActiveDelegation({ consumer, home, env: { USER: 'ryan', AO_AGENT_ID: 'lead-1' }, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /live tmux pane/ });
-  await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('worker-7'), agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /bound to agent worker-7/ });
-  await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('lead-1'), readCensusFn: async () => null, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /no agent/ });
+  await assert.rejects(findActiveDelegation({ consumer, home, env: { USER: 'ryan', AO_AGENT_ID: 'lead-1' }, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /live tmux pane/ });
+  await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('worker-7'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /bound to agent worker-7/ });
+  await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('lead-1'), readCensusFn: async () => null, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /no agent/ });
   // The lead's pane recorded in the census, but a different incarnation now holds that pane id: refused.
   const reborn = inPane('lead-1'); reborn.listPanesFn = async () => [{ ...PANE, panePid: 9999, alive: true }];
-  await assert.rejects(findActiveDelegation({ consumer, home, ...reborn, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  await assert.rejects(findActiveDelegation({ consumer, home, ...reborn, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
   // A dead pane is not an incarnation.
   const dead = inPane('lead-1'); dead.listPanesFn = async () => [{ ...PANE, alive: false }];
-  await assert.rejects(findActiveDelegation({ consumer, home, ...dead, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
-  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate' })).id, grant.id);
+  await assert.rejects(findActiveDelegation({ consumer, home, ...dead, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN })).id, grant.id);
   // No grant for this caller: nothing to prove, plain null (a worker's own id is never refused for lacking a grant).
-  assert.equal(await findActiveDelegation({ consumer, home, env: { USER: 'ryan' }, agentId: 'worker-7', scope: 'integrate' }), null);
+  assert.equal(await findActiveDelegation({ consumer, home, env: { USER: 'ryan' }, agentId: 'worker-7', scope: 'integrate', task: IN_PLAN }), null);
 });
 
 test('callerRunsInPane walks the injected parent chain and stops at 64 hops', async () => {
@@ -200,13 +204,60 @@ test('THE ATTACK: env naming the lead\'s pane is refused unless the lead\'s pane
   const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] });
   // Worker keeps TMUX, sets TMUX_PANE=%7 and AO_AGENT_ID=lead-1; its ancestry never reaches 5151.
   const attack = { ...inPane('lead-1'), callerProc: procTree(WORKER_TREE) };
-  await assert.rejects(findActiveDelegation({ consumer, home, ...attack, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
+  await assert.rejects(findActiveDelegation({ consumer, home, ...attack, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
   // /proc unreadable (non-Linux, hardened mount): fail closed, never trust the env vars.
   const blind = { ...inPane('lead-1'), callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('nope'), { code: 'ENOENT' }); } } };
-  await assert.rejects(findActiveDelegation({ consumer, home, ...blind, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /unreadable/ });
+  await assert.rejects(findActiveDelegation({ consumer, home, ...blind, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /unreadable/ });
   // TMUX_PANE's live pane_pid differs from the census binding: refused before ancestry is consulted.
   const swapped = { ...inPane('lead-1'), listPanesFn: async () => [{ ...PANE, panePid: 6161, alive: true }], callerProc: procTree(WORKER_TREE) };
-  await assert.rejects(findActiveDelegation({ consumer, home, ...swapped, agentId: 'lead-1', scope: 'integrate' }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /pane_pid 6161/ });
+  await assert.rejects(findActiveDelegation({ consumer, home, ...swapped, agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /pane_pid 6161/ });
   // The genuine lead: node -> claude -> the pane's shell 5151. Accepted.
-  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate' })).id, grant.id);
+  assert.equal((await findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN })).id, grant.id);
+});
+
+// TM-248: an approved plan is a grant scoped to an epic or task list, a repo, a lead and an expiry.
+test('a plan grant requires a plan and an expiry of at most 14 days', async t => {
+  const { consumer, home, operatorEnv } = await fixture(t);
+  const base = { consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate'] };
+  await assert.rejects(grantDelegation({ ...base, plan: undefined }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await assert.rejects(grantDelegation({ ...base, plan: { epic: '', tasks: [] } }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await assert.rejects(grantDelegation({ ...base, plan: { epic: 'nineteen' } }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await assert.rejects(grantDelegation({ ...base, plan: { tasks: ['TM-1', 'x'] } }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await assert.rejects(grantDelegation({ ...base, expires: undefined }), { code: 'TOPOLOGY_DELEGATION_EXPIRY' });
+  await assert.rejects(grantDelegation({ ...base, expires: '15d' }), { code: 'TOPOLOGY_DELEGATION_EXPIRY' });
+  assert.deepEqual(await listStandingDelegations({ consumer, home, env: operatorEnv }), [], 'a refused grant writes nothing');
+  const grant = await grantDelegation({ ...base, plan: { tasks: 'TM-1, TM-2' }, expires: '14d' });
+  assert.deepEqual(grant.plan, { epic: null, tasks: ['TM-1', 'TM-2'] });
+  assert.equal(grant.channel.confirmation, 'lead-1 integrate TM-1,TM-2');
+});
+
+test('findActiveDelegation covers a task listed in the plan or in the plan\'s epic, and refuses any other', async t => {
+  const { consumer, home } = await fixture(t);
+  const byEpic = await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'] });
+  const find = task => findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task });
+  assert.equal((await find({ id: 'TM-9', epic: 'EP-19' })).id, byEpic.id, 'the store puts TM-9 in the plan epic');
+  await assert.rejects(find({ id: 'TM-9', epic: 'EP-20' }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /TM-9 \(epic EP-20\).*EP-19/ });
+  await assert.rejects(find({ id: 'TM-9', epic: null }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await assert.rejects(find(null), { code: 'TOPOLOGY_DELEGATION_PLAN' }, 'coverage that cannot be checked is refused');
+  const byList = await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'], plan: { tasks: ['TM-77'] } });
+  assert.equal((await find({ id: 'TM-77', epic: 'EP-99' })).id, byList.id, 'a listed task is covered whatever its epic');
+});
+
+test('a grant without a plan (written before TM-248) covers no task', async t => {
+  const { consumer, home } = await fixture(t);
+  const grant = await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'] });
+  const file = join(delegationsDir(home), `${await repoKeyOf(consumer, home, {})}.json`);
+  const [{ plan, ...legacy }] = JSON.parse(await readFile(file, 'utf8'));
+  await writeFile(file, JSON.stringify([legacy]));
+  await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /none/ });
+  assert.ok(grant.id);
+});
+
+test('managedSessionEvidence names every marker, including TM_DISPATCH_WORKER, and an agent ancestor', async () => {
+  const { managedSessionEvidence } = await import('../../topology/lib/delegation.mjs');
+  const shell = async () => ['zsh', 'tmux: server'];
+  assert.deepEqual(await managedSessionEvidence({ env: { USER: 'ryan' }, ancestors: shell }), []);
+  for (const marker of ['AO_AGENT_ID', 'TM_SESSION_ID', 'TM_DISPATCH_WORKER', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CODEX_SANDBOX'])
+    assert.match((await managedSessionEvidence({ env: { [marker]: '1' }, ancestors: shell })).join(), new RegExp(marker));
+  assert.match((await managedSessionEvidence({ env: {}, ancestors: async () => ['bash', '/home/u/.local/share/claude/versions/2.1.280'] })).join(), /agent process is an ancestor/);
 });

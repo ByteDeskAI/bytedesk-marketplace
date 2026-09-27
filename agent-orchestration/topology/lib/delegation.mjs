@@ -31,7 +31,9 @@ export const GRANT_NOTE = 'Not agent-proof: an agent running as the same OS user
 // A path segment or program name `claude`/`codex` (e.g. ~/.local/share/claude/versions/2.1.280, codex-acp, codex.js).
 const AGENT_PROCESS = /(^|\/)(claude|codex)([-_./]|$)/i;
 
-const AGENT_MARKERS = ['AO_AGENT_ID', 'TM_SESSION_ID', 'CLAUDECODE'];
+const AGENT_MARKERS = ['AO_AGENT_ID', 'TM_SESSION_ID', 'TM_DISPATCH_WORKER', 'CLAUDECODE'];
+/** TM-248: every current scope is plan-scoped, so a grant names a plan and expires within this. */
+export const PLAN_MAX_MS = 14 * 86_400_000;
 const AGENT_MARKER_PREFIXES = ['CLAUDE_CODE_', 'CODEX_'];
 
 const osUser = env => env.USER || env.LOGNAME || userInfo().username;
@@ -56,7 +58,7 @@ async function registeredAgentPane(env, home) {
 }
 
 /** Names of the caller's ancestor processes (nearest first). Linux reads /proc; elsewhere `ps`. */
-async function ancestorProcesses(pid = process.pid) {
+export async function ancestorProcesses(pid = process.pid) {
   const names = [];
   for (let i = 0; i < 64 && pid > 1; i++) {
     let ppid, name;
@@ -76,12 +78,18 @@ async function ancestorProcesses(pid = process.pid) {
   return names;
 }
 
+/** TM-248: why the caller is a managed agent session (a Claude Code or Codex ancestor, or an agent
+ * marker in env), or [] for an operator shell. The one test grant, revoke and the lead verbs share. */
+export async function managedSessionEvidence({ env = process.env, ancestors = ancestorProcesses } = {}) {
+  const agentAncestor = (await ancestors()).find(n => n.split(' ').some(w => AGENT_PROCESS.test(w)));
+  const markers = agentMarkers(env);
+  return [...(agentAncestor ? [`an agent process is an ancestor: ${agentAncestor}`] : []), ...(markers.length ? [`agent-session markers are set: ${markers.join(', ')}`] : [])];
+}
+
 /** Refuse any caller that carries an agent marker or sits in a registered agent pane. */
 async function requireNoAgentSession(env, home, verb, ancestors) {
-  const agentAncestor = (await ancestors()).find(n => n.split(' ').some(w => AGENT_PROCESS.test(w)));
-  invariant(!agentAncestor, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because an agent process is an ancestor: ${agentAncestor}.`);
-  const markers = agentMarkers(env);
-  invariant(!markers.length, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because agent-session markers are set: ${markers.join(', ')}.`);
+  const evidence = await managedSessionEvidence({ env, ancestors });
+  invariant(!evidence.length, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because ${evidence[0]}.`);
   const pane = await registeredAgentPane(env, home);
   invariant(!pane, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because ${env.TMUX_PANE} is registered to agent ${pane}.`);
 }
@@ -127,23 +135,40 @@ function foldDelegations(events) {
 /** Run by the operator at an interactive terminal. Refuses a self-grant, any caller carrying an
  * agent marker or sitting in a registered agent pane, a non-TTY caller, and a confirmation that
  * does not retype the grantee and scopes exactly. See the ASSURANCE LIMIT at the top of the file. */
-export async function grantDelegation({ consumer, to, scopes, expires, reason, env = process.env, home = homedir(), io = defaultIo }) {
+/** TM-248: the approved plan a grant covers, `{ epic?, tasks? }`, normalized; refuses an empty one. */
+function cleanPlan(plan) {
+  const epic = typeof plan?.epic === 'string' && plan.epic.trim() ? plan.epic.trim() : null;
+  const tasks = cleanScopes(plan?.tasks || []);
+  invariant(epic || tasks.length, 'TOPOLOGY_DELEGATION_PLAN', 'A grant is scoped to an approved plan: pass --epic <EP-nnn> and/or --tasks <TM-nnn,...>.');
+  invariant(!epic || /^EP-[0-9]+$/.test(epic), 'TOPOLOGY_DELEGATION_PLAN', `--epic must be an epic id like EP-19, not ${epic}.`);
+  invariant(tasks.every(t => /^TM-[0-9]+$/.test(t)), 'TOPOLOGY_DELEGATION_PLAN', `--tasks must be task ids like TM-248, not ${tasks.join(',')}.`);
+  return { epic, tasks };
+}
+const planLabel = plan => [plan.epic, ...plan.tasks].filter(Boolean).join(',');
+/** True when the plan lists the task, or the task store puts the task in the plan's epic. */
+export const planCovers = (plan, task) => Boolean(plan && task?.id && (plan.tasks?.includes(task.id) || (plan.epic && task.epic === plan.epic)));
+
+export async function grantDelegation({ consumer, to, scopes, plan, expires, reason, env = process.env, home = homedir(), io = defaultIo }) {
   const grantee = typeof to === 'string' ? to.trim() : '';
   invariant(grantee, 'TOPOLOGY_DELEGATION_GRANTEE', 'grant requires --to <agent-id>.');
   invariant((await listAgents(agentDirs({ consumer }))).some(a => a.id === grantee), 'TOPOLOGY_DELEGATION_GRANTEE', `--to ${grantee} names no agent registered in this repository (.bytedesk/agent-orchestration/agents/*/agent.json).`);
   invariant(env.AO_AGENT_ID !== grantee, 'TOPOLOGY_DELEGATION_SELF', 'A grantee cannot grant standing authority to itself.');
   const scopeList = cleanScopes(scopes);
   invariant(scopeList.length && scopeList.every(s => DELEGATION_SCOPES.includes(s)), 'TOPOLOGY_DELEGATION_SCOPE', `--scope must be one or more of: ${DELEGATION_SCOPES.join(', ')}.`);
+  const scoped = cleanPlan(plan);
+  // Days are the natural unit for a plan; everything else is the shared duration form (90s, 20m, 72h).
+  const expiresMs = !expires || expires === true ? 0 : /^\d+(\.\d+)?d$/.test(String(expires).trim()) ? Math.round(parseFloat(expires) * 86_400_000) : parseDuration(expires);
+  invariant(expiresMs > 0 && expiresMs <= PLAN_MAX_MS, 'TOPOLOGY_DELEGATION_EXPIRY', 'A plan grant needs --expires, at most 14d (e.g. 7d, 72h).');
   await requireNoAgentSession(env, home, 'grant', io.ancestors || defaultIo.ancestors);
   invariant(io.isTTY(), 'TOPOLOGY_DELEGATION_TTY', 'grant must be run at an interactive terminal (stdin and stdout both a TTY); it cannot be piped or scripted.');
-  const expected = `${grantee} ${scopeList.join(',')}`;
-  const typed = String(await io.ask(`Grant standing ${scopeList.join(', ')} authority to ${grantee}.\n${GRANT_NOTE}\nType "${expected}" to confirm: `) ?? '').trim();
+  const expected = `${grantee} ${scopeList.join(',')} ${planLabel(scoped)}`;
+  const typed = String(await io.ask(`Grant standing ${scopeList.join(', ')} authority to ${grantee} for plan ${planLabel(scoped)}, expiring in ${expires}.\n${GRANT_NOTE}\nType "${expected}" to confirm: `) ?? '').trim();
   invariant(typed === expected, 'TOPOLOGY_DELEGATION_CONFIRM', `Confirmation did not match "${expected}"; nothing was granted.`);
-  const expiresAt = expires ? new Date(Date.now() + parseDuration(expires)).toISOString() : null;
+  const expiresAt = new Date(Date.now() + expiresMs).toISOString();
   const { identity, path } = await delegationsFile(consumer, env, home);
   return withLock(`${path}.lock`, async () => {
     const { events } = await verifiedEvents(consumer, env, home);
-    const grant = { id: randomUUID(), type: 'grant', grantor: osUser(env), grantee, repo_id: identity.id, scopes: scopeList,
+    const grant = { id: randomUUID(), type: 'grant', grantor: osUser(env), grantee, repo_id: identity.id, scopes: scopeList, plan: scoped,
       reason: typeof reason === 'string' && reason.trim() ? reason.trim() : null, created_at: nowIso(), expires_at: expiresAt,
       channel: { kind: GRANT_CHANNEL, stdin_tty: true, stdout_tty: true, agent_markers_checked: [...AGENT_MARKERS, ...AGENT_MARKER_PREFIXES.map(p => `${p}*`)],
         no_agent_ancestor: true, tmux_pane: env.TMUX_PANE || null, registered_agent_pane: false, confirmation: typed,
@@ -197,16 +222,20 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
 }
 
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit
- * --authorized: a live grant covering this exact caller, repository and scope. A delegations file
+ * --authorized: a live grant covering this exact caller, repository, scope and task (TM-248: the
+ * task must be in the grant's plan, else TOPOLOGY_DELEGATION_PLAN; a grant without a plan covers
+ * nothing). A delegations file
  * holding any grant without channel evidence is refused outright, not skipped. A matching grant
  * counts only once requireGranteeCaller proves the caller is the grantee; otherwise it throws
  * TOPOLOGY_DELEGATION_ACTOR rather than silently falling back. */
-export async function findActiveDelegation({ consumer, agentId, scope, env = process.env, home = homedir(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
+export async function findActiveDelegation({ consumer, agentId, scope, task = null, env = process.env, home = homedir(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
   if (!agentId) return null;
   const live = (await listStandingDelegations({ consumer, env, home }))
     .filter(g => g.grantee === agentId && g.scopes.includes(scope) && !g.revoked_at && (!g.expires_at || Date.parse(g.expires_at) > now))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   if (!live[0]) return null;
   await requireGranteeCaller({ consumer, grantee: live[0].grantee, env, home, listPanesFn, readCensusFn, callerProc });
-  return live[0];
+  const covering = live.find(g => planCovers(g.plan, task));
+  invariant(covering, 'TOPOLOGY_DELEGATION_PLAN', `No live ${scope} grant for ${agentId} covers ${task?.id || 'this task'}${task?.epic ? ` (epic ${task.epic})` : ''}; its approved plan is ${live.map(g => g.plan ? planLabel(g.plan) : 'none').join(' / ')}.`);
+  return covering;
 }
