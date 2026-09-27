@@ -26,18 +26,24 @@
   conflict carried every task already landed there, and the reviewer judged them as part of this
   task (PR 128, TM-241). One helper, `effectiveBase` (via `reviewRangeBase`), now derives the base
   for the review request, review record, `collectReview`, `reviewEligibility`,
-  `independentReviewStatus` and the `integrationEligibility` file-scope check: the merge-base of the
-  revision with the default-branch ref (`origin/HEAD`, else `origin/main`, else local `main`) when
-  the admitted base is a strict ancestor of it, otherwise the admitted base unchanged. A caller
-  cannot supply the base; a merge-base that is not a descendant of the admitted base is refused with
-  `TOPOLOGY_REVIEWER_RANGE`. After landing, when the revision itself is on the default branch, the
-  effective base recorded on the review request stands if it still lies between the admitted base and
-  the revision. Requests and records carry `admitted_base` and `effective_base` (`base_revision` is
-  the effective base the patch was computed from), and the request's `range_note` tells the reviewer
-  the range excludes code already on the default branch.
-  **Security note:** the default-branch ref is local, so a same-user process could move it — the same
-  limitation already documented for same-uid agents. Server-side branch protection remains the
-  backstop.
+  `independentReviewStatus` and the `integrationEligibility` file-scope check.
+  **The trust anchor is the GitHub default branch, never a local ref.** Worktrees share refs, so a
+  worker could otherwise move `origin/main` to a commit of its own and shrink both the reviewed patch
+  and the scope check to its last commit. The base is the `merge_base_commit` of GitHub's
+  `compare/<default>...<revision>` (via `gh`, owner/repo and default branch from `gh repo view`),
+  used only when it verifies locally: the commit exists, the admitted base is a strict ancestor of
+  it, and it is an ancestor of the revision; otherwise `TOPOLOGY_REVIEWER_RANGE`. A caller cannot
+  supply it. When the server cannot answer (no `gh`, auth or network failure, revision not pushed,
+  malformed answer) the range fails closed to the admitted base, wider and never narrower, and the
+  request's `range_note` says why. After landing, the effective base recorded on the host-written
+  request stands while it is a strict descendant of the admitted base, an ancestor of the revision,
+  and on the server's default branch (`compare/<base>...<default>` is `ahead` or `identical`). A
+  request queued before this change has no recorded base: the stored review's base is used only if
+  it reproduces the reviewed patch hash, and otherwise the gate reports that a re-review is required.
+  Requests and records carry `admitted_base` and `effective_base` (`base_revision` is the effective
+  base the patch was computed from). Workers cannot push to the default branch (the PreToolUse guard
+  plus branch protection). **Security note:** a process running as the same user could still
+  replace the `gh` binary or the remote configuration — the documented same-uid limit.
 
 ### Changed
 
