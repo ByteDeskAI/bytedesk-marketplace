@@ -165,7 +165,24 @@ registers `agent:<id>-<session-prefix>` in `agents.json`, and starts a heartbeat
 Worker env: `TM_SESSION_ID` and `TM_ACTOR` are the **dispatching** session; `TM_ROOT` is
 the repo. Do not override them — they are how the work attributes.
 
-For a governed repository (`dispatch.governed: true`), the persistent lead must admit the task
+**A repository with a standing reviewer is governed by default (TM-240).** When
+agent-orchestration has registered a reviewer for the repository, `tm dispatch` and the pool
+require persistent-lead admission unless `dispatch.governed` is explicitly `false`. An unset value
+no longer skips admission. A dispatch without an admission record is refused with
+`TM_GOVERNED_ADMISSION_REQUIRED` and names the fix: `ao-topology manage admit --task <id>`. This
+closes the gap that left design-system TM-136 (PR 121) and marketplace TM-235 (PR 125) finished
+with no mechanical path to independent review: the reviewer needs the admission record's base
+revision, and admission cannot be backfilled once work exists.
+
+To opt out, set `tm config dispatch.governed false`. Dispatch then succeeds, but prints a warning
+on stderr and records `governanceOptOut` on the task: independent review through `ao-topology
+reviewer` is unavailable for that task. `tm doctor` reports `governance-opted-out` while a reviewer
+stands and the opt-out is set. One predicate, `governanceMode` in `lib/governance-check.mjs`,
+decides this for dispatch, the pool and doctor. It reads agent-orchestration's state files only
+and imports nothing from that plugin; with agent-orchestration absent there is no reviewer record,
+so nothing is gated.
+
+For a governed repository, the persistent lead must admit the task
 through Agent Orchestration before dispatch. The task stores `governance` with its workflow,
 lead, canonical producer record and current phase. The pool can dispatch an admitted task
 without stealing its existing claim. The worker commits, pushes its branch, opens a PR and
@@ -347,7 +364,7 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 | `dispatch.backends` | `["topology","tmux","orchestration","manual"]` | fallback order `tm dispatch` walks |
 | `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
 | `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly |
-| `dispatch.governed` | `false` | require persistent-lead admission, independent exact-revision review and a separate integration decision |
+| `dispatch.governed` | unset: required when a reviewer stands, else off | `true` requires persistent-lead admission, independent exact-revision review and a separate integration decision; explicit `false` opts out with a warning and a task record (TM-240) |
 | `dispatch.integrationBranch` | `HEAD` | base for new worktrees, ancestry source for duplicate checks, and — resolved to a concrete branch name, never left as `HEAD` — the required `--base` on a worker's `gh pr create` (TM-235) |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
 | `dispatch.enabled` | `true` | the pool runs unless this is `false`; re-read every poll, so it also stops a running pool |

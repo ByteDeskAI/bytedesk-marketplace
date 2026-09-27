@@ -1,12 +1,13 @@
 import { after, afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
-import { create, read, seedGitContract, state, update, write, writeConfig } from "../../lib/store.mjs";
+import { create, read, removeConfigKey, seedGitContract, state, update, write, writeConfig } from "../../lib/store.mjs";
 import { provision, removeWorktree } from "../../lib/worktree.mjs";
 import { governTask, readyForReview } from "../../lib/governance.mjs";
 import { governedCompletion, managementIdentity, REVIEW_SEVERITIES } from "../../lib/governance-check.mjs";
@@ -17,6 +18,7 @@ import { poolTick } from "../../lib/dispatch/pool.mjs";
 import { handoff, workerBrief } from "../../lib/render.mjs";
 import { handleRequest } from "../../lib/mcp.mjs";
 import { handleWrite } from "../../lib/dashboard-api.mjs";
+import { diagnose } from "../../lib/doctor.mjs";
 
 const trash = [], beforeEnv = { ...process.env };
 after(() => cleanup(...trash));
@@ -176,5 +178,59 @@ describe("governed completion is shared by every task write surface", () => {
     const tick = await poolTick({ p: f.p, registry: { fake: backend }, caps: {} });
     assert.equal(tick.dispatched[0]?.id, f.task.id);
     assert.equal(state(f.p).claims[f.task.id].session, "worker-1");
+  });
+
+  // TM-240: a standing reviewer makes admission the default; only an explicit false opts out.
+  const reviewerFor = (f) => save(join(process.env.AGENT_ORCHESTRATION_STATE_HOME, "reviewers", `${basename(dirname(managementIdentity(f.task.id, f.p).recordPath))}.json`), { id: "reviewer-1" });
+  const fake = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
+
+  it("a standing reviewer gates dispatch when dispatch.governed is unset (TM-240)", async () => {
+    const f = fixture();
+    const other = create("task", { title: "not admitted", labels: ["ready-for-agent"] }, "scope", f.p);
+    writeConfig({ requireEpic: false, dispatch: { enabled: true, backends: ["fake"] } }, f.p);
+    assert.equal(removeConfigKey("dispatch.governed", f.p), true);
+    const free = await dispatch(other.id, { p: f.p, backend: fake }); assert.equal(free.ok, true, `no reviewer: nothing to protect — ${free.reason}`);
+    const third = create("task", { title: "also not admitted", labels: ["ready-for-agent"], acceptance: [{ text: "reviewed", done: false }] }, "scope", f.p);
+    reviewerFor(f);
+    const held = await dispatch(third.id, { p: f.p, backend: fake });
+    assert.equal(held.ok, false); assert.equal(held.code, "TM_GOVERNED_ADMISSION_REQUIRED");
+    assert.match(held.reason, new RegExp(`ao-topology manage admit --task ${third.id}`));
+    const tick = await poolTick({ p: f.p, registry: { fake }, caps: {} });
+    assert.ok(!tick.dispatched.some((d) => d.id === third.id));
+    assert.match(tick.skipped.find((s) => s.id === third.id)?.reason || "", /TM-\d+: .*manage admit/);
+    assert.equal(tick.paused, undefined, "a task-scoped refusal must not pause the pool");
+    assert.deepEqual(diagnose(f.p).filter((x) => x.code === "governance-opted-out"), []);
+  });
+
+  it("an explicit dispatch.governed false dispatches, warns, records the opt-out, and doctor reports it (TM-240)", async () => {
+    const f = fixture(); reviewerFor(f);
+    const other = create("task", { title: "opted out", labels: ["ready-for-agent"] }, "scope", f.p);
+    writeConfig({ requireEpic: false, dispatch: { enabled: false, governed: false, backends: ["fake"] } }, f.p);
+    const res = await dispatch(other.id, { p: f.p, backend: fake });
+    assert.equal(res.ok, true, res.reason);
+    assert.match(res.ungoverned, /independent review .* UNAVAILABLE/);
+    assert.equal(read(other.id, f.p).governanceOptOut?.reason, "dispatch.governed=false");
+    assert.equal(diagnose(f.p).filter((x) => x.code === "governance-opted-out").length, 1);
+  });
+
+  it("dispatches from a task-management copy with agent-orchestration absent (TM-240 plugin independence)", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const plugin = join(mkdtempSync(join(tmpdir(), "tm-alone-")), "task-management");
+    trash.push(dirname(plugin));
+    cpSync(join(here, "../.."), plugin, { recursive: true, filter: (src) => !/\/(node_modules|tests)(\/|$)/.test(src) });
+    assert.equal(existsSync(join(dirname(plugin), "agent-orchestration")), false, "no sibling agent-orchestration");
+    const repo = tempRepo(); trash.push(repo);
+    const state = mkdtempSync(join(tmpdir(), "ao-state-")); trash.push(state);
+    const env = { ...process.env, TM_ROOT: repo, CLAUDE_PROJECT_DIR: repo, TM_SESSION_ID: "lead", AGENT_ORCHESTRATION_STATE_HOME: state,
+      PATH: dirname(process.execPath) + ":/usr/bin:/bin" };
+    for (const k of ["TM_DISPATCH_WORKER", "TM_TOPOLOGY_BIN", "TM_DISPATCH_REGISTRY", "TM_ENFORCE"]) delete env[k];
+    const tm = (...args) => spawnSync(process.execPath, [join(plugin, "bin/tm"), ...args], { cwd: repo, env, encoding: "utf8" });
+    for (const args of [["init"], ["epic", "new", "Alone"], ["task", "new", "Alone task", "--body", "Scope.", "--ac", "done"], ["label", "TM-001", "ready-for-agent"]]) {
+      const r = tm(...args); assert.equal(r.status, 0, `${args.join(" ")}: ${r.stderr}`);
+    }
+    const res = tm("dispatch", "TM-001", "--backend", "manual");
+    assert.equal(res.status, 0, res.stderr);
+    assert.doesNotMatch(res.stderr, /WARNING|GOVERNED/);
+    assert.doesNotMatch(tm("doctor", "--json").stdout, /governance-opted-out/);
   });
 });

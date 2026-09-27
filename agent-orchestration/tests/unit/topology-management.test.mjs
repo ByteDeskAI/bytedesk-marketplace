@@ -114,6 +114,75 @@ test('actual tm CLI provisions once, records worker claim, and enforces start be
   assert.equal(worktrees.filter(w => w.taskId === 'TM-001').length, 1);
 });
 
+test('TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision', async t => {
+  const { opts, git } = await fixture(t);
+  const { fileURLToPath } = await import('node:url');
+  const { reviewerPaths } = await import('../../topology/lib/reviewer.mjs');
+  const tmBin = fileURLToPath(new URL('../../../task-management/bin/tm', import.meta.url));
+  const env = { ...opts.env, TM_ROOT: opts.consumer, TM_SESSION_ID: 'author', CLAUDE_PROJECT_DIR: opts.consumer };
+  delete env.TM_DISPATCH_WORKER; // the fixture plays the lead, even when the suite runs inside a worker
+  const tm = async (args, allowFailure = false) => run(tmBin, args, { cwd: opts.consumer, env, allowFailure });
+  await tm(['init']);
+  await tm(['epic', 'new', 'Fixture integration']);
+  await tm(['task', 'new', 'Implement scoped content change', '--body', 'Change code.txt to implemented and validate its exact contents.', '--ac', 'code.txt contains implemented']);
+  await tm(['label', 'TM-001', 'ready-for-agent']);
+  await tm(['touches', 'TM-001', 'code.txt']);
+  // A standing reviewer for this repository, and dispatch.governed left unset.
+  const reviewer = await reviewerPaths(opts.consumer, opts.env, opts.home);
+  await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: reviewer.identity.id, provider: 'claude', binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+
+  const refused = await tm(['dispatch', 'TM-001', '--backend', 'manual'], true);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stderr, /TM_GOVERNED_ADMISSION_REQUIRED: .*ao-topology manage admit --task TM-001/);
+  assert.equal(JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout).dispatched, undefined);
+
+  const actual = { ...opts, store: undefined, task: 'TM-001', tmBin, env };
+  assert.equal((await admitTask(actual)).admitted, true);
+  // A real, observable worker process in the task worktree, through tm's own registry seam.
+  const registry = join(opts.consumer, '..', 'registry.mjs');
+  await writeFile(registry, `import { spawn } from 'node:child_process';
+export default { proc: { name: 'proc', available: () => true, spawn: ({ worktree }) => {
+  const child = spawn('sleep', ['60'], { cwd: worktree, detached: true, stdio: 'ignore' }); child.unref();
+  return { ok: true, run: 'proc:' + child.pid, pid: child.pid };
+} } };`);
+  env.TM_DISPATCH_REGISTRY = registry;
+  const dispatched = JSON.parse((await tm(['dispatch', 'TM-001', '--backend', 'proc', '--json'])).stdout);
+  t.after(() => { try { process.kill(dispatched.detail?.pid ?? Number(dispatched.run.slice(5))); } catch {} });
+  assert.equal(dispatched.ok, true); assert.equal(dispatched.ungoverned, undefined);
+
+  const { worktree } = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout);
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision }, wake: async () => ({ rang: false, reason: 'fixture' }) });
+  assert.equal(finished.review_blocked, undefined, finished.review_blocked);
+  assert.equal(finished.review_request?.revision, revision);
+  assert.equal(finished.review_request.reviewer_id, 'reviewer-1');
+});
+
+test('TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent', async t => {
+  const { cp } = await import('node:fs/promises');
+  const { existsSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const root = await mkdtemp(join(tmpdir(), 'ao-alone-')); t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(fileURLToPath(new URL('../../topology', import.meta.url)), join(root, 'agent-orchestration', 'topology'), { recursive: true });
+  assert.equal(existsSync(join(root, 'task-management')), false);
+  const { requestReview, reviewerPaths } = await import(join(root, 'agent-orchestration', 'topology', 'lib', 'reviewer.mjs'));
+  const { canonicalRepoId, repoKey, stateRoot } = await import(join(root, 'agent-orchestration', 'topology', 'lib', 'repoid.mjs'));
+  const consumer = join(root, 'repo'); await mkdir(consumer); await run('git', ['init', '-q', '-b', 'main', consumer]);
+  const commit = async (text) => { await writeFile(join(consumer, 'code.txt'), text); await run('git', ['-C', consumer, 'add', 'code.txt']);
+    await run('git', ['-C', consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', text]);
+    return (await run('git', ['-C', consumer, 'rev-parse', 'HEAD'])).stdout.trim(); };
+  const base = await commit('base'), revision = await commit('implemented');
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), PATH: '/usr/bin:/bin' }, home = join(root, 'home');
+  const identity = await canonicalRepoId(consumer);
+  await writeJson(join(stateRoot(env, home), 'management', repoKey(identity.id), 'TM-1.json'), { task: 'TM-1', repo_id: identity.id, started: true, owner: 'author', base_revision: base, finish: { revision } });
+  const reviewer = await reviewerPaths(consumer, env, home);
+  await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: identity.id, binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+  const request = await requestReview({ consumer, task: 'TM-1', revision, authorAgentIds: ['author'], env, home, wake: async () => ({ rang: false }) });
+  assert.equal(request.base_revision, base); assert.equal(request.state, 'published');
+});
+
 test('failed required checks and out-of-scope files prevent integration', async t => {
   const { opts, finish, calls, git } = await fixture(t);
   await admitTask(opts); await finish();
