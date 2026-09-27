@@ -76,14 +76,15 @@ async function ancestorProcesses(pid = process.pid) {
   return names;
 }
 
-/** Refuse any caller that carries an agent marker or sits in a registered agent pane. */
-async function requireNoAgentSession(env, home, verb, ancestors) {
+/** Refuse any caller that carries an agent marker or sits in a registered agent pane. Also the
+ * operator gate for `permissions install|uninstall` (TM-243), which passes its own `what` and code. */
+export async function requireNoAgentSession(env, home, verb, ancestors = defaultIo.ancestors, what = 'standing authority', code = 'TOPOLOGY_DELEGATION_OPERATOR_ONLY') {
   const agentAncestor = (await ancestors()).find(n => n.split(' ').some(w => AGENT_PROCESS.test(w)));
-  invariant(!agentAncestor, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because an agent process is an ancestor: ${agentAncestor}.`);
+  invariant(!agentAncestor, code, `Only the operator can ${verb} ${what}; refusing because an agent process is an ancestor: ${agentAncestor}.`);
   const markers = agentMarkers(env);
-  invariant(!markers.length, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because agent-session markers are set: ${markers.join(', ')}.`);
+  invariant(!markers.length, code, `Only the operator can ${verb} ${what}; refusing because agent-session markers are set: ${markers.join(', ')}.`);
   const pane = await registeredAgentPane(env, home);
-  invariant(!pane, 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', `Only the operator can ${verb} standing authority; refusing because ${env.TMUX_PANE} is registered to agent ${pane}.`);
+  invariant(!pane, code, `Only the operator can ${verb} ${what}; refusing because ${env.TMUX_PANE} is registered to agent ${pane}.`);
 }
 
 const defaultIo = {
@@ -194,6 +195,17 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
   catch (error) { fail('TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting TMUX_PANE.`); }
   invariant(inPane, 'TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
   return here;
+}
+
+/** TM-243: the agent this repository's census binds to the caller's live pane, or null. Lets a
+ * governed verb run as a bare command (no `AO_AGENT_ID=` prefix, which defeats permission-rule
+ * matching). It only NAMES the caller: a delegation is still proven by requireGranteeCaller. */
+export async function bindingAgentId({ consumer, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus }) {
+  if (!env.TMUX_PANE) return null;
+  const here = await resolveBinding({ env, listPanesFn }).catch(() => null);
+  if (!here) return null;
+  const census = await readCensusFn({ consumer, env, home }).catch(() => null);
+  return (census?.agents || []).find(a => sameBinding(here, a.binding))?.agentId || null;
 }
 
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit

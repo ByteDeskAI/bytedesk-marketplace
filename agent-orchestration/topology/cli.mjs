@@ -126,6 +126,10 @@ Standing repository services
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
   manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
+  manage <verb> ... --summary             one line instead of JSON (no pipe to jq needed)
+  permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run]
+                                               OPERATOR-ONLY: allow rules for the lead's governed verbs in
+                                               its <agent dir>/.claude/settings.local.json; prints the diff
   quota status [--agent <id>] [--json] | resolve --agent <id> --state applied|declined|closed
                                                provider quota incidents raised by the supervise tick.
                                                Detection writes the incident; it restarts nothing.
@@ -135,6 +139,21 @@ Common: --consumer defaults to the current directory; --json prints machine-read
 
 function out(value) {
   process.stdout.write(typeof value === "string" ? `${value}\n` : `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** TM-243: one line per governed verb, so a lead never pipes JSON to jq (a pipe defeats rule matching). */
+function manageSummary(verb, task, r) {
+  const auth = a => a ? ` by ${a.actor}${a.delegation_id ? ` (delegation ${a.delegation_id} from ${a.delegated_by})` : ''}` : '';
+  switch (verb) {
+    case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
+    case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
+    case 'stop-worker': return r.stopped ? `${task} worker stopped (${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
+    case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}` : ''}`;
+    case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${auth(r.merge?.authorization)}`;
+    case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
+    case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
+    default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
+  }
 }
 
 function list(value) {
@@ -454,8 +473,21 @@ const commands = {
   },
   async manage({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/management.mjs');
+    const verb = positional[0] || 'status';
+    // TM-243: a dispatched worker may send its own report and read status; every other governed verb
+    // is the lead's. Same-user limit as TM-234: this marker is set by tm dispatch and can be unset.
+    invariant(!process.env.TM_DISPATCH_WORKER || ['report', 'status', 'eligible', 'assignment'].includes(verb), 'TOPOLOGY_MANAGEMENT_WORKER_REFUSED',
+      `A dispatched worker session (TM_DISPATCH_WORKER) may only run manage report|status|eligible|assignment; ${verb} belongs to the lead.`);
+    // TM-243: bare commands. With no AO_AGENT_ID, name the caller from the census binding of its live
+    // pane, so the lead never needs an env-var prefix (which defeats permission-rule matching).
+    const env = { ...process.env };
+    if (!env.AO_AGENT_ID) {
+      const { bindingAgentId } = await import('./lib/delegation.mjs');
+      const bound = await bindingAgentId({ consumer: ctx.consumer, env, home: ctx.home });
+      if (bound) env.AO_AGENT_ID = bound;
+    }
     const supplied = flags.file ? await readJson(absolutize(flags.file)) : {};
-    const options = { ...supplied, ...ctx, task: flags.task || supplied.task, owner: process.env.TM_SESSION_ID || process.env.AO_AGENT_ID,
+    const options = { ...supplied, ...ctx, env, task: flags.task || supplied.task, owner: env.TM_SESSION_ID || env.AO_AGENT_ID,
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
       landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
@@ -464,9 +496,24 @@ const commands = {
       backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null };
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
       assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
-    const method = methods[positional[0] || 'status'];
+    const method = methods[verb];
     invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
-    return out(await api[method](options));
+    const result = await api[method](options);
+    return out(flags.summary ? manageSummary(verb, options.task, result) : result);
+  },
+  async permissions({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/permissions.mjs');
+    const sub = positional[0];
+    const common = { consumer: ctx.consumer, dryRun: flags['dry-run'] === true };
+    let result;
+    if (sub === 'install') result = await api.installPermissions({ ...common, mcp: list(flags.mcp) });
+    else if (sub === 'uninstall') result = await api.uninstallPermissions(common);
+    else fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run].');
+    if (flags.json) return out(result);
+    out(`${result.dry_run ? '[dry run] ' : ''}lead ${result.lead}: ${result.path}`);
+    out(result.diff);
+    if (sub === 'install') out(`\n${result.changed ? `Added ${result.added.length} rule(s).` : 'Every rule was already present.'} ${result.restart}`);
+    else out(`\n${result.changed ? `Removed ${result.removed.length} rule(s).` : 'No rules installed by ao-topology were present.'}`);
   },
   async 'startup-check'({ flags }) {
     const ctx = context(flags);
