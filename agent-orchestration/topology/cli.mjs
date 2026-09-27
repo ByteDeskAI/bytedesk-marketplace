@@ -71,7 +71,9 @@ Conduct (used by the orchestrator agent)
   delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing
            --epic <EP-nnn> | --tasks <TM-nnn,...> --expires <duration, max 14d> [--reason <text>]
                                                Grant an approved plan's authority a lead can later
-                                               exercise for tasks in that plan (TM-248). Needs an interactive TTY and
+                                               exercise for tasks in that plan (TM-248). --epic is frozen
+                                               to the epic's current task ids; a new task needs a new
+                                               grant. Needs an interactive TTY and
                                                a typed confirmation; refuses agent markers and agent
                                                ancestor processes.
                                                Does NOT exclude a same-OS-user agent (see docs).
@@ -122,7 +124,8 @@ Standing repository services
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
                                                grant); the actor is then the grantee. Inside a managed
-                                               agent session --actor and --authorized are refused.
+                                               agent session --actor and --authorized are refused, and
+                                               a covering grant is required even under auto_merge.
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker

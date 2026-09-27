@@ -10,7 +10,7 @@
 // the markers, start a detached shell, and drive a TTY through tmux or `script`. Every grant says so
 // (channel.kind "interactive-same-user"). Stronger channels, a grant store owned by a different uid
 // or the session host's capability channel, are future work and an operator decision.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -96,6 +96,8 @@ async function requireNoAgentSession(env, home, verb, ancestors) {
 
 const defaultIo = {
   ancestors: () => ancestorProcesses(),
+  // The epic's task ids as the task store records them NOW; the grant freezes this list.
+  async epicTasks(epic, consumer) { return (await (await import('./management.mjs')).taskStore({ consumer })).epicTasks(epic); },
   isTTY: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
   async ask(question) {
     const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -119,6 +121,9 @@ async function verifiedEvents(consumer, env, home) {
     const c = event?.channel;
     const ok = event?.type !== 'grant' || (c?.kind === GRANT_CHANNEL && c.stdin_tty === true && c.stdout_tty === true && c.no_agent_ancestor === true && c.confirmation);
     if (!ok) fail('TOPOLOGY_DELEGATION_INTEGRITY', `Refusing delegations file ${path}: grant ${event?.id} has no interactive-channel evidence.`);
+    // TM-248: a frozen plan's digest must still match its task list.
+    const plan = event?.type === 'grant' ? event.plan : null;
+    if (plan?.sha256 != null && (!Array.isArray(plan.tasks) || planDigest(plan.tasks) !== plan.sha256)) fail('TOPOLOGY_DELEGATION_INTEGRITY', `Refusing delegations file ${path}: grant ${event.id} has a plan.sha256 that does not match its plan.tasks.`);
   }
   return { events, path };
 }
@@ -132,22 +137,32 @@ function foldDelegations(events) {
   return [...grants.values()];
 }
 
+/** TM-248: sha256 over the sorted task ids, newline-joined. */
+export const planDigest = tasks => createHash('sha256').update([...tasks].sort().join('\n')).digest('hex');
+/** The approved plan, frozen: `--epic` resolves to the epic's task ids in the store at grant time,
+ * joined with `--tasks`, sorted and digested. Coverage is membership in that list only, so a task
+ * moved into or created under the epic later is not covered; it needs a new grant. */
+async function frozenPlan(plan, consumer, epicTasks) {
+  const epic = typeof plan?.epic === 'string' && plan.epic.trim() ? plan.epic.trim() : null;
+  const listed = cleanScopes(plan?.tasks || []);
+  invariant(epic || listed.length, 'TOPOLOGY_DELEGATION_PLAN', 'A grant is scoped to an approved plan: pass --epic <EP-nnn> and/or --tasks <TM-nnn,...>.');
+  invariant(!epic || /^EP-[0-9]+$/.test(epic), 'TOPOLOGY_DELEGATION_PLAN', `--epic must be an epic id like EP-19, not ${epic}.`);
+  invariant(listed.every(t => /^TM-[0-9]+$/.test(t)), 'TOPOLOGY_DELEGATION_PLAN', `--tasks must be task ids like TM-248, not ${listed.join(',')}.`);
+  const members = epic ? cleanScopes(await epicTasks(epic, consumer)) : [];
+  invariant(!epic || (members.length && members.every(t => /^TM-[0-9]+$/.test(t))), 'TOPOLOGY_DELEGATION_PLAN', `The task store lists no tasks under ${epic}; there is nothing to approve. Use the epic id exactly as the store writes it (e.g. EP-019).`);
+  const tasks = [...new Set([...members, ...listed])].sort();
+  // label: what the operator asked for, retyped in the confirmation.
+  return { plan: { epic, tasks, sha256: planDigest(tasks) }, label: [epic, ...listed].filter(Boolean).join(',') };
+}
+const planLabel = plan => plan.epic ? `${plan.epic}${plan.sha256 ? ` (${plan.tasks.join(',')})` : ' (no frozen list)'}` : (plan.tasks || []).join(',');
+/** An epic grant from before the list was frozen (e357d4d): it covers nothing. */
+const unfrozenEpic = plan => Boolean(plan?.epic) && !plan.sha256;
+/** True only when the grant's recorded task list names the task. The task's current epic is never read. */
+export const planCovers = (plan, task) => Boolean(plan && task?.id && !unfrozenEpic(plan) && plan.tasks?.includes(task.id));
+
 /** Run by the operator at an interactive terminal. Refuses a self-grant, any caller carrying an
  * agent marker or sitting in a registered agent pane, a non-TTY caller, and a confirmation that
- * does not retype the grantee and scopes exactly. See the ASSURANCE LIMIT at the top of the file. */
-/** TM-248: the approved plan a grant covers, `{ epic?, tasks? }`, normalized; refuses an empty one. */
-function cleanPlan(plan) {
-  const epic = typeof plan?.epic === 'string' && plan.epic.trim() ? plan.epic.trim() : null;
-  const tasks = cleanScopes(plan?.tasks || []);
-  invariant(epic || tasks.length, 'TOPOLOGY_DELEGATION_PLAN', 'A grant is scoped to an approved plan: pass --epic <EP-nnn> and/or --tasks <TM-nnn,...>.');
-  invariant(!epic || /^EP-[0-9]+$/.test(epic), 'TOPOLOGY_DELEGATION_PLAN', `--epic must be an epic id like EP-19, not ${epic}.`);
-  invariant(tasks.every(t => /^TM-[0-9]+$/.test(t)), 'TOPOLOGY_DELEGATION_PLAN', `--tasks must be task ids like TM-248, not ${tasks.join(',')}.`);
-  return { epic, tasks };
-}
-const planLabel = plan => [plan.epic, ...plan.tasks].filter(Boolean).join(',');
-/** True when the plan lists the task, or the task store puts the task in the plan's epic. */
-export const planCovers = (plan, task) => Boolean(plan && task?.id && (plan.tasks?.includes(task.id) || (plan.epic && task.epic === plan.epic)));
-
+ * does not retype the grantee, scopes and plan exactly. See the ASSURANCE LIMIT at the top of the file. */
 export async function grantDelegation({ consumer, to, scopes, plan, expires, reason, env = process.env, home = homedir(), io = defaultIo }) {
   const grantee = typeof to === 'string' ? to.trim() : '';
   invariant(grantee, 'TOPOLOGY_DELEGATION_GRANTEE', 'grant requires --to <agent-id>.');
@@ -155,14 +170,15 @@ export async function grantDelegation({ consumer, to, scopes, plan, expires, rea
   invariant(env.AO_AGENT_ID !== grantee, 'TOPOLOGY_DELEGATION_SELF', 'A grantee cannot grant standing authority to itself.');
   const scopeList = cleanScopes(scopes);
   invariant(scopeList.length && scopeList.every(s => DELEGATION_SCOPES.includes(s)), 'TOPOLOGY_DELEGATION_SCOPE', `--scope must be one or more of: ${DELEGATION_SCOPES.join(', ')}.`);
-  const scoped = cleanPlan(plan);
+  const { plan: scoped, label } = await frozenPlan(plan, consumer, io.epicTasks || defaultIo.epicTasks);
   // Days are the natural unit for a plan; everything else is the shared duration form (90s, 20m, 72h).
   const expiresMs = !expires || expires === true ? 0 : /^\d+(\.\d+)?d$/.test(String(expires).trim()) ? Math.round(parseFloat(expires) * 86_400_000) : parseDuration(expires);
   invariant(expiresMs > 0 && expiresMs <= PLAN_MAX_MS, 'TOPOLOGY_DELEGATION_EXPIRY', 'A plan grant needs --expires, at most 14d (e.g. 7d, 72h).');
   await requireNoAgentSession(env, home, 'grant', io.ancestors || defaultIo.ancestors);
   invariant(io.isTTY(), 'TOPOLOGY_DELEGATION_TTY', 'grant must be run at an interactive terminal (stdin and stdout both a TTY); it cannot be piped or scripted.');
-  const expected = `${grantee} ${scopeList.join(',')} ${planLabel(scoped)}`;
-  const typed = String(await io.ask(`Grant standing ${scopeList.join(', ')} authority to ${grantee} for plan ${planLabel(scoped)}, expiring in ${expires}.\n${GRANT_NOTE}\nType "${expected}" to confirm: `) ?? '').trim();
+  const expected = `${grantee} ${scopeList.join(',')} ${label}`;
+  const listing = `The plan covers exactly these ${scoped.tasks.length} task(s), frozen now: ${scoped.tasks.join(', ')}.${scoped.epic ? ` A task added to ${scoped.epic} later is not covered; it needs a new grant.` : ''}`;
+  const typed = String(await io.ask(`Grant standing ${scopeList.join(', ')} authority to ${grantee} for plan ${label}, expiring in ${expires}.\n${listing}\n${GRANT_NOTE}\nType "${expected}" to confirm: `) ?? '').trim();
   invariant(typed === expected, 'TOPOLOGY_DELEGATION_CONFIRM', `Confirmation did not match "${expected}"; nothing was granted.`);
   const expiresAt = new Date(Date.now() + expiresMs).toISOString();
   const { identity, path } = await delegationsFile(consumer, env, home);
@@ -223,8 +239,8 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
 
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit
  * --authorized: a live grant covering this exact caller, repository, scope and task (TM-248: the
- * task must be in the grant's plan, else TOPOLOGY_DELEGATION_PLAN; a grant without a plan covers
- * nothing). A delegations file
+ * task must be in the grant's frozen plan.tasks, else TOPOLOGY_DELEGATION_PLAN; a grant without a
+ * plan, or an epic grant without a frozen list, covers nothing). A delegations file
  * holding any grant without channel evidence is refused outright, not skipped. A matching grant
  * counts only once requireGranteeCaller proves the caller is the grantee; otherwise it throws
  * TOPOLOGY_DELEGATION_ACTOR rather than silently falling back. */
@@ -236,6 +252,7 @@ export async function findActiveDelegation({ consumer, agentId, scope, task = nu
   if (!live[0]) return null;
   await requireGranteeCaller({ consumer, grantee: live[0].grantee, env, home, listPanesFn, readCensusFn, callerProc });
   const covering = live.find(g => planCovers(g.plan, task));
-  invariant(covering, 'TOPOLOGY_DELEGATION_PLAN', `No live ${scope} grant for ${agentId} covers ${task?.id || 'this task'}${task?.epic ? ` (epic ${task.epic})` : ''}; its approved plan is ${live.map(g => g.plan ? planLabel(g.plan) : 'none').join(' / ')}.`);
+  const stale = live.filter(g => unfrozenEpic(g.plan)).map(g => g.id);
+  invariant(covering, 'TOPOLOGY_DELEGATION_PLAN', `No live ${scope} grant for ${agentId} covers ${task?.id || 'this task'}; its approved plan is ${live.map(g => g.plan ? planLabel(g.plan) : 'none').join(' / ')}.${stale.length ? ` Grant ${stale.join(', ')} names an epic without a frozen task list, so it covers nothing; ask the operator to re-grant it.` : ''}`);
   return covering;
 }

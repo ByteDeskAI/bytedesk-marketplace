@@ -69,6 +69,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     done: async id => exec(['done', taskId(id)]),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
+    // TM-248: read-only; a plan grant freezes this list at grant time.
+    epicTasks: async epic => JSON.parse((await exec(['find', `epic:${epic}`, 'kind:task', '--json'])).stdout).filter(t => t.epic === epic).map(t => t.id),
   };
 }
 
@@ -414,17 +416,15 @@ export async function workerReport(options) {
   });
 }
 
-/** TM-248: inside a managed agent session (agent marker in env, or a Claude Code / Codex ancestor)
- * --actor and --authorized are self-assertion, so they are refused; authority there comes only from
- * an operator plan grant, and the actor from that grant. An operator shell keeps both. */
-async function refuseSelfAssertion(options, ctx) {
+/** TM-248: why the caller is a managed agent session (agent marker in env, or a Claude Code / Codex
+ * ancestor), or [] for an operator shell. A managed session always needs a covering plan grant,
+ * whatever management.auto_merge says, and --actor / --authorized there are self-assertion. */
+const managedSession = (options, ctx) => managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors });
+function refuseSelfAssertion(options, managed) {
   const asserted = [...(options.authorized === true ? ['--authorized'] : []), ...(nonempty(options.actor) ? ['--actor'] : [])];
-  if (!asserted.length) return;
-  const evidence = await managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors });
-  invariant(!evidence.length, 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', `${asserted.join(' and ')} cannot be self-asserted inside a managed agent session (${evidence.join('; ')}); there, authority comes only from an operator plan grant (ao-topology delegate grant) and the actor is its grantee.`);
+  invariant(!asserted.length || !managed.length, 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', `${asserted.join(' and ')} cannot be self-asserted inside a managed agent session (${managed.join('; ')}); there, authority comes only from an operator plan grant (ao-topology delegate grant) and the actor is its grantee.`);
 }
-/** The task as plan coverage sees it: its id and the epic the task store records for it. */
-const planTask = async (ctx, task, doc) => ({ id: task, epic: (doc || await ctx.store.show(task).catch(() => null))?.epic ?? null });
+const MANAGED_NEEDS_GRANT = 'a managed agent session needs a valid standing delegation (an operator plan grant covering this caller, repository and task), whatever management.auto_merge says';
 
 /** Read-only integration gate; tests are rerun by integrateTask, never trusted from reports. */
 export async function integrationEligibility(options) {
@@ -439,17 +439,20 @@ export async function integrationEligibility(options) {
   // so a lead exercising authority it was given never has to attest to authority it grants itself.
   // A corrupt delegations file or an unproven grantee is a reason, not a crash: `manage eligible`
   // and status must still answer for every task. integrateTask rethrows delegationError.
+  // TM-248: a managed session always needs a covering grant; auto_merge speaks only for an operator shell.
   let delegation = null, delegationError = null, authorized = options.authorized === true;
-  try { await refuseSelfAssertion(options, ctx); }
-  catch (error) { if (error.code !== 'TOPOLOGY_MANAGEMENT_SELF_ASSERT') throw error; reasons.push(`${error.code}: ${error.message}`); authorized = false; }
-  if (policy.auto_merge !== true && !authorized) {
-    try { delegation = await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', task: await planTask(ctx, options.task, doc), env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc }); }
+  const managed = await managedSession(options, ctx);
+  try { refuseSelfAssertion(options, managed); }
+  catch (error) { reasons.push(`${error.code}: ${error.message}`); authorized = false; }
+  const needsGrant = managed.length > 0 || (policy.auto_merge !== true && !authorized);
+  if (needsGrant) {
+    try { delegation = await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', task: { id: options.task }, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc }); }
     catch (error) {
       if (!['TOPOLOGY_DELEGATION_INTEGRITY', 'TOPOLOGY_DELEGATION_ACTOR', 'TOPOLOGY_DELEGATION_PLAN'].includes(error.code)) throw error;
       delegationError = error; reasons.push(`${error.code}: ${error.message}`);
     }
   }
-  if (policy.auto_merge !== true && !authorized && !delegation) reasons.push('configured policy requires explicit integration authority or a valid standing delegation');
+  if (needsGrant && !delegation) reasons.push(managed.length ? MANAGED_NEEDS_GRANT : 'configured policy requires explicit integration authority or a valid standing delegation');
   if (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length)) reasons.push('configure named management.required_checks with executable argv');
   if (!nonempty(policy.target_branch)) reasons.push('configure management.target_branch before integration');
   if (doc && record?.finish) {
@@ -477,7 +480,7 @@ export async function integrationEligibility(options) {
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
 export async function integrateTask(options) {
   const ctx = await context(options);
-  await refuseSelfAssertion(options, ctx);
+  refuseSelfAssertion(options, await managedSession(options, ctx));
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const gate = await integrationEligibility(options);
     if (gate.delegationError) throw gate.delegationError;
@@ -526,7 +529,8 @@ export async function integrateTask(options) {
  * unchanged, and only for the exact reviewed finish revision reachable from the target branch. */
 export async function recordLanding(options) {
   const ctx = await context(options);
-  await refuseSelfAssertion(options, ctx);
+  const managed = await managedSession(options, ctx);
+  refuseSelfAssertion(options, managed);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const { task, reason } = options;
     invariant(nonempty(reason), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --reason.');
@@ -536,12 +540,14 @@ export async function recordLanding(options) {
     invariant(record?.state === 'ready-for-review' && nonempty(revision), 'TOPOLOGY_MANAGEMENT_LANDING', 'Task has no finished worker revision ready for review.');
     const policy = (await loadConfig(options)).config.management || {};
     invariant(nonempty(policy.target_branch), 'TOPOLOGY_MANAGEMENT_TARGET', 'Configure management.target_branch before recording a landing.');
-    // Same authority integrate requires: explicit --authorized, policy auto_merge, or a standing
-    // delegation (TM-234) covering this exact caller, repository and the record-landing scope.
-    const delegation = options.authorized !== true && policy.auto_merge !== true
-      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', task: await planTask(ctx, task), env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc })
+    // Same authority integrate requires: a managed session needs a plan grant (TM-248) covering this
+    // caller, repository, task and the record-landing scope, whatever auto_merge says; an operator
+    // shell may instead pass --authorized or rely on policy auto_merge.
+    const delegation = managed.length || (options.authorized !== true && policy.auto_merge !== true)
+      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', task: { id: task }, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc })
       : null;
-    const authorized = options.authorized === true || policy.auto_merge === true || delegation != null;
+    invariant(!managed.length || delegation, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing refused: ${MANAGED_NEEDS_GRANT} (${managed.join('; ')}).`);
+    const authorized = delegation != null || options.authorized === true || policy.auto_merge === true;
     // TM-234: under a delegation the actor IS the grantee that exercised it; --actor may only repeat it.
     invariant(!delegation || !nonempty(options.actor) || options.actor.trim() === delegation.grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Under a standing delegation the actor is the grantee ${delegation?.grantee}; refusing --actor ${options.actor}.`);
     const actor = delegation ? delegation.grantee : options.actor;

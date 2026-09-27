@@ -5,9 +5,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
-import { grantDelegation as rawGrant, agentMarkers } from '../../topology/lib/delegation.mjs';
+import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
-const grantDelegation = opts => rawGrant({ io: { ancestors: async () => ['zsh'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] }, plan: { epic: 'EP-19' }, expires: '7d', ...opts });
+// epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
+const EPICS = { 'EP-19': ['TM-1'], 'EP-20': ['TM-3'] };
+const grantDelegation = ({ epicTasks = async epic => EPICS[epic] || [], ...opts }) => rawGrant({ io: { ancestors: async () => ['zsh'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1], epicTasks }, plan: { epic: 'EP-19' }, expires: '7d', ...opts });
 // The fixture caller is an operator shell: no agent markers from the environment running the suite, no agent ancestor.
 const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !agentMarkers({ [k]: '1' }).length));
 const SHELL_ANCESTRY = async () => ['zsh', 'tmux: server'];
@@ -832,21 +834,21 @@ test('TM-248 in-plan: the lead lands a task in the approved plan, and the grant 
   const recorded = await recordLanding({ ...asCaller(opts, 'lead-1'), ...landing });
   const auth = recorded.merge.authorization;
   assert.equal(auth.actor, 'lead-1'); assert.equal(auth.delegated_by, 'operator'); assert.equal(auth.delegation_id, grant.id);
-  assert.deepEqual(auth.plan, { epic: 'EP-19', tasks: [] }); assert.equal(auth.explicit, false); assert.equal(auth.authorized, true);
+  assert.deepEqual(auth.plan, { epic: 'EP-19', tasks: ['TM-1'], sha256: planDigest(['TM-1']) }); assert.equal(auth.explicit, false); assert.equal(auth.authorized, true);
   // integrate: a task listed by id is covered whatever its epic.
   const { opts: o2, finish } = await fixture(t); await noAutoMerge(o2);
   await admitTask(o2); await finish(); await registerAgent(o2.consumer, 'lead-1');
   const g2 = await planGrant(o2, { plan: { tasks: ['TM-1'] } });
   const integrated = await integrateTask(asCaller(o2, 'lead-1'));
   assert.equal(integrated.merge.authorization.actor, 'lead-1'); assert.equal(integrated.merge.authorization.delegation_id, g2.id);
-  assert.equal(integrated.merge.authorization.delegated_by, 'operator'); assert.deepEqual(integrated.merge.authorization.plan, { epic: null, tasks: ['TM-1'] });
+  assert.equal(integrated.merge.authorization.delegated_by, 'operator'); assert.deepEqual(integrated.merge.authorization.plan, { epic: null, tasks: ['TM-1'], sha256: planDigest(['TM-1']) });
 });
 
 test('TM-248 out-of-plan: a grant for another epic or task list refuses the task with TOPOLOGY_DELEGATION_PLAN', async t => {
   const { opts, landing, git } = await landedTask(t);
   await planGrant(opts, { plan: { epic: 'EP-20', tasks: ['TM-2'] } });
   const lead = asCaller(opts, 'lead-1');
-  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /TM-1 \(epic EP-19\)/ });
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /covers TM-1;.*EP-20 \(TM-2,TM-3\)/ });
   const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
   await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
   const gate = await integrationEligibility(lead);
@@ -903,24 +905,99 @@ test('TM-248 managed session passing --authorized is refused by the verb itself;
   assert.equal(recorded.merge.authorization.actor, 'ryan'); assert.equal(recorded.merge.authorization.explicit, true);
 });
 
-// Policy pin, not an endorsement: with management.auto_merge true (the shipped default) no grant is
-// consulted. A managed session can still `integrate` with no grant and no flags; the actor is then
-// TM_ACTOR / USER / the lead id, unproven. `record-landing` there needs an actor it can no longer
-// self-assert, so it is refused. Raised with the operator in TM-248's report.
-test('TM-248 auto_merge policy path: a managed session integrates without a grant, but cannot record a landing', async t => {
+// TM-248 fix: management.auto_merge speaks only for an operator shell. A managed session always needs
+// a live plan grant covering caller, repository and task, and the recorded actor comes from it.
+test('TM-248 auto_merge: a managed session with no grant is refused on integrate and record-landing', async t => {
+  const { opts, finish, git } = await fixture(t); // auto_merge: true
+  const admitted = await admitTask(opts); const revision = (await finish()).finish.revision;
+  await registerAgent(opts.consumer, 'lead-1');
+  const lead = asCaller(opts, 'lead-1'), before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const gate = await integrationEligibility(lead);
+  assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => /managed agent session needs a valid standing delegation/.test(r)), gate.reasons.join('; '));
+  await assert.rejects(integrateTask({ ...lead, env: { ...lead.env, TM_ACTOR: 'lead-1' } }), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /whatever management.auto_merge says/ });
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'nothing merged');
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  const landing = { reason: 'auto-merge policy', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
+  // A scrubbed env under a claude ancestor is still a managed session.
+  await assert.rejects(recordLanding({ ...opts, ancestors: AGENT_ANCESTRY, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+});
+
+test('TM-248 auto_merge: the same managed session with a covering grant is allowed, and the grant names the actor', async t => {
   const { opts, finish } = await fixture(t); // auto_merge: true
   await admitTask(opts); await finish(); await registerAgent(opts.consumer, 'lead-1');
-  const lead = asCaller(opts, 'lead-1');
-  const gate = await integrationEligibility(lead);
-  assert.equal(gate.eligible, true, gate.reasons.join('; ')); assert.equal(gate.delegation, null);
-  const integrated = await integrateTask({ ...lead, env: { ...lead.env, TM_ACTOR: 'lead-1' } });
-  assert.equal(integrated.merge.authorization.policy_auto_merge, true); assert.equal(integrated.merge.authorization.channel, 'local-operator');
-  assert.equal(integrated.merge.authorization.actor, 'lead-1'); assert.equal(integrated.merge.authorization.delegation_id, undefined);
+  const grant = await planGrant(opts);
+  const integrated = await integrateTask({ ...asCaller(opts, 'lead-1'), env: { ...asCaller(opts, 'lead-1').env, TM_ACTOR: 'someone-else', USER: 'someone-else' } });
+  const auth = integrated.merge.authorization;
+  assert.equal(auth.actor, 'lead-1'); assert.equal(auth.delegated_by, 'operator'); assert.equal(auth.delegation_id, grant.id);
+  assert.deepEqual(auth.plan, grant.plan); assert.equal(auth.channel, 'standing-delegation'); assert.equal(auth.policy_auto_merge, true);
 
   const f = await fixture(t);
   const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
-  await f.git(f.opts.consumer, ['merge', '--ff-only', revision]);
-  const landing = { reason: 'auto-merge policy', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
-  await assert.rejects(recordLanding({ ...asCaller(f.opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /--actor/ });
-  await assert.rejects(recordLanding({ ...asCaller(f.opts, 'lead-1'), ...landing, actor: 'lead-1' }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+  await f.git(f.opts.consumer, ['merge', '--ff-only', revision]); await registerAgent(f.opts.consumer, 'lead-1');
+  const g2 = await planGrant(f.opts, { plan: { tasks: ['TM-1'] } });
+  const recorded = await recordLanding({ ...asCaller(f.opts, 'lead-1'), reason: 'plan landing', reviewGate: fullReview(admitted.record, revision), landed: 'main' });
+  const a2 = recorded.merge.authorization;
+  assert.equal(a2.actor, 'lead-1'); assert.equal(a2.delegated_by, 'operator'); assert.equal(a2.delegation_id, g2.id); assert.deepEqual(a2.plan, g2.plan);
+});
+
+test('TM-248 auto_merge: an operator shell still integrates without a grant (documented operator path)', async t => {
+  const { opts, finish } = await fixture(t); // auto_merge: true; opts is an operator shell
+  await admitTask(opts); await finish();
+  const integrated = await integrateTask({ ...opts, env: { ...opts.env, TM_ACTOR: '', USER: 'ryan' } });
+  const auth = integrated.merge.authorization;
+  assert.equal(auth.policy_auto_merge, true); assert.equal(auth.channel, 'local-operator'); assert.equal(auth.actor, 'ryan');
+  assert.equal(auth.delegation_id, undefined);
+});
+
+// TM-248 fix: an epic plan is frozen at grant time. The fixture's store answers TM-1's epic from `doc`,
+// which the grantee could edit; coverage must never read it.
+async function frozenCase(t, { epicAtGrant, epicAfter, listed }) {
+  const f = await fixture(t);
+  await noAutoMerge(f.opts);
+  f.doc.epic = epicAtGrant;
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  await registerAgent(f.opts.consumer, 'lead-1');
+  const grant = await planGrant(f.opts, { plan: { epic: 'EP-19' }, epicTasks: async () => listed });
+  f.doc.epic = epicAfter;
+  return { ...f, grant, lead: asCaller(f.opts, 'lead-1'), landing: { reason: 'frozen plan', reviewGate: fullReview(admitted.record, revision), landed: revision } };
+}
+
+test('TM-248 frozen plan (a): a task moved into the epic after the grant is refused', async t => {
+  const { opts, lead, landing, git, grant } = await frozenCase(t, { epicAtGrant: 'EP-20', epicAfter: 'EP-19', listed: ['TM-2'] });
+  assert.deepEqual(grant.plan.tasks, ['TM-2']);
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await git(opts.consumer, ['merge', '--ff-only', landing.landed]);
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+});
+
+test('TM-248 frozen plan (b): a task created in the epic after the grant is refused', async t => {
+  // TM-1 did not exist when the store was asked; it is in EP-19 now.
+  const { lead } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-19', listed: ['TM-2', 'TM-3'] });
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  const gate = await integrationEligibility(lead);
+  assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_PLAN')), gate.reasons.join('; '));
+});
+
+test('TM-248 frozen plan (c): a listed task moved out of the epic is still covered', async t => {
+  const { lead, grant } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-20', listed: ['TM-1', 'TM-2'] });
+  const integrated = await integrateTask(lead);
+  assert.equal(integrated.merge.authorization.delegation_id, grant.id); assert.equal(integrated.merge.authorization.actor, 'lead-1');
+});
+
+test('TM-248 frozen plan (d): a tampered plan.tasks or plan.sha256 is refused as TOPOLOGY_DELEGATION_INTEGRITY', async t => {
+  const { opts, lead, landing, git } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-19', listed: ['TM-2'] });
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  const { readFile } = await import('node:fs/promises');
+  const file = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'delegations', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.json`);
+  const [grant] = JSON.parse(await readFile(file, 'utf8'));
+  await git(opts.consumer, ['merge', '--ff-only', landing.landed]);
+  for (const plan of [{ ...grant.plan, tasks: ['TM-1', 'TM-2'] }, { ...grant.plan, sha256: planDigest(['TM-1']) }]) {
+    await writeJson(file, [{ ...grant, plan }]);
+    await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_INTEGRITY', message: /plan\.sha256/ });
+    await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
+  }
+  // Tampering both consistently is the documented same-user limit; the digest catches casual edits only.
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
 });

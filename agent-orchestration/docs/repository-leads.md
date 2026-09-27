@@ -206,8 +206,10 @@ Findings, a changed revision, wrong identity, or an unavailable reviewer block i
 Restricted reviewer providers must offer an enforced read-only launch; unsupported configurations
 fail closed instead of substituting another provider. Review role alone grants no merge authority.
 
-Global `management.auto_merge` defaults to true. Repository policy must also configure
-`management.target_branch` and named `management.required_checks` as executable argv arrays.
+Global `management.auto_merge` defaults to true. It applies only to an operator shell: a managed
+agent session always needs a covering plan grant (see "Standing delegation of integration
+authority" below). Repository policy must also configure `management.target_branch` and named
+`management.required_checks` as executable argv arrays.
 Integration reruns those checks and verifies revision, claims, reviewer and worker ownership.
 Cleanup requires collected results and verified landing ancestry, stops only a proven owned idle
 worker, removes the task worktree through `tm`, and safely deletes its local branch. Missing writer
@@ -285,8 +287,9 @@ these hold:
 - An eligible independent review of that exact finish revision exists. This is the same review
   gate integration uses, so the designated reviewer must be available and unchanged.
 - `--actor` and `--reason` are non-empty.
-- Integration authority exists, exactly as for `manage integrate`: `management.auto_merge` is true,
-  or you pass `--authorized`.
+- Integration authority exists, exactly as for `manage integrate`. From an operator shell:
+  `management.auto_merge` is true, or you pass `--authorized`. From a managed agent session: a live
+  plan grant covers you, this repository and the task, whatever `auto_merge` says.
 
 `record-landing` runs no required checks. The actor attests to the checks that were run when the
 change landed, so `--reason` should name them. The merge record says so with `checks: []` and
@@ -313,9 +316,18 @@ ao-topology delegate revoke <id> [--repo <consumer>]
 ```
 
 - **An approved plan (TM-248, ADR-0022).** A grant is how an approved plan becomes checkable. It
-  names a `plan`: an epic (`--epic EP-19`), a task list (`--tasks TM-248,TM-249`), or both. A task
-  is covered when the plan lists it, or when the task store (`tm show --json`) records it under the
-  plan's epic. A grant with no plan, including one written before TM-248, covers no task.
+  names a `plan`: an epic (`--epic EP-19`), a task list (`--tasks TM-248,TM-249`), or both.
+- **The plan is frozen at grant time.** `--epic` is resolved once, when the grant is made, to the
+  task ids the task store lists under that epic (`tm find epic:<id> kind:task`). Give the id exactly as
+  the store writes it (`EP-019`, not `EP-19`); an epic with no tasks is refused. The grant records them,
+  with any `--tasks`, as `plan.tasks`, next to `plan.epic` and `plan.sha256` (sha256 of the sorted
+  ids joined by newlines). The confirmation prompt lists the exact tasks being approved. A task is
+  covered only when `plan.tasks` names it; its current epic is never read. So moving a task into
+  the epic, or creating a task under it, changes nothing: **a new task needs a new grant.** A
+  listed task moved out of the epic stays covered. A grant whose `plan.sha256` does not match its
+  `plan.tasks` is refused with `TOPOLOGY_DELEGATION_INTEGRITY`, like the other evidence fields, and
+  like them it catches casual edits only. A grant with no plan covers no task, and neither does an
+  epic grant without a frozen list (written by TM-248's first revision): re-grant it.
 - **Interactive same-user channel.** `grant` requires stdin and stdout to be a terminal and asks
   the operator to retype `<grantee> <scopes> <plan>` exactly, for example
   `lead-1 integrate,record-landing EP-19`. `grant` and `revoke` refuse a shell that
@@ -370,13 +382,14 @@ Claude Code or Codex process among its ancestors (so `env -u AO_AGENT_ID` does n
 There, authority comes only from a covering plan grant, and the actor only from that grant. In an
 operator shell, `--actor` and `--authorized` keep working as before.
 
-**The `management.auto_merge` policy path is separate, and unchanged.** With `auto_merge: true`
-(the shipped default in `config.defaults.json`), neither verb consults a grant. A managed session
-can then run `manage integrate` with no grant and no flags. Its recorded actor is `TM_ACTOR`,
-`USER` or the lead id, none of them proven, and plan coverage is not checked. `manage
-record-landing` from a managed session needs an actor it can no longer self-assert, so without a
-grant it is refused. A repository that wants every lead landing bound to a plan sets
-`management.auto_merge: false`. Governed completion's checks
+**Managed sessions always need a grant, whatever `management.auto_merge` says.** From a managed
+session, `manage integrate` and `manage record-landing` require a live grant covering the caller,
+this repository, the task and the scope in use, even with `auto_merge: true` (the shipped default).
+Without one, eligibility reports "a managed agent session needs a valid standing delegation" and
+both verbs refuse. The recorded `actor`, `delegated_by`, `delegation_id` and `plan` always come
+from that grant. `auto_merge` keeps its meaning only for an operator shell: there it means no
+explicit `--authorized` is needed, and the record carries `policy_auto_merge: true` with the actor
+from `TM_ACTOR` or the operator's `USER`. Governed completion's checks
 (`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
 and `authorization.actor` exactly as before and simply ignore the added fields.
 

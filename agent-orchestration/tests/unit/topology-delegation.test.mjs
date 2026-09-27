@@ -3,10 +3,11 @@ import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { grantDelegation as rawGrant, listStandingDelegations, revokeDelegation as rawRevoke, findActiveDelegation, DELEGATION_SCOPES, GRANT_NOTE } from '../../topology/lib/delegation.mjs';
+import { grantDelegation as rawGrant, listStandingDelegations, revokeDelegation as rawRevoke, findActiveDelegation, DELEGATION_SCOPES, GRANT_NOTE, planDigest } from '../../topology/lib/delegation.mjs';
 
 // An interactive operator, with no agent process above it, who retypes exactly what the prompt asks for.
-const operatorIo = { ancestors: async () => ['zsh', 'tmux: server'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1] };
+// epicTasks stands in for the task store at grant time; EP-19 holds TM-248 and TM-9 then.
+const operatorIo = { ancestors: async () => ['zsh', 'tmux: server'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1], epicTasks: async epic => (epic === 'EP-19' ? ['TM-248', 'TM-9'] : []) };
 // TM-248: every grant names an approved plan and an expiry; the default here is epic EP-19 for 7 days.
 const PLAN = { plan: { epic: 'EP-19' }, expires: '7d' };
 const grantDelegation = opts => rawGrant({ io: operatorIo, ...PLAN, ...opts });
@@ -64,7 +65,7 @@ test('an operator grant is append-only, listed and readable straight off disk', 
   const { consumer, home, operatorEnv } = await fixture(t);
   const grant = await grantDelegation({ consumer, home, env: operatorEnv, to: 'lead-1', scopes: ['integrate', 'record-landing'], reason: 'lead needs to close its own landings' });
   assert.equal(grant.grantor, 'ryan'); assert.equal(grant.grantee, 'lead-1');
-  assert.deepEqual(grant.scopes, ['integrate', 'record-landing']); assert.deepEqual(grant.plan, { epic: 'EP-19', tasks: [] });
+  assert.deepEqual(grant.scopes, ['integrate', 'record-landing']); assert.deepEqual(grant.plan, { epic: 'EP-19', tasks: ['TM-248', 'TM-9'], sha256: planDigest(['TM-248', 'TM-9']) });
   assert.ok(Date.parse(grant.expires_at) > Date.now() + 6 * 86_400_000 && Date.parse(grant.expires_at) <= Date.now() + 7 * 86_400_000);
   assert.ok(grant.id && grant.created_at);
   const listed = await listStandingDelegations({ consumer, home, env: operatorEnv });
@@ -227,20 +228,58 @@ test('a plan grant requires a plan and an expiry of at most 14 days', async t =>
   await assert.rejects(grantDelegation({ ...base, expires: '15d' }), { code: 'TOPOLOGY_DELEGATION_EXPIRY' });
   assert.deepEqual(await listStandingDelegations({ consumer, home, env: operatorEnv }), [], 'a refused grant writes nothing');
   const grant = await grantDelegation({ ...base, plan: { tasks: 'TM-1, TM-2' }, expires: '14d' });
-  assert.deepEqual(grant.plan, { epic: null, tasks: ['TM-1', 'TM-2'] });
+  assert.deepEqual(grant.plan, { epic: null, tasks: ['TM-1', 'TM-2'], sha256: planDigest(['TM-1', 'TM-2']) });
   assert.equal(grant.channel.confirmation, 'lead-1 integrate TM-1,TM-2');
 });
 
-test('findActiveDelegation covers a task listed in the plan or in the plan\'s epic, and refuses any other', async t => {
+test('findActiveDelegation covers only the task ids the grant froze; the task\'s current epic is never read', async t => {
   const { consumer, home } = await fixture(t);
   const byEpic = await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'] });
   const find = task => findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task });
-  assert.equal((await find({ id: 'TM-9', epic: 'EP-19' })).id, byEpic.id, 'the store puts TM-9 in the plan epic');
-  await assert.rejects(find({ id: 'TM-9', epic: 'EP-20' }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /TM-9 \(epic EP-20\).*EP-19/ });
-  await assert.rejects(find({ id: 'TM-9', epic: null }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  assert.equal((await find({ id: 'TM-9', epic: 'EP-20' })).id, byEpic.id, 'a frozen member moved out of the epic is still covered');
+  await assert.rejects(find({ id: 'TM-10', epic: 'EP-19' }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /covers TM-10;.*EP-19 \(TM-248,TM-9\)/ });
   await assert.rejects(find(null), { code: 'TOPOLOGY_DELEGATION_PLAN' }, 'coverage that cannot be checked is refused');
   const byList = await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'], plan: { tasks: ['TM-77'] } });
   assert.equal((await find({ id: 'TM-77', epic: 'EP-99' })).id, byList.id, 'a listed task is covered whatever its epic');
+});
+
+test('an epic grant freezes the store\'s task list at grant time and shows it in the confirmation', async t => {
+  const { consumer, home } = await fixture(t);
+  const store = { 'EP-19': ['TM-2', 'TM-1'] };
+  let prompt = '';
+  const io = { ...operatorIo, epicTasks: async epic => [...(store[epic] || [])], ask: async q => { prompt = q; return q.match(/Type "([^"]+)"/)[1]; } };
+  const grant = await rawGrant({ ...PLAN, consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'], plan: { epic: 'EP-19', tasks: ['TM-5'] }, io });
+  assert.deepEqual(grant.plan, { epic: 'EP-19', tasks: ['TM-1', 'TM-2', 'TM-5'], sha256: planDigest(['TM-1', 'TM-2', 'TM-5']) });
+  assert.match(prompt, /exactly these 3 task\(s\), frozen now: TM-1, TM-2, TM-5/); assert.match(prompt, /needs a new grant/);
+  assert.equal(grant.channel.confirmation, 'lead-1 integrate EP-19,TM-5');
+  store['EP-19'].push('TM-3'); // created in the epic after the grant
+  const find = id => findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: { id, epic: 'EP-19' } });
+  await assert.rejects(find('TM-3'), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  assert.equal((await find('TM-2')).id, grant.id);
+  await assert.rejects(rawGrant({ ...PLAN, consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'], plan: { epic: 'EP-7' }, io }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /no tasks under EP-7/ });
+});
+
+test('a tampered plan.tasks or plan.sha256 poisons the delegations file (TOPOLOGY_DELEGATION_INTEGRITY)', async t => {
+  const { consumer, home } = await fixture(t);
+  await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'] });
+  const file = join(delegationsDir(home), `${await repoKeyOf(consumer, home, {})}.json`);
+  const [grant] = JSON.parse(await readFile(file, 'utf8'));
+  for (const plan of [{ ...grant.plan, tasks: [...grant.plan.tasks, 'TM-10'] }, { ...grant.plan, sha256: planDigest(['TM-10']) }]) {
+    await writeFile(file, JSON.stringify([{ ...grant, plan }]));
+    await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: { id: 'TM-10' } }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY', message: /plan\.sha256/ });
+  }
+});
+
+test('an epic grant written before the list was frozen (no plan.sha256) covers nothing and asks for a re-grant', async t => {
+  const { consumer, home } = await fixture(t);
+  await grantDelegation({ consumer, home, env: { USER: 'ryan' }, to: 'lead-1', scopes: ['integrate'] });
+  const file = join(delegationsDir(home), `${await repoKeyOf(consumer, home, {})}.json`);
+  const [grant] = JSON.parse(await readFile(file, 'utf8'));
+  // Both shapes e357d4d wrote: an epic alone, and an epic with a task list.
+  for (const plan of [{ epic: 'EP-19', tasks: [] }, { epic: 'EP-19', tasks: ['TM-248'] }]) {
+    await writeFile(file, JSON.stringify([{ ...grant, plan }]));
+    await assert.rejects(findActiveDelegation({ consumer, home, ...inPane('lead-1'), agentId: 'lead-1', scope: 'integrate', task: IN_PLAN }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /without a frozen task list.*re-grant/ });
+  }
 });
 
 test('a grant without a plan (written before TM-248) covers no task', async t => {
