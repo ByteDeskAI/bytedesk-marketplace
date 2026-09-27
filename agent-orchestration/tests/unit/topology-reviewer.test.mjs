@@ -427,3 +427,145 @@ test('TM-241: an unreadable binary blob refuses with its path and size instead o
     }
   );
 });
+
+// TM-257: a task branch that merged the default branch is reviewed over its own changes only. The
+// default branch is the SERVER's; `fakeServer` stands in for GitHub's compare API, holding the
+// default branch as a JS value so no local ref can move it, and no test touches the network.
+function fakeServer(main) {
+  const server = { main, calls: 0, compare: async (dir, from, to) => {
+    server.calls++;
+    const a = from ?? server.main, b = to ?? server.main;
+    const mb = (await run('git', ['-C', dir, 'merge-base', a, b])).stdout.trim();
+    return { status: a === b ? 'identical' : mb === a ? 'ahead' : mb === b ? 'behind' : 'diverged', merge_base: mb };
+  } };
+  return server;
+}
+
+async function mergedMainFixture(t) {
+  const f = await fixture(t);
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  const git = async args => (await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args])).stdout.trim();
+  const commit = async (path, content) => { await writeFile(join(f.consumer, path), content); await git(['add', path]); await git(['commit', '-q', '-m', path]); return git(['rev-parse', 'HEAD']); };
+  await git(['branch', '-M', 'main']);
+  const admit = async (revision, base = f.revision) => writeJson(f.managementPath, { ...f.management, base_revision: base, finish: { revision } });
+  const opts = { ...f, task: 'TM-1', authorAgentIds: ['author'] };
+  return { f, git, commit, admit, opts };
+}
+
+// task: own.txt; main: sibling.txt; task merges main (-> merged) and optionally commits late.txt.
+async function mergedBranch(t, { late = false } = {}) {
+  const m = await mergedMainFixture(t);
+  await m.git(['checkout', '-q', '-b', 'task']); const own = await m.commit('own.txt', 'early task change');
+  await m.git(['checkout', '-q', 'main']); const sibling = await m.commit('sibling.txt', 'landed sibling task');
+  await m.git(['checkout', '-q', 'task']); await m.git(['merge', '-q', '--no-edit', '--no-ff', 'main']);
+  const merged = await m.git(['rev-parse', 'HEAD']);
+  const revision = late ? await m.commit('late.txt', 'late task change') : merged;
+  await m.admit(revision);
+  const server = fakeServer(sibling);
+  // Coverage: the admitted range DOES carry the sibling, so the assertions below can fail.
+  assert.match(await m.git(['diff', '--name-only', m.f.revision, revision]), /sibling\.txt/);
+  return { ...m, own, sibling, merged, revision, server, o: { ...m.opts, serverCompare: server.compare } };
+}
+
+const probesUp = { alive: async () => true, responsive: async () => true };
+const approve = request => async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}`;
+
+test('TM-257 (a,f) a branch that merged main is reviewed over its own changes, before and after landing', async t => {
+  const { f, git, sibling, revision, server, o } = await mergedBranch(t);
+  await assert.rejects(requestReview({ ...o, revision, baseRevision: sibling }), { code: 'TOPOLOGY_REVIEWER_RANGE' }, 'a caller cannot supply the effective base');
+  const request = await requestReview({ ...o, revision });
+  assert.equal(request.admitted_base, f.revision); assert.equal(request.effective_base, sibling); assert.equal(request.base_revision, sibling);
+  assert.match(request.range_note, /excludes code already on the default branch/);
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /early task change/); assert.doesNotMatch(patch, /landed sibling task/);
+  const review = await collectReview({ ...o, revision, output: approve(request) });
+  assert.equal(review.admitted_base, f.revision); assert.equal(review.effective_base, sibling); assert.equal(review.patch_sha256, request.patch_sha256);
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  // (f) Landing: the server's default branch now contains the revision; the recorded base stands.
+  await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
+  const calls = server.calls;
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  assert.ok(server.calls > calls, 'the landed check asked the server');
+  // (f) refused: the server says the recorded base is not on its default branch.
+  const offDefault = async (dir, from) => from === null ? { status: 'behind', merge_base: revision } : { status: 'diverged', merge_base: f.revision };
+  const refused = (await reviewEligibility({ ...o, serverCompare: offDefault, revision, probes: probesUp })).reasons;
+  assert.ok(refused.some(reason => /not on the server default branch/.test(reason)), refused.join('\n'));
+});
+
+test('TM-257 (b) a branch that never merged main keeps the admitted range', async t => {
+  const { f, git, commit, admit, opts } = await mergedMainFixture(t);
+  const { effectiveBase } = await import('../../topology/lib/reviewer.mjs');
+  await git(['checkout', '-q', '-b', 'task']); const revision = await commit('own.txt', 'task change');
+  await git(['checkout', '-q', 'main']); const tip = await commit('sibling.txt', 'landed sibling task');
+  await admit(revision);
+  const server = fakeServer(tip), o = { ...opts, serverCompare: server.compare };
+  assert.deepEqual(await effectiveBase(f.consumer, f.revision, revision, { serverCompare: server.compare }), { base: f.revision, note: null });
+  const request = await requestReview({ ...o, revision });
+  assert.ok(server.calls > 0, 'the server was consulted');
+  assert.equal(request.base_revision, f.revision); assert.equal(request.effective_base, f.revision); assert.equal(request.admitted_base, f.revision);
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /task change/);
+  assert.equal(patch, (await run('git', ['-C', f.consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', f.revision, revision, '--'])).stdout);
+});
+
+test('TM-257 (c) moving local main and origin/main to a mid-task commit does not shrink the range', async t => {
+  const { git, sibling, merged, revision, o } = await mergedBranch(t, { late: true });
+  // The attack: every local default-branch ref points at the task's own merge commit.
+  await git(['update-ref', 'refs/remotes/origin/main', merged]); await git(['update-ref', 'refs/heads/main', merged]);
+  // Coverage: a base at the moved ref WOULD hide the early task change.
+  assert.doesNotMatch(await git(['diff', merged, revision]), /early task change/);
+  const request = await requestReview({ ...o, revision });
+  assert.equal(request.effective_base, sibling);
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /early task change/); assert.match(patch, /late task change/); assert.doesNotMatch(patch, /landed sibling task/);
+});
+
+test('TM-257 (d) a server merge-base outside admitted..revision is refused', async t => {
+  const { git, commit, revision, o } = await mergedBranch(t);
+  await git(['checkout', '-q', 'main']); const later = await commit('later.txt', 'main moved on');
+  const answer = merge_base => ({ ...o, serverCompare: async () => ({ status: 'diverged', merge_base }) });
+  await assert.rejects(requestReview({ ...answer(later), revision }), { code: 'TOPOLOGY_REVIEWER_RANGE', message: /not between the admitted task base and the revision/ });
+  await assert.rejects(requestReview({ ...answer('f'.repeat(40)), revision }), { code: 'TOPOLOGY_REVIEWER_RANGE', message: /not a commit in this repository/ });
+});
+
+test('TM-257 (d) a server merge-base that is not a descendant of the admitted base is refused', async t => {
+  const { git, commit, admit, opts } = await mergedMainFixture(t);
+  await git(['checkout', '-q', '-b', 'side']); const offMain = await commit('side.txt', 'never on main');
+  await git(['checkout', '-q', '-b', 'task']); await commit('own.txt', 'task change');
+  await git(['checkout', '-q', 'main']); const sibling = await commit('sibling.txt', 'landed sibling task');
+  await git(['checkout', '-q', 'task']); await git(['merge', '-q', '--no-edit', '--no-ff', 'main']);
+  const revision = await git(['rev-parse', 'HEAD']); await admit(revision, offMain);
+  const server = fakeServer(sibling);
+  await assert.rejects(requestReview({ ...opts, serverCompare: server.compare, revision }), { code: 'TOPOLOGY_REVIEWER_RANGE', message: /not between the admitted task base/ });
+  assert.ok(server.calls > 0);
+});
+
+test('TM-257 (e) an unavailable or malformed server fails closed to the admitted base with a note', async t => {
+  const { f, revision, o } = await mergedBranch(t);
+  const down = await requestReview({ ...o, revision, serverCompare: async () => { throw new Error('gh: HTTP 404'); } });
+  assert.equal(down.effective_base, f.revision);
+  assert.match(down.range_note, /could not be read from the server \(gh: HTTP 404\)/);
+  assert.match(await readFile(down.patch_path, 'utf8'), /landed sibling task/, 'the wider admitted range, never a narrower one');
+  const { effectiveBase } = await import('../../topology/lib/reviewer.mjs');
+  const malformed = await effectiveBase(f.consumer, f.revision, revision, { serverCompare: async () => ({ status: 'ahead' }) });
+  assert.equal(malformed.base, f.revision); assert.match(malformed.note, /malformed/);
+});
+
+test('TM-257 (h) a pre-TM-257 request after landing verifies the stored review base, or asks for a re-review', async t => {
+  const { f, git, own, sibling, revision, server, o } = await mergedBranch(t);
+  const request = await requestReview({ ...o, revision });
+  await collectReview({ ...o, revision, output: approve(request) });
+  await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
+  // Rewrite the request in the pre-TM-257 format: no admitted_base or effective_base.
+  assert.equal(request.effective_base, sibling);
+  const stored = JSON.parse(await readFile(request.path, 'utf8'));
+  delete stored.admitted_base; delete stored.effective_base; delete stored.range_note;
+  await writeJson(request.path, stored);
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, [], 'the stored review base reproduces the reviewed patch');
+  // A stored base that does not reproduce the reviewed patch is not used; a re-review is asked for.
+  const { reviewsRoot } = await import('../../topology/lib/reviewer.mjs');
+  const reviewPath = join(await reviewsRoot(f.consumer, f.env, f.home), 'TM-1', `${revision}.json`);
+  await writeJson(reviewPath, { ...(JSON.parse(await readFile(reviewPath, 'utf8'))), base_revision: own });
+  const reasons = (await reviewEligibility({ ...o, revision, probes: probesUp })).reasons;
+  assert.ok(reasons.some(reason => /predates TM-257.*re-review is required/.test(reason)), reasons.join('\n'));
+});
