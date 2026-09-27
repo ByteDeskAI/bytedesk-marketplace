@@ -130,6 +130,14 @@
   anyone else is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` no longer needs
   `--actor` under a delegation. This removes the self-approval a lead would otherwise be attesting
   when it authorizes integration of its own work.
+  Review fixes: `AO_AGENT_ID` alone no longer proves the caller is the grantee, since any same-user
+  process can set it. A matching grant now counts only when the caller's `TMUX`/`TMUX_PANE` resolve
+  to a live pane incarnation (the tmux six-tuple slots already check) that this repository's census
+  binds to the grantee; otherwise `integrate` and `record-landing` refuse with
+  `TOPOLOGY_DELEGATION_ACTOR`. The check lives in the one lookup both verbs and eligibility share.
+  `manage eligible` and status no longer throw on a corrupt delegations file or an unproven
+  grantee: they report `eligible: false` with the error code as a reason. `delegate grant` refuses a
+  `--to` that names no agent registered in the repository.
 
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
   `POST /api/runs/{runId}/cleanup` on the session host removes a terminal run's worktree, the same

@@ -425,9 +425,16 @@ export async function integrationEligibility(options) {
   if (loaded.errors.length) reasons.push('management configuration is invalid');
   // TM-234: a standing delegation the operator granted this exact caller stands in for --authorized,
   // so a lead exercising authority it was given never has to attest to authority it grants itself.
-  const delegation = policy.auto_merge !== true && options.authorized !== true
-    ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', env: ctx.env, home: ctx.home })
-    : null;
+  // A corrupt delegations file or an unproven grantee is a reason, not a crash: `manage eligible`
+  // and status must still answer for every task. integrateTask rethrows delegationError.
+  let delegation = null, delegationError = null;
+  if (policy.auto_merge !== true && options.authorized !== true) {
+    try { delegation = await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn }); }
+    catch (error) {
+      if (!['TOPOLOGY_DELEGATION_INTEGRITY', 'TOPOLOGY_DELEGATION_ACTOR'].includes(error.code)) throw error;
+      delegationError = error; reasons.push(`${error.code}: ${error.message}`);
+    }
+  }
   if (policy.auto_merge !== true && options.authorized !== true && !delegation) reasons.push('configured policy requires explicit integration authority or a valid standing delegation');
   if (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length)) reasons.push('configure named management.required_checks with executable argv');
   if (!nonempty(policy.target_branch)) reasons.push('configure management.target_branch before integration');
@@ -446,7 +453,7 @@ export async function integrationEligibility(options) {
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) reasons.push(writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
-  return { eligible: reasons.length === 0, reasons, record, doc, policy, review, delegation };
+  return { eligible: reasons.length === 0, reasons, record, doc, policy, review, delegation, delegationError };
 }
 
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
@@ -454,6 +461,7 @@ export async function integrateTask(options) {
   const ctx = await context(options);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const gate = await integrationEligibility(options);
+    if (gate.delegationError) throw gate.delegationError;
     invariant(gate.eligible, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', gate.reasons.join('; '));
     const { record, doc, policy } = gate, checks = [];
     // TM-234: authority from a delegation is exercised by the matched grantee and recorded as such;
@@ -511,7 +519,7 @@ export async function recordLanding(options) {
     // Same authority integrate requires: explicit --authorized, policy auto_merge, or a standing
     // delegation (TM-234) covering this exact caller, repository and the record-landing scope.
     const delegation = options.authorized !== true && policy.auto_merge !== true
-      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', env: ctx.env, home: ctx.home })
+      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn })
       : null;
     const authorized = options.authorized === true || policy.auto_merge === true || delegation != null;
     // TM-234: under a delegation the actor IS the grantee that exercised it; --actor may only repeat it.

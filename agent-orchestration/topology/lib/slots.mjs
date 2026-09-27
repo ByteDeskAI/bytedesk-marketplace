@@ -44,7 +44,7 @@ const bindingKey = (binding) => JSON.stringify(PRESENCE_BINDING_FIELDS.map((fiel
 const validBinding = (binding) => Boolean(binding)
   && ["serverKey", "sessionId", "paneId"].every((k) => typeof binding[k] === "string" && binding[k])
   && ["serverPid", "sessionCreated", "panePid"].every((k) => Number.isSafeInteger(binding[k]) && binding[k] > 0);
-const sameBinding = (a, b) => validBinding(a) && validBinding(b) && bindingKey(a) === bindingKey(b);
+export const sameBinding = (a, b) => validBinding(a) && validBinding(b) && bindingKey(a) === bindingKey(b);
 
 export function assertSlotName(name) {
   invariant(typeof name === "string" && SLOT_NAME.test(name), "TOPOLOGY_SLOT_NAME_INVALID",

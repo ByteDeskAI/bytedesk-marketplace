@@ -16,8 +16,12 @@ import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
+import { agentDirs, listAgents } from './agents.mjs';
+import { readCensus } from './census.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { resolveBinding, sameBinding } from './slots.mjs';
+import { listServerPanes } from './tmux.mjs';
 import { fail, invariant, nowIso, parseDuration, readJson, writeJson } from './util.mjs';
 
 /** Never deploy, publish, push or spend: those keep their own separate authorization. */
@@ -126,6 +130,7 @@ function foldDelegations(events) {
 export async function grantDelegation({ consumer, to, scopes, expires, reason, env = process.env, home = homedir(), io = defaultIo }) {
   const grantee = typeof to === 'string' ? to.trim() : '';
   invariant(grantee, 'TOPOLOGY_DELEGATION_GRANTEE', 'grant requires --to <agent-id>.');
+  invariant((await listAgents(agentDirs({ consumer }))).some(a => a.id === grantee), 'TOPOLOGY_DELEGATION_GRANTEE', `--to ${grantee} names no agent registered in this repository (.bytedesk/agent-orchestration/agents/*/agent.json).`);
   invariant(env.AO_AGENT_ID !== grantee, 'TOPOLOGY_DELEGATION_SELF', 'A grantee cannot grant standing authority to itself.');
   const scopeList = cleanScopes(scopes);
   invariant(scopeList.length && scopeList.every(s => DELEGATION_SCOPES.includes(s)), 'TOPOLOGY_DELEGATION_SCOPE', `--scope must be one or more of: ${DELEGATION_SCOPES.join(', ')}.`);
@@ -167,13 +172,31 @@ export async function revokeDelegation({ consumer, id, env = process.env, home =
   });
 }
 
+/** Proof the caller IS the grantee, not merely claims to be: AO_AGENT_ID is set by the caller, so
+ * any same-user process could name the lead. The caller's TMUX/TMUX_PANE must resolve to a LIVE pane
+ * incarnation (the tmux six-tuple, as slot release and enrollment check it) that this repository's
+ * census binds to the grantee. Same assurance limit as the grant: a same-user process that can type
+ * into the lead's own pane is the lead, as far as anything here can tell. */
+export async function requireGranteeCaller({ consumer, grantee, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus }) {
+  const here = await resolveBinding({ env, listPanesFn }).catch(() => null);
+  invariant(here, 'TOPOLOGY_DELEGATION_ACTOR', `A standing delegation is exercised only from the grantee's own live tmux pane; ${env.TMUX_PANE || 'no pane'} is not a live pane incarnation, so the caller cannot be proven to be ${grantee}.`);
+  const census = await readCensusFn({ consumer, env, home }).catch(() => null);
+  const bound = (census?.agents || []).find(a => sameBinding(here, a.binding));
+  invariant(bound?.agentId === grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} is bound to ${bound ? `agent ${bound.agentId}` : 'no agent in this repository\'s census'}, not to the grantee ${grantee}; AO_AGENT_ID alone does not prove identity.`);
+  return here;
+}
+
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit
  * --authorized: a live grant covering this exact caller, repository and scope. A delegations file
- * holding any grant without channel evidence is refused outright, not skipped. */
-export async function findActiveDelegation({ consumer, agentId, scope, env = process.env, home = homedir(), now = Date.now() }) {
+ * holding any grant without channel evidence is refused outright, not skipped. A matching grant
+ * counts only once requireGranteeCaller proves the caller is the grantee; otherwise it throws
+ * TOPOLOGY_DELEGATION_ACTOR rather than silently falling back. */
+export async function findActiveDelegation({ consumer, agentId, scope, env = process.env, home = homedir(), now = Date.now(), listPanesFn, readCensusFn }) {
   if (!agentId) return null;
   const live = (await listStandingDelegations({ consumer, env, home }))
     .filter(g => g.grantee === agentId && g.scopes.includes(scope) && !g.revoked_at && (!g.expires_at || Date.parse(g.expires_at) > now))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  return live[0] || null;
+  if (!live[0]) return null;
+  await requireGranteeCaller({ consumer, grantee: live[0].grantee, env, home, listPanesFn, readCensusFn });
+  return live[0];
 }
