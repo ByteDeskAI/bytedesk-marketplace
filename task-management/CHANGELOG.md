@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **A repository with a standing reviewer now gates dispatch on admission by default (TM-240).**
+  `dispatch.governed` unset used to skip governed admission, so a task could be dispatched,
+  finished and PR-ready with no admission record — and agent-orchestration's reviewer refuses
+  review without one (`TOPOLOGY_REVIEWER_RANGE`). This happened to design-system TM-136 (PR 121)
+  and marketplace TM-235 (PR 125); both were reviewed out of band. Now, when agent-orchestration
+  has registered a reviewer for the repository, `tm dispatch` and the pool refuse an unadmitted
+  task with `TM_GOVERNED_ADMISSION_REQUIRED`, naming `ao-topology manage admit --task <id>`. The
+  CLI prints the code. Only an explicit `dispatch.governed: false` opts out: dispatch proceeds,
+  warns on stderr, and records `governanceOptOut` on the task. `tm doctor` reports
+  `governance-opted-out` for that configuration. One predicate, `governanceMode`, serves dispatch,
+  the pool and doctor. It reads the reviewer record from agent-orchestration's state directory
+  without importing that plugin, so task-management still works with it absent (tested from a copy
+  of the plugin with no sibling).
+
+- **A dispatched worker's PR now always states its base explicitly.** `gh pr create` with no
+  `--base` targets the repository default branch, not `dispatch.integrationBranch` — a dispatched
+  worker in `bytedesk-remote-gateway` shipped unreleased `develop` commits onto `main` this way,
+  merged before anyone checked the PR's base (TM-235). `dispatch()` now resolves the integration
+  branch before starting a worker — unconfigured resolves to the main checkout's own branch name,
+  never the literal `HEAD` — and refuses to dispatch when nothing resolves (a detached HEAD),
+  naming the config key to set. The resolved branch is pinned into the worker's env as
+  `TM_DISPATCH_INTEGRATION_BRANCH`, stated in the handoff's `gh pr create --base <branch>`, and
+  the worker guard refuses a `gh pr create` — or its alias `gh pr new` — whose `--base` is
+  missing or does not match it. The base cannot be moved afterwards either: `gh pr edit --base
+  <other>` and `gh api` writes to `repos/*/pulls` carrying a `base` field (or an unreadable
+  `--input` body) are refused by the same rule. The handoff prompt reads the branch and base from
+  the task record only, never from `TM_DISPATCH_BRANCH` / `_INTEGRATION_BRANCH` in its
+  environment, so a dispatch run from inside another worker's shell cannot pass that worker's
+  stale values on; the detached pool strips `TM_DISPATCH_INTEGRATION_BRANCH` with the other
+  worker markers. The hook glue tests now shed an inherited `TM_ROOT` too — run from a worker's
+  shell they read the real store, found the sample task done, and watched the guard release.
 - A bare `tm override` prints usage and arms nothing; before, it armed an "unspecified" token.
   `tm override --clear` disarms an unspent token and logs `override_cleared` (TM-224).
 - Governed completion accepts an approving review whose findings are all minor, nit or note,

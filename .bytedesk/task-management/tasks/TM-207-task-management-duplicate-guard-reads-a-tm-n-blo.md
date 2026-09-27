@@ -8,7 +8,7 @@ title: "task-management: duplicate guard reads a 'TM-n: blocked on X' subject as
 epic: "EP-021"
 acceptance: [{"text":"duplicateCommits returns [] for a commit whose subject is 'TM-9: blocked on X' and for 'TM-9: blocked', and still matches 'fix(TM-9): done'.","done":false},{"text":"The duplicate refusal returns failureScope 'task' explicitly, and pool breaker classification uses that field rather than matching the refusal text.","done":false},{"text":"tests/unit/dispatch-duplicate.test.mjs covers both, and fails if either change is reverted.","done":false}]
 evidence: []
-commits: []
+commits: ["7f15ac9"]
 blockedBy: []
 blocks: []
 actor: "main"
@@ -17,7 +17,7 @@ branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
 labels: ["ready-for-agent","plugin:task-management"]
 triagedBy: "auto"
-updated: "2026-09-23T22:21:51.286Z"
+updated: "2026-09-23T22:21:57.786Z"
 comments: [{"author":"main","ts":"2026-09-23T22:21:51.282Z","text":"Pool-side check on 2026-09-23 (c895936) confirmed the second gap: the duplicate refusal at lib/dispatch/index.mjs:122-126 carries no failureScope and is kept out of the breaker only by the scope fallback. TM-212 touches the same classifier (failure.mjs), so do these together or sequence them."}]
 ---
 

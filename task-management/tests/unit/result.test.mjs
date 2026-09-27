@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addWorktree, cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { handoff } from "../../lib/render.mjs";
-import { create, mutate, now, read, readEvents, seedGitContract, state, update, writeState } from "../../lib/store.mjs";
+import { create, mutate, now, read, readEvents, seedGitContract, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { collect, collectOrchestration, collectTmux, collectTopology, recordResult } from "../../lib/dispatch/collect.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { managementIdentity } from "../../lib/governance-check.mjs";
@@ -511,6 +511,19 @@ describe("the handoff's completion contract", () => {
     const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
     const out = handoff(t.id, p);
     assert.match(out, /git push -u origin <your tm\/ branch>/, "a placeholder that reads as one");
+  });
+
+  /**
+   * TM-235. A worker's `gh pr create` with no `--base` targets the repository default, not
+   * dispatch.integrationBranch — that shipped unreleased develop commits onto main in production.
+   * The finish line must state the base literally, exactly as it already states the branch.
+   */
+  it("states the configured integration branch as the PR's --base", () => {
+    const p = store();
+    writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
+    const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
+    const out = handoff(t.id, p);
+    assert.match(out, /gh pr create --title "[^"]+" --body "[^"]+" --base develop/, "the PR base, stated literally");
   });
 
   it("says nothing about it for a task a human is picking up", () => {

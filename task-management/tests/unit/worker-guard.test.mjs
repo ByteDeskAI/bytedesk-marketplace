@@ -23,7 +23,7 @@ import { create, seedGitContract, update } from "../../lib/store.mjs";
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HOOK = join(PLUGIN_ROOT, "hooks", "tm-hook.sh");
 const OWN = "tm/TM-001-fix-the-thing";
-const AT_HOME = { branch: OWN, head: OWN };
+const AT_HOME = { branch: OWN, head: OWN, integrationBranch: "main" };
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -62,6 +62,16 @@ const BLOCKED = {
   "git-update-ref-delete": ["git update-ref -d refs/heads/main"],
   "git-stash-destroy": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git stash pop", "git stash pop --index stash@{0}"],
   "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin"],
+  "gh-pr-create-base": ["gh pr create --title x --body y", "gh pr create --base develop --title x", "gh -R o/r pr create --base wrong --fill", "gh pr new --title x", "gh pr new --base develop --title x"],
+  "gh-pr-retarget": [
+    "gh pr edit 12 --base develop",
+    "gh pr edit 12 -B develop",
+    "gh -R o/r pr edit 12 --title y --base=develop",
+    "gh api -X PATCH repos/o/r/pulls/12 -f base=develop",
+    "gh api repos/o/r/pulls -f title=x -f head=tm/x -f base=develop",
+    "gh api --method PATCH repos/{owner}/{repo}/pulls/12 --field=base=main",
+    "gh api -X PATCH https://api.github.com/repos/o/r/pulls/12 --input body.json",
+  ],
   "gh-release": ["gh release create v1.0.0", "gh release delete v1.0.0 --yes"],
   "gh-repo-delete": ["gh repo delete o/r --yes", "gh repo archive o/r"],
   "gh-secret": ["gh secret set TOKEN --body x", "gh secret delete TOKEN"],
@@ -126,7 +136,12 @@ describe("guardCommand — the table", () => {
       "git push -u origin HEAD",
       `git push origin HEAD:${OWN}`,
       `git push origin refs/heads/${OWN}`,
-      "gh pr create --title 'TM-001: fix' --body 'done'",
+      "gh pr create --title 'TM-001: fix' --body 'done' --base main",
+      "gh pr new --title 'TM-001: fix' --base main",
+      "gh pr edit 12 --title 'TM-001: fix' --body 'done'",
+      "gh pr edit 12 --base main",
+      "gh api -X PATCH repos/o/r/pulls/12 -f title=y",
+      "gh api repos/o/r/pulls/12/comments -f body=hi",
       "gh pr view 12",
       "gh pr list",
       "gh pr checks 12",
@@ -168,6 +183,72 @@ describe("guardCommand — the table", () => {
       const v = guardCommand(cmd, AT_HOME);
       assert.equal(v.allow, true, `allowed: ${cmd} — refused by ${v.rule}: ${v.reason}`);
     }
+  });
+});
+
+describe("guardCommand — TM-235: a PR must target the configured integration branch", () => {
+  it("blocks a PR with no --base", () => {
+    const v = guardCommand("gh pr create --title x --body y", AT_HOME);
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-create-base");
+    assert.match(v.reason, /main/, "names the expected base");
+  });
+
+  it("blocks a PR based against the wrong branch", () => {
+    const v = guardCommand("gh pr create --base develop --title x", AT_HOME);
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-create-base");
+    assert.match(v.reason, /main/, "names the expected base");
+  });
+
+  it("allows a PR based against the configured integration branch", () => {
+    assert.equal(guardCommand("gh pr create --base main --title x", AT_HOME).allow, true);
+    assert.equal(guardCommand("gh pr create --title x --base=main", AT_HOME).allow, true, "the --base=value form");
+  });
+
+  it("fails safe when no integration branch is known for this worker", () => {
+    const v = guardCommand("gh pr create --base main --title x", { branch: OWN, head: OWN });
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-create-base");
+    assert.match(v.reason, /TM_DISPATCH_INTEGRATION_BRANCH/);
+  });
+
+  it("reads `gh pr new` exactly like `gh pr create`", () => {
+    const missing = guardCommand("gh pr new --title x", AT_HOME);
+    assert.equal(missing.allow, false);
+    assert.equal(missing.rule, "gh-pr-create-base");
+    assert.match(missing.reason, /main/, "names the expected base");
+    const wrong = guardCommand("gh pr new --base develop --title x", AT_HOME);
+    assert.equal(wrong.allow, false);
+    assert.equal(wrong.rule, "gh-pr-create-base");
+    assert.match(wrong.reason, /main/, "names the expected base");
+    assert.equal(guardCommand("gh pr new --base main --title x", AT_HOME).allow, true);
+  });
+
+  it("refuses retargeting a PR's base with `gh pr edit --base`", () => {
+    const v = guardCommand("gh pr edit 12 --base develop", AT_HOME);
+    assert.equal(v.allow, false);
+    assert.equal(v.rule, "gh-pr-retarget");
+    assert.match(v.reason, /main/, "names the expected base");
+    assert.equal(guardCommand("gh pr edit 12 --title y", AT_HOME).allow, true, "an edit that leaves the base alone");
+    assert.equal(guardCommand("gh pr edit 12 --base main", AT_HOME).allow, true, "restating the integration branch changes nothing");
+    assert.equal(guardCommand("gh pr edit 12 --base main", { branch: OWN, head: OWN }).allow, false, "fails safe with no known base");
+  });
+
+  it("refuses raw-API PR writes that carry a base field", () => {
+    for (const cmd of [
+      "gh api -X PATCH repos/o/r/pulls/12 -f base=develop",
+      "gh api -X PATCH repos/o/r/pulls/12 -f base=main",
+      "gh api repos/o/r/pulls -f title=x -f head=tm/x -f base=develop",
+      "gh api -X POST repos/o/r/pulls --input pr.json",
+    ]) {
+      const v = guardCommand(cmd, AT_HOME);
+      assert.equal(v.allow, false, `refused: ${cmd}`);
+      assert.equal(v.rule, "gh-pr-retarget", cmd);
+      assert.match(v.reason, /main/, "names the expected base");
+    }
+    assert.equal(guardCommand("gh api repos/o/r/pulls/12", AT_HOME).allow, true, "reading a PR");
+    assert.equal(guardCommand("gh api -X PATCH repos/o/r/pulls/12 -f title=y", AT_HOME).allow, true, "a PR write without a base field");
   });
 });
 
@@ -253,7 +334,9 @@ describe("tm-hook.sh pre-bash — the glue", () => {
   /** The ambient env minus any dispatch marker the test runner happens to carry, plus `extra`. */
   function envWith(extra = {}) {
     const env = { ...process.env };
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH"]) delete env[k];
+    // Every worker marker AND the store: run from inside a dispatched worker's shell, an inherited
+    // TM_ROOT names a real store where the sample task may be done, and the hook releases (TM-235).
+    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_ROOT"]) delete env[k];
     return { ...env, ...extra };
   }
 
@@ -300,7 +383,7 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     const repo = tempRepo();
     trash.push(repo);
     execFileSync("git", ["-C", repo, "checkout", "-q", "-b", OWN]);
-    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001", TM_DISPATCH_BRANCH: OWN });
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001", TM_DISPATCH_BRANCH: OWN, TM_DISPATCH_INTEGRATION_BRANCH: "main" });
     const hook = (command) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload(command, repo), env, encoding: "utf8" });
 
     for (const [id, [sample]] of Object.entries(BLOCKED)) {
@@ -311,7 +394,7 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     }
     assert.match(hook(`git push --force origin ${OWN}`).stderr, /force/i);
 
-    for (const cmd of [`git push -u origin ${OWN}`, "git push origin HEAD", "gh pr create --fill", "git commit -m x", "npm test"]) {
+    for (const cmd of [`git push -u origin ${OWN}`, "git push origin HEAD", "gh pr create --fill --base main", "git commit -m x", "npm test"]) {
       const r = hook(cmd);
       assert.equal(r.status, 0, `${cmd}: ${r.stderr}`);
       assert.equal(r.stderr, "");
@@ -345,7 +428,9 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
 
   function envWith(extra = {}) {
     const env = { ...process.env };
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_ROOT"]) delete env[k];
+    // Every worker marker AND the store: run from inside a dispatched worker's shell, an inherited
+    // TM_ROOT names a real store where the sample task may be done, and the hook releases (TM-235).
+    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_ROOT"]) delete env[k];
     return { ...env, ...extra };
   }
 

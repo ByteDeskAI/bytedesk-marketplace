@@ -90,7 +90,7 @@ if (event === "pre-bash") {
     const cwd = payloadCwd;
     const rev = spawnSync("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8", windowsHide: true });
     const head = rev.status === 0 ? rev.stdout.trim() : null;
-    const verdict = guardCommand(command, { branch: process.env.TM_DISPATCH_BRANCH || head, head });
+    const verdict = guardCommand(command, { branch: process.env.TM_DISPATCH_BRANCH || head, head, integrationBranch: process.env.TM_DISPATCH_INTEGRATION_BRANCH });
     if (!verdict.allow) refuse(verdict.reason);
   } catch (err) {
     refuse(`the guard itself failed (${err.message}); refusing rather than guessing.`);
