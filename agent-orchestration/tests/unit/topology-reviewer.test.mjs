@@ -326,3 +326,60 @@ test('automatic review collection skips retained history and rotates unanswered 
   assert.equal(first.length,100);assert.equal(second.length,100);
   assert.ok(second.some(result=>result.task==='PENDING-100'),'later pending requests must be visited despite earlier unanswered requests');
 });
+
+// TM-257: a task branch that merged the default branch is reviewed over its own changes only.
+async function mergedMainFixture(t) {
+  const f = await fixture(t);
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  const git = async args => (await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args])).stdout.trim();
+  const commit = async (path, content) => { await writeFile(join(f.consumer, path), content); await git(['add', path]); await git(['commit', '-q', '-m', path]); return git(['rev-parse', 'HEAD']); };
+  await git(['branch', '-M', 'main']);
+  const admit = async (revision, base = f.revision) => writeJson(f.managementPath, { ...f.management, base_revision: base, finish: { revision } });
+  const opts = { ...f, task: 'TM-1', authorAgentIds: ['author'] };
+  return { f, git, commit, admit, opts };
+}
+
+test('TM-257 a branch that merged main is reviewed over its own changes, before and after landing', async t => {
+  const { f, git, commit, admit, opts } = await mergedMainFixture(t);
+  await git(['checkout', '-q', '-b', 'task']); await commit('own.txt', 'task change');
+  await git(['checkout', '-q', 'main']); const sibling = await commit('sibling.txt', 'landed sibling task');
+  await git(['checkout', '-q', 'task']); await git(['merge', '-q', '--no-edit', '--no-ff', 'main']);
+  const revision = await git(['rev-parse', 'HEAD']); await admit(revision);
+  // Coverage: the admitted range DOES carry the sibling, so the assertions below can fail.
+  assert.match(await git(['diff', '--name-only', f.revision, revision]), /sibling\.txt/);
+  await assert.rejects(requestReview({ ...opts, revision, baseRevision: sibling }), { code: 'TOPOLOGY_REVIEWER_RANGE' }, 'a caller cannot supply the effective base');
+  const request = await requestReview({ ...opts, revision });
+  assert.equal(request.admitted_base, f.revision); assert.equal(request.effective_base, sibling); assert.equal(request.base_revision, sibling);
+  assert.match(request.range_note, /excludes code already on the default branch/);
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /task change/); assert.doesNotMatch(patch, /landed sibling task/);
+  const review = await collectReview({ ...opts, revision, output: async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}` });
+  assert.equal(review.admitted_base, f.revision); assert.equal(review.effective_base, sibling); assert.equal(review.patch_sha256, request.patch_sha256);
+  const probes = { alive: async () => true, responsive: async () => true };
+  assert.deepEqual((await reviewEligibility({ ...opts, revision, probes })).reasons, []);
+  // Landing puts the revision on main; the recorded effective base still describes the same range.
+  await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]);
+  assert.deepEqual((await reviewEligibility({ ...opts, revision, probes })).reasons, []);
+});
+
+test('TM-257 a branch that never merged main keeps the admitted range', async t => {
+  const { f, git, commit, admit, opts } = await mergedMainFixture(t);
+  const { effectiveBase } = await import('../../topology/lib/reviewer.mjs');
+  await git(['checkout', '-q', '-b', 'task']); const revision = await commit('own.txt', 'task change');
+  await git(['checkout', '-q', 'main']); await commit('sibling.txt', 'landed sibling task');
+  await admit(revision);
+  assert.equal(await effectiveBase(f.consumer, f.revision, revision), f.revision);
+  const request = await requestReview({ ...opts, revision });
+  assert.equal(request.base_revision, f.revision); assert.equal(request.effective_base, f.revision); assert.equal(request.admitted_base, f.revision);
+  assert.equal(await readFile(request.patch_path, 'utf8'), (await run('git', ['-C', f.consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', f.revision, revision, '--'])).stdout);
+});
+
+test('TM-257 a merge-base with main that is not a descendant of the admitted base is refused', async t => {
+  const { f, git, commit, admit, opts } = await mergedMainFixture(t);
+  await git(['checkout', '-q', '-b', 'side']); const offMain = await commit('side.txt', 'never on main');
+  await git(['checkout', '-q', '-b', 'task']); await commit('own.txt', 'task change');
+  await git(['checkout', '-q', 'main']); await commit('sibling.txt', 'landed sibling task');
+  await git(['checkout', '-q', 'task']); await git(['merge', '-q', '--no-edit', '--no-ff', 'main']);
+  const revision = await git(['rev-parse', 'HEAD']); await admit(revision, offMain);
+  await assert.rejects(requestReview({ ...opts, revision }), { code: 'TOPOLOGY_REVIEWER_RANGE' });
+});

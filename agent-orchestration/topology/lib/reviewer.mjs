@@ -82,7 +82,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 
 /**
@@ -638,19 +638,70 @@ function segment(value, code, label) {
   return text;
 }
 
+/** The repository default-branch ref, from local refs only (no network), or null. */
+async function defaultBranchRef(repoDir) {
+  const head = await run('git', ['-C', repoDir, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD'], { allowFailure: true });
+  const candidates = [head.code === 0 ? head.stdout.trim() : null, 'refs/remotes/origin/main', 'refs/heads/main'].filter(Boolean);
+  for (const ref of candidates) {
+    if ((await run('git', ['-C', repoDir, 'rev-parse', '--verify', '-q', `${ref}^{commit}`], { allowFailure: true })).code === 0) return ref;
+  }
+  return null;
+}
+
+/**
+ * TM-257: the base a task's review range and integration scope start from. It is always DERIVED,
+ * never taken from a caller. A branch that merged the default branch to clear a conflict would
+ * otherwise carry every task already landed there into its admitted-base..revision range.
+ *   - no default-branch ref, or merge-base(revision, default) is the admitted base or an ancestor
+ *     of it: the admitted base (unchanged behaviour for a branch that never merged the default).
+ *   - the admitted base is a strict ancestor of that merge-base: the merge-base, which is on the
+ *     default branch by construction, so an author cannot pick it.
+ *   - the merge-base is the revision itself (the task already landed): the default ref no longer
+ *     shows what the branch merged, so `recorded` (the effective base the host derived when it
+ *     queued the review) stands if it still lies between the admitted base and the revision.
+ *   - anything else (the merge-base diverges from the admitted base): refused.
+ * The default-branch ref is local; a same-user process could move it. Server-side branch
+ * protection remains the backstop.
+ */
+export async function effectiveBase(repoDir, admittedBase, revision, recorded = null) {
+  const ancestor = async (a, b) => (await run('git', ['-C', repoDir, 'merge-base', '--is-ancestor', a, b], { allowFailure: true })).code === 0;
+  const ref = await defaultBranchRef(repoDir);
+  if (!ref) return admittedBase;
+  const found = await run('git', ['-C', repoDir, 'merge-base', revision, ref], { allowFailure: true });
+  const mb = found.code === 0 ? found.stdout.trim() : '';
+  if (!mb || mb === admittedBase) return admittedBase;
+  if (mb === revision) {
+    if (!recorded || recorded === admittedBase) return admittedBase;
+    invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(recorded)) && recorded !== revision && await ancestor(admittedBase, recorded) && await ancestor(recorded, revision) && await ancestor(recorded, ref),
+      'TOPOLOGY_REVIEWER_RANGE', 'Recorded effective review base is not between the admitted base and the revision on the default branch.');
+    return recorded;
+  }
+  if (await ancestor(admittedBase, mb)) return mb;
+  if (await ancestor(mb, admittedBase)) return admittedBase;
+  fail('TOPOLOGY_REVIEWER_RANGE', `The merge-base of the revision with ${ref} is not a descendant of the admitted task base; the review range cannot exclude the default branch.`);
+}
+
+/** Admitted and effective base for a task's range: every range and scope caller goes through here. */
+export async function reviewRangeBase({ consumer, task, revision, admittedBase, env = process.env, home = homedir() }) {
+  const key = `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}`;
+  const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${key}.json`)).catch(() => null);
+  return { admitted_base: admittedBase, effective_base: await effectiveBase(consumer, admittedBase, revision, request?.effective_base ?? null) };
+}
+
 /** Admission owns the base; caller-supplied narrower ranges never establish review scope. */
 async function trustedReviewRange({ consumer, task, revision, baseRevision = null, env = process.env, home = homedir() }) {
   const identity = await canonicalRepoId(consumer);
   const path = join(stateRoot(env, home), 'management', repoKey(identity.id), `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}.json`);
   const management = await readJson(path).catch(() => null);
   invariant(management?.started && management.repo_id === identity.id && management.task === task && management.finish?.revision === revision, 'TOPOLOGY_REVIEWER_RANGE', 'Review requires the task admission record and its current completed revision.');
-  const base = management.base_revision;
-  invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(base)) && (!baseRevision || baseRevision === base), 'TOPOLOGY_REVIEWER_RANGE', 'Review base must equal the original task admission commit.');
-  const ancestor = await run('git', ['-C', consumer, 'merge-base', '--is-ancestor', base, revision], { allowFailure: true });
+  const admitted = management.base_revision;
+  invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(admitted)) && (!baseRevision || baseRevision === admitted), 'TOPOLOGY_REVIEWER_RANGE', 'Review base must equal the original task admission commit.');
+  const ancestor = await run('git', ['-C', consumer, 'merge-base', '--is-ancestor', admitted, revision], { allowFailure: true });
   invariant(ancestor.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Task admission base must be an ancestor of the finished revision.');
+  const { effective_base: base } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, env, home });
   const patch = await run('git', ['-C', consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', base, revision, '--'], { allowFailure: true });
   invariant(patch.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Cannot produce the complete task diff.');
-  return { base, patch: patch.stdout, patch_sha256: createHash('sha256').update(patch.stdout).digest('hex'), owner: management.owner };
+  return { base, admitted_base: admitted, effective_base: base, patch: patch.stdout, patch_sha256: createHash('sha256').update(patch.stdout).digest('hex'), owner: management.owner };
 }
 
 /** Every path the reviewed range touches, both sides of a rename, so a finding can be held to it. */
@@ -722,6 +773,8 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   const record = {
     base_revision: range.base,
+    admitted_base: range.admitted_base,
+    effective_base: range.effective_base,
     patch_sha256: range.patch_sha256,
     task: String(task ?? "").trim(),
     revision: String(revision).trim(),
@@ -860,7 +913,7 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
     if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path };
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
-    const request = { base_revision: range.base, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+    const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
     await writeJson(path, request);
     const delivery=await wake({consumer,record,request,path,env,home}).catch(error=>({rang:false,reason:error.code??error.message}));
     const published={...request,delivery:{...delivery,at:nowIso()},state:'published'};
@@ -869,11 +922,18 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
   });
 }
 
+/** TM-257: tells the reviewer what the range excludes, so landed default-branch code is not judged. */
+function rangeNote(range) {
+  return range.effective_base === range.admitted_base
+    ? `The range ${range.admitted_base}..revision starts at the task admission commit.`
+    : `The range ${range.effective_base}..revision excludes code already on the default branch at ${range.effective_base}; the task was admitted at ${range.admitted_base} and later merged the default branch. Judge only this task's own changes.`;
+}
+
 async function wakeReviewRequest({consumer,record,request,path,env,home}) {
   const loaded=await loadAdapters(providerDirs({consumer,home,env}));
   const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
   return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
-    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
+    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch; its range_note says what the range excludes. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
 }
 
 // Values whose text must never gain a space at a wrap: a cut inside them is always a cut.
@@ -1032,7 +1092,7 @@ export async function collectReview({ consumer, task, revision, env = process.en
   const record = await readReviewerRecord(consumer, env, home);
   invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer.');
   const request = await readJson(path);
-  const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.base_revision, env, home });
+  const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, env, home });
   invariant(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
   invariant(sameIncarnation(request.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
@@ -1056,7 +1116,7 @@ export async function collectReview({ consumer, task, revision, env = process.en
   const response = parseReviewResponse(screen, request.nonce);
   const current = await readReviewerRecord(consumer,env,home);
   invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
-  review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
+  review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot });
   } catch (error) {
     // TM-215 review 1: a refused answer used to leave the request pending forever — retried under
     // the same nonce, and a corrected answer then disagreed with the refused copy still on screen.

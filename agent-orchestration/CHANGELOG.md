@@ -19,6 +19,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
+  The review range was pinned to the admission commit, so a branch that merged `main` to clear a
+  conflict carried every task already landed there, and the reviewer judged them as part of this
+  task (PR 128, TM-241). One helper, `effectiveBase` (via `reviewRangeBase`), now derives the base
+  for the review request, review record, `collectReview`, `reviewEligibility`,
+  `independentReviewStatus` and the `integrationEligibility` file-scope check: the merge-base of the
+  revision with the default-branch ref (`origin/HEAD`, else `origin/main`, else local `main`) when
+  the admitted base is a strict ancestor of it, otherwise the admitted base unchanged. A caller
+  cannot supply the base; a merge-base that is not a descendant of the admitted base is refused with
+  `TOPOLOGY_REVIEWER_RANGE`. After landing, when the revision itself is on the default branch, the
+  effective base recorded on the review request stands if it still lies between the admitted base and
+  the revision. Requests and records carry `admitted_base` and `effective_base` (`base_revision` is
+  the effective base the patch was computed from), and the request's `range_note` tells the reviewer
+  the range excludes code already on the default branch.
+  **Security note:** the default-branch ref is local, so a same-user process could move it — the same
+  limitation already documented for same-uid agents. Server-side branch protection remains the
+  backstop.
+
 ### Changed
 
 - **Tasks in a repository with a standing reviewer are admitted before dispatch (TM-240).**

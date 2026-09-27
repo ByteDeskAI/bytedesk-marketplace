@@ -628,3 +628,22 @@ test('bind never adopts an operator shell: pre-admission sessions and login shel
   assert.equal(refused.stopped, false);
   assert.ok(!((await managementStatus(actual)).management.events.some(e => e.event === 'worker-stop-refused')), 'a non-owner leaves no event in the owner record');
 });
+
+test('TM-257 integration scope uses the review effective base, so a merged sibling is not out of scope', async t => {
+  const { opts, git } = await fixture(t);
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree, id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+  const admitted = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']); await git(worktree, [...id, 'commit', '-m', 'implementation']);
+  await writeFile(join(opts.consumer, 'sibling.txt'), 'landed sibling'); await git(opts.consumer, ['add', 'sibling.txt']); await git(opts.consumer, [...id, 'commit', '-m', 'sibling task']);
+  await git(worktree, [...id, 'merge', '--no-edit', '--no-ff', 'main']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture', revision } });
+  // Coverage: from the admitted base the sibling IS in the diff, so the old check would refuse.
+  assert.match((await git(worktree, ['diff', '--name-only', admitted, revision])).stdout, /sibling\.txt/);
+  assert.deepEqual((await integrationEligibility(opts)).reasons, []);
+  await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']);
+  const stray = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['stray.txt'], checks: ['content'], risks: [], evidence: 'fixture', revision: stray } });
+  assert.ok((await integrationEligibility(opts)).reasons.includes('implementation changed files outside the approved task scope'), 'the task\'s own out-of-scope file is still refused');
+});
