@@ -629,21 +629,47 @@ test('bind never adopts an operator shell: pre-admission sessions and login shel
   assert.ok(!((await managementStatus(actual)).management.events.some(e => e.event === 'worker-stop-refused')), 'a non-owner leaves no event in the owner record');
 });
 
-test('TM-257 integration scope uses the review effective base, so a merged sibling is not out of scope', async t => {
+// TM-257: the server's default branch, held as a JS value so no local ref can move it; no network.
+function fakeServer(main) {
+  const server = { main, calls: 0, compare: async (dir, from, to) => {
+    server.calls++;
+    const a = from ?? server.main, b = to ?? server.main;
+    const mb = (await run('git', ['-C', dir, 'merge-base', a, b])).stdout.trim();
+    return { status: a === b ? 'identical' : mb === a ? 'ahead' : mb === b ? 'behind' : 'diverged', merge_base: mb };
+  } };
+  return server;
+}
+
+// worktree: [stray.txt] -> merge main (sibling.txt) -> code.txt; returns the merge commit and revision.
+async function mergedTask(t, { stray }) {
   const { opts, git } = await fixture(t);
   await admitTask(opts);
   const worktree = (await opts.store.show()).worktree, id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
   const admitted = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
-  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']); await git(worktree, [...id, 'commit', '-m', 'implementation']);
+  if (stray) { await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']); }
   await writeFile(join(opts.consumer, 'sibling.txt'), 'landed sibling'); await git(opts.consumer, ['add', 'sibling.txt']); await git(opts.consumer, [...id, 'commit', '-m', 'sibling task']);
+  const sibling = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
   await git(worktree, [...id, 'merge', '--no-edit', '--no-ff', 'main']);
+  const merged = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']); await git(worktree, [...id, 'commit', '-m', 'implementation']);
   const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
   await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture', revision } });
+  const server = fakeServer(sibling);
   // Coverage: from the admitted base the sibling IS in the diff, so the old check would refuse.
   assert.match((await git(worktree, ['diff', '--name-only', admitted, revision])).stdout, /sibling\.txt/);
+  return { opts: { ...opts, serverCompare: server.compare }, git, merged, revision, server };
+}
+
+test('TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope', async t => {
+  const { opts, server } = await mergedTask(t, { stray: false });
   assert.deepEqual((await integrationEligibility(opts)).reasons, []);
-  await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']);
-  const stray = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
-  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['stray.txt'], checks: ['content'], risks: [], evidence: 'fixture', revision: stray } });
-  assert.ok((await integrationEligibility(opts)).reasons.includes('implementation changed files outside the approved task scope'), 'the task\'s own out-of-scope file is still refused');
+  assert.ok(server.calls > 0, 'the scope check asked the server');
+});
+
+test('TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check', async t => {
+  const { opts, git, merged, revision } = await mergedTask(t, { stray: true });
+  await git(opts.consumer, ['update-ref', 'refs/remotes/origin/main', merged]); await git(opts.consumer, ['update-ref', 'refs/heads/main', merged]);
+  // Coverage: a base at the moved ref WOULD hide stray.txt.
+  assert.doesNotMatch((await git(opts.consumer, ['diff', '--name-only', merged, revision])).stdout, /stray\.txt/);
+  assert.ok((await integrationEligibility(opts)).reasons.includes('implementation changed files outside the approved task scope'));
 });
