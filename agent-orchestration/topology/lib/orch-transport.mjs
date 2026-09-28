@@ -583,7 +583,6 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
           reject(error);
         }, timeoutMs);
         timers.add(timer);
-        timer.unref?.();
         (async () => {
           for await (const msg of sub) {
             clearTimeout(timer);

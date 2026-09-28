@@ -9,10 +9,9 @@ import net from 'node:net';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
-import { sendMessage } from '../../topology/lib/mailbox.mjs';
-import { readStandingInbox } from '../../topology/lib/standing-mailbox.mjs';
-import { awaitReviewerVerdict, listenForReviewer, publishReviewerVerdict, reviewerProbeReady } from '../../topology/lib/reviewer.mjs';
+import { reviewerPaths } from '../../topology/lib/reviewer.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
 import {
   ORCH_LAYOUT,
@@ -133,70 +132,169 @@ test('file transport drops acked mail and verdict timers', async () => {
   await transport.close();
 });
 
-async function threeCases(transport, label) {
+const aoTopology = fileURLToPath(new URL('../../bin/ao-topology', import.meta.url));
+
+function spawnCli(args, env) {
+  const child = spawn(process.execPath, [aoTopology, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+  child.output = () => ({ stdout, stderr });
+  return child;
+}
+
+function runCli(args, env, timeoutMs = 30000) {
+  const child = spawnCli(args, env);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`ao-topology timed out: ${args.join(' ')}\n${child.output().stdout}\n${child.output().stderr}`));
+    }, timeoutMs);
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, ...child.output() });
+    });
+  });
+}
+
+async function waitForText(child, pattern, timeoutMs = 10000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (pattern.test(child.output().stdout)) return child.output();
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`ao-topology exited before ${pattern}: code=${child.exitCode} signal=${child.signalCode}\n${child.output().stdout}\n${child.output().stderr}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`timed out waiting for ${pattern}\n${child.output().stdout}\n${child.output().stderr}`);
+}
+
+function stopChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    child.kill('SIGTERM');
+  });
+}
+
+async function inboxStat(path) {
+  try {
+    await stat(path);
+    return 'present';
+  } catch (error) {
+    return error.code ?? 'error';
+  }
+}
+
+async function threeCases(brokerUrl, stateHome, label) {
   const runDir = await fakeRun();
   const repo = repoKey((await canonicalRepoId(runDir)).id);
-  const env = { AO_TRANSPORT: 'nats', AO_NATS_URL: transport.nc.getServer() };
+  const tmuxDir = await mkdtemp(join(os.tmpdir(), 'ao-orch-tmux-'));
+  const socket = join(tmuxDir, 'sock');
+  const env = {
+    ...process.env,
+    AO_TRANSPORT: 'nats',
+    AO_NATS_URL: brokerUrl,
+    AO_CONSUMER: runDir,
+    AGENT_ORCHESTRATION_STATE_HOME: stateHome,
+    TMUX: '',
+    TMUX_TMPDIR: tmuxDir,
+  };
+  let listener = null;
   try {
-    const message = await sendMessage({
-      runDir,
-      fromProject: runDir,
-      from: 'conductor',
-      to: ['agent-b'],
-      stage: 'brief',
-      body: `case-mail-${label}`,
-      transport,
-      env,
-    });
+    const sent = await runCli([
+      'send', '--run', runDir, '--from', 'conductor', '--to', 'agent-b',
+      '--from-project', runDir, '--stage', 'brief', '--body', `case-mail-${label}`, '--no-ring',
+    ], env);
+    assert.equal(sent.code, 0, sent.stderr || sent.stdout);
+    const message = JSON.parse(sent.stdout);
     assert.equal(message.deliveries[0].transport, 'nats');
     assert.equal(message.deliveries[0].inbox, null);
     const inboxFile = join(runDir, 'agents', 'agent-b', 'inbox', '001-brief.md');
-    await assert.rejects(stat(inboxFile), { code: 'ENOENT' });
-    const inbox = await readStandingInbox({ consumer: runDir, agent: 'agent-b', transport, env });
+    const beforeRead = await inboxStat(inboxFile);
+    assert.equal(beforeRead, 'ENOENT');
+    const received = await runCli([
+      'mailbox', 'inbox', '--consumer', runDir, '--agent', 'agent-b',
+    ], env);
+    assert.equal(received.code, 0, received.stderr || received.stdout);
+    const inbox = JSON.parse(received.stdout);
     assert.equal(inbox.length, 1);
     assert.equal(inbox[0].transport, 'nats');
     assert.match(inbox[0].body, new RegExp(`case-mail-${label}`));
     assert.equal(inbox[0].subject, ORCH_LAYOUT.mailSubject(repo, 'agent-b'));
-    await assert.rejects(stat(inboxFile), { code: 'ENOENT' });
-    console.log(`CASE mail subject=${inbox[0].subject} bucket=${ORCH_LAYOUT.mailStream} body=${label}`);
+    const afterRead = await inboxStat(inboxFile);
+    assert.equal(afterRead, 'ENOENT');
+    console.log(`CASE mail subject=${inbox[0].subject} bucket=${ORCH_LAYOUT.mailStream} inboxStat=${afterRead} body=${label}`);
 
-    const record = {
-      agent_id: 'reviewer-1',
+    const listed = await execFileAsync('tmux', [
+      '-S', socket, 'new-session', '-d', '-s', 'revcase', '-P', '-F',
+      '#{socket_path}\t#{pid}\t#{session_id}\t#{session_created}\t#{pane_id}\t#{pane_pid}',
+    ], { env });
+    const [serverKey, serverPid, sessionId, sessionCreated, paneId, panePid] = listed.stdout.trim().split('\t');
+    const { recordPath } = await reviewerPaths(runDir, env);
+    await writeJson(recordPath, {
+      version: 1,
       repo_id: (await canonicalRepoId(runDir)).id,
-      session: 'review-session',
-      binding: { serverKey: '/tmp/sock', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 },
-    };
-    const listening = await listenForReviewer({ consumer: runDir, record, env, transport });
-    assert.equal(listening.listening, true);
-    const ready = await reviewerProbeReady({
       consumer: runDir,
-      record,
-      env,
-      transport,
-      timeoutMs: 2000,
-      alive: async () => true,
-      wake: async () => ({ rang: false }),
-      output: async () => '',
+      agent_id: 'reviewer-1',
+      session: 'revcase',
+      binding: {
+        serverKey,
+        serverPid: Number(serverPid),
+        sessionId,
+        sessionCreated: Number(sessionCreated),
+        paneId,
+        panePid: Number(panePid),
+      },
     });
-    assert.equal(ready, true);
-    console.log(`CASE probe subject=${listening.subject}`);
+    listener = spawnCli(['review', 'listen', '--consumer', runDir], env);
+    const listeningText = await waitForText(listener, /"listening":true/);
+    const listening = JSON.parse(listeningText.stdout);
+    assert.equal(listening.listening, true);
+    assert.equal(listening.subject, ORCH_LAYOUT.probeSubject(repo, 'reviewer-1'));
+    const probed = await runCli(['review', 'probe', '--consumer', runDir, '--timeout', '5s'], env);
+    assert.equal(probed.code, 0, probed.stderr || probed.stdout);
+    const probe = JSON.parse(probed.stdout);
+    assert.equal(probe.ready, true);
+    assert.equal(probe.transport, 'nats');
+    console.log(`CASE probe subject=${listening.subject} ready=${probe.ready}`);
 
     const nonce = `nonce-${label}`;
-    const waiting = await awaitReviewerVerdict({ repo, nonce, timeoutMs: 3000, transport, env });
-    const published = await publishReviewerVerdict({
-      repo,
-      nonce,
-      verdict: { verdict: 'approve', findings: [] },
-      transport,
-      env,
+    const waiter = spawnCli(['review', 'await', '--consumer', runDir, '--nonce', nonce, '--timeout', '8s'], env);
+    await waitForText(waiter, /"waiting":true/);
+    const published = await runCli([
+      'review', 'publish', '--consumer', runDir, '--nonce', nonce, '--verdict', 'approve',
+    ], env);
+    assert.equal(published.code, 0, published.stderr || published.stdout);
+    const publish = JSON.parse(published.stdout);
+    const verdictExit = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        waiter.kill('SIGKILL');
+        reject(new Error(`verdict waiter hung\n${waiter.output().stdout}\n${waiter.output().stderr}`));
+      }, 10000);
+      if (waiter.exitCode !== null) {
+        clearTimeout(timer);
+        resolve(waiter.exitCode);
+        return;
+      }
+      waiter.once('exit', (code) => { clearTimeout(timer); resolve(code); });
     });
-    const verdict = await waiting.received;
-    assert.equal(published.subject, ORCH_LAYOUT.verdictSubject(repo, nonce));
-    assert.equal(verdict.subject, published.subject);
-    assert.match(verdict.body, /approve/);
-    console.log(`CASE verdict subject=${verdict.subject}`);
+    assert.equal(verdictExit, 0, waiter.output().stderr || waiter.output().stdout);
+    assert.equal(publish.subject, ORCH_LAYOUT.verdictSubject(repo, nonce));
+    assert.match(waiter.output().stdout, new RegExp(publish.subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(waiter.output().stdout, /approve/);
+    console.log(`CASE verdict subject=${publish.subject}`);
+    return { runDir, repo };
   } finally {
+    await stopChild(listener);
+    await execFileAsync('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
     await rm(runDir, { recursive: true, force: true });
+    await rm(tmuxDir, { recursive: true, force: true });
   }
 }
 
@@ -205,26 +303,48 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
   const before = process.memoryUsage().heapUsed;
   let first = null;
   try {
+    const stateHome = await mkdtemp(join(os.tmpdir(), 'ao-orch-state-'));
+    try {
+      await threeCases(broker.url, stateHome, 'one');
+      await threeCases(broker.url, stateHome, 'two');
+      const gapEnv = {
+        ...process.env,
+        AO_TRANSPORT: 'nats',
+        AO_NATS_URL: broker.url,
+        AO_CONSUMER: '',
+        AGENT_ORCHESTRATION_STATE_HOME: stateHome,
+        TMUX: '',
+      };
+      const gapRun = await fakeRun();
+      gapEnv.AO_CONSUMER = gapRun;
+      const gapSent = await runCli([
+        'send', '--run', gapRun, '--from', 'conductor', '--to', 'agent-b',
+        '--from-project', gapRun, '--stage', 'brief', '--body', 'held-across-close', '--no-ring',
+      ], gapEnv);
+      assert.equal(gapSent.code, 0, gapSent.stderr || gapSent.stdout);
+      const gapFile = join(gapRun, 'agents', 'agent-b', 'inbox', '001-brief.md');
+      assert.equal(await inboxStat(gapFile), 'ENOENT');
+      const gapIn = await runCli(['mailbox', 'inbox', '--consumer', gapRun, '--agent', 'agent-b'], gapEnv);
+      assert.equal(gapIn.code, 0, gapIn.stderr || gapIn.stdout);
+      const held = JSON.parse(gapIn.stdout);
+      assert.equal(held[0]?.body?.includes('held-across-close'), true);
+      assert.equal(await inboxStat(gapFile), 'ENOENT');
+      console.log(`CASE gap subject=${held[0].subject} inboxStat=ENOENT`);
+      await rm(gapRun, { recursive: true, force: true });
+    } finally {
+      await rm(stateHome, { recursive: true, force: true });
+    }
     first = await openNatsTransport({ servers: broker.url, name: 'ao-orch-cases' });
-    await threeCases(first, 'one');
-    await threeCases(first, 'two');
-    await first.publishMail({ repo: 'gaprepo', agent: 'agent-b', messageId: 'gap-1', body: 'held-across-close' });
     const ensured = first.stats().ensured;
     await first.publishMail({ repo: 'gaprepo', agent: 'agent-b', messageId: 'gap-2', body: 'second' });
-    assert.equal(first.stats().ensured, ensured, 'a second publish must reuse the consumer');
+    await first.publishMail({ repo: 'gaprepo', agent: 'agent-c', messageId: 'gap-3', body: 'third' });
+    assert.equal(first.stats().ensured > ensured, true);
+    const again = first.stats().ensured;
+    await first.publishMail({ repo: 'gaprepo', agent: 'agent-b', messageId: 'gap-4', body: 'reuse' });
+    assert.equal(first.stats().ensured, again, 'a later publish must reuse the consumer');
     await first.close();
     assert.equal(first.stats().closed, true);
     assert.equal(first.stats().subscriptions, 0);
-    const second = await openNatsTransport({ servers: broker.url, name: 'ao-orch-gap' });
-    try {
-      const held = await second.pullMail({ repo: 'gaprepo', agent: 'agent-b', timeoutMs: 2000 });
-      assert.equal(held?.body, 'held-across-close');
-      console.log(`CASE gap subject=${held.subject}`);
-      await held.ack();
-    } finally {
-      await second.close();
-      assert.equal(second.stats().closed, true);
-    }
     const grew = process.memoryUsage().heapUsed - before;
     console.log(`CASE memory heapDeltaBytes=${grew}`);
     assert.ok(grew < 80 * 1024 * 1024, `heap grew ${grew} bytes`);

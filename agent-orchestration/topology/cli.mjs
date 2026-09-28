@@ -119,6 +119,7 @@ Standing repository services
   enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
+  review listen|probe|publish|await [--agent <id> --nonce <nonce> --verdict <approve|changes_requested|blocked> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
@@ -459,7 +460,7 @@ const commands = {
   async review({ flags, positional }) {
     const sub = positional[0];
     const ctx = context(flags);
-    const { publishReviewerVerdict, listenForReviewer, readReviewerRecord } = await import('./lib/reviewer.mjs');
+    const { publishReviewerVerdict, listenForReviewer, readReviewerRecord, reviewerProbeReady, awaitReviewerVerdict } = await import('./lib/reviewer.mjs');
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     const transport = await selectLiveTransport({ env: process.env });
     try {
@@ -479,9 +480,48 @@ const commands = {
       if (sub === 'listen') {
         const record = await readReviewerRecord(ctx.consumer, process.env);
         invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer.');
-        return out(await listenForReviewer({ consumer: ctx.consumer, record, env: process.env, transport }));
+        const listening = await listenForReviewer({ consumer: ctx.consumer, record, env: process.env, transport });
+        // The probe subscription lives on this process. Returning would drain it in `finally`
+        // before another agent could request the subject.
+        await new Promise((resolve, reject) => {
+          process.stdout.write(`${JSON.stringify(listening)}\n`, (error) => (error ? reject(error) : null));
+          const stop = () => resolve();
+          process.once('SIGINT', stop);
+          process.once('SIGTERM', stop);
+        });
+        return;
       }
-      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review publish|listen.');
+      if (sub === 'probe') {
+        const record = await readReviewerRecord(ctx.consumer, process.env);
+        invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer.');
+        const timeoutMs = parseDuration(flags.timeout, 5_000);
+        const ready = await reviewerProbeReady({
+          consumer: ctx.consumer,
+          record,
+          env: process.env,
+          timeoutMs,
+          transport,
+        });
+        return out({ ok: ready === true, ready, transport: transport.kind });
+      }
+      if (sub === 'await') {
+        const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
+        invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review await --nonce <nonce>.');
+        const timeoutMs = parseDuration(flags.timeout, 8_000);
+        const waiting = await awaitReviewerVerdict({
+          consumer: ctx.consumer,
+          nonce,
+          timeoutMs,
+          env: process.env,
+          transport,
+        });
+        await new Promise((resolve, reject) => {
+          process.stdout.write(`${JSON.stringify({ ok: true, waiting: true, subject: waiting.subject, transport: transport.kind })}\n`, (error) => (error ? reject(error) : resolve()));
+        });
+        const received = await waiting.received;
+        return out({ ok: true, subject: received.subject, body: received.body, via: received.via, transport: transport.kind });
+      }
+      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review publish|listen|probe|await.');
     } finally { await closeLiveTransports(); }
   },
   async enrollment({ flags, positional }) {
