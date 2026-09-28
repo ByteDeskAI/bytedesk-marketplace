@@ -65,7 +65,13 @@ export function workerBranch(req, cfg = config(req.p)) {
 
 /** The variables that mark a process as a dispatch worker — what the guard hook keys on. Unset values are dropped. */
 export function workerEnv(req) {
-  return Object.entries({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: req.task?.id, TM_DISPATCH_BRANCH: req.branch }).filter(([, v]) => v);
+  return Object.entries({
+    TM_DISPATCH_WORKER: "1",
+    TM_DISPATCH_TASK: req.task?.id,
+    TM_DISPATCH_BRANCH: req.branch,
+    // TM-235: the PR base the worker guard requires on `gh pr create` — see ../worker-guard.mjs.
+    TM_DISPATCH_INTEGRATION_BRANCH: req.integrationBranch,
+  }).filter(([, v]) => v);
 }
 
 /**

@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { acceptanceOpen, config, list, nextTasks, openTasks, read, readEvents, staleTasks, state } from "./store.mjs";
 import { paths } from "./paths.mjs";
+import { resolveIntegrationBranch } from "./worktree.mjs";
 import { CATALOG } from "./ntfy.mjs";
 
 /**
@@ -370,18 +371,23 @@ export function handoff(id, p = paths()) {
    */
   if (t.governance || (t.labels || []).includes("ready-for-agent")) {
     /**
-     * The branch, stated literally whenever it is known: `TM_DISPATCH_BRANCH` is what the
-     * worker guard measures a push against (lib/worker-guard.mjs), and the task's own
-     * `branch` is what provisioning recorded. "Your branch" is not a command anybody can
-     * paste, so the placeholder reads as one when neither is set.
+     * The branch and the PR base, stated literally whenever they are known, and read from the
+     * task alone: provisioning records `branch`, and dispatch() records `integrationBranch` —
+     * the base it resolved, or refused to start a worker without (lib/dispatch/index.mjs). The
+     * worker's own env (TM_DISPATCH_BRANCH / _INTEGRATION_BRANCH, what the guard measures
+     * against) is deliberately NOT read here: a dispatch run from inside another worker's shell
+     * inherits that worker's values, which are stale for this task (TM-235). "Your branch" is
+     * not a command anybody can paste, so the placeholder reads as one when none is recorded.
      */
-    const branch = String(process.env.TM_DISPATCH_BRANCH || t.branch || "").trim() || "<your tm/ branch>";
+    const branch = String(t.branch || "").trim() || "<your tm/ branch>";
+    const base = String(t.integrationBranch || resolveIntegrationBranch(p, config(p)) || "").trim();
+    const prBase = base ? ` --base ${base}` : "";
     out.push(
       "## When you finish",
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",
       `- Push your own branch: git push -u origin ${branch}`,
-      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"`,
+      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"${prBase}`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       ...(t.governance ? governedFinishSteps(t, p) : [`- Then close: .bytedesk/task-management/bin/tm done ${t.id}`]),
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,

@@ -9,6 +9,8 @@ import { MAX_HOPS, hopExceeded, isAssignmentStage, nextVia, sameProject } from "
 import { agentDirs, findLead } from "./agents.mjs";
 import { withLock } from "./lockfile.mjs";
 import { publishTopologyWorkflow } from './discovery.mjs';
+import { repoKey } from './repoid.mjs';
+import { orchName, resolveTransport } from './orch-transport.mjs';
 
 export const RUN_FILE = "run.json";
 export const JOURNAL_FILE = "journal.jsonl";
@@ -173,7 +175,7 @@ function assertRoutable({ decision, requested, known, agents, isAssignment, stag
  * Write one message into each recipient's inbox. Returns the message id and the list of
  * { agent, inbox, outbox } paths so the caller can deliver a pointer through tmux.
  */
-export async function sendMessage({ runDir, from, to, stage, body, contract, round, subject, route, fromProject, task, via = [], assignment, consumer, idempotencyKey, token, provenance, parentId, standingOptions = {}, addressing = {}, env = process.env }) {
+export async function sendMessage({ runDir, from, to, stage, body, contract, round, subject, route, fromProject, task, via = [], assignment, consumer, idempotencyKey, token, provenance, parentId, standingOptions = {}, addressing = {}, env = process.env, transport = null }) {
   invariant(Array.isArray(to) && to.length > 0, "TOPOLOGY_RECIPIENT_REQUIRED", "A message needs at least one recipient (--to <agent-id>).");
   invariant(typeof body === "string" && body.trim(), "TOPOLOGY_BODY_REQUIRED", "A message needs a body (--file <path> or --body <text>).");
   // The hop limit is enforced here, on the send path, because this is the only place every hop
@@ -258,6 +260,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   const deliveries = [];
   const notices = [];
   const holds = [];
+  const activeTransport = transport ?? await resolveTransport({ env });
 
   to = recipients.map((entry) => entry.id);
 
@@ -346,8 +349,25 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       ? `\n> This message was addressed to ${decision.intended_display || requested} and routed to you because it came from outside this project with no open delegation. Handle it or delegate it.\n`
       : "";
     const instructions = `\n\n<!-- Write your complete reply to: ${outbox} -->\n`;
-    await writeText(inbox, `${header}${redirectNote}\n${body.trim()}\n${instructions}`);
-    deliveries.push({ agent: recipient, requested, redirected: Boolean(decision.redirected), via: hops, inbox, outbox });
+    const rendered = `${header}${redirectNote}\n${body.trim()}\n${instructions}`;
+    const repo = repoKey(destination);
+    const published = await activeTransport.publishMail({
+      repo,
+      agent: orchName(recipient),
+      messageId: id,
+      body: rendered,
+      inboxPath: activeTransport.kind === 'file' ? inbox : undefined,
+    });
+    deliveries.push({
+      agent: recipient,
+      requested,
+      redirected: Boolean(decision.redirected),
+      via: hops,
+      inbox: activeTransport.kind === 'file' ? inbox : null,
+      outbox: activeTransport.kind === 'file' ? outbox : null,
+      subject: published.subject,
+      transport: activeTransport.kind,
+    });
 
     if (decision.redirected) {
       await recordRedirect(runDir, { messageId: id, intended: requested, deliveredTo: recipient, reason: decision.reason });

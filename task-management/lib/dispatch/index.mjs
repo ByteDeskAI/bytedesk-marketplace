@@ -34,14 +34,14 @@
 import { claimTask, claimant, heartbeatClaim, releaseClaim } from "../claims.mjs";
 import { join } from "node:path";
 import { listAgents, registerAgent } from "../agents.mjs";
-import { provision } from "../worktree.mjs";
+import { provision, resolveIntegrationBranch } from "../worktree.mjs";
 import { handoff } from "../render.mjs";
 import { RESOLVED, config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
 import { failureScope } from "./failure.mjs";
-import { governedAdmission } from "../governance-check.mjs";
+import { governanceMode, governedAdmission } from "../governance-check.mjs";
 
 /**
  * One heartbeat, driven from outside — the pool loop and other supervisors call
@@ -103,10 +103,39 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (RESOLVED.has(task.status)) {
     return { ok: false, reason: `${id} is ${task.status} — dispatch is for open work. Reopen it first if it genuinely needs doing.` };
   }
-  if (config(p).dispatch?.governed === true || task.governance) {
+  /**
+   * A dispatched worker's PR base comes from this value, stated literally (render.mjs, the
+   * worker guard). Unconfigured resolves to the main checkout's actual branch name, so `gh pr
+   * create` is always given a concrete `--base` rather than falling back to the repository
+   * default silently (TM-235) — refusing only when there is truly nothing to resolve to, e.g. a
+   * detached HEAD.
+   */
+  const integration = resolveIntegrationBranch(p, config(p));
+  if (!integration) {
+    return {
+      ok: false,
+      reason: `no integration branch could be resolved — dispatch.integrationBranch is unset and the main checkout's HEAD is not on a branch (detached?). Set it: \`tm config dispatch.integrationBranch <branch>\`.`,
+      failureScope: "config",
+    };
+  }
+  /**
+   * governanceMode is the ONE shared predicate (task-management/lib/governance-check.mjs) for
+   * whether this repo's standing ao-topology reviewer requires admission before dispatch. A repo
+   * with a reviewer gates by default now ("required") — an *unset* `dispatch.governed` used to
+   * skip the gate silently, which is exactly how TM-136 (design-system PR 121) and TM-235 (this
+   * repo's PR 125) finished with no mechanical path to independent review. Only an explicit
+   * `dispatch.governed: false` opts out, and that opt-out is recorded on the task (below), not
+   * silent.
+   */
+  let ungoverned = null;
+  const gm = governanceMode(task, p);
+  if (gm.mode === "admitted" || gm.mode === "required") {
     const gate = governedAdmission(task, p);
     if (!gate.allow) return { ok: false, ...gate, failureScope: "task" };
     session ||= gate.owner;
+  } else if (gm.mode === "opted-out") {
+    ungoverned = `${id}: dispatch.governed is explicitly false — this repo has a standing ao-topology reviewer, but independent review via \`ao-topology reviewer request\` will be UNAVAILABLE for this task.`;
+    update(id, { governanceOptOut: { at: now(), reason: "dispatch.governed=false" } }, p);
   }
 
   /**
@@ -185,16 +214,19 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   update(id, { status: "in_progress", ...(session ? { session } : {}), ...(actor ? { actor } : {}) }, p);
 
   try {
-    prov = provision(task, { session, actor, steal, p });
+    prov = provision(task, { base: integration, session, actor, steal, p });
   } catch (err) {
     return fail(`worktree provisioning failed: ${err.message}`);
   }
   if (!prov.ok) return fail(prov.reason, { holder: prov.holder });
+  // Recorded on the task, not just pinned into the worker's env, so `tm show` and a later
+  // `handoff()` call (dashboard, `tm handoff`) state the same PR base this dispatch resolved.
+  update(id, { integrationBranch: integration }, p);
 
   const prompt = handoff(id, p);
   let res;
   try {
-    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, prompt, session, actor, p });
+    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, prompt, session, actor, p });
   } catch (err) {
     return fail(`worker launch failed: ${err.message}`, { failureScope: failureScope({ reason: err.message }, "backend") });
   }
@@ -241,5 +273,6 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     worktree: prov.path,
     branch: prov.branch,
     detail: res.detail,
+    ...(ungoverned ? { ungoverned } : {}),
   };
 }

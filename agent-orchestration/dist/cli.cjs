@@ -1322,8 +1322,8 @@ async function promotePromptForIncarnation({ agent, binding, consumer, session }
     const exact = incarnationOf(binding);
     invariant2(exact, "TOPOLOGY_PROMPT_INCARNATION", "A complete live process incarnation is required before staging its prompt.");
     if (state.status === "queued" || state.status === "restart-required") {
-      const { readFile: readFile21 } = await import("node:fs/promises");
-      const text = await readFile21((0, import_node_path28.join)(agent._dir, "prompt.pending.md"), "utf8");
+      const { readFile: readFile22 } = await import("node:fs/promises");
+      const text = await readFile22((0, import_node_path28.join)(agent._dir, "prompt.pending.md"), "utf8");
       await writeText((0, import_node_path28.join)(agent._dir, "prompt.md"), text);
     }
     const nonce = (0, import_node_crypto12.randomUUID)();
@@ -2025,6 +2025,8 @@ var reviewer_exports = {};
 __export(reviewer_exports, {
   PROBE_POLL_MS: () => PROBE_POLL_MS,
   PROBE_TIMEOUT_MS: () => PROBE_TIMEOUT_MS,
+  REVIEW_INCOMPLETE_BOUND_MS: () => REVIEW_INCOMPLETE_BOUND_MS,
+  REVIEW_INCOMPLETE_STALL_MS: () => REVIEW_INCOMPLETE_STALL_MS,
   approvable: () => approvable,
   assignReviewer: () => assignReviewer,
   buildReviewerArgv: () => buildReviewerArgv,
@@ -2032,7 +2034,9 @@ __export(reviewer_exports, {
   collectReview: () => collectReview,
   currentReviewStatus: () => currentReviewStatus,
   detachReviewer: () => detachReviewer,
+  effectiveBase: () => effectiveBase,
   ensureReviewer: () => ensureReviewer,
+  githubCompare: () => githubCompare,
   independentReviewStatus: () => independentReviewStatus,
   latestReview: () => latestReview,
   parseReviewResponse: () => parseReviewResponse,
@@ -2041,6 +2045,7 @@ __export(reviewer_exports, {
   recordReview: () => recordReview,
   requestReview: () => requestReview,
   reviewEligibility: () => reviewEligibility,
+  reviewRangeBase: () => reviewRangeBase,
   reviewResponsesOnScreen: () => reviewResponsesOnScreen,
   reviewerAvailability: () => reviewerAvailability,
   reviewerInboxRoot: () => reviewerInboxRoot,
@@ -2060,7 +2065,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path32.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit, then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path32.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path32.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path32.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os8.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -2429,18 +2434,137 @@ function segment(value, code, label) {
   invariant2(/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(text) && text !== "." && text !== "..", code, `Invalid ${label}.`);
   return text;
 }
-async function trustedReviewRange({ consumer, task, revision, baseRevision = null, env = process.env, home = (0, import_node_os8.homedir)() }) {
+async function githubCompare(repoDir, from, to) {
+  const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 1e4 };
+  const first = (result) => (result.stderr || result.stdout || `exit ${result.code}`).trim().split("\n")[0];
+  const view2 = await run("gh", ["repo", "view", "--json", "nameWithOwner,defaultBranchRef"], opts);
+  if (view2.code !== 0) throw new Error(`gh repo view failed: ${first(view2)}`);
+  const repo = JSON.parse(view2.stdout);
+  const branch = repo?.defaultBranchRef?.name;
+  if (!repo?.nameWithOwner || !branch) throw new Error("gh repo view named no default branch");
+  const found = await run("gh", ["api", `repos/${repo.nameWithOwner}/compare/${from ?? branch}...${to ?? branch}`, "--jq", "{status: .status, merge_base: .merge_base_commit.sha}"], opts);
+  if (found.code !== 0) throw new Error(`gh compare failed: ${first(found)}`);
+  return JSON.parse(found.stdout);
+}
+async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, serverCompare = githubCompare } = {}) {
+  const git2 = (args) => run("git", ["-C", repoDir, ...args], { allowFailure: true });
+  const ancestor = async (a, b) => (await git2(["merge-base", "--is-ancestor", a, b])).code === 0;
+  const compare = typeof serverCompare === "function" ? serverCompare : githubCompare;
+  const ask = async (from, to) => {
+    const answer = await compare(repoDir, from, to);
+    if (typeof answer?.status !== "string" || !COMMIT_SHA.test(String(answer.merge_base))) throw new Error("the server compare answer is malformed");
+    return answer;
+  };
+  const admitted = (reason) => ({ base: admittedBase, note: `The default branch could not be read from the server (${reason}), so the range ${admittedBase}..revision starts at the task admission commit.` });
+  let server;
+  try {
+    server = await ask(null, revision);
+  } catch (error51) {
+    return admitted(error51.message);
+  }
+  const mb = server.merge_base;
+  if (mb !== revision) {
+    if (mb === admittedBase) return { base: admittedBase, note: null };
+    invariant2((await git2(["cat-file", "-e", `${mb}^{commit}`])).code === 0, "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not a commit in this repository.");
+    if (await ancestor(mb, admittedBase)) return { base: admittedBase, note: null };
+    invariant2(await ancestor(admittedBase, mb) && await ancestor(mb, revision), "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the default branch.");
+    return { base: mb, note: null };
+  }
+  const candidate = recorded ?? reviewed?.base_revision ?? null;
+  if (!candidate || candidate === admittedBase) return { base: admittedBase, note: null };
+  const between = COMMIT_SHA.test(String(candidate)) && candidate !== revision && await ancestor(admittedBase, candidate) && await ancestor(candidate, revision);
+  if (recorded) invariant2(between, "TOPOLOGY_REVIEWER_RANGE", "Recorded effective review base is not between the admitted base and the revision.");
+  else {
+    const patch = between ? await git2(["diff", "--no-ext-diff", "--no-textconv", "--binary", candidate, revision, "--"]) : null;
+    invariant2(
+      patch?.code === 0 && (0, import_node_crypto13.createHash)("sha256").update(patch.stdout).digest("hex") === reviewed.patch_sha256,
+      "TOPOLOGY_REVIEWER_REREVIEW",
+      "The landed task's review request predates TM-257 and its reviewed base cannot be verified against the reviewed patch; a re-review is required."
+    );
+  }
+  let onDefault;
+  try {
+    onDefault = await ask(candidate, null);
+  } catch (error51) {
+    return admitted(error51.message);
+  }
+  invariant2(onDefault.status === "ahead" || onDefault.status === "identical", "TOPOLOGY_REVIEWER_RANGE", "The recorded effective review base is not on the server default branch.");
+  return { base: candidate, note: null };
+}
+async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, env = process.env, home = (0, import_node_os8.homedir)() }) {
+  const taskKey = segment(task, "TOPOLOGY_REVIEWER_TASK", "task"), revisionKey = segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision");
+  const request = await readJson3((0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${taskKey}-${revisionKey}.json`)).catch(() => null);
+  const reviewed = request?.effective_base ? null : await readJson3((0, import_node_path32.join)(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
+  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, serverCompare });
+  return { admitted_base: admittedBase, effective_base: base, range_note: note };
+}
+async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, env = process.env, home = (0, import_node_os8.homedir)() }) {
   const identity = await canonicalRepoId(consumer);
   const path3 = (0, import_node_path32.join)(stateRoot2(env, home), "management", repoKey(identity.id), `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}.json`);
   const management = await readJson3(path3).catch(() => null);
   invariant2(management?.started && management.repo_id === identity.id && management.task === task && management.finish?.revision === revision, "TOPOLOGY_REVIEWER_RANGE", "Review requires the task admission record and its current completed revision.");
-  const base = management.base_revision;
-  invariant2(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(base)) && (!baseRevision || baseRevision === base), "TOPOLOGY_REVIEWER_RANGE", "Review base must equal the original task admission commit.");
-  const ancestor = await run("git", ["-C", consumer, "merge-base", "--is-ancestor", base, revision], { allowFailure: true });
+  const admitted = management.base_revision;
+  invariant2(COMMIT_SHA.test(String(admitted)) && (!baseRevision || baseRevision === admitted), "TOPOLOGY_REVIEWER_RANGE", "Review base must equal the original task admission commit.");
+  for (const [label, rev] of [["admission base", admitted], ["finished revision", revision]]) {
+    const found = await run("git", ["-C", consumer, "cat-file", "-e", `${rev}^{commit}`], { allowFailure: true });
+    invariant2(found.code === 0, "TOPOLOGY_REVIEWER_RANGE", `The ${label} ${rev} is not a commit in ${consumer}; fetch it or re-finish the task.`);
+  }
+  const ancestor = await run("git", ["-C", consumer, "merge-base", "--is-ancestor", admitted, revision], { allowFailure: true });
   invariant2(ancestor.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Task admission base must be an ancestor of the finished revision.");
-  const patch = await run("git", ["-C", consumer, "diff", "--no-ext-diff", "--no-textconv", "--binary", base, revision, "--"], { allowFailure: true });
-  invariant2(patch.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Cannot produce the complete task diff.");
-  return { base, patch: patch.stdout, patch_sha256: (0, import_node_crypto13.createHash)("sha256").update(patch.stdout).digest("hex"), owner: management.owner };
+  const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, env, home });
+  const diff = await run("git", ["-C", consumer, "diff", "--no-ext-diff", "--no-textconv", base, revision, "--"], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
+  if (diff.code === "ERR_CHILD_PROCESS_STDOUT_MAXBUFFER") {
+    fail("TOPOLOGY_REVIEWER_RANGE", `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
+  }
+  invariant2(diff.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` \u2014 ${diff.stderr.trim()}` : ""}.`);
+  const binaryFiles = await binaryFileManifest(consumer, base, revision);
+  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
+  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256: (0, import_node_crypto13.createHash)("sha256").update(patch).digest("hex"), owner: management.owner, binaryFiles };
+}
+async function binaryFileManifest(consumer, base, revision) {
+  const numstat = await run("git", ["-C", consumer, "diff", "--numstat", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
+  invariant2(numstat.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot list binary files in the task diff: git exited ${numstat.code}${numstat.stderr?.trim() ? ` \u2014 ${numstat.stderr.trim()}` : ""}.`);
+  const binaryPaths = new Set(numstat.stdout.split("\0").filter(Boolean).map((entry) => entry.split("	")).filter(([added, removed]) => added === "-" && removed === "-").map(([, , path3]) => path3));
+  if (binaryPaths.size === 0) return [];
+  const raw = await run("git", ["-C", consumer, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, revision, "--"], { allowFailure: true });
+  invariant2(raw.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot resolve binary blob identities: git exited ${raw.code}${raw.stderr?.trim() ? ` \u2014 ${raw.stderr.trim()}` : ""}.`);
+  const fields = raw.stdout.split("\0").filter(Boolean);
+  const entries2 = [];
+  for (let i = 0; i < fields.length; i += 2) {
+    const [, , oldSha, newSha] = fields[i].split(" ");
+    const path3 = fields[i + 1];
+    if (!binaryPaths.has(path3)) continue;
+    const old_size = await blobSize(consumer, oldSha, path3), new_size = await blobSize(consumer, newSha, path3);
+    entries2.push({ path: path3, old_sha256: await blobSha256(consumer, oldSha, path3, old_size), new_sha256: await blobSha256(consumer, newSha, path3, new_size), old_size, new_size });
+  }
+  return entries2;
+}
+async function blobSize(consumer, sha2, path3) {
+  if (ZERO_BLOB.test(sha2)) return 0;
+  const result = await run("git", ["-C", consumer, "cat-file", "-s", sha2], { allowFailure: true });
+  invariant2(result.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot read the size of binary file ${path3} (blob ${sha2}): git exited ${result.code}${result.stderr?.trim() ? ` \u2014 ${result.stderr.trim()}` : ""}.`);
+  return Number(result.stdout.trim());
+}
+function blobSha256(consumer, sha2, path3, size) {
+  if (ZERO_BLOB.test(sha2)) return Promise.resolve(null);
+  return new Promise((resolve15, reject) => {
+    const hash2 = (0, import_node_crypto13.createHash)("sha256");
+    let stderr = "";
+    const child = (0, import_node_child_process9.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.on("data", (chunk) => hash2.update(chunk));
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error51) => reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes): ${error51.message}.`)));
+    child.on("close", (code) => code === 0 ? resolve15(hash2.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
+  });
+}
+function renderBinaryManifest(binaryFiles) {
+  const rows = binaryFiles.map((f) => `${f.path}	old sha256=${f.old_sha256 ?? "(absent)"} size=${f.old_size}	new sha256=${f.new_sha256 ?? "(absent)"} size=${f.new_size}`);
+  return `
+--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---
+${rows.join("\n")}
+`;
 }
 async function reviewedFiles(consumer, base, revision) {
   const listed = await run("git", ["-C", consumer, "diff", "--name-only", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
@@ -2469,7 +2593,7 @@ function validateFindings(findings, files) {
 function approvable(findings) {
   return Array.isArray(findings) && findings.every((finding) => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
 }
-async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null }) {
+async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, serverCompare = githubCompare }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant2(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant2(!expectedBinding || sameIncarnation(expectedBinding, registered.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed before recording the verdict.");
@@ -2490,13 +2614,15 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
     "TOPOLOGY_REVIEWER_VERDICT",
     `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}. A blocked review is not an approval.`
   );
-  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, env, home });
+  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
   const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
   invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
   invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   const record2 = {
     base_revision: range.base,
+    admitted_base: range.admitted_base,
+    effective_base: range.effective_base,
     patch_sha256: range.patch_sha256,
     task: String(task ?? "").trim(),
     revision: String(revision).trim(),
@@ -2536,13 +2662,13 @@ async function currentReviewStatus(consumer, task, currentRevision, env = proces
   if (review.verdict === "changes_requested") return { state: "changes_requested", review };
   return { state: review.verdict === "approve" && approvable(review.findings) && review.verified_commit === currentRevision ? "satisfied" : "blocked", review };
 }
-async function reviewEligibility({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null }) {
+async function reviewEligibility({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null, serverCompare = githubCompare }) {
   const availability = await reviewerAvailability({ consumer, env, home, probes });
   const status = await currentReviewStatus(consumer, task, revision, env, home);
   const reasons = [];
   if (status.review) {
     try {
-      const range = await trustedReviewRange({ consumer, task, revision, baseRevision, env, home });
+      const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
       if (status.review.base_revision !== range.base || status.review.patch_sha256 !== range.patch_sha256) reasons.push("review does not cover the complete admitted task range");
     } catch (error51) {
       reasons.push(error51.message);
@@ -2559,12 +2685,12 @@ async function reviewEligibility({ consumer, task, revision, env = process.env, 
   else if (status.state === "stale") reasons.push(`the latest review covers revision ${status.review.revision}, not the current revision ${revision} \u2014 a re-review is required`);
   else if (status.state !== "satisfied") reasons.push(`review of revision ${revision} is "${status.state}", not satisfied`);
   if (status.state === "satisfied") {
-    const collected = await independentReviewStatus({ consumer, task, env, home, pluginRoot });
+    const collected = await independentReviewStatus({ consumer, task, env, home, pluginRoot, serverCompare });
     if (collected.status !== "approved" || collected.sourceRevision !== revision) reasons.push(`independent review is not collected for this revision: ${collected.reason ?? collected.status}`);
   }
   return { eligible: reasons.length === 0, reasons, availability, status };
 }
-async function independentReviewStatus({ consumer, task, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null }) {
+async function independentReviewStatus({ consumer, task, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, serverCompare = githubCompare }) {
   const result = { status: "not-requested", taskId: task ?? null, sourceRevision: null, reviewerId: null, verdict: null, requestedAt: null, collectedAt: null, reason: null };
   if (!task) return result;
   try {
@@ -2590,7 +2716,7 @@ async function independentReviewStatus({ consumer, task, env = process.env, home
       "TOPOLOGY_REVIEWER_IDENTITY",
       "Reviewer identity or incarnation changed; a new independent review is required."
     );
-    const range = await trustedReviewRange({ consumer, task, revision: result.sourceRevision, env, home });
+    const range = await trustedReviewRange({ consumer, task, revision: result.sourceRevision, serverCompare, env, home });
     invariant2(
       review.base_revision === range.base && review.patch_sha256 === range.patch_sha256 && request.patch_sha256 === range.patch_sha256 && request.base_revision === range.base,
       "TOPOLOGY_REVIEWER_RANGE",
@@ -2609,12 +2735,12 @@ async function independentReviewStatus({ consumer, task, env = process.env, home
     return { ...result, status: "invalid", reason: error51.message };
   }
 }
-async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, env = process.env, home = (0, import_node_os8.homedir)(), wake = wakeReviewRequest }) {
+async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, serverCompare = githubCompare, env = process.env, home = (0, import_node_os8.homedir)(), wake = wakeReviewRequest }) {
   const record2 = await readReviewerRecord(consumer, env, home);
   invariant2(record2, "TOPOLOGY_REVIEWER_UNAVAILABLE", "No designated reviewer; preserve the finished task until one is available.");
   invariant2(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(revision)), "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "Review request requires a full commit SHA.");
   invariant2(Array.isArray(authorAgentIds) && authorAgentIds.length && !authorAgentIds.includes(record2.agent_id), "TOPOLOGY_REVIEWER_CONFLICT", "Review request must identify independent authors.");
-  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, env, home });
+  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
   invariant2(authorAgentIds.includes(range.owner), "TOPOLOGY_REVIEWER_AUTHORS", "Review authors must include the admitted task owner.");
   const dir = (0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests");
   const key = `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${revision}`;
@@ -2628,13 +2754,17 @@ async function requestReview({ consumer, task, revision, authorAgentIds, baseRev
     if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record2.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record2.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path: path3 };
     const patchPath = (0, import_node_path32.join)(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
-    const request = { base_revision: range.base, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto13.randomUUID)(), task, revision, repo_id: record2.repo_id, reviewer_id: record2.agent_id, binding: incarnationOf(record2.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+    const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto13.randomUUID)(), task, revision, repo_id: record2.repo_id, reviewer_id: record2.agent_id, binding: incarnationOf(record2.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
     await writeJson(path3, request);
     const delivery = await wake({ consumer, record: record2, request, path: path3, env, home }).catch((error51) => ({ rang: false, reason: error51.code ?? error51.message }));
     const published = { ...request, delivery: { ...delivery, at: nowIso() }, state: "published" };
     await writeJson(path3, published);
     return { ...published, path: path3 };
   });
+}
+function rangeNote(range) {
+  if (range.range_note) return range.range_note;
+  return range.effective_base === range.admitted_base ? `The range ${range.admitted_base}..revision starts at the task admission commit.` : `The range ${range.effective_base}..revision excludes code already on the default branch at ${range.effective_base}; the task was admitted at ${range.admitted_base} and later merged the default branch. Judge only this task's own changes.`;
 }
 async function wakeReviewRequest({ consumer, record: record2, request, path: path3, env, home }) {
   const loaded = await loadAdapters(providerDirs({ consumer, home, env }));
@@ -2644,7 +2774,7 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     adapter,
     format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
     binding: record2.binding,
-    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
+    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
   });
 }
 function lenientJson(text, glueAt = () => "") {
@@ -2748,13 +2878,30 @@ function parseReviewResponse(screen, nonce) {
   invariant2(parsed.every((response) => JSON.stringify(response) === JSON.stringify(last)), "TOPOLOGY_REVIEWER_RESPONSE", "The pane shows different review responses for one nonce.");
   return last;
 }
-async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration }) {
+async function ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs, stallMs, deliver, lead }) {
+  const now = Date.now();
+  const since = request.incomplete_since ?? new Date(now).toISOString();
+  const sha2562 = (0, import_node_crypto13.createHash)("sha256").update(screen).digest("hex");
+  const seen = request.incomplete_screen?.sha256 === sha2562 ? request.incomplete_screen : { sha256: sha2562, at: new Date(now).toISOString() };
+  const overBound = now - Date.parse(since) >= boundMs;
+  const stalled = !overBound && now - Date.parse(seen.at) >= stallMs;
+  if (!overBound && !stalled) {
+    await writeJson(path3, { ...request, incomplete_since: since, incomplete_screen: seen });
+    return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", "The review response is still being printed; collect it again later.");
+  }
+  const reason = stalled ? `The reviewer pane has not changed for over ${Math.round(stallMs / 1e3)}s with an unclosed verdict; nothing more will be printed.` : `The review response stayed incomplete for over ${Math.round(boundMs / 1e3)}s without closing.`;
+  const failed = { ...request, incomplete_since: since, incomplete_screen: seen, state: "failed", failure: { at: nowIso(), code: "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason } };
+  failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
+  await writeJson(path3, failed);
+  return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason);
+}
+async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os8.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare }) {
   const path3 = (0, import_node_path32.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
     invariant2(record2, "TOPOLOGY_REVIEWER_UNAVAILABLE", "No designated reviewer.");
     const request = await readJson3(path3);
-    const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.base_revision, env, home });
+    const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, serverCompare, env, home });
     invariant2(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
     invariant2(request.reviewer_id === record2.agent_id && request.repo_id === record2.repo_id && request.revision === revision, "TOPOLOGY_REVIEWER_IDENTITY", "Request belongs to a different reviewer or revision.");
     invariant2(sameIncarnation(request.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed after the request; queue a new independent review.");
@@ -2767,13 +2914,13 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     const screen = await output(record2);
     const shown = reviewResponsesOnScreen(screen, request.nonce);
     invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
-    invariant2(shown.at(-1).closed, "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", "The review response is still being printed; collect it again later.");
+    if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
     let review;
     try {
       const response = parseReviewResponse(screen, request.nonce);
       const current = await readReviewerRecord(consumer, env, home);
       invariant2(current?.agent_id === record2.agent_id && sameIncarnation(current.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer changed while collecting output.");
-      review = await recordReview({ consumer, task, revision, baseRevision: request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot });
+      review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare });
     } catch (error51) {
       if (REFUSED_RESPONSE_CODES.has(error51.code)) {
         const failed = { ...request, state: "failed", failure: { at: nowIso(), code: error51.code, reason: `The reviewer's response was refused: ${error51.message}` } };
@@ -2867,9 +3014,10 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process9, import_node_crypto13, import_promises27, import_node_os8, import_node_path32, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, RESPONSIVE_TTL_MS, reviewerAckMemo, COMMIT_SHA, ZERO_BLOB, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
+    import_node_child_process9 = require("node:child_process");
     import_node_crypto13 = require("node:crypto");
     import_promises27 = require("node:fs/promises");
     import_node_os8 = require("node:os");
@@ -2895,14 +3043,19 @@ var init_reviewer = __esm({
     VERDICTS = /* @__PURE__ */ new Set(["approve", "changes_requested", "blocked"]);
     SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
     BLOCKING_SEVERITIES = /* @__PURE__ */ new Set(["blocker", "major"]);
+    REVIEW_PATCH_MAX_BYTES = 64 * 1024 * 1024;
     FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
     MAX_REVIEW_WAKES = 5;
+    REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 12e4);
+    REVIEW_INCOMPLETE_STALL_MS = Number(process.env.AO_REVIEW_INCOMPLETE_STALL_MS ?? 3e4);
     REVIEW_CAPTURE_LINES = 5e3;
     defaultProbes = () => ({ alive: (_session, record2) => bindingAlive(record2), open: defaultOpen });
     PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 2e4);
     PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
     RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
     reviewerAckMemo = (dir, record2) => (0, import_node_path32.join)(dir, `${record2.agent_id}.answered.json`);
+    COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+    ZERO_BLOB = /^0+$/;
     STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
@@ -5630,14 +5783,14 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
     panes.set(bindingKey3(pane), pane);
   }
   const agents = /* @__PURE__ */ new Map();
-  const add = (record2, { agentId, kind = "role-session", runRole = null, roleName = null, membership: member = null, enrollment = "enrolled", spawn: spawn7 = null } = {}) => {
+  const add = (record2, { agentId, kind = "role-session", runRole = null, roleName = null, membership: member = null, enrollment = "enrolled", spawn: spawn8 = null } = {}) => {
     const binding = bindingOf(record2);
     if (!validBinding2(binding)) return;
     const pane = panes.get(bindingKey3(binding));
     if (!pane) return;
     const def = library.get(agentId);
     if (!idValid(agentId)) agentId = (0, import_node_crypto20.createHash)("sha256").update(bindingKey3(binding)).digest("hex").slice(0, 8);
-    invariant2(kind !== "spawn" || pane.sessionName === `${agentId}-${spawn7}`, "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation name; refusing an invalid snapshot.");
+    invariant2(kind !== "spawn" || pane.sessionName === `${agentId}-${spawn8}`, "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation name; refusing an invalid snapshot.");
     const key = bindingKey3(binding);
     let entry = agents.get(key);
     if (entry) {
@@ -5664,7 +5817,7 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
       enrollment,
       lifecycle,
       readinessCheckedAt: typeof (record2.readiness_checked_at ?? record2.readinessCheckedAt) === "string" ? record2.readiness_checked_at ?? record2.readinessCheckedAt : null,
-      session: { kind, ...Object.fromEntries(PRESENCE_BINDING_FIELDS.map((k) => [k, pane[k]])), sessionName: pane.sessionName, spawn: spawn7 },
+      session: { kind, ...Object.fromEntries(PRESENCE_BINDING_FIELDS.map((k) => [k, pane[k]])), sessionName: pane.sessionName, spawn: spawn8 },
       memberships: member ? [member] : [],
       primaryRunId: member?.runId ?? null
     };
@@ -5674,9 +5827,9 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
   for (const record2 of [...runs.values()].sort((a, b) => a.run_id.localeCompare(b.run_id))) {
     const member = await membership(record2, identity.id);
     for (const agent of record2.agents ?? []) {
-      const spawn7 = typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
+      const spawn8 = typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
       const declared = typeof agent.role === "string" && agent.role ? agent.role : null;
-      add(agent, { agentId: agent.agent_id ?? agent.id, kind: spawn7 ? "spawn" : "run", spawn: spawn7, runRole: ROLES.has(declared) ? declared : NEAREST_RUN_ROLE, roleName: declared, membership: member });
+      add(agent, { agentId: agent.agent_id ?? agent.id, kind: spawn8 ? "spawn" : "run", spawn: spawn8, runRole: ROLES.has(declared) ? declared : NEAREST_RUN_ROLE, roleName: declared, membership: member });
     }
   }
   for (const record2 of pending) {
@@ -6510,7 +6663,7 @@ async function startRepositorySupervision(options) {
     const log = await (0, import_promises38.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
-      const child = (0, import_node_child_process9.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
+      const child = (0, import_node_child_process10.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
       await new Promise((resolve15, reject) => {
         child.once("spawn", resolve15);
         child.once("error", reject);
@@ -6541,12 +6694,12 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path44, import_node_crypto22, import_node_child_process9, import_node_url5, import_node_os19, import_promises38, import_promises39, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS;
+var import_node_path44, import_node_crypto22, import_node_child_process10, import_node_url5, import_node_os19, import_promises38, import_promises39, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path44 = require("node:path");
     import_node_crypto22 = require("node:crypto");
-    import_node_child_process9 = require("node:child_process");
+    import_node_child_process10 = require("node:child_process");
     import_node_url5 = require("node:url");
     import_node_os19 = require("node:os");
     import_promises38 = require("node:fs/promises");
@@ -35869,7 +36022,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "949ab8b832b5f69983b008169c0fa78ead6a6069647c6abe48b2526ef792ea69",
+  sourceFingerprint: false ? null : "91fb2f0b35dbda7549aaa2286dd28623a80c9bda2577bc648a1a82deb8103f73",
   version: false ? null : "0.10.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
