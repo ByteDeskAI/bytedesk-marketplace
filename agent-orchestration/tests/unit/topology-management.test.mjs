@@ -16,6 +16,8 @@ const SHELL_ANCESTRY = async () => ['zsh', 'tmux: server'];
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 
+const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
+const NO_SERVER_COMPARE = async () => { throw new Error('no server in the fixture'); };
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-manage-')); t.after(() => rm(root, { recursive: true, force: true }));
   const consumer = join(root, 'repo'), worktree = join(root, 'task'), pluginRoot = join(root, 'plugin');
@@ -37,7 +39,10 @@ async function fixture(t) {
     done: async () => { calls.push('done'); doc.status = 'done'; },
   };
   await writeJson(join(pluginRoot, 'config.defaults.json'), { management: { auto_merge: true, target_branch: 'main', required_checks: [{ name: 'content', argv: [process.execPath, '-e', "if(require('fs').readFileSync('code.txt','utf8')!=='implemented') process.exit(1)"] }] } });
-  const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }), reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
+  const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
+    // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
+    // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
+    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
   const finish = async () => {
     await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
     await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
@@ -498,7 +503,7 @@ test('record-landing accepts a standing delegation instead of --authorized, and 
   await git(opts.consumer, ['merge', '--ff-only', revision]);
   await registerAgent(opts.consumer, 'lead-1');
   const leadOpts = { ...asCaller(opts, 'lead-1'), reason: 'exercising a standing delegation', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
-  await assert.rejects(recordLanding(leadOpts), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'no grant yet');
+  await assert.rejects(recordLanding(leadOpts), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ }, 'no grant yet');
   await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['record-landing'] });
   // TM-248: inside the lead's managed session any --actor is self-assertion and refused; the grant names the actor.
   for (const actor of ['operator', 'lead-1']) await assert.rejects(recordLanding({ ...leadOpts, actor }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
@@ -515,7 +520,7 @@ test('record-landing accepts a standing delegation instead of --authorized, and 
   await git2(opts2.consumer, ['merge', '--ff-only', revision2]);
   await registerAgent(opts2.consumer, 'lead-1');
   await grantDelegation({ consumer: opts2.consumer, home: opts2.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts2.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate'] });
-  await assert.rejects(recordLanding({ ...asCaller(opts2, 'lead-1'), reason: 'wrong scope', reviewGate: fullReview(admitted2.record, revision2), landed: 'main' }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  await assert.rejects(recordLanding({ ...asCaller(opts2, 'lead-1'), reason: 'wrong scope', reviewGate: fullReview(admitted2.record, revision2), landed: 'main' }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ });
 });
 
 test('integrate accepts a standing delegation instead of --authorized, and records who granted it', async t => {
@@ -598,9 +603,9 @@ test('with permission rules installed, integrate and record-landing still need a
   assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'nothing merged by a refusal');
   await git(opts.consumer, ['merge', '--ff-only', revision]);
   await revokeDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, io: { ancestors: async () => ['zsh'] }, id: (await listStandingDelegations({ consumer: opts.consumer, home: opts.home, env: opts.env })).find(g => !g.revoked_at).id });
-  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'lead without a live grant');
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ }, 'lead without a live grant');
   await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['record-landing'], expires: '1h' });
-  await assert.rejects(recordLanding({ ...lead, ...landing, ...expired }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'expired grant');
+  await assert.rejects(recordLanding({ ...lead, ...landing, ...expired }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ }, 'expired grant');
   for (const w of [worker, workerProc, { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }])
     await assert.rejects(recordLanding({ ...w, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
   assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing recorded by a refusal');
@@ -891,7 +896,8 @@ test('TM-248 out-of-plan: a grant for another epic or task list refuses the task
   const { opts, landing, git } = await landedTask(t);
   await planGrant(opts, { plan: { epic: 'EP-20', tasks: ['TM-2'] } });
   const lead = asCaller(opts, 'lead-1');
-  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /covers TM-1;.*EP-20 \(TM-2,TM-3\)/ });
+  // TM-263 (ADR-0027): a grant's plan no longer scopes the lead's record-landing; the lead path needs the server instead.
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ });
   const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
   await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
   const gate = await integrationEligibility(lead);
@@ -904,7 +910,7 @@ test('TM-248 expired grant: a plan grant past its expiry authorizes nothing', as
   const { opts, landing } = await landedTask(t);
   await planGrant(opts, { expires: '1ms' });
   await new Promise(r => setTimeout(r, 10));
-  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ });
   await assert.rejects(integrateTask(asCaller(opts, 'lead-1')), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /valid standing delegation/ });
 });
 
@@ -914,7 +920,7 @@ test('TM-248 wrong repo: a plan grant for another repository authorizes nothing 
   await registerAgent(other.consumer, 'lead-1');
   // Same state home, so only the repository key separates the two grants.
   await planGrant({ ...other, env: { ...other.env, AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, home: opts.home });
-  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ });
   await assert.rejects(integrateTask(asCaller(opts, 'lead-1')), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
 });
 
@@ -961,7 +967,8 @@ test('TM-248 auto_merge: a managed session with no grant is refused on integrate
   assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'nothing merged');
   await git(opts.consumer, ['merge', '--ff-only', revision]);
   const landing = { reason: 'auto-merge policy', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
-  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
+  // TM-263 (ADR-0027): the proven lead needs no grant to record a landing, only the server's confirmation.
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ });
   // A scrubbed env under a claude ancestor is still a managed session.
   await assert.rejects(recordLanding({ ...opts, ancestors: AGENT_ANCESTRY, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
   assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
@@ -1029,7 +1036,8 @@ test('TM-248 frozen plan (a): a task moved into the epic after the grant is refu
   assert.deepEqual(grant.plan.tasks, ['TM-2']);
   await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
   await git(opts.consumer, ['merge', '--ff-only', landing.landed]);
-  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  // TM-263 (ADR-0027): record-landing by the lead is not plan-scoped; with no server it is still refused.
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /repository lead lead-1 needs the server to confirm/ });
 });
 
 test('TM-248 frozen plan (b): a task created in the epic after the grant is refused', async t => {
@@ -1295,4 +1303,125 @@ test('TM-249 merged but unrecorded is reported explicitly, and a rerun records i
   const result = await integrateTask(p.lead);
   assert.equal(merges(p.state).length, 1, 'the merge ran exactly once'); assert.equal(result.merge.pull_request.already_merged, true);
   assert.deepEqual(p.closed.doneBy, ['lead-1']);
+});
+
+// ── TM-263 (ADR-0027): the repository lead records landings without a grant, and a lead-autonomy
+// policy on the SERVER default branch stands in for a plan grant on integrate. No real gh: the server
+// compare and gh are injected; the lead is proven by the same injected pane, census and /proc as TM-234.
+const leadServer = async (t, serverMain) => {
+  const f = await landedTask(t);
+  const server = fakeServer(serverMain === 'landed' ? f.revision : (await f.git(f.opts.consumer, ['rev-parse', 'main~1'])).stdout.trim());
+  return { ...f, server, lead: { ...asCaller(f.opts, 'lead-1'), serverCompare: server.compare } };
+};
+
+test('TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR', async t => {
+  const { opts, lead, landing, revision, server } = await leadServer(t, 'landed');
+  const recorded = await recordLanding({ ...lead, ...landing });
+  const auth = recorded.merge.authorization;
+  assert.deepEqual({ authorized: auth.authorized, channel: auth.channel, actor: auth.actor, adr: auth.adr, explicit: auth.explicit, delegation_id: auth.delegation_id },
+    { authorized: true, channel: 'repository-lead', actor: 'lead-1', adr: 'ADR-0027', explicit: false, delegation_id: undefined });
+  assert.equal(recorded.merge.landed, revision); assert.ok(server.calls >= 1, 'the server was asked');
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const gate = governedCompletion({ id: 'TM-1', worktree: recorded.worktree, branch: recorded.branch, governance: { version: 1, runtime: 'topology', workflowRunId: recorded.workflow_run_id, leadId: recorded.lead_id, revision, state: 'ready-for-review' } }, { root: opts.consumer });
+  assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'lead-1');
+});
+
+test('TM-263 (a) the lead path still refuses self-asserted flags and a review that did not approve the landed revision', async t => {
+  const { opts, lead, landing, revision } = await leadServer(t, 'landed');
+  await assert.rejects(recordLanding({ ...lead, ...landing, authorized: true }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+  await assert.rejects(recordLanding({ ...lead, ...landing, actor: 'lead-1' }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+  const review = verdict => async () => { const r = await landing.reviewGate(); return { ...r, status: { review: { ...r.status.review, verdict } } }; };
+  await assert.rejects(recordLanding({ ...lead, ...landing, reviewGate: review('changes_requested') }), { code: 'TOPOLOGY_MANAGEMENT_REVIEW', message: /approved/ });
+  const other = async () => { const r = await landing.reviewGate(); return { ...r, status: { review: { ...r.status.review, revision: 'f'.repeat(40), verified_commit: 'f'.repeat(40) } } }; };
+  await assert.rejects(recordLanding({ ...lead, ...landing, reviewGate: other }), { code: 'TOPOLOGY_MANAGEMENT_REVIEW', message: new RegExp(revision) });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing recorded by a refusal');
+});
+
+test('TM-263 (b) a worker, and an agent that is not the lead, are refused record-landing', async t => {
+  const { opts, lead, landing, server } = await leadServer(t, 'landed');
+  // The worker in its own pane naming the lead; the lead's pane named without running in it; a dispatched worker in the lead's pane.
+  for (const worker of [{ ...asCaller(opts, 'lead-1', 'worker-7'), serverCompare: server.compare }, { ...lead, callerProc: WORKER_PROC }])
+    await assert.rejects(recordLanding({ ...worker, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  await assert.rejects(recordLanding({ ...lead, env: { ...lead.env, TM_DISPATCH_WORKER: '1' }, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /TM_DISPATCH_WORKER/ });
+  // An agent proven in its own pane, but not this repository's lead.
+  await assert.rejects(recordLanding({ ...asCaller(opts, 'agent-9'), serverCompare: server.compare, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /own lead/ });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing recorded by a refusal');
+});
+
+test('TM-263 (c) the lead cannot record a landing the server default branch does not have', async t => {
+  const { opts, lead, landing, revision } = await leadServer(t, 'before-landing');
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: new RegExp(`${revision} is not on the server's default branch \\(compare says behind\\)`) });
+  await assert.rejects(recordLanding({ ...lead, ...landing, serverCompare: NO_SERVER_COMPARE }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /could not answer/ });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing recorded by a refusal');
+});
+
+const LEAD_POLICY = { lead: 'lead-1', authorized_by: 'Ryan Helms', adr: 'ADR-0027', scopes: ['integrate', 'record-landing'], granted_at: '2026-09-28' };
+const POLICY_API = ['api', 'repos/o/r/contents/.bytedesk/agent-orchestration/config.json?ref=main'];
+// The server side of gh: repo view and the contents API answer from `server`; every other call goes to the PR fake.
+const withServer = (p, server) => async args => {
+  if (args[0] !== 'repo' && args[0] !== 'api') return p.gh(args);
+  p.state.argv.push(args);
+  if (server.down) return { code: 1, stdout: '', stderr: 'error connecting to api.github.com' };
+  if (args[0] === 'repo') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
+  if (args.join(' ') !== POLICY_API.join(' ')) return { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` };
+  const content = Buffer.from(JSON.stringify({ management: { target_branch: 'main', ...(server.policy ? { lead_autonomy: server.policy } : {}) } })).toString('base64');
+  return { code: 0, stdout: JSON.stringify({ content, encoding: 'base64' }), stderr: '' };
+};
+const policyTask = async (t, server, management = {}) => { const p = await prTask(t, { grant: null, management }); return { ...p, lead: { ...p.lead, gh: withServer(p, server) } }; };
+
+test('TM-263 (d) with the server policy naming the lead, integrate merges without a grant, with the exact gh argv, and records the policy and ADR', async t => {
+  const p = await policyTask(t, { policy: LEAD_POLICY });
+  const result = await integrateTask(p.lead);
+  assert.deepEqual(p.state.argv, [
+    ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], POLICY_API,
+    ['pr', 'list', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
+    ['pr', 'checks', '7', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--json', 'name,state,bucket'],
+    ['pr', 'merge', '7', '--merge', '--match-head-commit', p.revision],
+    ['pr', 'view', '7', '--json', 'state,headRefOid,baseRefName,mergeCommit']]);
+  const auth = result.merge.authorization;
+  assert.deepEqual({ authorized: auth.authorized, channel: auth.channel, actor: auth.actor, policy: auth.policy, delegation_id: auth.delegation_id },
+    { authorized: true, channel: 'lead-autonomy-policy', actor: 'lead-1', policy: { adr: 'ADR-0027', authorized_by: 'Ryan Helms', source: 'server-default-branch' }, delegation_id: undefined });
+  assert.deepEqual(p.closed.doneBy, ['lead-1']); assert.equal(result.closed.actor, 'lead-1');
+});
+
+test('TM-263 (d) the policy replaces only the grant: every other integrate guardrail still refuses by name', async t => {
+  const p = await policyTask(t, { policy: LEAD_POLICY });
+  p.pr.mergeable = 'CONFLICTING';
+  await refusedAs(p, p.lead, 'mergeable');
+});
+
+test('TM-263 (e) a lead_autonomy policy only in the LOCAL config is ignored: a grant is required', async t => {
+  const p = await policyTask(t, { policy: null });
+  // The tamper: the repository's own config file (what loadConfig reads) names the lead.
+  await writeJson(join(p.opts.consumer, '.bytedesk', 'agent-orchestration', 'config.json'), { management: { lead_autonomy: LEAD_POLICY } });
+  const { loadConfig } = await import('../../topology/lib/config.mjs');
+  assert.deepEqual((await loadConfig(p.opts)).config.management.lead_autonomy, LEAD_POLICY, 'the local policy is really loaded');
+  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  assert.ok(p.state.argv.some(a => a.join(' ') === POLICY_API.join(' ')), 'the server was read, not the local file');
+});
+
+test('TM-263 (f) the server unavailable fails closed to grant-required', async t => {
+  const p = await policyTask(t, { policy: LEAD_POLICY, down: true });
+  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+});
+
+test('TM-263 (g) a server policy naming a different lead, or not the integrate scope, needs a grant', async t => {
+  for (const policy of [{ ...LEAD_POLICY, lead: 'lead-2' }, { ...LEAD_POLICY, scopes: ['record-landing'] }]) {
+    const p = await policyTask(t, { policy });
+    await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  }
+  // The policy names an agent that is proven in its own pane but is not this repository's lead.
+  const p = await policyTask(t, { policy: { ...LEAD_POLICY, lead: 'agent-9' } });
+  await refusedAs(p, { ...asCaller(p.opts, 'agent-9'), gh: p.lead.gh, reviewGate: p.lead.reviewGate }, 'plan', /managed agent session needs/);
+});
+
+test('TM-263 (h) a worker is refused while the policy exists', async t => {
+  const p = await policyTask(t, { policy: LEAD_POLICY });
+  const base = { gh: p.lead.gh, reviewGate: p.lead.reviewGate };
+  await refusedAs(p, { ...asCaller(p.opts, 'lead-1', 'worker-7'), ...base }, 'caller', /TOPOLOGY_DELEGATION_ACTOR/);
+  await refusedAs(p, { ...p.lead, callerProc: WORKER_PROC }, 'caller', /not an ancestor/);
+  await refusedAs(p, { ...p.lead, env: { ...p.lead.env, TM_DISPATCH_WORKER: '1' } }, 'caller', /TM_DISPATCH_WORKER/);
+  await refusedAs(p, { ...asCaller(p.opts, 'worker-7'), ...base }, 'plan', /managed agent session needs/);
 });

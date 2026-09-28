@@ -65,6 +65,17 @@
         ],
         "timeout_ms": 120000
       }
-    ]
+    ],
+    "integrate_via": "pull-request",
+    "lead_autonomy": {
+      "lead": "fd2b831f",
+      "authorized_by": "Ryan Helms",
+      "adr": "ADR-0027",
+      "scopes": [
+        "integrate",
+        "record-landing"
+      ],
+      "granted_at": "2026-09-28"
+    }
   }
 }

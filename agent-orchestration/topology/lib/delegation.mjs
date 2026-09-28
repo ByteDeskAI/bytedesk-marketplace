@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
-import { agentDirs, listAgents } from './agents.mjs';
+import { agentDirs, findLead, listAgents } from './agents.mjs';
 import { readCensus } from './census.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
@@ -239,6 +239,19 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
   catch (error) { fail('TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting TMUX_PANE.`); }
   invariant(inPane, 'TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
   return here;
+}
+
+/** TM-263 (ADR-0027): the caller proven to BE this repository's own lead (findLead over the
+ * repository's agent directories), or null when the caller does not name that lead (no AO_AGENT_ID,
+ * another agent, or no lead). A caller naming the lead must pass requireGranteeCaller's proof,
+ * unchanged: its live pane is census-bound to the lead and the lead's pane process is its ancestor;
+ * otherwise TOPOLOGY_DELEGATION_ACTOR. A dispatched worker is refused by name even in the lead's pane. */
+export async function requireLeadCaller({ consumer, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
+  const lead = await findLead(agentDirs({ consumer })).catch(() => null);
+  if (!lead?.id || env.AO_AGENT_ID !== lead.id) return null;
+  invariant(!env.TM_DISPATCH_WORKER, 'TOPOLOGY_DELEGATION_ACTOR', `A dispatched worker session (TM_DISPATCH_WORKER) is never the repository lead ${lead.id}.`);
+  await requireGranteeCaller({ consumer, grantee: lead.id, env, home, listPanesFn, readCensusFn, callerProc });
+  return lead.id;
 }
 
 /** TM-243: the agent this repository's census binds to the caller's live pane, or null. Lets a
