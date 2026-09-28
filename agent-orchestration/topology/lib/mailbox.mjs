@@ -124,26 +124,23 @@ async function hasAnswer(path) {
 
 const natsReplyCache = new Map();
 
-/** A reply is mail on the sender's orch subject. The body is the JSON the reply command published. */
+/** A reply lives on its own subject. Inbox ack of ordinary mail cannot take it. */
 async function readNatsReply(runDir, item, transport) {
   if (!item?.replyAgent || !item?.repo) return null;
   const key = `${resolve(runDir)}:${item.replyToId ?? item.id}:${item.answerer}`;
   if (natsReplyCache.has(key)) return natsReplyCache.get(key);
   const active = transport?.kind === 'nats' ? transport : await resolveTransport({ env: process.env });
   if (active.kind !== 'nats') return null;
-  const mail = await active.pullMail({ repo: item.repo, agent: orchName(item.replyAgent), timeoutMs: 200 });
-  if (!mail) return null;
-  let parsed = null;
-  try { parsed = JSON.parse(mail.body); } catch { parsed = null; }
-  const wanted = item.replyToId ?? item.id;
-  if (parsed?.reply_to !== wanted || parsed?.from !== item.answerer) {
-    if (mail.nak) await mail.nak();
-    return null;
-  }
-  await mail.ack();
-  const found = { body: String(parsed.body ?? ''), subject: mail.subject };
-  natsReplyCache.set(key, found);
-  return found;
+  const reply = await active.pullReply({
+    repo: item.repo,
+    agent: orchName(item.replyAgent),
+    replyTo: item.replyToId ?? item.id,
+    from: item.answerer,
+    timeoutMs: 200,
+  });
+  if (!reply) return null;
+  natsReplyCache.set(key, reply);
+  return reply;
 }
 
 async function publishNatsReply({ run, agentId, messageId, body, replyTo, transport }) {
@@ -153,7 +150,7 @@ async function publishNatsReply({ run, agentId, messageId, body, replyTo, transp
   const repo = repoKey((await canonicalRepoId(run.consumer)).id);
   const active = transport?.kind === 'nats' ? transport : await resolveTransport({ env: process.env });
   const payload = JSON.stringify({ reply_to: replyTo ?? messageId, from: agentId, body });
-  return active.publishMail({
+  return active.publishReply({
     repo,
     agent: orchName(sender),
     messageId: `${replyTo ?? messageId}.reply.${agentId}`,
@@ -370,7 +367,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
     const inbox = join(agentDir(runDir, recipient), "inbox", messageFileName(seq, stage));
     const outbox = join(agentDir(runDir, recipient), "outbox", replyFileName(seq, stage));
     const repo = repoKey((await canonicalRepoId(destination)).id);
-    const replySubject = activeTransport.kind === 'nats' ? ORCH_LAYOUT.mailSubject(repo, orchName(from)) : null;
+    const replySubject = activeTransport.kind === 'nats' ? ORCH_LAYOUT.replySubject(repo, orchName(from)) : null;
     const header = frontmatter({
       id,
       from,

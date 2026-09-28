@@ -352,7 +352,7 @@ export async function recordStandingReply({ consumer, messageId, agentId, body, 
   const transportEnv = env === process.env ? env : { ...process.env, ...env };
   const transport = await resolveTransport({ env: transportEnv });
   if (transport.kind === 'nats' && settled.record?.envelope?.from) {
-    await transport.publishMail({
+    await transport.publishReply({
       repo: repoKey(destination.id),
       agent: orchName(settled.record.envelope.from),
       messageId: `${messageId}.reply.${agentId}`,

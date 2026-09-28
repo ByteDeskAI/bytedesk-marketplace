@@ -6,6 +6,8 @@
 //
 // Gateway layout (EnsureOrchLayout / docs/contracts/orch-file-mapping.md):
 //   mail      orch.<repo>.mail.<agent>     stream ORCH_MAIL, durable mail_<repo>_<agent>
+//   reply     orch.<repo>.mail.<agent>.reply  same stream, durable reply_<repo>_<agent>
+// The mail consumer filter is the exact mail subject, so an inbox ack cannot take a reply.
 //   tasks     orch.<repo>.tasks.ready      stream ORCH_TASKS, durable tasks_<repo>
 //   claims    KV ORCH_CLAIMS key <repo>.<task>     revision is the compare-and-set
 //   presence  KV ORCH_PRESENCE key <repo>          TTL 45s, JSON body unchanged
@@ -36,12 +38,14 @@ export const ORCH_LAYOUT = Object.freeze({
   presenceTtlMs: 45_000,
   duplicateWindowMs: 120_000,
   mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
+  replySubject: (repo, agent) => `orch.${repo}.mail.${agent}.reply`,
   tasksSubject: (repo) => `orch.${repo}.tasks.ready`,
   probeSubject: (repo, agent) => `orch.${repo}.probe.${agent}`,
   verdictSubject: (repo, nonce) => `orch.${repo}.review.${nonce}`,
   claimKey: (repo, task) => `${repo}.${task}`,
   agentKey: (repo, agent) => `${repo}.${agent}`,
   mailDurable: (repo, agent) => `mail_${repo}_${agent}`,
+  replyDurable: (repo, agent) => `reply_${repo}_${agent}`,
   tasksDurable: (repo) => `tasks_${repo}`,
 });
 
@@ -379,7 +383,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     stats() {
       return { kind: 'nats', closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
-    async ensure({ repo, agents = [] }) {
+    async ensure({ repo, agents = [], replies = [] }) {
       const nameRepo = orchName(repo);
       if (!ensured.has('layout')) {
       await ensureStream(jsm, {
@@ -428,6 +432,18 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
         });
         ensured.add(mailKey);
       }
+      for (const agent of replies) {
+        const nameAgent = orchName(agent);
+        const replyKey = `reply:${nameRepo}:${nameAgent}`;
+        if (ensured.has(replyKey)) continue;
+        await ensureConsumer(jsm, ORCH_LAYOUT.mailStream, {
+          durable_name: ORCH_LAYOUT.replyDurable(nameRepo, nameAgent),
+          filter_subject: ORCH_LAYOUT.replySubject(nameRepo, nameAgent),
+          ack_policy: AckPolicy.Explicit,
+          deliver_policy: DeliverPolicy.All,
+        });
+        ensured.add(replyKey);
+      }
     },
     async publishMail({ repo, agent, messageId, body }) {
       const nameRepo = orchName(repo);
@@ -453,6 +469,36 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
         ack: async () => { msg.ack(); },
         nak: async () => { msg.nak(); },
       };
+    },
+    async publishReply({ repo, agent, messageId, body }) {
+      const nameRepo = orchName(repo);
+      const nameAgent = orchName(agent);
+      await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
+      const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
+      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId}` } : undefined);
+      return { via: 'nats', subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
+    },
+    async pullReply({ repo, agent, replyTo, from, timeoutMs = 1000 }) {
+      const nameRepo = orchName(repo);
+      const nameAgent = orchName(agent);
+      await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
+      const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
+      const consumer = await js.consumers.get(ORCH_LAYOUT.mailStream, ORCH_LAYOUT.replyDurable(nameRepo, nameAgent));
+      const iter = await consumer.fetch({ max_messages: 32, expires: Math.max(1000, timeoutMs) });
+      const batch = [];
+      for await (const msg of iter) batch.push(msg);
+      let found = null;
+      for (const msg of batch) {
+        let parsed = null;
+        try { parsed = JSON.parse(sc.decode(msg.data)); } catch { parsed = null; }
+        if (!found && parsed?.reply_to === replyTo && parsed?.from === from) {
+          found = { via: 'nats', subject: msg.subject || subject, body: String(parsed.body ?? '') };
+          msg.ack();
+        } else {
+          msg.nak();
+        }
+      }
+      return found;
     },
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {
       const nameRepo = orchName(repo);

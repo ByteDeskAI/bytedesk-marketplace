@@ -16,7 +16,7 @@
 - Refresh the roadmap source hash for `src/mcp.mjs` after the 0.11.0 version string change.
 - `ao-topology mailbox inbox` reads NATS mail for the agent. The reviewer listens for probes and publishes verdicts on the orch subject; collection reads that subject.
 - `ao-topology review listen` keeps the probe subscription open until the process is signalled. `review probe` asks that subject, and `review await` prints the verdict body from `orch.<repo>.review.<nonce>`.
-- `ao-topology wait` stays pending after a NATS send until `ao-topology reply` publishes the answer on the sender's mail subject. The reply is not written to an outbox file.
+- `ao-topology wait` reads replies from `orch.<repo>.mail.<agent>.reply`. Mailbox inbox stays on the exact mail subject, so reading the inbox cannot ack the reply. A reply sitting behind another reply on that subject is still returned.
 
 ## [0.10.0] — 2026-09-22
 

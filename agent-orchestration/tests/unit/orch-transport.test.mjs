@@ -110,6 +110,7 @@ test('unset AO_TRANSPORT selects NATS, not the file double', () => {
   assert.equal(transportMode({}), 'nats');
   assert.equal(transportMode({ AO_TRANSPORT: 'file' }), 'file');
   assert.equal(ORCH_LAYOUT.mailSubject('repo', 'agent-b'), 'orch.repo.mail.agent-b');
+  assert.equal(ORCH_LAYOUT.replySubject('repo', 'agent-b'), 'orch.repo.mail.agent-b.reply');
   assert.equal(ORCH_LAYOUT.verdictSubject('repo', 'nonce-1'), 'orch.repo.review.nonce-1');
   assert.equal(ORCH_LAYOUT.claimsBucket, 'ORCH_CLAIMS');
 });
@@ -316,6 +317,7 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
         AGENT_ORCHESTRATION_STATE_HOME: stateHome,
         TMUX: '',
       };
+      const replyRepo = repoKey((await canonicalRepoId(replyRun)).id);
       const replySent = await runCli([
         'send', '--run', replyRun, '--from', 'conductor', '--to', 'agent-b',
         '--from-project', replyRun, '--stage', 'brief', '--body', 'need-a-reply', '--no-ring',
@@ -330,12 +332,41 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
       const earlyView = JSON.parse(early.stdout);
       assert.equal(earlyView.ok, false);
       assert.equal(earlyView.pending.some((item) => item.id === replyMessage.id && item.agent === 'agent-b'), true);
+      const ordinary = await runCli([
+        'send', '--run', replyRun, '--from', 'agent-a', '--to', 'conductor',
+        '--from-project', replyRun, '--stage', 'note', '--body', 'ordinary-for-sender', '--no-ring',
+      ], replyEnv);
+      assert.equal(ordinary.code, 0, ordinary.stderr || ordinary.stdout);
+      const decoy = await runCli([
+        'send', '--run', replyRun, '--from', 'conductor', '--to', 'agent-b',
+        '--from-project', replyRun, '--stage', 'ask', '--body', 'decoy-question', '--no-ring',
+      ], replyEnv);
+      assert.equal(decoy.code, 0, decoy.stderr || decoy.stdout);
+      const decoyMessage = JSON.parse(decoy.stdout);
+      const ahead = await runCli([
+        'reply', '--run', replyRun, '--agent', 'agent-b', '--message', decoyMessage.id, '--body', 'not-the-reply',
+      ], replyEnv);
+      assert.equal(ahead.code, 0, ahead.stderr || ahead.stdout);
       const replied = await runCli([
         'reply', '--run', replyRun, '--agent', 'agent-b', '--message', replyMessage.id, '--body', 'nats-reply-body',
       ], replyEnv);
       assert.equal(replied.code, 0, replied.stderr || replied.stdout);
+      const senderInbox = await runCli([
+        'mailbox', 'inbox', '--consumer', replyRun, '--agent', 'conductor',
+      ], replyEnv);
+      assert.equal(senderInbox.code, 0, senderInbox.stderr || senderInbox.stdout);
+      const senderMail = JSON.parse(senderInbox.stdout);
+      assert.equal(senderMail.length, 1);
+      assert.match(senderMail[0].body, /ordinary-for-sender/);
+      assert.equal(senderMail[0].body.includes('nats-reply-body'), false);
+      assert.equal(senderMail[0].body.includes('not-the-reply'), false);
+      assert.equal(senderMail[0].subject, ORCH_LAYOUT.mailSubject(replyRepo, 'conductor'));
+      const senderFile = join(replyRun, 'agents', 'conductor', 'inbox', '002-note.md');
       const outbox = join(replyRun, 'agents', 'agent-b', 'outbox', `${replyMessage.id}.reply.md`);
+      const decoyOutbox = join(replyRun, 'agents', 'agent-b', 'outbox', `${decoyMessage.id}.reply.md`);
+      assert.equal(await inboxStat(senderFile), 'ENOENT');
       assert.equal(await inboxStat(outbox), 'ENOENT');
+      assert.equal(await inboxStat(decoyOutbox), 'ENOENT');
       const done = await runCli([
         'wait', '--run', replyRun, '--from', 'agent-b', '--message', replyMessage.id,
         '--timeout', '8s', '--poll', '200ms', '--json',
@@ -347,8 +378,10 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
       assert.equal(doneView.replies[0].body, 'nats-reply-body');
       assert.equal(doneView.replies[0].path, null);
       assert.equal(doneView.replies[0].transport, 'nats');
+      assert.equal(doneView.replies[0].subject, ORCH_LAYOUT.replySubject(replyRepo, 'conductor'));
       assert.equal(await inboxStat(outbox), 'ENOENT');
-      console.log(`CASE reply subject=${doneView.replies[0].subject} outboxStat=ENOENT`);
+      assert.equal(await inboxStat(senderFile), 'ENOENT');
+      console.log(`CASE reply subject=${doneView.replies[0].subject} inboxSubject=${senderMail[0].subject} outboxStat=ENOENT`);
       await rm(replyRun, { recursive: true, force: true });
       const gapEnv = {
         ...process.env,
