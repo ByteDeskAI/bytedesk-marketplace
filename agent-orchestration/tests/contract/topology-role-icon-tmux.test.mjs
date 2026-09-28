@@ -69,7 +69,7 @@ test("role icons reach managed panes and title bars; the registered lead wears i
   // Short on purpose: tmux's socket path must fit in ~104 bytes.
   const consumer = await mkdtemp("/tmp/ao-ri-");
   const env = {
-    TMUX: "", AO_TMUX_COMMAND: "tmux", TMUX_TMPDIR: consumer, HOME: consumer, XDG_CONFIG_HOME: join(consumer, "config"),
+    TMUX: "", AO_TRANSPORT: "file", AO_TMUX_COMMAND: "tmux", TMUX_TMPDIR: consumer, HOME: consumer, XDG_CONFIG_HOME: join(consumer, "config"),
     AO_CONSUMER: consumer, AGENT_ORCHESTRATION_STATE_HOME: join(consumer, "state"), AO_RING_WINDOW_MS: "20000", AO_BELL_POLL_MS: "500",
   };
   // Every tmux call here names this test's own server (TM-167 makes an unscoped listing an error).

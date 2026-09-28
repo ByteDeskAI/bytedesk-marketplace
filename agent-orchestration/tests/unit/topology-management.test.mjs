@@ -751,7 +751,7 @@ test('bind adopts a live worker only after verifying it and fails closed on unkn
   await admitTask(actual);
   const code = { code: 'TOPOLOGY_MANAGEMENT_WORKER' };
   await assert.rejects(bindTaskWorker({ ...actual, pane: '%9999' }), code, 'unknown pane');
-  await assert.rejects(bindTaskWorker({ ...actual, env: opts.env, pane: '%0' }), /Name the tmux server/, 'implicit server');
+  await assert.rejects(bindTaskWorker({ ...actual, env: { ...opts.env, TMUX: '' }, pane: '%0' }), /Name the tmux server/, 'implicit server');
   await s.tmux(['new-session', '-d', '-s', 'elsewhere', '-c', opts.home, 'sleep', '120']);
   await assert.rejects(bindTaskWorker({ ...actual, pane: await s.paneOf('elsewhere') }), /task-owned worktree/, 'pane outside the worktree');
   await s.tmux(['new-session', '-d', '-s', 'split', '-c', doc.worktree, 'sleep', '120']);

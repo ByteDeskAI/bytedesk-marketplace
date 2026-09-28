@@ -98,7 +98,7 @@ test('concurrent session starts across linked worktrees converge on one supervis
   await mkdir(tmuxDir, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxDir,
     AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'),
-    AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000' };
+    AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000', AO_TRANSPORT: 'file' };
   for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION']) delete env[key];
   const stop = new AbortController();
   let acking = Promise.resolve();
