@@ -48,6 +48,26 @@
 
 ### Added
 
+- **The repository lead records landings without a grant, and a server-side lead-autonomy policy
+  stands in for per-plan grants on integrate (TM-263, ADR-0027).** `manage record-landing` from
+  the repository's own lead, proven by pane ancestry (TM-234), needs no grant and no
+  `--authorized`. It still needs the landed commit on the server's default branch (`gh api
+  compare`) and an approving review at the finish revision; the record names
+  `channel: "repository-lead"` and `adr: "ADR-0027"`. `manage integrate` accepts the lead without
+  a grant when `management.lead_autonomy` on the SERVER default branch (read through `gh api
+  contents`, never the local file) names that lead and the `integrate` scope; every other
+  guardrail and the exact `gh` argv are unchanged, and the record names
+  `channel: "lead-autonomy-policy"` with the policy's ADR and `authorized_by`. An unavailable
+  server fails closed to grant-required. Workers and non-lead agents stay refused. Revoke the
+  integrate policy by removing it from the default branch. This no longer protects against a
+  compromised lead merging any reviewed, green PR; see `docs/repository-leads.md`.
+  After review, the GitHub repository is pinned in host state
+  (`<stateRoot>/repositories/<repoKey>.github.json`) on first resolution. A later `gh repo view`
+  that disagrees (a repointed remote or gh default) drops lead autonomy to grant-required, refuses
+  integrate with the named condition `repository`, and fails the TM-257/TM-263 server compare.
+  Every later `gh` call passes `--repo <pinned>` or names it in the `gh api` path. Record-landing
+  by the lead is also refused when the server's `lead_autonomy` policy names a different lead.
+
 - **`manage integrate` merges the task's pull request itself, behind its own guardrails
   (TM-249, ADR-0022).** With `management.integrate_via: "pull-request"`, integrate runs
   `gh pr merge <n> --merge --match-head-commit <approved sha>` only when the task is in the

@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { invariant, run } from "./util.mjs";
+import { fail, invariant, readJson, run, writeJson } from "./util.mjs";
 
 /**
  * The canonical identity of the repository containing `consumer`.
@@ -67,4 +67,31 @@ export function stateRoot(env = process.env, home = homedir()) {
   if (env.AGENT_ORCHESTRATION_STATE_HOME) return resolve(env.AGENT_ORCHESTRATION_STATE_HOME);
   const xdg = env.XDG_STATE_HOME || join(home, ".local", "state");
   return join(xdg, "bytedesk", "agent-orchestration");
+}
+
+/**
+ * TM-263: the GitHub repository this repository lands on, pinned in host state on its first successful
+ * resolution. `gh repo view` resolves from the checkout's remotes and gh's own default, both of which a
+ * same-user process can repoint at a repository it controls. So the first answer is recorded at
+ * <stateRoot>/repositories/<repoKey>.github.json and every later answer must agree with it; a
+ * disagreement throws TOPOLOGY_REPOSITORY_PIN and the caller refuses. Callers then address gh with the
+ * pinned name explicitly (`--repo`, or the name in the `gh api` path), never through cwd resolution.
+ * `gh` is `args => { code, stdout, stderr }` run in `repoDir`. Returns { repo, branch }.
+ * Same-uid limit: the pin file is host state that same user can edit; it is trust-on-first-use.
+ */
+export async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = homedir() } = {}) {
+  const view = await gh(["repo", "view", "--json", "nameWithOwner,defaultBranchRef"]);
+  let value = null;
+  try { value = JSON.parse(view.stdout); } catch { /* reported below */ }
+  const repo = value?.nameWithOwner, branch = value?.defaultBranchRef?.name;
+  if (view.code !== 0 || typeof repo !== "string" || !repo || typeof branch !== "string" || !branch)
+    fail("TOPOLOGY_REPOSITORY_PIN", `gh repo view named no repository and default branch (exit ${view.code}): ${(view.stderr || view.stdout || "").trim().split("\n")[0]}`);
+  const identity = await canonicalRepoId(repoDir);
+  const path = join(stateRoot(env, home), "repositories", `${repoKey(identity.id)}.github.json`);
+  const pinned = await readJson(path).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  // ponytail: two first resolutions racing both write; the later rename wins. Add an O_EXCL create if that ever matters.
+  if (!pinned) await writeJson(path, { repo_id: identity.id, nameWithOwner: repo, pinned_at: new Date().toISOString() });
+  else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
+    fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path });
+  return { repo: pinned?.nameWithOwner ?? repo, branch };
 }

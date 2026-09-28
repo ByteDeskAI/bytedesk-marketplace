@@ -7,11 +7,11 @@ import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
-import { findActiveDelegation, managedSessionEvidence } from './delegation.mjs';
+import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
-import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
-import { reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
+import { githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -441,7 +441,7 @@ async function integrationAuthority(options, ctx, policy) {
   // and status must still answer for every task. integrateTask rethrows delegationError.
   // TM-248: a managed session always needs a covering grant; auto_merge speaks only for an operator shell.
   const refusals = [], refuse = (condition, reason) => refusals.push({ condition, reason });
-  let delegation = null, delegationError = null, authorized = options.authorized === true;
+  let delegation = null, delegationError = null, autonomy = null, authorized = options.authorized === true;
   const managed = await managedSession(options, ctx);
   try { refuseSelfAssertion(options, managed); }
   catch (error) { refuse('caller', `${error.code}: ${error.message}`); authorized = false; }
@@ -450,21 +450,62 @@ async function integrationAuthority(options, ctx, policy) {
     try { delegation = await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'integrate', task: { id: options.task }, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc }); }
     catch (error) {
       if (!['TOPOLOGY_DELEGATION_INTEGRITY', 'TOPOLOGY_DELEGATION_ACTOR', 'TOPOLOGY_DELEGATION_PLAN'].includes(error.code)) throw error;
-      delegationError = error; refuse(error.code === 'TOPOLOGY_DELEGATION_ACTOR' ? 'caller' : 'plan', `${error.code}: ${error.message}`);
+      delegationError = error;
     }
+    // TM-263 (ADR-0027): no covering grant, so the lead-autonomy policy on the server's default branch
+    // may stand in for one. A grant whose plan misses the task does not block it; anything else does.
+    if (!delegation && (!delegationError || delegationError.code === 'TOPOLOGY_DELEGATION_PLAN')) {
+      try { autonomy = await leadAutonomy(options, ctx, 'integrate'); if (autonomy) delegationError = null; }
+      catch (error) { if (error.code !== 'TOPOLOGY_DELEGATION_ACTOR') throw error; delegationError = error; }
+    }
+    if (delegationError) refuse(delegationError.code === 'TOPOLOGY_DELEGATION_ACTOR' ? 'caller' : 'plan', `${delegationError.code}: ${delegationError.message}`);
   }
-  if (needsGrant && !delegation) refuse('plan', managed.length ? MANAGED_NEEDS_GRANT : 'configured policy requires explicit integration authority or a valid standing delegation');
+  if (needsGrant && !delegation && !autonomy) refuse('plan', managed.length ? MANAGED_NEEDS_GRANT : 'configured policy requires explicit integration authority or a valid standing delegation');
   if (delegation && nonempty(options.actor) && options.actor !== delegation.grantee) refuse('caller', `under a standing delegation the actor is the grantee ${delegation.grantee}; refusing --actor ${options.actor}`);
-  return { refusals, delegation, delegationError };
+  return { refusals, delegation, delegationError, autonomy };
+}
+
+/** TM-263 (ADR-0027): the policy file the lead-autonomy grant lives in, read only from the server. */
+export const LEAD_POLICY_PATH = '.bytedesk/agent-orchestration/config.json';
+
+/** TM-263: management.lead_autonomy as committed on the SERVER's default branch, read through gh like
+ * the TM-258 server anchor; never the local file, which any same-user session can edit. Returns null
+ * when gh, the network, the file or the key is unavailable or malformed: no policy, so a grant is
+ * required exactly as before. The server is the PINNED repository (pinnedGithubRepo): a repointed remote
+ * or gh default is refused, so the policy is null. Same-uid limit as githubCompare: a process as this
+ * user can replace gh. */
+export async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = homedir() } = {}) {
+  let repo, branch;
+  try { ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch { return null; }
+  const file = await ghJson(gh, ['api', `repos/${repo}/contents/${LEAD_POLICY_PATH}?ref=${encodeURIComponent(branch)}`]);
+  if (file.code !== 0 || typeof file.value?.content !== 'string') return null;
+  try {
+    const policy = JSON.parse(Buffer.from(file.value.content, 'base64').toString('utf8'))?.management?.lead_autonomy;
+    return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
+  } catch { return null; }
+}
+
+/** TM-263: integrate authority from the server policy, or null. The policy must name the caller and
+ * the scope, and the caller must be proven to be this repository's lead (requireLeadCaller, which
+ * throws TOPOLOGY_DELEGATION_ACTOR for an unproven caller naming the lead). */
+async function leadAutonomy(options, ctx, scope) {
+  const caller = ctx.env.AO_AGENT_ID;
+  if (!nonempty(caller)) return null;
+  const policy = await serverLeadAutonomy(options.gh || defaultGh(ctx.store.root), ctx.store.root, ctx);
+  if (policy?.lead !== caller || !policy.scopes.includes(scope)) return null;
+  const lead = await requireLeadCaller({ consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc });
+  if (lead !== caller) return null; // the policy names an agent that is not this repository's lead
+  return { actor: lead, policy: { adr: policy.adr, authorized_by: policy.authorized_by, source: 'server-default-branch' } };
 }
 
 /** TM-249: the authorization record both integrate paths write; governed completion reads `authorized`. */
-const integrationAuthorization = (options, ctx, { record, policy, delegation, revision }) => ({
-  decision: 'integrate', actor: delegation ? delegation.grantee : (options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id),
-  authorized: options.authorized === true || delegation != null, explicit: options.authorized === true, revision,
-  channel: delegation ? 'standing-delegation' : (options.actor ? 'gateway-or-explicit-actor' : 'local-operator'),
+const integrationAuthorization = (options, ctx, { record, policy, delegation, autonomy = null, revision }) => ({
+  decision: 'integrate', actor: delegation ? delegation.grantee : autonomy ? autonomy.actor : (options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record.lead_id),
+  authorized: options.authorized === true || delegation != null || autonomy != null, explicit: options.authorized === true, revision,
+  channel: delegation ? 'standing-delegation' : autonomy ? 'lead-autonomy-policy' : (options.actor ? 'gateway-or-explicit-actor' : 'local-operator'),
   policy_auto_merge: policy.auto_merge === true,
-  ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}), at: nowIso() });
+  ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}),
+  ...(autonomy && !delegation ? { policy: autonomy.policy } : {}), at: nowIso() });
 
 /** Read-only integration gate; tests are rerun by integrateTask, never trusted from reports. */
 export async function integrationEligibility(options) {
@@ -502,7 +543,7 @@ export async function integrationEligibility(options) {
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) refuse('worker', writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
-  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError };
+  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
 }
 
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
@@ -538,7 +579,7 @@ export async function integrateTask(options) {
     await git(ctx.store.root, ['merge', '--ff-only', record.finish.revision]);
     const landed = await gitText(ctx.store.root, ['rev-parse', 'HEAD']);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.finish.revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', 'Landing ancestry verification failed.');
-    const authorization = integrationAuthorization(options, ctx, { record, policy, delegation: fresh.delegation, revision: record.finish.revision });
+    const authorization = integrationAuthorization(options, ctx, { record, policy, delegation: fresh.delegation, autonomy: fresh.autonomy, revision: record.finish.revision });
     const next = await recordEvent(ctx, options.task, record, 'merge', { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization });
     Object.assign(next, { state: 'merged', collected: true, merge: { revision: record.finish.revision, landed, checks, target_branch: policy.target_branch,authorization } });
     await writeJson(ctx.path, next);
@@ -566,8 +607,8 @@ const ghFailure = (what, r) => `${what} failed (exit ${r.code})${r.error ? `: ${
 /** CI rule: every reported check passes. `skipping` is allowed only for a check gh does not list
  * under --required; if the required set cannot be read, every check counts as required. No checks
  * at all, or none passing, is refused: an empty list must never read as green. */
-async function ciStatus(gh, number) {
-  const fields = ['--json', 'name,state,bucket'];
+async function ciStatus(gh, repo, number) {
+  const fields = ['--repo', repo, '--json', 'name,state,bucket'];
   const all = await ghJson(gh, ['pr', 'checks', String(number), ...fields]);
   if (!Array.isArray(all.value)) return { refusal: ghFailure(`gh pr checks #${number}`, all) };
   if (!all.value.length) return { refusal: `no CI checks are reported for PR #${number}` };
@@ -635,18 +676,20 @@ async function integrateViaPullRequest(options, ctx) {
   if (prior?.state === 'merged' && prior.merge?.pull_request) {
     if (prior.closed) return prior;
     const policy = (await loadConfig(options)).config.management || {};
-    const { refusals, delegation } = await integrationAuthority(options, ctx, policy);
+    const { refusals, delegation, autonomy } = await integrationAuthority(options, ctx, policy);
     if (refusals.length) refuseIntegrate(refusals, prior.merge.pull_request.number);
-    return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy, delegation, revision: prior.merge.revision }));
+    return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy, delegation, autonomy, revision: prior.merge.revision }));
   }
   const gate = await integrationEligibility(options);
-  const { record, doc, policy, delegation } = gate, refusals = [...gate.refusals];
+  const { record, doc, policy, delegation, autonomy } = gate, refusals = [...gate.refusals];
   const refuse = (condition, reason) => refusals.push({ condition, reason });
   const revision = record?.finish?.revision, approved = gate.review?.status?.review;
   if (gate.review && approved?.verdict !== 'approve') refuse('review', `review verdict is ${approved?.verdict ?? 'missing'}, not approve`);
-  let pr = null, ci = null;
-  if (doc?.branch) {
-    const listed = await ghJson(gh, ['pr', 'list', '--head', doc.branch, '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable']);
+  let pr = null, ci = null, repo = null;
+  // TM-263: every PR call names the pinned repository; a repointed remote or gh default refuses here.
+  try { ({ repo } = await pinnedGithubRepo(ctx.store.root, gh, ctx)); } catch (error) { refuse('repository', error.message); }
+  if (doc?.branch && repo) {
+    const listed = await ghJson(gh, ['pr', 'list', '--repo', repo, '--head', doc.branch, '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable']);
     if (!Array.isArray(listed.value)) refuse('pr', ghFailure('gh pr list', listed));
     else {
       const open = listed.value.filter(p => p.state === 'OPEN');
@@ -663,7 +706,7 @@ async function integrateViaPullRequest(options, ctx) {
     if (revision && pr.headRefOid !== revision) refuse('head', `${at}, not the task's recorded finish revision ${revision}`);
     if (!merged) {
       if (pr.mergeable !== 'MERGEABLE') refuse('mergeable', `PR #${pr.number} is ${pr.mergeable || 'UNKNOWN'}, not MERGEABLE`);
-      ci = await ciStatus(gh, pr.number);
+      ci = await ciStatus(gh, repo, pr.number);
       if (ci.refusal) refuse('ci', ci.refusal);
     }
     if (revision && nonempty(policy.target_branch)) {
@@ -676,18 +719,18 @@ async function integrateViaPullRequest(options, ctx) {
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
     // The only merge this verb performs. Exactly these flags; nothing forces, bypasses or defers.
-    const result = await gh(['pr', 'merge', String(pr.number), '--merge', '--match-head-commit', revision]);
+    const result = await gh(['pr', 'merge', String(pr.number), '--repo', repo, '--merge', '--match-head-commit', revision]);
     invariant(result.code === 0, 'TOPOLOGY_INTEGRATE_MERGE_FAILED', `gh pr merge #${pr.number} failed (exit ${result.code}); nothing was recorded: ${(result.stderr || result.stdout || '').trim()}`, { pull_request: pr.number, merged: false });
   }
   let next;
   try {
-    const view = await ghJson(gh, ['pr', 'view', String(pr.number), '--json', 'state,headRefOid,baseRefName,mergeCommit']);
+    const view = await ghJson(gh, ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'state,headRefOid,baseRefName,mergeCommit']);
     const v = view.value;
     invariant(v?.state === 'MERGED' && v.headRefOid === revision && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${revision} into ${policy.target_branch}` : ghFailure('gh pr view', view));
     const landed = v.mergeCommit.oid;
     await syncTarget(ctx.store.root, policy.target_branch, landed);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
-    const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, revision });
+    const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
       pull_request: { number: pr.number, head: revision, already_merged: pr.state === 'MERGED' }, authorization });
   } catch (error) {
@@ -712,17 +755,24 @@ export async function recordLanding(options) {
     invariant(record?.state === 'ready-for-review' && nonempty(revision), 'TOPOLOGY_MANAGEMENT_LANDING', 'Task has no finished worker revision ready for review.');
     const policy = (await loadConfig(options)).config.management || {};
     invariant(nonempty(policy.target_branch), 'TOPOLOGY_MANAGEMENT_TARGET', 'Configure management.target_branch before recording a landing.');
-    // Same authority integrate requires: a managed session needs a plan grant (TM-248) covering this
-    // caller, repository, task and the record-landing scope, whatever auto_merge says; an operator
-    // shell may instead pass --authorized or rely on policy auto_merge.
-    const delegation = managed.length || (options.authorized !== true && policy.auto_merge !== true)
-      ? await (options.findDelegation || findActiveDelegation)({ consumer: options.consumer, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', task: { id: task }, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc })
-      : null;
-    invariant(!managed.length || delegation, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing refused: ${MANAGED_NEEDS_GRANT} (${managed.join('; ')}).`);
-    const authorized = delegation != null || options.authorized === true || policy.auto_merge === true;
+    // A managed session needs a plan grant (TM-248) covering this caller, repository, task and the
+    // record-landing scope, whatever auto_merge says; an operator shell may instead pass --authorized
+    // or rely on policy auto_merge. TM-263 (ADR-0027): the repository's own lead, proven by pane
+    // ancestry, needs no grant; it records only a landing the server's default branch already has.
+    const lookup = { consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc };
+    let delegation = null, lead = null;
+    if (managed.length || (options.authorized !== true && policy.auto_merge !== true)) {
+      try { delegation = await (options.findDelegation || findActiveDelegation)({ ...lookup, agentId: ctx.env.AO_AGENT_ID, scope: 'record-landing', task: { id: task } }); }
+      catch (error) {
+        if (error.code !== 'TOPOLOGY_DELEGATION_PLAN' || !managed.length || !(lead = await requireLeadCaller(lookup))) throw error;
+      }
+      if (!delegation && !lead && managed.length) lead = await requireLeadCaller(lookup);
+    }
+    invariant(!managed.length || delegation || lead, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing refused: ${MANAGED_NEEDS_GRANT}, or the caller must be this repository's own lead (${managed.join('; ')}).`);
+    const authorized = delegation != null || lead != null || options.authorized === true || policy.auto_merge === true;
     // TM-234: under a delegation the actor IS the grantee that exercised it; --actor may only repeat it.
     invariant(!delegation || !nonempty(options.actor) || options.actor.trim() === delegation.grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Under a standing delegation the actor is the grantee ${delegation?.grantee}; refusing --actor ${options.actor}.`);
-    const actor = delegation ? delegation.grantee : options.actor;
+    const actor = delegation ? delegation.grantee : lead || options.actor;
     invariant(nonempty(actor), 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'record-landing requires a non-empty --actor.');
     invariant(authorized, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', 'Configured policy requires explicit integration authority; pass --authorized, or have the operator grant a standing delegation with ao-topology delegate grant.');
     invariant(nonempty(options.landed), 'TOPOLOGY_MANAGEMENT_LANDING', 'record-landing requires --landed <commit>.');
@@ -734,7 +784,19 @@ export async function recordLanding(options) {
     invariant(await ancestor(landed, `refs/heads/${policy.target_branch}`), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch}.`);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');
-    const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: 'recorded-landing', reason: reason.trim(), policy_auto_merge: policy.auto_merge === true,
+    if (lead && !delegation) {
+      const approved = review.status.review;
+      invariant(approved.verdict === 'approve' && (approved.verified_commit || approved.revision) === revision, 'TOPOLOGY_MANAGEMENT_REVIEW', `The repository lead records only a landing whose review approved ${revision}; the review is ${approved.verdict ?? 'missing a verdict'} at ${approved.verified_commit || approved.revision || 'no revision'}.`);
+      let server;
+      try { server = await (options.serverCompare || githubCompare)(ctx.store.root, landed, null); }
+      catch (error) { fail('TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing by the repository lead ${lead} needs the server to confirm ${landed} is on its default branch, and it could not answer (${error.message}); without that, a plan grant is required.`); }
+      invariant(server?.status === 'ahead' || server?.status === 'identical', 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the server's default branch (compare says ${server?.status ?? 'nothing'}); the repository lead records only a landing the server already has.`);
+      // findLead reads local agent files a same-user session can edit. When the server's lead_autonomy
+      // policy names the lead, that name wins; with no server policy, findLead's answer stands (documented bound).
+      const named = (await serverLeadAutonomy(options.gh || defaultGh(ctx.store.root), ctx.store.root, ctx))?.lead;
+      invariant(!named || named === lead, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing refused: the server's lead_autonomy policy names ${named} as this repository's lead, not ${lead}.`);
+    }
+    const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: lead && !delegation ? 'repository-lead' : 'recorded-landing', ...(lead && !delegation ? { adr: 'ADR-0027' } : {}), reason: reason.trim(), policy_auto_merge: policy.auto_merge === true,
       ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}), at: nowIso() };
     // No checks run here: the actor attests to the checks run at landing time, cited in --reason.
     const merge = { revision, landed, checks: [], checks_skipped: true, target_branch: policy.target_branch, authorization };

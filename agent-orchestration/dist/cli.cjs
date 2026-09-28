@@ -181,6 +181,7 @@ var init_util = __esm({
 var repoid_exports = {};
 __export(repoid_exports, {
   canonicalRepoId: () => canonicalRepoId,
+  pinnedGithubRepo: () => pinnedGithubRepo,
   repoKey: () => repoKey,
   repositoryConsumer: () => repositoryConsumer,
   stateRoot: () => stateRoot2
@@ -212,6 +213,27 @@ function stateRoot2(env = process.env, home = (0, import_node_os4.homedir)()) {
   if (env.AGENT_ORCHESTRATION_STATE_HOME) return (0, import_node_path8.resolve)(env.AGENT_ORCHESTRATION_STATE_HOME);
   const xdg = env.XDG_STATE_HOME || (0, import_node_path8.join)(home, ".local", "state");
   return (0, import_node_path8.join)(xdg, "bytedesk", "agent-orchestration");
+}
+async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = (0, import_node_os4.homedir)() } = {}) {
+  const view2 = await gh(["repo", "view", "--json", "nameWithOwner,defaultBranchRef"]);
+  let value = null;
+  try {
+    value = JSON.parse(view2.stdout);
+  } catch {
+  }
+  const repo = value?.nameWithOwner, branch = value?.defaultBranchRef?.name;
+  if (view2.code !== 0 || typeof repo !== "string" || !repo || typeof branch !== "string" || !branch)
+    fail("TOPOLOGY_REPOSITORY_PIN", `gh repo view named no repository and default branch (exit ${view2.code}): ${(view2.stderr || view2.stdout || "").trim().split("\n")[0]}`);
+  const identity = await canonicalRepoId(repoDir);
+  const path3 = (0, import_node_path8.join)(stateRoot2(env, home), "repositories", `${repoKey(identity.id)}.github.json`);
+  const pinned = await readJson3(path3).catch((error51) => {
+    if (error51.code === "ENOENT") return null;
+    throw error51;
+  });
+  if (!pinned) await writeJson(path3, { repo_id: identity.id, nameWithOwner: repo, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
+  else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
+    fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path3}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path: path3 });
+  return { repo: pinned?.nameWithOwner ?? repo, branch };
 }
 var import_node_crypto5, import_promises5, import_node_os4, import_node_path8;
 var init_repoid = __esm({
@@ -19410,12 +19432,8 @@ function segment(value, code, label) {
 async function githubCompare(repoDir, from, to) {
   const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 1e4 };
   const first = (result) => (result.stderr || result.stdout || `exit ${result.code}`).trim().split("\n")[0];
-  const view2 = await run("gh", ["repo", "view", "--json", "nameWithOwner,defaultBranchRef"], opts);
-  if (view2.code !== 0) throw new Error(`gh repo view failed: ${first(view2)}`);
-  const repo = JSON.parse(view2.stdout);
-  const branch = repo?.defaultBranchRef?.name;
-  if (!repo?.nameWithOwner || !branch) throw new Error("gh repo view named no default branch");
-  const found = await run("gh", ["api", `repos/${repo.nameWithOwner}/compare/${from ?? branch}...${to ?? branch}`, "--jq", "{status: .status, merge_base: .merge_base_commit.sha}"], opts);
+  const { repo, branch } = await pinnedGithubRepo(repoDir, (args) => run("gh", args, opts));
+  const found = await run("gh", ["api", `repos/${repo}/compare/${from ?? branch}...${to ?? branch}`, "--jq", "{status: .status, merge_base: .merge_base_commit.sha}"], opts);
   if (found.code !== 0) throw new Error(`gh compare failed: ${first(found)}`);
   return JSON.parse(found.stdout);
 }
@@ -53107,7 +53125,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "eb8d725fd8567712b16fcba5275e960949070ba09928877a4c8ede8c2a69d14a",
+  sourceFingerprint: false ? null : "b62418976fd4d4030c515610a92ca7f2dffd50d66623d7455d6d2a7e54fe7953",
   version: false ? null : "0.11.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

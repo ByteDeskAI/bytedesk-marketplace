@@ -447,6 +447,86 @@ If your harness gates commands by name, pair this with a permission rule for the
 themselves (next section). The delegation record is what makes running them without `--authorized`
 safe; a harness-level rule is what lets the lead run them without a prompt.
 
+### The repository lead's lifetime authority (TM-263, ADR-0027)
+
+The repository's own lead can record landings, and can integrate under a server-side policy,
+without a plan grant. This applies only to the lead that `findLead` returns for this repository
+(the one agent with `role: "lead"`). The caller must be proven to BE that lead with the same proof
+a grant needs: its live tmux pane is census-bound to the lead, and the lead's pane process is an
+ancestor of the calling process. Setting `AO_AGENT_ID` or `TMUX_PANE` is not enough. A dispatched
+worker (`TM_DISPATCH_WORKER`), a worker's pane, and any agent that is not the lead are refused.
+
+**Recording a landing never needs a grant.** `manage record-landing` from the proven lead needs no
+grant and no `--authorized`, and passing `--authorized` or `--actor` there is still refused as
+self-assertion. Every other landing check stays, and two are added for this path:
+
+- the task's review verdict is `approve`, at the exact finish revision; and
+- the server confirms the landed commit is on its default branch (`gh api
+  repos/<owner>/<repo>/compare/<landed>...<default>` answers `ahead` or `identical`). If the
+  server cannot answer, the lead path refuses with `TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY`, and a
+  plan grant is required as before;
+- when the server's `management.lead_autonomy` policy exists, the lead it names must be the lead
+  `findLead` returned. Otherwise the call is refused with `TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY`.
+
+`findLead` reads local agent files, which a same-user session can edit to re-role itself as
+lead. With a server policy, the policy's `lead` field overrides that. With no server policy, the
+local answer stands, and the damage is bounded: the landing must already be on the server's
+default branch, with an approving review at the finish revision.
+
+The record carries `authorization.channel: "repository-lead"`, `authorization.adr: "ADR-0027"`
+and `authorization.actor` set to the lead's id. A live grant covering the task still takes
+precedence and is recorded as before; a grant whose plan misses the task no longer blocks the lead.
+
+**Integrate under the lead-autonomy policy.** `manage integrate` accepts the lead without a grant
+when the repository's `management.lead_autonomy` policy **on the server's default branch** names
+this lead and lists the `integrate` scope. For example:
+
+```json
+"lead_autonomy": { "lead": "fd2b831f", "authorized_by": "Ryan Helms", "adr": "ADR-0027",
+                   "scopes": ["integrate", "record-landing"], "granted_at": "2026-09-28" }
+```
+
+Integrate reads the policy from the pinned repository (below) with `gh api
+repos/<owner>/<repo>/contents/.bytedesk/agent-orchestration/config.json?ref=<default>`. It never
+reads it from the local file, because any same-user session can edit that. If gh, the network, the
+file or the key is unavailable or malformed, there is no policy, and a grant is required. The
+policy authorizes only the lead id it names, only when that id is this repository's lead and the
+caller is proven to be it. All other integrate guardrails are unchanged: the plan-independent
+eligibility checks, the approved head, green CI, an approving review, mergeability, the base
+branch and the exact `gh pr merge <n> --merge --match-head-commit <sha>` argv. The record carries
+`authorization.channel: "lead-autonomy-policy"` and `authorization.policy` with `adr`,
+`authorized_by` and `source: "server-default-branch"`. Grants keep working as before, for any lead.
+
+**The GitHub repository is pinned.** `gh repo view` resolves the repository from the checkout's
+remotes and gh's default, and a same-user process can repoint either at a repository it controls.
+So the first successful resolution is recorded in host state at
+`<stateRoot>/repositories/<repoKey>.github.json`, and every later resolution must agree with it
+(GitHub names compare case-insensitively). When they disagree, the lead-autonomy policy is treated
+as absent (grant required), `manage integrate` refuses with the named condition `repository`, and
+the server compare used by record-landing and the reviewer range (TM-257) fails. Every later `gh`
+call names the pinned repository: `--repo <owner>/<repo>` on `gh pr`, and the name in the `gh api`
+path. If the move is intended, the operator deletes the pin file. The pin is trust-on-first-use
+host state, so a same-user process can still edit it.
+
+**How to revoke it.** Remove `management.lead_autonomy` from `.bytedesk/agent-orchestration/config.json`
+on the default branch, through a reviewed pull request. Integrate then needs a grant again on its
+next run. Removing the policy does not revoke record-landing: that authority follows from ADR-0027
+itself. To withdraw it, demote the lead or supersede ADR-0027 and change the code.
+
+**What this no longer protects against.** Before ADR-0027, every landing waited on operator intent
+for a specific plan. Now:
+
+- A compromised or misbehaving lead session can merge any reviewed, green, mergeable PR in this
+  repository, and record any landing the server already has. Per-plan operator approval no longer
+  limits which tasks it may land.
+- The policy's integrity rests on the default branch: branch protection and PR review on the
+  config file are the control. Someone who can push to the default branch can grant the policy.
+- The same-user limit of the pane proof still applies: code injected into the lead's process tree,
+  or a command typed into the lead's pane, passes as the lead. A process as this user can also
+  replace `gh`.
+
+The backstop is the independent reviewer's verdict, CI, and GitHub branch protection.
+
 ### Permission rules for the lead
 
 Claude Code's auto mode can refuse a lead running `manage record-landing` or `manage admit` as

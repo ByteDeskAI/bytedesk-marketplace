@@ -132,6 +132,10 @@ Standing repository services
                                                --match-head-commit <approved sha>), refusing by name
                                                unless plan, base, head, ci, review and mergeable hold,
                                                then records the landing and closes the task.
+                                               ADR-0027: the repository's own lead, proven by pane
+                                               ancestry, records landings with no grant, and
+                                               integrates with no grant when management.lead_autonomy
+                                               on the SERVER default branch names it (integrate scope).
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
@@ -153,7 +157,7 @@ function out(value) {
 
 /** TM-243: one line per governed verb, so a lead never pipes JSON to jq (a pipe defeats rule matching). */
 function manageSummary(verb, task, r) {
-  const auth = a => a ? ` by ${a.actor}${a.delegation_id ? ` (delegation ${a.delegation_id} from ${a.delegated_by})` : ''}` : '';
+  const auth = a => a ? ` by ${a.actor}${a.delegation_id ? ` (delegation ${a.delegation_id} from ${a.delegated_by})` : ['repository-lead', 'lead-autonomy-policy'].includes(a.channel) ? ` (${a.channel}, ${a.adr || a.policy?.adr})` : ''}` : '';
   switch (verb) {
     case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
     case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
