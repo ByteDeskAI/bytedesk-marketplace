@@ -261,10 +261,31 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
 
 // These are host-local mailbox views, not an authorization boundary. API/CLI
 // callers must establish the current agent identity before returning bodies.
-export async function readStandingInbox({ consumer, agent, ...options }) {
+export async function readStandingInbox({ consumer, agent, transport = null, env = process.env, ...options }) {
   invariant(agent, 'TOPOLOGY_AGENT_REQUIRED', 'Inbox requires an agent.');
+  const { resolveTransport, orchName } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const active = transport ?? options.transport ?? await resolveTransport({ env: options.env ?? env });
+  if (active.kind === 'nats') {
+    const repo = repoKey((await canonicalRepoId(consumer)).id);
+    const messages = [];
+    for (let i = 0; i < 100; i += 1) {
+      const mail = await active.pullMail({ repo, agent: orchName(agent), timeoutMs: 1000 });
+      if (!mail) break;
+      await mail.ack();
+      messages.push({
+        status: 'delivered',
+        delivered_to: agent,
+        subject: mail.subject,
+        transport: 'nats',
+        envelope: { id: mail.messageId, body: mail.body, to: agent },
+        body: mail.body,
+      });
+    }
+    return messages;
+  }
   const identity = await canonicalRepoId(consumer);
-  return (await records(options)).filter(r => r.status === 'delivered' && r.envelope.destinationRepoId === identity.id && r.delivered_to === agent);
+  return (await records({ ...options, env: options.env ?? env })).filter(r => r.status === 'delivered' && r.envelope.destinationRepoId === identity.id && r.delivered_to === agent);
 }
 export async function readStandingOutbox({ consumer, agent, ...options }) {
   invariant(agent, 'TOPOLOGY_AGENT_REQUIRED', 'Outbox requires an agent.');

@@ -9,7 +9,7 @@ import { MAX_HOPS, hopExceeded, isAssignmentStage, nextVia, sameProject } from "
 import { agentDirs, findLead } from "./agents.mjs";
 import { withLock } from "./lockfile.mjs";
 import { publishTopologyWorkflow } from './discovery.mjs';
-import { repoKey } from './repoid.mjs';
+import { canonicalRepoId, repoKey } from './repoid.mjs';
 import { orchName, resolveTransport } from './orch-transport.mjs';
 
 export const RUN_FILE = "run.json";
@@ -350,7 +350,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       : "";
     const instructions = `\n\n<!-- Write your complete reply to: ${outbox} -->\n`;
     const rendered = `${header}${redirectNote}\n${body.trim()}\n${instructions}`;
-    const repo = repoKey(destination);
+    const repo = repoKey((await canonicalRepoId(destination)).id);
     const published = await activeTransport.publishMail({
       repo,
       agent: orchName(recipient),

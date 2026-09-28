@@ -222,6 +222,51 @@ const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record)
 export const PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 20_000);
 export const PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
 
+const reviewerListeners = new Set();
+
+/** The reviewer process answers probe requests on its orch subject. */
+export async function listenForReviewer({ consumer, record, env = process.env, transport = null }) {
+  if (!record?.agent_id) return { listening: false };
+  const { resolveTransport, orchName } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const active = transport ?? await resolveTransport({ env });
+  if (active.kind !== 'nats') return { listening: false, transport: active.kind };
+  const repo = repoKey(record.repo_id || (await canonicalRepoId(consumer)).id);
+  const agent = orchName(record.agent_id);
+  const key = `${repo}:${agent}`;
+  if (reviewerListeners.has(key)) return { listening: true, already: true, transport: 'nats' };
+  await active.serveProbe({
+    repo,
+    agent,
+    handler: async (body) => {
+      let parsed = {};
+      try { parsed = JSON.parse(body); } catch { parsed = { nonce: String(body) }; }
+      if (parsed.agent_id && parsed.agent_id !== record.agent_id) return '';
+      return `AO_REVIEWER_READY ${parsed.nonce}`;
+    },
+  });
+  reviewerListeners.add(key);
+  return { listening: true, transport: 'nats', subject: `orch.${repo}.probe.${agent}` };
+}
+
+/** Publish one reviewer verdict on its orch subject. The collector reads that subject. */
+export async function publishReviewerVerdict({ consumer, repo, nonce, verdict, env = process.env, transport = null }) {
+  const { resolveTransport, publishReviewVerdict } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const active = transport ?? await resolveTransport({ env });
+  const name = repo || repoKey((await canonicalRepoId(consumer)).id);
+  return publishReviewVerdict({ repo: name, nonce, verdict, transport: active, env });
+}
+
+/** Wait for the verdict the reviewer published. collectReview uses this on the NATS path. */
+export async function awaitReviewerVerdict({ consumer, repo, nonce, timeoutMs = 2000, env = process.env, transport = null }) {
+  const { resolveTransport } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const active = transport ?? await resolveTransport({ env });
+  const name = repo || repoKey((await canonicalRepoId(consumer)).id);
+  return active.beginVerdictWait({ repo: name, nonce, timeoutMs });
+}
+
 export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive = bindingAlive, readOnly = false, transport = null }) {
   if (!record?.agent_id || !incarnationOf(record.binding) || !await alive(record)) return false;
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
@@ -523,6 +568,7 @@ export async function reviewerStanding({ consumer, env = process.env, home = hom
   if (!(await session.alive(record.session, record))) {
     return { registered: true, alive: false, responsive: false, record, reason: `reviewer session ${record.session} is not running — restart it before requesting a review` };
   }
+  await listenForReviewer({ consumer, record, env });
   const responsive = probes?.responsive
     ? await probes.responsive(record)
     : await reviewerProbeReady({ consumer, record, env, home, readOnly });
@@ -1216,10 +1262,9 @@ export async function collectReview({ consumer, task, revision, env = process.en
   }
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
   const { resolveTransport } = await import('./orch-transport.mjs');
-  const { repoKey } = await import('./repoid.mjs');
   const activeTransport = transport ?? await resolveTransport({ env });
   if (activeTransport.kind === 'nats') {
-    const wait = await activeTransport.beginVerdictWait({ repo: repoKey(record.repo_id), nonce: request.nonce, timeoutMs: 2000 });
+    const wait = await awaitReviewerVerdict({ consumer, repo: repoKey(record.repo_id), nonce: request.nonce, timeoutMs: 2000, env, transport: activeTransport });
     const received = await wait.received;
     const response = JSON.parse(received.body);
     const review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare });

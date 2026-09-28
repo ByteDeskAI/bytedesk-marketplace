@@ -14,6 +14,7 @@
 
 - Load the NATS client only when the NATS transport opens, so a copied plugin tree that still uses the file double does not fail on a missing `nats` package.
 - Refresh the roadmap source hash for `src/mcp.mjs` after the 0.11.0 version string change.
+- `ao-topology mailbox inbox` reads NATS mail for the agent. The reviewer listens for probes and publishes verdicts on the orch subject; collection reads that subject.
 
 ## [0.10.0] — 2026-09-22
 

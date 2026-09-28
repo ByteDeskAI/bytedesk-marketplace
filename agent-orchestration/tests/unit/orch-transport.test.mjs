@@ -9,15 +9,16 @@ import net from 'node:net';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { repoKey } from '../../topology/lib/repoid.mjs';
+import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { sendMessage } from '../../topology/lib/mailbox.mjs';
+import { readStandingInbox } from '../../topology/lib/standing-mailbox.mjs';
+import { awaitReviewerVerdict, listenForReviewer, publishReviewerVerdict, reviewerProbeReady } from '../../topology/lib/reviewer.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
 import {
   ORCH_LAYOUT,
   closeLiveTransports,
   createFileTransport,
   openNatsTransport,
-  publishReviewVerdict,
   transportMode,
 } from '../../topology/lib/orch-transport.mjs';
 
@@ -134,7 +135,8 @@ test('file transport drops acked mail and verdict timers', async () => {
 
 async function threeCases(transport, label) {
   const runDir = await fakeRun();
-  const repo = repoKey(runDir);
+  const repo = repoKey((await canonicalRepoId(runDir)).id);
+  const env = { AO_TRANSPORT: 'nats', AO_NATS_URL: transport.nc.getServer() };
   try {
     const message = await sendMessage({
       runDir,
@@ -144,49 +146,55 @@ async function threeCases(transport, label) {
       stage: 'brief',
       body: `case-mail-${label}`,
       transport,
-      env: { AO_TRANSPORT: 'nats' },
+      env,
     });
     assert.equal(message.deliveries[0].transport, 'nats');
     assert.equal(message.deliveries[0].inbox, null);
-    await assert.rejects(stat(join(runDir, 'agents', 'agent-b', 'inbox', '001-brief.md')), { code: 'ENOENT' });
-    const mail = await transport.pullMail({ repo, agent: 'agent-b', timeoutMs: 2000 });
-    assert.ok(mail, 'mail was not waiting on the NATS subject');
-    assert.match(mail.body, new RegExp(`case-mail-${label}`));
-    assert.equal(mail.subject, ORCH_LAYOUT.mailSubject(repo, 'agent-b'));
-    console.log(`CASE mail subject=${mail.subject} bucket=${ORCH_LAYOUT.mailStream} fileInboxRead=false body=${label}`);
-    await mail.ack();
+    const inboxFile = join(runDir, 'agents', 'agent-b', 'inbox', '001-brief.md');
+    await assert.rejects(stat(inboxFile), { code: 'ENOENT' });
+    const inbox = await readStandingInbox({ consumer: runDir, agent: 'agent-b', transport, env });
+    assert.equal(inbox.length, 1);
+    assert.equal(inbox[0].transport, 'nats');
+    assert.match(inbox[0].body, new RegExp(`case-mail-${label}`));
+    assert.equal(inbox[0].subject, ORCH_LAYOUT.mailSubject(repo, 'agent-b'));
+    await assert.rejects(stat(inboxFile), { code: 'ENOENT' });
+    console.log(`CASE mail subject=${inbox[0].subject} bucket=${ORCH_LAYOUT.mailStream} body=${label}`);
 
-    const claim = await transport.compareAndSetClaim({
-      repo,
-      task: 'TM-1',
-      body: { holder: 'agent-a', ts: new Date().toISOString() },
-      expectedRevision: 0,
+    const record = {
+      agent_id: 'reviewer-1',
+      repo_id: (await canonicalRepoId(runDir)).id,
+      session: 'review-session',
+      binding: { serverKey: '/tmp/sock', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 },
+    };
+    const listening = await listenForReviewer({ consumer: runDir, record, env, transport });
+    assert.equal(listening.listening, true);
+    const ready = await reviewerProbeReady({
+      consumer: runDir,
+      record,
+      env,
+      transport,
+      timeoutMs: 2000,
+      alive: async () => true,
+      wake: async () => ({ rang: false }),
+      output: async () => '',
     });
-    console.log(`CASE claim bucket=${claim.bucket} key=${claim.key} revision=${claim.revision}`);
-    await assert.rejects(
-      transport.compareAndSetClaim({ repo, task: 'TM-1', body: { holder: 'other' }, expectedRevision: 0 }),
-      { code: 'TOPOLOGY_CLAIM_CONFLICT' },
-    );
-    const probe = await transport.serveProbe({ repo, agent: 'agent-b', handler: async (body) => `probe:${body}` });
-    const roundTrip = await transport.requestProbe({ repo, agent: 'agent-b', body: 'ping', timeoutMs: 2000 });
-    assert.equal(roundTrip.subject, probe.subject);
-    assert.equal(roundTrip.body, 'probe:ping');
-    console.log(`CASE probe subject=${roundTrip.subject}`);
-    probe.stop();
+    assert.equal(ready, true);
+    console.log(`CASE probe subject=${listening.subject}`);
 
     const nonce = `nonce-${label}`;
-    const waiting = await transport.beginVerdictWait({ repo, nonce, timeoutMs: 3000 });
-    const published = await publishReviewVerdict({
+    const waiting = await awaitReviewerVerdict({ repo, nonce, timeoutMs: 3000, transport, env });
+    const published = await publishReviewerVerdict({
       repo,
       nonce,
       verdict: { verdict: 'approve', findings: [] },
       transport,
+      env,
     });
     const verdict = await waiting.received;
     assert.equal(published.subject, ORCH_LAYOUT.verdictSubject(repo, nonce));
     assert.equal(verdict.subject, published.subject);
     assert.match(verdict.body, /approve/);
-    console.log(`CASE verdict subject=${verdict.subject} fileInboxRead=false`);
+    console.log(`CASE verdict subject=${verdict.subject}`);
   } finally {
     await rm(runDir, { recursive: true, force: true });
   }
@@ -211,7 +219,7 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
     try {
       const held = await second.pullMail({ repo: 'gaprepo', agent: 'agent-b', timeoutMs: 2000 });
       assert.equal(held?.body, 'held-across-close');
-      console.log(`CASE gap subject=${held.subject} fileInboxRead=false`);
+      console.log(`CASE gap subject=${held.subject}`);
       await held.ack();
     } finally {
       await second.close();

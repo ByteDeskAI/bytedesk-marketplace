@@ -456,6 +456,34 @@ const commands = {
     fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume.');
     } finally { await closeLiveTransports(); }
   },
+  async review({ flags, positional }) {
+    const sub = positional[0];
+    const ctx = context(flags);
+    const { publishReviewerVerdict, listenForReviewer, readReviewerRecord } = await import('./lib/reviewer.mjs');
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    try {
+      if (sub === 'publish') {
+        const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
+        invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --verdict <approve|changes_requested|blocked>.');
+        const verdict = flags.verdict && flags.verdict !== true ? String(flags.verdict) : 'approve';
+        const published = await publishReviewerVerdict({
+          consumer: ctx.consumer,
+          nonce,
+          verdict: { verdict, findings: [] },
+          env: process.env,
+          transport,
+        });
+        return out({ ok: true, subject: published.subject, nonce, transport: transport.kind });
+      }
+      if (sub === 'listen') {
+        const record = await readReviewerRecord(ctx.consumer, process.env);
+        invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer.');
+        return out(await listenForReviewer({ consumer: ctx.consumer, record, env: process.env, transport }));
+      }
+      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review publish|listen.');
+    } finally { await closeLiveTransports(); }
+  },
   async enrollment({ flags, positional }) {
     const sub = positional[0];
     invariant(sub === 'request' || sub === 'ack', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use enrollment request|ack.');
