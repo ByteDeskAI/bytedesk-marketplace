@@ -24941,7 +24941,10 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
     connect,
     credsAuthenticator,
     nanos
-  } = await Promise.resolve().then(() => __toESM(require_nats2(), 1));
+  } = await Promise.resolve().then(() => __toESM(require_nats2(), 1)).catch((error51) => {
+    if (error51?.code !== "ERR_MODULE_NOT_FOUND") throw error51;
+    return fail2("TOPOLOGY_NATS_UNAVAILABLE", "NATS is the selected transport but the nats client package is not installed in this plugin tree. Run npm ci in the plugin, or set AO_TRANSPORT=file for the file double.");
+  });
   const sc = StringCodec();
   const url2 = servers || env.AO_NATS_URL || env.NATS_URL || "";
   let bridge = null;
@@ -69565,7 +69568,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "e2d2fa19ee8c5fd1ef84bde5e906331f60f6b330e1d925874b54b979d5a5e4d6",
+  sourceFingerprint: false ? null : "c7a9da7ac4c8dbf7ebeaa4c49039ec1c8876a8ff97aab25db8073ec6b632d6b7",
   version: false ? null : "0.11.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

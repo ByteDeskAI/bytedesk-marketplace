@@ -37,7 +37,7 @@ async function fixture(t, label, { enrolled }) {
   const repo = join(root, 'repo'), home = join(root, 'home'), tmuxTmp = join(root, 't'), socket = join(root, 's');
   await mkdir(tmuxTmp, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxTmp, HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
-    AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+    AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file' };
   for (const key of ['AO_TMUX_COMMAND', 'AO_AGENT_ID', 'AO_SESSION', 'AO_CONSUMER', 'AO_LEAD_ID']) delete env[key];
   await exec('git', ['init', '-q', repo]);
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);

@@ -349,7 +349,11 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     connect,
     credsAuthenticator,
     nanos,
-  } = await import('nats');
+  } = await import('nats').catch((error) => {
+    // The dist bundles inline nats; the unbundled topology in a copied plugin tree has no node_modules.
+    if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+    return fail('TOPOLOGY_NATS_UNAVAILABLE', 'NATS is the selected transport but the nats client package is not installed in this plugin tree. Run npm ci in the plugin, or set AO_TRANSPORT=file for the file double.');
+  });
   const sc = StringCodec();
   const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
   let bridge = null;
