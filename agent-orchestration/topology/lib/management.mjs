@@ -10,7 +10,7 @@ import { loadConfig } from './config.mjs';
 import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
-import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
 import { githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
@@ -471,11 +471,12 @@ export const LEAD_POLICY_PATH = '.bytedesk/agent-orchestration/config.json';
 /** TM-263: management.lead_autonomy as committed on the SERVER's default branch, read through gh like
  * the TM-258 server anchor; never the local file, which any same-user session can edit. Returns null
  * when gh, the network, the file or the key is unavailable or malformed: no policy, so a grant is
- * required exactly as before. Same-uid limit as githubCompare: a process as this user can replace gh. */
-export async function serverLeadAutonomy(gh) {
-  const view = await ghJson(gh, ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef']);
-  const repo = view.value?.nameWithOwner, branch = view.value?.defaultBranchRef?.name;
-  if (view.code !== 0 || !nonempty(repo) || !nonempty(branch)) return null;
+ * required exactly as before. The server is the PINNED repository (pinnedGithubRepo): a repointed remote
+ * or gh default is refused, so the policy is null. Same-uid limit as githubCompare: a process as this
+ * user can replace gh. */
+export async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = homedir() } = {}) {
+  let repo, branch;
+  try { ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch { return null; }
   const file = await ghJson(gh, ['api', `repos/${repo}/contents/${LEAD_POLICY_PATH}?ref=${encodeURIComponent(branch)}`]);
   if (file.code !== 0 || typeof file.value?.content !== 'string') return null;
   try {
@@ -490,7 +491,7 @@ export async function serverLeadAutonomy(gh) {
 async function leadAutonomy(options, ctx, scope) {
   const caller = ctx.env.AO_AGENT_ID;
   if (!nonempty(caller)) return null;
-  const policy = await serverLeadAutonomy(options.gh || defaultGh(ctx.store.root));
+  const policy = await serverLeadAutonomy(options.gh || defaultGh(ctx.store.root), ctx.store.root, ctx);
   if (policy?.lead !== caller || !policy.scopes.includes(scope)) return null;
   const lead = await requireLeadCaller({ consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc });
   if (lead !== caller) return null; // the policy names an agent that is not this repository's lead
@@ -606,8 +607,8 @@ const ghFailure = (what, r) => `${what} failed (exit ${r.code})${r.error ? `: ${
 /** CI rule: every reported check passes. `skipping` is allowed only for a check gh does not list
  * under --required; if the required set cannot be read, every check counts as required. No checks
  * at all, or none passing, is refused: an empty list must never read as green. */
-async function ciStatus(gh, number) {
-  const fields = ['--json', 'name,state,bucket'];
+async function ciStatus(gh, repo, number) {
+  const fields = ['--repo', repo, '--json', 'name,state,bucket'];
   const all = await ghJson(gh, ['pr', 'checks', String(number), ...fields]);
   if (!Array.isArray(all.value)) return { refusal: ghFailure(`gh pr checks #${number}`, all) };
   if (!all.value.length) return { refusal: `no CI checks are reported for PR #${number}` };
@@ -684,9 +685,11 @@ async function integrateViaPullRequest(options, ctx) {
   const refuse = (condition, reason) => refusals.push({ condition, reason });
   const revision = record?.finish?.revision, approved = gate.review?.status?.review;
   if (gate.review && approved?.verdict !== 'approve') refuse('review', `review verdict is ${approved?.verdict ?? 'missing'}, not approve`);
-  let pr = null, ci = null;
-  if (doc?.branch) {
-    const listed = await ghJson(gh, ['pr', 'list', '--head', doc.branch, '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable']);
+  let pr = null, ci = null, repo = null;
+  // TM-263: every PR call names the pinned repository; a repointed remote or gh default refuses here.
+  try { ({ repo } = await pinnedGithubRepo(ctx.store.root, gh, ctx)); } catch (error) { refuse('repository', error.message); }
+  if (doc?.branch && repo) {
+    const listed = await ghJson(gh, ['pr', 'list', '--repo', repo, '--head', doc.branch, '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable']);
     if (!Array.isArray(listed.value)) refuse('pr', ghFailure('gh pr list', listed));
     else {
       const open = listed.value.filter(p => p.state === 'OPEN');
@@ -703,7 +706,7 @@ async function integrateViaPullRequest(options, ctx) {
     if (revision && pr.headRefOid !== revision) refuse('head', `${at}, not the task's recorded finish revision ${revision}`);
     if (!merged) {
       if (pr.mergeable !== 'MERGEABLE') refuse('mergeable', `PR #${pr.number} is ${pr.mergeable || 'UNKNOWN'}, not MERGEABLE`);
-      ci = await ciStatus(gh, pr.number);
+      ci = await ciStatus(gh, repo, pr.number);
       if (ci.refusal) refuse('ci', ci.refusal);
     }
     if (revision && nonempty(policy.target_branch)) {
@@ -716,12 +719,12 @@ async function integrateViaPullRequest(options, ctx) {
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
     // The only merge this verb performs. Exactly these flags; nothing forces, bypasses or defers.
-    const result = await gh(['pr', 'merge', String(pr.number), '--merge', '--match-head-commit', revision]);
+    const result = await gh(['pr', 'merge', String(pr.number), '--repo', repo, '--merge', '--match-head-commit', revision]);
     invariant(result.code === 0, 'TOPOLOGY_INTEGRATE_MERGE_FAILED', `gh pr merge #${pr.number} failed (exit ${result.code}); nothing was recorded: ${(result.stderr || result.stdout || '').trim()}`, { pull_request: pr.number, merged: false });
   }
   let next;
   try {
-    const view = await ghJson(gh, ['pr', 'view', String(pr.number), '--json', 'state,headRefOid,baseRefName,mergeCommit']);
+    const view = await ghJson(gh, ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'state,headRefOid,baseRefName,mergeCommit']);
     const v = view.value;
     invariant(v?.state === 'MERGED' && v.headRefOid === revision && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${revision} into ${policy.target_branch}` : ghFailure('gh pr view', view));
     const landed = v.mergeCommit.oid;
@@ -788,6 +791,10 @@ export async function recordLanding(options) {
       try { server = await (options.serverCompare || githubCompare)(ctx.store.root, landed, null); }
       catch (error) { fail('TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing by the repository lead ${lead} needs the server to confirm ${landed} is on its default branch, and it could not answer (${error.message}); without that, a plan grant is required.`); }
       invariant(server?.status === 'ahead' || server?.status === 'identical', 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the server's default branch (compare says ${server?.status ?? 'nothing'}); the repository lead records only a landing the server already has.`);
+      // findLead reads local agent files a same-user session can edit. When the server's lead_autonomy
+      // policy names the lead, that name wins; with no server policy, findLead's answer stands (documented bound).
+      const named = (await serverLeadAutonomy(options.gh || defaultGh(ctx.store.root), ctx.store.root, ctx))?.lead;
+      invariant(!named || named === lead, 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', `record-landing refused: the server's lead_autonomy policy names ${named} as this repository's lead, not ${lead}.`);
     }
     const authorization = { decision: 'integrate', actor: actor.trim(), authorized, explicit: options.authorized === true, revision, channel: lead && !delegation ? 'repository-lead' : 'recorded-landing', ...(lead && !delegation ? { adr: 'ADR-0027' } : {}), reason: reason.trim(), policy_auto_merge: policy.auto_merge === true,
       ...(delegation ? { delegated_by: delegation.grantor, delegation_id: delegation.id, plan: delegation.plan } : {}), at: nowIso() };

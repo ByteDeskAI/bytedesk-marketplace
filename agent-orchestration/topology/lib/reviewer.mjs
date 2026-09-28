@@ -45,7 +45,7 @@ import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt, protocolOutputLine } from "./prompt-lifecycle.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
-import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
+import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from "./repoid.mjs";
 import * as tmux from "./tmux.mjs";
 import { AO_HOME, exists, fail, invariant, TopologyError, nowIso, readJson, run, sleep, writeJson, writeText } from "./util.mjs";
 
@@ -712,12 +712,9 @@ const COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 export async function githubCompare(repoDir, from, to) {
   const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 10_000 };
   const first = result => (result.stderr || result.stdout || `exit ${result.code}`).trim().split('\n')[0];
-  const view = await run('gh', ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], opts);
-  if (view.code !== 0) throw new Error(`gh repo view failed: ${first(view)}`);
-  const repo = JSON.parse(view.stdout);
-  const branch = repo?.defaultBranchRef?.name;
-  if (!repo?.nameWithOwner || !branch) throw new Error('gh repo view named no default branch');
-  const found = await run('gh', ['api', `repos/${repo.nameWithOwner}/compare/${from ?? branch}...${to ?? branch}`, '--jq', '{status: .status, merge_base: .merge_base_commit.sha}'], opts);
+  // TM-263: the repository is the pinned one, so a repointed remote or gh default is refused, not followed.
+  const { repo, branch } = await pinnedGithubRepo(repoDir, args => run('gh', args, opts));
+  const found = await run('gh', ['api', `repos/${repo}/compare/${from ?? branch}...${to ?? branch}`, '--jq', '{status: .status, merge_base: .merge_base_commit.sha}'], opts);
   if (found.code !== 0) throw new Error(`gh compare failed: ${first(found)}`);
   return JSON.parse(found.stdout);
 }

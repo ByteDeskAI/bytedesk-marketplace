@@ -464,7 +464,14 @@ self-assertion. Every other landing check stays, and two are added for this path
 - the server confirms the landed commit is on its default branch (`gh api
   repos/<owner>/<repo>/compare/<landed>...<default>` answers `ahead` or `identical`). If the
   server cannot answer, the lead path refuses with `TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY`, and a
-  plan grant is required as before.
+  plan grant is required as before;
+- when the server's `management.lead_autonomy` policy exists, the lead it names must be the lead
+  `findLead` returned. Otherwise the call is refused with `TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY`.
+
+`findLead` reads local agent files, which a same-user session can edit to re-role itself as
+lead. With a server policy, the policy's `lead` field overrides that. With no server policy, the
+local answer stands, and the damage is bounded: the landing must already be on the server's
+default branch, with an approving review at the finish revision.
 
 The record carries `authorization.channel: "repository-lead"`, `authorization.adr: "ADR-0027"`
 and `authorization.actor` set to the lead's id. A live grant covering the task still takes
@@ -479,7 +486,7 @@ this lead and lists the `integrate` scope. For example:
                    "scopes": ["integrate", "record-landing"], "granted_at": "2026-09-28" }
 ```
 
-Integrate reads the policy with `gh repo view` and `gh api
+Integrate reads the policy from the pinned repository (below) with `gh api
 repos/<owner>/<repo>/contents/.bytedesk/agent-orchestration/config.json?ref=<default>`. It never
 reads it from the local file, because any same-user session can edit that. If gh, the network, the
 file or the key is unavailable or malformed, there is no policy, and a grant is required. The
@@ -489,6 +496,17 @@ eligibility checks, the approved head, green CI, an approving review, mergeabili
 branch and the exact `gh pr merge <n> --merge --match-head-commit <sha>` argv. The record carries
 `authorization.channel: "lead-autonomy-policy"` and `authorization.policy` with `adr`,
 `authorized_by` and `source: "server-default-branch"`. Grants keep working as before, for any lead.
+
+**The GitHub repository is pinned.** `gh repo view` resolves the repository from the checkout's
+remotes and gh's default, and a same-user process can repoint either at a repository it controls.
+So the first successful resolution is recorded in host state at
+`<stateRoot>/repositories/<repoKey>.github.json`, and every later resolution must agree with it
+(GitHub names compare case-insensitively). When they disagree, the lead-autonomy policy is treated
+as absent (grant required), `manage integrate` refuses with the named condition `repository`, and
+the server compare used by record-landing and the reviewer range (TM-257) fails. Every later `gh`
+call names the pinned repository: `--repo <owner>/<repo>` on `gh pr`, and the name in the `gh api`
+path. If the move is intended, the operator deletes the pin file. The pin is trust-on-first-use
+host state, so a same-user process can still edit it.
 
 **How to revoke it.** Remove `management.lead_autonomy` from `.bytedesk/agent-orchestration/config.json`
 on the default branch, through a reviewed pull request. Integrate then needs a grant again on its

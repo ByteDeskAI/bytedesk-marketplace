@@ -61,6 +61,12 @@
   server fails closed to grant-required. Workers and non-lead agents stay refused. Revoke the
   integrate policy by removing it from the default branch. This no longer protects against a
   compromised lead merging any reviewed, green PR; see `docs/repository-leads.md`.
+  After review, the GitHub repository is pinned in host state
+  (`<stateRoot>/repositories/<repoKey>.github.json`) on first resolution. A later `gh repo view`
+  that disagrees (a repointed remote or gh default) drops lead autonomy to grant-required, refuses
+  integrate with the named condition `repository`, and fails the TM-257/TM-263 server compare.
+  Every later `gh` call passes `--repo <pinned>` or names it in the `gh api` path. Record-landing
+  by the lead is also refused when the server's `lead_autonomy` policy names a different lead.
 
 - **`manage integrate` merges the task's pull request itself, behind its own guardrails
   (TM-249, ADR-0022).** With `management.integrate_via: "pull-request"`, integrate runs

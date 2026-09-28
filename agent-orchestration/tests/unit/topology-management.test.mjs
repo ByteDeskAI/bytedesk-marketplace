@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { run, writeJson } from '../../topology/lib/util.mjs';
+import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
+import { canonicalRepoId, pinnedGithubRepo, repoKey } from '../../topology/lib/repoid.mjs';
 import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
@@ -118,7 +119,7 @@ test('actual tm CLI provisions once, records worker claim, and enforces start be
   const doc = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout);
   assert.equal(doc.status, 'in_progress');
   assert.equal(doc.worktree, first.record.worktree);
-  const { readJson } = await import('../../topology/lib/util.mjs');
+
   const state = await readJson(join(opts.consumer, '.bytedesk/task-management/state.json'));
   assert.equal(state.claims['TM-001'].session, 'author');
   assert.equal(state.claims['TM-001'].worktree, doc.worktree);
@@ -618,7 +619,7 @@ test('a corrupt delegations file makes eligibility false with a named reason ins
   const { opts, finish } = await fixture(t);
   await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
   await admitTask(opts); await finish();
-  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+
   await writeJson(join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'delegations', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.json`), [{ id: 'hand-written', type: 'grant', grantee: 'lead-1', scopes: ['integrate'] }]);
   const gate = await integrationEligibility(asCaller(opts, 'lead-1'));
   assert.equal(gate.eligible, false);
@@ -1056,7 +1057,7 @@ test('TM-248 frozen plan (c): a listed task moved out of the epic is still cover
 
 test('TM-248 frozen plan (d): a tampered plan.tasks or plan.sha256 is refused as TOPOLOGY_DELEGATION_INTEGRITY', async t => {
   const { opts, lead, landing, git } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-19', listed: ['TM-2'] });
-  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+
   const { readFile } = await import('node:fs/promises');
   const file = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'delegations', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.json`);
   const [grant] = JSON.parse(await readFile(file, 'utf8'));
@@ -1087,7 +1088,7 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
   await registerAgent(f.opts.consumer, 'lead-1');
   const granted = grant === null ? null : await planGrant(f.opts, grant);
   const pr = { number: 7, state: 'OPEN', baseRefName: 'main', headRefOid: revision, mergeable: 'MERGEABLE', ...prPatch };
-  const state = { pr, checks: checks || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }, { name: 'docs-only', state: 'SKIPPED', bucket: 'skipping' }], required: required || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }], argv: [], viewFails: false };
+  const state = { pr, checks: checks || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }, { name: 'docs-only', state: 'SKIPPED', bucket: 'skipping' }], required: required || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }], argv: [], viewFails: false, repo: 'o/r' };
   const mergeInOrigin = async head => {
     const tree = (await run('git', ['-C', origin, 'rev-parse', `${head}^{tree}`])).stdout.trim();
     const oid = (await run('git', ['-C', origin, ...IDENTITY, 'commit-tree', tree, '-p', 'main', '-p', head, '-m', `Merge pull request #${pr.number}`])).stdout.trim();
@@ -1098,7 +1099,9 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
   const gh = async args => {
     state.argv.push(args);
     const [noun, verb] = args;
+    if (noun === 'repo' && verb === 'view') return ok({ nameWithOwner: state.repo, defaultBranchRef: { name: 'main' } });
     if (noun !== 'pr') return { code: 1, stdout: '', stderr: 'unexpected' };
+    if (!args.includes('--repo') || args[args.indexOf('--repo') + 1] !== 'o/r') return { code: 1, stdout: '', stderr: `gh pr ${verb} without --repo o/r` };
     if (verb === 'list') return ok([pr]);
     if (verb === 'checks') return ok(args.includes('--required') ? state.required : state.checks);
     if (verb === 'merge') { await mergeInOrigin(pr.headRefOid); return { code: 0, stdout: '', stderr: '' }; }
@@ -1145,7 +1148,7 @@ test('TM-249 success: integrate merges the PR with exactly --merge --match-head-
     assert.equal(err.details.merged, true); assert.equal(err.details.recorded, true);
     return true;
   });
-  assert.deepEqual(merges(p.state), [['pr', 'merge', '7', '--merge', '--match-head-commit', p.revision]]);
+  assert.deepEqual(merges(p.state), [['pr', 'merge', '7', '--repo', 'o/r', '--merge', '--match-head-commit', p.revision]]);
   for (const argv of p.state.argv) for (const flag of ['--admin', '--squash', '--rebase', '--auto', '--force'])
     assert.ok(!argv.includes(flag), `gh was never given ${flag}: ${argv.join(' ')}`);
   assert.deepEqual(p.closed.accepted, [], 'integrate accepted no criterion on the task\'s behalf');
@@ -1364,7 +1367,7 @@ const withServer = (p, server) => async args => {
   if (args[0] !== 'repo' && args[0] !== 'api') return p.gh(args);
   p.state.argv.push(args);
   if (server.down) return { code: 1, stdout: '', stderr: 'error connecting to api.github.com' };
-  if (args[0] === 'repo') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
+  if (args[0] === 'repo') return { code: 0, stdout: JSON.stringify({ nameWithOwner: server.repo || 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
   if (args.join(' ') !== POLICY_API.join(' ')) return { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` };
   const content = Buffer.from(JSON.stringify({ management: { target_branch: 'main', ...(server.policy ? { lead_autonomy: server.policy } : {}) } })).toString('base64');
   return { code: 0, stdout: JSON.stringify({ content, encoding: 'base64' }), stderr: '' };
@@ -1374,12 +1377,16 @@ const policyTask = async (t, server, management = {}) => { const p = await prTas
 test('TM-263 (d) with the server policy naming the lead, integrate merges without a grant, with the exact gh argv, and records the policy and ADR', async t => {
   const p = await policyTask(t, { policy: LEAD_POLICY });
   const result = await integrateTask(p.lead);
+  const VIEW = ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'];
   assert.deepEqual(p.state.argv, [
-    ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], POLICY_API,
-    ['pr', 'list', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
-    ['pr', 'checks', '7', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--json', 'name,state,bucket'],
-    ['pr', 'merge', '7', '--merge', '--match-head-commit', p.revision],
-    ['pr', 'view', '7', '--json', 'state,headRefOid,baseRefName,mergeCommit']]);
+    VIEW, POLICY_API, VIEW,
+    ['pr', 'list', '--repo', 'o/r', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
+    ['pr', 'checks', '7', '--repo', 'o/r', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--repo', 'o/r', '--json', 'name,state,bucket'],
+    ['pr', 'merge', '7', '--repo', 'o/r', '--merge', '--match-head-commit', p.revision],
+    ['pr', 'view', '7', '--repo', 'o/r', '--json', 'state,headRefOid,baseRefName,mergeCommit']]);
+  // Only the resolution itself is unaddressed; every other call names the pinned repository.
+  for (const argv of p.state.argv.filter(a => a.join(' ') !== VIEW.join(' ')))
+    assert.ok(argv[0] === 'api' ? argv[1].startsWith('repos/o/r/') : argv[argv.indexOf('--repo') + 1] === 'o/r', `gh call not pinned to o/r: ${argv.join(' ')}`);
   const auth = result.merge.authorization;
   assert.deepEqual({ authorized: auth.authorized, channel: auth.channel, actor: auth.actor, policy: auth.policy, delegation_id: auth.delegation_id },
     { authorized: true, channel: 'lead-autonomy-policy', actor: 'lead-1', policy: { adr: 'ADR-0027', authorized_by: 'Ryan Helms', source: 'server-default-branch' }, delegation_id: undefined });
@@ -1424,4 +1431,42 @@ test('TM-263 (h) a worker is refused while the policy exists', async t => {
   await refusedAs(p, { ...p.lead, callerProc: WORKER_PROC }, 'caller', /not an ancestor/);
   await refusedAs(p, { ...p.lead, env: { ...p.lead.env, TM_DISPATCH_WORKER: '1' } }, 'caller', /TM_DISPATCH_WORKER/);
   await refusedAs(p, { ...asCaller(p.opts, 'worker-7'), ...base }, 'plan', /managed agent session needs/);
+});
+
+// TM-263 (Faro): the GitHub repository is pinned in host state on first resolution, so a repointed
+// remote or a changed gh default cannot move the policy read, the PR lookup or the merge elsewhere.
+test('TM-263 (i) pinnedGithubRepo pins the first answer and refuses a later one that disagrees', async t => {
+  const { opts } = await fixture(t);
+  const answer = { name: 'o/r' };
+  const gh = async () => ({ code: 0, stdout: JSON.stringify({ nameWithOwner: answer.name, defaultBranchRef: { name: 'main' } }), stderr: '' });
+  const io = { env: opts.env, home: opts.home };
+  assert.deepEqual(await pinnedGithubRepo(opts.consumer, gh, io), { repo: 'o/r', branch: 'main' });
+  const pin = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'repositories', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.github.json`);
+  assert.equal((await readJson(pin)).nameWithOwner, 'o/r', 'the pin is recorded under the state root for this repository key');
+  answer.name = 'O/R';
+  assert.deepEqual(await pinnedGithubRepo(opts.consumer, gh, io), { repo: 'o/r', branch: 'main' }, 'GitHub names compare case-insensitively');
+  answer.name = 'attacker/r';
+  await assert.rejects(pinnedGithubRepo(opts.consumer, gh, io), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /attacker\/r.*pinned to o\/r/ });
+  assert.equal((await readJson(pin)).nameWithOwner, 'o/r', 'a disagreeing answer never rewrites the pin');
+});
+
+test('TM-263 (i) after pinning, a repointed remote or gh default refuses integrate as "repository" and drops lead autonomy', async t => {
+  const server = { policy: LEAD_POLICY };
+  const p = await policyTask(t, server);
+  await pinnedGithubRepo(p.opts.consumer, p.lead.gh, { env: p.opts.env, home: p.opts.home });
+  server.repo = 'attacker/r'; // what `git remote set-url` or `gh repo set-default` would make gh answer
+  await refusedAs(p, p.lead, 'repository', /pinned to o\/r/);
+  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  assert.ok(!p.state.argv.some(a => a[0] === 'pr' || (a[0] === 'api' && !a[1].startsWith('repos/o/r/'))), 'nothing was asked of the other repository');
+});
+
+test('TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead', async t => {
+  const serverGh = lead => async args => args[0] === 'repo'
+    ? { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' }
+    : { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' };
+  const refused = await leadServer(t, 'landed');
+  await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2'), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
+  assert.equal((await managementStatus(refused.opts)).management.merge, undefined, 'nothing recorded by a refusal');
+  const agreed = await leadServer(t, 'landed');
+  assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1'), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
 });
