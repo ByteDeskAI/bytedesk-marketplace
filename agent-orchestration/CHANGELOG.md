@@ -13,6 +13,7 @@
 ### Fixed
 
 - Load the NATS client only when the NATS transport opens, so a copied plugin tree that still uses the file double does not fail on a missing `nats` package.
+- Refresh the roadmap source hash for `src/mcp.mjs` after the 0.11.0 version string change.
 
 ## [0.10.0] — 2026-09-22
 
