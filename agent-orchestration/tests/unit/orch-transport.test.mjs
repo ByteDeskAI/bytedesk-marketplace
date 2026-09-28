@@ -307,6 +307,49 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
     try {
       await threeCases(broker.url, stateHome, 'one');
       await threeCases(broker.url, stateHome, 'two');
+      const replyRun = await fakeRun();
+      const replyEnv = {
+        ...process.env,
+        AO_TRANSPORT: 'nats',
+        AO_NATS_URL: broker.url,
+        AO_CONSUMER: replyRun,
+        AGENT_ORCHESTRATION_STATE_HOME: stateHome,
+        TMUX: '',
+      };
+      const replySent = await runCli([
+        'send', '--run', replyRun, '--from', 'conductor', '--to', 'agent-b',
+        '--from-project', replyRun, '--stage', 'brief', '--body', 'need-a-reply', '--no-ring',
+      ], replyEnv);
+      assert.equal(replySent.code, 0, replySent.stderr || replySent.stdout);
+      const replyMessage = JSON.parse(replySent.stdout);
+      const early = await runCli([
+        'wait', '--run', replyRun, '--from', 'agent-b', '--message', replyMessage.id,
+        '--timeout', '4s', '--poll', '500ms', '--json',
+      ], replyEnv);
+      assert.equal(early.code, 2, early.stderr || early.stdout);
+      const earlyView = JSON.parse(early.stdout);
+      assert.equal(earlyView.ok, false);
+      assert.equal(earlyView.pending.some((item) => item.id === replyMessage.id && item.agent === 'agent-b'), true);
+      const replied = await runCli([
+        'reply', '--run', replyRun, '--agent', 'agent-b', '--message', replyMessage.id, '--body', 'nats-reply-body',
+      ], replyEnv);
+      assert.equal(replied.code, 0, replied.stderr || replied.stdout);
+      const outbox = join(replyRun, 'agents', 'agent-b', 'outbox', `${replyMessage.id}.reply.md`);
+      assert.equal(await inboxStat(outbox), 'ENOENT');
+      const done = await runCli([
+        'wait', '--run', replyRun, '--from', 'agent-b', '--message', replyMessage.id,
+        '--timeout', '8s', '--poll', '200ms', '--json',
+      ], replyEnv);
+      assert.equal(done.code, 0, done.stderr || done.stdout);
+      const doneView = JSON.parse(done.stdout);
+      assert.equal(doneView.ok, true);
+      assert.equal(doneView.replies.length, 1);
+      assert.equal(doneView.replies[0].body, 'nats-reply-body');
+      assert.equal(doneView.replies[0].path, null);
+      assert.equal(doneView.replies[0].transport, 'nats');
+      assert.equal(await inboxStat(outbox), 'ENOENT');
+      console.log(`CASE reply subject=${doneView.replies[0].subject} outboxStat=ENOENT`);
+      await rm(replyRun, { recursive: true, force: true });
       const gapEnv = {
         ...process.env,
         AO_TRANSPORT: 'nats',

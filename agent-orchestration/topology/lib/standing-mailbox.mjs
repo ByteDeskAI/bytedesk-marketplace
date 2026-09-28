@@ -334,17 +334,30 @@ export async function recordStandingReply({ consumer, messageId, agentId, body, 
   const current = await canonicalRepoId(env.AO_CONSUMER);
   invariant(current.id === destination.id, 'TOPOLOGY_AGENT_UNAUTHORIZED', 'Launcher repository does not match the receiving repository.');
   const p = paths(messageId, { env, home });
-  return withLock(p.lock, async () => {
+  const settled = await withLock(p.lock, async () => {
     const record = await read(p.file);
     invariant(record?.status === 'delivered', 'TOPOLOGY_MESSAGE_UNDELIVERED', 'A held or missing message cannot be answered.');
     invariant(record.delivered_to === agentId && record.envelope.destinationRepoId === destination.id,
       'TOPOLOGY_AGENT_UNAUTHORIZED', 'Only the actual receiving agent can answer this standing message.');
     if (record.reply) {
       invariant(record.reply.agent === agentId && record.reply.body === body, 'TOPOLOGY_REPLY_CONFLICT', 'This standing message already has a different reply.');
-      return { ...record.reply, deduplicated: true };
+      return { record, reply: { ...record.reply, deduplicated: true } };
     }
     record.reply = { agent: agentId, repositoryId: destination.id, body, created_at: nowIso() };
     await atomicWrite(p.file, record);
-    return record.reply;
+    return { record, reply: record.reply };
   });
+  const { resolveTransport, orchName } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const transportEnv = env === process.env ? env : { ...process.env, ...env };
+  const transport = await resolveTransport({ env: transportEnv });
+  if (transport.kind === 'nats' && settled.record?.envelope?.from) {
+    await transport.publishMail({
+      repo: repoKey(destination.id),
+      agent: orchName(settled.record.envelope.from),
+      messageId: `${messageId}.reply.${agentId}`,
+      body: JSON.stringify({ reply_to: messageId, from: agentId, body }),
+    });
+  }
+  return settled.reply;
 }

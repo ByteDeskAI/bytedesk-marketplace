@@ -451,6 +451,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
         messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
         body: sc.decode(msg.data),
         ack: async () => { msg.ack(); },
+        nak: async () => { msg.nak(); },
       };
     },
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {

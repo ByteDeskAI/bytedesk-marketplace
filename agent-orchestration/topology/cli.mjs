@@ -1353,14 +1353,21 @@ const commands = {
     const runDir = await runDirFrom(flags);
     const timeoutMs = parseDuration(flags.timeout, 20 * 60_000);
     const pollMs = parseDuration(flags.poll, 3000);
-    const result = await waitForReplies({
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    let result;
+    try {
+    result = await waitForReplies({
       runDir,
       agentIds: list(flags.from),
       messageId: flags.message && flags.message !== true ? String(flags.message) : undefined,
       timeoutMs,
       pollMs,
+      transport,
       onTick: flags.quiet ? undefined : (pending, elapsed) => process.stderr.write(`waiting ${Math.round(elapsed / 1000)}s — pending: ${pending.map((item) => `${item.agent}:${item.id}`).join(", ")}\n`),
     });
+    } finally { await closeLiveTransports(); }
+    if (!result.ok) process.exitCode = 2;
     if (flags.json) return out(result);
     if (!result.ok) {
       out(`TIMEOUT after ${Math.round(result.elapsed_ms / 1000)}s. Still pending:`);
@@ -1385,8 +1392,13 @@ const commands = {
     // conductor already holds AO_AGENT_TOKEN for its OWN run, so answering upward as a participant
     // in its parent needs the other token passed explicitly.
     const token = flags.token && flags.token !== true ? String(flags.token) : undefined;
-    const path = await recordReply({ runDir, agentId: String(flags.agent), messageId: String(flags.message), body, ...(token ? { token } : {}) });
-    out({ ok: true, reply: path });
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    let path;
+    try {
+      path = await recordReply({ runDir, agentId: String(flags.agent), messageId: String(flags.message), body, ...(token ? { token } : {}), transport });
+    } finally { await closeLiveTransports(); }
+    out({ ok: true, reply: path, transport: transport.kind });
   },
 
   async capture({ flags }) {

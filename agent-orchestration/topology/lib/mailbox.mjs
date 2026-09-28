@@ -10,7 +10,7 @@ import { agentDirs, findLead } from "./agents.mjs";
 import { withLock } from "./lockfile.mjs";
 import { publishTopologyWorkflow } from './discovery.mjs';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
-import { orchName, resolveTransport } from './orch-transport.mjs';
+import { ORCH_LAYOUT, orchName, resolveTransport } from './orch-transport.mjs';
 
 export const RUN_FILE = "run.json";
 export const JOURNAL_FILE = "journal.jsonl";
@@ -114,12 +114,51 @@ export function messageFileName(seq, stage) {
 
 /** A reply file counts only when it has content. */
 async function hasAnswer(path) {
-  if (!(await exists(path))) return false;
+  if (!path || !(await exists(path))) return false;
   try {
     return (await readFile(path, "utf8")).trim().length > 0;
   } catch {
     return false;
   }
+}
+
+const natsReplyCache = new Map();
+
+/** A reply is mail on the sender's orch subject. The body is the JSON the reply command published. */
+async function readNatsReply(runDir, item, transport) {
+  if (!item?.replyAgent || !item?.repo) return null;
+  const key = `${resolve(runDir)}:${item.replyToId ?? item.id}:${item.answerer}`;
+  if (natsReplyCache.has(key)) return natsReplyCache.get(key);
+  const active = transport?.kind === 'nats' ? transport : await resolveTransport({ env: process.env });
+  if (active.kind !== 'nats') return null;
+  const mail = await active.pullMail({ repo: item.repo, agent: orchName(item.replyAgent), timeoutMs: 200 });
+  if (!mail) return null;
+  let parsed = null;
+  try { parsed = JSON.parse(mail.body); } catch { parsed = null; }
+  const wanted = item.replyToId ?? item.id;
+  if (parsed?.reply_to !== wanted || parsed?.from !== item.answerer) {
+    if (mail.nak) await mail.nak();
+    return null;
+  }
+  await mail.ack();
+  const found = { body: String(parsed.body ?? ''), subject: mail.subject };
+  natsReplyCache.set(key, found);
+  return found;
+}
+
+async function publishNatsReply({ run, agentId, messageId, body, replyTo, transport }) {
+  const envelope = run.message_envelopes?.[messageId];
+  const sender = envelope?.from;
+  invariant(sender, 'TOPOLOGY_MESSAGE_ID_INVALID', `No sent envelope for ${messageId}; a NATS reply needs the original sender.`);
+  const repo = repoKey((await canonicalRepoId(run.consumer)).id);
+  const active = transport?.kind === 'nats' ? transport : await resolveTransport({ env: process.env });
+  const payload = JSON.stringify({ reply_to: replyTo ?? messageId, from: agentId, body });
+  return active.publishMail({
+    repo,
+    agent: orchName(sender),
+    messageId: `${replyTo ?? messageId}.reply.${agentId}`,
+    body: payload,
+  });
 }
 
 export function replyFileName(seq, stage) {
@@ -330,6 +369,8 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
 
     const inbox = join(agentDir(runDir, recipient), "inbox", messageFileName(seq, stage));
     const outbox = join(agentDir(runDir, recipient), "outbox", replyFileName(seq, stage));
+    const repo = repoKey((await canonicalRepoId(destination)).id);
+    const replySubject = activeTransport.kind === 'nats' ? ORCH_LAYOUT.mailSubject(repo, orchName(from)) : null;
     const header = frontmatter({
       id,
       from,
@@ -343,14 +384,15 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       task,
       via: hops.length > 0 ? hops : undefined,
       created: nowIso(),
-      reply_to: outbox,
+      reply_to: replySubject ?? outbox,
     });
     const redirectNote = decision.redirected
       ? `\n> This message was addressed to ${decision.intended_display || requested} and routed to you because it came from outside this project with no open delegation. Handle it or delegate it.\n`
       : "";
-    const instructions = `\n\n<!-- Write your complete reply to: ${outbox} -->\n`;
+    const instructions = replySubject
+      ? `\n\n<!-- Reply on NATS subject ${replySubject} with: ao-topology reply --message ${id} -->\n`
+      : `\n\n<!-- Write your complete reply to: ${outbox} -->\n`;
     const rendered = `${header}${redirectNote}\n${body.trim()}\n${instructions}`;
-    const repo = repoKey((await canonicalRepoId(destination)).id);
     const published = await activeTransport.publishMail({
       repo,
       agent: orchName(recipient),
@@ -426,7 +468,8 @@ export async function forwardMessageToWorkflow({ runDir, messageId, recipient, e
  * The redirect map is therefore consulted in both directions: it says which of an agent's inbox
  * files somebody else will answer, and which messages addressed to it landed elsewhere.
  */
-async function obligations(runDir, run, agentId) {
+async function obligations(runDir, run, agentId, transport = null) {
+  const active = transport ?? await resolveTransport({ env: process.env });
   const redirects = run.redirects || {};
   const inboxDir = join(agentDir(runDir, agentId), "inbox");
   const own = (await readdir(inboxDir).catch(() => []))
@@ -445,14 +488,37 @@ async function obligations(runDir, run, agentId) {
       state = record?.status === 'held' ? 'held' : record?.status === 'delivered' ? (record.reply ? 'answered' : 'delivered-unanswered') : 'missing';
     } catch { state = 'unknown'; }
     if (ref.requested !== agentId && record?.delivered_to !== agentId) continue;
+    const natsStanding = active.kind === 'nats' && record?.status === 'delivered';
     standing.push({ id: ref.messageId, answerer: record?.delivered_to ?? ref.requested,
-      standingId, status: state, reason: record?.reason ?? null,
-      replyBody: state === 'answered' ? record.reply.body : null,
+      standingId, status: natsStanding ? 'delivered-unanswered' : state, reason: record?.reason ?? null,
+      replyBody: natsStanding ? null : (state === 'answered' ? record.reply.body : null),
+      transport: natsStanding ? 'nats' : undefined,
+      repo: natsStanding ? repoKey(record.envelope.destinationRepoId) : undefined,
+      replyAgent: natsStanding ? record.envelope.from : undefined,
+      replyToId: natsStanding ? record.envelope.id : undefined,
       created_at: record?.created_at, inbox: null, outbox: null, addressee_outbox: null });
   }
+  const repo = run.consumer ? repoKey((await canonicalRepoId(run.consumer)).id) : null;
+  const natsItems = [];
+  for (const [id, deliveries] of Object.entries(run.message_deliveries ?? {})) {
+    for (const delivery of deliveries) {
+      if (delivery?.transport !== 'nats' || delivery.agent !== agentId) continue;
+      natsItems.push({
+        id,
+        answerer: delivery.agent,
+        transport: 'nats',
+        repo,
+        replyAgent: run.message_envelopes?.[id]?.from ?? null,
+        inbox: null,
+        outbox: null,
+        addressee_outbox: null,
+      });
+    }
+  }
+  const natsIds = new Set(natsItems.map((item) => item.id));
   const covered = new Set(standing.map(item => item.id));
-  const ids = [...new Set([...own, ...elsewhere])].filter(id => !covered.has(id)).sort();
-  return [...standing, ...ids.map((id) => {
+  const ids = [...new Set([...own, ...elsewhere])].filter(id => !covered.has(id) && !natsIds.has(id)).sort();
+  return [...standing, ...natsItems, ...ids.map((id) => {
     const answerer = redirects[`${id}:${agentId}`] || agentId;
     return {
       id, answerer,
@@ -490,15 +556,18 @@ async function expandTargets(run, agentIds, addressing = {}) {
     .map((entry) => entry.id);
 }
 
-export async function pendingReplies(runDir, agentIds, { addressing = {} } = {}) {
+export async function pendingReplies(runDir, agentIds, { addressing = {}, transport = null } = {}) {
   const run = await loadRun(runDir);
+  const active = transport ?? await resolveTransport({ env: process.env });
   const ids = agentIds && agentIds.length > 0 ? await expandTargets(run, agentIds, addressing) : [...new Set([...run.agents.map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   const pending = [];
   for (const agentId of ids) {
-    for (const item of await obligations(runDir, run, agentId)) {
+    for (const item of await obligations(runDir, run, agentId, active)) {
       // The outbox reported is the one the answer must actually appear in. Naming the addressee's
       // box on a redirected message sends whoever is debugging the wait to an empty directory.
-      if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
+      if (item.transport === 'nats') {
+        if (await readNatsReply(runDir, item, active)) continue;
+      } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
         status: item.status ?? "delivered-unanswered",
@@ -517,12 +586,13 @@ export async function pendingReplies(runDir, agentIds, { addressing = {} } = {})
 }
 
 /** Wait until every named agent has replied to the message id (or to all pending messages). */
-export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {} }) {
+export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {}, transport = null }) {
   const started = Date.now();
   const run = await loadRun(runDir);
+  const active = transport ?? await resolveTransport({ env: process.env });
   const targets = agentIds && agentIds.length > 0 ? await expandTargets(run, agentIds, addressing) : [...new Set([...run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   for (;;) {
-    const pending = (await pendingReplies(runDir, targets)).filter((item) => !messageId || item.id === messageId);
+    const pending = (await pendingReplies(runDir, targets, { transport: active })).filter((item) => !messageId || item.id === messageId);
     if (pending.length === 0) {
       // Collect the answers the same way the barrier decided it was satisfied: through the redirect
       // map. Reading only each target's own outbox reports "all replies received" and then prints
@@ -531,10 +601,27 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
       const replies = [];
       const seen = new Set();
       for (const agentId of targets) {
-        for (const item of await obligations(runDir, current, agentId)) {
+        for (const item of await obligations(runDir, current, agentId, active)) {
           if (messageId && item.id !== messageId) continue;
-          const answerKey = item.standingId ?? item.outbox;
-          if (seen.has(answerKey) || (item.standingId ? item.replyBody === null : !(await hasAnswer(item.outbox)))) continue;
+          const answerKey = item.standingId ?? item.outbox ?? `${item.transport}:${item.id}:${item.answerer}`;
+          if (seen.has(answerKey)) continue;
+          if (item.transport === 'nats') {
+            const reply = await readNatsReply(runDir, item, active);
+            if (!reply) continue;
+            seen.add(answerKey);
+            replies.push({
+              agent: item.answerer,
+              on_behalf_of: item.answerer === agentId ? undefined : agentId,
+              id: item.id,
+              path: null,
+              subject: reply.subject,
+              transport: 'nats',
+              standingId: item.standingId,
+              body: reply.body,
+            });
+            continue;
+          }
+          if (item.standingId ? item.replyBody === null : !(await hasAnswer(item.outbox))) continue;
           seen.add(answerKey);
           replies.push({
             agent: item.answerer,
@@ -613,14 +700,20 @@ export async function recordReply({ runDir, agentId, messageId, body, token = pr
         'TOPOLOGY_AGENT_UNAUTHORIZED', 'A legacy run without reply tokens must prove the receiving launcher identity for standing replies.');
     }
     await recordStandingReply({ consumer: ref.consumer, messageId: standingId, agentId, body: text,
-      env: { ...bridgeEnv, AO_AGENT_ID: agentId, AO_CONSUMER: ref.consumer } });
+      env: { ...process.env, ...bridgeEnv, AO_AGENT_ID: agentId, AO_CONSUMER: ref.consumer } });
     standingAnswered = true;
   }
   invariant(standingRefs.length === 0 || standingAnswered, "TOPOLOGY_AGENT_UNAUTHORIZED", "Only the actual receiving agent can answer this standing request.");
+  const active = await resolveTransport({ env: process.env });
+  if (active.kind === 'nats' && standingRefs.length === 0) {
+    const published = await publishNatsReply({ run, agentId, messageId, body: text, transport: active });
+    await appendJournal(runDir, { type: "message.replied", id: messageId, from: agentId, bytes: Buffer.byteLength(text), transport: 'nats', subject: published.subject });
+    return published.subject;
+  }
   const outbox = join(agentDir(runDir, agentId), "outbox", replyFileName(seq, stage));
-  await writeText(outbox, text.endsWith("\n") ? text : `${text}\n`);
+  if (active.kind !== 'nats') await writeText(outbox, text.endsWith("\n") ? text : `${text}\n`);
   await appendJournal(runDir, { type: "message.replied", id: messageId, from: agentId, bytes: Buffer.byteLength(text) });
-  return outbox;
+  return active.kind === 'nats' ? null : outbox;
 }
 
 /**
