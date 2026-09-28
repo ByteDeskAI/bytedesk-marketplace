@@ -5,6 +5,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding, workerIsSelf } from '../../topology/lib/management.mjs';
+import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
+// TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
+// epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
+const EPICS = { 'EP-19': ['TM-1'], 'EP-20': ['TM-3'] };
+const grantDelegation = ({ epicTasks = async epic => EPICS[epic] || [], ...opts }) => rawGrant({ io: { ancestors: async () => ['zsh'], isTTY: () => true, ask: async q => q.match(/Type "([^"]+)"/)[1], epicTasks }, plan: { epic: 'EP-19' }, expires: '7d', ...opts });
+// The fixture caller is an operator shell: no agent markers from the environment running the suite, no agent ancestor.
+const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !agentMarkers({ [k]: '1' }).length));
+const SHELL_ANCESTRY = async () => ['zsh', 'tmux: server'];
+
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 
@@ -16,7 +25,7 @@ async function fixture(t) {
   await writeFile(join(consumer, 'code.txt'), 'base');
   await git(consumer, ['add', 'code.txt']);
   await git(consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'base']);
-  const doc = { id: 'TM-1', status: 'todo', labels: ['ready-for-agent'], touches: ['code.txt'], blockedBy: [] };
+  const doc = { id: 'TM-1', epic: 'EP-19', status: 'todo', labels: ['ready-for-agent'], touches: ['code.txt'], blockedBy: [] };
   const calls = []; let claim = null;
   const store = {
     root: consumer,
@@ -29,7 +38,7 @@ async function fixture(t) {
     done: async () => { calls.push('done'); doc.status = 'done'; },
   };
   await writeJson(join(pluginRoot, 'config.defaults.json'), { management: { auto_merge: true, target_branch: 'main', required_checks: [{ name: 'content', argv: [process.execPath, '-e', "if(require('fs').readFileSync('code.txt','utf8')!=='implemented') process.exit(1)"] }] } });
-  const opts = { consumer, pluginRoot, home: join(root, 'home'), env: { ...process.env, XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }), reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
+  const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }), reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
   const finish = async () => {
     await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
     await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
@@ -114,6 +123,75 @@ test('actual tm CLI provisions once, records worker claim, and enforces start be
   assert.equal(worktrees.filter(w => w.taskId === 'TM-001').length, 1);
 });
 
+test('TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision', async t => {
+  const { opts, git } = await fixture(t);
+  const { fileURLToPath } = await import('node:url');
+  const { reviewerPaths } = await import('../../topology/lib/reviewer.mjs');
+  const tmBin = fileURLToPath(new URL('../../../task-management/bin/tm', import.meta.url));
+  const env = { ...opts.env, TM_ROOT: opts.consumer, TM_SESSION_ID: 'author', CLAUDE_PROJECT_DIR: opts.consumer };
+  delete env.TM_DISPATCH_WORKER; // the fixture plays the lead, even when the suite runs inside a worker
+  const tm = async (args, allowFailure = false) => run(tmBin, args, { cwd: opts.consumer, env, allowFailure });
+  await tm(['init']);
+  await tm(['epic', 'new', 'Fixture integration']);
+  await tm(['task', 'new', 'Implement scoped content change', '--body', 'Change code.txt to implemented and validate its exact contents.', '--ac', 'code.txt contains implemented']);
+  await tm(['label', 'TM-001', 'ready-for-agent']);
+  await tm(['touches', 'TM-001', 'code.txt']);
+  // A standing reviewer for this repository, and dispatch.governed left unset.
+  const reviewer = await reviewerPaths(opts.consumer, opts.env, opts.home);
+  await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: reviewer.identity.id, provider: 'claude', binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+
+  const refused = await tm(['dispatch', 'TM-001', '--backend', 'manual'], true);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stderr, /TM_GOVERNED_ADMISSION_REQUIRED: .*ao-topology manage admit --task TM-001/);
+  assert.equal(JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout).dispatched, undefined);
+
+  const actual = { ...opts, store: undefined, task: 'TM-001', tmBin, env };
+  assert.equal((await admitTask(actual)).admitted, true);
+  // A real, observable worker process in the task worktree, through tm's own registry seam.
+  const registry = join(opts.consumer, '..', 'registry.mjs');
+  await writeFile(registry, `import { spawn } from 'node:child_process';
+export default { proc: { name: 'proc', available: () => true, spawn: ({ worktree }) => {
+  const child = spawn('sleep', ['60'], { cwd: worktree, detached: true, stdio: 'ignore' }); child.unref();
+  return { ok: true, run: 'proc:' + child.pid, pid: child.pid };
+} } };`);
+  env.TM_DISPATCH_REGISTRY = registry;
+  const dispatched = JSON.parse((await tm(['dispatch', 'TM-001', '--backend', 'proc', '--json'])).stdout);
+  t.after(() => { try { process.kill(dispatched.detail?.pid ?? Number(dispatched.run.slice(5))); } catch {} });
+  assert.equal(dispatched.ok, true); assert.equal(dispatched.ungoverned, undefined);
+
+  const { worktree } = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout);
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision }, wake: async () => ({ rang: false, reason: 'fixture' }) });
+  assert.equal(finished.review_blocked, undefined, finished.review_blocked);
+  assert.equal(finished.review_request?.revision, revision);
+  assert.equal(finished.review_request.reviewer_id, 'reviewer-1');
+});
+
+test('TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent', async t => {
+  const { cp } = await import('node:fs/promises');
+  const { existsSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const root = await mkdtemp(join(tmpdir(), 'ao-alone-')); t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(fileURLToPath(new URL('../../topology', import.meta.url)), join(root, 'agent-orchestration', 'topology'), { recursive: true });
+  assert.equal(existsSync(join(root, 'task-management')), false);
+  const { requestReview, reviewerPaths } = await import(join(root, 'agent-orchestration', 'topology', 'lib', 'reviewer.mjs'));
+  const { canonicalRepoId, repoKey, stateRoot } = await import(join(root, 'agent-orchestration', 'topology', 'lib', 'repoid.mjs'));
+  const consumer = join(root, 'repo'); await mkdir(consumer); await run('git', ['init', '-q', '-b', 'main', consumer]);
+  const commit = async (text) => { await writeFile(join(consumer, 'code.txt'), text); await run('git', ['-C', consumer, 'add', 'code.txt']);
+    await run('git', ['-C', consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', text]);
+    return (await run('git', ['-C', consumer, 'rev-parse', 'HEAD'])).stdout.trim(); };
+  const base = await commit('base'), revision = await commit('implemented');
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), PATH: '/usr/bin:/bin' }, home = join(root, 'home');
+  const identity = await canonicalRepoId(consumer);
+  await writeJson(join(stateRoot(env, home), 'management', repoKey(identity.id), 'TM-1.json'), { task: 'TM-1', repo_id: identity.id, started: true, owner: 'author', base_revision: base, finish: { revision } });
+  const reviewer = await reviewerPaths(consumer, env, home);
+  await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: identity.id, binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+  const request = await requestReview({ consumer, task: 'TM-1', revision, authorAgentIds: ['author'], env, home, wake: async () => ({ rang: false }) });
+  assert.equal(request.base_revision, base); assert.equal(request.state, 'published');
+});
+
 test('failed required checks and out-of-scope files prevent integration', async t => {
   const { opts, finish, calls, git } = await fixture(t);
   await admitTask(opts); await finish();
@@ -146,7 +224,9 @@ test('production worker proof uses actual tm registry and observed process exit 
   await tm(['label', 'TM-001', 'ready-for-agent']); await tm(['touches', 'TM-001', 'code.txt']);
   // Fixture store is local-only so tm evidence writes do not dirty the integration branch.
   await writeFile(join(opts.consumer, '.git/info/exclude'), '.bytedesk/\n');
-  const actual = { ...opts, store: undefined, task: 'TM-001', tmBin, env, workerState: undefined };
+  // TM-248: TM_SESSION_ID marks a managed session, so the operator's own verbs run without it; taskStore sets it from owner for tm.
+  const { TM_SESSION_ID: _session, ...operatorVerbEnv } = env;
+  const actual = { ...opts, store: undefined, task: 'TM-001', tmBin, env: operatorVerbEnv, workerState: undefined };
   const admitted = await admitTask(actual), worktree = admitted.record.worktree;
   const child = spawn(process.execPath, ['-e', 'process.stdin.resume(); process.stdin.on("end",()=>process.exit(0));'], { cwd: worktree, stdio: ['pipe', 'ignore', 'ignore'] });
   await once(child, 'spawn');
@@ -395,6 +475,179 @@ test('record-landing refuses without review, ancestry, target branch, actor or r
   assert.equal(explicit.merge.authorization.policy_auto_merge, false);
 });
 
+// TM-234 review: a delegation counts only for a caller whose LIVE pane the census binds to the
+// grantee. These inject the pane listing and census; no real tmux is touched.
+const LEAD_PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+// Injected /proc (pid -> [comm, ppid]): the lead's node -> claude -> pane shell 5151; a worker's never reaches 5151.
+const procTree = tree => ({ pid: Math.max(...Object.keys(tree).map(Number)), readStat: async p => {
+  if (!tree[p]) throw Object.assign(new Error(`no /proc/${p}`), { code: 'ENOENT' });
+  return `${p} (${tree[p][0]}) S ${tree[p][1]} 1 1 0 -1`;
+} });
+const LEAD_PROC = procTree({ 903: ['node', 902], 902: ['claude', 5151], 5151: ['zsh', 4242], 4242: ['tmux: server', 1] });
+const WORKER_PROC = procTree({ 703: ['node', 702], 702: ['claude', 6161], 6161: ['zsh', 4242], 4242: ['tmux: server', 1] });
+const paneOf = (agentId, boundTo = agentId) => ({
+  listPanesFn: async () => [{ ...LEAD_PANE, alive: true }],
+  readCensusFn: async () => ({ agents: [{ agentId: boundTo, binding: { ...LEAD_PANE } }] }),
+  callerProc: LEAD_PROC,
+  paneEnv: { AO_AGENT_ID: agentId, TMUX: `${LEAD_PANE.serverKey},${LEAD_PANE.serverPid},0`, TMUX_PANE: LEAD_PANE.paneId },
+});
+// A lead or worker is a managed session: AO_AGENT_ID in env and a Claude Code process above it.
+const AGENT_ANCESTRY = async () => ['node', 'claude', 'zsh', 'tmux: server'];
+const asCaller = (opts, agentId, boundTo) => { const { paneEnv, ...lookups } = paneOf(agentId, boundTo); return { ...opts, ...lookups, ancestors: AGENT_ANCESTRY, env: { ...opts.env, ...paneEnv } }; };
+async function registerAgent(consumer, id) {
+  await writeJson(join(consumer, '.bytedesk', 'agent-orchestration', 'agents', id, 'agent.json'), { id, full_name: id, role: 'lead' });
+}
+const operatorGrant = (opts, scopes) => grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes });
+
+// TM-234: a standing delegation the operator granted stands in for --authorized, so the lead
+// exercising it never attests to authority it grants itself.
+test('record-landing accepts a standing delegation instead of --authorized, and records who granted it', async t => {
+  const { opts, finish, git } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const admitted = await admitTask(opts); const report = await finish(); const revision = report.finish.revision;
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  await registerAgent(opts.consumer, 'lead-1');
+  const leadOpts = { ...asCaller(opts, 'lead-1'), reason: 'exercising a standing delegation', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  await assert.rejects(recordLanding(leadOpts), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'no grant yet');
+  await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['record-landing'] });
+  // TM-248: inside the lead's managed session any --actor is self-assertion and refused; the grant names the actor.
+  for (const actor of ['operator', 'lead-1']) await assert.rejects(recordLanding({ ...leadOpts, actor }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+  const recorded = await recordLanding(leadOpts);
+  assert.equal(recorded.merge.authorization.actor, 'lead-1', 'the recorded actor is the lead that exercised the grant');
+  assert.equal(recorded.merge.authorization.authorized, true);
+  assert.equal(recorded.merge.authorization.explicit, false);
+  assert.equal(recorded.merge.authorization.delegated_by, 'operator');
+  assert.ok(recorded.merge.authorization.delegation_id);
+  // A grant scoped to a different verb never substitutes for this one.
+  const { opts: opts2, finish: finish2, git: git2 } = await fixture(t);
+  await writeJson(join(opts2.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const admitted2 = await admitTask(opts2); const report2 = await finish2(); const revision2 = report2.finish.revision;
+  await git2(opts2.consumer, ['merge', '--ff-only', revision2]);
+  await registerAgent(opts2.consumer, 'lead-1');
+  await grantDelegation({ consumer: opts2.consumer, home: opts2.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts2.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate'] });
+  await assert.rejects(recordLanding({ ...asCaller(opts2, 'lead-1'), reason: 'wrong scope', reviewGate: fullReview(admitted2.record, revision2), landed: 'main' }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+});
+
+test('integrate accepts a standing delegation instead of --authorized, and records who granted it', async t => {
+  const { opts, finish } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'content', argv: [process.execPath, '-e', "if(require('fs').readFileSync('code.txt','utf8')!=='implemented') process.exit(1)"] }] } });
+  await admitTask(opts); await finish();
+  await registerAgent(opts.consumer, 'lead-1');
+  const leadOpts = asCaller(opts, 'lead-1');
+  await assert.rejects(integrateTask(leadOpts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' }, 'no grant yet');
+  await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate'] });
+  await assert.rejects(integrateTask({ ...leadOpts, actor: 'operator' }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+  const integrated = await integrateTask(leadOpts);
+  assert.equal(integrated.merge.authorization.actor, 'lead-1', 'the recorded actor is the lead that exercised the grant, not the OS user');
+  assert.equal(integrated.merge.authorization.authorized, true);
+  assert.equal(integrated.merge.authorization.channel, 'standing-delegation');
+  assert.equal(integrated.merge.authorization.delegated_by, 'operator');
+  assert.ok(integrated.merge.authorization.delegation_id);
+});
+
+test('a worker naming the lead in AO_AGENT_ID cannot use the lead\'s grant on integrate or record-landing', async t => {
+  const { opts, finish, git } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const admitted = await admitTask(opts); const report = await finish(); const revision = report.finish.revision;
+  await registerAgent(opts.consumer, 'lead-1');
+  await operatorGrant(opts, ['integrate', 'record-landing']);
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  // Spoofed from outside any pane, and spoofed from the worker's own live pane.
+  for (const spoof of [{ ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1' } }, asCaller(opts, 'lead-1', 'worker-7')]) {
+    await assert.rejects(integrateTask(spoof), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+    const gate = await integrationEligibility(spoof);
+    assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_ACTOR')), gate.reasons.join('; '));
+  }
+  const attack = { ...asCaller(opts, 'lead-1'), callerProc: WORKER_PROC };
+  await assert.rejects(integrateTask(attack), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
+  const attackGate = await integrationEligibility(attack);
+  assert.equal(attackGate.eligible, false); assert.ok(attackGate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_ACTOR') && /not an ancestor/.test(r)), attackGate.reasons.join('; '));
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'a refused integrate merges nothing');
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  const landing = { reason: 'spoof attempt', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  await assert.rejects(recordLanding({ ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1' }, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1', 'worker-7'), ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+  // THE ATTACK, now on record-landing: the lead's pane in env, but ancestry never reaches its process.
+  await assert.rejects(recordLanding({ ...attack, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR', message: /not an ancestor/ });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+  // The genuinely bound lead is accepted.
+  const recorded = await recordLanding({ ...asCaller(opts, 'lead-1'), ...landing, reason: 'lead in its own pane' });
+  assert.equal(recorded.merge.authorization.actor, 'lead-1');
+});
+
+// TM-243: an installed allow rule removes the prompt, never the authority check. With the rules in
+// the lead's settings file: lead-with-grant allowed, lead-without-grant, expired grant and a worker
+// (its own live pane, or naming the lead) all refused, on both record-landing and integrate.
+test('with permission rules installed, integrate and record-landing still need a live delegation proven for the caller', async t => {
+  const { installPermissions } = await import('../../topology/lib/permissions.mjs');
+  const { findActiveDelegation } = await import('../../topology/lib/delegation.mjs');
+  const { opts, finish, git } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const admitted = await admitTask(opts); const report = await finish(); const revision = report.finish.revision;
+  await registerAgent(opts.consumer, 'lead-1');
+  const leadDir = join(opts.consumer, '.bytedesk', 'agent-orchestration', 'agents', 'lead-1');
+  await writeJson(join(leadDir, 'session.json'), { agent_id: 'lead-1', cwd: leadDir });
+  const installed = await installPermissions({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, ancestors: async () => ['zsh'] });
+  assert.ok(installed.added.includes('Bash(ao-topology manage record-landing *)') && installed.added.includes('Bash(ao-topology manage integrate *)'));
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const lead = asCaller(opts, 'lead-1'), worker = asCaller(opts, 'lead-1', 'worker-7'), workerProc = { ...lead, callerProc: WORKER_PROC };
+  const landing = { reason: 'rules installed', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  const expired = { findDelegation: o => findActiveDelegation({ ...o, now: Date.now() + 2 * 3600_000 }) };
+  // Lead without a grant.
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+  // Expired grant.
+  await operatorGrant(opts, ['integrate', 'record-landing']); // then revoked: a revoked grant is not live either
+  const { listStandingDelegations, revokeDelegation } = await import('../../topology/lib/delegation.mjs');
+  await revokeDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, io: { ancestors: async () => ['zsh'] }, id: (await listStandingDelegations({ consumer: opts.consumer, home: opts.home, env: opts.env }))[0].id });
+  await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate', 'record-landing'], expires: '1h' });
+  await assert.rejects(integrateTask({ ...lead, ...expired }), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' }, 'expired grant');
+  // Worker: its own pane naming the lead, or the lead's pane named without running in it.
+  for (const w of [worker, workerProc, { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }])
+    await assert.rejects(integrateTask(w), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'nothing merged by a refusal');
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  await revokeDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, io: { ancestors: async () => ['zsh'] }, id: (await listStandingDelegations({ consumer: opts.consumer, home: opts.home, env: opts.env })).find(g => !g.revoked_at).id });
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'lead without a live grant');
+  await grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['record-landing'], expires: '1h' });
+  await assert.rejects(recordLanding({ ...lead, ...landing, ...expired }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' }, 'expired grant');
+  for (const w of [worker, workerProc, { ...opts, env: { ...opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }])
+    await assert.rejects(recordLanding({ ...w, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing recorded by a refusal');
+  // Lead with a live grant, running in its own pane.
+  const recorded = await recordLanding({ ...lead, ...landing });
+  assert.equal(recorded.merge.authorization.actor, 'lead-1'); assert.ok(recorded.merge.authorization.delegation_id);
+});
+
+test('a corrupt delegations file makes eligibility false with a named reason instead of throwing', async t => {
+  const { opts, finish } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  await admitTask(opts); await finish();
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  await writeJson(join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'delegations', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.json`), [{ id: 'hand-written', type: 'grant', grantee: 'lead-1', scopes: ['integrate'] }]);
+  const gate = await integrationEligibility(asCaller(opts, 'lead-1'));
+  assert.equal(gate.eligible, false);
+  assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_INTEGRITY') && /hand-written/.test(r)), gate.reasons.join('; '));
+  assert.ok(await managementStatus(asCaller(opts, 'lead-1')), 'status still answers');
+});
+
+test('governed completion accepts a delegated integration record unchanged', async t => {
+  const { opts, finish } = await fixture(t);
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const admitted = await admitTask(opts); const report = await finish(); const revision = report.finish.revision;
+  await registerAgent(opts.consumer, 'lead-1');
+  await operatorGrant(opts, ['integrate']);
+  const integrated = await integrateTask({ ...asCaller(opts, 'lead-1'), reviewGate: fullReview(admitted.record, revision) });
+  assert.equal(integrated.merge.authorization.channel, 'standing-delegation');
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const task = { id: 'TM-1', worktree: integrated.worktree, branch: integrated.branch,
+    governance: { version: 1, runtime: 'topology', workflowRunId: integrated.workflow_run_id, leadId: integrated.lead_id, revision, state: 'ready-for-review' } };
+  const gate = governedCompletion(task, { root: opts.consumer });
+  assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'lead-1');
+});
+
 test('integration refuses a task that cannot fast-forward the target branch', async t => {
   const { opts, finish, git } = await fixture(t);
   await admitTask(opts); await finish();
@@ -569,6 +822,7 @@ test('bind never adopts an operator shell: pre-admission sessions and login shel
   assert.ok(!((await managementStatus(actual)).management.events.some(e => e.event === 'worker-stop-refused')), 'a non-owner leaves no event in the owner record');
 });
 
+
 test('TM-236: a bound worker naming the caller\'s run, pane or own pid is self; another live pid is not', async t => {
   const { spawn } = await import('node:child_process');
   const { once } = await import('node:events');
@@ -584,4 +838,492 @@ test('TM-236: a bound worker naming the caller\'s run, pane or own pid is self; 
   assert.equal(workerIsSelf({ kind: 'process', run: `process:${other.pid}`, pid: other.pid }, {}), false);
   assert.equal(workerIsSelf({ kind: 'topology', run: 'topology:s', native_identity: { members: [{ id: 'worker', pane: '%879', binding: null }] } }, env), true, 'a topology member pane');
   assert.equal(workerIsSelf(null, env), false);
+
 });
+
+// TM-257: the server's default branch, held as a JS value so no local ref can move it; no network.
+function fakeServer(main) {
+  const server = { main, calls: 0, compare: async (dir, from, to) => {
+    server.calls++;
+    const a = from ?? server.main, b = to ?? server.main;
+    const mb = (await run('git', ['-C', dir, 'merge-base', a, b])).stdout.trim();
+    return { status: a === b ? 'identical' : mb === a ? 'ahead' : mb === b ? 'behind' : 'diverged', merge_base: mb };
+  } };
+  return server;
+}
+
+// worktree: [stray.txt] -> merge main (sibling.txt) -> code.txt; returns the merge commit and revision.
+async function mergedTask(t, { stray }) {
+  const { opts, git } = await fixture(t);
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree, id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+  const admitted = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  if (stray) { await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']); }
+  await writeFile(join(opts.consumer, 'sibling.txt'), 'landed sibling'); await git(opts.consumer, ['add', 'sibling.txt']); await git(opts.consumer, [...id, 'commit', '-m', 'sibling task']);
+  const sibling = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  await git(worktree, [...id, 'merge', '--no-edit', '--no-ff', 'main']);
+  const merged = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']); await git(worktree, [...id, 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture', revision } });
+  const server = fakeServer(sibling);
+  // Coverage: from the admitted base the sibling IS in the diff, so the old check would refuse.
+  assert.match((await git(worktree, ['diff', '--name-only', admitted, revision])).stdout, /sibling\.txt/);
+  return { opts: { ...opts, serverCompare: server.compare }, git, merged, revision, server };
+}
+
+test('TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope', async t => {
+  const { opts, server } = await mergedTask(t, { stray: false });
+  assert.deepEqual((await integrationEligibility(opts)).reasons, []);
+  assert.ok(server.calls > 0, 'the scope check asked the server');
+});
+
+test('TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check', async t => {
+  const { opts, git, merged, revision } = await mergedTask(t, { stray: true });
+  await git(opts.consumer, ['update-ref', 'refs/remotes/origin/main', merged]); await git(opts.consumer, ['update-ref', 'refs/heads/main', merged]);
+  // Coverage: a base at the moved ref WOULD hide stray.txt.
+  assert.doesNotMatch((await git(opts.consumer, ['diff', '--name-only', merged, revision])).stdout, /stray\.txt/);
+  assert.ok((await integrationEligibility(opts)).reasons.includes('implementation changed files outside the approved task scope'));
+});
+
+// TM-248: an approved plan is a grant scoped to an epic or task list; every lead verb checks it covers
+// the caller, the repository and the task, and a managed session cannot self-assert --authorized or --actor.
+const noAutoMerge = opts => writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', required_checks: [{ name: 'noop', argv: ['true'] }] } });
+async function landedTask(t) {
+  const f = await fixture(t);
+  await noAutoMerge(f.opts);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  await f.git(f.opts.consumer, ['merge', '--ff-only', revision]);
+  await registerAgent(f.opts.consumer, 'lead-1');
+  const landing = { reason: 'plan TM-248 landing', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  return { ...f, revision, landing };
+}
+const planGrant = (opts, extra = {}) => grantDelegation({ consumer: opts.consumer, home: opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, to: 'lead-1', scopes: ['integrate', 'record-landing'], ...extra });
+
+test('TM-248 in-plan: the lead lands a task in the approved plan, and the grant supplies actor, delegated_by, delegation_id and plan', async t => {
+  const { opts, landing } = await landedTask(t);
+  const grant = await planGrant(opts, { plan: { epic: 'EP-19' } });
+  const recorded = await recordLanding({ ...asCaller(opts, 'lead-1'), ...landing });
+  const auth = recorded.merge.authorization;
+  assert.equal(auth.actor, 'lead-1'); assert.equal(auth.delegated_by, 'operator'); assert.equal(auth.delegation_id, grant.id);
+  assert.deepEqual(auth.plan, { epic: 'EP-19', tasks: ['TM-1'], sha256: planDigest(['TM-1']) }); assert.equal(auth.explicit, false); assert.equal(auth.authorized, true);
+  // integrate: a task listed by id is covered whatever its epic.
+  const { opts: o2, finish } = await fixture(t); await noAutoMerge(o2);
+  await admitTask(o2); await finish(); await registerAgent(o2.consumer, 'lead-1');
+  const g2 = await planGrant(o2, { plan: { tasks: ['TM-1'] } });
+  const integrated = await integrateTask(asCaller(o2, 'lead-1'));
+  assert.equal(integrated.merge.authorization.actor, 'lead-1'); assert.equal(integrated.merge.authorization.delegation_id, g2.id);
+  assert.equal(integrated.merge.authorization.delegated_by, 'operator'); assert.deepEqual(integrated.merge.authorization.plan, { epic: null, tasks: ['TM-1'], sha256: planDigest(['TM-1']) });
+});
+
+test('TM-248 out-of-plan: a grant for another epic or task list refuses the task with TOPOLOGY_DELEGATION_PLAN', async t => {
+  const { opts, landing, git } = await landedTask(t);
+  await planGrant(opts, { plan: { epic: 'EP-20', tasks: ['TM-2'] } });
+  const lead = asCaller(opts, 'lead-1');
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN', message: /covers TM-1;.*EP-20 \(TM-2,TM-3\)/ });
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  const gate = await integrationEligibility(lead);
+  assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_PLAN')), gate.reasons.join('; '));
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before);
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+});
+
+test('TM-248 expired grant: a plan grant past its expiry authorizes nothing', async t => {
+  const { opts, landing } = await landedTask(t);
+  await planGrant(opts, { expires: '1ms' });
+  await new Promise(r => setTimeout(r, 10));
+  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  await assert.rejects(integrateTask(asCaller(opts, 'lead-1')), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /valid standing delegation/ });
+});
+
+test('TM-248 wrong repo: a plan grant for another repository authorizes nothing here', async t => {
+  const { opts, landing } = await landedTask(t);
+  const { opts: other } = await fixture(t);
+  await registerAgent(other.consumer, 'lead-1');
+  // Same state home, so only the repository key separates the two grants.
+  await planGrant({ ...other, env: { ...other.env, AGENT_ORCHESTRATION_STATE_HOME: opts.env.AGENT_ORCHESTRATION_STATE_HOME }, home: opts.home });
+  await assert.rejects(recordLanding({ ...asCaller(opts, 'lead-1'), ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY' });
+  await assert.rejects(integrateTask(asCaller(opts, 'lead-1')), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+});
+
+test('TM-248 worker session: a worker cannot use the lead\'s plan grant, nor self-assert --authorized', async t => {
+  const { opts, landing } = await landedTask(t);
+  await planGrant(opts);
+  const worker = asCaller(opts, 'lead-1', 'worker-7'); // AO_AGENT_ID names the lead; the census binds the pane to worker-7
+  await assert.rejects(recordLanding({ ...worker, ...landing }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  const dispatched = { ...opts, ancestors: AGENT_ANCESTRY, env: { ...opts.env, TM_DISPATCH_WORKER: '1', TM_DISPATCH_TASK: 'TM-1' } };
+  await assert.rejects(recordLanding({ ...dispatched, ...landing, authorized: true, actor: 'operator' }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', message: /TM_DISPATCH_WORKER/ });
+  await assert.rejects(integrateTask({ ...dispatched, authorized: true }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+});
+
+test('TM-248 managed session passing --authorized is refused by the verb itself; an operator shell still may', async t => {
+  const { opts, landing, git } = await landedTask(t);
+  const before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  // A lead's session (AO_AGENT_ID, claude ancestor), a scrubbed env under a claude ancestor, and CLAUDECODE alone.
+  const sessions = [asCaller(opts, 'lead-1'), { ...opts, ancestors: AGENT_ANCESTRY }, { ...opts, env: { ...opts.env, CLAUDECODE: '1' } }];
+  for (const session of sessions) {
+    await assert.rejects(recordLanding({ ...session, ...landing, authorized: true, actor: 'ryan' }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+    await assert.rejects(recordLanding({ ...session, ...landing, authorized: true }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', message: /--authorized cannot be self-asserted/ });
+    await assert.rejects(integrateTask({ ...session, authorized: true }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT' });
+    const gate = await integrationEligibility({ ...session, authorized: true });
+    assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_MANAGEMENT_SELF_ASSERT')), gate.reasons.join('; '));
+  }
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before);
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+  // The operator's shell (no marker, no agent ancestor) keeps --authorized and --actor.
+  const recorded = await recordLanding({ ...opts, ...landing, authorized: true, actor: 'ryan' });
+  assert.equal(recorded.merge.authorization.actor, 'ryan'); assert.equal(recorded.merge.authorization.explicit, true);
+});
+
+// TM-248 fix: management.auto_merge speaks only for an operator shell. A managed session always needs
+// a live plan grant covering caller, repository and task, and the recorded actor comes from it.
+test('TM-248 auto_merge: a managed session with no grant is refused on integrate and record-landing', async t => {
+  const { opts, finish, git } = await fixture(t); // auto_merge: true
+  const admitted = await admitTask(opts); const revision = (await finish()).finish.revision;
+  await registerAgent(opts.consumer, 'lead-1');
+  const lead = asCaller(opts, 'lead-1'), before = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const gate = await integrationEligibility(lead);
+  assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => /managed agent session needs a valid standing delegation/.test(r)), gate.reasons.join('; '));
+  await assert.rejects(integrateTask({ ...lead, env: { ...lead.env, TM_ACTOR: 'lead-1' } }), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /whatever management.auto_merge says/ });
+  assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), before, 'nothing merged');
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  const landing = { reason: 'auto-merge policy', reviewGate: fullReview(admitted.record, revision), landed: 'main' };
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
+  // A scrubbed env under a claude ancestor is still a managed session.
+  await assert.rejects(recordLanding({ ...opts, ancestors: AGENT_ANCESTRY, ...landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /managed agent session needs/ });
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+});
+
+test('TM-248 + TM-243 auto_merge: a bare verb from the lead\'s census-bound pane still needs a covering grant', async t => {
+  const { opts, finish } = await fixture(t); // auto_merge: true
+  await admitTask(opts); await finish(); await registerAgent(opts.consumer, 'lead-1');
+  // What `ao-topology manage integrate` (bare) runs as: no marker in the shell env, no claude ancestor,
+  // but its TMUX_PANE is the lead's census-bound pane. The CLI would also name it via bindingAgentId.
+  const { paneEnv, ...lookups } = paneOf('lead-1');
+  await writeJson(join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'census', 'fixture.json'), { agents: [{ agentId: 'lead-1', binding: { ...LEAD_PANE } }] });
+  const bare = { ...opts, ...lookups, env: { ...opts.env, TMUX: paneEnv.TMUX, TMUX_PANE: paneEnv.TMUX_PANE } };
+  const gate = await integrationEligibility(bare);
+  assert.equal(gate.eligible, false); assert.ok(gate.reasons.some(r => /managed agent session needs a valid standing delegation/.test(r)), gate.reasons.join('; '));
+  const named = { ...bare, env: { ...bare.env, AO_AGENT_ID: 'lead-1' } }; // as bindingAgentId names it
+  await assert.rejects(integrateTask(named), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /whatever management.auto_merge says/ });
+  const grant = await planGrant(opts);
+  const integrated = await integrateTask(named);
+  assert.equal(integrated.merge.authorization.delegation_id, grant.id); assert.equal(integrated.merge.authorization.actor, 'lead-1');
+});
+
+test('TM-248 auto_merge: the same managed session with a covering grant is allowed, and the grant names the actor', async t => {
+  const { opts, finish } = await fixture(t); // auto_merge: true
+  await admitTask(opts); await finish(); await registerAgent(opts.consumer, 'lead-1');
+  const grant = await planGrant(opts);
+  const integrated = await integrateTask({ ...asCaller(opts, 'lead-1'), env: { ...asCaller(opts, 'lead-1').env, TM_ACTOR: 'someone-else', USER: 'someone-else' } });
+  const auth = integrated.merge.authorization;
+  assert.equal(auth.actor, 'lead-1'); assert.equal(auth.delegated_by, 'operator'); assert.equal(auth.delegation_id, grant.id);
+  assert.deepEqual(auth.plan, grant.plan); assert.equal(auth.channel, 'standing-delegation'); assert.equal(auth.policy_auto_merge, true);
+
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  await f.git(f.opts.consumer, ['merge', '--ff-only', revision]); await registerAgent(f.opts.consumer, 'lead-1');
+  const g2 = await planGrant(f.opts, { plan: { tasks: ['TM-1'] } });
+  const recorded = await recordLanding({ ...asCaller(f.opts, 'lead-1'), reason: 'plan landing', reviewGate: fullReview(admitted.record, revision), landed: 'main' });
+  const a2 = recorded.merge.authorization;
+  assert.equal(a2.actor, 'lead-1'); assert.equal(a2.delegated_by, 'operator'); assert.equal(a2.delegation_id, g2.id); assert.deepEqual(a2.plan, g2.plan);
+});
+
+test('TM-248 auto_merge: an operator shell still integrates without a grant (documented operator path)', async t => {
+  const { opts, finish } = await fixture(t); // auto_merge: true; opts is an operator shell
+  await admitTask(opts); await finish();
+  const integrated = await integrateTask({ ...opts, env: { ...opts.env, TM_ACTOR: '', USER: 'ryan' } });
+  const auth = integrated.merge.authorization;
+  assert.equal(auth.policy_auto_merge, true); assert.equal(auth.channel, 'local-operator'); assert.equal(auth.actor, 'ryan');
+  assert.equal(auth.delegation_id, undefined);
+});
+
+// TM-248 fix: an epic plan is frozen at grant time. The fixture's store answers TM-1's epic from `doc`,
+// which the grantee could edit; coverage must never read it.
+async function frozenCase(t, { epicAtGrant, epicAfter, listed }) {
+  const f = await fixture(t);
+  await noAutoMerge(f.opts);
+  f.doc.epic = epicAtGrant;
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  await registerAgent(f.opts.consumer, 'lead-1');
+  const grant = await planGrant(f.opts, { plan: { epic: 'EP-19' }, epicTasks: async () => listed });
+  f.doc.epic = epicAfter;
+  return { ...f, grant, lead: asCaller(f.opts, 'lead-1'), landing: { reason: 'frozen plan', reviewGate: fullReview(admitted.record, revision), landed: revision } };
+}
+
+test('TM-248 frozen plan (a): a task moved into the epic after the grant is refused', async t => {
+  const { opts, lead, landing, git, grant } = await frozenCase(t, { epicAtGrant: 'EP-20', epicAfter: 'EP-19', listed: ['TM-2'] });
+  assert.deepEqual(grant.plan.tasks, ['TM-2']);
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  await git(opts.consumer, ['merge', '--ff-only', landing.landed]);
+  await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+});
+
+test('TM-248 frozen plan (b): a task created in the epic after the grant is refused', async t => {
+  // TM-1 did not exist when the store was asked; it is in EP-19 now.
+  const { lead } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-19', listed: ['TM-2', 'TM-3'] });
+  await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_PLAN' });
+  const gate = await integrationEligibility(lead);
+  assert.ok(gate.reasons.some(r => r.startsWith('TOPOLOGY_DELEGATION_PLAN')), gate.reasons.join('; '));
+});
+
+test('TM-248 frozen plan (c): a listed task moved out of the epic is still covered', async t => {
+  const { lead, grant } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-20', listed: ['TM-1', 'TM-2'] });
+  const integrated = await integrateTask(lead);
+  assert.equal(integrated.merge.authorization.delegation_id, grant.id); assert.equal(integrated.merge.authorization.actor, 'lead-1');
+});
+
+test('TM-248 frozen plan (d): a tampered plan.tasks or plan.sha256 is refused as TOPOLOGY_DELEGATION_INTEGRITY', async t => {
+  const { opts, lead, landing, git } = await frozenCase(t, { epicAtGrant: 'EP-19', epicAfter: 'EP-19', listed: ['TM-2'] });
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  const { readFile } = await import('node:fs/promises');
+  const file = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'delegations', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.json`);
+  const [grant] = JSON.parse(await readFile(file, 'utf8'));
+  await git(opts.consumer, ['merge', '--ff-only', landing.landed]);
+  for (const plan of [{ ...grant.plan, tasks: ['TM-1', 'TM-2'] }, { ...grant.plan, sha256: planDigest(['TM-1']) }]) {
+    await writeJson(file, [{ ...grant, plan }]);
+    await assert.rejects(integrateTask(lead), { code: 'TOPOLOGY_DELEGATION_INTEGRITY', message: /plan\.sha256/ });
+    await assert.rejects(recordLanding({ ...lead, ...landing }), { code: 'TOPOLOGY_DELEGATION_INTEGRITY' });
+  }
+  // Tampering both consistently is the documented same-user limit; the digest catches casual edits only.
+  assert.equal((await managementStatus(opts)).management.merge, undefined, 'nothing was recorded by a refusal');
+});
+
+// TM-249: with management.integrate_via "pull-request", manage integrate merges the task's PR itself
+// through ONE injected gh, and refuses each unmet condition by name. No network and no real gh: the
+// fake answers from a PR object and performs the merge as a real merge commit in a local bare origin,
+// so the local fast-forward and the store's governed-completion ancestry run for real.
+const IDENTITY = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, required, management = {}, criteria } = {}) {
+  const f = await fixture(t);
+  await writeJson(join(f.opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: false, target_branch: 'main', integrate_via: 'pull-request', ...management } });
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  const base = (await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim();
+  const origin = join(f.opts.consumer, '..', 'origin.git');
+  await run('git', ['clone', '-q', '--bare', f.opts.consumer, origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
+  await registerAgent(f.opts.consumer, 'lead-1');
+  const granted = grant === null ? null : await planGrant(f.opts, grant);
+  const pr = { number: 7, state: 'OPEN', baseRefName: 'main', headRefOid: revision, mergeable: 'MERGEABLE', ...prPatch };
+  const state = { pr, checks: checks || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }, { name: 'docs-only', state: 'SKIPPED', bucket: 'skipping' }], required: required || [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }], argv: [], viewFails: false };
+  const mergeInOrigin = async head => {
+    const tree = (await run('git', ['-C', origin, 'rev-parse', `${head}^{tree}`])).stdout.trim();
+    const oid = (await run('git', ['-C', origin, ...IDENTITY, 'commit-tree', tree, '-p', 'main', '-p', head, '-m', `Merge pull request #${pr.number}`])).stdout.trim();
+    await run('git', ['-C', origin, 'update-ref', 'refs/heads/main', oid]);
+    Object.assign(pr, { state: 'MERGED', mergeCommit: { oid } });
+  };
+  const ok = value => ({ code: 0, stdout: JSON.stringify(value), stderr: '' });
+  const gh = async args => {
+    state.argv.push(args);
+    const [noun, verb] = args;
+    if (noun !== 'pr') return { code: 1, stdout: '', stderr: 'unexpected' };
+    if (verb === 'list') return ok([pr]);
+    if (verb === 'checks') return ok(args.includes('--required') ? state.required : state.checks);
+    if (verb === 'merge') { await mergeInOrigin(pr.headRefOid); return { code: 0, stdout: '', stderr: '' }; }
+    if (verb === 'view') return state.viewFails ? { code: 1, stdout: '', stderr: 'HTTP 502' } : ok({ state: pr.state, headRefOid: pr.headRefOid, baseRefName: pr.baseRefName, mergeCommit: pr.mergeCommit ?? null });
+    return { code: 1, stdout: '', stderr: `unknown gh pr ${verb}` };
+  };
+  // The fake store keeps tm's acceptance gate: done refuses while any criterion is unaccepted.
+  // accept is what an attesting party (worker evidence, operator) calls; integrate must never call it.
+  const closed = { accepted: [], doneBy: [] };
+  f.doc.acceptance = (criteria || [{ text: 'first', done: true }, { text: 'second', done: true }]).map(c => ({ ...c }));
+  Object.assign(f.opts.store, {
+    accept: async (_task, n) => { closed.accepted.push(n); f.doc.acceptance[n - 1].done = true; },
+    done: async (_task, actor) => {
+      const open = f.doc.acceptance.filter(c => !c.done);
+      if (open.length) throw new Error(`tm done refused: ${open.length} acceptance criteria not accepted`);
+      closed.doneBy.push(actor); f.doc.status = 'done';
+    },
+  });
+  const attest = () => { for (const c of f.doc.acceptance) c.done = true; };
+  const lead = { ...asCaller(f.opts, 'lead-1'), gh, reviewGate: review || fullReview(admitted.record, revision) };
+  return { ...f, admitted, revision, base, origin, pr, state, gh, lead, grant: granted, closed, mergeInOrigin, attest };
+}
+const merges = state => state.argv.filter(a => a[1] === 'merge');
+async function refusedAs(p, options, condition, message) {
+  await assert.rejects(integrateTask(options), err => {
+    assert.equal(err.code, 'TOPOLOGY_INTEGRATE_REFUSED', err.message);
+    const named = err.details.refusals.filter(r => r.condition === condition);
+    assert.ok(named.length, `expected a "${condition}" refusal, got: ${err.message}`);
+    if (message) assert.ok(named.some(r => message.test(r.reason)), `"${condition}" refusal should match ${message}: ${err.message}`);
+    return true;
+  });
+  assert.deepEqual(merges(p.state), [], 'a refusal never reaches gh pr merge');
+  assert.equal((await managementStatus(p.opts)).management.merge, undefined, 'a refusal records nothing');
+  assert.deepEqual(p.closed.doneBy, [], 'a refusal closes nothing');
+}
+
+const UNACCEPTED = [{ text: 'first', done: false }, { text: 'second', done: true }, { text: 'third', done: false }];
+test('TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun', async t => {
+  const p = await prTask(t, { criteria: UNACCEPTED });
+  await assert.rejects(integrateTask(p.lead), err => {
+    assert.equal(err.code, 'TOPOLOGY_INTEGRATE_UNCLOSED', err.message);
+    assert.deepEqual(err.details.unaccepted, [{ index: 1, text: 'first' }, { index: 3, text: 'third' }]);
+    assert.match(err.message, /#1 "first"; #3 "third"/); assert.match(err.message, /landing is recorded/);
+    assert.equal(err.details.merged, true); assert.equal(err.details.recorded, true);
+    return true;
+  });
+  assert.deepEqual(merges(p.state), [['pr', 'merge', '7', '--merge', '--match-head-commit', p.revision]]);
+  for (const argv of p.state.argv) for (const flag of ['--admin', '--squash', '--rebase', '--auto', '--force'])
+    assert.ok(!argv.includes(flag), `gh was never given ${flag}: ${argv.join(' ')}`);
+  assert.deepEqual(p.closed.accepted, [], 'integrate accepted no criterion on the task\'s behalf');
+  assert.deepEqual(p.doc.acceptance.map(c => c.done), [false, true, false], 'criteria are untouched');
+  assert.deepEqual(p.closed.doneBy, []); assert.notEqual(p.doc.status, 'done');
+  const landed = (await managementStatus(p.opts)).management;
+  assert.equal(landed.state, 'merged'); assert.equal(landed.merge.pull_request.number, 7); assert.equal(landed.closed, undefined);
+  const auth = landed.merge.authorization;
+  assert.equal(auth.actor, 'lead-1'); assert.equal(auth.delegated_by, 'operator'); assert.equal(auth.delegation_id, p.grant.id); assert.equal(auth.authorized, true);
+  assert.equal(landed.merge.landed, p.pr.mergeCommit.oid);
+  assert.deepEqual(landed.merge.checks.map(c => c.name), ['unit', 'docs-only'], 'a skipped check not listed as required is allowed');
+  assert.equal((await p.git(p.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), p.pr.mergeCommit.oid, 'local main fast-forwarded to the merge commit');
+  // Whoever can attest accepts the criteria through the store; the rerun then closes without merging again.
+  p.attest();
+  const result = await integrateTask(p.lead);
+  assert.equal(merges(p.state).length, 1, 'the rerun never merged again');
+  assert.deepEqual(p.closed.accepted, []); assert.deepEqual(p.closed.doneBy, ['lead-1'], 'done as the grant\'s actor');
+  assert.deepEqual(result.closed && { actor: result.closed.actor, delegated_by: result.closed.delegated_by, delegation_id: result.closed.delegation_id }, { actor: 'lead-1', delegated_by: 'operator', delegation_id: p.grant.id });
+  assert.ok(p.calls.indexOf('merge') < p.calls.indexOf('close'), 'landing recorded before closing');
+  // The store's real governed-completion gate accepts the record.
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = p.opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const gate = governedCompletion({ id: 'TM-1', worktree: result.worktree, branch: result.branch, governance: { version: 1, runtime: 'topology', workflowRunId: result.workflow_run_id, leadId: result.lead_id, revision: p.revision, state: 'ready-for-review' } }, { root: p.opts.consumer });
+  assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'lead-1');
+  // Rerunning is a no-op: nothing merges twice.
+  await integrateTask(p.lead); assert.equal(merges(p.state).length, 1);
+});
+
+test('TM-249 close-retry runs the same caller and plan gate: a worker pane and a lead without a grant are refused by name and the task stays open', async t => {
+  // Criteria are all accepted; the store refuses done once for another gate, leaving the landing recorded but the task open.
+  const p = await prTask(t), done = p.opts.store.done;
+  p.opts.store.done = async () => { throw new Error('tm done refused: governed completion is unavailable'); };
+  await assert.rejects(integrateTask(p.lead), err => err.code === 'TOPOLOGY_INTEGRATE_UNCLOSED' && /governed completion is unavailable/.test(err.message));
+  p.opts.store.done = done;
+  const retryRefused = async (options, condition, message) => {
+    await assert.rejects(integrateTask(options), err => {
+      assert.equal(err.code, 'TOPOLOGY_INTEGRATE_REFUSED', err.message);
+      assert.ok(err.details.refusals.some(r => r.condition === condition && message.test(r.reason)), err.message);
+      return true;
+    });
+    assert.deepEqual(p.closed.doneBy, [], 'nothing closed'); assert.notEqual(p.doc.status, 'done');
+    assert.equal((await managementStatus(p.opts)).management.closed, undefined);
+    assert.equal(merges(p.state).length, 1, 'never merged again');
+  };
+  // A worker: TM_DISPATCH_WORKER unset, AO_AGENT_ID naming the lead, but its pane is bound to worker-7.
+  const worker = { ...asCaller(p.opts, 'lead-1', 'worker-7'), gh: p.gh, reviewGate: p.lead.reviewGate };
+  assert.equal(worker.env.TM_DISPATCH_WORKER, undefined);
+  await retryRefused(worker, 'caller', /TOPOLOGY_DELEGATION_ACTOR/);
+  // The lead's own managed session once its grant is revoked.
+  const { revokeDelegation } = await import('../../topology/lib/delegation.mjs');
+  await revokeDelegation({ consumer: p.opts.consumer, home: p.opts.home, env: { USER: 'operator', AGENT_ORCHESTRATION_STATE_HOME: p.opts.env.AGENT_ORCHESTRATION_STATE_HOME }, io: { ancestors: async () => ['zsh'] }, id: p.grant.id });
+  await retryRefused(p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+});
+
+test('TM-249 authorization: an operator-shell auto_merge integrate without --authorized or a grant records authorized: false, exactly as the fast-forward path', async t => {
+  const p = await prTask(t, { grant: null, management: { auto_merge: true } });
+  const result = await integrateTask({ ...p.opts, gh: p.gh, reviewGate: p.lead.reviewGate, env: { ...p.opts.env, TM_ACTOR: '', USER: 'ryan' } });
+  const auth = result.merge.authorization;
+  assert.equal(auth.authorized, false); assert.equal(auth.policy_auto_merge, true); assert.equal(auth.explicit, false);
+  assert.equal(auth.channel, 'local-operator'); assert.equal(auth.actor, 'ryan'); assert.equal(auth.delegation_id, undefined);
+  assert.deepEqual(p.closed.doneBy, ['ryan']);
+  // The same caller under the fast-forward path records the same authorization shape.
+  const { opts, finish } = await fixture(t); // auto_merge: true, operator shell
+  await admitTask(opts); await finish();
+  const ff = (await integrateTask({ ...opts, env: { ...opts.env, TM_ACTOR: '', USER: 'ryan' } })).merge.authorization;
+  for (const key of ['authorized', 'policy_auto_merge', 'explicit', 'channel', 'actor']) assert.equal(auth[key], ff[key], key);
+});
+
+test('TM-249 refusal plan: a grant whose plan does not cover the task', async t => {
+  const p = await prTask(t, { grant: { plan: { tasks: ['TM-2'] } } });
+  await refusedAs(p, p.lead, 'plan', /TOPOLOGY_DELEGATION_PLAN/);
+});
+
+test('TM-249 refusal plan: a managed lead session without any grant', async t => {
+  const p = await prTask(t, { grant: null });
+  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+});
+
+test('TM-249 refusal caller: a worker session cannot use the lead\'s grant', async t => {
+  const p = await prTask(t);
+  await refusedAs(p, { ...asCaller(p.opts, 'lead-1', 'worker-7'), gh: p.gh, reviewGate: p.lead.reviewGate }, 'caller', /TOPOLOGY_DELEGATION_ACTOR/);
+  // A dispatched worker naming the lead from outside the lead's pane.
+  await refusedAs(p, { ...p.opts, ancestors: AGENT_ANCESTRY, gh: p.gh, reviewGate: p.lead.reviewGate, env: { ...p.opts.env, AO_AGENT_ID: 'lead-1', TM_DISPATCH_WORKER: '1' } }, 'caller', /TOPOLOGY_DELEGATION_ACTOR/);
+});
+
+test('TM-249 refusal base: the PR does not target the integration branch', async t => {
+  const p = await prTask(t, { pr: { baseRefName: 'develop' } });
+  await refusedAs(p, p.lead, 'base', /targets develop, not the integration branch main/);
+});
+
+test('TM-249 refusal head: the PR head is not the reviewed and approved revision', async t => {
+  const p = await prTask(t);
+  const review = fullReview(p.admitted.record, p.base);
+  await refusedAs(p, { ...p.lead, reviewGate: review }, 'head', /not the reviewed and approved revision/);
+});
+
+test('TM-249 refusal head: the PR head is not the task\'s recorded finish revision', async t => {
+  const p = await prTask(t);
+  p.pr.headRefOid = p.base; // reviewed and PR agree with each other, not with the finish report
+  await assert.rejects(integrateTask({ ...p.lead, reviewGate: fullReview(p.admitted.record, p.base) }), err =>
+    err.details.refusals.some(r => r.condition === 'head' && /recorded finish revision/.test(r.reason)) &&
+    !err.details.refusals.some(r => /reviewed and approved/.test(r.reason)));
+  assert.deepEqual(merges(p.state), []);
+});
+
+test('TM-249 refusal ci: a pending check', async t => {
+  const p = await prTask(t, { checks: [{ name: 'unit', state: 'IN_PROGRESS', bucket: 'pending' }] });
+  await refusedAs(p, p.lead, 'ci', /unit is pending/);
+});
+
+test('TM-249 refusal ci: a failed check, a skipped required check, and no checks at all', async t => {
+  const p = await prTask(t, { checks: [{ name: 'unit', state: 'SUCCESS', bucket: 'pass' }, { name: 'lint', state: 'FAILURE', bucket: 'fail' }] });
+  await refusedAs(p, p.lead, 'ci', /lint is fail/);
+  p.state.checks = [{ name: 'unit', state: 'SKIPPED', bucket: 'skipping' }];
+  await refusedAs(p, p.lead, 'ci', /unit is skipping \(required\)/);
+  p.state.checks = [];
+  await refusedAs(p, p.lead, 'ci', /no CI checks are reported/);
+});
+
+test('TM-249 refusal review: the verdict is not approve', async t => {
+  const p = await prTask(t);
+  const approved = await fullReview(p.admitted.record, p.revision)();
+  await refusedAs(p, { ...p.lead, reviewGate: async () => ({ ...approved, status: { review: { ...approved.status.review, verdict: 'request-changes' } } }) }, 'review', /request-changes, not approve/);
+  await refusedAs(p, { ...p.lead, reviewGate: async () => ({ eligible: false, reasons: ['reviewer is not independent of the lead and authors'] }) }, 'review', /not independent/);
+});
+
+test('TM-249 refusal mergeable: the PR has conflicts', async t => {
+  const p = await prTask(t, { pr: { mergeable: 'CONFLICTING' } });
+  await refusedAs(p, p.lead, 'mergeable', /CONFLICTING, not MERGEABLE/);
+});
+
+test('TM-249 idempotent: a PR already merged at the approved head is recorded and closed without merging again', async t => {
+  const p = await prTask(t);
+  await p.mergeInOrigin(p.revision);
+  const result = await integrateTask(p.lead);
+  assert.deepEqual(merges(p.state), [], 'no second merge');
+  assert.equal(result.merge.pull_request.already_merged, true); assert.equal(result.merge.landed, p.pr.mergeCommit.oid);
+  assert.equal(result.merge.authorization.actor, 'lead-1'); assert.deepEqual(p.closed.doneBy, ['lead-1']);
+});
+
+test('TM-249 idempotent: a PR merged at a different head is refused by name', async t => {
+  const p = await prTask(t);
+  await p.mergeInOrigin(p.revision);
+  p.pr.headRefOid = p.base;
+  await refusedAs(p, p.lead, 'head', /already merged at .*not the task's recorded finish revision/);
+});
+
+test('TM-249 merged but unrecorded is reported explicitly, and a rerun records it without merging again', async t => {
+  const p = await prTask(t);
+  p.state.viewFails = true;
+  await assert.rejects(integrateTask(p.lead), err => err.code === 'TOPOLOGY_INTEGRATE_UNRECORDED' && err.details.merged === true && /Do not merge again/.test(err.message));
+  assert.equal((await managementStatus(p.opts)).management.merge, undefined);
+  p.state.viewFails = false;
+  const result = await integrateTask(p.lead);
+  assert.equal(merges(p.state).length, 1, 'the merge ran exactly once'); assert.equal(result.merge.pull_request.already_merged, true);
+  assert.deepEqual(p.closed.doneBy, ['lead-1']);
+});
+
+

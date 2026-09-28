@@ -41,7 +41,7 @@ import { paths } from "../paths.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
 import { failureScope } from "./failure.mjs";
-import { governedAdmission } from "../governance-check.mjs";
+import { governanceMode, governedAdmission } from "../governance-check.mjs";
 
 /**
  * One heartbeat, driven from outside — the pool loop and other supervisors call
@@ -118,10 +118,24 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
       failureScope: "config",
     };
   }
-  if (config(p).dispatch?.governed === true || task.governance) {
+  /**
+   * governanceMode is the ONE shared predicate (task-management/lib/governance-check.mjs) for
+   * whether this repo's standing ao-topology reviewer requires admission before dispatch. A repo
+   * with a reviewer gates by default now ("required") — an *unset* `dispatch.governed` used to
+   * skip the gate silently, which is exactly how TM-136 (design-system PR 121) and TM-235 (this
+   * repo's PR 125) finished with no mechanical path to independent review. Only an explicit
+   * `dispatch.governed: false` opts out, and that opt-out is recorded on the task (below), not
+   * silent.
+   */
+  let ungoverned = null;
+  const gm = governanceMode(task, p);
+  if (gm.mode === "admitted" || gm.mode === "required") {
     const gate = governedAdmission(task, p);
     if (!gate.allow) return { ok: false, ...gate, failureScope: "task" };
     session ||= gate.owner;
+  } else if (gm.mode === "opted-out") {
+    ungoverned = `${id}: dispatch.governed is explicitly false — this repo has a standing ao-topology reviewer, but independent review via \`ao-topology reviewer request\` will be UNAVAILABLE for this task.`;
+    update(id, { governanceOptOut: { at: now(), reason: "dispatch.governed=false" } }, p);
   }
 
   /**
@@ -259,5 +273,6 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     worktree: prov.path,
     branch: prov.branch,
     detail: res.detail,
+    ...(ungoverned ? { ungoverned } : {}),
   };
 }

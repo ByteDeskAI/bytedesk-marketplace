@@ -20,6 +20,7 @@ import { planFindings } from "./plans.mjs";
 import { missingFields } from "./completeness.mjs";
 import { RESOLVED, config, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
+import { governanceMode } from "./governance-check.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
 import { evidenceSync } from "./evidence.mjs";
@@ -121,6 +122,25 @@ export function diagnose(p = paths()) {
   const sprints = new Set(list("sprint", {}, p).map((s) => s.id));
   const cfg = config(p);
   const out = [];
+
+  /**
+   * Governed dispatch turned off with a reviewer standing.
+   *
+   * governanceMode (governance-check.mjs) is the one predicate dispatch, the pool and this
+   * check share. A repo with a standing ao-topology reviewer defaults to gating dispatch
+   * (TM-240) — reported here, not fixed, because turning `dispatch.governed` back on is an
+   * operator decision the same way opting out was.
+   */
+  if (governanceMode(null, p).mode === "opted-out") {
+    out.push(
+      finding(
+        "warning",
+        "governance-opted-out",
+        null,
+        "this repo has a standing ao-topology reviewer, but dispatch.governed is explicitly false — dispatched tasks will have no mechanical path to independent review; `tm config dispatch.governed true` to restore the gate",
+      ),
+    );
+  }
 
   for (const t of live) {
     // A blockedBy pointing at nothing makes `tm why`/`tm next` treat the task as
