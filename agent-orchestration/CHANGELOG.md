@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0] — 2026-09-27
+
+### Added
+
+- feat(agent-orchestration): **Agents talk over NATS by default (TM-231, TM-232).** Mail, claims, presence, probes, and reviewer verdicts go through one transport. The live path publishes `orch.<repo>.mail.<agent>` on `ORCH_MAIL`, claims with compare-and-set on `ORCH_CLAIMS`, presence on `ORCH_PRESENCE`, probes as request/reply, and verdicts on `orch.<repo>.review.<nonce>`. A message accepted before a listener gap is still delivered after reconnect. `AO_TRANSPORT=file` keeps the previous file double for the existing suite.
+
+### Changed
+
+- Close drains the NATS client, drops acked mail, and reuses JetStream consumers so a send does not hold the process or grow an unbounded queue.
+
 ## [0.10.0] — 2026-09-22
 
 ### Added
@@ -19,6 +29,38 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`manage integrate` merges the task's pull request itself, behind its own guardrails
+  (TM-249, ADR-0022).** With `management.integrate_via: "pull-request"`, integrate runs
+  `gh pr merge <n> --merge --match-head-commit <approved sha>` only when the task is in the
+  caller's plan grant, the PR base is the integration branch, the PR head equals both the approved
+  review's revision and the finish revision, CI is green, the review verdict is approve and the PR
+  is mergeable. Each unmet condition is refused by name. It then records the landing and closes the
+  task through the store's gates with the grant's actor, `delegated_by` and `delegation_id`. It
+  never accepts acceptance criteria on the task's behalf: if the store refuses `tm done`, the
+  landing stands and integrate returns `TOPOLOGY_INTEGRATE_UNCLOSED` naming each unaccepted
+  criterion, and a rerun after they are accepted closes the task. The close-retry runs the same
+  `caller` and `plan` gate as the merge (one shared helper), and both integrate paths build the
+  authorization record with one function, so an operator-shell `auto_merge` integrate without
+  `--authorized` or a grant records `authorized: false`. An already-merged PR at the approved head
+  is recorded, never merged twice. Leads never run raw `gh pr merge`; TM-243's `manage integrate`
+  rule already covers the verb.
+- **An operator installs allow rules so the lead runs its governed verbs without a per-command
+  prompt (TM-243).** `ao-topology permissions install [--mcp <mcp__server>] [--dry-run]` writes
+  `Bash(ao-topology manage record-landing|integrate|start-worker|stop-worker|admit|report *)` and
+  `Bash(tm *)`, plus each opted-in MCP name, to `<lead agent dir>/.claude/settings.local.json`.
+  Only that lead reads the file. Install prints the exact diff, is idempotent and says to restart
+  the lead; `uninstall` removes only the rules install recorded as its own. Both refuse inside
+  any agent session (the TM-234 operator gate, now shared). Install also refuses when the lead
+  launches outside its own agent directory (TM-242), because the file would then be shared. The
+  rules grant no authority: `record-landing` and `integrate` still need a proven TM-234
+  delegation.
+- Governed `manage` verbs run as bare commands: with no `AO_AGENT_ID`, the caller is named from
+  the census binding of its live pane. `--summary` prints one line instead of JSON, so a lead
+  never pipes to `jq`. A dispatched worker (`TM_DISPATCH_WORKER`) is refused every `manage` verb
+  except `report`, `status`, `eligible` and `assignment`.
+
 ### Changed
 
 - **Standing agents start in the repository root, so project hooks find it (TM-242).** Lead,
@@ -30,6 +72,65 @@
   `AO_AGENT_DIR` and recorded as `agent_dir` in `session.json`. Claude Code memory is now shared per
   repository rather than per agent, and a coordinator's containment rests on `coordinator_args` and
   permission prompts, not on a withheld directory. See docs/topology.md, *Working directory*.
+- **An approved plan is a checkable grant, and managed sessions cannot self-assert authority
+  (TM-248, ADR-0022).** `delegate grant` now requires a plan (`--epic EP-nnn` and/or
+  `--tasks TM-nnn,...`) and `--expires` of at most 14 days, and the operator retypes the plan in the
+  confirmation. `manage integrate` and `manage record-landing` accept a grant only when its plan
+  covers the task; otherwise they refuse with `TOPOLOGY_DELEGATION_PLAN`. An epic plan is frozen at
+  grant time: `--epic` resolves to the epic's task ids in the store, recorded as `plan.tasks` with
+  `plan.sha256`, and listed in the confirmation. Coverage is membership in that list only, so a task
+  moved into or created under the epic later needs a new grant. A `plan.sha256` that does not match
+  `plan.tasks` is refused with `TOPOLOGY_DELEGATION_INTEGRITY`. A grant without a plan, or an epic
+  grant without a frozen list, covers nothing. The merge record's
+  `authorization` carries `actor` (the grantee), `delegated_by`, `delegation_id` and `plan`.
+  Inside a managed agent session (an agent marker such as `AO_AGENT_ID`, `TM_SESSION_ID`,
+  `TM_DISPATCH_WORKER`, `CLAUDECODE`, `CLAUDE_CODE_*` or `CODEX_*`, a Claude Code or Codex
+  ancestor, or a tmux pane a census binds to an agent; one helper, shared with TM-243's
+  `permissions install` gate)
+  `--actor` and `--authorized` are refused with `TOPOLOGY_MANAGEMENT_SELF_ASSERT`; an operator
+  shell keeps both. A managed session always needs a covering grant on both verbs, whatever
+  `management.auto_merge` says, including a bare verb named by its pane binding (TM-243);
+  `auto_merge` applies only to an operator shell. `--expires` accepts
+  days (`7d`).
+
+### Fixed
+
+- **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
+  The review range was pinned to the admission commit, so a branch that merged `main` to clear a
+  conflict carried every task already landed there, and the reviewer judged them as part of this
+  task (PR 128, TM-241). One helper, `effectiveBase` (via `reviewRangeBase`), now derives the base
+  for the review request, review record, `collectReview`, `reviewEligibility`,
+  `independentReviewStatus` and the `integrationEligibility` file-scope check.
+  **The trust anchor is the GitHub default branch, never a local ref.** Worktrees share refs, so a
+  worker could otherwise move `origin/main` to a commit of its own and shrink both the reviewed patch
+  and the scope check to its last commit. The base is the `merge_base_commit` of GitHub's
+  `compare/<default>...<revision>` (via `gh`, owner/repo and default branch from `gh repo view`),
+  used only when it verifies locally: the commit exists, the admitted base is a strict ancestor of
+  it, and it is an ancestor of the revision; otherwise `TOPOLOGY_REVIEWER_RANGE`. A caller cannot
+  supply it. When the server cannot answer (no `gh`, auth or network failure, revision not pushed,
+  malformed answer) the range fails closed to the admitted base, wider and never narrower, and the
+  request's `range_note` says why. After landing, the effective base recorded on the host-written
+  request stands while it is a strict descendant of the admitted base, an ancestor of the revision,
+  and on the server's default branch (`compare/<base>...<default>` is `ahead` or `identical`). A
+  request queued before this change has no recorded base: the stored review's base is used only if
+  it reproduces the reviewed patch hash, and otherwise the gate reports that a re-review is required.
+  Requests and records carry `admitted_base` and `effective_base` (`base_revision` is the effective
+  base the patch was computed from). Workers cannot push to the default branch (the PreToolUse guard
+  plus branch protection). **Security note:** a process running as the same user could still
+  replace the `gh` binary or the remote configuration — the documented same-uid limit.
+
+### Changed
+
+- **Tasks in a repository with a standing reviewer are admitted before dispatch (TM-240).**
+  task-management now refuses to dispatch an unadmitted task when this plugin has registered a
+  reviewer for the repository, unless `dispatch.governed` is explicitly `false`. Before, an unset
+  value skipped `manage admit`, and `reviewer request` then refused the finished work with
+  `TOPOLOGY_REVIEWER_RANGE` because no admission record held its base revision — design-system
+  TM-136 (PR 121) and marketplace TM-235 (PR 125). No code in this plugin changed. New tests run the
+  real `tm` CLI through refusal, `manage admit`, dispatch and finish to an accepted review request,
+  and run `reviewer request` from a copy of `topology/` with task-management absent.
+
+
 - **A lead starts, adopts and stops task workers through `manage`, with ownership recorded
   (TM-218).** `manage start-worker --task TM-id [--backend tmux|topology]` launches the worker for an
   admitted task through `tm dispatch` and binds its observed pane, so `manage eligible` no longer
@@ -57,6 +158,15 @@
   record carries `checks_skipped: true`, and `--reason` should cite the checks run at landing. It writes
   the same merge record as integration plus a `recorded-landing` event, so governed tasks landed by
   hand can close.
+- **A reviewer verdict stuck INCOMPLETE ages out instead of retrying forever (TM-217).**
+  `collectReview` used to throw `TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE` for an unclosed verdict and
+  leave the request pending no matter how long it stayed unclosed. It now records the first time a
+  request is seen incomplete and fails it — once, with the lead notified exactly like a refusal —
+  once that has been true for `AO_REVIEW_INCOMPLETE_BOUND_MS` (default 120s), or once the pane
+  capture has not changed at all for `AO_REVIEW_INCOMPLETE_STALL_MS` (default 30s, at least two
+  supervision polls). An empty composer is deliberately not read as idle: Claude Code draws its empty
+  input box below a verdict it is still printing. A fresh `requestReview` mints a new nonce as usual.
+  A verdict that closes before either condition is met still records normally.
 - **Reviewer findings are structured (TM-215).** Each finding is `{severity, file, line, claim,
   evidence, fix}` with severity `blocker`, `major`, `minor`, `nit` or `note`. A note needs no
   action and may omit `evidence` and `fix`. Malformed findings, and findings about a file outside
@@ -77,6 +187,15 @@
 
 ### Fixed
 
+- **A review range over 8 MiB produces a review request (TM-241).** The reviewer patch no longer
+  embeds binary bytes. Each binary file appears as git's "Binary files ... differ" line plus a
+  manifest at the end of the patch listing its path, old and new blob sha256 and size, covered by
+  `patch_sha256`. Text diffs, and the hash of a text-only range, are unchanged. Blob hashes are
+  streamed, so no file size is capped. When the diff cannot be produced, `TOPOLOGY_REVIEWER_RANGE`
+  names the cause: a revision that is not a commit, the size cap (64 MiB of text diff) with the
+  bytes read, git's exit code and stderr, or the binary file that could not be read, with its size.
+  A range that contains binary files hashes differently from before, so an outstanding request or
+  approval for such a range must be requested again. The reviewer prompt explains the manifest.
 - **Rendered reviewer verdicts parse again (TM-233).** Claude Code shows the reviewer's reply as
   Markdown, which turns `\"` into a bare `"`, and it hard-wraps long lines however wide the pane is.
   Every verdict that quoted text was refused as "Review response must be JSON". Collection now
@@ -101,6 +220,42 @@
 - Derive census role icons from the original display role, matching presence for observers, custom roles and missing roles while preserving repository-lead authority.
 
 ### Added
+
+- **The operator can grant a lead standing integration authority instead of running `--authorized`
+  by hand (TM-234, EP-021).** `ao-topology delegate grant --to <agent-id> --repo <consumer> --scope
+  integrate,record-landing [--expires <duration>] [--reason <text>]` writes an append-only grant
+  under the state home; `delegate list` and `delegate revoke <id>` read and end it. `grant` needs an
+  interactive terminal and a typed confirmation of the grantee and scopes. Grant and revoke refuse a
+  shell carrying any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  `CODEX_*`), a Claude Code or Codex ancestor process, or a tmux pane the census binds to an agent,
+  and a grantee cannot grant to itself. The grant records the checks as `channel` evidence, labelled
+  `interactive-same-user` and `agent_proof: false`: an agent running as the same OS user can still
+  get around them. `integrate`/`record-landing` refuse a delegations file holding a grant without
+  that evidence. Scope is a fixed allowlist of `integrate` and `record-landing`
+  only — deploy, publish, push and spend keep their own separate authorization. `manage integrate`
+  and `manage record-landing` now accept a live, unexpired, unrevoked grant naming the caller's own
+  `AO_AGENT_ID`, this repository and the scope in use, in place of an explicit `--authorized`; the
+  merge record then sets `authorization.actor` to the grantee that exercised it, with
+  `authorization.delegated_by` and `authorization.delegation_id` alongside; an `--actor` naming
+  anyone else is refused (`TOPOLOGY_DELEGATION_ACTOR`), and `record-landing` no longer needs
+  `--actor` under a delegation. This removes the self-approval a lead would otherwise be attesting
+  when it authorizes integration of its own work.
+  Review fixes: `AO_AGENT_ID` alone no longer proves the caller is the grantee, since any same-user
+  process can set it. A matching grant now counts only when the caller's `TMUX`/`TMUX_PANE` resolve
+  to a live pane incarnation (the tmux six-tuple slots already check) that this repository's census
+  binds to the grantee; otherwise `integrate` and `record-landing` refuse with
+  `TOPOLOGY_DELEGATION_ACTOR`. The check lives in the one lookup both verbs and eligibility share.
+  Second review fix: those env vars only NAME a pane, so a worker on the same tmux server could set
+  `TMUX_PANE` to the lead's pane and pass. The lookup now also requires the lead's pane process to be
+  an ancestor of the calling process (`callerRunsInPane` in `topology/lib/slots.mjs`, walking
+  `/proc/<pid>/stat`), and refuses when the live pane's `pane_pid` differs from the census binding.
+  PID equality is compared, not start times (nothing records one); it is sound because the pane is
+  seen live first and every ancestor predates the caller. Where `/proc` cannot be read, including
+  macOS, it fails closed. Remaining same-uid limit: ptrace or code injection into the lead's process
+  tree, or a process started by typing into the lead's own pane. Setting env vars is no longer enough.
+  `manage eligible` and status no longer throw on a corrupt delegations file or an unproven
+  grantee: they report `eligible: false` with the error code as a reason. `delegate grant` refuses a
+  `--to` that names no agent registered in the repository.
 
 - **Cleanup joins the controls a capability holder can drive (gateway TM-305, EP-023).**
   `POST /api/runs/{runId}/cleanup` on the session host removes a terminal run's worktree, the same

@@ -206,8 +206,10 @@ Findings, a changed revision, wrong identity, or an unavailable reviewer block i
 Restricted reviewer providers must offer an enforced read-only launch; unsupported configurations
 fail closed instead of substituting another provider. Review role alone grants no merge authority.
 
-Global `management.auto_merge` defaults to true. Repository policy must also configure
-`management.target_branch` and named `management.required_checks` as executable argv arrays.
+Global `management.auto_merge` defaults to true. It applies only to an operator shell: a managed
+agent session always needs a covering plan grant (see "Standing delegation of integration
+authority" below). Repository policy must also configure `management.target_branch` and named
+`management.required_checks` as executable argv arrays.
 Integration reruns those checks and verifies revision, claims, reviewer and worker ownership.
 Cleanup requires collected results and verified landing ancestry, stops only a proven owned idle
 worker, removes the task worktree through `tm`, and safely deletes its local branch. Missing writer
@@ -252,6 +254,56 @@ agent-orchestration and task-management, the agent-orchestration bundle check, a
 Use plain `claude plugin validate`, never `--strict`. The strict form fails every versionless
 internal plugin.
 
+### Integrating through the task's pull request (TM-249)
+
+Set `management.integrate_via` to `"pull-request"` and `manage integrate` merges the task's pull
+request itself instead of fast-forwarding the main checkout. `management.required_checks` is then
+not required: the pull request's CI replaces the local checks. **Leads never run raw
+`gh pr merge`.** They run `ao-topology manage integrate --task <TM-id>`, which TM-243's installed
+rule `Bash(ao-topology manage integrate *)` already covers; no rule is ever written for `gh pr merge`.
+
+The pull request is the one open PR whose head branch is the task's branch. Integrate refuses,
+naming each unmet condition in the error (`TOPOLOGY_INTEGRATE_REFUSED`, with a `refusals` list):
+
+| Condition | Holds when |
+|---|---|
+| `plan` | A live plan grant covers this caller, repository and task. A managed session always needs one; an operator shell keeps `--authorized` and `auto_merge`. |
+| `caller` | The caller is the grantee in its own pane: never a worker, never a self-asserted `--authorized` or `--actor`. |
+| `pr` | Exactly one open PR has the task's branch as its head. |
+| `base` | The PR's base is `management.target_branch`. |
+| `head` | The PR head equals the approved review's revision **and** the task's recorded finish revision. |
+| `ci` | Every check `gh pr checks` reports is `pass`. `skipping` is allowed only for a check not listed by `gh pr checks --required`; if that list cannot be read, every check counts as required. No checks, or none passing, is refused. |
+| `review` | Review eligibility holds (independent reviewer, range covering the head) and the verdict is `approve`. |
+| `mergeable` | GitHub reports the PR `MERGEABLE`. |
+
+The eligibility conditions integrate always had (`protocol`, `ownership`, `config`, `scope`,
+`dirty`, `worker`) are refused by name the same way.
+
+When every condition holds, integrate runs exactly
+`gh pr merge <n> --merge --match-head-commit <approved sha>`. It never passes `--admin`,
+`--squash`, `--rebase` or `--auto`, and never forces anything. It then reads the merge commit
+from `gh pr view`, fast-forwards the local integration branch to it (fetching `origin`), writes
+the same landing record `record-landing` writes, and closes the task through the store's gates:
+it attaches the management record as evidence and runs `tm done` as the authorized actor. The
+landing and a `close` comment carry `actor`, `delegated_by` and `delegation_id` from the grant.
+The authorization record is built exactly as the fast-forward path builds it: `authorized` is true
+only for `--authorized` from an operator shell or a covering grant, so an operator-shell integrate
+under `auto_merge` alone records `authorized: false, policy_auto_merge: true`.
+
+**Integrate never accepts acceptance criteria on the task's behalf.** The lead is a managed
+session; attesting that criteria are met is not its call. If the store refuses `tm done` because
+criteria are unaccepted, or for any other gate, the merge and landing stand and integrate returns
+`TOPOLOGY_INTEGRATE_UNCLOSED`, naming each unaccepted criterion by index and text
+(`details.unaccepted`). Whoever can attest them accepts them (`tm accept <TM-id> <n>`, from the
+worker's evidence or by the operator), and a rerun of `manage integrate` closes the task.
+
+Rerunning is safe. A PR already merged at the approved head is recorded rather than merged again;
+one merged at a different head is refused as `head`. If the merge succeeded but recording failed,
+integrate says so (`TOPOLOGY_INTEGRATE_UNRECORDED`) and a rerun records it. If the landing is
+recorded but the task is not closed, a rerun retries only the close, and only after the same
+`caller` and `plan` checks the merge needed: a worker, or a managed session without a covering
+grant, is refused by name (`TOPOLOGY_INTEGRATE_REFUSED`) and the task stays open.
+
 ### Tool store paths in the integration checkout
 
 The main checkout must be clean before integration, with one exception. Task management and
@@ -285,8 +337,9 @@ these hold:
 - An eligible independent review of that exact finish revision exists. This is the same review
   gate integration uses, so the designated reviewer must be available and unchanged.
 - `--actor` and `--reason` are non-empty.
-- Integration authority exists, exactly as for `manage integrate`: `management.auto_merge` is true,
-  or you pass `--authorized`.
+- Integration authority exists, exactly as for `manage integrate`. From an operator shell:
+  `management.auto_merge` is true, or you pass `--authorized`. From a managed agent session: a live
+  plan grant covers you, this repository and the task, whatever `auto_merge` says.
 
 `record-landing` runs no required checks. The actor attests to the checks that were run when the
 change landed, so `--reason` should name them. The merge record says so with `checks: []` and
@@ -296,6 +349,184 @@ It collects the management record as task evidence. It then writes the same `mer
 integration writes, with `authorization.channel` set to `recorded-landing` and the reason
 attached, and it logs a `recorded-landing` event. The task's normal completion (`tm done`, or
 `manage cleanup`) then passes the governed completion gate unchanged. That gate has no override.
+
+### Standing delegation of integration authority
+
+`--authorized` on `manage integrate` and `manage record-landing` is the lead attesting its own
+authority to itself. When a coding-agent harness treats that as self-approval and refuses to run
+it unattended, the operator otherwise has to type the command by hand every time. A standing
+delegation lets the operator grant that authority once, in advance, so the lead can exercise it
+without attesting to it itself:
+
+```bash
+ao-topology delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing \
+  --epic <EP-nnn> | --tasks <TM-nnn,...> --expires <duration> [--reason <text>]
+ao-topology delegate list [--repo <consumer>]
+ao-topology delegate revoke <id> [--repo <consumer>]
+```
+
+- **An approved plan (TM-248, ADR-0022).** A grant is how an approved plan becomes checkable. It
+  names a `plan`: an epic (`--epic EP-19`), a task list (`--tasks TM-248,TM-249`), or both.
+- **The plan is frozen at grant time.** `--epic` is resolved once, when the grant is made, to the
+  task ids the task store lists under that epic (`tm find epic:<id> kind:task`). Give the id exactly as
+  the store writes it (`EP-019`, not `EP-19`); an epic with no tasks is refused. The grant records them,
+  with any `--tasks`, as `plan.tasks`, next to `plan.epic` and `plan.sha256` (sha256 of the sorted
+  ids joined by newlines). The confirmation prompt lists the exact tasks being approved. A task is
+  covered only when `plan.tasks` names it; its current epic is never read. So moving a task into
+  the epic, or creating a task under it, changes nothing: **a new task needs a new grant.** A
+  listed task moved out of the epic stays covered. A grant whose `plan.sha256` does not match its
+  `plan.tasks` is refused with `TOPOLOGY_DELEGATION_INTEGRITY`, like the other evidence fields, and
+  like them it catches casual edits only. A grant with no plan covers no task, and neither does an
+  epic grant without a frozen list (written by TM-248's first revision): re-grant it.
+- **Interactive same-user channel.** `grant` requires stdin and stdout to be a terminal and asks
+  the operator to retype `<grantee> <scopes> <plan>` exactly, for example
+  `lead-1 integrate,record-landing EP-19`. `grant` and `revoke` refuse a shell that
+  carries any agent marker (`AO_AGENT_ID`, `TM_SESSION_ID`, `TM_DISPATCH_WORKER`, `CLAUDECODE`, `CLAUDE_CODE_*`,
+  `CODEX_*`), that has a Claude Code or Codex process among its ancestors, or that sits in a tmux
+  pane the census binds to an agent. `grant` also refuses a grantee granting to itself. Each grant
+  records the checks it passed under `channel`, with `kind: "interactive-same-user"`,
+  `agent_proof: false` and a `note`. `manage integrate` and `manage record-landing` refuse the
+  whole delegations file if any grant lacks that evidence.
+- **Not agent-proof.** These checks stop an agent that runs the command the ordinary way. They do
+  **not** stop a deliberate agent running as the same OS user. Such an agent can unset the
+  markers, start a shell outside its own process tree, and drive a TTY through tmux or `script`.
+  It can also write the delegations file directly, evidence fields included. Read a grant as
+  "made through the interactive channel", not as "proven operator".
+- **Future work: a stronger channel.** Excluding a same-user agent needs a channel it cannot
+  reach. One option is a grant store owned by a different OS user; another is a capability
+  channel on the session host that agents cannot call. Choosing one is an operator decision.
+- **Scope is a fixed allowlist**: `integrate` and `record-landing` only. The grant never covers
+  deploy, publish, push or spend; those keep their own separate authorization and this command
+  cannot widen to them.
+- **`--expires` is required**, at most 14 days (`72h`, `7d`, `14d`). Set it to the plan's expected
+  close; `revoke` ends a grant early.
+- Records are **append-only**, under the state home
+  (`$XDG_STATE_HOME/bytedesk/agent-orchestration/delegations/<repositoryKey>.json`): a grant event
+  and, if it happens, a later revoke event. Nothing is ever rewritten in place.
+
+`manage integrate` and `manage record-landing` accept a live, unexpired, unrevoked grant that
+names the caller's own `AO_AGENT_ID`, this repository, the scope in use, and a plan covering the
+task, in place of an explicit `--authorized`, **but only after proving the caller is the grantee**.
+A task outside every live grant's plan is refused with `TOPOLOGY_DELEGATION_PLAN`. The caller's
+`TMUX_PANE` must be a live pane whose `pane_pid` the census binds to the grantee, and that pane
+process must be an ancestor of the caller, which is checked by walking `/proc/<pid>/stat`. Setting
+`AO_AGENT_ID` or `TMUX_PANE` alone is refused with `TOPOLOGY_DELEGATION_ACTOR`.
+
+- **Linux only.** The ancestry proof reads `/proc`. Where `/proc` is unavailable, for example on
+  macOS, it fails closed. Standing delegation then never applies, and every attempt is refused
+  with `TOPOLOGY_DELEGATION_ACTOR` ("process ancestry is unreadable"). Pass `--authorized` from an
+  operator shell instead.
+- **Remaining limit.** A process that can ptrace or inject code into the lead's process tree, or
+  that is started by typing into the lead's pane, still passes as the lead. This is the same-user
+  limit above.
+The merge record then carries `authorization.authorized: true`, with
+`authorization.actor` set to the grantee that exercised the grant, and
+`authorization.delegated_by` (the grantor's OS user), `authorization.delegation_id` and
+`authorization.plan` alongside. The evidence shows who acted, who granted the authority and for
+which plan.
+
+**Managed sessions cannot self-assert (TM-248).** Inside a managed agent session, `--actor` and
+`--authorized` are refused with `TOPOLOGY_MANAGEMENT_SELF_ASSERT`, even when `--actor` names the
+grantee. A managed session is one with any agent marker listed above in its environment, or a
+Claude Code or Codex process among its ancestors (so `env -u AO_AGENT_ID` does not escape it).
+There, authority comes only from a covering plan grant, and the actor only from that grant. In an
+operator shell, `--actor` and `--authorized` keep working as before.
+
+**Managed sessions always need a grant, whatever `management.auto_merge` says.** From a managed
+session, `manage integrate` and `manage record-landing` require a live grant covering the caller,
+this repository, the task and the scope in use, even with `auto_merge: true` (the shipped default).
+Without one, eligibility reports "a managed agent session needs a valid standing delegation" and
+both verbs refuse. The recorded `actor`, `delegated_by`, `delegation_id` and `plan` always come
+from that grant. `auto_merge` keeps its meaning only for an operator shell: there it means no
+explicit `--authorized` is needed, and the record carries `policy_auto_merge: true` with the actor
+from `TM_ACTOR` or the operator's `USER`. Governed completion's checks
+(`task-management/lib/governance-check.mjs`) are unchanged: they read `authorization.authorized`
+and `authorization.actor` exactly as before and simply ignore the added fields.
+
+If your harness gates commands by name, pair this with a permission rule for the governed verbs
+themselves (next section). The delegation record is what makes running them without `--authorized`
+safe; a harness-level rule is what lets the lead run them without a prompt.
+
+### Permission rules for the lead
+
+Claude Code's auto mode can refuse a lead running `manage record-landing` or `manage admit` as
+self-approval, and the same command may pass one minute and be refused the next. Only a settings
+allow rule stops that check; a plugin cannot ship one. So the operator installs the rules once per
+repository:
+
+```bash
+ao-topology permissions install [--mcp mcp__plugin_teamcity-mcp_teamcity] [--dry-run]
+ao-topology permissions uninstall [--dry-run]
+```
+
+**The rules change no authority.** They only remove the per-command prompt:
+
+- `record-landing` and `integrate` still refuse without a live, unexpired standing delegation that
+  covers the proven caller, this repository, the scope and the task's frozen plan (see above). A
+  bare verb named by its pane binding is a managed session, so this holds even under
+  `management.auto_merge: true` (TM-248).
+- `admit`, `start-worker` and `stop-worker` keep their claim-owner checks.
+- A dispatched worker session (`TM_DISPATCH_WORKER` set by `tm dispatch`) is refused every
+  `manage` verb except `report`, `status`, `eligible` and `assignment`, and a worker never reads
+  the file the rules live in.
+
+**Exact rules written** (Ryan, 2026-09-25), plus each `--mcp` name the operator passes:
+
+```text
+Bash(ao-topology manage record-landing *)
+Bash(ao-topology manage integrate *)
+Bash(ao-topology manage start-worker *)
+Bash(ao-topology manage stop-worker *)
+Bash(ao-topology manage admit *)
+Bash(ao-topology manage report *)
+Bash(tm *)
+```
+
+`Bash(tm *)` covers every `tm` subcommand, as Ryan decided; a narrower `tm accept` / `tm done`
+pair was suggested and not adopted. No rule is ever written for `gh pr merge`, `git push`, or a
+deploy command. `--mcp` takes an MCP server name (`mcp__<server>`) or a tool name
+(`mcp__<server>__<tool>`), with no wildcards. An allow rule does not load a server: a standing lead
+runs with `--strict-mcp-config`, so the server must also be declared in the lead's `agent.json`
+`mcp` field.
+
+**Where the rules go.** `install` writes to `<lead agent dir>/.claude/settings.local.json`. Claude
+Code reads project settings from the directory a session starts in, and a standing lead starts in
+its own agent directory, so only that lead reads the file. Workers start in task worktrees. The
+file is machine-local; keep it out of git (a `**/.claude/settings.local.json` ignore rule). The
+target is taken from the lead's launch record, `session.json` `cwd`. If that record is missing,
+`install` asks you to start the lead first. If the lead launches anywhere other than its own agent
+directory (TM-242 moves standing agents to the repository root), `install` refuses with
+`TOPOLOGY_PERMISSIONS_TARGET_SHARED`, because every session started at the root would read the
+file. A per-lead equivalent there needs the lead's launcher to pass
+`--settings <agent dir>/.claude/settings.local.json`; that is not built yet.
+
+**Behaviour.**
+
+- **Operator only.** `install` and `uninstall` apply the same refusal as `delegate grant`: any agent
+  marker, a Claude Code or Codex ancestor process, or a tmux pane the census binds to an agent.
+- **Prints the exact diff** of the settings file, then tells you to **restart the lead**. Permission
+  rules and MCP tools load at session start.
+- **Idempotent.** A second `install` changes nothing and prints `(no change)`. Every other key and
+  every other rule in the file is preserved.
+- **`uninstall` removes exactly what `install` added.** The rules it added are recorded in
+  `$XDG_STATE_HOME/bytedesk/agent-orchestration/permissions/<repositoryKey>.json`. A rule you had
+  before installing, such as your own `Bash(tm *)`, is not in that record and stays.
+
+**Bare commands.** Rules match the command text, so an `AO_AGENT_ID=... ao-topology ...` prefix or
+a pipe (`| jq`) makes a rule miss. A lead therefore runs the verbs bare. Without `AO_AGENT_ID`, a
+governed verb names its caller from the census binding of the caller's live tmux pane. Add
+`--summary` for one line of output instead of JSON. Examples of commands the rules match:
+
+<!-- lead-commands: tests/unit/topology-permissions.test.mjs checks these match an installed rule -->
+```bash
+ao-topology manage admit --task TM-123 --file /abs/protocol.json --summary
+ao-topology manage start-worker --task TM-123 --backend tmux --summary
+ao-topology manage report --task TM-123 --file /abs/finish-report.json --summary
+ao-topology manage stop-worker --task TM-123 --summary
+ao-topology manage integrate --task TM-123 --summary
+ao-topology manage record-landing --task TM-123 --landed 1a2b3c4 --reason "merged PR 130 after review" --summary
+tm done TM-123
+```
 
 ## Presence v1
 

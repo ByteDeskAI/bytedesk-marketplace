@@ -68,6 +68,17 @@ Conduct (used by the orchestrator agent)
   delegate --task <id> --to <agent> [--for <external-agent>]
                                                open a direct channel to one of your agents
   delegations [--json]                         open delegations in this repo
+  delegate grant --to <agent-id> --repo <consumer> --scope integrate,record-landing
+           --epic <EP-nnn> | --tasks <TM-nnn,...> --expires <duration, max 14d> [--reason <text>]
+                                               Grant an approved plan's authority a lead can later
+                                               exercise for tasks in that plan (TM-248). --epic is frozen
+                                               to the epic's current task ids; a new task needs a new
+                                               grant. Needs an interactive TTY and
+                                               a typed confirmation; refuses agent markers and agent
+                                               ancestor processes.
+                                               Does NOT exclude a same-OS-user agent (see docs).
+  delegate list [--repo <consumer>] [--json]    standing delegations granted for a repository
+  delegate revoke <id> [--repo <consumer>]      revoke a standing delegation (refuses agent sessions)
 
   send --run <run_dir> --from <id> --to <id>[,<id>] --stage <slug> (--file <md> | --body <text>)
        [--to @run|@repo|@role:<role>|@idle]    audiences, unioned by the same comma; [--max-recipients <n>]
@@ -109,11 +120,25 @@ Standing repository services
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
-  manage record-landing --task <TM-id> --landed <sha> --actor <name> --reason <text> [--authorized]
+  manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
+                                               in place of --authorized, integrate and record-landing
+                                               also accept a plan grant covering the task (see delegate
+                                               grant); the actor is then the grantee. Inside a managed
+                                               agent session --actor and --authorized are refused, and
+                                               a covering grant is required even under auto_merge.
+                                               With management.integrate_via "pull-request", integrate
+                                               merges the task's PR itself (gh pr merge --merge
+                                               --match-head-commit <approved sha>), refusing by name
+                                               unless plan, base, head, ci, review and mergeable hold,
+                                               then records the landing and closes the task.
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
   manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
+  manage <verb> ... --summary             one line instead of JSON (no pipe to jq needed)
+  permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run]
+                                               OPERATOR-ONLY: allow rules for the lead's governed verbs in
+                                               its <agent dir>/.claude/settings.local.json; prints the diff
   quota status [--agent <id>] [--json] | resolve --agent <id> --state applied|declined|closed
                                                provider quota incidents raised by the supervise tick.
                                                Detection writes the incident; it restarts nothing.
@@ -123,6 +148,21 @@ Common: --consumer defaults to the current directory; --json prints machine-read
 
 function out(value) {
   process.stdout.write(typeof value === "string" ? `${value}\n` : `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** TM-243: one line per governed verb, so a lead never pipes JSON to jq (a pipe defeats rule matching). */
+function manageSummary(verb, task, r) {
+  const auth = a => a ? ` by ${a.actor}${a.delegation_id ? ` (delegation ${a.delegation_id} from ${a.delegated_by})` : ''}` : '';
+  switch (verb) {
+    case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
+    case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
+    case 'stop-worker': return r.stopped ? `${task} worker stopped (${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
+    case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}` : ''}`;
+    case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
+    case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
+    case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
+    default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
+  }
 }
 
 function list(value) {
@@ -400,6 +440,9 @@ const commands = {
   },
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    ctx.transport = await selectLiveTransport({ env: process.env });
+    try {
     const sub = positional[0] || 'inbox';
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
     if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
@@ -411,6 +454,7 @@ const commands = {
     if (sub === 'send') return out(await api.sendStandingMessage(input, ctx));
     if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
     fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume.');
+    } finally { await closeLiveTransports(); }
   },
   async enrollment({ flags, positional }) {
     const sub = positional[0];
@@ -442,8 +486,21 @@ const commands = {
   },
   async manage({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/management.mjs');
+    const verb = positional[0] || 'status';
+    // TM-243: a dispatched worker may send its own report and read status; every other governed verb
+    // is the lead's. Same-user limit as TM-234: this marker is set by tm dispatch and can be unset.
+    invariant(!process.env.TM_DISPATCH_WORKER || ['report', 'status', 'eligible', 'assignment'].includes(verb), 'TOPOLOGY_MANAGEMENT_WORKER_REFUSED',
+      `A dispatched worker session (TM_DISPATCH_WORKER) may only run manage report|status|eligible|assignment; ${verb} belongs to the lead.`);
+    // TM-243: bare commands. With no AO_AGENT_ID, name the caller from the census binding of its live
+    // pane, so the lead never needs an env-var prefix (which defeats permission-rule matching).
+    const env = { ...process.env };
+    if (!env.AO_AGENT_ID) {
+      const { bindingAgentId } = await import('./lib/delegation.mjs');
+      const bound = await bindingAgentId({ consumer: ctx.consumer, env, home: ctx.home });
+      if (bound) env.AO_AGENT_ID = bound;
+    }
     const supplied = flags.file ? await readJson(absolutize(flags.file)) : {};
-    const options = { ...supplied, ...ctx, task: flags.task || supplied.task, owner: process.env.TM_SESSION_ID || process.env.AO_AGENT_ID,
+    const options = { ...supplied, ...ctx, env, task: flags.task || supplied.task, owner: env.TM_SESSION_ID || env.AO_AGENT_ID,
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
       landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
@@ -452,9 +509,24 @@ const commands = {
       backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null };
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
       assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
-    const method = methods[positional[0] || 'status'];
+    const method = methods[verb];
     invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
-    return out(await api[method](options));
+    const result = await api[method](options);
+    return out(flags.summary ? manageSummary(verb, options.task, result) : result);
+  },
+  async permissions({ flags, positional }) {
+    const ctx = context(flags), api = await import('./lib/permissions.mjs');
+    const sub = positional[0];
+    const common = { consumer: ctx.consumer, dryRun: flags['dry-run'] === true };
+    let result;
+    if (sub === 'install') result = await api.installPermissions({ ...common, mcp: list(flags.mcp) });
+    else if (sub === 'uninstall') result = await api.uninstallPermissions(common);
+    else fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run].');
+    if (flags.json) return out(result);
+    out(`${result.dry_run ? '[dry run] ' : ''}lead ${result.lead}: ${result.path}`);
+    out(result.diff);
+    if (sub === 'install') out(`\n${result.changed ? `Added ${result.added.length} rule(s).` : 'Every rule was already present.'} ${result.restart}`);
+    else out(`\n${result.changed ? `Removed ${result.removed.length} rule(s).` : 'No rules installed by ao-topology were present.'}`);
   },
   async 'startup-check'({ flags }) {
     const ctx = context(flags);
@@ -1030,7 +1102,25 @@ const commands = {
     });
   },
 
-  async delegate({ flags }) {
+  async delegate({ flags, positional }) {
+    const sub = positional[0];
+    // TM-234: standing authorization delegation (grant/list/revoke) is a distinct concept from the
+    // routing delegation below (opening a channel for an external agent). Dispatching on the first
+    // positional keeps both under the one verb the operator already knows without colliding: the
+    // routing form below never reads a positional argument.
+    if (sub === 'grant' || sub === 'list' || sub === 'revoke') {
+      const ctx = context(flags), api = await import('./lib/delegation.mjs');
+      const consumer = flags.repo && flags.repo !== true ? absolutize(String(flags.repo)) : ctx.consumer;
+      if (sub === 'grant') {
+        const grant = await api.grantDelegation({ consumer, to: flags.to, scopes: list(flags.scope), plan: { epic: flags.epic === true ? '' : flags.epic, tasks: list(flags.tasks) }, expires: flags.expires, reason: flags.reason });
+        return out({ ok: true, ...grant });
+      }
+      if (sub === 'list') return out({ ok: true, delegations: await api.listStandingDelegations({ consumer }) });
+      const id = flags.id && flags.id !== true ? String(flags.id) : positional[1];
+      invariant(typeof id === 'string' && id, 'TOPOLOGY_DELEGATION_ID', 'Pass the delegation id to revoke: delegate revoke <id>.');
+      return out(await api.revokeDelegation({ consumer, id }));
+    }
+    invariant(sub === undefined, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use delegate grant|list|revoke, or delegate --to <agent> [--task <id>] [--for <external-agent>] to open a direct channel.');
     const ctx = context(flags);
     const local = await requireAgent(String(flags.to && flags.to !== true ? flags.to : ""), ctx.agentDirs);
     const lead = await findLead(ctx.agentDirs);
@@ -1080,7 +1170,10 @@ const commands = {
     // expansion itself happens inside sendMessage, never here, so no caller can address a room
     // without passing through admission.
     const maxRecipients = flags["max-recipients"] && flags["max-recipients"] !== true ? { maxRecipients: Number(flags["max-recipients"]) } : {};
-    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home }, addressing: maxRecipients });
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    try {
+    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home, transport }, addressing: maxRecipients, transport, env: process.env });
     // `--no-ring` has been in USAGE, in tests/live/two-projects.sh and in
     // tests/contract/topology-tmux.test.mjs since this command was written, and was never
     // implemented in this body — the flag parsed and did nothing.
@@ -1146,8 +1239,10 @@ const commands = {
       }
     } finally {
       // One control client per session, refcounted — a fan-out `--to a,b,c` costs one tmux client,
-      // not three — but the process must not be held open by it.
+      // not three — but the process must not be held open by it. The NATS client is the same
+      // kind of hold: drain it before the process exits or the socket keeps the event loop alive.
       closeAllClients();
+      await closeLiveTransports();
     }
 
     out({
@@ -1169,6 +1264,9 @@ const commands = {
     // reported in `supervision` above and is not a delivery failure. `isUndelivered` is that rule
     // in one place.
     if (delivered.some((item) => isUndelivered(item.delivery))) process.exitCode = 3;
+    } finally {
+      await closeLiveTransports();
+    }
   },
 
   async ack({ flags }) {

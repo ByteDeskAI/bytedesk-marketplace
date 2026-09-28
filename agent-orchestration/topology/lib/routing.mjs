@@ -122,10 +122,12 @@ export async function readStoreTask(consumer, taskId) {
 }
 
 /** The live claim on a task in the receiving repo, or null. */
-export async function readStoreClaim(consumer, taskId) {
+export async function readStoreClaim(consumer, taskId, env = process.env) {
   if (!consumer || !taskId) return null;
-  const state = await readJson(join(taskStoreRoot(consumer), "state.json")).catch(() => null);
-  const claim = state?.claims?.[String(taskId)];
+  const { resolveTransport } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const transport = await resolveTransport({ env });
+  const claim = await transport.getClaim({ repo: repoKey(consumer), task: String(taskId), storeDir: taskStoreRoot(consumer) });
   if (!claim) return null;
   const config = await readJson(join(taskStoreRoot(consumer), "config.json")).catch(() => null);
   const ttlMinutes = config?.claimTtlMinutes ?? 240;
