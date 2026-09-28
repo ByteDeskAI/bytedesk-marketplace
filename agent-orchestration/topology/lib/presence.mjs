@@ -338,7 +338,7 @@ export function presenceSlotQueues(identity) { return PRESENCE_SLOT_QUEUES.get(i
 
 /** Allocate one incarnation. The global generation allocator never resets; per-repo fencing
  * allows independent repository publishers without letting an old publisher overwrite its successor. */
-export async function createPresenceProducer({consumer,env=process.env,home=homedir(),presenceDir,staleAfterMs=30000,clockSkewToleranceMs=5000,tmuxServer,listPanesFn,runDirs=[]}={}) {
+export async function createPresenceProducer({consumer,env=process.env,home=homedir(),presenceDir,staleAfterMs=30000,clockSkewToleranceMs=5000,tmuxServer,listPanesFn,runDirs=[],transport=null}={}) {
   bounds(staleAfterMs,clockSkewToleranceMs);
   // L1, and only L1. The frozen contract §2.2 requires a rewrite every staleAfterMs/3 — the
   // heartbeat is what makes the ABSENCE of a rewrite meaningful to a consumer. The supervisor's
@@ -380,7 +380,14 @@ export async function createPresenceProducer({consumer,env=process.env,home=home
       const snapshot={schemaVersion:2,repositoryKey,repositoryRoot,generation,revision,generatedAt:new Date().toISOString(),staleAfterMs,clockSkewToleranceMs,agents,slotQueues:presenceSlotQueues(identity)};
       // Persist the next revision before publication. A crash may leave a harmless gap, never reuse.
       await durableReplace(ownerPath,JSON.stringify({...active,revision:(BigInt(revision)+1n).toString()})+"\n");
-      await durableReplace(path,JSON.stringify(snapshot,null,2)+"\n");
+      const { resolveTransport } = await import('./orch-transport.mjs');
+      const activeTransport = transport ?? await resolveTransport({ env });
+      const text = JSON.stringify(snapshot, null, 2) + "\n";
+      await activeTransport.putPresence({
+        repo: repositoryKey,
+        body: snapshot,
+        persist: activeTransport.kind === 'file' ? () => durableReplace(path, text) : undefined,
+      });
       return snapshot;
     });
   };

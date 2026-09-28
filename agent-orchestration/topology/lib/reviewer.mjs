@@ -222,7 +222,7 @@ const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record)
 export const PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 20_000);
 export const PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
 
-export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive = bindingAlive, readOnly = false }) {
+export async function reviewerProbeReady({ consumer, record, env = process.env, home = homedir(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive = bindingAlive, readOnly = false, transport = null }) {
   if (!record?.agent_id || !incarnationOf(record.binding) || !await alive(record)) return false;
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
   // TM-157: an ack that cost a model turn is kept. See the same block in lead.mjs for why — a
@@ -249,7 +249,19 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
   // made the `finally` below delete every timed-out probe while claiming to keep the answerable ones.
   const probe = { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding: incarnationOf(record.binding), expires_at: Date.now() + timeoutMs + LATE_ACK_GRACE_MS };
   let waitUntil = Date.now() + timeoutMs;
-  await writeJson(path, probe);
+  const { resolveTransport, orchName } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const activeTransport = transport ?? await resolveTransport({ env });
+  if (activeTransport.kind === 'nats') {
+    const reply = await activeTransport.requestProbe({
+      repo: repoKey(record.repo_id),
+      agent: orchName(record.agent_id),
+      body: JSON.stringify(probe),
+      timeoutMs,
+    }).catch(() => null);
+    return Boolean(reply && String(reply.body).includes(nonce));
+  }
+  await activeTransport.saveProbe({ filePath: path, body: probe });
   try {
     await onProbe?.(probe);
     // Best effort by contract: a pane that cannot be woken is not a pane that failed. The file is
@@ -265,7 +277,7 @@ export async function reviewerProbeReady({ consumer, record, env = process.env, 
     if (wakeCost > 0) {
       probe.expires_at += wakeCost;
       waitUntil += wakeCost;
-      await writeJson(path, probe).catch(() => {});
+      await activeTransport.saveProbe({ filePath: path, body: probe }).catch(() => {});
     }
     while (Date.now() <= waitUntil) {
       const screen = await output(record);
@@ -1187,7 +1199,7 @@ async function ageOutIncompleteReview({ consumer, request, path, screen, env, ho
   return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason);
 }
 
-export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare }) {
+export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare, transport = null }) {
   const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
@@ -1203,6 +1215,17 @@ export async function collectReview({ consumer, task, revision, env = process.en
     return prior;
   }
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
+  const { resolveTransport } = await import('./orch-transport.mjs');
+  const { repoKey } = await import('./repoid.mjs');
+  const activeTransport = transport ?? await resolveTransport({ env });
+  if (activeTransport.kind === 'nats') {
+    const wait = await activeTransport.beginVerdictWait({ repo: repoKey(record.repo_id), nonce: request.nonce, timeoutMs: 2000 });
+    const received = await wait.received;
+    const response = JSON.parse(received.body);
+    const review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare });
+    await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict, state: 'collected' });
+    return review;
+  }
   const screen = await output(record);
   const shown = reviewResponsesOnScreen(screen, request.nonce);
   invariant(shown.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');

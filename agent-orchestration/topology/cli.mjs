@@ -440,6 +440,9 @@ const commands = {
   },
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    ctx.transport = await selectLiveTransport({ env: process.env });
+    try {
     const sub = positional[0] || 'inbox';
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
     if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
@@ -451,6 +454,7 @@ const commands = {
     if (sub === 'send') return out(await api.sendStandingMessage(input, ctx));
     if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
     fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume.');
+    } finally { await closeLiveTransports(); }
   },
   async enrollment({ flags, positional }) {
     const sub = positional[0];
@@ -1166,7 +1170,10 @@ const commands = {
     // expansion itself happens inside sendMessage, never here, so no caller can address a room
     // without passing through admission.
     const maxRecipients = flags["max-recipients"] && flags["max-recipients"] !== true ? { maxRecipients: Number(flags["max-recipients"]) } : {};
-    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home }, addressing: maxRecipients });
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    try {
+    const message = await sendMessage({ runDir, from, to: list(flags.to), stage, body, contract: flags.contract, round: flags.round, subject: flags.subject, route, fromProject, task, via, idempotencyKey: flags.id, consumer: flags.consumer && flags.consumer !== true ? ctx.consumer : undefined, standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home, transport }, addressing: maxRecipients, transport, env: process.env });
     // `--no-ring` has been in USAGE, in tests/live/two-projects.sh and in
     // tests/contract/topology-tmux.test.mjs since this command was written, and was never
     // implemented in this body — the flag parsed and did nothing.
@@ -1232,8 +1239,10 @@ const commands = {
       }
     } finally {
       // One control client per session, refcounted — a fan-out `--to a,b,c` costs one tmux client,
-      // not three — but the process must not be held open by it.
+      // not three — but the process must not be held open by it. The NATS client is the same
+      // kind of hold: drain it before the process exits or the socket keeps the event loop alive.
       closeAllClients();
+      await closeLiveTransports();
     }
 
     out({
@@ -1255,6 +1264,9 @@ const commands = {
     // reported in `supervision` above and is not a delivery failure. `isUndelivered` is that rule
     // in one place.
     if (delivered.some((item) => isUndelivered(item.delivery))) process.exitCode = 3;
+    } finally {
+      await closeLiveTransports();
+    }
   },
 
   async ack({ flags }) {

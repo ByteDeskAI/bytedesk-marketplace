@@ -57,7 +57,11 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     root,
     workers: async () => Object.values((await readJson(join(where.store, 'agents.json')).catch(error => { if (error.code === 'ENOENT') return { agents: {} }; throw error; })).agents || {}),
     show: async id => JSON.parse((await exec(['show', taskId(id), '--json'])).stdout),
-    claim: async id => (await readJson(join(where.store, 'state.json'))).claims?.[taskId(id)] || null,
+    claim: async id => {
+      const { resolveTransport } = await import('./orch-transport.mjs');
+      const transport = await resolveTransport({ env });
+      return transport.getClaim({ repo: repoKey(identity.id), task: taskId(id), storeDir: where.store });
+    },
     provision: async id => exec(['worktree', 'new', taskId(id)]),
     start: async (id, cwd) => exec(['start', taskId(id)], cwd),
     comment: async (id, value) => exec(['comment', taskId(id), value]),

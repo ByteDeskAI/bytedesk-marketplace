@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0] — 2026-09-27
+
+### Added
+
+- feat(agent-orchestration): **Agents talk over NATS by default (TM-231, TM-232).** Mail, claims, presence, probes, and reviewer verdicts go through one transport. The live path publishes `orch.<repo>.mail.<agent>` on `ORCH_MAIL`, claims with compare-and-set on `ORCH_CLAIMS`, presence on `ORCH_PRESENCE`, probes as request/reply, and verdicts on `orch.<repo>.review.<nonce>`. A message accepted before a listener gap is still delivered after reconnect. `AO_TRANSPORT=file` keeps the previous file double for the existing suite.
+
+### Changed
+
+- Close drains the NATS client, drops acked mail, and reuses JetStream consumers so a send does not hold the process or grow an unbounded queue.
+
 ## [0.10.0] — 2026-09-22
 
 ### Added

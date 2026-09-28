@@ -186,6 +186,19 @@ export async function sendStandingMessage(input, options = {}) {
     await atomicWrite(p.file, record);
     return record;
   });
+  if (settled.status === 'delivered') {
+    const { resolveTransport, orchName } = await import('./orch-transport.mjs');
+    const { repoKey } = await import('./repoid.mjs');
+    const transport = opts.transport ?? await resolveTransport({ env: opts.env ?? process.env });
+    if (transport.kind === 'nats') {
+      await transport.publishMail({
+        repo: repoKey(settled.envelope.destinationRepoId),
+        agent: orchName(settled.delivered_to),
+        messageId: settled.envelope.id,
+        body: settled.envelope.body,
+      });
+    }
+  }
   // The envelope is durable before anything is asked of any lead.
   return withRecovery(settled, opts);
 }
