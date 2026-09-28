@@ -10,6 +10,10 @@
 
 - Close drains the NATS client, drops acked mail, and reuses JetStream consumers so a send does not hold the process or grow an unbounded queue.
 
+### Fixed
+
+- Load the NATS client only when the NATS transport opens, so a copied plugin tree that still uses the file double does not fail on a missing `nats` package.
+
 ## [0.10.0] — 2026-09-22
 
 ### Added

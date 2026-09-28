@@ -20,17 +20,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import {
-  AckPolicy,
-  DeliverPolicy,
-  RetentionPolicy,
-  StorageType,
-  StringCodec,
-  connect,
-  credsAuthenticator,
-  nanos,
-} from 'nats';
 import { readJson, writeJson, writeText } from './util.mjs';
+
+// `nats` is loaded only when the NATS transport opens. A copied plugin tree that
+// uses the file double does not carry node_modules, and a top-level import would
+// fail that copy before it could deliver mail.
 
 export const ORCH_LAYOUT = Object.freeze({
   mailStream: 'ORCH_MAIL',
@@ -50,8 +44,6 @@ export const ORCH_LAYOUT = Object.freeze({
   mailDurable: (repo, agent) => `mail_${repo}_${agent}`,
   tasksDurable: (repo) => `tasks_${repo}`,
 });
-
-const sc = StringCodec();
 
 export function orchName(value) {
   const cleaned = String(value ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
@@ -344,6 +336,17 @@ async function bridgeUnixSocket(socketPath) {
 }
 
 export async function openNatsTransport({ env = process.env, servers, credsFile, name = 'ao-orch' } = {}) {
+  const {
+    AckPolicy,
+    DeliverPolicy,
+    RetentionPolicy,
+    StorageType,
+    StringCodec,
+    connect,
+    credsAuthenticator,
+    nanos,
+  } = await import('nats');
+  const sc = StringCodec();
   const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
   let bridge = null;
   let target = url;
