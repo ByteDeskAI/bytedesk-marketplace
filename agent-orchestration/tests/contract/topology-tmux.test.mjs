@@ -17,7 +17,7 @@ const cli = join(root, "topology", "cli.mjs");
 const fakeAgent = join(root, "tests", "fixtures", "fake-agent.mjs");
 
 async function ao(args, env = {}) {
-  const result = await execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 });
+  const result = await execFile(process.execPath, [cli, ...args], { env: { ...process.env, AO_TRANSPORT: 'file', ...env }, encoding: "utf8", timeout: 120_000 });
   return result.stdout;
 }
 
@@ -26,7 +26,7 @@ async function ao(args, env = {}) {
  * did not land" — is now a legitimate outcome that has to be asserted rather than caught.
  */
 async function aoAllowingFailure(args, env = {}) {
-  return execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 })
+  return execFile(process.execPath, [cli, ...args], { env: { ...process.env, AO_TRANSPORT: 'file', ...env }, encoding: "utf8", timeout: 120_000 })
     .then((result) => ({ code: 0, stdout: result.stdout, stderr: result.stderr }))
     .catch((error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" }));
 }

@@ -32,7 +32,7 @@ const hasTmux = await execFile('tmux', ['-V']).then(() => true, () => false);
 const TUPLE = ['socket_path', 'pid', 'session_id', 'session_created', 'pane_id', 'pane_pid', 'pane_dead'];
 
 async function ao(args, env) {
-  const { stdout } = await execFile(process.execPath, [cli, ...args], { env, encoding: 'utf8', timeout: 120_000 });
+  const { stdout } = await execFile(process.execPath, [cli, ...args], { env: { AO_TRANSPORT: 'file', ...env }, encoding: 'utf8', timeout: 120_000 });
   return JSON.parse(stdout);
 }
 
