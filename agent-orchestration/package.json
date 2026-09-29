@@ -21,6 +21,7 @@
     "bin",
     "config.defaults.json",
     "dist",
+    "hooks",
     "monitors",
     "docs",
     "skills",
