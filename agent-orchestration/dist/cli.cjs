@@ -18080,9 +18080,15 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
     connect,
     credsAuthenticator,
     nanos
-  } = await Promise.resolve().then(() => __toESM(require_nats2(), 1)).catch((error51) => {
+  } = await Promise.resolve().then(() => __toESM(require_nats2(), 1)).catch(async (error51) => {
     if (error51?.code !== "ERR_MODULE_NOT_FOUND") throw error51;
-    return fail2("TOPOLOGY_NATS_UNAVAILABLE", "NATS is the selected transport but the nats client package is not installed in this plugin tree. Run npm ci in the plugin, or set AO_TRANSPORT=file for the file double.");
+    try {
+      const bundled = await import(new URL("../../dist/topology-nats.cjs", __aoImportMetaUrl).href);
+      return bundled.default ?? bundled;
+    } catch (bundleError) {
+      if (bundleError?.code !== "ERR_MODULE_NOT_FOUND") throw bundleError;
+      return fail2("TOPOLOGY_NATS_UNAVAILABLE", "NATS is selected but neither the nats package nor the bundled topology client is available. Rebuild or reinstall the Agent Orchestration plugin, or set AO_TRANSPORT=file for the file double.");
+    }
   });
   const sc = StringCodec();
   const url2 = servers || env.AO_NATS_URL || env.NATS_URL || "";
@@ -53125,7 +53131,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b62418976fd4d4030c515610a92ca7f2dffd50d66623d7455d6d2a7e54fe7953",
+  sourceFingerprint: false ? null : "df2d11ab2703cfa5964aa2ebf617b0b6879e87547b76f9075372f349c79c5902",
   version: false ? null : "0.11.0"
 };
 var json3 = (path3) => (0, import_promises40.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

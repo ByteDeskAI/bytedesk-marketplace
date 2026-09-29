@@ -34,6 +34,7 @@ Discover
   schema                                       print the spec schema summary
   providers [--json]                           list provider adapters
   doctor [--json] [--consumer <dir>]           check tmux, CLIs, and search paths
+  transport status [--json]                    verify the selected message transport is reachable
   runs [--consumer <dir>]                      list durable explicit workflows across linked worktrees
   console list|show|workflows|control|preserve --consumer <dir> --json
          [--workflow-id <runtime:id>] [--request-file <json>] [--worktree <dir>]
@@ -442,6 +443,18 @@ const commands = {
     if (positional[0] === 'watch') return api.watchPresence({ ...options, onPublish: out });
     invariant(!positional[0] || positional[0] === 'publish', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use presence publish|watch.');
     return out(await api.publishPresence(options));
+  },
+  async transport({ flags, positional }) {
+    const sub = positional[0] ?? 'status';
+    invariant(sub === 'status', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use transport status.');
+    const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    try {
+      const transport = await selectLiveTransport({ env: process.env });
+      const report = { ok: true, kind: transport.kind, ...transport.stats() };
+      return out(flags.json ? report : `AO transport ${report.kind} is reachable.`);
+    } finally {
+      await closeLiveTransports();
+    }
   },
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');

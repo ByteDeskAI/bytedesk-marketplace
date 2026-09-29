@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import net from "node:net";
 
 const run = promisify(execFile);
 const sourceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -39,6 +40,84 @@ async function initRepo(path) {
   await writeFile(join(path, "README.md"), "fixture\n");
   await run("git", ["-C", path, "add", "README.md"]);
   await run("git", ["-C", path, "commit", "-qm", "fixture"]);
+}
+
+async function startFakeNats() {
+  const matchesSubject = (pattern, subject) => {
+    const expected = pattern.split(".");
+    const actual = subject.split(".");
+    return expected.every((token, index) => token === ">" ? index < actual.length : token === "*" || token === actual[index])
+      && (expected.at(-1) === ">" || expected.length === actual.length);
+  };
+  const server = net.createServer((socket) => {
+    const subscriptions = new Map();
+    socket.write(`INFO ${JSON.stringify({
+      server_id: "AO-CLEAN-INSTALL-CONTRACT",
+      server_name: "AO clean-install contract",
+      version: "2.11.0",
+      proto: 1,
+      host: "127.0.0.1",
+      port: server.address().port,
+      max_payload: 1_048_576,
+      headers: true,
+      jetstream: true,
+      auth_required: false,
+      tls_required: false,
+      tls_verify: false,
+    })}\r\n`);
+    let pending = Buffer.alloc(0);
+    let published = null;
+    socket.on("data", (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      while (true) {
+        if (published) {
+          if (pending.length < published.size + 2) break;
+          pending = pending.subarray(published.size + 2);
+          if (published.subject === "$JS.API.INFO" && published.reply) {
+            const sid = [...subscriptions].find(([, subject]) => matchesSubject(subject, published.reply))?.[0];
+            if (sid) {
+              const response = Buffer.from(JSON.stringify({
+                server: { name: "AO clean-install contract", version: "2.11.0" },
+                streams: 0,
+                consumers: 0,
+                memory: 0,
+                storage: 0,
+                api: { total: 0, errors: 0 },
+              }));
+              socket.write(Buffer.concat([Buffer.from(`MSG ${published.reply} ${sid} ${response.length}\r\n`), response, Buffer.from("\r\n")]));
+            }
+          }
+          published = null;
+          continue;
+        }
+
+        const end = pending.indexOf("\r\n");
+        if (end === -1) break;
+        const line = pending.subarray(0, end).toString("utf8");
+        pending = pending.subarray(end + 2);
+        const parts = line.split(/\s+/);
+        if (parts[0] === "PING") socket.write("PONG\r\n");
+        if (parts[0] === "SUB") subscriptions.set(parts.at(-1), parts[1]);
+        if (parts[0] === "PUB" || parts[0] === "HPUB") {
+          const size = Number(parts.at(-1));
+          published = { subject: parts[1], reply: parts.length === 4 ? parts[2] : null, size };
+          if (!Number.isSafeInteger(size) || size < 0) published = null;
+        }
+      }
+    });
+    socket.on("error", () => {});
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return {
+    url: `nats://127.0.0.1:${server.address().port}`,
+    close: () => new Promise((resolve, reject) => {
+      server.closeAllConnections?.();
+      server.close((error) => error ? reject(error) : resolve());
+    }),
+  };
 }
 
 // Observe only this transport's current descendant PIDs. Do not read argv,
@@ -126,6 +205,20 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       // assertion below. ACPX then includes its test-only lifecycle breadcrumbs.
       AGENT_ORCHESTRATION_VERBOSE: "1",
     };
+    const fakeNats = await startFakeNats();
+    try {
+      const transportStatus = await run(join(installed, "bin", "ao-topology"), ["transport", "status", "--json"], {
+        cwd: installed,
+        env: { ...providerEnv, AO_NATS_URL: fakeNats.url },
+      });
+      const transportReport = JSON.parse(transportStatus.stdout);
+      assert.equal(transportReport.ok, true);
+      assert.equal(transportReport.kind, "nats");
+      assert.equal(transportReport.closed, false);
+    } finally {
+      await fakeNats.close();
+    }
+
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
       cwd: installed,

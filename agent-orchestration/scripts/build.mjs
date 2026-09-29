@@ -95,6 +95,11 @@ await Promise.all([
   build({ ...cjsApplication, entryPoints: [join(root, "src", "provider-sandbox.mjs")], outfile: join(outdir, "provider-sandbox.cjs") }),
   build({ ...cjsApplication, entryPoints: [join(root, "src", "runtime", "probe-worker.mjs")], outfile: join(outdir, "probe-worker.cjs") }),
   build({
+    ...cjsApplication,
+    entryPoints: [require.resolve("nats")],
+    outfile: join(outdir, "topology-nats.cjs"),
+  }),
+  build({
     ...common,
     entryPoints: [inTree(require.resolve("@agentclientprotocol/claude-agent-acp/dist/index.js"))],
     outfile: join(outdir, "claude-agent-acp.mjs"),
@@ -115,7 +120,7 @@ await cp(join(root, "session-ui", "mockup"), join(outdir, "session-ui"), { recur
 
 // Keep committed install artifacts compatible with repository whitespace
 // gates, including third-party bridge output that contains trailing blanks.
-for (const name of ["mcp.cjs", "host-launcher.cjs", "cli.cjs", "provider-sandbox.cjs", "probe-worker.cjs", "claude-agent-acp.mjs", "codex-acp.mjs"]) {
+for (const name of ["mcp.cjs", "host-launcher.cjs", "cli.cjs", "provider-sandbox.cjs", "probe-worker.cjs", "topology-nats.cjs", "claude-agent-acp.mjs", "codex-acp.mjs"]) {
   const path = join(outdir, name);
   const source = await readFile(path, "utf8");
   await writeFile(path, `${source.replace(/[ \t]+$/gm, "").replace(/\n*$/, "")}\n`);

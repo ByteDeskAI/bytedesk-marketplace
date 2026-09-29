@@ -5,7 +5,7 @@
 ### Fixed
 
 - **Main is green again after 0.11.0 (TM-264).** The tracked `dist/cli.cjs` and `dist/mcp.cjs` are rebuilt. They inline the nats client, because an installed plugin ships no `node_modules`; the client is still evaluated only when the NATS transport opens.
-- The unbundled `ao-topology` in a plugin tree without `node_modules` now reports `TOPOLOGY_NATS_UNAVAILABLE` naming the missing nats package, instead of a raw `ERR_MODULE_NOT_FOUND` stack, when NATS is selected.
+- **Installed topology transport (TM-265).** Ship the NATS client bundle used by the unbundled `ao-topology` launcher, add `ao-topology transport status`, and cover a clean plugin tree with no `node_modules` in the contract suite.
 - The activation, lead-convergence, and role-icon tmux contracts set `AO_TRANSPORT=file`. They test tmux supervision, not NATS, and failed with `TOPOLOGY_NATS_UNAVAILABLE` on a machine without a NATS server.
 - The `bind` unit test's implicit-server case clears `TMUX`, so it no longer fails when the suite runs inside the operator's tmux.
 

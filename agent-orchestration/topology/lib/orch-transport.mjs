@@ -349,10 +349,17 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     connect,
     credsAuthenticator,
     nanos,
-  } = await import('nats').catch((error) => {
-    // The dist bundles inline nats; the unbundled topology in a copied plugin tree has no node_modules.
+  } = await import('nats').catch(async (error) => {
+    // The topology CLI runs as source from a copied plugin tree, which has no node_modules.
+    // Its NATS client is shipped as a separate bundle so this path stays lazy for file-mode tests.
     if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
-    return fail('TOPOLOGY_NATS_UNAVAILABLE', 'NATS is the selected transport but the nats client package is not installed in this plugin tree. Run npm ci in the plugin, or set AO_TRANSPORT=file for the file double.');
+    try {
+      const bundled = await import(new URL('../../dist/topology-nats.cjs', import.meta.url).href);
+      return bundled.default ?? bundled;
+    } catch (bundleError) {
+      if (bundleError?.code !== 'ERR_MODULE_NOT_FOUND') throw bundleError;
+      return fail('TOPOLOGY_NATS_UNAVAILABLE', 'NATS is selected but neither the nats package nor the bundled topology client is available. Rebuild or reinstall the Agent Orchestration plugin, or set AO_TRANSPORT=file for the file double.');
+    }
   });
   const sc = StringCodec();
   const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
