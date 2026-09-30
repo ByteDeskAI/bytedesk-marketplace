@@ -48,6 +48,10 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
   await run('git', ['init', '-q', repo]);
+  // These tests are about tmux scoping, not enrollment. Repositories are enrolled by default, so opt
+  // this one out or every verb would start a supervisor and list panes.
+  await mkdir(join(repo, '.bytedesk', 'agent-orchestration'), { recursive: true });
+  await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: false });
   await mkdir(join(root, 'tmux'), { recursive: true });
   const fake = await fakeTmux(root);
   const env = { ...process.env, PATH: `${fake.bin}:${process.env.PATH}`, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: join(root, 'tmux'),

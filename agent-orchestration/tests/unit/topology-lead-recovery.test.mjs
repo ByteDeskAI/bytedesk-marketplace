@@ -237,7 +237,7 @@ test('ensureLead probes a live lead with the registration lock released', async 
   assert.equal(heldDuringProbe, false, 'a probe that can wait a model turn must not hold the lock other ensures queue on');
 });
 
-test('a supervisor tick is quiet for an unenrolled repository and reports recovery for an enrolled one', async t => {
+test('a supervisor tick is quiet for an opted-out repository and reports recovery for an enrolled one', async t => {
   const { mkdir, readdir } = await import('node:fs/promises');
   const { superviseRepository } = await import('../../topology/lib/supervision.mjs');
   const root = await mkdtemp(join(tmpdir(), 'ao-recovery-tick-'));
@@ -249,6 +249,9 @@ test('a supervisor tick is quiet for an unenrolled repository and reports recove
   const env = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
   for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER']) delete env[key];
   for (const repo of Object.values(repos)) await run('git', ['init', '-q', repo]);
+  // Repositories are enrolled by default; the quiet one opts out.
+  await mkdir(join(repos.unenrolled, '.bytedesk', 'agent-orchestration'), { recursive: true });
+  await writeJson(join(repos.unenrolled, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: false });
   // Enrolled through an existing lead registration. Its recorded incarnation names a socket that does
   // not exist, and its library agent is gone, so recovery observes it dead and fails before anything
   // could open.

@@ -20227,10 +20227,10 @@ async function resolveEnrollment({ consumer, env = process.env, home = (0, impor
   }
   try {
     if (await readLeadRegistration({ consumer: root, env, home })) return { enrolled: true, source: "lead-registration", ...at };
-  } catch (error51) {
-    return { enrolled: false, source: "none", ...at, reason: `lead registration is unreadable: ${error51.message}` };
+  } catch {
   }
-  return { enrolled: false, source: "none", ...at, ...settings.error ? { reason: `project settings are unreadable (${settings.error})` } : {} };
+  if (identity.kind === "git-common-dir") return { enrolled: true, source: "default", ...at };
+  return { enrolled: false, source: "none", ...at, reason: "not a Git repository, so it is not enrolled by default" };
 }
 async function activateRepository({ consumer, env = process.env, home = (0, import_node_os11.homedir)(), reason = "unspecified", ...options }) {
   let enrollment;
@@ -53251,7 +53251,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "986465b08691e7ecb74f1913f2af513d697ca354e8c740b6285e27c87ba3c3ed",
+  sourceFingerprint: false ? null : "2400530d94b8a3c8bcab3a55d63a32fe085f67126ce12512298822142353a893",
   version: false ? null : "0.11.0"
 };
 var json3 = (path3) => (0, import_promises41.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

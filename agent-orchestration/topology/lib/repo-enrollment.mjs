@@ -9,9 +9,12 @@
 //   2. repo config `enabled: true`   -> repo-config
 //   3. project `.claude/settings.json` enabledPlugins["agent-orchestration@<any marketplace>"] === true
 //                                    -> project-plugin   an explicit `false` there does NOT disable
-//   4. an existing lead registration -> lead-registration (compatibility with pre-TM-167 repos)
-//   5. otherwise                     -> none
+//   4. an existing lead registration -> lead-registration (kept so the provenance stays visible)
+//   5. a Git repository              -> default          enrolled unless it opts out
+//   6. anything else                 -> none
 //
+// Opt-out is the only switch: `{ "enabled": false }` in <root>/.bytedesk/agent-orchestration/config.json.
+
 // Fail closed: a repo config that cannot be read, is not a JSON object, or carries a non-boolean
 // `enabled` is treated as `enabled: false` — we cannot tell what it meant, and the only value that
 // is allowed to override every other source is the one that switches orchestration OFF.
@@ -31,7 +34,7 @@ async function readJsonFile(path) {
 
 /**
  * @returns {Promise<{ enrolled: boolean,
- *   source: "repo-config" | "project-plugin" | "lead-registration" | "disabled" | "none",
+ *   source: "repo-config" | "project-plugin" | "lead-registration" | "default" | "disabled",
  *   repo_id: string, root: string, reason?: string }>}
  */
 export async function resolveEnrollment({ consumer, env = process.env, home = homedir() }) {
@@ -61,10 +64,11 @@ export async function resolveEnrollment({ consumer, env = process.env, home = ho
 
   try {
     if (await readLeadRegistration({ consumer: root, env, home })) return { enrolled: true, source: "lead-registration", ...at };
-  } catch (error) {
-    return { enrolled: false, source: "none", ...at, reason: `lead registration is unreadable: ${error.message}` };
-  }
-  return { enrolled: false, source: "none", ...at, ...(settings.error ? { reason: `project settings are unreadable (${settings.error})` } : {}) };
+  } catch { /* an unreadable registration is not an opt-out; fall through to the default */ }
+  // Default-on covers Git repositories only: a scratch directory, /tmp, or a path that does not exist
+  // is never handed a lead by omission.
+  if (identity.kind === "git-common-dir") return { enrolled: true, source: "default", ...at };
+  return { enrolled: false, source: "none", ...at, reason: "not a Git repository, so it is not enrolled by default" };
 }
 
 /**
