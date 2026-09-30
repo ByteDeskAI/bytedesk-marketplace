@@ -23,6 +23,7 @@ import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readJson, writeJson, writeText } from './util.mjs';
+import { ensureLocalNats } from './nats-local.mjs';
 
 // `nats` is loaded only when the NATS transport opens. A copied plugin tree that
 // uses the file double does not carry node_modules, and a top-level import would
@@ -358,23 +359,47 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
   const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
   let bridge = null;
   let target = url;
+  // An explicit `servers` argument or AO_NATS_URL is the operator's choice and is never replaced.
+  // Anything else (ambient NATS_URL, the gateway socket, nothing) may fall back to a local server.
+  const explicit = Boolean(servers || env.AO_NATS_URL);
+  const autostart = !explicit && env.AO_NATS_AUTOSTART !== '0';
+  let local = null;
+  const useLocal = async () => {
+    local = await ensureLocalNats({ env });
+    target = local.servers;
+  };
   if (!target) {
     const socketPath = orchSocketPath(env);
-    if (!existsSync(socketPath)) {
+    if (existsSync(socketPath)) {
+      bridge = await bridgeUnixSocket(socketPath);
+      target = bridge.servers;
+    } else if (autostart) {
+      await useLocal();
+    } else {
       fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS is the default transport and neither AO_NATS_URL nor ${socketPath} is available. Set AO_NATS_URL, start the gateway orch listener, or set AO_TRANSPORT=file for the file double.`);
     }
-    bridge = await bridgeUnixSocket(socketPath);
-    target = bridge.servers;
   }
-  const options = { servers: target, name, timeout: 4000, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
   const creds = credsFile || env.AO_ORCH_CREDS;
-  if (creds) options.authenticator = credsAuthenticator(readFileSync(creds));
+  const dial = () => {
+    const options = { servers: target, name, timeout: 4000, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
+    if (local) Object.assign(options, { user: local.user, pass: local.pass });
+    else if (creds) options.authenticator = credsAuthenticator(readFileSync(creds));
+    return connect(options);
+  };
   let nc;
   try {
-    nc = await connect(options);
+    nc = await dial();
   } catch (error) {
     bridge?.server.close();
-    fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}`);
+    bridge = null;
+    if (!autostart || local) fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}`);
+    // The configured target (ambient NATS_URL or a stale gateway socket) is down: start the local one.
+    try {
+      await useLocal();
+      nc = await dial();
+    } catch (second) {
+      fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}; local fallback failed: ${second.message}`);
+    }
   }
   const js = nc.jetstream();
   const jsm = await nc.jetstreamManager();

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- **NATS starts itself when it is not reachable.** `openNatsTransport` (every caller: supervisor, mailbox, presence, reviewer) now falls back to a per-user JetStream `nats-server` when there is no `AO_NATS_URL`, no gateway `orch.sock`, or the ambient `NATS_URL` refuses the connection. The server is detached, loopback-only, and set up under `~/.bytedesk/agent-orchestration/nats` (`AO_NATS_HOME`): a generated password in a `0600` file, one account with no system account, and permissions limited to `orch.>` plus the JetStream and KV API. A second caller reuses the running server. An explicit `AO_NATS_URL` is never replaced; `AO_NATS_AUTOSTART=0` turns the fallback off. The binary comes from `AO_NATS_SERVER`, `~/.cache/ao-orch/nats-server`, or `PATH`; the snap shim does not count.
+- The repository supervisor monitor no longer exits 1 with `TOPOLOGY_NATS_UNAVAILABLE` on a machine with no NATS server running.
+
 ### Fixed
 
 - **Main is green again after 0.11.0 (TM-264).** The tracked `dist/cli.cjs` and `dist/mcp.cjs` are rebuilt. They inline the nats client, because an installed plugin ships no `node_modules`; the client is still evaluated only when the NATS transport opens.
