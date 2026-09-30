@@ -7,7 +7,7 @@ expect() { [ "$1" = "$2" ] && echo "ok   $3" || { echo "FAIL $3: exit $1, wanted
 mkdir -p "$T/bad/.claude" "$T/good/.claude" "$T/bad/sub"
 git init -q "$T/bad"; git init -q "$T/good"
 echo '{"enabledPlugins":{"agent-orchestration@bytedesk":true}}' > "$T/bad/.claude/settings.json"
-echo '{"enabledPlugins":{"task-management@bytedesk":true}}' > "$T/good/.claude/settings.json"
+echo '{"enabledPlugins":{"fleet@bytedesk":true}}' > "$T/good/.claude/settings.json"
 expect "$(run "$T/bad" 'git commit -m x')" 2 "commit in a repo that enables the plugin is blocked"
 grep -q 'settings.json' "$T/out" || { echo "FAIL block message must name the file"; fail=1; }
 expect "$(run "$T/bad/sub" 'git -C . commit --amend')" 2 "from a subdirectory, still finds the repo root"

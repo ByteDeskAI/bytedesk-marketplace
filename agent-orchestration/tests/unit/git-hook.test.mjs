@@ -38,7 +38,7 @@ test('installed hook blocks a terminal commit that enables the plugin, and allow
   const blocked = await f.commit();
   assert.equal(blocked.code, 1, blocked.stderr);
   assert.match(blocked.stderr, /agent-orchestration/);
-  await f.setPlugins({ 'task-management@bytedesk': true });
+  await f.setPlugins({ 'fleet@bytedesk': true });
   assert.equal((await f.commit()).code, 0);
 });
 

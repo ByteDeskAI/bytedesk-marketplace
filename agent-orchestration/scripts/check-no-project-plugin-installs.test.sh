@@ -10,14 +10,18 @@ echo '{"enabledPlugins":{"agent-orchestration@bytedesk":false}}' > "$T/off/.clau
 expect 0 "clean repo passes" node "$S" "$T/clean"
 expect 0 "repo with no settings passes" node "$S" "$T/bare"
 expect 0 "explicit false is not an install" node "$S" "$T/off"
+expect 1 "task-management is covered by default" bash -c "mkdir -p $T/tm/.claude; echo '{\"enabledPlugins\":{\"task-management@bytedesk\":true}}' > $T/tm/.claude/settings.json; node $S $T/tm"
+mkdir -p "$T/data/.bytedesk/task-management/tasks" "$T/data/.bytedesk/task-management/plans" "$T/data/.claude"
+echo 'per-repo task' > "$T/data/.bytedesk/task-management/tasks/TM-1.md"; echo '{}' > "$T/data/.claude/settings.json"
+expect 0 "per-repo task-management data (tasks, plans) is not a violation" node "$S" "$T/data"
 expect 1 "enabled @bytedesk plugin fails" node "$S" "$T/dirty"
 grep -q 'agent-orchestration@bytedesk' "$T/out" || { echo "FAIL violation text must name the plugin"; fail=1; }
 expect 1 "one bad repo among several fails" node "$S" "$T/clean" "$T/dirty"
 echo '{"plugins":{"agent-orchestration@bytedesk":[{"scope":"user"}]}}' > "$T/user.json"
 echo '{"plugins":{"agent-orchestration@bytedesk":[{"scope":"user"},{"scope":"project","projectPath":"/x"}],"b@other":[{"scope":"project"}]}}' > "$T/proj.json"
-echo '{"enabledPlugins":{"task-management@bytedesk":true}}' > "$T/other/.claude/settings.json"
+echo '{"enabledPlugins":{"fleet@bytedesk":true}}' > "$T/other/.claude/settings.json"
 expect 0 "a plugin outside the default list is not flagged" node "$S" "$T/other"
-expect 1 "--plugin adds it" node "$S" "$T/other" --plugin task-management
+expect 1 "--plugin adds it" node "$S" "$T/other" --plugin fleet
 expect 1 "--plugin all covers every @bytedesk plugin" node "$S" --plugin all "$T/other"
 expect 0 "user-only installs pass" env AO_INSTALLED_PLUGINS="$T/user.json" node "$S" --installs
 expect 1 "project-scope @bytedesk install fails" env AO_INSTALLED_PLUGINS="$T/proj.json" node "$S" --installs

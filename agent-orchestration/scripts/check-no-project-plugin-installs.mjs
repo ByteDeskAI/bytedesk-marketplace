@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Guard: the named bytedesk plugins are installed at user scope only. Default: agent-orchestration.
+// Guard: the named bytedesk plugins are installed at user scope only. Default: agent-orchestration and task-management.
 // Add more with --plugin <name> (repeatable); `--plugin all` covers every @bytedesk plugin.
 //   check-no-project-plugin-installs.mjs [repoDir ...]   fail if a repo's .claude/settings.json enables one
 //   check-no-project-plugin-installs.mjs --installs      fail if ~/.claude/plugins/installed_plugins.json holds a non-user install of one
@@ -8,10 +8,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+const DEFAULT_PLUGINS = ['agent-orchestration', 'task-management'];
 const argv = process.argv.slice(2);
 const names = [];
 const args = argv.filter((arg, i) => (argv[i - 1] === '--plugin' ? (names.push(arg), false) : arg !== '--plugin'));
-if (!names.length) names.push('agent-orchestration');
+if (!names.length) names.push(...DEFAULT_PLUGINS);
 const MARKETPLACE = { test: (id) => id.endsWith('@bytedesk') && (names.includes('all') || names.includes(id.slice(0, -'@bytedesk'.length))) };
 const problems = [];
 

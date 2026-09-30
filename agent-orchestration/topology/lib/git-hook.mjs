@@ -25,7 +25,7 @@ try {
 } catch {}
 ' 2>/dev/null)
 [ -n "$check" ] || exit 0
-node "$check" "$root" || { echo "pre-commit blocked: agent-orchestration must be enabled in ~/.claude/settings.json only." >&2; exit 1; }
+node "$check" "$root" || { echo "pre-commit blocked: enable these plugins in ~/.claude/settings.json only, not in the repo." >&2; exit 1; }
 `;
 
 async function hookPath(repo) {
