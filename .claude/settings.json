@@ -8,7 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "task-management@bytedesk": true,
     "knowledge-management@bytedesk": true,
     "bytedesk-designer@bytedesk": true
   },

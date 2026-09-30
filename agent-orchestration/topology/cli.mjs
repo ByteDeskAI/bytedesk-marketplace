@@ -115,6 +115,8 @@ Standing repository services
   prompt preview|refresh|watch|ack <agent> [--revision <hash> --nonce <nonce>]
   startup pending|watch|hooks|install-hooks|uninstall-hooks [--provider <id> --server <name>]
   startup-check --source hook|manual
+  git-hook install|uninstall|status [--consumer <repo>]   real git pre-commit hook: blocks a commit that enables
+                                               agent-orchestration at project scope (covers terminal commits)
   enrollment request --pending-key <key> --agent <id> [--consumer <repo>]
   enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
   presence publish|watch [--server <socket> --dir <presence-directory>]
@@ -436,6 +438,13 @@ const commands = {
     fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use slot request|release|status|grant.');
   },
 
+  async "git-hook"({ flags, positional }) {
+    const api = await import('./lib/git-hook.mjs');
+    const sub = positional[0] || 'status';
+    const fn = { install: api.installGitHook, uninstall: api.uninstallGitHook, status: api.gitHookStatus }[sub];
+    if (!fn) fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use git-hook install|uninstall|status.');
+    return out(await fn({ repo: context(flags).consumer }));
+  },
   async presence({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/presence.mjs');
     const options = { ...ctx, presenceDir: flags.dir, tmuxServer: flags.server };

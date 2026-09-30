@@ -28,25 +28,25 @@ or unknown lock owner is never evicted by age.
 
 ### Enrollment and activation
 
-**Enrollment decides which repositories are given agents.** A repository is enrolled when one of
-these holds, checked in this order:
-
-1. Its repository config `.bytedesk/agent-orchestration/config.json` sets `"enabled": true`.
-2. Its project `.claude/settings.json` enables `agent-orchestration@<marketplace>`.
-3. It already has a lead registration.
+**Every Git repository is enrolled by default. Enrollment is opt-out.** To opt out, put
+`{ "enabled": false }` in `.bytedesk/agent-orchestration/config.json`. A repository that is not a
+Git repository (a scratch directory, `/tmp`, a path that does not exist) is not enrolled by default.
+The answer is labelled with where it came from, checked in this order: `repo-config` (`"enabled": true`),
+`project-plugin` (the project `.claude/settings.json` enables `agent-orchestration@<marketplace>`),
+`lead-registration`, then `default`.
 
 `"enabled": false` in the repository config disables a repository whatever else is true. An
 unreadable repository config, or a non-boolean `enabled`, also counts as disabled. Every linked
 worktree gets the answer from the main checkout.
 
-**Only enrolled repositories get a supervisor started for them.** Session start (the startup-check
+**Only enrolled repositories get a supervisor started for them, which now means every repository that has not opted out.** Session start (the startup-check
 hook, or a managed launch) and ordinary verbs such as `launch`, `send`, `session open`, `census`,
 `lead` and `role` start the repository's single supervisor this way. Many concurrent starts from
 different worktrees converge on one supervisor.
 
-**The supervisor also runs read-only in unenrolled repositories.** There it keeps presence, census,
+**The supervisor also runs read-only in opted-out repositories.** There it keeps presence, census,
 slots and quota current, and its watcher labels only its own repository's panes. It never starts or
-recovers an agent for an unenrolled repository.
+recovers an agent for an opted-out repository.
 
 **Ordinary verbs list tmux panes only on a named server**: a binding's server, their own pane's
 server, or `--server`. Otherwise they refuse with `TOPOLOGY_TMUX_SERVER_REQUIRED` rather than

@@ -10,6 +10,23 @@ Read design authority in this order:
 Managed design-system files are read-only. Canonical changes land in `ByteDeskAI/design-system` first.
 <!-- bytedesk-design-system:end -->
 
+## Rule: a plugin hosts its own scripts
+
+**Every script a plugin runs lives inside that plugin, in `<plugin>/scripts/`.** That covers hook
+scripts, monitor commands, guards, checks, and the tests for them. A plugin is copied on its own into
+the plugin cache, so a path that reaches outside its directory (`../scripts/...`, or the marketplace's
+root `scripts/`) is simply absent after install and fails with no error.
+
+- Reference them from the plugin's manifests as `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`, and have one
+  script find another relative to itself (`import.meta.url`, `dirname "$0"`), never by an absolute path.
+- The root `scripts/` directory is only for work that is **shared** across plugins or about the
+  marketplace itself (`validate-marketplace.mjs`, the `sync-*.mjs` importers). If a script serves one
+  plugin, it moves into that plugin. If a second plugin needs it, keep it in the owning plugin and
+  have the other call the owning plugin's CLI; do not symlink across plugins (a link that leaves the
+  plugin is skipped on install).
+- Check a move by copying only the plugin's own directories to a temp location and running its tests
+  there. A test that passes only in the checkout proves the checkout, not the plugin.
+
 <!-- graft:start -->
 ## Graft — repo context graph
 

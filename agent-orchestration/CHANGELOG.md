@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Every Git repository is enrolled by default; enrollment is opt-out.** Put `{ "enabled": false }` in `.bytedesk/agent-orchestration/config.json` to opt a repository out. A message to a repository whose lead is down now recovers that lead without the repository having been switched on first. Paths that are not Git repositories are still not enrolled by default. Tests that relied on "unenrolled by omission" now opt out explicitly.
+
+### Added
+
+- **`ao-topology git-hook install|uninstall|status`** installs a real git `pre-commit` hook, so commits made from a terminal or IDE are checked as well as commits made inside a Claude session. It runs the same project-install guard. It resolves the plugin from `~/.claude/plugins/installed_plugins.json` at commit time, so it survives plugin updates, and it fails open if the plugin is not found. It honours `core.hooksPath` and linked worktrees, refuses to overwrite a pre-commit hook it did not write, and removes only its own on uninstall. It does not chain onto an existing hook.
+- **Commit guard.** A `PreToolUse(Bash)` hook blocks `git commit` in a repository whose `.claude/settings.json` enables `agent-orchestration` or `task-management` at project scope, because both are user-scope installs and a project entry creates a per-project install record. It fails open on any internal error. The same check runs standalone as `scripts/check-no-project-plugin-installs.mjs` (repo mode, or `--installs` for `installed_plugins.json`; `--plugin <name>` adds plugins). Per-repo task-management data under `.bytedesk/task-management/` is not settings and is never checked. Not verified in a live Claude Code session: the hook's matching and its block message are covered by `scripts/guard-project-install.test.sh`, not by a real commit attempt.
+- **NATS starts itself when it is not reachable.** `openNatsTransport` (every caller: supervisor, mailbox, presence, reviewer) now falls back to a per-user JetStream `nats-server` when there is no `AO_NATS_URL`, no gateway `orch.sock`, or the ambient `NATS_URL` refuses the connection. The server is detached, loopback-only, and set up under `~/.bytedesk/agent-orchestration/nats` (`AO_NATS_HOME`): a generated password in a `0600` file, one account with no system account, and permissions limited to `orch.>` plus the JetStream and KV API. A second caller reuses the running server. An explicit `AO_NATS_URL` is never replaced; `AO_NATS_AUTOSTART=0` turns the fallback off. The binary comes from `AO_NATS_SERVER`, `~/.cache/ao-orch/nats-server`, or `PATH`; the snap shim does not count.
+- The repository supervisor monitor no longer exits 1 with `TOPOLOGY_NATS_UNAVAILABLE` on a machine with no NATS server running.
+
 ### Fixed
 
 - **Main is green again after 0.11.0 (TM-264).** The tracked `dist/cli.cjs` and `dist/mcp.cjs` are rebuilt. They inline the nats client, because an installed plugin ships no `node_modules`; the client is still evaluated only when the NATS transport opens.

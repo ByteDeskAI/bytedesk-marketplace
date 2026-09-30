@@ -60,18 +60,18 @@ async function repoFixture(t, label) {
   };
 }
 
-test('enrollment precedence: enabled:false wins, then repo config, project plugin, lead registration, none', async (t) => {
+test('enrollment precedence: enabled:false wins, then repo config, project plugin, lead registration, default-on for a Git repository', async (t) => {
   const f = await repoFixture(t, 'precedence');
   const PLUGIN = { 'agent-orchestration@bytedesk': true };
   // [label, repo config, enabledPlugins, lead registration, expected source, expected enrolled, reason pattern]
   const cases = [
-    ['nothing', undefined, undefined, false, 'none', false],
+    ['nothing: a Git repository is enrolled by default', undefined, undefined, false, 'default', true],
     ['lead registration only', undefined, undefined, true, 'lead-registration', true],
     ['plugin beats lead registration', undefined, PLUGIN, true, 'project-plugin', true],
     ['any marketplace suffix', undefined, { 'agent-orchestration@some-other-marketplace': true }, false, 'project-plugin', true],
-    ['a different plugin name does not match', undefined, { 'agent-orchestration-extras@bytedesk': true, 'task-management@bytedesk': true }, false, 'none', false],
+    ['a different plugin name does not match', undefined, { 'agent-orchestration-extras@bytedesk': true, 'task-management@bytedesk': true }, false, 'default', true],
     ['explicit plugin false does not disable', undefined, { 'agent-orchestration@bytedesk': false }, true, 'lead-registration', true],
-    ['explicit plugin false alone is just none', undefined, { 'agent-orchestration@bytedesk': false }, false, 'none', false],
+    ['explicit plugin false alone does not opt out', undefined, { 'agent-orchestration@bytedesk': false }, false, 'default', true],
     ['repo config true', { enabled: true }, undefined, false, 'repo-config', true],
     ['repo config true beats plugin', { enabled: true }, PLUGIN, true, 'repo-config', true],
     ['repo config without enabled falls through', { prompts: {} }, PLUGIN, false, 'project-plugin', true],
@@ -122,9 +122,9 @@ test('every linked worktree resolves from the canonical root, whatever its own c
   assert.ok(disabled.every((answer) => answer.source === 'disabled' && answer.root === f.repo));
 });
 
-test('a disabled or unenrolled repository is never activated, by a verb or by session start', async (t) => {
+test('a repository that opted out is never activated, by a verb or by session start', async (t) => {
   const f = await repoFixture(t, 'disabled');
-  for (const [config, lead] of [[{ enabled: false }, true], [undefined, false]]) {
+  for (const [config, lead] of [[{ enabled: false }, true], [{ enabled: false }, false]]) {
     await f.setConfig(config); await f.setLead(lead);
     const activation = await activateRepository({ consumer: f.repo, env: f.env, home: f.home, reason: 'test' });
     assert.deepEqual(activation.supervision, { started: false, reason: 'not-enrolled' });
@@ -141,7 +141,7 @@ test('a disabled or unenrolled repository is never activated, by a verb or by se
 test('activateRepository never throws, even when enrollment cannot be resolved', async (t) => {
   const f = await repoFixture(t, 'nothrow');
   const answer = await activateRepository({ consumer: join(f.root, 'does-not-exist'), env: f.env, home: f.home });
-  assert.equal(answer.enrollment.enrolled, false);
+  assert.equal(answer.enrollment.enrolled, false, 'a path that is not a Git repository is not enrolled by default');
   assert.equal(answer.supervision.started, false);
 });
 
