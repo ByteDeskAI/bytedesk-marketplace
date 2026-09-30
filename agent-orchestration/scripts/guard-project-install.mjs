@@ -15,7 +15,7 @@ try {
   const cwd = input.cwd || process.cwd();
   const top = spawnSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
   const repo = top.status === 0 ? top.stdout.trim() : cwd;
-  const check = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'check-no-project-plugin-installs.mjs');
+  const check = join(dirname(fileURLToPath(import.meta.url)), 'check-no-project-plugin-installs.mjs');
   const result = spawnSync(process.execPath, [check, repo], { encoding: 'utf8' });
   if (result.status === 1) {
     process.stderr.write(`${result.stderr}\nCommit blocked: remove the agent-orchestration entry from ${join(repo, '.claude', 'settings.json')}.\nagent-orchestration is enabled in ~/.claude/settings.json; a project-level entry creates a per-project install.\n`);
