@@ -198,6 +198,7 @@ function missingRefusal(what, missing, extra = "") {
 export function gateDone(id, p = paths()) {
   const task = read(id, p);
   if (!task) return { allow: false, reason: `not found: ${id}` };
+  if (task.goal) return { allow: false, reason: `${id} is an admitted goal; use tm goal complete with current deployed assessment proof` };
   const governed = governedCompletion(task, p);
   if (!governed.allow) return governed;
   if (enforcementOff(p)) return { allow: true };

@@ -89,6 +89,7 @@ const declareOpus5 = {
 };
 
 await Promise.all([
+  build({ ...common, format: 'cjs', entryPoints: [inTree(require.resolve('nats'))], outfile: join(outdir, 'nats-client.cjs') }),
   build({ ...cjsApplication, entryPoints: [join(root, "src", "mcp.mjs")], outfile: join(outdir, "mcp.cjs") }),
   build({ ...cjsApplication, entryPoints: [join(root, "src", "host-launcher.mjs")], outfile: join(outdir, "host-launcher.cjs") }),
   build({ ...cjsApplication, entryPoints: [join(root, "src", "cli.mjs")], outfile: join(outdir, "cli.cjs") }),
@@ -115,7 +116,7 @@ await cp(join(root, "session-ui", "mockup"), join(outdir, "session-ui"), { recur
 
 // Keep committed install artifacts compatible with repository whitespace
 // gates, including third-party bridge output that contains trailing blanks.
-for (const name of ["mcp.cjs", "host-launcher.cjs", "cli.cjs", "provider-sandbox.cjs", "probe-worker.cjs", "claude-agent-acp.mjs", "codex-acp.mjs"]) {
+for (const name of ["mcp.cjs", "host-launcher.cjs", "cli.cjs", "provider-sandbox.cjs", "probe-worker.cjs", "claude-agent-acp.mjs", "codex-acp.mjs", "nats-client.cjs"]) {
   const path = join(outdir, name);
   const source = await readFile(path, "utf8");
   await writeFile(path, `${source.replace(/[ \t]+$/gm, "").replace(/\n*$/, "")}\n`);

@@ -15,6 +15,7 @@ import { actor, actorLabel, sessionId } from "./actor.mjs";
 import { TRIAGE_LABELS, agentReadiness } from "./completeness.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 import { assertGovernedMutation } from "./governance-check.mjs";
+import { assertGoalMutation } from "./goal-guard.mjs";
 
 const DEFAULT_CONFIG = {
   enforce: true,
@@ -568,6 +569,8 @@ export function autoCloseEpic(epicId, p = paths()) {
   if (!epicId || config(p).autoCloseEpics === false) return false;
   const epic = read(epicId, p);
   if (!epic || epic.status === "done") return false;
+  // Child completion is implementation progress, not deployed proof of a goal.
+  if (epic.goal) return false;
   const kids = list("task", { epic: epicId }, p);
   if (kids.length === 0 || kids.some((t) => t.status !== "done")) return false;
   update(epicId, { status: "done", closed: now() }, p);
@@ -776,6 +779,7 @@ export function boardOwner(p = paths()) {
 export function write(doc, p = paths()) {
   const { body = "", file, ...data } = doc;
   const prior = data.id ? read(data.id, p) : null;
+  assertGoalMutation(prior, data, id => read(id, p));
   if (prior?.governance || data.governance) {
     // Generic replacement writes must not strip ownership or bypass update().
     // Existing completed history remains editable without repeating integration.

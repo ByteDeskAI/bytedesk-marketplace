@@ -29,6 +29,8 @@ const expectedToolNames = [
   "orchestration_cleanup",
   "orchestration_decision_get",
   "orchestration_decision_approve",
+  "orchestration_mailbox_send", "orchestration_mailbox_receive", "orchestration_mailbox_list", "orchestration_mailbox_dispose",
+  "orchestration_goal_start", "orchestration_goal_status", "orchestration_goal_report", "orchestration_goal_control", "orchestration_goal_reconcile",
 ];
 
 async function initRepo(path) {
@@ -144,6 +146,16 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       }
       const planTool = tools.tools.find((tool) => tool.name === "orchestration_plan");
       assert.equal(planTool.inputSchema.properties.effort.enum.includes("none"), true);
+      // Exercise the new topology adapters from installed payload only. This
+      // catches dynamic imports that accidentally depend on the source checkout.
+      for (const name of ['orchestration_mailbox_list', 'orchestration_goal_status']) {
+        const response = await client.callTool({ name, arguments: { consumerCwd: consumer } });
+        assert.notEqual(response.isError, true, JSON.stringify(response));
+        const payload = JSON.parse(response.content[0].text);
+        assert.deepEqual(payload[name === 'orchestration_mailbox_list' ? 'receipts' : 'loops'], []);
+        const denied = await client.callTool({ name, arguments: { consumerCwd: installed } });
+        assert.equal(denied.isError, true, 'Plugin payload cannot act as the consumer');
+      }
 
       const doctorSnapshots = [];
       const snapshotTimers = process.platform === "linux" ? [5_000, 15_000, 25_000].map((delay) => {

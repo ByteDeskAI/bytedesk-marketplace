@@ -189,11 +189,19 @@ export async function stopNativeRun({ runDir, actor = { id: 'local-operator' }, 
 }
 
 export async function indexedWorkflow({ consumer, workflowId, ...options }) {
-  invariant(typeof workflowId === 'string' && /^(topology|acp):[A-Za-z0-9_.-]+$/.test(workflowId), 'TOPOLOGY_WORKFLOW_REQUIRED', 'Pass a canonical workflow ID.');
+  invariant(typeof workflowId === 'string' && /^(topology|acp|goal-loop):[A-Za-z0-9_.-]+$/.test(workflowId), 'TOPOLOGY_WORKFLOW_REQUIRED', 'Pass a canonical workflow ID.');
   const index = await readWorkflowIndex({ consumer, ...options });
   const entry = index.workflows.find(item => item.workflowId === workflowId);
   invariant(entry && entry.repositoryId === index.repository.id, 'TOPOLOGY_WORKFLOW_NOT_FOUND', 'Workflow is not indexed for the authorized repository.');
   const recordPath = await realpath(entry.recordPath);
+  if (entry.runtime === 'goal-loop') {
+    const { showGoalLoop } = await import('./goal-loop.mjs');
+    const loop = await showGoalLoop({ consumer, loopId: entry.nativeRunId, ...options,
+      env: { ...process.env, ...(options.env || {}), AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot(options.env) } });
+    invariant(recordPath === loop.recordPath && loop.workflowId === workflowId && loop.repository.id === index.repository.id,
+      'TOPOLOGY_DISCOVERY_REPOSITORY', 'Goal loop no longer matches its indexed identity.');
+    return { entry, loop, repository: index.repository };
+  }
   if (entry.runtime === 'topology') {
     invariant(basename(recordPath) === 'run.json', 'TOPOLOGY_DISCOVERY_BOUNDARY', 'Native workflow record must be run.json.');
     const { run } = await assertNativeRepository({ consumer, runDir: dirname(recordPath), ...options });
@@ -205,7 +213,12 @@ export async function indexedWorkflow({ consumer, workflowId, ...options }) {
 }
 
 export async function workflowDetail({ consumer, workflowId, ...options }) {
-  const { entry, run, runDir } = await indexedWorkflow({ consumer, workflowId, ...options });
+  const { entry, run, runDir, loop } = await indexedWorkflow({ consumer, workflowId, ...options });
+  if (loop) {
+    const { goalLoopSummary } = await import('./goal-loop.mjs');
+    return { workflow: entry, goalLoop: goalLoopSummary(loop), messages: await workflowMessages({ consumer, workflowId, ...options }),
+      events: loop.history.slice(-200).map(event => ({ type: event.type, at: event.at, phase: event.phase, attempt: event.attempt })) };
+  }
   invariant(run, 'TOPOLOGY_RUNTIME_UNSUPPORTED', 'Use the ACP producer to inspect this workflow.');
   const messages = [];
   for (const member of run.agents) {
@@ -238,11 +251,36 @@ export async function workflowDetail({ consumer, workflowId, ...options }) {
     inspection = { sessionAlive: !ownership.gone, observedAt: nowIso(), error: null,
       agents: run.agents.filter(agent => agent.pane).map(agent => ({ id: agent.id, alive: ownership.panes.some(pane => sameIncarnation(pane, agent.binding) && pane.alive !== false) })) };
   } catch (error) { inspection = { sessionAlive: null, observedAt: nowIso(), error: errorOf(error), agents: run.agents.filter(agent => agent.pane).map(agent => ({ id: agent.id, alive: null })) }; }
+  messages.push(...await workflowMessages({ consumer, workflowId, ...options }));
   return { workflow: entry, run: safeRun, messages, events: await readJournal(runDir, 200), independentReview, inspection };
 }
 
-export async function controlWorkflow({ consumer, request, launch, failover, deliver, stateHome = stateRoot(), tmuxApi = tmux }) {
-  invariant(request?.schemaVersion === 1 && ['launch', 'message', 'review', 'failover', 'stop', 'retry'].includes(request.action), 'TOPOLOGY_CONTROL_REQUEST', 'Unsupported console control request.');
+// Reading diagnostics must never pull or acknowledge a broker message. These are
+// retained producer/recipient facts, not task ownership or completion evidence.
+async function workflowMessages(options) {
+  const { listMailboxReceipts, listMailboxPublications } = await import('./mailbox-receipts.mjs');
+  const query = { ...options, env: { ...process.env, ...(options.env || {}), AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot(options.env) } };
+  const receipts = await listMailboxReceipts(query);
+  const publications = await listMailboxPublications(query);
+  const displayBody = envelope => options.workflowId.startsWith('goal-loop:') && envelope.context.stage === 'goal-phase'
+    ? `Phase obligation: ${envelope.context.phase || 'current phase'}; attempt ${envelope.context.attempt || 'current'}. See the goal details for its deadline and required evidence.`
+    : envelope.body.slice(0, 128 * 1024);
+  const rows = publications.map(p => ({ agentId: p.envelope.to, id: p.messageId, direction: 'out', kind: p.kind,
+    body: displayBody(p.envelope), truncated: p.envelope.body.length > 128 * 1024,
+    publicationStatus: p.status, publishedAt: p.publishedAt, taskId: p.envelope.context.taskId,
+    updatedAt: p.updatedAt || p.createdAt }));
+  for (const r of receipts) {
+    const row = rows.find(p => p.id === r.messageId && p.kind === r.kind && p.agentId === r.agent);
+    const receipt = { receiptStatus: r.status, acceptedAt: r.acceptedAt, disposition: r.disposition, updatedAt: r.updatedAt };
+    if (row) Object.assign(row, receipt);
+    else rows.push({ agentId: r.agent, id: r.messageId, kind: r.kind, direction: 'in', body: displayBody(r.envelope),
+      truncated: r.envelope.body.length > 128 * 1024, taskId: r.envelope.context.taskId, ...receipt });
+  }
+  return rows.sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt))).slice(-200);
+}
+
+export async function controlWorkflow({ consumer, request, launch, failover, deliver, stateHome = stateRoot(), tmuxApi = tmux, authenticatedHuman = false, goalControl }) {
+  invariant(request?.schemaVersion === 1 && ['launch', 'message', 'review', 'failover', 'stop', 'retry', 'goal-control'].includes(request.action), 'TOPOLOGY_CONTROL_REQUEST', 'Unsupported console control request.');
   invariant(typeof request.actor?.id === 'string' && request.actor.id.trim().length > 0 && request.actor.id.length <= 200,
     'TOPOLOGY_CONTROL_ACTOR', 'An authenticated actor label is required.');
   invariant(typeof request.idempotencyKey === 'string' && request.idempotencyKey.length > 0 && request.idempotencyKey.length <= 200,
@@ -255,13 +293,33 @@ export async function controlWorkflow({ consumer, request, launch, failover, del
     const prior = await readJson(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     invariant(!prior || prior.fingerprint === fingerprint, 'TOPOLOGY_CONTROL_CONFLICT', 'This idempotency key was already used for a different request.');
     if (prior?.outcome) return prior.outcome;
-    invariant(!prior, 'TOPOLOGY_CONTROL_UNCERTAIN', 'The earlier request did not record completion. Inspect its workflow before issuing another request.');
+    invariant(!prior || request.action === 'goal-control' && prior.goalRequest, 'TOPOLOGY_CONTROL_UNCERTAIN', 'The earlier request did not record completion. Inspect its workflow before issuing another request.');
     const perform = async () => {
     let target = null;
     if (request.action !== 'launch') {
       target = await indexedWorkflow({ consumer, workflowId: request.workflowId, stateHome });
-      invariant(target.run, 'TOPOLOGY_RUNTIME_UNSUPPORTED', 'Use ACP producer operations for this workflow.');
-      if (request.expectedRevision !== undefined) invariant(String(request.expectedRevision) === target.entry.revision, 'TOPOLOGY_CONTROL_REVISION', 'Workflow changed since the decision was prepared. Refresh and review the current revision.');
+      invariant(request.action === 'goal-control' ? target.loop : target.run, 'TOPOLOGY_RUNTIME_UNSUPPORTED', 'Select an operation for this workflow runtime.');
+      if (request.expectedRevision !== undefined && !prior?.goalRequest) invariant(String(request.expectedRevision) === target.entry.revision, 'TOPOLOGY_CONTROL_REVISION', 'Workflow changed since the decision was prepared. Refresh and review the current revision.');
+    }
+    if (request.action === 'goal-control') {
+      invariant(authenticatedHuman && request.expectedRevision !== undefined, 'TOPOLOGY_CONTROL_ACTOR', 'Goal decisions require the authenticated operator boundary and current revision.');
+      invariant(prior?.goalRequest || String(target.loop.revision) === String(target.entry.nativeRevision),
+        'TOPOLOGY_CONTROL_REVISION', 'The goal changed before discovery refreshed. Refresh the workflow before deciding.');
+      const control = goalControl || (await import('./goal-loop.mjs')).controlGoalLoop;
+      const goalRequest = prior?.goalRequest || { action: payload.action, reason: payload.reason, decision: payload.decision,
+        ...(payload.choice === undefined ? {} : { choice: payload.choice }),
+        idempotencyKey: request.idempotencyKey, expectedRevision: target.loop.revision, actor: request.actor };
+      // Persist the native revision before control. If the process exits after the
+      // loop commits, replay uses that same request rather than today's revision.
+      await writeJson(path, { schemaVersion: 1, requestId, fingerprint, goalRequest, startedAt: prior?.startedAt || nowIso() });
+      const result = await control({ consumer, loopId: target.loop.loopId, stateHome,
+        env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateHome }, authenticatedHuman: true,
+        request: goalRequest });
+      const index = await reconcileWorkflows({ consumer, stateHome });
+      const outcome = { ok: true, action: request.action, workflowId: request.workflowId, requestId,
+        revision: index.workflows.find(item => item.workflowId === request.workflowId)?.revision, result: { state: result.state } };
+      await writeJson(path, { schemaVersion: 1, requestId, fingerprint, completedAt: nowIso(), outcome });
+      return outcome;
     }
     const record = { schemaVersion: 1, requestId, fingerprint, action: request.action, actor: request.actor, workflowId: request.workflowId || null, startedAt: nowIso() };
     await writeJson(path, record);

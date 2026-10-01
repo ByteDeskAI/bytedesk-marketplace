@@ -33,6 +33,7 @@ import { FORMATS, exportStore } from "./export.mjs";
 import { cycleTime, summary as timeSummary, taskTimeline, throughput, timeInStatus } from "./time.mjs";
 import { batches } from "./parallel.mjs";
 import { importGoalDoc, importManifest } from "./goal-import.mjs";
+import { GOAL_OPERATIONS } from "./goal-feedback.mjs";
 import { record as recordTouches } from "./touches.mjs";
 import { CATALOG } from "./ntfy.mjs";
 import { heartbeatAgent, listAgents, reapAgents, renderAgents } from "./agents.mjs";
@@ -115,7 +116,7 @@ const clamp = (text) => (text.length <= MAX_CHARS ? text : `${text.slice(0, MAX_
  */
 export const PLANNER_TOOLS = Object.freeze([
   "tm_board", "tm_next", "tm_show", "tm_find", "tm_why", "tm_graph", "tm_history",
-  "tm_log", "tm_stale", "tm_parallel", "tm_export", "tm_cap_list",
+  "tm_log", "tm_stale", "tm_parallel", "tm_export", "tm_cap_list", "tm_goal_show",
   // The one thing a planner may WRITE, and it does not write the board. It records a proposal on
   // its own session for a human to approve; the approval is what reaches the store. Without it a
   // planner could reason perfectly and had no way to say what it concluded, so the operator could
@@ -1184,6 +1185,19 @@ export const TOOLS = [
       }
     },
   },
+  ...Object.keys(GOAL_OPERATIONS).map(operation => ({
+    name: `tm_goal_${operation}`,
+    description: operation === "show"
+      ? "Read an epic's original goal, immutable scope history, stable criteria, findings and deployed assessments."
+      : `Record goal ${operation} through the existing epic store. Requires scoped JSON input; completion requires current independent dogfood and deployment receipts, not acceptance ticks. See docs/goal-feedback.md.`,
+    inputSchema: {
+      type: "object",
+      properties: { id: str("Epic scope id."), ...(operation === "show" ? {} : { input: { type: "object", description: "Goal operation input, identical to CLI --file JSON." } }) },
+      required: operation === "show" ? ["id"] : ["id", "input"],
+      additionalProperties: false,
+    },
+    run: ({ id, input }, p) => operation === "show" ? GOAL_OPERATIONS.show(id, p) : GOAL_OPERATIONS[operation](id, input, p),
+  })),
 ];
 
 // ── protocol ─────────────────────────────────────────────────────────────────

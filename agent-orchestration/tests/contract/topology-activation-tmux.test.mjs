@@ -41,7 +41,8 @@ async function fixture(t, label, { enrolled }) {
   for (const key of ['AO_TMUX_COMMAND', 'AO_AGENT_ID', 'AO_SESSION', 'AO_CONSUMER', 'AO_LEAD_ID']) delete env[key];
   await exec('git', ['init', '-q', repo]);
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);
-  if (enrolled) await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: true });
+  // Git repositories enroll by default; the off fixture must explicitly opt out.
+  await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: enrolled });
 
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
