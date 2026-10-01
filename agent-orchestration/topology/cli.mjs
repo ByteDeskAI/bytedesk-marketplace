@@ -127,7 +127,7 @@ Standing repository services
   enrollment request --pending-key <key> --agent <id> [--consumer <repo>]
   enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
   presence publish|watch [--server <socket> --dir <presence-directory>]
-  mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
+  mailbox send|forward|inbox|outbox|resume|receipts|dispose [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --verdict <approve|changes_requested|blocked> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]

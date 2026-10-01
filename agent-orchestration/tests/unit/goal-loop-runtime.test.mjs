@@ -344,3 +344,19 @@ test('authoritative resolution of a blocking finding counts as progress despite 
   for (let count = 0; count < 9; count++) loop = await report(f, loop);
   assert.equal(loop.state, 'running'); assert.equal(loop.stalls, 0); assert.deepEqual(loop.resolvedFindingIds, ['GF-001']);
 });
+test('pause and resume preserve a pending typed decision and stale running state cannot bypass it', async t => {
+  const f = await fixture(t); let loop = await f.start();
+  loop = await report(f, loop, { status: 'human_required', details: { reason: 'Operator must approve the concrete next action', decision: { kind: 'phase-decision', scope: { action: 'continue planning', target: 'EP-001' } } } });
+  const pending = structuredClone(loop.pendingDecision), sent = f.state.sends.length, activated = f.state.activations;
+  const control = action => controlGoalLoop({ ...f.options, loopId: loop.loopId, request: { action, idempotencyKey: action, actor: { id: 'operator' }, expectedRevision: loop.revision, reason: 'Inspect the pending decision' } });
+  loop = await control('pause'); assert.equal(loop.state, 'paused');
+  loop = await control('resume'); assert.equal(loop.state, 'human_required'); assert.deepEqual(loop.pendingDecision, pending);
+  await assert.rejects(report(f, loop, { idempotencyKey: 'unapproved-success' }), /operator decision/);
+  loop.state = 'running'; await writeJson(loop.recordPath, loop);
+  await assert.rejects(report(f, loop, { idempotencyKey: 'stale-state-success' }), /operator decision/);
+  loop = await reconcileGoalLoop({ ...f.options, loopId: loop.loopId });
+  assert.equal(loop.state, 'human_required'); assert.deepEqual(loop.pendingDecision, pending);
+  assert.equal(f.state.sends.length, sent); assert.equal(f.state.activations, activated);
+  loop = await controlGoalLoop({ ...f.options, loopId: loop.loopId, request: { action: 'approve', idempotencyKey: 'approve', actor: { id: 'operator' }, expectedRevision: loop.revision, reason: 'Approve the inspected exact action', decision: pending } });
+  assert.equal(loop.state, 'running'); assert.equal(loop.pendingDecision, null); assert.match(loop.obligation.id, /decision-1$/);
+});

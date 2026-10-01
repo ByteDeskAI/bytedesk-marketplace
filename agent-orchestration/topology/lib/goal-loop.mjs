@@ -295,7 +295,7 @@ export async function reportGoalLoop(options) {
     requestKey(report); actorId(report.actor); await authenticateReport(loop, report, options);
     const old = loop.reports.find(r => r.input.idempotencyKey === report.idempotencyKey);
     if (old) { check(old.fingerprint === hash(report), 'Report key was reused with different content.'); return loop; }
-    check(!terminal.has(loop.state) && loop.state !== 'human_required', 'This loop requires an operator decision or is terminal.');
+    check(!terminal.has(loop.state) && loop.state !== 'human_required' && !loop.pendingDecision, 'This loop requires an operator decision or is terminal.');
     check(Date.parse(clock(options)) < Date.parse(loop.obligation.deadlineAt), 'Phase deadline has expired; reconcile for the persisted human decision.');
     validateReport(report, loop);
     check(!loop.reports.some(r => r.input.obligationId === report.obligationId && ['succeeded', 'failed'].includes(r.input.status)), 'This obligation already has a terminal phase report.');
@@ -407,8 +407,14 @@ export async function reconcileGoalLoop(options) {
   // Activation waits for the supervisor's first tick. Never hold a loop lock
   // while waiting: that tick must be able to reconcile the admitted record.
   const initial = await load(await context(options), options.loopId);
-  const activation = terminal.has(initial.state) || ['paused', 'human_required'].includes(initial.state) ? null : await activationFor(initial, options);
+  const activation = terminal.has(initial.state) || ['paused', 'human_required'].includes(initial.state) || initial.pendingDecision ? null : await activationFor(initial, options);
   return locked(options, async loop => {
+    if (loop.pendingDecision && !['paused', 'stopped'].includes(loop.state)) {
+      const before = hash(loop);
+      hold(loop, 'GOAL_LOOP_HUMAN_REQUIRED', 'The pending scoped human decision must be resolved before execution continues.', 'human_required');
+      if (hash(loop) !== before) await persist(loop, options, { type: 'decision.required', phase: loop.phase });
+      return loop;
+    }
     if (loop.state === 'stopped' || loop.state === 'paused' || loop.state === 'human_required') return loop;
     const before = hash(loop);
     if (loop.state !== 'proven' && Date.parse(loop.obligation.deadlineAt) <= Date.parse(clock(options))) {
@@ -500,7 +506,9 @@ export async function controlGoalLoop(options) {
     if (request.action === 'pause') loop.state = 'paused';
     if (request.action === 'stop') { loop.state = 'stopped'; loop.diagnostic = { code: 'GOAL_LOOP_STOPPED', message: 'Controller stopped. Existing task writers are preserved; use governed task controls to resolve them.' }; }
     if (request.action === 'resume') {
-      check(loop.state === 'paused', 'Resume applies only to an explicitly paused loop.'); loop.state = 'running';
+      check(loop.state === 'paused', 'Resume applies only to an explicitly paused loop.');
+      if (loop.pendingDecision) hold(loop, 'GOAL_LOOP_HUMAN_REQUIRED', 'The pending scoped human decision must be resolved before execution continues.', 'human_required');
+      else loop.state = 'running';
     }
     if (request.action === 'approve') {
       check(loop.pendingDecision && hash(request.decision) === hash(loop.pendingDecision), 'Human approval must match the exact pending typed decision.');

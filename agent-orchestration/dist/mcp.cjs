@@ -32107,7 +32107,7 @@ async function reportGoalLoop(options) {
       requireGoalLoop(old.fingerprint === goalLoopDigest(report), "Report key was reused with different content.");
       return loop;
     }
-    requireGoalLoop(!terminal.has(loop.state) && loop.state !== "human_required", "This loop requires an operator decision or is terminal.");
+    requireGoalLoop(!terminal.has(loop.state) && loop.state !== "human_required" && !loop.pendingDecision, "This loop requires an operator decision or is terminal.");
     requireGoalLoop(Date.parse(clock(options)) < Date.parse(loop.obligation.deadlineAt), "Phase deadline has expired; reconcile for the persisted human decision.");
     validateReport(report, loop);
     requireGoalLoop(!loop.reports.some((r) => r.input.obligationId === report.obligationId && ["succeeded", "failed"].includes(r.input.status)), "This obligation already has a terminal phase report.");
@@ -32261,8 +32261,14 @@ async function applyReport(loop, row, options) {
 }
 async function reconcileGoalLoop(options) {
   const initial = await load(await context2(options), options.loopId);
-  const activation = terminal.has(initial.state) || ["paused", "human_required"].includes(initial.state) ? null : await activationFor(initial, options);
+  const activation = terminal.has(initial.state) || ["paused", "human_required"].includes(initial.state) || initial.pendingDecision ? null : await activationFor(initial, options);
   return locked(options, async (loop) => {
+    if (loop.pendingDecision && !["paused", "stopped"].includes(loop.state)) {
+      const before2 = goalLoopDigest(loop);
+      hold(loop, "GOAL_LOOP_HUMAN_REQUIRED", "The pending scoped human decision must be resolved before execution continues.", "human_required");
+      if (goalLoopDigest(loop) !== before2) await persist(loop, options, { type: "decision.required", phase: loop.phase });
+      return loop;
+    }
     if (loop.state === "stopped" || loop.state === "paused" || loop.state === "human_required") return loop;
     const before = goalLoopDigest(loop);
     if (loop.state !== "proven" && Date.parse(loop.obligation.deadlineAt) <= Date.parse(clock(options))) {
@@ -32381,7 +32387,8 @@ async function controlGoalLoop(options) {
     }
     if (request.action === "resume") {
       requireGoalLoop(loop.state === "paused", "Resume applies only to an explicitly paused loop.");
-      loop.state = "running";
+      if (loop.pendingDecision) hold(loop, "GOAL_LOOP_HUMAN_REQUIRED", "The pending scoped human decision must be resolved before execution continues.", "human_required");
+      else loop.state = "running";
     }
     if (request.action === "approve") {
       requireGoalLoop(loop.pendingDecision && goalLoopDigest(request.decision) === goalLoopDigest(loop.pendingDecision), "Human approval must match the exact pending typed decision.");
@@ -72087,7 +72094,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "14bb945d72fc3e9e99271b5faef276c90eaf93d1a15a40a7889cfe0ce8a3367e",
+  sourceFingerprint: false ? null : "ead55fec17bc6d71a5d0f9fc6823b7b0e94c9ec68811e88eee18d33016377258",
   version: false ? null : "0.11.0"
 };
 var json3 = (path3) => (0, import_promises47.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
