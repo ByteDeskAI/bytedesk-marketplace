@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Admitted goals retain the original objective, stable acceptance IDs and immutable scope history on their existing epic. Typed findings and independent deployed assessments retain hashed evidence; stale proof, blocking findings and unresolved child tasks prevent completion. Six `tm goal` operations have matching MCP tools.
+
 - **A repository with a standing reviewer now gates dispatch on admission by default (TM-240).**
   `dispatch.governed` unset used to skip governed admission, so a task could be dispatched,
   finished and PR-ready with no admission record — and agent-orchestration's reviewer refuses

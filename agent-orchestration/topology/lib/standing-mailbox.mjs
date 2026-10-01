@@ -1,6 +1,7 @@
 // Durable standing mail is independent of run rosters. One atomic envelope is
-// the source of truth for both inbox and outbox; retries never publish a second
-// copy or send terminal input. Readiness checks do not create or restart leads.
+// the source of truth for both inbox and outbox; uncertain retries retain the
+// original envelope ID and never send terminal input. Readiness checks do not
+// create or restart leads.
 //
 // TM-167. Readiness here is READ-ONLY (cached proof only): it never rings a pane,
 // and it runs under a message lock, so it must not wait for a model turn. When a
@@ -22,6 +23,7 @@ import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
 import { invariant, nowIso } from './util.mjs';
+import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications } from './mailbox-receipts.mjs';
 
 export function standingMailboxRoot({ env = process.env, home = homedir() } = {}) {
   return join(stateRoot(env, home), 'standing-mailbox');
@@ -62,7 +64,7 @@ function readinessOf(state) {
 const PERMANENT_HOLDS = new Set(['source_identity_required', 'repository_identity_changed', 'hop_limit', 'loop', 'coordinator_not_worker']);
 
 function due(record, now, force) {
-  return record.status === 'held' && !record.permanent && (force || !record.next_retry_at || Date.parse(record.next_retry_at) <= now());
+  return ['held', 'publishing'].includes(record.status) && !record.permanent && (force || !record.next_retry_at || Date.parse(record.next_retry_at) <= now());
 }
 
 async function advance(record, opts) {
@@ -96,6 +98,45 @@ async function scheduleRecovery(record, opts) {
 async function withRecovery(record, opts) {
   if (record.status !== 'held' || record.reason !== 'leads_not_ready') return record;
   return { ...record, recovery: await scheduleRecovery(record, opts) };
+}
+
+function standingEnvelope(record) {
+  const e = record.envelope;
+  return createMailboxEnvelope({ id: e.id, repositoryId: e.destinationRepoId, from: e.from, to: record.delivered_to, body: e.body,
+    context: { ...(e.context || {}), sourceRepositoryId: e.sourceRepoId, standing: true,
+      intendedFor: e.to, taskId: e.task ?? e.context?.taskId ?? null, stage: e.stage,
+      subject: e.subject, contract: e.contract, round: e.round, parentId: e.parentId,
+      via: record.delivered_via, provenance: e.provenance,
+      runId: e.context?.runId ?? e.provenance?.runId ?? null,
+      workflowId: e.context?.workflowId ?? (e.provenance?.runId ? `topology:${e.provenance.runId}` : null) } });
+}
+
+// Admission and broker publication are distinct. Persist the chosen recipient
+// before publish so a crash does not silently reroute an uncertain delivery.
+async function publishAdmitted(record, p, opts) {
+  if (!['delivered', 'publishing'].includes(record.status)) {
+    await atomicWrite(p.file, record); return record;
+  }
+  const pending = { ...record, status: 'publishing', reason: 'publication_pending',
+    publication: { status: 'pending', attempts: (record.publication?.attempts || 0) + 1 } };
+  delete pending.delivered_at;
+  await atomicWrite(p.file, pending);
+  try {
+    const { resolveTransport } = await import('./orch-transport.mjs');
+    const transport = opts.transport ?? await resolveTransport({ env: opts.env ?? process.env });
+    let publication = null;
+    if (transport.kind === 'nats') {
+      publication = await publishMailboxEnvelope({ ...opts, transport, envelope: standingEnvelope(record) });
+    }
+    const next = { ...record, status: 'delivered', reason: null, delivered_at: nowIso(),
+      publication: publication ? { status: 'published', publishedAt: publication.publishedAt, subject: publication.result?.subject } : { status: 'file' },
+      permanent: false, last_error: null, next_retry_at: null };
+    await atomicWrite(p.file, next); return next;
+  } catch (error) {
+    const next = { ...pending, last_error: error.code || 'TOPOLOGY_PUBLICATION_FAILED',
+      next_retry_at: new Date((opts.now ?? Date.now)() + retryDelayMs(pending.publication.attempts)).toISOString() };
+    await atomicWrite(p.file, next); return next;
+  }
 }
 
 async function attempt(record, opts) {
@@ -169,6 +210,7 @@ export async function sendStandingMessage(input, options = {}) {
     body: input.body, task: input.task ?? null, token: input.token ?? null,
     subject: input.subject ?? null, stage: input.stage ?? null, contract: input.contract ?? null,
     round: input.round ?? null, provenance: input.provenance ?? null,
+    context: input.context ?? {},
     parentId: input.parentId ?? null, via: input.via ?? [],
     assignment: input.assignment === undefined ? isAssignmentStage(input.stage) : input.assignment === true,
   }));
@@ -176,29 +218,15 @@ export async function sendStandingMessage(input, options = {}) {
   await mkdir(join(p.root, 'messages'), { recursive: true, mode: 0o700 });
   const settled = await withLock(p.lock, async () => {
     let record = await read(p.file);
-    if (record) invariant(isDeepStrictEqual(record.envelope, envelope), 'TOPOLOGY_MESSAGE_ID_CONFLICT', 'Message ID already names different content or provenance.');
+    if (record) invariant(isDeepStrictEqual({ context: {}, ...record.envelope }, envelope), 'TOPOLOGY_MESSAGE_ID_CONFLICT', 'Message ID already names different content or provenance.');
     else {
       record = { version: 1, envelope, status: 'held', reason: 'pending_admission', attempts: 0, created_at: nowIso() };
       await atomicWrite(p.file, record);
     }
     if (record.status === 'delivered') return { ...record, deduplicated: true };
-    record = await advance(record, opts);
-    await atomicWrite(p.file, record);
-    return record;
+    if (record.status !== 'publishing') record = await advance(record, opts);
+    return publishAdmitted(record, p, opts);
   });
-  if (settled.status === 'delivered') {
-    const { resolveTransport, orchName } = await import('./orch-transport.mjs');
-    const { repoKey } = await import('./repoid.mjs');
-    const transport = opts.transport ?? await resolveTransport({ env: opts.env ?? process.env });
-    if (transport.kind === 'nats') {
-      await transport.publishMail({
-        repo: repoKey(settled.envelope.destinationRepoId),
-        agent: orchName(settled.delivered_to),
-        messageId: settled.envelope.id,
-        body: settled.envelope.body,
-      });
-    }
-  }
   // The envelope is durable before anything is asked of any lead.
   return withRecovery(settled, opts);
 }
@@ -233,12 +261,12 @@ export async function resumeStandingMessages({ consumer, force = false, ...optio
       if (current.status === 'delivered') return current;
       // Re-checked under the lock: a concurrent resumer may have just attempted and re-held it.
       if (!due(current, now, force)) return null;
-      const next = await advance(current, { ...options, now });
-      await atomicWrite(p.file, next);
-      return next;
+      const next = current.status === 'publishing' ? current : await advance(current, { ...options, now });
+      return publishAdmitted(next, p, { ...options, now });
     });
     if (settled) resumed.push(await withRecovery(settled, options));
   }
+  await resumeMailboxPublications({ consumer, ...options });
   return resumed;
 }
 
@@ -261,31 +289,34 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
 
 // These are host-local mailbox views, not an authorization boundary. API/CLI
 // callers must establish the current agent identity before returning bodies.
-export async function readStandingInbox({ consumer, agent, transport = null, env = process.env, ...options }) {
+export async function readStandingInbox({ consumer, agent, transport = null, env = process.env, limit = 100, ...options }) {
   invariant(agent, 'TOPOLOGY_AGENT_REQUIRED', 'Inbox requires an agent.');
   const { resolveTransport, orchName } = await import('./orch-transport.mjs');
   const { repoKey } = await import('./repoid.mjs');
   const active = transport ?? options.transport ?? await resolveTransport({ env: options.env ?? env });
   if (active.kind === 'nats') {
     const repo = repoKey((await canonicalRepoId(consumer)).id);
-    const messages = [];
-    for (let i = 0; i < 100; i += 1) {
+    invariant(Number.isInteger(limit) && limit > 0 && limit <= 1000, 'TOPOLOGY_MAILBOX_LIMIT', 'Receive limit must be between 1 and 1000.');
+    for (let i = 0; i < limit; i += 1) {
       const mail = await active.pullMail({ repo, agent: orchName(agent), timeoutMs: 1000 });
       if (!mail) break;
-      await mail.ack();
-      messages.push({
-        status: 'delivered',
-        delivered_to: agent,
-        subject: mail.subject,
-        transport: 'nats',
-        envelope: { id: mail.messageId, body: mail.body, to: agent },
-        body: mail.body,
-      });
+      try { await acceptMailboxDelivery({ consumer, agent, delivery: mail, env, ...options }); }
+      catch (error) { await mail.nak?.(); throw error; }
     }
-    return messages;
+    return (await listMailboxReceipts({ consumer, agent, kind: 'mail', env, ...options }))
+      .filter(record => ['accepted', 'deferred'].includes(record.status))
+      .map(record => ({ ...record, delivered_to: agent, transport: 'nats', body: record.envelope.body }));
   }
   const identity = await canonicalRepoId(consumer);
-  return (await records({ ...options, env: options.env ?? env })).filter(r => r.status === 'delivered' && r.envelope.destinationRepoId === identity.id && r.delivered_to === agent);
+  const received = [];
+  for (const record of (await records({ ...options, env })).filter(r => r.status === 'delivered' && r.envelope.destinationRepoId === identity.id && r.delivered_to === agent)) {
+    const receipt = await acceptMailboxDelivery({ consumer, agent, env, ...options,
+      delivery: { body: JSON.stringify(standingEnvelope(record)), ack: async () => {} } });
+    // Keep the legacy file envelope/admission fields, adding the receipt without
+    // changing its original requested recipient or admission attempt history.
+    if (['accepted', 'deferred'].includes(receipt.status)) received.push({ ...record, receiptStatus: receipt.status, receipt });
+  }
+  return received;
 }
 export async function readStandingOutbox({ consumer, agent, ...options }) {
   invariant(agent, 'TOPOLOGY_AGENT_REQUIRED', 'Outbox requires an agent.');
@@ -315,7 +346,7 @@ export async function readStandingMessage({ id, ...options }) {
   invariant(typeof id === 'string' && id, 'TOPOLOGY_MESSAGE_ID_INVALID', 'Message ID is required.');
   const record = await read(paths(id, options).file);
   if (record) {
-    invariant(record.version === 1 && record.envelope?.id === id && ['held', 'delivered'].includes(record.status), 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
+    invariant(record.version === 1 && record.envelope?.id === id && ['held', 'publishing', 'delivered'].includes(record.status), 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
     if (record.reply) invariant(record.status === 'delivered' && record.reply.agent === record.delivered_to &&
       record.reply.repositoryId === record.envelope.destinationRepoId && typeof record.reply.body === 'string' && record.reply.body.trim(),
       'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing reply record.');
@@ -347,17 +378,16 @@ export async function recordStandingReply({ consumer, messageId, agentId, body, 
     await atomicWrite(p.file, record);
     return { record, reply: record.reply };
   });
-  const { resolveTransport, orchName } = await import('./orch-transport.mjs');
-  const { repoKey } = await import('./repoid.mjs');
+  const { resolveTransport } = await import('./orch-transport.mjs');
   const transportEnv = env === process.env ? env : { ...process.env, ...env };
   const transport = await resolveTransport({ env: transportEnv });
   if (transport.kind === 'nats' && settled.record?.envelope?.from) {
-    await transport.publishReply({
-      repo: repoKey(destination.id),
-      agent: orchName(settled.record.envelope.from),
-      messageId: `${messageId}.reply.${agentId}`,
-      body: JSON.stringify({ reply_to: messageId, from: agentId, body }),
-    });
+    const e = settled.record.envelope;
+    await publishMailboxEnvelope({ env: transportEnv, home, transport, envelope: createMailboxEnvelope({
+      kind: 'reply', id: `${messageId}.reply.${agentId}`, repositoryId: e.sourceRepoId || destination.id,
+      from: agentId, to: e.from, body, replyTo: messageId,
+      context: { ...(e.context || {}), sourceRepositoryId: destination.id, standing: true, taskId: e.task ?? e.context?.taskId ?? null },
+    }) });
   }
   return settled.reply;
 }

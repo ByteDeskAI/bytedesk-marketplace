@@ -124,6 +124,26 @@ export async function publishACPWorkflow({ snapshot, recordPath, ...options }) {
   }, options);
 }
 
+export async function publishGoalLoopWorkflow({ loop, recordPath, ...options }) {
+  const repository = await workflowRepository(loop?.consumer);
+  invariant(loop?.schemaVersion === 1 && loop.runtime === 'goal-loop' && /^gl-[a-f0-9]{24}$/.test(loop.loopId) &&
+    loop.workflowId === `goal-loop:${loop.loopId}` && loop.repository?.id === repository.id && loop.repository?.key === repository.key,
+  'TOPOLOGY_DISCOVERY_REPOSITORY', 'Goal loop identity does not match its repository.');
+  const expected = join(homeOf(options), 'goal-loops', 'v1', repository.key, loop.loopId, 'loop.json');
+  invariant(resolve(recordPath) === expected && await realpath(recordPath) === expected,
+    'TOPOLOGY_DISCOVERY_BOUNDARY', 'Goal loop record is outside its canonical state directory.');
+  return publish(repository, {
+    workflowId: loop.workflowId, runtime: 'goal-loop', nativeRunId: loop.loopId,
+    repositoryId: repository.id, repositoryRoot: repository.root,
+    workflowName: loop.title || `Goal ${loop.goalId}`, taskId: null, goalId: loop.goalId,
+    lineage: { parentWorkflowId: null, retryOfWorkflowId: null, rootWorkflowId: loop.workflowId },
+    recordPath: expected, recordFormat: 'goal-loop.v1', workloadCwd: loop.consumer,
+    writeAuthority: { mode: 'delegated-goal', checkoutRoot: loop.consumer },
+    state: loop.state, createdAt: loop.createdAt, updatedAt: loop.updatedAt,
+    nativeRevision: String(loop.revision), revision: '0',
+  }, options);
+}
+
 export async function registeredWorktrees(consumer) {
   const repository = await workflowRepository(consumer);
   const result = await command('git', ['-C', consumer, 'worktree', 'list', '--porcelain', '-z'], { allowFailure: true, timeoutMs: 10_000 });
@@ -216,6 +236,19 @@ export async function preserveWorktreeWorkflows({ consumer, worktree, tmuxApi = 
   const target = await realpath(worktree);
   invariant(roots.includes(target), 'TOPOLOGY_WORKTREE_NOT_REGISTERED', 'Cleanup target is not a registered worktree of this repository.');
   const records = [], rejected = [];
+  const loopRoot = join(homeOf(options), 'goal-loops', 'v1', repository.key);
+  for (const directory of await readdir(loopRoot, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {
+    if (!directory.isDirectory()) continue;
+    const path = join(loopRoot, directory.name, 'loop.json');
+    try {
+      const loop = await cachedJson(path);
+      invariant(loop.repository?.id === repository.id && loop.loopId === directory.name && await realpath(path) === path,
+        'TOPOLOGY_DISCOVERY_REPOSITORY', 'Goal loop identity or path is invalid.');
+      if (!isInside(target, loop.consumer || '')) continue;
+      invariant(['proven', 'stopped'].includes(loop.state), 'TOPOLOGY_PRESERVATION_ACTIVE', 'A goal loop still uses this worktree. Stop the loop and resolve its task writers before cleanup.');
+      records.push({ nativeRunId: loop.loopId, recordPath: path, sourcePath: path, preserved: true, verified: true });
+    } catch (error) { rejected.push({ path, code: error.code || 'TOPOLOGY_PRESERVATION_FAILED', message: 'Goal loop prevents safe worktree cleanup; inspect its retained state.' }); }
+  }
   for (const path of await nativeFiles(durableTopologyRoot(repository, options))) {
     try {
       const run = await cachedJson(path);
@@ -279,6 +312,17 @@ export async function reconcileWorkflows({ consumer, ...options }) {
     } catch (error) { if (error.code !== 'ENOENT') rejected.push({ path, code: error.code || 'TOPOLOGY_DISCOVERY_FAILED', message: error.message }); }
   }
   const indexPath = workflowIndexPath(repository, options);
+  const loopRoot = join(homeOf(options), 'goal-loops', 'v1', repository.key);
+  for (const directory of await readdir(loopRoot, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {
+    if (!directory.isDirectory()) continue;
+    const path = join(loopRoot, directory.name, 'loop.json');
+    try {
+      const loop = await cachedJson(path);
+      invariant(loop.loopId === directory.name, 'TOPOLOGY_DISCOVERY_BOUNDARY', 'Goal loop directory does not match its identity.');
+      await publishGoalLoopWorkflow({ loop, recordPath: path, ...options });
+      valid.add(loop.workflowId);
+    } catch (error) { rejected.push({ path, code: error.code || 'TOPOLOGY_DISCOVERY_FAILED', message: 'Goal loop record could not be read or validated.' }); }
+  }
   await mkdir(dirname(indexPath), { recursive: true, mode: 0o700 });
   return withLock(`${indexPath}.lock`, async () => {
     const index = await readWorkflowIndex({ consumer, ...options });
@@ -290,7 +334,10 @@ export async function reconcileWorkflows({ consumer, ...options }) {
       try {
         const native = await cachedJson(entry.recordPath);
         if (entry.runtime === 'topology') await belongs(native, entry.recordPath, repository);
-        else invariant(native.runId === entry.nativeRunId && native.consumer?.commonGitDir === repository.id, 'TOPOLOGY_DISCOVERY_REPOSITORY', 'ACP identity mismatch.');
+        else if (entry.runtime === 'goal-loop') invariant(native.runtime === 'goal-loop' && native.loopId === entry.nativeRunId && native.repository?.id === repository.id &&
+          entry.recordPath === join(loopRoot, native.loopId, 'loop.json') && await realpath(entry.recordPath) === entry.recordPath,
+        'TOPOLOGY_DISCOVERY_REPOSITORY', 'Goal loop identity mismatch.');
+        else invariant(entry.runtime === 'acp' && native.runId === entry.nativeRunId && native.consumer?.commonGitDir === repository.id, 'TOPOLOGY_DISCOVERY_REPOSITORY', 'ACP identity mismatch.');
         workflows.push(entry);
       } catch (error) { if (!rejected.some(item => item.path === entry.recordPath)) rejected.push({ path: entry.recordPath, code: error.code || 'TOPOLOGY_DISCOVERY_FAILED', message: error.message }); }
     }

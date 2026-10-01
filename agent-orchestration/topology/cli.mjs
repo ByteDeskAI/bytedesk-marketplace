@@ -100,6 +100,13 @@ Reply (used by every agent)
   reply --run <run_dir> --agent <id> --message <id> (--file <md> | --body <text>)
 
 Standing repository services
+  goal-loop start --consumer <repo> --goal <EP-id> --file <request.json>
+  goal-loop show|list --consumer <repo> [--loop <id>]
+  goal-loop report|control --consumer <repo> --loop <id> --file <request.json>
+  goal-loop reconcile --consumer <repo> [--loop <id>]
+  mailbox receipts --consumer <repo> [--agent <id>] [--workflow <id>] [--status <state>]
+  mailbox dispose --consumer <repo> --agent <id> --message <id> --disposition handled|deferred|rejected
+       [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   census [--json] [--watch]                     what every agent in this repo is doing right now:
                                                 working / needs-input / idle / attention /
@@ -454,10 +461,22 @@ const commands = {
   },
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
+    const sub = positional[0] || 'inbox';
+    // Inspection and disposition operate on retained receipts, never pull from NATS.
+    // They must remain available while the transport is unavailable.
+    if (sub === 'receipts' || sub === 'dispose') {
+      invariant(typeof flags.consumer === 'string' && isAbsolute(flags.consumer), 'TOPOLOGY_REPO_REQUIRED', 'Mailbox receipt operations require --consumer <absolute repository path>.');
+      const receipts = await import('./lib/mailbox-receipts.mjs');
+      if (sub === 'receipts') return out(await receipts.listMailboxReceipts({ ...ctx, agent: flags.agent,
+        kind: flags.kind, status: flags.status, workflowId: flags.workflow, runId: flags.run, taskId: flags.task }));
+      return out(await receipts.setMailboxDisposition({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID,
+        messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
+        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'] }));
+    }
+    if (sub === 'outbox') return out(await api.readStandingOutbox({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     ctx.transport = await selectLiveTransport({ env: process.env });
     try {
-    const sub = positional[0] || 'inbox';
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
     if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
     if (sub === 'reply') return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: flags.agent || process.env.AO_AGENT_ID, body: await bodyFrom(flags) }));
@@ -467,8 +486,27 @@ const commands = {
       task: flags.task, stage: flags.stage, subject: flags.subject, provenance: { source: 'ao-topology CLI' }, via: list(flags.via) };
     if (sub === 'send') return out(await api.sendStandingMessage(input, ctx));
     if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
-    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume.');
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
     } finally { await closeLiveTransports(); }
+  },
+  async 'goal-loop'({ flags, positional }) {
+    invariant(typeof flags.consumer === 'string' && isAbsolute(flags.consumer), 'TOPOLOGY_REPO_REQUIRED', 'Goal loops require --consumer <absolute repository path>.');
+    const ctx = context(flags), api = await import('./lib/goal-loop.mjs');
+    const sub = positional[0] || 'list';
+    const options = { ...ctx, loopId: flags.loop, env: process.env };
+    try {
+      if (sub === 'list') return out(await api.listGoalLoops(options));
+      if (sub === 'show') return out(await api.showGoalLoop(options));
+      if (sub === 'reconcile') return out(await (flags.loop ? api.reconcileGoalLoop : api.reconcileGoalLoops)(options));
+      invariant(['start', 'report', 'control'].includes(sub) && typeof flags.file === 'string', 'TOPOLOGY_GOAL_REQUEST', 'Use goal-loop start|report|control --file <JSON>, or show|list|reconcile.');
+      const request = await readJson(absolutize(flags.file));
+      if (sub === 'start') return out(await api.startGoalLoop({ ...options, goalId: flags.goal, request }));
+      if (sub === 'report') return out(await api.reportGoalLoop({ ...options, report: request }));
+      return out(await api.controlGoalLoop({ ...options, request }));
+    } finally {
+      const { closeLiveTransports } = await import('./lib/orch-transport.mjs');
+      await closeLiveTransports();
+    }
   },
   async review({ flags, positional }) {
     const sub = positional[0];
@@ -820,6 +858,9 @@ const commands = {
     const request = await readJson(absolutize(flags['request-file']));
     const adapters = await loadAdapters(ctx.providerDirs);
     const result = await controlWorkflow({ consumer: ctx.consumer, request,
+      // Gateway sets this only after its authenticated operator check. JSON actor
+      // labels are audit data and cannot themselves grant operator authority.
+      authenticatedHuman: process.env.AO_GATEWAY_OPERATOR === '1',
       launch: async ({ workflowName, inputs, runId, retry, actor, stateHome }) => {
         let spec;
         if (retry) {
@@ -1619,6 +1660,9 @@ async function main() {
       return;
     }
     throw error;
+  } finally {
+    const { closeLiveTransports } = await import('./lib/orch-transport.mjs');
+    await closeLiveTransports();
   }
 }
 

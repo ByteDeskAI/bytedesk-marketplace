@@ -165,6 +165,56 @@ overriding the stored definition:
 { "agents": [ { "agent": "Mira Halloran", "cli": "codex" } ] }
 ```
 
+## Durable mail and replies
+
+NATS mail and replies use immutable versioned envelopes. Each envelope records the original
+message ID, sender, actual recipient, destination repository, reply correlation, context and
+SHA-256 payload digest. Reusing an ID with different content is refused. Run-local sequence IDs
+are qualified by the run ID before publication; standing senders supply a stable message ID.
+
+The durable ledger lives under `<stateRoot>/mailbox/v1/<canonical-repo-key>/`. Publication intents
+and recipient receipts are separate records, written with locking, atomic rename and file and
+directory synchronization. They describe different facts:
+
+| Record | State | Meaning |
+|---|---|---|
+| Sender publication | `pending` | The immutable intent is durable; a broker acknowledgement has not been recorded. |
+| Sender publication | `published` | NATS acknowledged publication. This does not prove that an agent received or completed the request. |
+| Recipient receipt | `accepted` | AO durably retained the obligation before acknowledging its broker delivery. |
+| Recipient receipt | `deferred` | The recipient retained it with a reason and optional retry time. |
+| Recipient receipt | `handled` or `rejected` | The recipient recorded a final disposition, with an optional result reference. |
+
+`mailbox inbox --consumer <repo> --agent <id>` explicitly receives mail. It persists each receipt
+before broker ACK and returns retained accepted or deferred obligations, including obligations
+accepted by an earlier process. Duplicate broker deliveries keep the existing receipt and
+disposition; this deduplication does not expire with the broker's duplicate window. Reply waits
+also retain received replies, so a restarted waiter can recover a reply already acknowledged by
+another process. An ACK never claims or closes a Task Management task.
+
+`mailbox receipts --consumer <absolute-repo> [--agent <id>]` inspects the retained ledger without
+pulling or acknowledging broker messages. `mailbox dispose --consumer <absolute-repo> --agent <id>
+--message <id> --disposition handled|deferred|rejected` records the outcome. Optional fields are
+`--kind mail|reply`, `--reason`, `--retry-at` and `--result-ref`. Handled and rejected outcomes are
+immutable; repeating the same disposition is safe. Agent launch identity markers restrict an
+agent to its own repository and obligations. These checks preserve the existing same-user host
+trust boundary; they do not provide per-agent cryptographic broker credentials.
+
+The console uses the nondestructive `listMailboxReceipts` and `listMailboxPublications` APIs.
+Both accept repository, workflow, run and task filters. Receipt `agent` filters the recipient;
+publication `agent` filters the sender. Publication status remains separate from recipient
+status in the console.
+
+Held standing messages are published when admission resumes. AO records `delivered` only after
+the broker acknowledges publication; uncertain publication retains the same recipient and ID
+for retry. The supervisor also recovers pending run-mail and reply publication intents. Legacy
+file transport keeps its inbox and outbox files; explicit standing inbox reads additionally
+create durable accepted receipts without a broker operation.
+
+`tests/unit/mailbox-receipts.test.mjs` covers the ledger and file compatibility.
+`tests/unit/mailbox-receipts-nats.test.mjs` uses an isolated local NATS server to cover process
+crashes before acceptance and after durable acceptance, replay beyond the broker duplicate
+window, held-message resume and reply recovery across waiter processes.
+
 ## Talking across repositories
 
 Two repositories each have their own roster, their own lead and their own task store. A message

@@ -27,7 +27,7 @@ README recipes live in [Running the loop](#running-the-loop-per-harness).
 
 ## Parity — agent-first verbs
 
-| Job | CLI | MCP (39 tools total) | HTTP |
+| Job | CLI | MCP (45 tools total) | HTTP |
 |---|---|---|---|
 | Probe the host | `.bytedesk/task-management/bin/tm caps [--json]` | — (shell out; or `GET /api/caps`) | `GET /api/caps` |
 | Hand one task to a worker | `tm dispatch <id> [--backend <name>] [--steal]` | `tm_dispatch` `{id, backend?, steal?}` | `POST /api/task/:id/dispatch` `{backend?, steal?}` |
@@ -41,7 +41,7 @@ README recipes live in [Running the loop](#running-the-loop-per-harness).
 `--json` on any CLI read verb (`caps`, `board`, `next`, `events`, …) is structured output.
 MCP already returns JSON. HTTP is JSON except raw-byte routes (`/api/export`, evidence files).
 
-## Parity — all 39 MCP tools
+## Parity — all 45 MCP tools
 
 Every `tm_*` tool is a CLI verb (or a field on one). Dashboard routes that write go through
 the same `lib/` function; the full HTTP contract is [`dashboard-api.md`](dashboard-api.md).
@@ -83,10 +83,22 @@ the same `lib/` function; the full HTTP contract is [`dashboard-api.md`](dashboa
 | `tm_cap_ship` | `tm cap ship` | `POST /api/capability/:id/ship` |
 | `tm_cap_drop` | `tm cap drop` | `POST /api/capability/:id/drop` |
 | `tm_goal_import` | `tm goal import` | `POST /api/goal/import` |
+| `tm_goal_open` | `tm goal open <EP-id> --file <input.json> --json` | — |
+| `tm_goal_show` | `tm goal show <EP-id> --json` | — |
+| `tm_goal_finding` | `tm goal finding <EP-id> --file <input.json> --json` | — |
+| `tm_goal_assess` | `tm goal assess <EP-id> --file <input.json> --json` | — |
+| `tm_goal_revise` | `tm goal revise <EP-id> --file <input.json> --json` | — |
+| `tm_goal_complete` | `tm goal complete <EP-id> --file <input.json> --json` | — |
 | `tm_plan_propose` | — | `POST /api/planner/:id/propose` |
 | `tm_dispatch` | `tm dispatch` | `POST /api/task/:id/dispatch` |
 | `tm_collect` | `tm collect` | `POST /api/task/:id/collect` |
 | `tm_agents` | `tm agent` | `GET /api/agents` |
+
+The six goal operations keep the original scope, stable acceptance identities, findings,
+and independent deployed proof on the existing epic. MCP writers take `{id,input}`;
+`tm_goal_show` takes `{id}`. Their receipt schemas, authority, repair budgets, and
+completion rules are in [`goal-feedback.md`](goal-feedback.md). The bounded planner
+can inspect a goal; it cannot invoke these mutation tools.
 
 CLI-only on purpose: `tm caps`, `tm pool`, `tm events` (plus `init`, `config`, `override`,
 `where`, `ntfy`, `reindex`, `migrate`). Caps and events are on HTTP; pool is the

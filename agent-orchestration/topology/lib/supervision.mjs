@@ -52,6 +52,7 @@ import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.
 import { resumeStandingMessages } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
 import { collectPendingReviews } from './reviewer.mjs';
+import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
@@ -219,14 +220,16 @@ export async function superviseRepository(options, { signal, once = false, inter
      // be recovered is reported with its backoff, never a reason to stop supervising.
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
+     const goalLoops=await reconcileGoalLoops({...options,supervisorTick:true}).catch(error=>[{state:'blocked',diagnostic:{code:error.code??'GOAL_LOOP_RECONCILE',message:String(error.message).slice(0,1000)}}]);
      const launched=['created','restarted'].includes(recovery.action);
      // Activity means something MOVED, not merely that agents exist: a prompt that is already
      // `current` is a steady state and must not pin the ladder to its busy rung forever.
-     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || launched;
+     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || launched || goalLoops.some(loop=>loop.changed);
      const report={pid:process.pid,at:new Date().toISOString(),repo_id:identity.id,generation:snapshot.generation,revision:snapshot.revision,
        reconciled:true,reconcile_min_ms:floorMs,activity,
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
+       ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {})};
      report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
