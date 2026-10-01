@@ -17,6 +17,8 @@ import { capabilityUrl, isExpired, mintCapability, readSessionMeta, writeSession
 import { openSessionBrowser, probeSessionHost, startSessionHost } from "./session/host.mjs";
 import { launchSessionSupervisor, shouldSuperviseSessionHost, waitForSessionHostLease } from "./session/supervisor.mjs";
 import { runtimeDiagnostics } from './diagnostics.mjs';
+import { ensureServices } from "./services/services.mjs";
+import { servicesEnabled } from "../topology/lib/services-client.mjs";
 
 const WORKER_STATES = new Set(["queued", "preparing", "running", "verifying", "cancelling", "cleanup_required"]);
 
@@ -300,6 +302,21 @@ export class OrchestrationService {
     if (this.sessionHost) return this.sessionHost;
     const live = await probeSessionHost(this.stateRoot);
     if (live) return this.joinSessionHost(live);
+    // TM-272: process-compose runs the session host and restarts it when it dies. The launchers
+    // below remain for AGENT_ORCHESTRATION_SERVICES=0 and for a machine where the services cannot
+    // be installed (an offline first download, an unsupported platform); that fallback is named
+    // on stderr rather than taken silently.
+    if (servicesEnabled()) {
+      try {
+        await (this.ensureServicesFn ?? ensureServices)({ pluginRoot: this.pluginRoot, stateRoot: this.stateRoot });
+        const managed = await waitForSessionHostLease(this.stateRoot, { timeoutMs: 15_000 });
+        if (managed) return this.joinSessionHost(managed);
+        this.servicesFallback = { code: "AO_SESSION_HOST_NOT_READY", message: "services ensure succeeded but the managed session host did not publish a lease within 15s." };
+      } catch (error) {
+        this.servicesFallback = { code: error?.code ?? "AO_SERVICES_FAILED", message: error?.message ?? String(error) };
+      }
+      process.stderr.write(`[agent-orchestration] managed services unavailable (${this.servicesFallback.code}: ${this.servicesFallback.message}); falling back to a session host started by this process.\n`);
+    }
     if (await shouldSuperviseSessionHost({ pluginRoot: this.pluginRoot })) {
       try {
         await launchSessionSupervisor({
@@ -348,7 +365,7 @@ export class OrchestrationService {
     // server and wrong for a one-shot command, whose caller would receive a URL that stops
     // answering the moment the command exits.
     invariant(!requireDurableHost || host.external === true, "AO_SESSION_HOST_NOT_DURABLE",
-      "No session host outlives this command, so the capability URL would die with it. Start one with `agent-orchestration session-host` and retry.");
+      "No session host outlives this command, so the capability URL would die with it. Run `agent-orchestration services ensure` and retry.");
     const cap = mintCapability();
     await writeSessionMeta(this.stateRoot, runId, {
       tokenHash: cap.tokenHash,

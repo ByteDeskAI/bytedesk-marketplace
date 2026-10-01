@@ -55,6 +55,7 @@ import { collectPendingReviews } from './reviewer.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
+import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
@@ -454,6 +455,23 @@ export async function startRepositorySupervision(options) {
    if(owner?.pid && await processIdentity(owner.pid)===owner.process_identity) {
      const status=await supervisionStatus({consumer,env,home});
      return {...await readJson(recordPath).catch(()=>owner),consumer,repo_id:identity.id,state:status.state,ready:status.ready};
+   }
+   // TM-272: process-compose runs one `supervise` per registered repository and restarts it when it
+   // dies. Registering the repository and running `services ensure` hot-reloads the project; the
+   // wait below is the same proof a detached start gives. The detached spawn after this block is
+   // kept for AGENT_ORCHESTRATION_SERVICES=0 and for a machine where the services cannot run.
+   if(servicesEnabled(env) && process.platform!=='win32') {
+     await addServiceRepo(consumer,{env,home});
+     const ensured=await runServicesEnsure({env});
+     if(ensured.ok) {
+       const deadline=Date.now()+startTimeoutMs;
+       let status=await supervisionStatus({consumer,env,home});
+       while(!status.ready && Date.now()<deadline) { await sleep(100); status=await supervisionStatus({consumer,env,home}); }
+       const published=await readJson(recordPath).catch(()=>null);
+       return {...published,consumer,repo_id:identity.id,state:status.state,ready:status.ready,first_tick_at:status.first_tick_at,managed_by:'process-compose'};
+     }
+     await mkdir(root,{recursive:true});
+     await writeJson(join(root,`${key}.services-fallback.json`),{at:new Date().toISOString(),error:ensured.error??null,code:ensured.code??null});
    }
    const prior=await readJson(recordPath).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
    const cli=fileURLToPath(new URL('../cli.mjs',import.meta.url));
