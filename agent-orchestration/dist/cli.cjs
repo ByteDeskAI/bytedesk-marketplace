@@ -27149,6 +27149,7 @@ __export(supervision_exports, {
   DEFAULT_RECONCILE_MIN_MS: () => DEFAULT_RECONCILE_MIN_MS,
   DEFAULT_START_TIMEOUT_MS: () => DEFAULT_START_TIMEOUT_MS,
   SLEEP_LADDER_MS: () => SLEEP_LADDER_MS,
+  SUPERVISE_EXIT: () => SUPERVISE_EXIT,
   nextRung: () => nextRung,
   startRepositorySupervision: () => startRepositorySupervision,
   superviseRepository: () => superviseRepository,
@@ -27552,7 +27553,7 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path55, import_node_crypto29, import_node_child_process13, import_node_url6, import_node_os26, import_promises45, import_promises46, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS;
+var import_node_path55, import_node_crypto29, import_node_child_process13, import_node_url6, import_node_os26, import_promises45, import_promises46, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path55 = require("node:path");
@@ -27582,6 +27583,7 @@ var init_supervision = __esm({
     SLEEP_LADDER_MS = [2e3, 5e3, 15e3];
     DEFAULT_RECONCILE_MIN_MS = 1e4;
     DEFAULT_START_TIMEOUT_MS = 1e4;
+    SUPERVISE_EXIT = Object.freeze({ RETIRED: 0, TRY_LATER: 75 });
   }
 });
 
@@ -57498,11 +57500,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path58.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "5daba18664182591bd04f48051eaa630ececb9858a25cf0bf6f717c974388955";
+  return false ? null : "e79da29100b93bacdb7788537a0df571c2c4fbd1862a16110e86a85eb3e9ebd4";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "5daba18664182591bd04f48051eaa630ececb9858a25cf0bf6f717c974388955";
-  let version2 = false ? null : "0.15.0";
+  const fingerprint2 = false ? null : "e79da29100b93bacdb7788537a0df571c2c4fbd1862a16110e86a85eb3e9ebd4";
+  let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path58.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -57642,7 +57644,10 @@ function renderProject({ platform = process.platform, node, launcher, stateRoot:
       entrypoint: [node, launcher, "ao-topology", "supervise", "--consumer", repo.consumer],
       working_dir: repo.consumer,
       environment,
-      availability: { restart: "always", backoff_seconds: 3 },
+      // TM-289: on_failure, not always. A supervisor exits 0 only when it retires on purpose (its
+      // repository is gone) and must then stay down; a lock loser exits 75 and a crash exits
+      // non-zero, and both are retried with this backoff. max_restarts unset = unlimited.
+      availability: { restart: "on_failure", backoff_seconds: 3 },
       log_location: (0, import_node_path58.join)(logs, `${name}.log`),
       log_configuration: rotation
     };
@@ -58056,8 +58061,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "5daba18664182591bd04f48051eaa630ececb9858a25cf0bf6f717c974388955",
-  version: false ? null : "0.15.0"
+  sourceFingerprint: false ? null : "e79da29100b93bacdb7788537a0df571c2c4fbd1862a16110e86a85eb3e9ebd4",
+  version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises51.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises51.readFile)(path3).then((bytes) => (0, import_node_crypto31.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);

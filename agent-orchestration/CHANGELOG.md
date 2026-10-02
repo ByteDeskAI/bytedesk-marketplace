@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.1] — 2026-10-02
+
+### Fixed
+
+- **process-compose no longer restarts a supervisor that stopped on purpose (TM-289).** Every `supervise-<repo>` process ran under `restart: always`, so a supervisor that retired because its repository was removed, or that lost the per-repo lock to another supervisor, was restarted every 3 seconds forever. Supervisors now run under `restart: on_failure` (backoff 3 s, unlimited retries), and `ao-topology supervise` exits with a code that says what happened, named in `SUPERVISE_EXIT` (`topology/lib/supervision.mjs`):
+  - **0, retired:** the repository is gone. The process is not restarted, the repository is removed from `<state root>/services/repos.json` (new `removeServiceRepo`, beside `addServiceRepo`), and under process-compose the supervisor runs `services ensure` so the project reloads without it.
+  - **75, try later (`EX_TEMPFAIL`):** another supervisor holds the lock. process-compose retries it with backoff, and the retry takes over once the holder ends. It was 0 before, which under `on_failure` would have left the repository unsupervised after the winner died.
+  - **Any other non-zero code:** a crash, retried as before.
+  The session host and NATS stay on `restart: always`.
+
+### Tests
+
+- `tests/unit/topology-supervise-exit.test.mjs` runs the real `ao-topology supervise` as a child process: removing the repository makes it exit 0 within seconds and deregisters it (this is also the CLI-level test TM-186 lacked: retirement stops the watcher, so the process really exits); holding the lock makes a second supervisor exit 75, and a start after the lock is released takes over; an unexpected error exits with another non-zero code. `tests/unit/services.test.mjs` checks the rendered restart policies, and runs the pinned process-compose binary to show that a child exiting 0 is not restarted and a child exiting 75 is.
+
 ## [0.15.0] — 2026-10-02
 
 ### Added

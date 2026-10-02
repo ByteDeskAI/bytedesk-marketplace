@@ -105,6 +105,15 @@ test("platform guards: nats only when prepared, supervise only off native Window
   assert.deepEqual(renderProject({ ...base, platform: "linux", nats }).project.processes.nats.entrypoint, ["/usr/bin/nats-server", "-c", "/c"]);
 });
 
+test("TM-289: supervise restarts on failure only; session-host and nats always restart", () => {
+  const { project } = renderProject({ platform: "linux", node: "/n", launcher: "/l", stateRoot: "/s", logs: "/logs",
+    nats: { bin: "/nats", args: [], log: "/n.log" }, repos: [{ key: "k1", consumer: "/r" }] });
+  assert.deepEqual(project.processes["supervise-k1"].availability, { restart: "on_failure", backoff_seconds: 3 });
+  assert.equal(project.processes["supervise-k1"].availability.max_restarts, undefined, "a lock loser retries until the holder ends");
+  assert.equal(project.processes["session-host"].availability.restart, "always");
+  assert.equal(project.processes.nats.availability.restart, "always");
+});
+
 /** A fake process-compose API: records every request; answers /live once `started` is true. */
 function fakeApi() {
   const calls = [];
@@ -358,6 +367,49 @@ test("integration: the real process-compose restarts a killed child within 5s", 
   assert.ok(await until(async () => !(await client.alive()), 10_000), "process-compose stopped through its API");
   const exited = await until(() => pc.exitCode !== null || pc.signalCode !== null, 5_000);
   assert.ok(exited, "process-compose exited");
+});
+
+test("TM-289 integration: the real process-compose leaves a retired supervisor down and retries a lock loser", { timeout: 120_000 }, async (t) => {
+  const root = await scratch(t, "ao-services-exit-");
+  let binary;
+  try { ({ binary } = await installProcessCompose({ data: join(root, "data"), lock: readLock(pluginRoot) })); }
+  catch (error) { return t.skip(`pinned process-compose unavailable: ${error.code ?? error.message}`); }
+  const { SUPERVISE_EXIT } = await import("../../topology/lib/supervision.mjs");
+  // A launcher stand-in: probes pass, the session host idles, and each supervisor exits with the
+  // code its consumer directory names — the two deliberate exits `ao-topology supervise` makes.
+  const launcher = join(root, "launcher.cjs");
+  await writeFile(launcher, `const a = process.argv;
+if (a.includes('probe')) process.exit(0);
+if (a.includes('supervise')) process.exit(a[a.indexOf('--consumer') + 1].endsWith('retire') ? ${SUPERVISE_EXIT.RETIRED} : ${SUPERVISE_EXIT.TRY_LATER});
+setInterval(() => {}, 1000);\n`);
+  const logs = join(root, "logs");
+  await mkdir(logs);
+  const repos = [{ key: "retire", consumer: join(root, "retire") }, { key: "later", consumer: join(root, "later") }];
+  for (const repo of repos) await mkdir(repo.consumer);
+  const { project } = renderProject({ platform: process.platform, node: process.execPath, launcher, stateRoot: join(root, "state"), logs, repos });
+  const projectPath = join(root, "process-compose.yaml");
+  await writeFile(projectPath, JSON.stringify(project, null, 2));
+  const token = join(root, "token");
+  await writeFile(token, "integration-token-0123456789", { mode: 0o600 });
+  const port = await freePort();
+  const pc = spawn(binary, ["up", "-f", projectPath, "-t=false", "--keep-project", "--disable-dotenv", "--address", "127.0.0.1", "-p", String(port), "--token-file", token, "-L", join(logs, "pc.log")],
+    { stdio: "ignore", env: { ...process.env, TMUX: "" } });
+  t.after(() => { try { pc.kill("SIGKILL"); } catch { /* already gone */ } });
+  const client = apiClient({ port, token: "integration-token-0123456789" });
+  const until = async (check, ms) => { const end = Date.now() + ms; for (;;) { const value = await check(); if (value || Date.now() > end) return value; await new Promise((r) => setTimeout(r, 100)); } };
+  assert.ok(await until(() => client.alive(), 15_000), "process-compose answers");
+  const byName = async () => Object.fromEntries((await client.processes()).map((p) => [p.name, p]));
+  // backoff_seconds is 3, so two retries of the lock loser take ~6s; give it 15.
+  const seen = await until(async () => { const p = await byName(); return p["supervise-later"]?.restarts >= 2 ? p : null; }, 15_000);
+  const final = seen ?? await byName();
+  t.diagnostic(`retire: ${final["supervise-retire"]?.status} restarts=${final["supervise-retire"]?.restarts}; later: ${final["supervise-later"]?.status} restarts=${final["supervise-later"]?.restarts}`);
+  assert.ok(seen, `the lock loser (exit ${SUPERVISE_EXIT.TRY_LATER}) is retried`);
+  assert.equal(final["supervise-retire"].restarts, 0, "a retired supervisor (exit 0) is never restarted");
+  assert.equal(final["supervise-retire"].exit_code, SUPERVISE_EXIT.RETIRED);
+  assert.equal(final["supervise-retire"].status, "Completed");
+  await client.stop();
+  assert.ok(await until(async () => !(await client.alive()), 10_000), "process-compose stopped through its API");
+  assert.ok(await until(() => pc.exitCode !== null || pc.signalCode !== null, 5_000), "process-compose exited");
 });
 
 /** TM-286: a process-compose API whose processes have pids; restart gives a new pid, stop stops. */
