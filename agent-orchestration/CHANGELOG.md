@@ -4,7 +4,21 @@
 
 ### Changed
 
-- **Every Git repository is enrolled by default; enrollment is opt-out.** Put `{ "enabled": false }` in `.bytedesk/agent-orchestration/config.json` to opt a repository out. A message to a repository whose lead is down now recovers that lead without the repository having been switched on first. Paths that are not Git repositories are still not enrolled by default. Tests that relied on "unenrolled by omission" now opt out explicitly.
+- **The NATS transport names itself, and an unreachable configured NATS is reported to the lead
+  (TM-276, ADR-0031).** A dead ambient `NATS_URL` or stale gateway `orch.sock` still falls back to
+  the managed local server, but the selection, its source (`AO_NATS_URL`, `NATS_URL`, `orch.sock`,
+  `managed-local`) and any outage are recorded in `<state>/transport.json`. `supervise` logs a
+  `transport-selected` or `transport-fallback` event at start and on every change; `services status`
+  and `doctor` show `transport`, and `doctor` raises `NATS_CONFIGURED_UNREACHABLE`. Each repository
+  supervisor mails its lead one durable standing message per outage and one on recovery. An explicit
+  `AO_NATS_URL` is still never replaced. Only an open that dialled the outage's own source and url without
+  falling back closes it, so another process's env cannot fake a recovery; the selection is recorded
+  under the caller's `home`; and a configured server that accepts TCP but refuses NATS is re-dialled
+  with a per-outage backoff (30 s doubling to 15 min) instead of on every reconcile. Every fallback
+  records `last_fallback_at`; once nothing on the host has fallen back from that source and url for
+  an hour (`AO_NATS_OUTAGE_RETIRE_MS`), the outage is retired (`retired: true` and a note, never
+  claimed reachable), so removing the dead `NATS_URL` clears `doctor`, stops the re-dials, and the
+  lead gets one `NATS retired` message in place of the recovery message.
 
 ### Added
 
@@ -12,10 +26,130 @@
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
 
+## [0.15.1] — 2026-10-02
+
+### Fixed
+
+- **process-compose no longer restarts a supervisor that stopped on purpose (TM-289).** Every `supervise-<repo>` process ran under `restart: always`, so a supervisor that retired because its repository was removed, or that lost the per-repo lock to another supervisor, was restarted every 3 seconds forever. Supervisors now run under `restart: on_failure` (backoff 3 s, unlimited retries), and `ao-topology supervise` exits with a code that says what happened, named in `SUPERVISE_EXIT` (`topology/lib/supervision.mjs`):
+  - **0, retired:** the repository is gone. The process is not restarted, the repository is removed from `<state root>/services/repos.json` (new `removeServiceRepo`, beside `addServiceRepo`), and under process-compose the supervisor runs `services ensure` so the project reloads without it.
+  - **75, try later (`EX_TEMPFAIL`):** another supervisor holds the lock. process-compose retries it with backoff, and the retry takes over once the holder ends. It was 0 before, which under `on_failure` would have left the repository unsupervised after the winner died.
+  - **Any other non-zero code:** a crash, retried as before.
+  The session host and NATS stay on `restart: always`.
+
+### Tests
+
+- `tests/unit/topology-supervise-exit.test.mjs` runs the real `ao-topology supervise` as a child process: removing the repository makes it exit 0 within seconds and deregisters it (this is also the CLI-level test TM-186 lacked: retirement stops the watcher, so the process really exits); holding the lock makes a second supervisor exit 75, and a start after the lock is released takes over; an unexpected error exits with another non-zero code. `tests/unit/services.test.mjs` checks the rendered restart policies, and runs the pinned process-compose binary to show that a child exiting 0 is not restarted and a child exiting 75 is.
+
+## [0.15.0] — 2026-10-02
+
+### Added
+
+- **`services restart <name>` and `services stop <name>` (TM-286).** They act on exactly one managed process through the process-compose API, by its process-compose name; an unknown name is refused before any request is sent, and `restart` reports the old and new pid. `services status --json` rows are now `{ name, pid, state, restarts, ready, exitCode }` (`status` is renamed `state`). README and the setup skill tell agents to use these verbs and never `pkill`/`pgrep` a managed process: dev machines run unrelated `nats-server` processes (microk8s), and a pattern match killed the wrong one by luck only.
+- **Every host runs the same ao build (TM-284).** `services ensure` and `install-orchestration-host` find this plugin's Codex copy, Grok install and the root Kimi's `mcp.json` names, and replace any OLDER copy with the services' plugin root; an equal or newer copy is left alone. The new copy is built beside the old one and swapped in by rename, keeping the copy's `node_modules`, so a failure leaves the old copy whole. It is refused when the source has uncommitted changes, when the copy lies inside a git checkout, and when the copy's `node_modules` does not satisfy the new `package.json`. Node's `cp`, not rsync, so native Windows works too. With everything current it is an identity compare only.
+- **Setup cleans up after earlier installs and reports stale sessions (TM-285).** `services ensure` stops leaked `agent-orchestration-session-*.scope` units whose state root is gone, hands the managed state root over from a pre-services session host (its 24-hour scope, or a hand-run host verified through `/proc`), and never touches a scope whose state root exists and is not the managed one. It lists ao MCP servers still running an older build (lower version, a replaced bundle, or a deleted plugin root) by host and pid with the advice to restart that session, and never signals them. The result is printed, kept in `<state root>/services/self-heal.json` and shown by `services status --json`; `orchestration_doctor` reports stale servers and a `TMUX_TMPDIR` whose tmux socket path exceeds the unix-socket limit under `diagnostics.setup`. The SessionStart hook warns, with the exact fix, when the repository enables `agent-orchestration` or `task-management` at project scope — the commit guard's own predicate, now shared from `src/services/project-scope.mjs`.
+
+### Changed
+
+- `services status --json` process rows are `{name, pid, state, restarts, ready, exitCode}`; the per-process field formerly named `status` is now `state` (TM-286).
+
+## [0.14.0] — 2026-10-02
+
+### Added
+
+- **Team personas are unique across nodes, through NATS KV (TM-279, ADR-0030 part 3).** `natsPersonaRegistry` implements the persona registry interface (`allocate` / `release` / `holder`) on one JetStream KV bucket, `ORCH_PERSONAS`, keyed `<scope>.<persona>` (for example `team_core.ada`). Each value is `{ holder, sessionId, node, repo, presence, allocatedAt }`. Allocation is an atomic KV `create` over the same candidate order as the local registry: first name, then `first-last`, then the holder's id. A persona the holder already holds is returned as is. `release` deletes only at the revision it read, so it never frees a persona that someone else reclaimed in between.
+- **A dead holder is reclaimed; a live one never is.** A taken persona is reclaimed only when its holder is past the two-minute grace period AND is not live in presence. Not live means that the allocating repository's presence entry is missing, older than its `staleAfterMs` plus clock skew, or does not list the holder (the agent, or a member of the holder's run). Reclaim is a revision-checked `update`, so when two nodes reclaim the same persona, exactly one wins. A record that has no presence key cannot be judged, so it is kept.
+- **Registry selection, `personaRegistryFor(scope)`.** `planSession` and `releaseRunPersona` use it when no registry is passed in. A repo scope always uses the local file-lock registry. A team scope uses the NATS registry. If NATS is unreachable, a team allocation fails with `TOPOLOGY_PERSONA_REGISTRY_UNAVAILABLE`, and the message names the team. It never falls back to the local registry, because two nodes could then take the same persona. `AO_TRANSPORT=file`, the explicit single-host double, keeps the local registry for teams.
+- **Leaf nodes: `AO_NATS_JS_DOMAIN`, or `nats.domain` in the ao user config.** The value is validated as 1–64 letters, digits, hyphens or underscores. It sets the JetStream domain for the transport's whole js context. The hub hosts `ORCH_PERSONAS`. A leaf whose own server runs JetStream names the hub's domain to reach that bucket. A leaf with no JetStream of its own, and a single server, need no domain.
+- **Re-spawning a live agent collects a handoff and replaces the session (TM-280, ADR-0030 part 4).** Spawning (`launch`) or opening (`session open`) a library agent that is already live in another session no longer fails with `TOPOLOGY_AGENT_ALREADY_LIVE`. Instead, ao takes these steps, implemented in the new `topology/lib/respawn.mjs`:
+  1. It waits, bounded, for the agent's current turn to end and never types into it mid-turn. The default bound is 10m (`--turn-timeout`, `AO_RESPAWN_TURN_TIMEOUT_MS`). A turn that does not end is refused with `TOPOLOGY_AGENT_BUSY`, and the session is left untouched.
+  2. It asks the agent to write a handoff (goal, state, open questions, files) to `<state root>/handoffs/<agent>/<ULID>.md`. The default bound is 5m (`--handoff-timeout`, `AO_RESPAWN_HANDOFF_TIMEOUT_MS`).
+  3. If no handoff arrives in time, it falls back to a summary built from the tail of the agent's transcript, titled `TRANSCRIPT-DERIVED FALLBACK`.
+  4. It ends the old session exactly once: the provider's `exit_command` first, then `kill-session` on that exact name.
+  5. It starts the fresh session under the same name with a new ULID and records the predecessor's ULID (`@ao-predecessor`, `identity.predecessor`, and `predecessor` in `run.json`).
+  6. It returns the handoff to the caller under `respawned`. The new session receives it only when the lead passes it, with `--pass-handoff` or the new `session handoff <agent> --file <path>`.
+- A per-agent lock is held until the replacement exists. If two re-spawns of one agent run at once, exactly one replaces the agent; the other fails with `TOPOLOGY_RESPAWN_JOINED`, which carries the winner's result. `--no-respawn` keeps `TOPOLOGY_AGENT_ALREADY_LIVE` for scripts. An agent that is one pane of a team session is refused with `TOPOLOGY_RESPAWN_SHARED_SESSION` rather than ending its teammates.
+- The Claude provider declares `exit_command: "/exit"`.
+
+### Tests
+
+- `tests/unit/topology-persona-registry.test.mjs` adds the following. Each NATS case uses a throwaway nats-server (killed by PID only) and skips when no binary is found:
+  - one conformance table run against both registries;
+  - two allocator processes racing 24 allocations in one team, which asserts that their allocation windows overlap;
+  - release;
+  - stale-versus-live reclaim, including the grace period;
+  - a forced two-reclaimer race over 10 rounds;
+  - the unreachable-NATS refusal, with repo scope still working;
+  - a hub plus a leaf with its own JetStream domain, racing 20 allocations. This case also shows that a leaf with no domain set uses a separate bucket.
+- Mutation checks: replacing the atomic `create` with a plain `put` fails the race, leaf and conformance tests. Replacing the reclaim `update` with a `put` fails the reclaim race.
+
+### Docs
+
+- **Presence session-names addendum for the gateway (TM-274, ADR-0030).** `topology/PRESENCE-SESSION-NAMES-ADDENDUM.md` supersedes the name shapes in presence contract §4.3–§4.4, without editing the frozen contract: the `[team--]node--repo--role--persona` shapes per `session.kind`, the legacy `ao-<id>` and `<id>-<7 hex>` shapes until those sessions end, the slug and length rules, and the `@ao-*` options as labels rather than proof. The presence shape is unchanged (`schemaVersion` stays `2`; `session.kind` keeps its vocabulary), and a run of one agent under a new name is published as `kind: "run"`. `topology/SESSION-NAMES-COUNTERSIGNATURE-REQUEST.md` asks the gateway lead to countersign. Fixtures and `check.py` are in `topology/fixtures/presence-session-names/`, hashes in `SESSION-NAMES-HASHES.txt`, and `tests/unit/topology-presence-session-names.test.mjs` checks the real producer output, the fixtures and every hash, and proves the hash check fails when one byte changes.
+
+## [0.13.2] — 2026-10-02
+
+### Fixed
+
+- **`services ensure` no longer flaps between copies of the same build or lets an older session downgrade the managed services (TM-283).** Every session's SessionStart runs `ensure` with its own plugin root — the installed cache, the directory-marketplace source tree, or an older cache in a long-lived session — and the pointer took whichever ran last. Two copies of one build looked different (a cache was identified by its folder name, a checkout by its build fingerprint), so alternating sessions restarted every managed process each time, and a session still on an older plugin re-pointed the services at older code. The pointer now records the build fingerprint and package version: an `ensure` of the same build keeps the existing pointer and restarts nothing; an older version never replaces a newer one while that one's folder still exists; a newer version moves the pointer and restarts each process once.
+
+## [0.13.1] — 2026-10-02
+
+### Tests
+
+- **No test can reach the operator's tmux server (TM-281).** The real-tmux cases in `topology-launch.test.mjs` set only `TMUX=''`, so a plain `TMUX= npm run test:unit` created and killed sessions on the default server, where live agent sessions run — the hazard behind INCIDENT-2026-09-09. Every real-tmux test now goes through one helper, `tests/helpers/isolated-tmux.mjs`. It gives each test a blank `TMUX`, a private `TMUX_TMPDIR` under `/tmp/aot-*`, a socket inside it, and a teardown that runs `kill-server` only with `-S` on that socket. It refuses, by resolved path, the default socket `/tmp/tmux-<uid>/default` and the server the suite was started from.
+- Every test script (`test:unit`, `test:topology`, `test:contract`, `test:topology:tmux`, `run-tests.sh`, `tests/stability.mjs`) now loads `tests/helpers/tmux-preflight.mjs` with `--import`. Library calls that are given no server or env resolve tmux from `process.env`, so the preflight blanks `TMUX` and sets a private `TMUX_TMPDIR` when none is set or it is `/tmp`. It fails at load if a bare `tmux` would still reach an operator socket. `tests/unit/tmux-isolation.test.mjs` proves the preflight ran, that the helper refuses the default socket and the operator's live socket, and that a refused kill never runs tmux.
+
+## [0.13.0] — 2026-10-02
+
+### Changed
+
+- **tmux session names are `[team--]node--repo--role--persona` (TM-274, ADR-0030).** For example `core--agents1--bytedesk-marketplace--lead--ada`, or `agents1--bytedesk-marketplace--reviewer--linus` without a team. Segments are slugged to `[a-z0-9-]` with no `--` inside and capped (team 16, node 24, repo 32, role 48, persona 24). `node` is `AO_NODE_NAME`, else the new `node.name` key in the ao user config, else the short hostname. `repo` is the `origin` remote's repository name (the main checkout's folder when there is no remote; worktrees resolve to the same repo). `team` comes from `--team` on `launch` or a spec's new `team` field. A session that holds a team run is `[team--]node--repo--<workflow>--<persona>` (for example `agents1--bytedesk-marketplace--parallel-review--ada`): the workflow is the role segment and the run holds a persona from the registry, so concurrent runs of one workflow coexist under distinct names. Applies to role-sessions (lead, reviewer, observer, `session open`, role holders), one-agent spawns, workflow runs, retries and child runs.
+- **No collision suffix.** An agent holds one live session: spawning or opening an agent that is already live elsewhere is refused with `TOPOLOGY_AGENT_ALREADY_LIVE`, naming the holding session. Personas come from a registry interface (`allocate` / `release` / `holder`, in `persona-registry.mjs`): first name, then `first-last` once the first name is taken in the scope (the team, else the repo segment), then the agent id. A team run draws from the first-name pool and gives its persona back on `stop`, on a dry run and on a launch that left no session; a run whose session vanished without a stop is reclaimed after a two-minute grace. This release ships the local registry, a file under the topology state root guarded by `withLock`; the NATS KV team registry is TM-279.
+- **The name is a label, not a key.** Every session gets a ULID and records `@ao-id`, `@ao-agent`, `@ao-role`, `@ao-repo`, `@ao-repo-origin`, `@ao-node`, `@ao-team`, `@ao-run`, `@ao-workflow` and `@ao-kind` as tmux session options (team panes also carry their agent), mirrored into `session.json` (`identity`) and `run.json` (`session_identity`). `session list`, presence, the observer's lead lookup, role status and detach, lead and reviewer assignment and prompt ack resolve identity from metadata or the recorded session. `listServerPanes` returns the options as `identity`; `listSessionIdentities` and `setIdentity` are new.
+- A spec's `session` template no longer names the tmux session; `{{session}}` renders the name ao chose. The `TOPOLOGY_SESSION_EXISTS` refusal is gone: a second concurrent run of a workflow gets its own name. `TOPOLOGY_AGENT_ALREADY_LIVE` still refuses a second session for a library agent.
+
+### Removed
+
+- `identity.mjs` `sessionName` / `parseSessionName`, and `launch.mjs` `roleSessionName` / `uniqueSessionName`. Use `session-names.mjs` (`composeSessionName`, `sessionIdentity`) and `launch.mjs` `planSession` / `roleSessionFor` / `recordedRoleSession` / `liveSessionOf`.
+
+### Migration
+
+- Live sessions named before this release — `ao-<id>` role-sessions (for example `ao-fd2b831f`) and `<id>-<7 hex>` spawns — are still recognised and reattached until they end. A role-session whose legacy session has ended reopens under the new name.
+
+## [0.12.1] — 2026-10-01
+
+### Fixed
+
+- **A repository supervisor survives a NATS restart (TM-277).** Killing the managed `nats-server` used to end `ao-topology supervise` with exit 1. The presence heartbeat writes to the `ORCH_PRESENCE` bucket; its JetStream request timed out (`NatsError` `TIMEOUT`), the heartbeat treated that as fatal, and the error escaped the CLI's top-level `await`. A NATS outage (`TIMEOUT`, `408`, `503`, a closed, refused or dropped connection, or `TOPOLOGY_NATS_UNAVAILABLE`) now skips one heartbeat beat or degrades one tick (`degraded: "transport-unavailable"`), and the quiet tick backs off on the existing 2s/5s/15s ladder. The cached connection is closed without a drain, so the next tick dials again. The tick record counts the outages in `transport_failures` and keeps the latest in `transport_error`. Any other error still ends the supervisor, and a one-shot `supervise --once` still fails with the outage. The classifier and the discard live in one helper in `orch-transport.mjs` (`isTransportFailure`, `absorbTransportFailure`).
+- A process started by the service manager no longer starts a detached `nats-server` when the managed one is down. It used to do this after 5 seconds: a second server on the same JetStream store, with `state.json` rewritten away from the managed port. It now reports `TOPOLOGY_NATS_UNAVAILABLE` and retries on its next tick.
+- **Runs can start on macOS (TM-273).** Every non-Windows host was given the `linux-native` backend, which launches workers through `systemd-run` and `prlimit`; neither exists on macOS. darwin now selects `darwin-native`: a detached Node watchdog starts each worker as the leader of its own process group, enforces the same limits as the Linux scopes (8 hours per worker, 30 seconds per provider probe; SIGTERM, then SIGKILL after 3 seconds), and caps core dumps and file size with `ulimit`. Liveness is the recorded pid plus its start identity, and cancel signals the whole group. macOS has no per-group memory or task-count limit, so none is applied. Logs and run state use the same layout as Linux.
+- On macOS, process start identity comes from `ps -o lstart=` in the C locale instead of `/proc`, and the session host is not started through a systemd scope.
+
+### Changed
+
+- **Provider isolation is unavailable on macOS, and runs are refused rather than run unsandboxed.** Bubblewrap is Linux-only. On darwin, `doctor` reports the sandbox as `unavailable` with the reason, and `spawn` refuses with `AO_SANDBOX_UNAVAILABLE` before any provider discovery. The provider-sandbox launcher also refuses on any platform other than Linux and Windows. A macOS sandbox is follow-up work.
+- Verified on Linux only: the darwin selection is tested by injected platform, and the process-group backend (launch, liveness, cancel of the whole group, runtime-limit escalation, ulimit caps) is exercised for real on Linux, where it uses the same POSIX calls. It has not run on a Mac.
+
+## [0.12.0] — 2026-10-01
+
+### Added
+
+- **Managed services (TM-272).** process-compose v1.122.0 (Apache-2.0, pinned with a SHA-256 per archive in `services/process-compose.lock.json`; a mismatched download is refused) now runs the session host, the local NATS server and one repository supervisor per registered repository, and restarts any that die. The OS keeps process-compose itself alive and starts it at login: a systemd user unit on Linux, a LaunchAgent on macOS, a scheduled task on Windows, or a detached process on Linux/WSL without a systemd user manager. No linger. New CLI: `agent-orchestration services install|ensure|status|probe|uninstall`. `ensure` is idempotent: a second run with nothing changed writes no file, reloads no service manager and restarts nothing. Processes run the plugin through `<data home>/bytedesk/agent-orchestration/launcher.cjs` and `current.json`, so a plugin update restarts processes instead of rewriting config.
+- A SessionStart hook runs `services ensure --detach`. It returns at once, logs to `<state root>/services/logs/ensure.log`, and never fails the session.
+- `NOTICE` attributes process-compose.
 - **`ao-topology git-hook install|uninstall|status`** installs a real git `pre-commit` hook, so commits made from a terminal or IDE are checked as well as commits made inside a Claude session. It runs the same project-install guard. It resolves the plugin from `~/.claude/plugins/installed_plugins.json` at commit time, so it survives plugin updates, and it fails open if the plugin is not found. It honours `core.hooksPath` and linked worktrees, refuses to overwrite a pre-commit hook it did not write, and removes only its own on uninstall. It does not chain onto an existing hook.
 - **Commit guard.** A `PreToolUse(Bash)` hook blocks `git commit` in a repository whose `.claude/settings.json` enables `agent-orchestration` or `task-management` at project scope, because both are user-scope installs and a project entry creates a per-project install record. It fails open on any internal error. The same check runs standalone as `scripts/check-no-project-plugin-installs.mjs` (repo mode, or `--installs` for `installed_plugins.json`; `--plugin <name>` adds plugins). Per-repo task-management data under `.bytedesk/task-management/` is not settings and is never checked. Not verified in a live Claude Code session: the hook's matching and its block message are covered by `scripts/guard-project-install.test.sh`, not by a real commit attempt.
 - **NATS starts itself when it is not reachable.** `openNatsTransport` (every caller: supervisor, mailbox, presence, reviewer) now falls back to a per-user JetStream `nats-server` when there is no `AO_NATS_URL`, no gateway `orch.sock`, or the ambient `NATS_URL` refuses the connection. The server is detached, loopback-only, and set up under `~/.bytedesk/agent-orchestration/nats` (`AO_NATS_HOME`): a generated password in a `0600` file, one account with no system account, and permissions limited to `orch.>` plus the JetStream and KV API. A second caller reuses the running server. An explicit `AO_NATS_URL` is never replaced; `AO_NATS_AUTOSTART=0` turns the fallback off. The binary comes from `AO_NATS_SERVER`, `~/.cache/ao-orch/nats-server`, or `PATH`; the snap shim does not count.
 - The repository supervisor monitor no longer exits 1 with `TOPOLOGY_NATS_UNAVAILABLE` on a machine with no NATS server running.
+
+### Changed
+
+- The `ao-supervise` monitor runs `services ensure --consumer-cwd .` and exits, instead of being the supervisor. It registers the session's Git repository, so that repository keeps its supervisor, enrolled or not.
+- `ensureSessionHost`, `startRepositorySupervision` and `ensureLocalNats` go through `services ensure`. Their previous launchers (the 24-hour `systemd-run` scope, the in-process host, the detached supervisor and the detached NATS server) remain behind `AGENT_ORCHESTRATION_SERVICES=0`, and are used with a message when the services cannot be installed.
+- The session host runs the interrupted-run recovery sweep (`autoRecover: true`), so a lost worker is found even when no MCP server is running. Concurrent sweepers were already safe: each run is recovered under its own cross-process lock and re-read inside it.
+- A hand-run `agent-orchestration session-host` exits 0 without starting a second host when a healthy one owns the state root.
+- `AO_SESSION_HOST_NOT_DURABLE` now tells you to run `agent-orchestration services ensure`.
+- **Every Git repository is enrolled by default; enrollment is opt-out.** Put `{ "enabled": false }` in `.bytedesk/agent-orchestration/config.json` to opt a repository out. A message to a repository whose lead is down now recovers that lead without the repository having been switched on first. Paths that are not Git repositories are still not enrolled by default. Tests that relied on "unenrolled by omission" now opt out explicitly.
 
 ### Fixed
 
@@ -23,6 +157,7 @@
 - The unbundled `ao-topology` in a plugin tree without `node_modules` now reports `TOPOLOGY_NATS_UNAVAILABLE` naming the missing nats package, instead of a raw `ERR_MODULE_NOT_FOUND` stack, when NATS is selected.
 - The activation, lead-convergence, and role-icon tmux contracts set `AO_TRANSPORT=file`. They test tmux supervision, not NATS, and failed with `TOPOLOGY_NATS_UNAVAILABLE` on a machine without a NATS server.
 - The `bind` unit test's implicit-server case clears `TMUX`, so it no longer fails when the suite runs inside the operator's tmux.
+- The clean-install contract test stops the session-host scope it starts, instead of leaving one running for 24 hours after every run (TM-272).
 
 ## [0.11.0] — 2026-09-27
 
@@ -60,6 +195,17 @@
 - Keep governed task completion behind independent review and an explicit integration receipt. Preserve worker scope and hold unsupported fallback candidates before takeover.
 
 ## [Unreleased]
+
+### Tests
+
+- **No test can start a real provider CLI (TM-290).** A temp `git init` repository is enrolled by
+  default, so tests that reached supervise, launch or startup were starting a real `claude` lead.
+  The test preflight now puts a recording shim for every catalog provider (`claude`, `codex`,
+  `grok`, `kimi`, `gemini`, `copilot`) first on PATH. A shim refuses with 127, and the test file
+  that ran it fails, named. `tests/helpers/temp-repo.mjs` creates temp repositories opted out of
+  enrollment by default, or enrolled with a lead provider that does not exist. The guard found
+  six spawns, in `topology-repo-enrollment`, `topology-respawn`, `topology-session-names` and
+  `topology-supervision`. Those four files and the `topology-activation-tmux` contract are fixed.
 
 ### Added
 
@@ -138,6 +284,23 @@
 
 ### Fixed
 
+- **Presence no longer publishes `kind: "spawn"` under a new-style session name (TM-287).** A
+  run.json agent with a seven-hex `spawn` token whose pane carries matching `@ao-agent` metadata was
+  published as `spawn` whatever its session was called, which the Presence v2 validator rejects.
+  Such a session is now published as `kind: "run"` with `spawn: null`, as session-names addendum §3.3
+  specifies; `spawn` stays reserved for a legacy `<agentId>-<7 hex>` name. `topology-presence` tests
+  now run every snapshot they publish through the v2 validator.
+- **Reviewer verdicts carry their findings intact on every transport (TM-195, TM-220).** The
+  write-free reviewer now emits `AO_REVIEW <nonce> b64:<base64 of the JSON>`: base64 has no quote
+  to leave unescaped and no space a pane wrap can lose, so a verdict quoting shell code survives.
+  Bare JSON is still read, so a reviewer running the old instruction keeps working until it is
+  relaunched. Its pane is its one channel on both transports: under NATS, collection used to wait
+  for a verdict the reviewer had no shell to publish. Pane and `review publish` share one decoder,
+  and a response that does not decode to `{verdict, findings: [...]}` is refused, including one with
+  no findings array, which used to record as an approval. `review publish` needs `--response` with
+  the whole response; it no longer publishes `findings: []` or defaults to approve. A failed
+  request is refused on collect without escalating again (`TOPOLOGY_REVIEWER_REQUEST_FAILED`), and
+  the approve refusal names minor, nit and note.
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
   The review range was pinned to the admission commit, so a branch that merged `main` to clear a
   conflict carried every task already landed there, and the reviewer judged them as part of this

@@ -29,7 +29,8 @@ export function sessionHostCliPath(pluginRoot) {
 export function sessionSupervisorEnabled({ platform = process.platform, env = process.env } = {}) {
   if (env.AGENT_ORCHESTRATION_SESSION_SUPERVISOR === "0") return false;
   if (env.AGENT_ORCHESTRATION_SESSION_HOST === "1") return false;
-  if (platform === "win32") return false;
+  // The supervisor is a systemd user scope; Windows and macOS have none.
+  if (platform === "win32" || platform === "darwin") return false;
   return true;
 }
 

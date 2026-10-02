@@ -9,15 +9,16 @@ import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
 import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
-import { deliverPointer, failoverAgent, launchRun, materializeWorkflowSpec, messagePointer, openRoleSession, registeredLeadId, retryWorkflowSpec, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { deliverPointer, failoverAgent, launchRun, materializeWorkflowSpec, messagePointer, openRoleSession, recordedRoleSession, registeredLeadId, retryWorkflowSpec, roleSessionFor, runAgentVisual, tmuxFailureTrigger } from "./lib/launch.mjs";
 import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
-import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
+import { listWorkflows, loadSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
 import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, terminalText, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
-import { displayName, parseSessionName, roleVisual } from "./lib/identity.mjs";
+import { displayName, roleVisual } from "./lib/identity.mjs";
+import { sessionIdentity } from "./lib/session-names.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 import { sameIncarnation } from "./lib/incarnation.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
@@ -49,8 +50,13 @@ Compose
 
 Launch and stop
   launch (--workflow <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
-         [--dry-run] [--json]
+         [--dry-run] [--json] [--team <name>]   --team prefixes the session name and scopes personas
          [--allow-outside]       permit a cwd or run_dir outside the invoking repository
+         [--no-respawn] [--pass-handoff] [--turn-timeout 10m] [--handoff-timeout 5m]
+                                 a library agent that is already live is re-spawned (TM-280): its turn
+                                 is waited out, it writes a handoff, its old session ends, and the
+                                 handoff comes back to you; --pass-handoff also gives it to the new
+                                 session. --no-respawn refuses with TOPOLOGY_AGENT_ALREADY_LIVE instead
          [--allow-auto-approve]  accepted, no effect: agents run without permission prompts by
                                  default (TM-214); set auto_approve: false on an agent to opt out
   stop (--run <run_dir> | --session <name>) [--keep-files]
@@ -63,6 +69,9 @@ Conduct (used by the orchestrator agent)
   agent show <id|"Full Name">                  one agent
 
   session open <id|"Full Name">                open this agent's durable session, or reattach to it
+       [--no-respawn] [--pass-handoff] [--turn-timeout 10m] [--handoff-timeout 5m]
+                                               live in another session: re-spawn it, as launch does
+  session handoff <id|"Full Name"> --file <md> point the agent's live session at a handoff file
   session list [--json]                        which of this repo's agents are live right now
   session close <id|"Full Name">               end it; the agent and its directory survive
   delegate --task <id> --to <agent> [--for <external-agent>]
@@ -128,7 +137,7 @@ Standing repository services
   enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume|receipts|dispose [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
-  review listen|probe|publish|await [--agent <id> --nonce <nonce> --verdict <approve|changes_requested|blocked> --timeout 8s]
+  review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
@@ -240,6 +249,26 @@ async function runDirFrom(flags) {
 }
 
 /** TM-185: the icon for a library agent, with the repository's registered lead resolved once. */
+/** TM-280: the re-spawn options shared by `launch` and `session open`. */
+function respawnFlags(flags) {
+  const on = (key) => flags[key] === true || String(flags[key]) === "true";
+  return {
+    respawn: !on("no-respawn"),
+    requestedBy: process.env.AO_AGENT_ID || process.env.AO_SESSION || "operator",
+    respawnBounds: {
+      ...(flags["turn-timeout"] && flags["turn-timeout"] !== true ? { turnTimeoutMs: parseDuration(String(flags["turn-timeout"])) } : {}),
+      ...(flags["handoff-timeout"] && flags["handoff-timeout"] !== true ? { handoffTimeoutMs: parseDuration(String(flags["handoff-timeout"])) } : {}),
+    },
+    passHandoff: on("pass-handoff"),
+  };
+}
+
+/** What a re-spawn hands back to its caller: the predecessor, where the handoff is, and its text. */
+async function respawnReport(record) {
+  const { readHandoff } = await import("./lib/respawn.mjs");
+  return { agent: record.agent, predecessor: record.predecessor, handoff: { ...record.handoff, text: await readHandoff(record) }, turn: record.turn };
+}
+
 async function libraryVisuals(ctx) {
   const leadId = await registeredLeadId({ consumer: ctx.consumer, home: ctx.home });
   return (agent) => roleVisual({ role: agent.role, repoRole: agent.id === leadId ? "lead" : null });
@@ -313,7 +342,7 @@ async function activate(ctx, reason) {
 
 const commands = {
   async supervise({ flags }) {
-    const { superviseRepository } = await import('./lib/supervision.mjs');
+    const { superviseRepository, SUPERVISE_EXIT } = await import('./lib/supervision.mjs');
     const ctx = context(flags);
     // TM-167: `supervise` runs in EVERY repository, enrolled or not, and stays read-only — presence,
     // census, slots, quota, prompt refresh for standing agents that already exist. It starts nothing, so
@@ -326,14 +355,16 @@ const commands = {
     const { canonicalRepoId } = await import('./lib/repoid.mjs');
     const repoId = (await canonicalRepoId(ctx.consumer)).id;
     // Linked worktrees share one canonical repository id, so a machine with N worktrees of this
-    // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome and
-    // therefore not an error: exit 0 saying who owns it, so a monitor host does not read the loss
-    // as a crash and restart it in a loop.
+    // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome, not
+    // an error — but it is not a finish either. TM-289: it exits TRY_LATER (75), so process-compose's
+    // `on_failure` retries it with backoff and the retry takes over once the holder ends. Exit 0 here
+    // would strand the repository unsupervised when the winner dies.
     const owned = async (task) => {
       try { return await task(); }
       catch (error) {
         if (error?.code !== 'TOPOLOGY_SUPERVISION_OWNED') throw error;
-        return out({ ok: true, supervising: false, reason: 'another-supervisor-owns-this-repository', consumer: ctx.consumer });
+        process.exitCode = SUPERVISE_EXIT.TRY_LATER;
+        return out({ ok: true, supervising: false, reason: 'another-supervisor-owns-this-repository', consumer: ctx.consumer, exit_code: SUPERVISE_EXIT.TRY_LATER });
       }
     };
     if (flags.once) return owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { once: true, onTick: out }));
@@ -343,23 +374,55 @@ const commands = {
     // multi-line JSON blob in every console hosting this monitor. The presence document is already
     // the durable record of a heartbeat — a reader wanting per-tick detail passes --json.
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
-    const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
-    const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
+    const notable = report => report?.stopped || report?.presence_beats_degraded || report?.transport_failures || report?.error;
+    // TM-276 / ADR-0031: the transport and its source are logged at start and again whenever they
+    // change, a fallback from an unreachable configured NATS as a named warning.
+    let loggedTransport = null;
+    const logTransport = (transport, at) => {
+      const key = JSON.stringify([transport?.source, transport?.url, transport?.outage?.since, transport?.outage?.recovered_at]);
+      if (!transport || key === loggedTransport) return;
+      loggedTransport = key;
+      const outage = transport.outage && !transport.outage.recovered_at ? transport.outage : null;
+      out({ event: outage ? 'transport-fallback' : 'transport-selected', at: at ?? new Date().toISOString(), consumer: ctx.consumer,
+        transport: transport.kind, source: transport.source, url: transport.url,
+        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}) });
+    };
+    const onTick = report => { logTransport(report?.transport, report?.at); if (flags.json || notable(report)) out(report); };
     const controller = new AbortController();
     let watcher = Promise.resolve(), watcherError;
     // Start the watcher only after winning repository ownership. Both loops
     // share a lifetime; a failed or losing supervisor cannot leave one behind.
-    const onOwned = () => {
+    const onOwned = async () => {
+      const { resolveTransport, describeTransport } = await import('./lib/orch-transport.mjs');
+      // Open it now so the start log names what this supervisor will use, not a stale record.
+      const opened = await resolveTransport({ env: process.env }).catch((error) => ({ error }));
+      if (opened.error) out({ event: 'transport-unavailable', consumer: ctx.consumer, code: opened.error.code ?? null, message: opened.error.message });
+      else logTransport(await describeTransport(process.env));
       watcher = watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId, signal: controller.signal })
         .catch(error => { watcherError = error; controller.abort(); });
     };
+    let report;
     try {
-      return await owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick, onOwned, signal: controller.signal }));
+      report = await owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick, onOwned, signal: controller.signal }));
     } finally {
       controller.abort();
       await watcher;
       if (watcherError) throw watcherError;
     }
+    // TM-289: a retired supervisor (its repository is gone) exits RETIRED (0), which `on_failure`
+    // does not restart, and takes the repository off the supervise list so the next `services
+    // ensure` does not render it again. Under process-compose it runs that ensure itself, so the
+    // project reloads now and the finished process disappears from `services status`.
+    if (report?.stopped === 'consumer-gone') {
+      const { removeServiceRepo, runServicesEnsure, servicesEnabled } = await import('./lib/services-client.mjs');
+      const { repoKey } = await import('./lib/repoid.mjs');
+      const deregistered = await removeServiceRepo({ key: repoKey(repoId), consumer: ctx.consumer }).catch(() => false);
+      const managed = process.env.AGENT_ORCHESTRATION_SERVICES_MANAGED === '1' && servicesEnabled();
+      const reloaded = managed && deregistered ? (await runServicesEnsure()).ok === true : false;
+      process.exitCode = SUPERVISE_EXIT.RETIRED;
+      out({ ok: true, supervising: false, reason: 'retired-consumer-gone', consumer: ctx.consumer, deregistered, reloaded, exit_code: SUPERVISE_EXIT.RETIRED });
+    }
+    return report;
   },
 
   async census({ flags }) {
@@ -517,12 +580,14 @@ const commands = {
     try {
       if (sub === 'publish') {
         const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
-        invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --verdict <approve|changes_requested|blocked>.');
-        const verdict = flags.verdict && flags.verdict !== true ? String(flags.verdict) : 'approve';
+        invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --response <b64:...|json>.');
+        // TM-195: the whole response, findings included. No default verdict: a missing one is refused.
+        const response = flags.response && flags.response !== true ? String(flags.response) : null;
+        invariant(response, 'TOPOLOGY_REVIEWER_RESPONSE', 'Pass review publish --response with the complete response: b64:<base64 of the JSON> or the JSON {"verdict":...,"findings":[...]}.');
         const published = await publishReviewerVerdict({
           consumer: ctx.consumer,
           nonce,
-          verdict: { verdict, findings: [] },
+          response,
           env: process.env,
           transport,
         });
@@ -761,7 +826,7 @@ const commands = {
     const promptServer = recordedBinding?.serverKey ?? tmux.callerServer(process.env);
     const panes = promptServer ? await tmux.listServerPanes({ tmuxServer: promptServer }).catch(() => []) : [];
     const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
-    const expectedSession = promptSession || roleSessionName(agent.id);
+    const expectedSession = promptSession || await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
     if (positional[0] === 'watch') return api.watchPrompts({ ...ctx, agent }, { onChange: out });
     invariant(positional[0] === 'refresh', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use prompt preview|refresh|ack|watch.');
@@ -808,6 +873,8 @@ const commands = {
       const age = s.tick_age_ms === null ? "no tick yet" : `last tick ${Math.round(s.tick_age_ms / 1000)}s ago`;
       out(`Supervisor: ${s.state}${s.pid ? ` pid ${s.pid}` : ""} · ${age}${s.restarts ? ` · ${s.restarts} restarts` : ""}`);
     }
+    const t = report.transport;
+    if (t && !t.error) out(`Transport: ${t.kind}${t.source ? ` via ${t.source}` : ""}${t.url ? ` ${t.url}` : ""}${t.note ? ` (${t.note})` : ""}`);
     out("Providers:");
     for (const provider of report.providers) {
       out(`  ${provider.ready ? "✓" : "✗"} ${provider.id} — ${provider.ready ? `${provider.path}${provider.version ? ` (${provider.version})` : ""}` : `not found; ${provider.install_hint}`}`);
@@ -889,7 +956,7 @@ const commands = {
             invariant(saved, 'TOPOLOGY_WORKFLOW_NOT_FOUND', 'Child workflow must be saved in the project workflow catalog.');
             const child = await loadSpec({ specPath: saved.path, dirs: ctx.workflowDirs });
             const childSpec = await materializeWorkflowSpec(child.spec, { runId: newRunId(), consumer: materialized.consumer, home: ctx.home,
-              inputs: resolveInputs(child.spec, childInputs) }, { stateHome });
+              inputs: resolveInputs(child.spec, childInputs), ...(materialized.team ? { team: materialized.team } : {}) }, { stateHome });
             const result = await start(childSpec, childLineage, childToken);
             return { ...result, conductor: childSpec.agents.find(agent => agent.role === 'orchestrator')?.id || null };
           }, log: line => process.stderr.write(`${line}\n`) });
@@ -1004,6 +1071,7 @@ const commands = {
         consumer: ctx.consumer,
         home: ctx.home,
         inputs: resolveInputs(child.spec, childInputs),
+        ...(team ? { team } : {}),
         allowOutside: Boolean(flags["allow-outside"]),
         ...(flags["max-fanout"] && flags["max-fanout"] !== true ? { maxFanout: Number(flags["max-fanout"]) } : {}),
       });
@@ -1026,14 +1094,9 @@ const commands = {
     // A deliberate escape hatch, off unless the operator asks: `--allow-outside` lets a spec resolve
     // a cwd or run_dir outside the invoking repo. It is not inferable from the spec, because the spec
     // is the thing being trusted less. `--allow-auto-approve` is accepted and ignored (TM-214).
-    // Address the session by WHO when the run is a spawn of one known agent, and by what-and-when
-    // otherwise. Only when the spec did not name a session itself — a spec that states its own name
-    // is stating a requirement, and guessing over it would break whoever is reading that name.
-    // The discriminator's uniqueness scope is live sessions on this host, which is the scope tmux
-    // itself enforces, so `uniqueSessionName` probes rather than trusting the entropy.
-    const address = spec.session === DEFAULT_SESSION
-      ? agentAddress(spec, { consumer: ctx.consumer, home: ctx.home, agentDirs: ctx.agentDirs })
-      : null;
+    // TM-274 / ADR-0030: materializeWorkflowSpec names the session — after the agent for a spawn of one
+    // library agent, `run--<workflow>` otherwise — with `--team` (or the spec's `team`) as the prefix.
+    const team = flags.team && flags.team !== true ? String(flags.team) : undefined;
     const materialized = await materializeWorkflowSpec(spec, {
       runId,
       consumer: ctx.consumer,
@@ -1041,9 +1104,10 @@ const commands = {
       inputs,
       allowOutside: Boolean(flags["allow-outside"]),
       ...(flags["max-fanout"] && flags["max-fanout"] !== true ? { maxFanout: Number(flags["max-fanout"]) } : {}),
-      session: address ? await uniqueSessionName(address) : undefined,
+      ...(team ? { team } : {}),
     });
     const adapters = await loadAdapters(ctx.providerDirs);
+    const { passHandoff: pass, ...respawnOptions } = respawnFlags(flags);
     const result = await launchRun({
       spec: materialized,
       adapters,
@@ -1054,8 +1118,18 @@ const commands = {
       ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
       launchChild,
       log: (line) => process.stderr.write(`${line}\n`),
+      ...respawnOptions,
     });
     result.template = path;
+    // TM-280: the handoff goes back to the caller; the new session gets it only on --pass-handoff.
+    if (result.respawned) {
+      const { passHandoff } = await import("./lib/respawn.mjs");
+      result.respawned = await Promise.all(result.respawned.map(async (record) => {
+        const started = result.agents.find((agent) => agent.id === record.spec_agent);
+        const passed = pass && started?.pane ? await passHandoff({ pane: started.pane, adapter: adapters.get(started.adapter), path: record.handoff.path }) : null;
+        return { ...(await respawnReport(record)), passed_to_new_session: Boolean(passed?.delivered) };
+      }));
+    }
     if (!flags["dry-run"]) result.supervision = await activate(ctx, 'launch');
     if (flags.json || flags["dry-run"]) return out(result);
     out(`Launched ${materialized.name} · run ${runId}`);
@@ -1066,6 +1140,9 @@ const commands = {
       out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
     }
     for (const warning of result.warnings) out(`  ! ${warning}`);
+    for (const record of result.respawned ?? []) {
+      out(`  ↻ re-spawned ${record.agent}: replaced ${record.predecessor.session} (${record.predecessor.id ?? "no id"}); handoff (${record.handoff.source}) ${record.handoff.path}${record.passed_to_new_session ? " — passed to the new session" : " — not passed; use --pass-handoff or session handoff"}`);
+    }
     out(`Attach: ${result.attach}`);
   },
 
@@ -1129,25 +1206,30 @@ const commands = {
       const roster = await listAgents(ctx.agentDirs);
       const visualOf = await libraryVisuals(ctx);
       // Two kinds of session, and the difference is the point. A role-session is the agent's one
-      // durable workspace, named `ao-<id>`, and opening it again reattaches. A spawn is one run of
-      // that agent, named `<id>-<spawn>`, and there may be several at once. Stable agent, distinct
-      // spawns: `who` is the id, `which run` is the discriminator.
-      const live = await tmux.listSessions();
+      // durable workspace, and opening it again reattaches. A spawn is one run of that agent, and
+      // there may be several at once. TM-274: who a session belongs to is read from the `@ao-*`
+      // options recorded on it (legacy `ao-<id>` / `<id>-<7 hex>` names until they end) — the
+      // `<host>-<repo>-<role>-<name>` name is only a label.
+      const live = await tmux.listSessionIdentities();
+      const liveNames = new Set(live.map((entry) => entry.name));
       const spawnsFor = new Map();
-      for (const name of live) {
-        const parsed = parseSessionName(name);
-        if (!parsed) continue;
-        if (!spawnsFor.has(parsed.agentId)) spawnsFor.set(parsed.agentId, []);
-        spawnsFor.get(parsed.agentId).push({ session: name, spawn: parsed.spawn });
+      for (const entry of live) {
+        const identity = sessionIdentity(entry);
+        if (identity?.kind !== "spawn") continue;
+        if (!spawnsFor.has(identity.agentId)) spawnsFor.set(identity.agentId, []);
+        spawnsFor.get(identity.agentId).push({ session: entry.name, spawn: identity.spawn });
       }
-      const rows = roster.map((agent) => ({
-        id: agent.id,
-        agent: displayName(agent),
-        role: agent.role,
-        ...visualOf(agent),
-        session: roleSessionName(agent.id),
-        live: live.includes(roleSessionName(agent.id)),
-        spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
+      const rows = await Promise.all(roster.map(async (agent) => {
+        const session = await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
+        return {
+          id: agent.id,
+          agent: displayName(agent),
+          role: agent.role,
+          ...visualOf(agent),
+          session,
+          live: liveNames.has(session),
+          spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
+        };
       }));
       // A spawn whose agent is not in this repo's roster still belongs to someone; saying so beats
       // pretending it is not there, because it is holding a tmux session either way.
@@ -1169,7 +1251,7 @@ const commands = {
     const agent = await requireAgent(ref, ctx.agentDirs);
 
     if (sub === "close") {
-      const session = roleSessionName(agent.id);
+      const session = await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
       const live = await tmux.hasSession(session);
       if (live) await tmux.killSession(session);
       // The record and the agent directory are deliberately left behind: closing a session ends a
@@ -1177,12 +1259,27 @@ const commands = {
       return out({ ok: true, agent: displayName(agent), session, closed: live });
     }
 
-    invariant(sub === "open", "TOPOLOGY_SUBCOMMAND_UNKNOWN", `Unknown: session ${sub}. Use open, list, or close.`);
+    if (sub === "handoff") {
+      // TM-280: the lead's explicit, later way to give a re-spawned agent its predecessor's handoff.
+      invariant(flags.file && flags.file !== true, "TOPOLOGY_HANDOFF_FILE_REQUIRED", "Pass --file <handoff.md>.");
+      const file = absolutize(String(flags.file));
+      invariant(await exists(file), "TOPOLOGY_HANDOFF_FILE_MISSING", `No handoff file at ${file}.`);
+      const { liveSessionOf } = await import("./lib/launch.mjs");
+      const { passHandoff, sessionPanes } = await import("./lib/respawn.mjs");
+      const session = await liveSessionOf(agent.id, { agentsDir: dirname(agent._dir) });
+      invariant(session, "TOPOLOGY_AGENT_NOT_LIVE", `${displayName(agent)} has no live session to hand off to.`, { agent_id: agent.id });
+      const panes = await sessionPanes(session);
+      const pane = (panes.find((entry) => entry.identity?.agentId === agent.id) ?? panes[0])?.paneId;
+      const delivered = await passHandoff({ pane, adapter: adapterFor(agent, await loadAdapters(ctx.providerDirs)), path: file });
+      return out({ ok: delivered.delivered, agent: displayName(agent), session, pane, handoff: file, delivered: delivered.delivered });
+    }
+
+    invariant(sub === "open", "TOPOLOGY_SUBCOMMAND_UNKNOWN", `Unknown: session ${sub}. Use open, list, close, or handoff.`);
     // TM-214: the plain buildArgv below is not the reviewer's read-only argv (buildReviewerArgv).
     invariant(agent.role !== "reviewer", "TOPOLOGY_REVIEWER_READ_ONLY", `${displayName(agent)} is the reviewer; it launches only read-only. Use: ao-topology reviewer ensure.`, { agent_id: agent.id });
     const adapters = await loadAdapters(ctx.providerDirs);
     const adapter = adapterFor(agent, adapters);
-    const session = roleSessionName(agent.id);
+    const session = await roleSessionFor({ agentsDir: dirname(agent._dir), agentId: agent.id, consumer: ctx.consumer, role: agent.role, home: ctx.home });
     // The session's cwd is the agent's own directory — that is what gives it memory of its own under
     // every shipped CLI. The repo is therefore granted explicitly, exactly as `launch` does it, and
     // a coordinator is granted nothing beyond its own directory.
@@ -1198,12 +1295,15 @@ const commands = {
     const prompt = await refreshPrompt({ ...ctx, agent, session, live: await tmux.hasSession(session) });
     invariant(prompt.status !== 'invalid-config', 'TOPOLOGY_PROMPT_INVALID', 'Prompt invalid; existing session preserved.');
     const argv = buildArgv(adapter, { ...agent, add_dirs: addDirs }, vars);
+    const { passHandoff: pass, ...respawnOptions } = respawnFlags(flags);
     const result = await openRoleSession({
+      ...respawnOptions,
       agentsDir: dirname(agent._dir),
       agentId: agent.id,
       adapter,
       argv,
       env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: ctx.consumer, ...agent.env },
+      session,
       role: agent.role,
       coordinatesOnly: agent.coordinates_only === true,
       controlledRestart: flags.restart === true,
@@ -1219,6 +1319,8 @@ const commands = {
       pane: result.pane,
       created: result.created,
       reattached: result.reattached,
+      ...(result.respawn ? { respawned: { ...(await respawnReport(result.respawn)),
+        passed_to_new_session: pass ? (await (await import("./lib/respawn.mjs")).passHandoff({ pane: result.pane, adapter, path: result.respawn.handoff.path })).delivered : false } } : {}),
       cwd: result.record?.cwd ?? join(dirname(agent._dir), agent.id),
       attach: tmux.attachCommand(result.session),
     });

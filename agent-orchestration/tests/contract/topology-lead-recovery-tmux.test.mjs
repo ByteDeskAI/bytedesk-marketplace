@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { killOwnedServer, refuseOperatorSocket } from '../helpers/isolated-tmux.mjs';
 import { leadRecoveryStatus } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { lockOwner, processIdentity } from '../../topology/lib/lockfile.mjs';
@@ -136,13 +137,13 @@ async function stopSupervisors(dir) {
 
 function ownSocket(env, socket) {
   assert.ok(env.TMUX === '' && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to touch a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
-  return socket;
+  return refuseOperatorSocket(socket, env);
 }
 
 async function killIsolatedServer(env) {
   const socket = await execFile('tmux', ['list-panes', '-a', '-F', '#{socket_path}'], { env })
     .then((result) => result.stdout.split('\n')[0].trim()).catch(() => '');
-  if (socket) await execFile('tmux', ['-S', ownSocket(env, socket), 'kill-server'], { env }).catch(() => {});
+  await killOwnedServer(env, socket);
 }
 
 async function panes(env, socket) {
@@ -175,11 +176,8 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
     await execFile('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init']);
     repos[name] = repo;
     const home = join(repo, '.bytedesk', 'agent-orchestration');
-    if (!enrolled.includes(name)) {
-      // Omitted config now enrolls Git repositories; preserve the explicit opt-out gate.
-      await writeJson(join(home, 'config.json'), { enabled: false });
-      continue;
-    }
+    // Git repositories are enrolled by default, so an unenrolled one opts out explicitly.
+    if (!enrolled.includes(name)) { await writeJson(join(home, 'config.json'), { enabled: false }); continue; }
     await mkdir(join(home, 'providers'), { recursive: true });
     await copyFile(join(fixtures, 'fake-agent.json'), join(home, 'providers', 'fake-agent.json'));
     // A template must name a prompt; relative paths resolve beside this config file.

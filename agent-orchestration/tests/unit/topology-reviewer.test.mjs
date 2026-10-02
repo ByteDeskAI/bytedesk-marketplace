@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
+import { isolatedTmux, killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { ensureReviewer, reviewerAvailability, reviewerPaths, reviewerNonceAck, reviewerProbeReady, recordReview, reviewEligibility, requestReview, collectReview, collectPendingReviews, reviewerInboxRoot, assignReviewer } from '../../topology/lib/reviewer.mjs';
 
 const binding={serverKey:'/test/socket',serverPid:10,sessionId:'$1',sessionCreated:1,paneId:'%1',panePid:20};
@@ -285,10 +286,9 @@ test('reviewer readiness does not cache output when the observed incarnation end
 
 test('assignment observes binding before the default liveness probe and leaves external owners stopped', async t => {
   const f=await fixture(t);
-  const socket=join(f.home,'reviewer-test.sock');
-  await mkdir(f.home,{recursive:true});
-  await run('tmux',['-S',socket,'new-session','-d','-s','review','sleep 60']);
-  try {
+  const iso=isolatedTmux(t),socket=iso.socket;
+  await iso.tmux(['new-session','-d','-s','review','sleep 60']);
+  {
     const {listServerPanes}=await import('../../topology/lib/tmux.mjs');
     const observed=(await listServerPanes({tmuxServer:socket}))[0];
     const {agent}=await ensureReviewer({...f,probes:{alive:async()=>false,open:async()=>({session:'review',pane:observed.paneId,binding:observed})}});
@@ -300,13 +300,13 @@ test('assignment observes binding before the default liveness probe and leaves e
     }}});
     assert.equal(assigned.record.managed,false);
     assert.equal(JSON.parse(await readFile(agent._file,'utf8')).auto_approve,false,'an assigned reviewer must be stored with auto_approve false');
-    await run('tmux',['-S',socket,'split-window','-d','-t','review','sleep 60']);
+    await iso.tmux(['split-window','-d','-t','review','sleep 60']);
     await assert.rejects(assignReviewer({...f,agentRef:agent.id,session:'review',probes:{responsive:async()=>true}}),{code:'TOPOLOGY_REVIEWER_PANE_AMBIGUOUS'});
-    await run('tmux',['-S',socket,'kill-server']);
+    await killOwnedServer(iso.env,socket); // the reviewer's pane dies outside ao's control
     let opens=0;
     const held=await ensureReviewer({...f,probes:{open:async()=>{opens++;throw new Error('external reviewer must not be restarted');}}});
     assert.equal(held.status,'dead-external');assert.equal(opens,0);
-  } finally { await run('tmux',['-S',socket,'kill-server'],{allowFailure:true}); }
+  }
 });
 
 test('automatic review collection skips retained history and rotates unanswered batches', async t => {

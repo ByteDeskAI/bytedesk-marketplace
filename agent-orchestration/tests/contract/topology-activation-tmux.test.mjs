@@ -14,7 +14,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { sleep, writeJson } from '../../topology/lib/util.mjs';
+import { NO_PROVIDER } from '../helpers/temp-repo.mjs';
 
 const exec = promisify(execFile);
 const CLI = fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url));
@@ -34,20 +36,21 @@ async function fixture(t, label, { enrolled }) {
   try { await exec('tmux', ['-V']); } catch { t.skip('tmux unavailable'); return null; }
   // Short root: a tmux socket path must fit in sun_path.
   const root = await realpath(await mkdtemp(join(tmpdir(), `ao-act-${label}-`)));
-  const repo = join(root, 'repo'), home = join(root, 'home'), tmuxTmp = join(root, 't'), socket = join(root, 's');
+  const repo = join(root, 'repo'), home = join(root, 'home'), tmuxTmp = join(root, 't'), socket = join(tmuxTmp, 's');
   await mkdir(tmuxTmp, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxTmp, HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
     AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file' };
   for (const key of ['AO_TMUX_COMMAND', 'AO_AGENT_ID', 'AO_SESSION', 'AO_CONSUMER', 'AO_LEAD_ID']) delete env[key];
   await exec('git', ['init', '-q', repo]);
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);
-  // Git repositories enroll by default; the off fixture must explicitly opt out.
-  await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: enrolled });
+  // Every Git repository is enrolled by default (CHANGELOG [Unreleased] "enrolled by default"), so the
+  // unenrolled fixture opts out explicitly rather than by omission.
+  // TM-290: an enrolled supervisor starts the lead, so its provider is one that does not exist.
+  await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: enrolled, lead: { provider: NO_PROVIDER } });
 
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
-    assert.ok(env.TMUX === '' && socket.startsWith(`${root}/`), `refusing to kill a tmux server outside this test: ${socket}`);
-    await exec('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
+    await killOwnedServer(env, socket);
     await rm(root, { recursive: true, force: true });
   });
 

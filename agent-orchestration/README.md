@@ -44,9 +44,8 @@ there is more than one; it does not infer the target from the current terminal.
 - Spawn, follow-up, wait, status, event, cancellation, and cleanup controls.
 - Durable approval decisions for governed actions.
 - A per-run **Agent Orchestration Session** on loopback. `orchestration_spawn` returns `session.url`;
-  print that URL verbatim. On Linux/WSL the session host is a `systemd-run --user --scope` process per
-  state root, so the page outlives the MCP process; native Windows stays in-process.
-  `AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces in-process. The host exchanges a one-use capability
+  print that URL verbatim. The session host is one of the **managed services** below, so the page
+  outlives the MCP process and comes back if the host dies. The host exchanges a one-use capability
   for a cookie, serves `dist/session-ui/`, and streams the hash-chained journal over SSE. The page can
   cancel, queue a follow-up, and settle an architecture decision for that run. Plan:
   `docs/plans/2026-08-22-orchestration-session.md`. A trusted local caller can ask for the same URL
@@ -58,6 +57,81 @@ there is more than one; it does not infer the target from the current terminal.
 
 The plugin does not turn a native Claude or Codex subagent into another provider. External provider
 work exists only when the MCP server starts a provider execution.
+
+## Managed services
+
+The plugin keeps its standing processes running with
+[process-compose](https://github.com/F1bonacc1/process-compose) (Apache-2.0), and restarts any that
+die:
+
+| Process | What it does |
+|---|---|
+| `session-host` | Serves the run session pages and the gateway's control seam. Also sweeps the state root for runs whose worker died, so lost runs are found even when no Claude or Codex session is open. |
+| `nats` | The local NATS server, when no `AO_NATS_URL` is set and a working `nats-server` exists. |
+| `supervise-<repo>` | One repository supervisor per registered repository: presence, census, prompt refresh, held mail, lead recovery. Not on native Windows, which has no tmux; `status` reports it as unsupported. |
+
+**Start or repair them:** `agent-orchestration services ensure`. You rarely need to run it: the
+plugin's SessionStart hook and monitor run it, and so does anything that needs a session host or a
+supervisor. It is idempotent. It:
+
+1. downloads the pinned process-compose (`services/process-compose.lock.json`) into
+   `~/.local/share/bytedesk/agent-orchestration/bin/` (`~/Library/Application Support/…` on macOS,
+   `%LOCALAPPDATA%\ByteDesk\agent-orchestration` on Windows), and refuses it if its SHA-256 does not
+   match;
+2. points `current.json` there at the installed plugin, so a plugin update needs only a process
+   restart;
+3. writes `<state root>/services/process-compose.yaml`;
+4. registers process-compose with the OS so it starts when you log in: a systemd user unit
+   (`agent-orchestration.service`) on Linux, a LaunchAgent (`ai.bytedesk.agent-orchestration`) on
+   macOS, or a scheduled task (`ByteDesk\agent-orchestration`) on Windows. Linux or WSL without a
+   systemd user manager gets a detached process-compose that every `ensure` restarts if needed.
+   Linger is not enabled, so the services run while you are logged in;
+5. starts it if it is not answering, reloads the project if it changed, and restarts the processes if
+   the plugin changed. A second run with nothing changed writes nothing.
+6. keeps the other hosts on the same build (TM-284): it finds this plugin's Codex copy
+   (`~/.codex/plugins/cache/bytedesk/agent-orchestration/…`), Grok install
+   (`~/.grok/installed-plugins/agent-orchestration-*`) and the root `~/.kimi-code/mcp.json` names,
+   and replaces any copy with an OLDER version by the services' plugin root. An equal or newer copy
+   is left alone. The copy is built beside the old one and swapped in by rename, keeping the old
+   copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
+   inside a git checkout, or when the copy's `node_modules` does not satisfy the new
+   `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
+7. cleans up after earlier installs (TM-285): stops leaked `agent-orchestration-session-*.scope`
+   units whose state root no longer exists, hands the managed state root over from a pre-services
+   session host (a 24-hour scope or a hand-run host) and a detached `nats-server`, and never touches
+   a scope whose state root exists and is not the managed one. It lists ao MCP servers still running
+   an older build — by host and pid, with the advice to restart that session — and never stops them.
+
+What step 6 and 7 found is printed by `ensure`, kept in `<state root>/services/self-heal.json`, and
+shown by `services status --json` (`selfHeal`). `orchestration_doctor` reports stale MCP servers and
+a `TMUX_TMPDIR` too long for tmux's socket (`diagnostics.setup.problems`). The SessionStart hook
+also warns, with the exact fix, when the session's repository enables `agent-orchestration` or
+`task-management` in its own `.claude/settings.json` — the same check that would otherwise block
+the first `git commit`.
+
+**Check them:** `agent-orchestration services status` (`--json` for every field) shows the OS
+registration, whether process-compose answers, and each process's state, pid, restart count and
+readiness. Logs are in `<state root>/services/logs/`. `--json` lists every managed process as
+`{ name, pid, state, restarts, ready, exitCode }`; read a pid from there, never from `pgrep`.
+
+**Restart or stop one process:** `agent-orchestration services restart <name>` and
+`agent-orchestration services stop <name>`, where `<name>` is one `services status` lists
+(`session-host`, `nats`, `supervise-<repo>`). Both go through the process-compose API, so they act
+on exactly that managed process; an unknown name is refused. `restart` reports the old and new pid.
+**Never `pkill`, `pgrep` or `kill` a managed process by name or command line:** dev machines run
+unrelated processes with the same binary (microk8s runs its own `nats-server -c …`), and
+process-compose restarts a killed child anyway.
+
+**Remove them:** `agent-orchestration services uninstall` removes the OS registration and stops
+process-compose. It keeps the binary and all state.
+
+**Opt out:** `AGENT_ORCHESTRATION_SERVICES=0` restores the previous launchers: a 24-hour
+`systemd-run --user --scope` session host on Linux (`AGENT_ORCHESTRATION_SESSION_SUPERVISOR=0` forces
+in-process), a detached NATS server, and a detached supervisor. The same launchers are used, with a
+message on stderr, when the services cannot be installed, for example on an offline first run.
+
+`agent-orchestration session-host` run by hand exits 0 without starting a second host when a healthy
+one already owns the state root.
 
 ## Requirements
 
@@ -207,7 +281,7 @@ Two refusals rather than a URL that disappoints later:
 | Code | When |
 |---|---|
 | `AO_RUN_NOT_FOUND` / `AO_INVALID_RUN_ID` | before anything is minted, so no live token exists for a run that does not |
-| `AO_SESSION_HOST_NOT_DURABLE` | no session host outlives the command, so its URL would stop answering the moment the command exits. Start one with `agent-orchestration session-host`. |
+| `AO_SESSION_HOST_NOT_DURABLE` | no session host outlives the command, so its URL would stop answering the moment the command exits. Run `agent-orchestration services ensure`. |
 
 **Who took the decision.** `POST /api/runs/{runId}/decision` accepts an `actor` label alongside
 `approved` and `rationale`, recorded as the approval's `by` (capped at 120 characters, defaulting to

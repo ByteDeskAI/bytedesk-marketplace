@@ -6,7 +6,6 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { agentAddress, DEFAULT_SESSION, materializeSpec, resolveInputs, specSchemaSummary, validateSpec, workflowDirs } from "../../topology/lib/spec.mjs";
-import { parseSessionName } from "../../topology/lib/identity.mjs";
 import { agentsRoot, createAgent } from "../../topology/lib/agents.mjs";
 import { mintId } from "../../topology/lib/identity.mjs";
 import { parseDuration, render, shellQuote } from "../../topology/lib/util.mjs";
@@ -426,8 +425,8 @@ test("a run of one library agent is addressed by that agent; anything else stays
     const inline = validateSpec({ name: "inline", agents: [{ id: "worker", cli: "claude", role: "orchestrator" }] });
     assert.equal(agentAddress(inline, context), null);
 
-    // The default template is what makes an upgrade safe to detect; a spec that names its own
-    // session is stating a requirement, and launch must not guess over it.
+    // validateSpec still fills the legacy template; since TM-274 launch names every run itself
+    // (`<host>-<repo>-<role>-<name>`) and passes that name in, so the template only renders offline.
     assert.equal(solo.session, DEFAULT_SESSION);
     assert.notEqual(validateSpec({ name: "x", session: "pinned-{{run_id}}", agents: [{ id: "w", cli: "claude", role: "orchestrator" }] }).session, DEFAULT_SESSION);
 
@@ -435,7 +434,9 @@ test("a run of one library agent is addressed by that agent; anything else stays
     // probed against the live tmux server — something the template cannot do.
     const rendered = materializeSpec(solo, { runId: "r", consumer, home: "/h", inputs: {}, session: `${stored.id}-9f3e21a` });
     assert.equal(rendered.session, `${stored.id}-9f3e21a`);
-    assert.deepEqual(parseSessionName(rendered.session), { agentId: stored.id, spawn: "9f3e21a" });
+    // A TM-274 name is longer than slug()'s 48-character cap and must arrive whole.
+    const long = "agents1-bytedesk-marketplace-copy-implementer-dmitri-2";
+    assert.equal(materializeSpec(solo, { runId: "r", consumer, home: "/h", inputs: {}, session: long }).session, long);
     assert.equal(materializeSpec(solo, { runId: "r", consumer, home: "/h", inputs: {} }).session, "some-task-r");
   } finally {
     await rm(consumer, { recursive: true, force: true });

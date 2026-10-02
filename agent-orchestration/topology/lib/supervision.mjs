@@ -56,12 +56,23 @@ import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
+import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
+import { absorbTransportFailure, describeTransport } from './orch-transport.mjs';
+import { natsOutageTick } from './nats-outage.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
 /** Floor between two runs of the expensive reconcile body. AO_RECONCILE_MIN_MS overrides. */
 export const DEFAULT_RECONCILE_MIN_MS = 10_000;
 export const DEFAULT_START_TIMEOUT_MS = 10_000;
+/**
+ * TM-289: how `ao-topology supervise` exits, read by process-compose's `restart: on_failure`
+ * (src/services/services.mjs), which restarts a process exactly when its exit code is non-zero.
+ * RETIRED — the repository is gone, so there is nothing left to supervise: do not restart.
+ * TRY_LATER — another supervisor holds this repository's lock (EX_TEMPFAIL): retry with backoff,
+ * and the retry takes over once the holder ends. Any other non-zero code is a crash and is retried.
+ */
+export const SUPERVISE_EXIT = Object.freeze({ RETIRED: 0, TRY_LATER: 75 });
 
 async function sourceIdentity() {
   const implementation=fileURLToPath(import.meta.url);
@@ -115,6 +126,14 @@ export async function superviseRepository(options, { signal, once = false, inter
    const controller = new AbortController();
    signal?.addEventListener('abort', () => controller.abort(), {once:true});
    let latest, heartbeatError, degradedBeats=0;
+   // TM-277: NATS outages absorbed so far, by the heartbeat or a reconcile, and the latest one.
+   let transportFailures=0, transportError=null;
+   const transportFailed=async error=>{
+     if(!(await absorbTransportFailure(error))) return false;
+     transportFailures++;
+     transportError={code:error.code,message:String(error.message).slice(0,500),at:new Date().toISOString()};
+     return true;
+   };
    // TM-141. L1 publishes by ENUMERATING TMUX, so a failed listing rejects `watch` and ends the
    // heartbeat; that rejection used to end the supervisor with it, and the monitor's restart is
    // what made a flaky tmux read as a crash loop in `doctor`. Not publishing is still the right
@@ -122,11 +141,15 @@ export async function superviseRepository(options, { signal, once = false, inter
    // document ageing out IS the contract's staleness signal — but it is a ONE-BEAT answer, so the
    // beat resumes on the next interval instead of taking the process down. Every other rejection
    // is a real failure and still fatal.
+   // TM-277: a NATS outage is the same kind of one-beat answer. Presence is published to the
+   // ORCH_PRESENCE bucket, so a restarting nats-server made the beat's JetStream request time out,
+   // and that TIMEOUT became heartbeatError and ended the process. Now the beat is skipped, the dead
+   // connection is discarded, and the next beat dials again.
    const heartbeat = once ? null : (async () => {
      while (!controller.signal.aborted) {
        try { return await producer.watch({signal:controller.signal,onPublish:snapshot=>{latest=snapshot;}}); }
        catch (error) {
-         if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED') { heartbeatError=error; controller.abort(); return; }
+         if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED' && !(await transportFailed(error))) { heartbeatError=error; controller.abort(); return; }
          degradedBeats++;
          await delay(producer.publishIntervalMs,undefined,{signal:controller.signal}).catch(()=>{});
        }
@@ -220,6 +243,10 @@ export async function superviseRepository(options, { signal, once = false, inter
      // be recovered is reported with its backoff, never a reason to stop supervising.
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
+     // TM-276 / ADR-0031: tell this repository's lead once when the configured NATS goes away and
+     // once when it is back. Absorbed like lead recovery: a mail failure is reported, never fatal.
+     const natsOutage=await natsOutageTick({...options,env,home}).catch(error=>({status:'failed',reason:error?.code ?? String(error)}));
+     const transport=await describeTransport(env,home).catch(()=>null);
      const goalLoops=await reconcileGoalLoops({...options,supervisorTick:true}).catch(error=>[{state:'blocked',diagnostic:{code:error.code??'GOAL_LOOP_RECONCILE',message:String(error.message).slice(0,1000)}}]);
      const launched=['created','restarted'].includes(recovery.action);
      // Activity means something MOVED, not merely that agents exist: a prompt that is already
@@ -231,7 +258,8 @@ export async function superviseRepository(options, { signal, once = false, inter
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
-       ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {})};
+       ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {}),
+       transport,...(natsOutage ? {nats_outage:natsOutage} : {})};
      report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
      await writeJson(join(root,`${key}.json`),report);
      if(!once) await promoteRecord(join(root,`${key}.process.json`));
@@ -257,19 +285,25 @@ export async function superviseRepository(options, { signal, once = false, inter
        let activity=false;
        // `once` always reconciles: a single-shot supervise is asking for the expensive answer.
        //
-       // TM-141: exactly ONE failure is transient — tmux could not be enumerated — and it skips
+       // TM-141: one failure is transient — tmux could not be enumerated — and it skips
        // this tick instead of ending superviseRepository. `restarts` is what `doctor` reads to
        // identify a crash loop, so a tmux hiccup must never increment it; a supervisor that is up
        // and not reconciling shows as SUPERVISOR_STALLED (the tick record is deliberately NOT
        // rewritten on a degraded tick, so `tick_age_ms` keeps growing) which is the honest answer.
-       // Every other throw is still fatal. `once` still throws: a one-shot has no next tick to
+       // TM-277 adds the second: a NATS outage (isTransportFailure). Every other throw is still
+       // fatal. `once` still throws: a one-shot has no next tick to
        // degrade into, so the failure is its answer.
        if(once || Date.now()-lastReconcileAt>=floorMs) {
          lastReconcileAt=Date.now();
          try { ({report,activity}=await reconcile()); }
          catch(error) {
-           if(once || error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error;
-           report={...report,at:new Date().toISOString(),reconciled:false,degraded:'tmux-observation-failed'};
+           if(once) throw error;
+           // TM-277: a NATS outage (reconcile publishes presence when the heartbeat has not yet)
+           // degrades the tick the same way; the quiet tick walks the 2s/5s/15s ladder down while
+           // the server is away, and the next reconcile dials a fresh connection.
+           if(error?.code==='TOPOLOGY_TMUX_OBSERVATION_FAILED') report={...report,at:new Date().toISOString(),reconciled:false,degraded:'tmux-observation-failed'};
+           else if(await transportFailed(error)) report={...report,at:new Date().toISOString(),reconciled:false,degraded:'transport-unavailable'};
+           else throw error;
          }
        } else {
          // A cheap tick costs a timestamp. It exists so the observation work that belongs at this
@@ -343,6 +377,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        // Cumulative, and only when it has happened: a heartbeat that could not observe tmux is
        // invisible otherwise — the supervisor stays up and the presence document simply ages out.
        if(degradedBeats) report={...report,presence_beats_degraded:degradedBeats};
+       if(transportFailures) report={...report,transport_failures:transportFailures,transport_error:transportError};
        await onTick(report);
        if(once || signal?.aborted) return report;
        if(sleepFn===sleep) await delay(sleepMs,undefined,{signal:controller.signal}).catch(error=>{if(error.name!=='AbortError')throw error;});
@@ -441,6 +476,7 @@ export async function supervisionStatus({consumer,env=process.env,home=homedir()
     log:record?.log ?? join(root,`${key}.log`),
     last_tick_at:tick?.at ?? null, tick_age_ms:Number.isFinite(at) ? Date.now()-at : null,
     reconcile_min_ms:tick?.reconcile_min_ms ?? reconcileFloor(env),
+    transport:tick?.transport ?? null,
   };
 }
 
@@ -457,6 +493,23 @@ export async function startRepositorySupervision(options) {
    if(owner?.pid && await processIdentity(owner.pid)===owner.process_identity) {
      const status=await supervisionStatus({consumer,env,home});
      return {...await readJson(recordPath).catch(()=>owner),consumer,repo_id:identity.id,state:status.state,ready:status.ready};
+   }
+   // TM-272: process-compose runs one `supervise` per registered repository and restarts it when it
+   // dies. Registering the repository and running `services ensure` hot-reloads the project; the
+   // wait below is the same proof a detached start gives. The detached spawn after this block is
+   // kept for AGENT_ORCHESTRATION_SERVICES=0 and for a machine where the services cannot run.
+   if(servicesEnabled(env) && process.platform!=='win32') {
+     await addServiceRepo(consumer,{env,home});
+     const ensured=await runServicesEnsure({env});
+     if(ensured.ok) {
+       const deadline=Date.now()+startTimeoutMs;
+       let status=await supervisionStatus({consumer,env,home});
+       while(!status.ready && Date.now()<deadline) { await sleep(100); status=await supervisionStatus({consumer,env,home}); }
+       const published=await readJson(recordPath).catch(()=>null);
+       return {...published,consumer,repo_id:identity.id,state:status.state,ready:status.ready,first_tick_at:status.first_tick_at,managed_by:'process-compose'};
+     }
+     await mkdir(root,{recursive:true});
+     await writeJson(join(root,`${key}.services-fallback.json`),{at:new Date().toISOString(),error:ensured.error??null,code:ensured.code??null});
    }
    const prior=await readJson(recordPath).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
    const cli=fileURLToPath(new URL('../cli.mjs',import.meta.url));

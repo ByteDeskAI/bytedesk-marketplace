@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { reviewerPaths } from '../../topology/lib/reviewer.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import {
   ORCH_LAYOUT,
   closeLiveTransports,
@@ -176,17 +177,14 @@ async function inboxStat(path) {
 async function threeCases(brokerUrl, stateHome, label) {
   const runDir = await fakeRun();
   const repo = repoKey((await canonicalRepoId(runDir)).id);
-  const tmuxDir = await mkdtemp(join(os.tmpdir(), 'ao-orch-tmux-'));
-  const socket = join(tmuxDir, 'sock');
-  const env = {
-    ...process.env,
+  // No `t` here, so the teardown is called from the finally below rather than registered.
+  const iso = isolatedTmux(null, { extraEnv: {
     AO_TRANSPORT: 'nats',
     AO_NATS_URL: brokerUrl,
     AO_CONSUMER: runDir,
     AGENT_ORCHESTRATION_STATE_HOME: stateHome,
-    TMUX: '',
-    TMUX_TMPDIR: tmuxDir,
-  };
+  } });
+  const { socket, env } = iso;
   let listener = null;
   try {
     const sent = await runCli([
@@ -247,10 +245,12 @@ async function threeCases(brokerUrl, stateHome, label) {
     console.log(`CASE probe subject=${listening.subject} ready=${probe.ready}`);
 
     const nonce = `nonce-${label}`;
+    const sentVerdict = { verdict: 'changes_requested', findings: [{ severity: 'major', file: 'ci.sh', line: 3, claim: 'Unquoted.', evidence: 'rm -f "$GW_TMPDIR_LINK"  then ln', fix: 'Quote "$X".' }] };
     const waiter = spawnCli(['review', 'await', '--consumer', runDir, '--nonce', nonce, '--timeout', '8s'], env);
     await waitForText(waiter, /"waiting":true/);
     const published = await runCli([
-      'review', 'publish', '--consumer', runDir, '--nonce', nonce, '--verdict', 'approve',
+      // TM-195: the whole response, findings and shell quotes included, base64 as the pane carries it.
+      'review', 'publish', '--consumer', runDir, '--nonce', nonce, '--response', `b64:${Buffer.from(JSON.stringify(sentVerdict)).toString('base64')}`,
     ], env);
     assert.equal(published.code, 0, published.stderr || published.stdout);
     const publish = JSON.parse(published.stdout);
@@ -269,14 +269,13 @@ async function threeCases(brokerUrl, stateHome, label) {
     assert.equal(verdictExit, 0, waiter.output().stderr || waiter.output().stdout);
     assert.equal(publish.subject, ORCH_LAYOUT.verdictSubject(repo, nonce));
     assert.match(waiter.output().stdout, new RegExp(publish.subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(waiter.output().stdout, /approve/);
+    assert.deepEqual(JSON.parse(JSON.parse(waiter.output().stdout.trim().split('\n').slice(1).join('\n')).body), sentVerdict, 'findings arrive intact over NATS');
     console.log(`CASE verdict subject=${publish.subject}`);
     return { runDir, repo };
   } finally {
     await stopChild(listener);
-    await execFileAsync('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
+    await iso.teardown();
     await rm(runDir, { recursive: true, force: true });
-    await rm(tmuxDir, { recursive: true, force: true });
   }
 }
 

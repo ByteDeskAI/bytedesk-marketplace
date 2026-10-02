@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 2,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "14",
+  "revision": "1",
+  "generatedAt": "2026-10-02T14:05:00.000Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "k3n8vq2a",
+      "displayName": "Priya Raman",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": null,
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$7",
+        "sessionCreated": 1790949500,
+        "sessionName": "ao-k3n8vq2a",
+        "paneId": "%3",
+        "panePid": 25863,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "roleName": "lead",
+      "roleIcon": "👑",
+      "roleLabel": "Lead"
+    },
+    {
+      "agentId": "f9k1ps5u",
+      "displayName": "Unenrolled agent",
+      "title": "Agent",
+      "repoRole": "member",
+      "runRole": null,
+      "coordinatesOnly": false,
+      "enrollment": "pending",
+      "lifecycle": "starting",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "external",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$14",
+        "sessionCreated": 1790949600,
+        "sessionName": "agents1--bytedesk-marketplace--lead--priya",
+        "paneId": "%30",
+        "panePid": 26011,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "roleIcon": "🤖",
+      "roleLabel": "Agent"
+    }
+  ],
+  "slotQueues": []
+}

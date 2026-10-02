@@ -27,6 +27,10 @@ an arbitrary PATH command. Add a new CLI through `docs/EXTENDING.md`.
    - Kimi: `~/.kimi-code/mcp.json` contains `agent-orchestration` pointing at `bin/agent-orchestration-mcp`.
    - Codex: `~/.codex/config.toml` has `[plugins."agent-orchestration@bytedesk"] enabled = true`.
    - Claude: project or user plugin enablement includes `agent-orchestration@bytedesk`.
-5. Tell the user to start a **fresh** host session. Existing sessions will not see new MCP servers.
+5. The script ends by refreshing every OLDER installed copy (Codex cache, Grok install, the root
+   Kimi's `mcp.json` names) from this plugin root, so every host runs one ao build. It refuses a
+   source with uncommitted changes, a copy inside a git checkout, and a copy whose `node_modules`
+   does not satisfy the new `package.json`; report any such line to the user with its fix.
+6. Tell the user to start a **fresh** host session. Existing sessions will not see new MCP servers.
 
 Do not print tokens, rewrite unrelated MCP servers, or edit Orca-managed Kimi hook blocks.

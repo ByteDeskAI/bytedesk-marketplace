@@ -15,8 +15,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { run, readJson, writeJson, sleep } from '../../topology/lib/util.mjs';
-import { roleSessionName } from '../../topology/lib/launch.mjs';
+import { legacyRoleSessionName } from '../../topology/lib/session-names.mjs';
 import { superviseRepository } from '../../topology/lib/supervision.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 
 const exec = promisify(execFile);
 const CLI = fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url));
@@ -113,16 +114,16 @@ function ackProbes(dir, signal) {
 test('lead assign and role assign lead answer a failed supervisor identically', async t => {
   const root = await mkdtemp(join(tmpdir(), 'ao-lead-supervision-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo'), home = join(root, 'home'), state = join(root, 'state'), tmuxTmp = join(root, 'tmux');
-  await mkdir(tmuxTmp, { recursive: true });
+  const repo = join(root, 'repo'), home = join(root, 'home'), state = join(root, 'state');
   await mkdir(join(state, 'leads', 'probes'), { recursive: true });
   await run('git', ['init', '-q', repo]);
   // Supervision, and ONLY supervision, cannot start: a plain file where its directory belongs.
   // Every other state directory under the same root is untouched, so the assign itself succeeds
   // and the two surfaces are compared on the failure this test is actually about.
   await writeFile(join(state, 'supervision'), 'not a directory\n');
-  const env = { ...process.env, TMUX: '', HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
-    AGENT_ORCHESTRATION_STATE_HOME: state, TMUX_TMPDIR: tmuxTmp };
+  // The CLI below resolves tmux implicitly from this env, which lands on the helper's socket.
+  const iso = isolatedTmux(t, { extraEnv: { HOME: home, XDG_CONFIG_HOME: join(home, '.config'), AGENT_ORCHESTRATION_STATE_HOME: state } });
+  const { env } = iso;
   assert.equal(env.TMUX, '', 'the real-tmux fixture must not inherit and destroy an operator tmux server');
 
   const cli = async args => {
@@ -134,10 +135,11 @@ test('lead assign and role assign lead answer a failed supervisor identically', 
   assert.equal(minted.code, 0, minted.stderr);
   const agentId = JSON.parse(minted.stdout).id;
 
-  const session = roleSessionName(agentId);
-  await run('tmux', ['new-session', '-d', '-s', session, '-c', repo, 'sleep', '120'], { env });
+  // A hand-made legacy `ao-<id>` session with no record: still recognised (TM-274 migration path).
+  const session = legacyRoleSessionName(agentId);
+  await iso.tmux(['new-session', '-d', '-s', session, '-c', repo, 'sleep', '120']);
   const socket = (await run('tmux', ['display-message', '-p', '-t', session, '#{socket_path}'], { env })).stdout.trim();
-  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { env, allowFailure: true }));
+  assert.equal(socket, iso.socket, 'an implicit tmux under this env must reach the test\'s own server');
   const acker = new AbortController();
   const acking = ackProbes(join(state, 'leads', 'probes'), acker.signal);
   t.after(async () => { acker.abort(); await acking; });

@@ -149,16 +149,20 @@ export async function atomicWriteJson(path, value) {
   }
 }
 
-export async function processStartIdentity(pid) {
+export async function processStartIdentity(pid, { platform = process.platform } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (platform !== "darwin") {
+    try {
+      const statLine = await readFile(`/proc/${pid}/stat`, "utf8");
+      const closeParen = statLine.lastIndexOf(")");
+      const fields = statLine.slice(closeParen + 2).split(" ");
+      return fields[19] ?? null;
+    } catch {}
+  }
+  // macOS has no /proc. lstart is locale-formatted, and the server and a worker
+  // must produce identical strings, so pin the locale.
   try {
-    const statLine = await readFile(`/proc/${pid}/stat`, "utf8");
-    const closeParen = statLine.lastIndexOf(")");
-    const fields = statLine.slice(closeParen + 2).split(" ");
-    return fields[19] ?? null;
-  } catch {}
-  try {
-    const { stdout } = await runFile("ps", ["-p", String(pid), "-o", "lstart="], { timeoutMs: 2_000 });
+    const { stdout } = await runFile("ps", ["-p", String(pid), "-o", "lstart="], { timeoutMs: 2_000, env: { ...process.env, LC_ALL: "C" } });
     return stdout || null;
   } catch { return null; }
 }

@@ -5,6 +5,8 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {run,writeJson,readJson,sleep as sleepMs} from '../../topology/lib/util.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
+import { initTempRepo } from '../helpers/temp-repo.mjs';
 import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
 import {superviseRepository,nextRung,SLEEP_LADDER_MS,DEFAULT_START_TIMEOUT_MS} from '../../topology/lib/supervision.mjs';
 import {censusPath,withStaleness} from '../../topology/lib/census.mjs';
@@ -30,9 +32,9 @@ const isolatedEnv = (root, home, extra = {}) => {
 for(const durable of [false,true]) test(`supervision refreshes a live ${durable?'durable':'legacy'} workflow instance without applying an unacknowledged change`,async t=>{
  const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
  const repo=join(root,'repo'),home=join(root,'home'),env=isolatedEnv(root,home);
- await run('git',['init',repo]);
- const server=`ao-supervise-${process.pid}-${Date.now()}`;t.after(()=>run('tmux',['-L',server,'kill-server'],{allowFailure:true}));
- await run('tmux',['-L',server,'new-session','-d','-s','workflow','-c',repo,'sleep','60']);
+ await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
+ const iso=isolatedTmux(t),server=iso.socket;
+ await iso.tmux(['new-session','-d','-s','workflow','-c',repo,'sleep','60']);
  const binding=(await listServerPanes({tmuxServer:server}))[0];
  const conf=join(repo,'.bytedesk/agent-orchestration');await mkdir(conf,{recursive:true});
  await writeJson(join(conf,'config.json'),{prompts:{common:'./policy.md'}});await writeFile(join(conf,'policy.md'),'initial policy');
@@ -71,7 +73,7 @@ async function quietRepo(t, label) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
   const env = isolatedEnv(root, home);
-  await run('git', ['init', repo]);
+  await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
   return { root, repo, home, env, options: { consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` } };
 }
 
@@ -276,7 +278,7 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   t.after(async () => { if (child?.pid) await reap(child.pid); await rm(root, { recursive: true, force: true }); });
   const repo = join(root, 'repo'), home = join(root, 'home'), cwd = join(root, 'ephemeral');
   const env = isolatedEnv(root, home);
-  await run('git', ['init', repo]);
+  await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
   await mkdir(cwd, { recursive: true });
 
   // The exact shape of the real failure: the daemon's WORKING DIRECTORY is a task-owned worktree
@@ -314,7 +316,7 @@ test('a supervisor that died during startup is not reported as a healthy one', a
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
   const env = isolatedEnv(root, home);
-  await run('git', ['init', repo]);
+  await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
   const key = repoKey((await canonicalRepoId(repo)).id);
   const recordPath = join(root, 'state', 'supervision', `${key}.process.json`);
   const write = record => writeJson(recordPath, record);
@@ -357,7 +359,7 @@ test('a supervisor retires itself when the repository it supervises is removed',
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
   const env = isolatedEnv(root, home);
-  await run('git', ['init', repo]);
+  await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
   let ticks = 0;
   // Once the crash is fixed, "the repo went away" must not become an immortal daemon spinning on a
   // deleted path. The loop has to end on its own, without a signal.

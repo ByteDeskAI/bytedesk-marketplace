@@ -13,7 +13,10 @@ argument-hint: "[provider: claude | codex | grok-build | kimi]"
    writable state-path checks, and actionable remediation.
    Read `diagnostics` separately: consumer admission, the fingerprint of the loaded build,
    fingerprints currently on disk, ACP/topology state-root alignment, repository supervisor
-   heartbeat, exact role readiness, and session-host health. A provider transport probe does
+   heartbeat, exact role readiness, and session-host health. `diagnostics.setup.problems` lists
+   machine setup problems with their fix: ao MCP servers older than the services (restart that host
+   session; never kill them) and a `TMUX_TMPDIR` whose socket path exceeds the unix-socket limit.
+   `diagnostics.setup.lastSelfHeal` is what the last `services ensure` refreshed or cleaned up. A provider transport probe does
    not establish accepted models, topology message delivery, or a healthy repository supervisor.
 4. If a consumer repository matters, pass its explicit absolute path as `consumerCwd`. Never use the
    server process cwd as a substitute.

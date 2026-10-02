@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run, writeJson } from '../../topology/lib/util.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 import { composePrompt } from '../../topology/lib/prompts.mjs';
 import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewStatus, ensureReviewer, independentReviewStatus, latestReview,
@@ -210,17 +211,16 @@ test('a note is informational: it may omit evidence and fix, never blocks approv
 });
 
 test('collection reads a verdict that has scrolled far above the bottom of the pane', async t => {
-  const socket = join(await mkdtemp(join(tmpdir(), 'ao-tmux-')), 's');
-  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { allowFailure: true }));
-  const signal = join(dirname(socket), 'verdict.txt');
-  await run('tmux', ['-S', socket, 'new-session', '-d', '-x', '200', '-y', '40', '-s', 'review', `sh -c 'while [ ! -f ${signal} ]; do sleep 0.1; done; cat ${signal}; seq 1 400; echo DONE; sleep 60'`]);
+  const iso = isolatedTmux(t), socket = iso.socket;
+  const signal = join(iso.dir, 'verdict.txt');
+  await iso.tmux(['new-session', '-d', '-x', '200', '-y', '40', '-s', 'review', `sh -c 'while [ ! -f ${signal} ]; do sleep 0.1; done; cat ${signal}; seq 1 400; echo DONE; sleep 60'`]);
   const { listServerPanes } = await import('../../topology/lib/tmux.mjs');
   const observed = (await listServerPanes({ tmuxServer: socket }))[0];
   const f = await fixture(t, observed);
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   await writeFile(signal, `● ${say(request.nonce, { verdict: 'approve', findings: [] })}\n`);
   for (let i = 0; i < 100; i++) {
-    const shown = (await run('tmux', ['-S', socket, 'capture-pane', '-p', '-t', observed.paneId])).stdout;
+    const shown = (await iso.tmux(['capture-pane', '-p', '-t', observed.paneId])).stdout;
     if (shown.includes('DONE')) break;
     await new Promise(resolve => setTimeout(resolve, 50));
   }
@@ -421,4 +421,99 @@ test('reviewer argv stays restricted and never auto-approves', () => {
   assert.ok(argv.includes('--restricted')); assert.ok(argv.includes('--safe-mode'));
   assert.ok(!argv.includes('--dangerously-skip-permissions'));
   assert.throws(() => buildReviewerArgv(adapter, { args: ['--dangerously-skip-permissions'] }, {}, {}), { code: 'TOPOLOGY_REVIEWER_READ_ONLY' });
+});
+
+// TM-195: the reviewer's pane is its one channel, and a b64: payload survives the TUI's wrapping.
+const b64 = response => `b64:${Buffer.from(JSON.stringify(response)).toString('base64')}`;
+// A TUI word-wraps at the last space before `width`, dropping it, and hard-cuts a longer word;
+// continuation rows are indented two spaces. This is what the pane holds before tmux reads it.
+function tuiWrap(text, width) {
+  const rows = [];
+  let rest = text;
+  while (rest.length > width) {
+    const space = rest.lastIndexOf(' ', width);
+    const cut = space > 0 ? space : width;
+    rows.push(rest.slice(0, cut));
+    rest = rest.slice(space > 0 ? cut + 1 : cut);
+  }
+  rows.push(rest);
+  return `● ${rows[0]}\n${rows.slice(1).map(row => `  ${row}`).join('\n')}\n\n✻ Baked for 9s\n\n❯`;
+}
+const quoting = finding({ severity: 'major', evidence: 'It runs rm -f "$GW_TMPDIR_LINK" before the ln, and sets GOMAXPROCS="${GOMAXPROCS:-1}".', fix: 'Quote it: "x" — then a TeamCity build cancelled  twice.' });
+const REQUEST_FAILED = { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' };
+
+for (const transport of ['file', 'nats']) {
+  test(`a b64 verdict quoting shell code arrives intact through a wrapping pane under the ${transport} transport`, async t => {
+    const f = await fixture(t);
+    // A NATS URL nothing listens on: collection must not depend on a verdict the reviewer cannot publish.
+    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1' };
+    const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+    const response = { verdict: 'changes_requested', findings: [quoting, finding({ severity: 'note', line: 3 })] };
+    for (const width of [50, 61, 80, 120]) {
+      assert.deepEqual(parseReviewResponse(tuiWrap(`AO_REVIEW ${request.nonce} ${b64(response)}`, width), request.nonce), response, `width ${width}`);
+    }
+    const review = await collectReview({ ...f.args, env, lead: async () => null, output: async () => tuiWrap(`AO_REVIEW ${request.nonce} ${b64(response)}`, 50) });
+    assert.equal(review.verdict, 'changes_requested');
+    assert.equal(review.findings[0].evidence, quoting.evidence);
+    assert.equal(review.findings[0].fix, quoting.fix, 'a double space and an em dash survive');
+  });
+}
+
+test('a malformed b64 verdict is refused and fails its request; one still printing waits', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => null, deliver: async () => assert.fail('no lead registered') };
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  const good = b64({ verdict: 'approve', findings: [finding()] });
+  let request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good.slice(0, 60)}` }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
+  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed');
+  const malformed = [
+    [`${good.slice(0, 40)}!${good.slice(41)}`, 'TOPOLOGY_REVIEWER_RESPONSE'],
+    [`${good.slice(0, -6)}=`, 'TOPOLOGY_REVIEWER_RESPONSE'],
+    [b64('not an object'), 'TOPOLOGY_REVIEWER_RESPONSE'],
+    [`b64:${Buffer.from('{"verdict":"approve","findings":[}').toString('base64')}`, 'TOPOLOGY_REVIEWER_RESPONSE'],
+    [b64({ verdict: 'approve' }), 'TOPOLOGY_REVIEWER_FINDINGS'],
+    [b64({ verdict: 'lgtm', findings: [] }), 'TOPOLOGY_REVIEWER_VERDICT'],
+  ];
+  for (const [payload, code] of malformed) {
+    await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${payload}` }), { code }, payload);
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).state, 'failed', payload);
+    request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  }
+  assert.equal((await collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good}` })).verdict, 'approve');
+});
+
+for (const transport of ['file', 'nats']) {
+  test(`a failed request is refused without escalating again under the ${transport} transport (TM-220)`, async t => {
+    const f = await fixture(t);
+    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1' };
+    const sent = [];
+    const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+    const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+    const refused = `AO_REVIEW ${request.nonce} ${b64({ verdict: 'approve', findings: [finding({ severity: 'major' })] })}`;
+    await assert.rejects(collectReview({ ...f.args, env, ...mail, output: async () => refused }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /minor, nit or note/ });
+    assert.equal(sent.length, 1);
+    const corrected = `${refused}\nAO_REVIEW ${request.nonce} ${b64({ verdict: 'approve', findings: [] })}`;
+    for (const output of [async () => refused, async () => corrected]) {
+      await assert.rejects(collectReview({ ...f.args, env, ...mail, output }), REQUEST_FAILED);
+    }
+    assert.equal(sent.length, 1, 'the lead was told once');
+    assert.equal(await latestReview(f.consumer, 'TM-1', f.env, f.home), null, 'no verdict recorded under the failed nonce');
+  });
+}
+
+test('review publish carries the whole response, findings included, and refuses a malformed one', async t => {
+  const { createFileTransport } = await import('../../topology/lib/orch-transport.mjs');
+  const { publishReviewerVerdict, awaitReviewerVerdict } = await import('../../topology/lib/reviewer.mjs');
+  const transport = createFileTransport();
+  t.after(() => transport.close());
+  const response = { verdict: 'changes_requested', findings: [quoting] };
+  for (const sent of [b64(response), JSON.stringify(response)]) {
+    const wait = await awaitReviewerVerdict({ repo: 'r', nonce: 'n1', transport });
+    await publishReviewerVerdict({ repo: 'r', nonce: 'n1', response: sent, transport });
+    assert.deepEqual(JSON.parse((await wait.received).body), response);
+  }
+  for (const [sent, code] of [[undefined, 'TOPOLOGY_REVIEWER_RESPONSE'], ['b64:!!', 'TOPOLOGY_REVIEWER_RESPONSE'], [b64({ verdict: 'approve' }), 'TOPOLOGY_REVIEWER_FINDINGS']]) {
+    await assert.rejects(publishReviewerVerdict({ repo: 'r', nonce: 'n2', response: sent, transport }), { code });
+  }
 });

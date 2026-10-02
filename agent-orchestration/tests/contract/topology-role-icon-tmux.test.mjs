@@ -10,6 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
+import { killOwnedServer } from "../helpers/isolated-tmux.mjs";
 import { NESTED_TEAM_ICON, ROLE_ICON_MAP, UNKNOWN_ROLE_ICON } from "../../topology/lib/identity.mjs";
 import { leadRegistryDir } from "../../topology/lib/lead.mjs";
 import { canonicalRepoId, repoKey } from "../../topology/lib/repoid.mjs";
@@ -31,7 +32,13 @@ const tmuxAvailable = await execFile("tmux", ["-V"]).then(() => true, () => fals
 const scriptAvailable = await execFile("script", ["-V"]).then(() => true, () => false);
 
 async function ao(args, env) {
-  return (await execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 })).stdout;
+  try {
+    return (await execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 })).stdout;
+  } catch (error) {
+    // The refusal text is the diagnosis; a bare "Command failed" hides it.
+    error.message += `\nsignal: ${error.signal}\nstderr: ${error.stderr}\nstdout: ${error.stdout}`;
+    throw error;
+  }
 }
 
 /** `launch` and `session open` self-start a supervisor; it must stop before its directory is removed. */
@@ -48,8 +55,7 @@ async function stopSupervisors(consumer) {
 
 /** Kill only this test's server, by socket, after proving the socket is under this test's TMUX_TMPDIR. */
 async function killIsolatedServer(env, socket) {
-  assert.ok(env.TMUX === "" && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to kill a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
-  await execFile("tmux", ["-S", socket, "kill-server"], { env: { ...process.env, ...env } }).catch(() => {});
+  await killOwnedServer(env, socket);
 }
 
 /** Attach a real client in a pty for a moment and return everything tmux wrote to that terminal. */
@@ -71,6 +77,9 @@ test("role icons reach managed panes and title bars; the registered lead wears i
   const env = {
     TMUX: "", AO_TRANSPORT: "file", AO_TMUX_COMMAND: "tmux", TMUX_TMPDIR: consumer, HOME: consumer, XDG_CONFIG_HOME: join(consumer, "config"),
     AO_CONSUMER: consumer, AGENT_ORCHESTRATION_STATE_HOME: join(consumer, "state"), AO_RING_WINDOW_MS: "20000", AO_BELL_POLL_MS: "500",
+    // TM-280: the run below re-spawns Ada, who is live in her role session. The fake agent writes no
+    // handoff, so bound the wait (default 5m) and let the transcript fallback stand in.
+    AO_RESPAWN_HANDOFF_TIMEOUT_MS: "3000", AO_RESPAWN_TURN_TIMEOUT_MS: "20000", AO_RESPAWN_POLL_MS: "250",
   };
   // Every tmux call here names this test's own server (TM-167 makes an unscoped listing an error).
   const socket = join(consumer, `tmux-${process.getuid()}`, "default");
@@ -95,12 +104,16 @@ test("role icons reach managed panes and title bars; the registered lead wears i
 
   // ---- a durable role session, opened before any lead is registered so its startup check is unchanged.
   const opened = JSON.parse(await ao(["session", "open", lead.id, "--consumer", consumer, "--providers-dir", fixtures, "--json"], env));
-  assert.deepEqual([opened.roleIcon, opened.roleLabel, opened.session], [ROLE_ICON_MAP.lead, "Lead", `ao-${lead.id}`]);
+  // ADR-0030 (TM-274): the session name is a label `<node>--<repo>--lead--<persona>`; identity is the
+  // @ao-agent option on the session, never the name.
+  assert.deepEqual([opened.roleIcon, opened.roleLabel], [ROLE_ICON_MAP.lead, "Lead"]);
+  assert.match(opened.session, /^[a-z0-9-]+--[a-z0-9-]+--lead--[a-z0-9-]+$/, `new-style lead session name: ${opened.session}`);
+  assert.equal(await tm("show-options", "-v", "-t", opened.session, "@ao-agent"), lead.id);
   assert.equal(await tm("display", "-p", "-t", opened.pane, "#{@ao_role_icon}"), ROLE_ICON_MAP.lead);
   assert.equal(await tm("show-options", "-v", "-t", opened.session, "set-titles"), "on");
   const leadTitle = await tm("show-options", "-v", "-t", opened.session, "set-titles-string");
   assert.equal(await tm("display", "-p", "-t", opened.pane, leadTitle), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead`);
-  assert.equal(await tm("display", "-p", "-t", opened.pane, "#{session_name}\t#{window_name}\t#{pane_title}"), `ao-${lead.id}\t${lead.id}\t${lead.id} · lead · fake-agent`);
+  assert.equal(await tm("display", "-p", "-t", opened.pane, "#{session_name}\t#{window_name}\t#{pane_title}"), `${opened.session}\t${lead.id}\t${lead.id} · lead · fake-agent`);
 
   // ---- register Ada as the repository lead, where readLeadRegistration looks for it.
   await writeJson(join(leadRegistryDir(env), `${repoKey((await canonicalRepoId(consumer)).id)}.json`), { agent_id: lead.id, consumer });
@@ -119,6 +132,10 @@ test("role icons reach managed panes and title bars; the registered lead wears i
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }],
   });
   const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", fixtures, "--run-id", runId, "--json"], env));
+  // TM-280: Ada was live in her role session, so the run re-spawned her into its conductor pane: one
+  // live session per agent, the role session ended, its handoff returned to the caller.
+  assert.deepEqual(launched.respawned?.map((r) => [r.agent, r.predecessor.session]), [[lead.id, opened.session]], JSON.stringify(launched.respawned));
+  assert.equal(await execFile("tmux", ["-S", socket, "has-session", "-t", `=${opened.session}`]).then(() => true, () => false), false, "the re-spawned lead's old role session still exists");
   const icon = { conductor: ROLE_ICON_MAP.lead, "worker-a": ROLE_ICON_MAP.worker, evil: UNKNOWN_ROLE_ICON };
   assert.deepEqual(Object.fromEntries(launched.agents.map((agent) => [agent.id, agent.roleIcon])), icon, JSON.stringify(launched, null, 2));
   assert.deepEqual(launched.participants.map((p) => [p.id, p.roleIcon, p.roleLabel]), [["team", NESTED_TEAM_ICON, "Nested team"]]);
@@ -144,9 +161,12 @@ test("role icons reach managed panes and title bars; the registered lead wears i
   assert.equal(await tm("display", "-p", "-t", paneOf("conductor"), titleFormat), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead`);
   assert.equal(await tm("display", "-p", "-t", paneOf("worker-a"), titleFormat), `${ROLE_ICON_MAP.worker} worker-a · Worker`);
 
-  // Unchanged by TM-168: the session name from the spec, the grid's one window, and the provider-owned
-  // pane title the launcher prints (`id · role · provider`).
-  assert.equal(launched.session, `ao-icons-${runId}`);
+  // Unchanged by TM-168: the grid's one window and the provider-owned pane title the launcher prints
+  // (`id · role · provider`). The session name is ao's since TM-274 (ADR-0030): a spec's `session`
+  // template no longer names it; a run is `node--repo--<workflow>--<persona>`, and the run id is the
+  // @ao-run label on it.
+  assert.match(launched.session, /^[a-z0-9-]+--[a-z0-9-]+--icons--[a-z0-9-]+$/, `new-style run session name: ${launched.session}`);
+  assert.equal(await tm("show-options", "-v", "-t", launched.session, "@ao-run"), runId);
   const listing = new Map((await tm("list-panes", "-s", "-t", `=${launched.session}`, "-F", "#{pane_id}\t#{window_name}\t#{pane_title}"))
     .split("\n").map((line) => { const [pane, window, title] = line.split("\t"); return [pane, { window, title }]; }));
   assert.deepEqual(listing.get(paneOf("conductor")), { window: "main", title: "conductor · orchestrator · fake-agent:c1" });

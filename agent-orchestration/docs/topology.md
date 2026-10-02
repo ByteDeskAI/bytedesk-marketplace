@@ -87,14 +87,14 @@ ao-topology agent show "Mira Halloran"             # by id, by full name, or by 
 ```
 
 **Two identifiers, different jobs.** An agent gets a short **id**, minted once at creation and
-never changed. It is the address every machine surface uses: tmux session names, mailbox paths,
+never changed. It is the address every machine surface uses: tmux session metadata, mailbox paths,
 routing predicates, delegation tokens, journal events, spec `agents[].id`. It also gets a **first
 name, last name and a title** derived from its role — `Mira Halloran, Engineering Lead`. That is
 what people see. The two are generated independently: the id takes nothing from the name, so a name
 collision can never disturb an address, and a name is checked against the existing roster before it
 is handed out.
 
-The rule about never showing the id is scoped to *human* interaction. Journals, session names,
+The rule about never showing the id is scoped to *human* interaction. Journals, session metadata,
 message envelopes, event payloads and agent-to-agent traffic all carry the id, deliberately.
 
 **One lead per repository**, enforced at creation rather than by convention. A lead is the repo's
@@ -114,31 +114,131 @@ adapter declares nothing produces a warning saying exactly what is and is not co
 
 There are three ways an agent can be running, and they answer different questions.
 
+**Every tmux session ao creates is named `[team--]node--repo--role--persona`** (TM-274, ADR-0030),
+for example `core--agents1--bytedesk-marketplace--lead--ada` in a team, or
+`agents1--bytedesk-marketplace--reviewer--linus` alone:
+
+| Segment | Value |
+|---|---|
+| `team` | the run's team (`--team`, or `team` in the spec); left out when there is none |
+| `node` | `AO_NODE_NAME`, else `node.name` in the ao user config (`$XDG_CONFIG_HOME/agent-orchestration/config.json`), else the short hostname. It is also the node's NATS leaf-node name. |
+| `repo` | the `origin` remote's repository name, owner stripped; the main checkout's folder name only when there is no remote. A linked worktree resolves to the same repo. |
+| `role` | the agent's role (`lead`, `reviewer`, `worker`, …); for a session that holds a team run, the **workflow name** |
+| `persona` | the agent's generated first name, `first-last` when the first name is taken in the scope; for a team run, a first name allocated to that run |
+
+Each segment is lowercased, every other run of characters becomes one `-`, and it is capped (team
+16, node 24, repo 32, role 48, persona 24), so `--` only ever separates segments and
+`bytedesk-marketplace (copy)` becomes `bytedesk-marketplace-copy`.
+
+**There is no collision suffix.** Names are unique by design:
+
+- **One live session per agent.** Spawning an agent that already holds a live session
+  **re-spawns** it (see [Re-spawning a live agent](#re-spawning-a-live-agent)); with
+  `--no-respawn` it is refused with `TOPOLOGY_AGENT_ALREADY_LIVE`, naming the session that holds it.
+- **Parallel work gets distinct agents.**
+- **Personas are unique per scope** — the team when there is one, else the repo segment — through a
+  persona registry (`allocate`, `release`, `holder`). An agent's persona stays with the agent. A team
+  run holds its persona only while it runs: `stop` releases it, as do a dry run and a launch that left
+  no session. The registry depends on the scope:
+
+  | Scope | Registry | Unique across |
+  |---|---|---|
+  | repo (no team) | the local registry: a lock-guarded file under the topology state root (`personas/`) | this node |
+  | team | the NATS registry: JetStream KV bucket `ORCH_PERSONAS` (TM-279) | every node of the team |
+
+  **NATS registry.** Each key is `<scope>.<persona>` (for example `team_core.ada`). Each value is
+  `{ holder, sessionId, node, repo, presence, allocatedAt }`. An allocation is an atomic KV `create`,
+  so two nodes can never take one name. A `release` deletes only at the revision it read.
+
+  **Reclaim.** A held persona is reclaimed only when both of these are true:
+  - the holder is more than two minutes old;
+  - the holder is not live in presence. That means the allocating repository's presence entry
+    (`ORCH_PRESENCE`, with a 45 s TTL) is missing, older than its `staleAfterMs` plus skew, or does not
+    list the holder.
+
+  The reclaim is a revision-checked update, so when two nodes race to reclaim the same persona,
+  exactly one wins.
+
+  **NATS unreachable.** A team allocation fails with `TOPOLOGY_PERSONA_REGISTRY_UNAVAILABLE`, which
+  names the team. It never falls back to the local file, because two nodes could then take the same
+  persona. Repo-scoped work keeps working. `AO_TRANSPORT=file` (no NATS at all, so there is one host)
+  keeps teams on the local registry.
+
+  **Local registry.** A run whose session vanished without a `stop` is reclaimed by the next allocation
+  once it is more than two minutes old. The registry checks for the session on this node's tmux server.
+
+  **Leaf nodes.** The hub hosts `ORCH_PERSONAS`, and every node of a team must reach that one bucket.
+  A leaf whose own nats-server runs no JetStream reaches the bucket over its leaf connection, with no
+  setting. A leaf whose own server runs JetStream must name the hub's JetStream domain:
+  `AO_NATS_JS_DOMAIN=<domain>`, or `"nats": { "domain": "<domain>" }` in the ao user config. The value is
+  1–64 letters, digits, hyphens or underscores. Without the domain, the leaf allocates from a separate
+  bucket on its own JetStream, and team uniqueness is lost. The domain applies to the transport's
+  whole js context, so mail, claims and presence also resolve on the hub.
+
+**The name is a label, not a key.** Every session gets a ULID and records `@ao-id`, `@ao-agent`,
+`@ao-role`, `@ao-repo`, `@ao-repo-origin` (`owner/repo`, or the path when there is no remote),
+`@ao-node`, `@ao-team`, `@ao-run`, `@ao-workflow`, `@ao-kind` (`role-session`, `spawn` or `run`)
+and, after a re-spawn, `@ao-predecessor` (the ULID of the incarnation it replaced) as tmux session options; a team session also tags each pane with
+its agent. The same identity is mirrored into the durable records (`identity` in an agent's
+`session.json`, `session_identity` in `run.json`). Every reader resolves identity from that
+metadata, never by parsing the name. Sessions named before TM-274 — `ao-<id>` role-sessions and
+`<id>-<7 hex>` spawns — are still recognised until they end; a role-session whose legacy session has
+ended reopens under the new name.
+
 A **run** is spawned, worked and torn down. `launch` builds a team from a spec, gives every agent a
-pane, and `stop` ends it. The unit of identity is the run, and the session is named for what ran and
-when: `<spec name>-<run id>`.
+pane, and `stop` ends it. Its session is `[team--]node--repo--<workflow>--<persona>`, for example
+`agents1--bytedesk-marketplace--parallel-review--ada`; a second concurrent run of the same workflow
+gets its own persona (`…--parallel-review--bell`) and runs alongside the first. A spec's `session`
+template no longer names the tmux session; `{{session}}` renders the name ao chose.
 
 A **spawn** is a run of exactly one agent drawn from the repo's library — which is what `tm dispatch`
 produces, and the common "send this agent to do that" shape. Its session is named for *who* is
-running: the agent's stable id plus a per-spawn discriminator, `<agent id>-<9f3e21a>`. Stable agent,
-distinct spawns — so two concurrent dispatches to the same agent are separately addressable, and
-`tmux ls` answers who rather than only what. `parseSessionName` resolves the name back to both
-halves, which is how `session list` files live spawns under the agent that owns them.
-
-The discriminator is seven hex characters shaped like an abbreviated git sha. **Its uniqueness scope
-is live sessions on this host** — the scope tmux itself enforces — so `launch` probes for a free
-name rather than trusting the entropy, and gives up loudly rather than colliding.
-
-Two cases stay run-addressed on purpose. A team has no single agent to name it after. And an agent
-declared inline in a spec has no stable id to offer: an id written into a spec file is a label local
-to that file, not an address, so two unrelated specs both saying `id: "worker"` would collide into
-one session name. A spec that sets `session` itself is always honoured — that is a requirement being
-stated, and launch does not guess over it.
+running, `[team--]node--repo--<role>--<persona>`. An agent declared inline in a spec has no stable id
+to offer, so a run of one inline agent stays a `run` session.
 
 A **role-session** is a named workspace you *call*. It is keyed to the agent's stable id — never to
-a run — so it outlives the process that opened it, and opening one that is already live reattaches
+a run — through the session name recorded in its `session.json`, so it outlives the process that opened it, and opening one that is already live reattaches
 to the same pane rather than starting a rival. A lead that loses its identity on restart is not a
 lead.
+
+### Re-spawning a live agent
+
+ADR-0030 part 4, TM-280. When `launch` spawns a library agent, or `session open` creates a session for
+one, and that agent is already live in another session, ao replaces the session instead of refusing:
+
+1. **Wait for the current turn to end — never interrupt it.** ao reads the pane's title and the last
+   20 lines for the busy markers `census.mjs` measured (a braille spinner, `esc to interrupt`, an
+   ellipsis with a running timer). Two idle looks in a row end the wait. The bound is
+   `--turn-timeout` (default 10m, env `AO_RESPAWN_TURN_TIMEOUT_MS`). If the turn is still running at
+   the bound, ao refuses with `TOPOLOGY_AGENT_BUSY`, and the old session is untouched.
+2. **Ask for a handoff.** ao types one line asking the agent to write a Markdown handoff with
+   `## Goal`, `## State`, `## Open questions` and `## Files` to
+   `<state root>/handoffs/<agent>/<predecessor ULID>.md` (written to `.tmp`, then renamed). The bound
+   is `--handoff-timeout` (default 5m, env `AO_RESPAWN_HANDOFF_TIMEOUT_MS`).
+3. **Fall back, labelled.** If no handoff arrives in time, ao writes one titled
+   `TRANSCRIPT-DERIVED FALLBACK`. It is built from the tail of the agent's Claude Code transcript
+   (`~/.claude/projects/<cwd>/<newest>.jsonl`, tail-read, thinking and image blocks dropped). For a
+   provider with no known transcript, it is the last 80 lines of the pane, titled
+   `PANE-CAPTURE FALLBACK`.
+4. **End the old session once.** If the provider declares an `exit_command` (Claude: `/exit`), ao
+   sends it and waits up to 15s. Then it runs `kill-session` on that exact session name, once.
+5. **Start the fresh session** under the same name and identity, with a new ULID. The predecessor's
+   ULID is recorded in `@ao-predecessor`, in `session.json` `identity.predecessor`, and in `run.json`
+   (`session_identity.predecessor` and the agent's `predecessor`).
+6. **Return the handoff to the caller, not to the new session.** `launch` returns it under
+   `respawned[]`, and `session open` under `respawned`: the predecessor, the handoff's `path`,
+   `source` (`agent`, `transcript-fallback` or `pane-capture-fallback`) and `text`. The lead decides
+   whether the new session gets it, either with `--pass-handoff` on the same call or later with
+   `ao-topology session handoff <agent> --file <path>`. Both deliver a verified pointer to the file.
+
+A per-agent lock (`<state root>/respawn/<agent>.lock`) is held from the liveness check until the new
+session exists. If two re-spawns of one agent run at once, exactly one replaces the agent. The other
+waits, then fails with `TOPOLOGY_RESPAWN_JOINED`, and its `details.joined` carries the winner's
+result. An agent that is one pane of a team session is not replaced (`TOPOLOGY_RESPAWN_SHARED_SESSION`),
+because ending that session would end the other agents. `--no-respawn` keeps the old
+`TOPOLOGY_AGENT_ALREADY_LIVE` answer for scripts that only need to detect a busy agent.
+`session open` on the agent's *own* live role-session still reattaches; re-spawning applies only when
+the agent is live in a different session.
 
 ```
 ao-topology session open "Mira Halloran"   # create, or reattach if it is already up

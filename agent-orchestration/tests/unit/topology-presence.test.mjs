@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import test from "node:test";
-import { collectPresenceAgents, createPresenceProducer, publishPresence } from "../../topology/lib/presence.mjs";
+import test, { after, afterEach } from "node:test";
+import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
+import { collectPresenceAgents, createPresenceProducer as createProducer } from "../../topology/lib/presence.mjs";
 const run=promisify(execFile);
 const python=args=>run("python3",args,{env:{...process.env,PYTHONDONTWRITEBYTECODE:"1"}});
 const fixtures=join(dirname(fileURLToPath(import.meta.url)),"../../topology/fixtures/presence-v1");
@@ -14,6 +15,25 @@ const fixtures=join(dirname(fileURLToPath(import.meta.url)),"../../topology/fixt
 // validator stays in use above for the frozen 7-snapshot corpus — that call is the control proving
 // the frozen fixtures are untouched by the bump, and moving it would delete the control.
 const fixturesV2 = fixtures.replace("presence-v1", "presence-v2");
+// TM-287: every snapshot a test publishes is run through the v2 validator, not only the ones a test
+// remembers to check. The producer is wrapped here, so a new test cannot publish around it.
+const published=[];let validated=0;
+const createPresenceProducer=async options=>{
+ const producer=await createProducer(options);
+ const publish=async()=>{const snapshot=await producer.publish();published.push(snapshot);return snapshot;};
+ const watch=({onPublish=()=>{},...rest}={})=>producer.watch({...rest,onPublish:snapshot=>{published.push(snapshot);return onPublish(snapshot);}});
+ return {...producer,publish,watch};
+};
+const publishPresence=async options=>(await createPresenceProducer(options)).publish();
+afterEach(async()=>{
+ const snapshots=published.splice(0);if(!snapshots.length) return;
+ const dir=await mkdtemp(join(tmpdir(),"ao-presence-v2-"));
+ try {
+  for(const [i,snapshot] of snapshots.entries()) {const file=join(dir,`${i}.json`);await writeFile(file,JSON.stringify(snapshot));await python([join(fixturesV2,"validate_presence_v2.py"),file]).catch(e=>{throw new Error(`published snapshot fails Presence v2:\n${e.stdout}`);});validated++;}
+ } finally {await rm(dir,{recursive:true,force:true});}
+});
+// Coverage, so an empty hook cannot read as a pass (verification-that-can-fail §1).
+after(()=>assert.ok(validated>=1,`only ${validated} published snapshot(s) were validated`));
 const put=async(path,value)=>{await mkdir(dirname(path),{recursive:true});await writeFile(path,JSON.stringify(value));};
 async function setup(t) {
  const root=await mkdtemp(join(tmpdir(),"ao-presence-"));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -139,16 +159,15 @@ test("all linked worktrees publish into the main checkout repository identity",a
 });
 test("real isolated tmux pane observation publishes only its exact standing incarnation",async t=>{
  try {await run("tmux",["-V"]);} catch {t.skip("tmux unavailable");return;}
- const ctx=await setup(t),server=join(ctx.root,"presence.sock");
- t.after(()=>run("tmux",["-S",server,"kill-server"]).catch(()=>{}));
- await run("tmux",["-S",server,"-f","/dev/null","new-session","-d","-s","arbitrary","-c",ctx.consumer,"sleep","30"]);
+ const ctx=await setup(t),iso=isolatedTmux(t),server=iso.socket;
+ await iso.tmux(["-f","/dev/null","new-session","-d","-s","arbitrary","-c",ctx.consumer,"sleep","30"]);
  const {listServerPanes}=await import("../../topology/lib/tmux.mjs");
  const [observed]=await listServerPanes({tmuxServer:server,env:ctx.env});
  await agent(ctx,"lead0001","lead",observed);
  const producer=await createPresenceProducer({...ctx,listPanesFn:listServerPanes});
  const snapshot=await producer.publish();assert.equal(snapshot.agents.length,1);assert.equal(snapshot.agents[0].session.serverKey,server);
  await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
- await run("tmux",["-S",server,"kill-session","-t","arbitrary"]);
+ await iso.tmux(["kill-session","-t","arbitrary"]);
  assert.deepEqual((await producer.publish()).agents,[]);
 });
 
@@ -157,6 +176,15 @@ test("spawn metadata is explicit, validated, and preserves library standing inde
  await agent(ctx,"work0001","worker");await workflow(ctx,"spawn-run",[{id:"work0001",role:"orchestrator",binding:observed,spawn:"abcdef1"}]);
  const producer=await createPresenceProducer(ctx),snapshot=await producer.publish();assert.equal(snapshot.agents[0].session.kind,"spawn");assert.equal(snapshot.agents[0].repoRole,"member");
  await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
+});
+test("TM-274: a spawn is identified by its recorded @ao-* metadata, whatever its session is named",async t=>{
+ const ctx=await setup(t);const observed=pane(1,{sessionName:"agents1--repo--worker--ada",identity:{id:"01J0000000000000000000000A",agent:"work0001",role:"worker",run:"r1"}});ctx.listPanesFn=async()=>[observed];
+ await agent(ctx,"work0001","worker");await workflow(ctx,"spawn-run",[{id:"work0001",role:"orchestrator",binding:observed,spawn:"abcdef1"}]);
+ const snapshot=await (await createPresenceProducer(ctx)).publish();assert.equal(snapshot.agents.length,1);assert.equal(snapshot.agents[0].session.kind,"run");assert.equal(snapshot.agents[0].session.spawn,null);
+ // TM-287: kind "spawn" is reserved for a legacy `<agentId>-<7hex>` name (session-names addendum §3.3).
+ // Metadata naming another agent is a contradiction, not a fallback to the (legacy-shaped) name.
+ observed.identity={agent:"other001",run:"r1"};observed.sessionName="work0001-abcdef1";
+ await assert.rejects((await createPresenceProducer(ctx)).publish(),e=>e.code==="TOPOLOGY_PRESENCE_SPAWN");
 });
 test("multiple library leads refuse publication and preserve prior metadata",async t=>{
  const ctx=await setup(t),producer=await createPresenceProducer(ctx);await producer.publish();const original=await readFile(producer.path,"utf8");

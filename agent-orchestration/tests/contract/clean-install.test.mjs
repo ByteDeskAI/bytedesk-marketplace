@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { stopSessionSupervisor } from "../../src/session/supervisor.mjs";
 
 const run = promisify(execFile);
 const sourceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -127,6 +128,9 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       // Only fake Kimi's bounded probe error is exposed by the readiness
       // assertion below. ACPX then includes its test-only lifecycle breadcrumbs.
       AGENT_ORCHESTRATION_VERBOSE: "1",
+      // TM-272: this test is about the install bundle, not the managed services. With services on,
+      // the spawn below would download process-compose and start it for a throwaway state root.
+      AGENT_ORCHESTRATION_SERVICES: "0",
     };
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
@@ -275,6 +279,9 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     assert.deepEqual(await readdir(decoy), [".git", "README.md"]);
     assert.equal((await readdir(stateRoot)).includes("runs"), true);
   } finally {
+    // The spawn above opens a run session, which starts a session host in a 24h systemd scope that
+    // outlives this test. Stop it, or every run of this suite leaves one behind (TM-272).
+    if (process.platform === "linux") await stopSessionSupervisor(await realpath(stateRoot).catch(() => stateRoot)).catch(() => {});
     await rm(root, { recursive: true, force: true });
   }
 });

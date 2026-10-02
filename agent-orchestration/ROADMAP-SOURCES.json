@@ -3,8 +3,8 @@
   "hashAlgorithm": "sha256",
   "files": {
     "src/cli.mjs": {
-      "sha256": "6b6b40ae375a6c55e9171ad9514a21dc2ea8f5ce42b34d726bba626063902c36",
-      "lineCount": 69,
+      "sha256": "46823dd5ba265245a3a3247214aed6d83ab55e38fd9d364c01fda35a2571e956",
+      "lineCount": 92,
       "anchors": [
         "Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]"
       ]
@@ -18,7 +18,7 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "59b870274b709cc6e300d62447535f4d108c8af6cf67211f1765edce554f43e2",
+      "sha256": "ba6e6883b4cb14da5943e9097ad2f90bc0ee88b8095e72db7e285df754493b6c",
       "lineCount": 307,
       "anchors": [
         "\"orchestration_capabilities\"",
@@ -79,8 +79,8 @@
       ]
     },
     "src/provider-sandbox.mjs": {
-      "sha256": "7ac702259c457ac06e3a409e5e67b1c2c49a08e5b3981ad76470253120703f2a",
-      "lineCount": 798,
+      "sha256": "68456ee2b21221953855c78196184c6dda13bf338c2a3d87fbd48ad54228986b",
+      "lineCount": 799,
       "anchors": [
         "\"AO_ACP_PROVIDER_REQUEST_LIMIT\""
       ]
@@ -142,8 +142,8 @@
       ]
     },
     "src/service.mjs": {
-      "sha256": "306e971100e2d1fccf767a2b096ab4b031cdf11b6f4616da04df3b28e1cd25ea",
-      "lineCount": 723,
+      "sha256": "dfd8e301961db4252acaaf75fc8c57c2489bf8b7584eef1d9cae98be22446460",
+      "lineCount": 746,
       "anchors": [
         "async cancel(",
         "async decision(",

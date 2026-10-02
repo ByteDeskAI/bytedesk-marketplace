@@ -8,6 +8,7 @@ import {runtimeDiagnostics} from '../../src/diagnostics.mjs';
 import {run,readJson,writeJson} from '../../topology/lib/util.mjs';
 import {canonicalRepoId,repoKey} from '../../topology/lib/repoid.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import {acknowledgePrompt,refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
 import {leadNonceAck,leadRegistryDir,responsiveForTest} from '../../topology/lib/lead.mjs';
 import {reviewerInboxRoot,reviewerNonceAck,reviewerProbeReady} from '../../topology/lib/reviewer.mjs';
@@ -68,15 +69,9 @@ test('fresh idle census evidence alone never labels a role ready',async t=>{
 async function roleFixture(t) {
   if((await run('tmux',['-V'],{allowFailure:true})).code!==0){t.skip('tmux unavailable');return null;}
   const root=await mkdtemp(join(tmpdir(),'ao-diagnostics-proof-'));
-  const consumer=join(root,'repo'),pluginRoot=join(root,'plugin'),stateRoot=join(root,'state'),home=join(root,'home'),tmuxDir=join(root,'tmux');
-  await mkdir(tmuxDir,{recursive:true});
-  const socket=join(tmuxDir,'roles.sock');
-  const env={...process.env,TMUX:'',TMUX_PANE:'',TMUX_TMPDIR:tmuxDir,HOME:home,XDG_CONFIG_HOME:join(home,'.config'),AGENT_ORCHESTRATION_STATE_HOME:stateRoot};
-  t.after(async()=>{
-    assert.ok(env.TMUX==='' && socket.startsWith(`${tmuxDir}/`));
-    await run('tmux',['-S',socket,'kill-server'],{env,allowFailure:true});
-    await rm(root,{recursive:true,force:true});
-  });
+  const consumer=join(root,'repo'),pluginRoot=join(root,'plugin'),stateRoot=join(root,'state'),home=join(root,'home');
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const {socket,env}=isolatedTmux(t,{extraEnv:{HOME:home,XDG_CONFIG_HOME:join(home,'.config'),AGENT_ORCHESTRATION_STATE_HOME:stateRoot}});
   await run('git',['init','-q',consumer]);
   await run('git',['-C',consumer,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-m','base']);
   await writeJson(join(pluginRoot,'config.defaults.json'),{prompts:{common:'common.md'}});
