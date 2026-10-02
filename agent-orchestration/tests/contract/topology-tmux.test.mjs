@@ -19,8 +19,13 @@ const root = process.cwd();
 const cli = join(root, "topology", "cli.mjs");
 const fakeAgent = join(root, "tests", "fixtures", "fake-agent.mjs");
 
+// TM-298: pinned here, not only by the preflight — CI runs these files without it. With the services
+// on, `launch` registers the consumer with process-compose, whose re-run `supervise` has a scrubbed
+// env: no TMUX_TMPDIR, so its lead lands on the operator's default server. A test may override it.
+const TEST_ENV = { AO_TRANSPORT: 'file', AGENT_ORCHESTRATION_SERVICES: '0' };
+
 async function ao(args, env = {}) {
-  const result = await execFile(process.execPath, [cli, ...args], { env: { ...process.env, AO_TRANSPORT: 'file', ...env }, encoding: "utf8", timeout: 120_000 });
+  const result = await execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...TEST_ENV, ...env }, encoding: "utf8", timeout: 120_000 });
   return result.stdout;
 }
 
@@ -29,7 +34,7 @@ async function ao(args, env = {}) {
  * did not land" — is now a legitimate outcome that has to be asserted rather than caught.
  */
 async function aoAllowingFailure(args, env = {}) {
-  return execFile(process.execPath, [cli, ...args], { env: { ...process.env, AO_TRANSPORT: 'file', ...env }, encoding: "utf8", timeout: 120_000 })
+  return execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...TEST_ENV, ...env }, encoding: "utf8", timeout: 120_000 })
     .then((result) => ({ code: 0, stdout: result.stdout, stderr: result.stderr }))
     .catch((error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" }));
 }
