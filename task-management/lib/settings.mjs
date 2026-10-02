@@ -8,6 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { CONFIG_KEYS, config, effectiveConfig, logEvent, withLock, writeAtomic, writeConfig } from "./store.mjs";
 import { paths } from "./paths.mjs";
 import { ntfyConfig } from "./ntfy.mjs";
@@ -553,15 +554,36 @@ export function validateConfigDocument(doc, current = {}) {
   return { errors, document: errors.length ? null : document };
 }
 
-/** Validate, refuse a stale revision, write atomically under the store lock. */
+/**
+ * The document minus every value equal to its default, one level into the merged sections. A
+ * writer that sends back the effective config would otherwise freeze today's defaults into
+ * config.json, and a later default change would never reach this store.
+ */
+export function withoutDefaults(doc) {
+  const defaults = effectiveConfig({});
+  const out = {};
+  for (const [k, v] of Object.entries(doc)) {
+    if (isDeepStrictEqual(v, defaults[k])) continue;
+    if (kind(v) === "object" && kind(defaults[k]) === "object") {
+      const section = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => !isDeepStrictEqual(sv, defaults[k][sk])));
+      if (Object.keys(section).length) out[k] = section;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Validate, refuse a stale revision, drop defaults, write atomically under the store lock. */
 export function writeConfigDocument(doc, { ifRevision = null, p = paths() } = {}) {
   return withLock(p, () => {
     const before = readConfigDocument(p);
     if (ifRevision && ifRevision !== before.revision) {
       return { ok: false, code: "TM_CONFIG_STALE", path: p.config, expected: ifRevision, revision: before.revision, reason: `${p.config} changed since revision ${ifRevision}; it is now ${before.revision}. Re-read it and apply your change again.` };
     }
-    const { errors, document } = validateConfigDocument(doc, before.config);
+    const { errors, document: valid } = validateConfigDocument(doc, before.config);
     if (errors.length) return { ok: false, code: "TM_CONFIG_INVALID", path: p.config, errors, reason: `refusing to write ${p.config}: ${errors.join("; ")}` };
+    const document = withoutDefaults(valid);
     writeAtomic(p.config, `${JSON.stringify(document, null, 2)}\n`);
     const after = readConfigDocument(p);
     logEvent("settings", { keys: Object.keys(document).join(","), revision: after.revision }, p);

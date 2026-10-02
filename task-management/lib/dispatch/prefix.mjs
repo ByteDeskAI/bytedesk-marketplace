@@ -38,6 +38,8 @@ export function aoGlobalPrefix({ bin = "ao-topology", spawnImpl = spawnSync, rea
     const why = layer?.message || String(res.stderr || "").trim().split("\n")[0] || `exited ${res.status}`;
     return warn(`ao-topology config get failed: ${why}`);
   }
+  // ao itself ignores a layer that fails its shape check, so tm must not apply one either.
+  if (Array.isArray(layer.errors) && layer.errors.length) return warn(`global ao config is invalid: ${layer.errors[0]}`);
   const entry = layer.document?.prompts?.prefix;
   if (entry === undefined || entry === null) return { text: null, warning: null };
   if (typeof entry === "object" && typeof entry.text === "string") return { text: entry.text.trim() || null, warning: null };

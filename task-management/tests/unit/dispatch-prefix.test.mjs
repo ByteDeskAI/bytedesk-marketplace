@@ -69,6 +69,15 @@ describe("aoGlobalPrefix", () => {
     assert.match(aoGlobalPrefix({ bin: ao.bin }).warning, /global config is not valid JSON/);
   });
 
+  it("ao reports the global layer invalid: the prefix is not applied, and the warning says why", () => {
+    const ao = fakeAo("");
+    writeFileSync(join(ao.dir, "p.md"), "should not be used");
+    writeFileSync(join(ao.dir, "reply.json"), JSON.stringify({ ...layer(ao.dir, { prompts: { prefix: "p.md" }, bogus: 1 }), errors: ['config.json: unknown key "bogus"'] }));
+    const got = aoGlobalPrefix({ bin: ao.bin });
+    assert.equal(got.text, null);
+    assert.match(got.warning, /global ao config is invalid: .*bogus/);
+  });
+
   it("an unreadable prefix file: a warning naming the path", () => {
     const ao = fakeAo("");
     writeFileSync(join(ao.dir, "reply.json"), JSON.stringify(layer(ao.dir, { prompts: { prefix: "gone.md" } })));

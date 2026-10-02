@@ -1233,7 +1233,8 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 
 `.bytedesk/task-management/bin/tm config` prints the current policy; `.bytedesk/task-management/bin/tm config <key> <json>` sets one.
 A value that is not valid JSON is stored as a string, so `tm config dispatch.integrationBranch develop`
-works without extra quoting.
+works without extra quoting. A value that starts with `{`, `[` or `"` but does not parse is refused
+(exit 2), so a typo in an object is never stored as a string.
 
 The gateway settings UI uses a JSON contract that mirrors `ao-topology config get|set`:
 
@@ -1241,14 +1242,17 @@ The gateway settings UI uses a JSON contract that mirrors `ao-topology config ge
 |---|---|
 | `tm config --json` | the whole effective config (stored values with defaults filled in) |
 | `tm config <key> --json` | one value; a dotted key is a path |
-| `tm config --with-revision` | `{ path, revision, config }` from one read; `revision` is the sha256 of `config.json`'s bytes, or `"absent"` |
+| `tm config --with-revision` | `{ path, revision, stored, effective }` from one read; `stored` is `config.json` as written, `effective` has defaults filled in, and `revision` is the sha256 of the file's bytes, or `"absent"` |
 | `tm config --set-file <json> [--if-revision <rev>] --json` | validates the whole document, then writes it atomically under the store lock and returns `{ ok, path, previous_revision, revision }` |
 
-`--set-file` replaces the document; keys it leaves out fall back to their defaults. It refuses with
+`--set-file` replaces the document; keys it leaves out fall back to their defaults, and values equal
+to their default are dropped before the write (one level into sections such as `dispatch`), so a
+later default change still reaches this store. It refuses with
 exit 2 and writes nothing when: a top-level key is unknown (the refusal names every one), a key has
 the wrong type, a read-only key (`boardId`, `owner`) differs from its current value, or
-`--if-revision` no longer matches the file (`TM_CONFIG_STALE`). Read with `--with-revision`, edit,
-and write back with that revision, so you never overwrite a change you did not see. Free-form
+`--if-revision` no longer matches the file (`TM_CONFIG_STALE`). Read with `--with-revision`, edit
+`stored` (not `effective`, which is for display), and write it back with that revision, so you
+never overwrite a change you did not see. Free-form
 sections such as `dispatch.tmuxCommand` and `board.views` are not type-checked.
 
 | Key | Default | Effect |

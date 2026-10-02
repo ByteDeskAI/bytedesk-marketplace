@@ -1104,8 +1104,9 @@ const VERBS = {
       return;
     }
     if (args.includes("--with-revision")) {
-      const { path, revision, config: effective } = readConfigDocument(P);
-      return out(JSON.stringify({ path, revision, config: effective }, null, 2));
+      // Writers edit `stored` and send it back; `effective` is for display only (defaults filled in).
+      const { path, revision, stored, config: effective } = readConfigDocument(P);
+      return out(JSON.stringify({ path, revision, stored, effective }, null, 2));
     }
     if (!key) return out(JSON.stringify(config(P), null, 2));
     // A read never writes: `{ [key]: undefined }` through writeConfig would drop the key (TM-174).
@@ -1133,7 +1134,9 @@ const VERBS = {
     let parsed;
     try {
       parsed = JSON.parse(value);
-    } catch {
+    } catch (err) {
+      // Only a word is a bare string; a broken object, array or quoted string is a typo to refuse.
+      if (/^[[{"]/.test(value.trim())) die(`tm config ${key}: value is not valid JSON: ${err.message}`, 2);
       parsed = value;
     }
     out(JSON.stringify(writeConfig(setPath(config(P), key, parsed), P), null, 2));
