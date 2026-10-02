@@ -6,7 +6,10 @@
  * Everything else here is already `tm config` / config.json — the page is a surface,
  * not a new store.
  */
-import { config, writeConfig, logEvent } from "./store.mjs";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
+import { CONFIG_KEYS, config, effectiveConfig, logEvent, withLock, writeAtomic, writeConfig } from "./store.mjs";
 import { paths } from "./paths.mjs";
 import { ntfyConfig } from "./ntfy.mjs";
 import { ensurePool } from "./dispatch/pool.mjs";
@@ -498,6 +501,94 @@ export function applySettings(patch, p = paths()) {
     }
   }
   return { ok: true, values: known, ignored: ignored.length ? ignored : undefined, settings: settingsSnapshot(p) };
+}
+
+// ── Whole-document config contract (TM-300) ──────────────────────────────────
+// The gateway settings UI reads and writes tm's config through `tm config --json` and
+// `tm config --set-file`, mirroring `ao-topology config get|set`: a revision that is the sha256
+// of config.json's bytes, so a writer can refuse to overwrite an edit it never saw.
+
+export const ABSENT_REVISION = "absent";
+
+/** Top-level keys a document may carry: defaulted ones, catalog roots, and store-written ones. */
+const DOCUMENT_KEYS = new Set([...CONFIG_KEYS, ...CATALOG.map((f) => f.key.split(".")[0]), "activeEpic", "integrationBranch", "planner"]);
+
+const kind = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
+
+/** `{ path, revision, stored, config }` from ONE read, so the revision names exactly those bytes. */
+export function readConfigDocument(p = paths()) {
+  let bytes;
+  try {
+    bytes = readFileSync(p.config);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+    return { path: p.config, revision: ABSENT_REVISION, stored: {}, config: effectiveConfig({}) };
+  }
+  const stored = JSON.parse(bytes.toString("utf8"));
+  return { path: p.config, revision: createHash("sha256").update(bytes).digest("hex"), stored, config: effectiveConfig(stored) };
+}
+
+/** Errors for a whole config document: unknown keys by name, wrong types, edited read-only keys. */
+export function validateConfigDocument(doc, current = {}) {
+  if (kind(doc) !== "object") return { errors: ["config must be a JSON object"], document: null };
+  const unknown = Object.keys(doc).filter((k) => !DOCUMENT_KEYS.has(k));
+  const errors = unknown.length ? [`unknown config keys: ${unknown.join(", ")}`] : [];
+  const defaults = effectiveConfig({});
+  for (const [k, v] of Object.entries(doc)) {
+    // ponytail: type-checks top-level keys with a default plus every catalog key; free-form
+    // nested sections (dispatch.tmuxCommand, board.views, …) are not schema'd here.
+    if (k in defaults && !BY_KEY.has(k) && kind(defaults[k]) !== kind(v)) errors.push(`${k} must be ${kind(defaults[k]) === "array" ? "an array" : `a ${kind(defaults[k])}`}`);
+  }
+  let document = doc;
+  for (const field of CATALOG) {
+    const raw = getPath(doc, field.key);
+    if (raw === undefined) continue;
+    if (field.readOnly) {
+      if (JSON.stringify(raw) !== JSON.stringify(getPath(current, field.key) ?? null)) errors.push(`${field.key} is read-only`);
+      continue;
+    }
+    const got = coerce(field, raw);
+    if (got.error) errors.push(got.error);
+    else document = setPath(document, field.key, got.value);
+  }
+  return { errors, document: errors.length ? null : document };
+}
+
+/**
+ * The document minus every value equal to its default, one level into the merged sections. A
+ * writer that sends back the effective config would otherwise freeze today's defaults into
+ * config.json, and a later default change would never reach this store.
+ */
+export function withoutDefaults(doc) {
+  const defaults = effectiveConfig({});
+  const out = {};
+  for (const [k, v] of Object.entries(doc)) {
+    if (isDeepStrictEqual(v, defaults[k])) continue;
+    if (kind(v) === "object" && kind(defaults[k]) === "object") {
+      const section = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => !isDeepStrictEqual(sv, defaults[k][sk])));
+      if (Object.keys(section).length) out[k] = section;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Validate, refuse a stale revision, drop defaults, write atomically under the store lock. */
+export function writeConfigDocument(doc, { ifRevision = null, p = paths() } = {}) {
+  return withLock(p, () => {
+    const before = readConfigDocument(p);
+    if (ifRevision && ifRevision !== before.revision) {
+      return { ok: false, code: "TM_CONFIG_STALE", path: p.config, expected: ifRevision, revision: before.revision, reason: `${p.config} changed since revision ${ifRevision}; it is now ${before.revision}. Re-read it and apply your change again.` };
+    }
+    const { errors, document: valid } = validateConfigDocument(doc, before.config);
+    if (errors.length) return { ok: false, code: "TM_CONFIG_INVALID", path: p.config, errors, reason: `refusing to write ${p.config}: ${errors.join("; ")}` };
+    const document = withoutDefaults(valid);
+    writeAtomic(p.config, `${JSON.stringify(document, null, 2)}\n`);
+    const after = readConfigDocument(p);
+    logEvent("settings", { keys: Object.keys(document).join(","), revision: after.revision }, p);
+    return { ok: true, path: p.config, previous_revision: before.revision, revision: after.revision };
+  });
 }
 
 export function launchBrowserEnabled(p = paths(), env = process.env, argv = process.argv) {

@@ -240,6 +240,51 @@ because ending that session would end the other agents. `--no-respawn` keeps the
 `session open` on the agent's *own* live role-session still reattaches; re-spawning applies only when
 the agent is live in a different session.
 
+### Applying a changed prompt to a running agent: `agent restart` (TM-297)
+
+A prompt change reaches a live agent only at a restart: until then it is staged as
+`prompt.pending.md` with status `restart-required` or `queued`. `agent restart` is the one verb an
+operator or a UI calls to apply it to one running agent — a standing role (lead, worker, designer) or
+a library agent:
+
+```
+ao-topology agent restart <id|"Full Name"> --mode handoff|resume [--consumer <repo>]
+            [--turn-timeout 10m] [--handoff-timeout 5m] --json
+```
+
+Both modes run the re-spawn above against the agent's live session — its own role-session included —
+so the turn is waited out, the old session ends once, and the successor starts under the same name
+with a new ULID and the promoted prompt (`prompt.pending.md` copied into `prompt.md`, then the usual
+bootstrap pointer). The wait also treats **typed, unsent text in the composer** as busy, for any
+adapter that declares `composer.empty_pattern`; this applies to every re-spawn, not only restarts.
+
+- `handoff` asks the old session for its handoff (with the labelled fallback) and passes it to the
+  successor — there is no separate `--pass-handoff` step.
+- `resume` ends the old process at the same safe boundary and starts the successor with the
+  provider's `resume_args` (Claude: `--resume <session-id>`), so the same provider conversation
+  continues on the new prompt and no handoff is needed. It resumes only when the adapter declares
+  `resume_args`, the live session runs in the agent's own directory, and that provider session's id
+  is found (Claude: the newest `~/.claude/projects/<cwd>/<id>.jsonl`). Otherwise it falls back to
+  `handoff` and the result says `"fallback": "handoff"` with `fallback_reason`.
+
+Refusals: `TOPOLOGY_SESSION_OWNERSHIP` when the same-named session has no matching owned record or
+its incarnation changed; `TOPOLOGY_AGENT_BUSY` when the turn or typed input did not finish in time
+(the session is untouched); `TOPOLOGY_AGENT_NOT_LIVE` when there is nothing to restart (open it
+instead); `TOPOLOGY_RESTART_MODE` for a missing or unknown `--mode`; `TOPOLOGY_RESPAWN_SHARED_SESSION`
+for an agent that is one pane of a workflow team session. The reviewer cannot be restarted this way
+(`TOPOLOGY_REVIEWER_READ_ONLY`, as for `session open`).
+
+The JSON result carries `restart`: `mode` (used), `requested_mode`, `fallback`/`fallback_reason`
+when it fell back, `provider_session_id` when it resumed, `old_session` and `new_session` (name and
+ULID), the new `incarnation`, and `prompt_revision` (the revision staged into the successor). In
+handoff mode `respawned` carries the handoff, as for `session open`.
+
+`agent list --json` reports, per agent, `applied_revision` (the revision its process was given:
+acknowledged, else the one staged into the running incarnation), `desired_revision` (what config
+composes now), `prompt_status`, and `restart_required` — true only for a live agent whose applied
+revision differs from the desired one. A stopped agent starts on the current prompt and never needs
+a restart.
+
 ```
 ao-topology session open "Mira Halloran"   # create, or reattach if it is already up
 ao-topology session list                   # which of this repo's agents are live

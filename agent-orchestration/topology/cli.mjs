@@ -67,6 +67,13 @@ Conduct (used by the orchestrator agent)
   agent new --role <role> [--cli <id>] [--reports-to <id>] [--name "First Last"]
   agent list [--json]                          the repo's roster, by name and title
   agent show <id|"Full Name">                  one agent
+  agent restart <id|"Full Name"> --mode handoff|resume [--turn-timeout 10m] [--handoff-timeout 5m] [--json]
+                                               apply a changed prompt to a LIVE agent (TM-297): its turn
+                                               and any typed input are waited out, then handoff replaces
+                                               the session and passes the predecessor's handoff; resume
+                                               continues the same provider conversation where the
+                                               provider can (else falls back to handoff and says why).
+                                               agent list --json flags restart_required per agent
   agent set-instructions <id> (--file <md> | --text <s>) [--mode append|replace]
                                                the agent's own instructions; replace drops its template
 
@@ -273,7 +280,25 @@ function respawnFlags(flags) {
 /** What a re-spawn hands back to its caller: the predecessor, where the handoff is, and its text. */
 async function respawnReport(record) {
   const { readHandoff } = await import("./lib/respawn.mjs");
-  return { agent: record.agent, predecessor: record.predecessor, handoff: { ...record.handoff, text: await readHandoff(record) }, turn: record.turn };
+  return { agent: record.agent, predecessor: record.predecessor, handoff: record.handoff ? { ...record.handoff, text: await readHandoff(record) } : null, turn: record.turn };
+}
+
+/** TM-297: what `agent restart` replaced, with what, and on which prompt revision. */
+async function restartReport(requested, result, agent) {
+  const { readPromptState } = await import("./lib/prompts.mjs");
+  const { incarnationOf } = await import("./lib/incarnation.mjs");
+  const record = result.respawn;
+  const resumed = Boolean(record.resume?.provider_session_id);
+  return {
+    mode: resumed ? "resume" : "handoff",
+    requested_mode: requested,
+    ...(requested === "resume" && !resumed ? { fallback: "handoff", fallback_reason: record.resume?.reason ?? "not resumable" } : {}),
+    ...(resumed ? { provider_session_id: record.resume.provider_session_id } : {}),
+    old_session: record.predecessor,
+    new_session: { session: result.session, id: result.record?.identity?.id ?? null, predecessor: result.record?.identity?.predecessor ?? null },
+    incarnation: incarnationOf(result.binding),
+    prompt_revision: (await readPromptState(agent._dir))?.desired_revision ?? null,
+  };
 }
 
 async function libraryVisuals(ctx) {
@@ -1231,11 +1256,24 @@ const commands = {
       out({ ok: true, agent: displayName(agent), ...agent, ...roleVisual({ role: agent.role }) });
       return;
     }
+    if (sub === "restart") {
+      const mode = String(flags.mode ?? "");
+      invariant(mode === "handoff" || mode === "resume", "TOPOLOGY_RESTART_MODE", "Pass --mode handoff|resume.");
+      return commands.session({ flags, positional: ["open", positional[1]], replace: mode });
+    }
     const roster = await listAgents(ctx.agentDirs);
     const lead = await findLead(ctx.agentDirs);
     const visualOf = await libraryVisuals(ctx);
     if (flags.json) {
-      out({ ok: true, lead: lead ? lead.id : null, agents: roster.map((a) => ({ id: a.id, name: displayName(a), role: a.role, ...visualOf(a), reports_to: a.reports_to })) });
+      // TM-297: per agent, the prompt revision it runs, the one config wants, and whether only a restart applies it.
+      const { loadConfig } = await import('./lib/config.mjs');
+      const { promptRevisions } = await import('./lib/prompt-lifecycle.mjs');
+      const { liveSessionOf } = await import('./lib/launch.mjs');
+      const loaded = await loadConfig(ctx);
+      const sessions = await tmux.listSessionIdentities(); // one tmux query for the whole roster
+      const agents = await Promise.all(roster.map(async (a) => ({ id: a.id, name: displayName(a), role: a.role, ...visualOf(a), reports_to: a.reports_to,
+        ...await promptRevisions({ agent: a, consumer: ctx.consumer, loaded, live: Boolean(await liveSessionOf(a.id, { agentsDir: dirname(a._dir), sessions })) }) })));
+      out({ ok: true, lead: lead ? lead.id : null, agents });
       return;
     }
     // People see names and titles. The id is shown too because this is an operator surface, but the
@@ -1254,7 +1292,7 @@ const commands = {
    * outlives this process. `open` on a live session reattaches rather than creating a second one,
    * which is what makes the identity durable rather than merely repeatable.
    */
-  async session({ flags, positional }) {
+  async session({ flags, positional, replace = null }) {
     const ctx = context(flags);
     const sub = (positional && positional[0]) || "list";
 
@@ -1351,9 +1389,11 @@ const commands = {
     const prompt = await refreshPrompt({ ...ctx, agent, session, live: await tmux.hasSession(session) });
     invariant(prompt.status !== 'invalid-config', 'TOPOLOGY_PROMPT_INVALID', 'Prompt invalid; existing session preserved.');
     const argv = buildArgv(adapter, { ...agent, add_dirs: addDirs }, vars);
-    const { passHandoff: pass, ...respawnOptions } = respawnFlags(flags);
+    const { passHandoff: passFlag, ...respawnOptions } = respawnFlags(flags);
     const result = await openRoleSession({
       ...respawnOptions,
+      replace,
+      home: ctx.home,
       agentsDir: dirname(agent._dir),
       agentId: agent.id,
       adapter,
@@ -1365,6 +1405,10 @@ const commands = {
       controlledRestart: flags.restart === true,
       log: flags.json ? () => {} : (line) => console.error(`  ${line}`),
     });
+    // TM-297: a restart that collected a handoff (handoff mode, or resume that fell back to it) gives it
+    // to the successor; that is the point of it. A resumed conversation collected none, so has none to pass.
+    const handoffPath = result.respawn?.handoff?.path ?? null;
+    const pass = Boolean(handoffPath) && (passFlag || replace !== null);
     out({
       ok: true,
       agent: displayName(agent),
@@ -1376,9 +1420,10 @@ const commands = {
       created: result.created,
       reattached: result.reattached,
       ...(result.respawn ? { respawned: { ...(await respawnReport(result.respawn)),
-        passed_to_new_session: pass ? (await (await import("./lib/respawn.mjs")).passHandoff({ pane: result.pane, adapter, path: result.respawn.handoff.path })).delivered : false } } : {}),
+        passed_to_new_session: pass ? (await (await import("./lib/respawn.mjs")).passHandoff({ pane: result.pane, adapter, path: handoffPath })).delivered : false } } : {}),
       cwd: result.record?.cwd ?? join(dirname(agent._dir), agent.id),
       attach: tmux.attachCommand(result.session),
+      ...(replace ? { restart: await restartReport(replace, result, agent) } : {}),
     });
   },
 

@@ -230,7 +230,9 @@ describe("governed completion is shared by every task write surface", () => {
     }
     const res = tm("dispatch", "TM-001", "--backend", "manual");
     assert.equal(res.status, 0, res.stderr);
-    assert.doesNotMatch(res.stderr, /WARNING|GOVERNED/);
+    assert.doesNotMatch(res.stderr, /GOVERNED|governance/i);
+    // TM-300: with ao absent the one warning allowed is that its global prompt prefix was not applied.
+    assert.deepEqual(res.stderr.split("\n").filter((l) => l.startsWith("WARNING")), ["WARNING: global prompt prefix not applied: ao-topology is not installed"]);
     assert.doesNotMatch(tm("doctor", "--json").stdout, /governance-opted-out/);
   });
 });

@@ -160,7 +160,11 @@ test("agent and session lists: icon before the readable name, additive JSON, ids
 
   const listed = JSON.parse(await ao("agent", "list", "--json"));
   const row = (id) => listed.agents.find((agent) => agent.id === id);
-  assert.deepEqual(row(lead.id), { id: lead.id, name: "Ada Vale, Engineering Lead", role: "lead", roleIcon: ROLE_ICON_MAP.lead, roleLabel: "Lead", reports_to: null });
+  // Additive: TM-297 appends the prompt-revision fields; the identity fields are unchanged.
+  const { applied_revision, desired_revision, prompt_status, restart_required, ...identity } = row(lead.id);
+  assert.deepEqual(identity, { id: lead.id, name: "Ada Vale, Engineering Lead", role: "lead", roleIcon: ROLE_ICON_MAP.lead, roleLabel: "Lead", reports_to: null });
+  assert.equal(typeof restart_required, "boolean");
+  void [applied_revision, desired_revision, prompt_status];
   assert.deepEqual([row(designer.id).roleIcon, row(designer.id).roleLabel], [ROLE_ICON_MAP.designer, "Designer"]);
   assert.deepEqual([row(evil.id).roleIcon, row(evil.id).roleLabel, row(evil.id).role], [UNKNOWN_ROLE_ICON, "Agent", HOSTILE_ROLE]);
 

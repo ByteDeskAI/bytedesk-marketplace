@@ -399,8 +399,15 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+/** Every top-level key this version gives a default or merges as a section (TM-300 validation). */
+export const CONFIG_KEYS = [...new Set([...Object.keys(DEFAULT_CONFIG), ...NESTED_CONFIG])];
+
 export function config(p = paths()) {
-  const stored = readJson(p.config, {});
+  return effectiveConfig(readJson(p.config, {}));
+}
+
+/** The stored document with defaults filled in — what config() returns, from bytes already read. */
+export function effectiveConfig(stored) {
   const next = { ...DEFAULT_CONFIG, ...stored };
   for (const k of NESTED_CONFIG) {
     next[k] = { ...(DEFAULT_CONFIG[k] || {}), ...(stored[k] || {}) };
