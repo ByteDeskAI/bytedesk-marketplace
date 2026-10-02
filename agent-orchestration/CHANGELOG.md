@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0] — 2026-10-01
+
+### Added
+
+- **Re-spawning a live agent collects a handoff and replaces the session (TM-280, ADR-0030 part 4).** Spawning (`launch`) or opening (`session open`) a library agent that is already live in another session no longer fails with `TOPOLOGY_AGENT_ALREADY_LIVE`. Instead, ao takes these steps, implemented in the new `topology/lib/respawn.mjs`:
+  1. It waits, bounded, for the agent's current turn to end and never types into it mid-turn. The default bound is 10m (`--turn-timeout`, `AO_RESPAWN_TURN_TIMEOUT_MS`). A turn that does not end is refused with `TOPOLOGY_AGENT_BUSY`, and the session is left untouched.
+  2. It asks the agent to write a handoff (goal, state, open questions, files) to `<state root>/handoffs/<agent>/<ULID>.md`. The default bound is 5m (`--handoff-timeout`, `AO_RESPAWN_HANDOFF_TIMEOUT_MS`).
+  3. If no handoff arrives in time, it falls back to a summary built from the tail of the agent's transcript, titled `TRANSCRIPT-DERIVED FALLBACK`.
+  4. It ends the old session exactly once: the provider's `exit_command` first, then `kill-session` on that exact name.
+  5. It starts the fresh session under the same name with a new ULID and records the predecessor's ULID (`@ao-predecessor`, `identity.predecessor`, and `predecessor` in `run.json`).
+  6. It returns the handoff to the caller under `respawned`. The new session receives it only when the lead passes it, with `--pass-handoff` or the new `session handoff <agent> --file <path>`.
+- A per-agent lock is held until the replacement exists. If two re-spawns of one agent run at once, exactly one replaces the agent; the other fails with `TOPOLOGY_RESPAWN_JOINED`, which carries the winner's result. `--no-respawn` keeps `TOPOLOGY_AGENT_ALREADY_LIVE` for scripts. An agent that is one pane of a team session is refused with `TOPOLOGY_RESPAWN_SHARED_SESSION` rather than ending its teammates.
+- The Claude provider declares `exit_command: "/exit"`.
+
 ## [0.13.1] — 2026-10-02
 
 ### Tests

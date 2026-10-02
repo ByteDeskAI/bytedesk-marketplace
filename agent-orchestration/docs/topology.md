@@ -132,8 +132,9 @@ Each segment is lowercased, every other run of characters becomes one `-`, and i
 
 **There is no collision suffix.** Names are unique by design:
 
-- **One live session per agent.** Spawning an agent that already holds a live session is refused
-  with `TOPOLOGY_AGENT_ALREADY_LIVE`, naming the session that holds it.
+- **One live session per agent.** Spawning an agent that already holds a live session
+  **re-spawns** it (see [Re-spawning a live agent](#re-spawning-a-live-agent)); with
+  `--no-respawn` it is refused with `TOPOLOGY_AGENT_ALREADY_LIVE`, naming the session that holds it.
 - **Parallel work gets distinct agents.**
 - **Personas are unique per scope** — the team when there is one, else the repo segment — through a
   persona registry (`allocate`, `release`, `holder`). The local registry is a lock-guarded file
@@ -144,8 +145,8 @@ Each segment is lowercased, every other run of characters becomes one `-`, and i
 
 **The name is a label, not a key.** Every session gets a ULID and records `@ao-id`, `@ao-agent`,
 `@ao-role`, `@ao-repo`, `@ao-repo-origin` (`owner/repo`, or the path when there is no remote),
-`@ao-node`, `@ao-team`, `@ao-run`, `@ao-workflow` and `@ao-kind` (`role-session`, `spawn` or `run`)
-as tmux session options; a team session also tags each pane with
+`@ao-node`, `@ao-team`, `@ao-run`, `@ao-workflow`, `@ao-kind` (`role-session`, `spawn` or `run`)
+and, after a re-spawn, `@ao-predecessor` (the ULID of the incarnation it replaced) as tmux session options; a team session also tags each pane with
 its agent. The same identity is mirrored into the durable records (`identity` in an agent's
 `session.json`, `session_identity` in `run.json`). Every reader resolves identity from that
 metadata, never by parsing the name. Sessions named before TM-274 — `ao-<id>` role-sessions and
@@ -167,6 +168,45 @@ A **role-session** is a named workspace you *call*. It is keyed to the agent's s
 a run — through the session name recorded in its `session.json`, so it outlives the process that opened it, and opening one that is already live reattaches
 to the same pane rather than starting a rival. A lead that loses its identity on restart is not a
 lead.
+
+### Re-spawning a live agent
+
+ADR-0030 part 4, TM-280. When `launch` spawns a library agent, or `session open` creates a session for
+one, and that agent is already live in another session, ao replaces the session instead of refusing:
+
+1. **Wait for the current turn to end — never interrupt it.** ao reads the pane's title and the last
+   20 lines for the busy markers `census.mjs` measured (a braille spinner, `esc to interrupt`, an
+   ellipsis with a running timer). Two idle looks in a row end the wait. The bound is
+   `--turn-timeout` (default 10m, env `AO_RESPAWN_TURN_TIMEOUT_MS`). If the turn is still running at
+   the bound, ao refuses with `TOPOLOGY_AGENT_BUSY`, and the old session is untouched.
+2. **Ask for a handoff.** ao types one line asking the agent to write a Markdown handoff with
+   `## Goal`, `## State`, `## Open questions` and `## Files` to
+   `<state root>/handoffs/<agent>/<predecessor ULID>.md` (written to `.tmp`, then renamed). The bound
+   is `--handoff-timeout` (default 5m, env `AO_RESPAWN_HANDOFF_TIMEOUT_MS`).
+3. **Fall back, labelled.** If no handoff arrives in time, ao writes one titled
+   `TRANSCRIPT-DERIVED FALLBACK`. It is built from the tail of the agent's Claude Code transcript
+   (`~/.claude/projects/<cwd>/<newest>.jsonl`, tail-read, thinking and image blocks dropped). For a
+   provider with no known transcript, it is the last 80 lines of the pane, titled
+   `PANE-CAPTURE FALLBACK`.
+4. **End the old session once.** If the provider declares an `exit_command` (Claude: `/exit`), ao
+   sends it and waits up to 15s. Then it runs `kill-session` on that exact session name, once.
+5. **Start the fresh session** under the same name and identity, with a new ULID. The predecessor's
+   ULID is recorded in `@ao-predecessor`, in `session.json` `identity.predecessor`, and in `run.json`
+   (`session_identity.predecessor` and the agent's `predecessor`).
+6. **Return the handoff to the caller, not to the new session.** `launch` returns it under
+   `respawned[]`, and `session open` under `respawned`: the predecessor, the handoff's `path`,
+   `source` (`agent`, `transcript-fallback` or `pane-capture-fallback`) and `text`. The lead decides
+   whether the new session gets it, either with `--pass-handoff` on the same call or later with
+   `ao-topology session handoff <agent> --file <path>`. Both deliver a verified pointer to the file.
+
+A per-agent lock (`<state root>/respawn/<agent>.lock`) is held from the liveness check until the new
+session exists. If two re-spawns of one agent run at once, exactly one replaces the agent. The other
+waits, then fails with `TOPOLOGY_RESPAWN_JOINED`, and its `details.joined` carries the winner's
+result. An agent that is one pane of a team session is not replaced (`TOPOLOGY_RESPAWN_SHARED_SESSION`),
+because ending that session would end the other agents. `--no-respawn` keeps the old
+`TOPOLOGY_AGENT_ALREADY_LIVE` answer for scripts that only need to detect a busy agent.
+`session open` on the agent's *own* live role-session still reattaches; re-spawning applies only when
+the agent is live in a different session.
 
 ```
 ao-topology session open "Mira Halloran"   # create, or reattach if it is already up
