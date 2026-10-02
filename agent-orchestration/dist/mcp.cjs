@@ -25370,14 +25370,14 @@ function useTransportOpener(open12) {
     openTransport = previous;
   };
 }
-async function resolveTransport({ env = process.env, transport } = {}) {
+async function resolveTransport({ env = process.env, transport, home } = {}) {
   if (transport) return transport;
   const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
   if (transportMode(selected2) === "file") return createFileTransport();
   const key = `${selected2.AO_NATS_URL || selected2.NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}|${selected2.AO_NATS_JS_DOMAIN || ""}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
-  const opened = await openTransport({ env: selected2 });
+  const opened = await openTransport({ env: selected2, home });
   liveTransports.set(key, opened);
   const originalClose = opened.close.bind(opened);
   opened.close = async (options) => {
@@ -25675,8 +25675,8 @@ async function describeTransport(env = process.env, home = (0, import_node_os11.
   const state = await readTransportState(env, home);
   return state ? { kind: state.kind, source: state.source, url: state.url, fallback: state.fallback ?? null, outage: state.outage ?? null, at: state.at } : { kind: "nats", source: null, url: null, fallback: null, outage: null, note: "no NATS connection recorded on this host yet" };
 }
-async function recordTransportSelection(env, selection) {
-  const previous = await readTransportState(env);
+async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
+  const previous = await readTransportState(env, home);
   const outageOf = (fallback) => fallback && {
     source: fallback.source,
     url: fallback.url,
@@ -25686,10 +25686,12 @@ async function recordTransportSelection(env, selection) {
   };
   let outage = previous?.outage ?? null;
   if (selection.fallback) outage = outageOf(selection.fallback);
-  else if (outage && !outage.recovered_at) outage = { ...outage, recovered_at: (/* @__PURE__ */ new Date()).toISOString() };
+  else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
+    outage = { ...outage, recovered_at: (/* @__PURE__ */ new Date()).toISOString() };
+  }
   const same = previous && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
   if (same) return;
-  await writeJson(transportStatePath(env), {
+  await writeJson(transportStatePath(env, home), {
     kind: selection.kind,
     source: selection.source,
     url: selection.url,
@@ -25699,7 +25701,7 @@ async function recordTransportSelection(env, selection) {
     outage
   });
 }
-async function openNatsTransport({ env = process.env, servers, credsFile, name = "ao-orch" } = {}) {
+async function openNatsTransport({ env = process.env, home = (0, import_node_os11.homedir)(), servers, credsFile, name = "ao-orch" } = {}) {
   const {
     AckPolicy,
     DeliverPolicy,
@@ -25766,7 +25768,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}; local fallback failed: ${second.message}`);
     }
   }
-  if (!servers) await recordTransportSelection(env, selection).catch(() => {
+  if (!servers) await recordTransportSelection(env, selection, home).catch(() => {
   });
   const jsOptions = domain2 ? { domain: domain2 } : {};
   const js = nc.jetstream(jsOptions);
@@ -33939,6 +33941,10 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
     if (!idValid(agentId)) agentId = (0, import_node_crypto28.createHash)("sha256").update(bindingKey3(binding)).digest("hex").slice(0, 8);
     const observed = pane.identity?.agent ? sessionIdentity({ name: pane.sessionName, meta: pane.identity }) : null;
     invariant2(kind !== "spawn" || (observed ? observed.agentId === agentId : pane.sessionName === `${agentId}-${spawn12}`), "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation; refusing an invalid snapshot.");
+    if (kind === "spawn" && pane.sessionName !== `${agentId}-${spawn12}`) {
+      kind = "run";
+      spawn12 = null;
+    }
     const key = bindingKey3(binding);
     let entry = agents.get(key);
     if (entry) {
@@ -34147,7 +34153,16 @@ function canReach(url2, timeoutMs = 1e3) {
     });
   });
 }
-async function natsOutageTick({ consumer, env = process.env, home = (0, import_node_os26.homedir)(), deliver = sendStandingMessage, lead = readLeadRegistration, reachable = canReach }) {
+async function natsOutageTick({
+  consumer,
+  env = process.env,
+  home = (0, import_node_os26.homedir)(),
+  deliver = sendStandingMessage,
+  lead = readLeadRegistration,
+  reachable = canReach,
+  discard = discardLiveTransports,
+  now = Date.now
+}) {
   const state = await readTransportState(env, home);
   const outage = state?.outage;
   if (!outage?.since) return null;
@@ -34155,9 +34170,14 @@ async function natsOutageTick({ consumer, env = process.env, home = (0, import_n
   const outageId = messageId("outage", key, outage.since), recoveryId = messageId("recovered", key, outage.since);
   const sent = async (id2) => Boolean(await readStandingMessage({ id: id2, env, home }).catch(() => null));
   let probed = false;
-  if (!outage.recovered_at && await reachable(outage.url)) {
-    await discardLiveTransports();
+  const redialKey = `${outage.since}|${outage.url}`;
+  const redial = redials.get(redialKey);
+  if (outage.recovered_at) redials.delete(redialKey);
+  else if ((!redial || now() >= redial.at) && await reachable(outage.url)) {
+    await discard();
     probed = true;
+    const wait = redial ? Math.min(redial.wait * 2, REDIAL_MAX_MS) : REDIAL_FIRST_MS;
+    redials.set(redialKey, { at: now() + wait, wait });
   }
   const kind = outage.recovered_at ? "recovered" : "outage";
   const id = kind === "outage" ? outageId : recoveryId;
@@ -34186,7 +34206,7 @@ async function natsOutageTick({ consumer, env = process.env, home = (0, import_n
     provenance: { source: "ao-topology supervise" }
   }, { env, home }).then((record2) => ({ kind, status: record2?.status ?? "sent", to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto29, import_node_os26, import_node_net3, messageId;
+var import_node_crypto29, import_node_os26, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto29 = require("node:crypto");
@@ -34196,6 +34216,9 @@ var init_nats_outage = __esm({
     init_orch_transport();
     init_lead();
     init_standing_mailbox();
+    REDIAL_FIRST_MS = 3e4;
+    REDIAL_MAX_MS = 15 * 6e4;
+    redials = /* @__PURE__ */ new Map();
     messageId = (kind, key, since) => (0, import_node_crypto29.createHash)("sha256").update(`nats-${kind}:${key}:${since}`).digest("hex").slice(0, 32);
   }
 });
@@ -73963,10 +73986,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path58.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4849aeffc804610e240aba4ae4af7ec063506a731f86dce73c3e8b27d9c04aae";
+  return false ? null : "b8c03d9002a9919af834f5caf857bd257444cfe8419a14565bace1bed3a9e568";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4849aeffc804610e240aba4ae4af7ec063506a731f86dce73c3e8b27d9c04aae";
+  const fingerprint2 = false ? null : "b8c03d9002a9919af834f5caf857bd257444cfe8419a14565bace1bed3a9e568";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -74363,7 +74386,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4849aeffc804610e240aba4ae4af7ec063506a731f86dce73c3e8b27d9c04aae",
+  sourceFingerprint: false ? null : "b8c03d9002a9919af834f5caf857bd257444cfe8419a14565bace1bed3a9e568",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises50.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
