@@ -52,6 +52,11 @@ Launch and stop
   launch (--workflow <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
          [--dry-run] [--json] [--team <name>]   --team prefixes the session name and scopes personas
          [--allow-outside]       permit a cwd or run_dir outside the invoking repository
+         [--no-respawn] [--pass-handoff] [--turn-timeout 10m] [--handoff-timeout 5m]
+                                 a library agent that is already live is re-spawned (TM-280): its turn
+                                 is waited out, it writes a handoff, its old session ends, and the
+                                 handoff comes back to you; --pass-handoff also gives it to the new
+                                 session. --no-respawn refuses with TOPOLOGY_AGENT_ALREADY_LIVE instead
          [--allow-auto-approve]  accepted, no effect: agents run without permission prompts by
                                  default (TM-214); set auto_approve: false on an agent to opt out
   stop (--run <run_dir> | --session <name>) [--keep-files]
@@ -64,6 +69,9 @@ Conduct (used by the orchestrator agent)
   agent show <id|"Full Name">                  one agent
 
   session open <id|"Full Name">                open this agent's durable session, or reattach to it
+       [--no-respawn] [--pass-handoff] [--turn-timeout 10m] [--handoff-timeout 5m]
+                                               live in another session: re-spawn it, as launch does
+  session handoff <id|"Full Name"> --file <md> point the agent's live session at a handoff file
   session list [--json]                        which of this repo's agents are live right now
   session close <id|"Full Name">               end it; the agent and its directory survive
   delegate --task <id> --to <agent> [--for <external-agent>]
@@ -234,6 +242,26 @@ async function runDirFrom(flags) {
 }
 
 /** TM-185: the icon for a library agent, with the repository's registered lead resolved once. */
+/** TM-280: the re-spawn options shared by `launch` and `session open`. */
+function respawnFlags(flags) {
+  const on = (key) => flags[key] === true || String(flags[key]) === "true";
+  return {
+    respawn: !on("no-respawn"),
+    requestedBy: process.env.AO_AGENT_ID || process.env.AO_SESSION || "operator",
+    respawnBounds: {
+      ...(flags["turn-timeout"] && flags["turn-timeout"] !== true ? { turnTimeoutMs: parseDuration(String(flags["turn-timeout"])) } : {}),
+      ...(flags["handoff-timeout"] && flags["handoff-timeout"] !== true ? { handoffTimeoutMs: parseDuration(String(flags["handoff-timeout"])) } : {}),
+    },
+    passHandoff: on("pass-handoff"),
+  };
+}
+
+/** What a re-spawn hands back to its caller: the predecessor, where the handoff is, and its text. */
+async function respawnReport(record) {
+  const { readHandoff } = await import("./lib/respawn.mjs");
+  return { agent: record.agent, predecessor: record.predecessor, handoff: { ...record.handoff, text: await readHandoff(record) }, turn: record.turn };
+}
+
 async function libraryVisuals(ctx) {
   const leadId = await registeredLeadId({ consumer: ctx.consumer, home: ctx.home });
   return (agent) => roleVisual({ role: agent.role, repoRole: agent.id === leadId ? "lead" : null });
@@ -1000,6 +1028,7 @@ const commands = {
       ...(team ? { team } : {}),
     });
     const adapters = await loadAdapters(ctx.providerDirs);
+    const { passHandoff: pass, ...respawnOptions } = respawnFlags(flags);
     const result = await launchRun({
       spec: materialized,
       adapters,
@@ -1010,8 +1039,18 @@ const commands = {
       ...(flags["max-depth"] && flags["max-depth"] !== true ? { maxDepth: Number(flags["max-depth"]) } : {}),
       launchChild,
       log: (line) => process.stderr.write(`${line}\n`),
+      ...respawnOptions,
     });
     result.template = path;
+    // TM-280: the handoff goes back to the caller; the new session gets it only on --pass-handoff.
+    if (result.respawned) {
+      const { passHandoff } = await import("./lib/respawn.mjs");
+      result.respawned = await Promise.all(result.respawned.map(async (record) => {
+        const started = result.agents.find((agent) => agent.id === record.spec_agent);
+        const passed = pass && started?.pane ? await passHandoff({ pane: started.pane, adapter: adapters.get(started.adapter), path: record.handoff.path }) : null;
+        return { ...(await respawnReport(record)), passed_to_new_session: Boolean(passed?.delivered) };
+      }));
+    }
     if (!flags["dry-run"]) result.supervision = await activate(ctx, 'launch');
     if (flags.json || flags["dry-run"]) return out(result);
     out(`Launched ${materialized.name} · run ${runId}`);
@@ -1022,6 +1061,9 @@ const commands = {
       out(`  ${agent.provider ? (agent.ready ? "✓" : "?") : "✗"} ${agent.roleIcon} ${agent.id} (${terminalText(agent.role)}) on ${agent.provider ?? "NO PROVIDER"} pane ${agent.pane}${fallbacks ? ` — skipped ${fallbacks}` : ""}`);
     }
     for (const warning of result.warnings) out(`  ! ${warning}`);
+    for (const record of result.respawned ?? []) {
+      out(`  ↻ re-spawned ${record.agent}: replaced ${record.predecessor.session} (${record.predecessor.id ?? "no id"}); handoff (${record.handoff.source}) ${record.handoff.path}${record.passed_to_new_session ? " — passed to the new session" : " — not passed; use --pass-handoff or session handoff"}`);
+    }
     out(`Attach: ${result.attach}`);
   },
 
@@ -1138,7 +1180,22 @@ const commands = {
       return out({ ok: true, agent: displayName(agent), session, closed: live });
     }
 
-    invariant(sub === "open", "TOPOLOGY_SUBCOMMAND_UNKNOWN", `Unknown: session ${sub}. Use open, list, or close.`);
+    if (sub === "handoff") {
+      // TM-280: the lead's explicit, later way to give a re-spawned agent its predecessor's handoff.
+      invariant(flags.file && flags.file !== true, "TOPOLOGY_HANDOFF_FILE_REQUIRED", "Pass --file <handoff.md>.");
+      const file = absolutize(String(flags.file));
+      invariant(await exists(file), "TOPOLOGY_HANDOFF_FILE_MISSING", `No handoff file at ${file}.`);
+      const { liveSessionOf } = await import("./lib/launch.mjs");
+      const { passHandoff, sessionPanes } = await import("./lib/respawn.mjs");
+      const session = await liveSessionOf(agent.id, { agentsDir: dirname(agent._dir) });
+      invariant(session, "TOPOLOGY_AGENT_NOT_LIVE", `${displayName(agent)} has no live session to hand off to.`, { agent_id: agent.id });
+      const panes = await sessionPanes(session);
+      const pane = (panes.find((entry) => entry.identity?.agentId === agent.id) ?? panes[0])?.paneId;
+      const delivered = await passHandoff({ pane, adapter: adapterFor(agent, await loadAdapters(ctx.providerDirs)), path: file });
+      return out({ ok: delivered.delivered, agent: displayName(agent), session, pane, handoff: file, delivered: delivered.delivered });
+    }
+
+    invariant(sub === "open", "TOPOLOGY_SUBCOMMAND_UNKNOWN", `Unknown: session ${sub}. Use open, list, close, or handoff.`);
     // TM-214: the plain buildArgv below is not the reviewer's read-only argv (buildReviewerArgv).
     invariant(agent.role !== "reviewer", "TOPOLOGY_REVIEWER_READ_ONLY", `${displayName(agent)} is the reviewer; it launches only read-only. Use: ao-topology reviewer ensure.`, { agent_id: agent.id });
     const adapters = await loadAdapters(ctx.providerDirs);
@@ -1159,7 +1216,9 @@ const commands = {
     const prompt = await refreshPrompt({ ...ctx, agent, session, live: await tmux.hasSession(session) });
     invariant(prompt.status !== 'invalid-config', 'TOPOLOGY_PROMPT_INVALID', 'Prompt invalid; existing session preserved.');
     const argv = buildArgv(adapter, { ...agent, add_dirs: addDirs }, vars);
+    const { passHandoff: pass, ...respawnOptions } = respawnFlags(flags);
     const result = await openRoleSession({
+      ...respawnOptions,
       agentsDir: dirname(agent._dir),
       agentId: agent.id,
       adapter,
@@ -1181,6 +1240,8 @@ const commands = {
       pane: result.pane,
       created: result.created,
       reattached: result.reattached,
+      ...(result.respawn ? { respawned: { ...(await respawnReport(result.respawn)),
+        passed_to_new_session: pass ? (await (await import("./lib/respawn.mjs")).passHandoff({ pane: result.pane, adapter, path: result.respawn.handoff.path })).delivered : false } } : {}),
       cwd: result.record?.cwd ?? join(dirname(agent._dir), agent.id),
       attach: tmux.attachCommand(result.session),
     });

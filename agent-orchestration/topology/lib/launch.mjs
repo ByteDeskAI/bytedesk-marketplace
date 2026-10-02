@@ -15,7 +15,7 @@ import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineag
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
 import { displayName, firstNames, mintSpawn, roleVisual } from "./identity.mjs";
 import { composeSessionName, legacyRoleSessionName, nodeName, repoIdentity, sessionIdentity, slugPart, PART_CAPS, ulid } from "./session-names.mjs";
-import { localPersonaRegistry, personaScope, releaseRunPersona, runHolder } from "./persona-registry.mjs";
+import { personaRegistryFor, personaScope, presenceKeyOf, releaseRunPersona, runHolder, RUN_PERSONA_GRACE_MS } from "./persona-registry.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
 import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
@@ -23,6 +23,7 @@ import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
+import { claimAgent } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
@@ -536,15 +537,19 @@ export function decideFromSubscription(value, { promptLines = 1 } = {}) {
  *    runs of one workflow get two names. A run whose session vanished without a stop is reclaimed.
  * Readers resolve identity from `identity`, never from `name`.
  */
-export async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = homedir(), personas = localPersonaRegistry({ env, home }) }) {
+export async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = homedir(), personas = null }) {
   const teamRun = !agent;
   const kind = teamRun ? "run" : runId ? "spawn" : "role-session";
   const identity = await newIdentity({ consumer, role: teamRun ? "run" : role, agentId: agent?.id ?? null, team, runId, workflow, kind, env, home });
   const scope = personaScope({ team: identity.team, repo: identity.repo });
   invariant(!teamRun || runId, "TOPOLOGY_RUN_ID_REQUIRED", "A team run session needs its run id to hold a persona.");
+  // TM-279: a team scope allocates through NATS KV; a repo scope through the local file lock.
+  personas ??= await personaRegistryFor(scope, { env, home });
+  // The NATS record names the presence entry another node judges this holder's liveness by.
+  const session = personas.kind === "nats" ? { ...identity, presence: await presenceKeyOf(consumer) } : identity;
   const persona = teamRun
-    ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder })
-    : await personas.allocate(scope, agent);
+    ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder, session })
+    : await personas.allocate(scope, agent, { session });
   return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role: teamRun ? workflow : role, persona })), identity };
 }
 
@@ -552,9 +557,9 @@ export async function planSession({ consumer, role, agent = null, workflow = nul
  * A run holder is stale when it was allocated more than the grace period ago and no live tmux session
  * on this server carries its run id. The grace covers a run between allocation and `new-session`, so a
  * concurrent launch cannot take a persona from a run that simply has not created its session yet.
- * ponytail: time-based grace; a launch slower than this before `new-session` could lose its persona.
+ * The local registry only: the NATS registry judges liveness from presence, which spans nodes.
  */
-export const RUN_PERSONA_GRACE_MS = 120_000;
+export { RUN_PERSONA_GRACE_MS };
 async function staleRunHolder(holderId, sinceMs) {
   if (!String(holderId).startsWith("run:") || Date.now() - sinceMs < RUN_PERSONA_GRACE_MS) return false;
   const runId = String(holderId).slice(4);
@@ -571,7 +576,7 @@ export async function newIdentity({ consumer, role, agentId = null, team = null,
 /**
  * ADR-0030: an agent holds at most one live session. Returns the name of a live session that already
  * belongs to `agentId` — found from session metadata, the agent's role-session record, or a legacy
- * name — other than `except`, or null. The handoff flow (TM-280) replaces the refusal this feeds.
+ * name — other than `except`, or null. respawn.mjs (TM-280) re-spawns the holder, or refuses on request.
  */
 export async function liveSessionOf(agentId, { agentsDir = null, except = null } = {}) {
   for (const entry of await tmux.listSessionIdentities()) {
@@ -579,11 +584,6 @@ export async function liveSessionOf(agentId, { agentsDir = null, except = null }
   }
   const recorded = agentsDir ? await recordedRoleSession({ agentsDir, agentId }) : null;
   return recorded && recorded !== except && await tmux.hasSession(recorded) ? recorded : null;
-}
-
-async function assertNotLive(agentId, options) {
-  const holder = await liveSessionOf(agentId, options);
-  invariant(!holder, "TOPOLOGY_AGENT_ALREADY_LIVE", `Agent ${agentId} already has a live session, "${holder}". One agent holds one session: use that one, stop it first, or give the parallel work to a different agent.`, { agent_id: agentId, session: holder });
 }
 
 /**
@@ -884,7 +884,8 @@ export async function launchRun(options) {
   }
 }
 
-async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {} }) {
+async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {},
+  respawn = true, respawnBounds = {}, requestedBy = null }) {
   const warnings = [];
 
   // Where this run sits in the tree, decided before anything is created. A run launched by an agent
@@ -909,12 +910,36 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
     invariant(lead.status === 'responsive' && reviewer.available, 'TOPOLOGY_STARTUP_NOT_READY', 'Governed workflow launch requires a responsive repository lead and independent reviewer. Create or assign the lead first; no workflow panes were created.');
   }
   invariant(!(await exists(join(spec.run_dir, "run.json"))), "TOPOLOGY_RUN_EXISTS", `Run directory already exists: ${spec.run_dir}`);
-  // ADR-0030: a library agent that already holds a live session is not spawned a second time.
-  if (!dryRun) {
-    for (const agent of spec.agents.filter((entry) => entry._agent)) {
-      await assertNotLive(agent._agent, { agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null });
+  // ADR-0030 part 4 / TM-280: a library agent that already holds a live session is re-spawned — its
+  // turn waited out, a handoff collected, the old session ended exactly once — unless the caller opted
+  // out (`respawn: false` → TOPOLOGY_AGENT_ALREADY_LIVE). Each claim holds that agent's lock until this
+  // launch has created its session, so a concurrent re-spawn joins this one instead of replacing it.
+  const claims = [];
+  try {
+    if (!dryRun) {
+      for (const agent of spec.agents.filter((entry) => entry._agent)) {
+        const first = agent.candidates?.[0];
+        const adapter = first ? adapterFor({ ...agent, cli: first.cli, model: first.model }, adapters) : null;
+        const claim = await claimAgent({ agentId: agent._agent, agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null, adapter, respawn,
+          requestedBy, bounds: respawnBounds });
+        claims.push(claim);
+        if (claim.respawn) {
+          // The new incarnation names the one it replaced: on its pane, and on the session of a spawn.
+          agent._predecessor = claim.respawn.predecessor.id;
+          claim.respawn.spec_agent = agent.id;
+          if (spec.session_identity?.agent === agent._agent) spec.session_identity = { ...spec.session_identity, predecessor: claim.respawn.predecessor.id };
+        }
+      }
     }
+    const respawned = claims.filter((claim) => claim.respawn).map((claim) => claim.respawn);
+    const result = await launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings });
+    return respawned.length ? { ...result, respawned } : result;
+  } finally {
+    for (const claim of claims) await claim.release();
   }
+}
+
+async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings }) {
   // TM-274: no session-exists refusal. Every name is planned unique — a run holds its own persona, an
   // agent one live session — so a second run of one workflow coexists with the first.
 
@@ -1030,6 +1055,7 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
     agents: prepared.map((item) => ({
       id: item.agent.id,
       agent_id: item.agent._agent || item.agent.id,
+      ...(item.agent._predecessor ? { predecessor: item.agent._predecessor } : {}),
       role: item.agent.role,
       ...runAgentVisual(item.agent, leadId),
       cwd: item.agent.cwd,
@@ -1104,7 +1130,7 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
   );
   // TM-274: each pane says which agent it hosts; a pane option wins over the session's in a lookup.
   await Promise.all(ordered.map((item) => tmux.setIdentity(panes.get(item.agent.id), {
-    pane: { agent: item.agent._agent || item.agent.id, role: slugPart(item.agent.role, PART_CAPS.role) || null } })));
+    pane: { agent: item.agent._agent || item.agent.id, role: slugPart(item.agent.role, PART_CAPS.role) || null, predecessor: item.agent._predecessor ?? null } })));
   // One hook for the whole session: a death pushes a record instead of a poll discovering it later.
   // `#{pane_dead_status}` is the process's real exit code, readable only because remain-on-exit was
   // set above. `show-hooks` will not list this hook even though it fires — do not go looking there.
@@ -1314,7 +1340,8 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
   return !coordinatesOnly && !['lead', 'reviewer'].includes(role);
 }
 
-export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, session: chosen = null, role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {} }) {
+export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, session: chosen = null, role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {},
+  respawn = true, respawnBounds = {}, requestedBy = null }) {
   // The caller's name when it already chose one (it put it in AO_SESSION); otherwise the same resolver.
   const session = assertSessionName(chosen || await roleSessionFor({ agentsDir, agentId, consumer: env.AO_CONSUMER, role, env: { ...process.env, ...env } }));
   const dir = join(agentsDir, String(agentId));
@@ -1367,9 +1394,20 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
     return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
-  // ADR-0030: creating, not reattaching — the agent must not already be live in another session.
-  await assertNotLive(agentId, { agentsDir, except: session });
-  const identity = await newIdentity({ consumer: env.AO_CONSUMER || agentsDir, role, agentId, env: { ...process.env, ...env } });
+  // ADR-0030 part 4 / TM-280: creating, not reattaching. An agent live in another session is re-spawned
+  // (turn waited out, handoff collected, that session ended once) unless `respawn` is false; the lock
+  // is held until this session exists, so a concurrent re-spawn joins rather than replaces it again.
+  const claim = await claimAgent({ agentId, agentsDir, except: session, adapter, respawn, requestedBy, env: { ...process.env, ...env }, bounds: respawnBounds });
+  try {
+    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv, env, session, role, dir, recordPath, display, log, predecessor: claim.respawn?.predecessor.id ?? null });
+    return claim.respawn ? { ...opened, respawn: claim.respawn } : opened;
+  } finally {
+    await claim.release();
+  }
+}
+
+async function createRoleSession({ agentsDir, agentId, adapter, argv, env, session, role, dir, recordPath, display, log, predecessor }) {
+  const identity = { ...await newIdentity({ consumer: env.AO_CONSUMER || agentsDir, role, agentId, env: { ...process.env, ...env } }), ...(predecessor ? { predecessor } : {}) };
   const launcher = join(dir, "session.sh");
   // The one command the session is ever started by — ours to run, and the gateway's to restore from.
   const command = `bash ${shellQuote(launcher)}`;

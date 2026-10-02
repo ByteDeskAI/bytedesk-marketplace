@@ -129,6 +129,8 @@ export const SESSION_OPTIONS = Object.freeze({
   run: "@ao-run",
   workflow: "@ao-workflow",
   kind: "@ao-kind",
+  // TM-280: the ULID of the incarnation a re-spawn replaced. Appended last: readers parse by position.
+  predecessor: "@ao-predecessor",
 });
 const KEYS = Object.keys(SESSION_OPTIONS);
 
@@ -156,7 +158,7 @@ export function sessionIdentity({ name, meta = {} } = {}) {
   if (meta.agent) {
     const kind = ["role-session", "spawn", "run"].includes(meta.kind) ? meta.kind : meta.run ? "spawn" : "role-session";
     return { agentId: meta.agent, sessionId: meta.id ?? null, role: meta.role ?? null, repo: meta.repo ?? null, repoOrigin: meta.repoOrigin ?? null,
-      node: meta.node ?? null, team: meta.team ?? null, runId: meta.run ?? null, workflow: meta.workflow ?? null, spawn: kind === "spawn" ? meta.id ?? null : null, kind, source: "metadata" };
+      node: meta.node ?? null, team: meta.team ?? null, runId: meta.run ?? null, workflow: meta.workflow ?? null, spawn: kind === "spawn" ? meta.id ?? null : null, kind, predecessor: meta.predecessor ?? null, source: "metadata" };
   }
   const base = { sessionId: null, role: null, repo: null, repoOrigin: null, node: null, team: null, runId: null, workflow: null, source: "legacy" };
   let match = LEGACY_ROLE.exec(String(name ?? ""));
