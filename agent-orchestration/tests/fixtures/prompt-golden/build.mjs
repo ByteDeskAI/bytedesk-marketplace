@@ -1,5 +1,5 @@
-// Shared by topology-prompt-golden.test.mjs: a fixture using every PLAIN-STRING prompt shape that
-// existed before add/replace modes (TM-296), composed against a fixed agent.
+// Shared by topology-prompt-modes.test.mjs (its golden test): a fixture using every PLAIN-STRING
+// prompt shape that existed before add/replace modes (TM-296), composed against a fixed agent.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../../../topology/lib/config.mjs";

@@ -146,10 +146,17 @@ Per-agent instructions live in `agent.json` as `instructions` (inline text) or `
 (a Markdown path), with `instructions_mode`. Set them with
 `ao-topology agent set-instructions <id> (--file <md> | --text <s>) [--mode append|replace]`. The
 new source replaces the agent's previous own instructions; `--mode replace` also drops its template
-prompt. `prompt refresh <id>` applies the change, staged as `restart-required` for a live agent.
+prompt. `--file` must name a file inside the agent directory or the repository, and is stored
+relative to the agent directory, because `agent.json` is tracked and another host or worktree would
+not have an absolute path from this one; a file outside the repository is refused (use `--text`).
+`prompt refresh <id>` applies the change, staged as `restart-required` for a live agent.
 
 No mode can remove the generated identity and protocol layer, so the statement that prompts grant
-no permissions is always present.
+no permissions is always present. Role protocol is protected the same way: the `lead` and
+`reviewer` templates and the bundled `common_by_role` variant (for example the reviewer's) survive a
+`replace`, which then replaces only the operator-authored text in that slot. `prompt preview` and
+`agent set-instructions` report each such kept layer in `warnings`, so the reviewer's `AO_REVIEW`
+verdict format cannot be configured away by accident.
 
 ### Global prefix
 

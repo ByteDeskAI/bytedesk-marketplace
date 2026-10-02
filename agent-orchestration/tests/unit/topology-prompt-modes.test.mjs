@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -123,11 +123,42 @@ test("CLI: config get/set/validate, prompt preview --role/--agent, agent set-ins
   assert.ok(byRole.text.startsWith("CLI PREFIX"));
 
   const created = await run("agent", "new", "--role", "worker", "--name", "Ada Mode");
-  const own = join(s.root, "own.md");
+  const outside = join(s.root, "own.md");
+  await writeFile(outside, "OUTSIDE\n");
+  const refused = await fails("agent", "set-instructions", created.id, "--file", outside);
+  assert.equal(refused?.code, "TOPOLOGY_INSTRUCTIONS_FILE_OUTSIDE_REPO", "a host path outside the repository is never stored in tracked agent.json");
+  await mkdir(join(s.consumer, "docs"));
+  const own = join(s.consumer, "docs", "own.md");
   await writeFile(own, "OWN FILE\n");
   const updated = await run("agent", "set-instructions", created.id, "--file", own, "--mode", "replace");
   assert.equal(updated.instructions_mode, "replace");
+  assert.equal(updated.instructions_file, relative(created.dir, own), "stored relative to the agent directory");
+  assert.ok(!isAbsolute(JSON.parse(await readFile(updated.file, "utf8")).instructions_file));
   const preview = await run("prompt", "preview", "--agent", created.id);
   assert.deepEqual(preview.sources.at(-1), { layer: "per-agent file", path: own, sha256: preview.sources.at(-1).sha256, mode: "replace" });
+  await writeFile(join(created.dir, "notes.md"), "NOTES\n");
+  assert.equal((await run("agent", "set-instructions", created.id, "--file", join(created.dir, "notes.md"))).instructions_file, "notes.md");
   assert.equal((await fails("agent", "set-instructions", created.id, "--text", "x", "--file", own)).code, "TOPOLOGY_INSTRUCTIONS_SOURCE");
+});
+
+test("replace never drops role protocol: a reviewer keeps AO_REVIEW after global, repo and agent replaces", async (t) => {
+  const s = await scratch(t);
+  const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
+  await writeJson(join(s.gdir, "config.json"), { prompts: { common: { text: "GLOBAL COMMON", mode: "replace" }, roles: { reviewer: { text: "GLOBAL REVIEWER", mode: "replace" } } } });
+  const loaded = await loadConfig({ consumer: s.consumer, home: join(s.root, "home"), pluginRoot, env: { XDG_CONFIG_HOME: s.xdg } });
+  assert.deepEqual(loaded.errors, []);
+  const reviewer = { id: "rev00001", full_name: "Re View", title: "Reviewer", role: "reviewer", instructions: "OWN", instructions_mode: "replace" };
+  const composed = await composePrompt({ agent: reviewer, consumer: s.consumer, dir: "/d", loaded, templateName: "reviewer-default" });
+  assert.equal(composed.ok, true);
+  assert.match(composed.text, /AO_REVIEW <nonce> b64:/, "the reviewer template's verdict protocol survives");
+  const layers = composed.sources.map((x) => x.layer);
+  assert.ok(layers.includes("template") && layers.includes("defaults common"), layers.join(","));
+  for (const operator of ["GLOBAL COMMON", "GLOBAL REVIEWER", "OWN"]) assert.ok(composed.text.includes(operator), operator);
+  assert.equal(composed.warnings.length, 2, composed.warnings.join("\n"));
+  assert.ok(composed.warnings.some((w) => /global common: "replace" keeps the defaults common text/.test(w)));
+  assert.ok(composed.warnings.some((w) => /per-agent: "replace" keeps the template text/.test(w)));
+  // A worker has no protocol slot: the same replaces drop the wider text, with no warning.
+  const worker = await composePrompt({ agent: { ...reviewer, role: "worker" }, consumer: s.consumer, dir: "/d", loaded });
+  assert.deepEqual(worker.warnings, []);
+  assert.ok(!worker.sources.some((x) => x.layer === "defaults common"));
 });

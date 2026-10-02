@@ -1217,8 +1217,13 @@ const commands = {
         file: typeof flags.file === "string" ? absolutize(flags.file) : null,
         text: typeof flags.text === "string" ? flags.text : null,
         mode: typeof flags.mode === "string" ? flags.mode : "append",
+        repo: ctx.consumer,
       });
-      return out({ ok: true, id: updated.id, file: updated._file, instructions_mode: updated.instructions_mode, instructions_file: updated.instructions_file,
+      // A replace that meets role protocol keeps it; say so where the operator made the change.
+      const { composePrompt } = await import('./lib/prompts.mjs');
+      const { loadConfig } = await import('./lib/config.mjs');
+      const { warnings } = await composePrompt({ ...ctx, agent: { ...agent, ...updated }, dir: updated._dir, loaded: await loadConfig(ctx), templateName: agent.template });
+      return out({ ok: true, id: updated.id, file: updated._file, instructions_mode: updated.instructions_mode, instructions_file: updated.instructions_file, warnings,
         next: `ao-topology prompt refresh ${updated.id} applies it (a live agent is staged as restart-required).` });
     }
     if (sub === "show") {
