@@ -483,7 +483,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       const owner = task.governance ? governedAdmission(task, p).owner : `pool-${task.id.toLowerCase()}`;
       const res = await dispatch(task.id, { session: owner, actor: "pool", p, caps, registry, backend: pick?.name ?? null });
       if (res.ok) {
-        dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree });
+        dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree, ...(res.prefixWarning ? { warning: res.prefixWarning } : {}) });
         busyByBackend[res.backend] = (busyByBackend[res.backend] || 0) + 1;
         room -= 1;
       } else {

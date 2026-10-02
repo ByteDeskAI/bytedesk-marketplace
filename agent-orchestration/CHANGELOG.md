@@ -2,7 +2,64 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
+  one configuration layer's raw document with a sha256 revision; `set` validates before writing,
+  refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
+  `--role` and returns the composed text and its sources. A global-only `prompts.prefix` composes
+  before everything and joins the revision. Every prompt entry may be `{ file|text, mode }`, where
+  `replace` drops the same slot from wider layers; plain-string configs compose byte-identically.
+  `agent set-instructions <id> (--file|--text) [--mode append|replace]` sets an agent's own
+  instructions; `--file` is stored relative to the agent directory and refused outside the
+  repository. A `replace` keeps role protocol — the lead/reviewer template and the bundled
+  `common_by_role` variant — and reports the kept layer in `warnings`.
+
+### Fixed
+
+- **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
+  sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
+  was reported "same version, different build" and never refreshed. It now compares the build
+  fingerprint `services ensure` uses and refreshes that copy, unless the copy is the newer build, so
+  a newer build is never downgraded. A fingerprint has no order, so each refresh writes
+  `.ao-build.json` (`{fingerprint, ordinal, source}`) into the copy, the ordinal being the source's
+  commit time read at sync time (the newest mtime under `dist/` outside git); same-version copies are
+  ordered by it. A copy without the file, or whose file names another build, falls back to bundle
+  mtime, which refreshed copies preserve; an equal ordinal is left alone. `dist/` carries no ordinal,
+  so builds stay byte-identical for the same source.
+
+- **Tests can no longer reach the managed services, and a run fails if it leaves tmux or processes
+  behind (TM-298).** The contract suite never set `AGENT_ORCHESTRATION_SERVICES=0`, so `launch` in
+  an enrolled temp repository registered it with process-compose, which re-ran `supervise` with a
+  scrubbed environment: no `TMUX_TMPDIR`, so the operator's default tmux server, and no provider-shim
+  `PATH`, so a real provider lead. The shared test preflight now forces the opt-out for both suites,
+  and `topology-tmux` and `topology-activation-tmux` pin it in their own child environments, because
+  CI runs the contract files without the preflight. A new suite-end check
+  (`tests/helpers/suite-leaks.mjs`) makes the run exit non-zero when it leaves a process carrying the
+  run's environment, or a new temp-directory session on an operator tmux server, and names each
+  leaked process and session. It found lead tmux servers left by `topology-repo-enrollment`,
+  `topology-supervision`, `topology-activation-tmux` and `topology-lead-recovery-tmux`: their
+  teardowns reaped the supervisor but not the server its lead ran on, or found that server by a
+  discovery that returned nothing on failure. They now use one helper, `killEnvServer`, which also
+  reaps a server orphaned when two supervisors start the first session on a fresh socket at once.
+  `topology-tmux` asserts that its delivery runs' supervisors resolve only the test's own socket.
+
+- **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
+  just after `AO_REVIEW <nonce> b64:` was printed (an empty or sub-4-character payload) now waits as
+  `RESPONSE_INCOMPLETE` instead of failing the request. A complete `b64:` verdict no longer absorbs a
+  following indented row made of base64 characters (a one-word line printed after it). Every process
+  holding a NATS fallback, not only a repository supervisor, refreshes its outage's
+  `last_fallback_at` from a transport heartbeat, so a long-lived MCP server on the fallback does not
+  see its outage retired and then mint a second outage mail.
+
 ### Changed
+
+- **A re-spawn also waits out typed, unsent input (TM-297).** The turn-end wait treats a composer
+  that is not empty as busy, for any adapter that declares `composer.empty_pattern`, so neither
+  `agent restart` nor a `launch`/`session open` re-spawn types over text someone is writing.
+  A `resume` restart that falls back to handoff passes the collected handoff to the successor;
+  a resumed restart with `--pass-handoff` reports `handoff: null` rather than failing. `agent list
+  --json` asks tmux once for the whole roster, not twice per agent.
 
 - **The NATS transport names itself, and an unreachable configured NATS is reported to the lead
   (TM-276, ADR-0031).** A dead ambient `NATS_URL` or stale gateway `orch.sock` still falls back to
@@ -21,6 +78,16 @@
   lead gets one `NATS retired` message in place of the recovery message.
 
 ### Added
+
+- **`agent restart --mode handoff|resume` applies a changed prompt to a running agent (TM-297,
+  EP-003 C4).** One verb, for standing roles and library agents, that the gateway settings UI calls.
+  Both modes reuse the TM-280 re-spawn: the turn is waited out, the old session ends once, and the
+  successor starts under the same name on the promoted prompt. `handoff` passes the predecessor's
+  handoff to it; `resume` relaunches with the adapter's new `resume_args` (Claude:
+  `--resume <session-id>`, from the newest transcript in the agent's own directory) and, where that
+  is not possible, falls back to `handoff` with `"fallback": "handoff"` and the reason. The result
+  names the old and new session, incarnation, prompt revision and mode used. `agent list --json` now
+  reports `applied_revision`, `desired_revision`, `prompt_status` and `restart_required` per agent.
 
 - Durable NATS mailbox obligations, sender publication recovery and explicit recipient dispositions. Broker acknowledgment follows local durable acceptance; console inspection does not consume messages.
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
@@ -198,6 +265,8 @@
 
 ### Tests
 
+- **The topology-tmux contract test no longer starts real leads (TM-294).** Its enrolled delivery
+  runs name a lead provider that does not exist, so `test:contract` passes with no TM-290 guard hits.
 - **No test can start a real provider CLI (TM-290).** A temp `git init` repository is enrolled by
   default, so tests that reached supervise, launch or startup were starting a real `claude` lead.
   The test preflight now puts a recording shim for every catalog provider (`claude`, `codex`,

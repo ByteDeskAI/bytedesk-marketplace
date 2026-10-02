@@ -14,7 +14,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { killOwnedServer } from '../helpers/isolated-tmux.mjs';
+import { killEnvServer, killOwnedServer } from '../helpers/isolated-tmux.mjs';
+import { markedProcesses } from '../helpers/suite-leaks.mjs';
 import { sleep, writeJson } from '../../topology/lib/util.mjs';
 import { NO_PROVIDER } from '../helpers/temp-repo.mjs';
 
@@ -39,7 +40,9 @@ async function fixture(t, label, { enrolled }) {
   const repo = join(root, 'repo'), home = join(root, 'home'), tmuxTmp = join(root, 't'), socket = join(tmuxTmp, 's');
   await mkdir(tmuxTmp, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxTmp, HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
-    AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file' };
+    AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file',
+    // TM-298: CI runs this file without the preflight; services on would start process-compose here.
+    AGENT_ORCHESTRATION_SERVICES: '0' };
   for (const key of ['AO_TMUX_COMMAND', 'AO_AGENT_ID', 'AO_SESSION', 'AO_CONSUMER', 'AO_LEAD_ID']) delete env[key];
   await exec('git', ['init', '-q', repo]);
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);
@@ -50,7 +53,13 @@ async function fixture(t, label, { enrolled }) {
 
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
+    // TM-298: anything else this test started still carries its private HOME (a process-compose stack, if
+    // the services were ever on); reap exactly those.
+    for (const { pid } of markedProcesses(`HOME=${home}`)) await reap(pid);
     await killOwnedServer(env, socket);
+    // TM-298: a supervisor started outside a pane leads on the default server inside TMUX_TMPDIR,
+    // not on `socket`; it outlived every run until this.
+    await killEnvServer(env);
     await rm(root, { recursive: true, force: true });
   });
 

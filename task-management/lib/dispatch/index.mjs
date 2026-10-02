@@ -41,6 +41,8 @@ import { paths } from "../paths.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
 import { failureScope } from "./failure.mjs";
+import { PREFIXED_BACKENDS, aoGlobalPrefix, withPrefix } from "./prefix.mjs";
+import { detectHostCaps } from "../hostcaps.mjs";
 import { governanceMode, governedAdmission } from "../governance-check.mjs";
 
 /**
@@ -94,10 +96,11 @@ function startHeartbeat(id, session, agentName, p) {
  *   steal     pass through to claimTask — take a live claim deliberately
  *   p         store paths
  *   caps/registry   injectable host capabilities / module registry (tests)
+ *   aoPrefix        injectable ao global-prefix reader (TM-300; tests)
  *
  * Returns { ok, backend?, run?, worktree?, branch?, detail?, reason?, holder?, tried? }.
  */
-export async function dispatch(id, { backend = null, session = null, actor = null, steal = false, p = paths(), caps = null, registry = null } = {}) {
+export async function dispatch(id, { backend = null, session = null, actor = null, steal = false, p = paths(), caps = null, registry = null, aoPrefix = aoGlobalPrefix } = {}) {
   const task = read(id, p);
   if (!task) return { ok: false, reason: `not found: ${id}` };
   if (RESOLVED.has(task.status)) {
@@ -223,7 +226,17 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   // `handoff()` call (dashboard, `tm handoff`) state the same PR base this dispatch resolved.
   update(id, { integrationBranch: integration }, p);
 
-  const prompt = handoff(id, p);
+  let prompt = handoff(id, p);
+  // TM-300: tmux and manual workers never pass through ao's prompt composition, so its global
+  // prefix goes in front of the handoff here. Topology launches through ao, which adds it itself.
+  // Explicit caps are authoritative (tests pass `{}`): no topology path there means no ao.
+  let prefixWarning = null;
+  if (PREFIXED_BACKENDS.has(picked.name)) {
+    const bin = caps ? caps.backends?.topology?.path : (detectHostCaps().backends?.topology?.path ?? "ao-topology");
+    const got = bin ? aoPrefix({ bin }) : { text: null, warning: "global prompt prefix not applied: ao-topology is not installed" };
+    prompt = withPrefix(prompt, got.text);
+    prefixWarning = got.warning;
+  }
   let res;
   try {
     res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, prompt, session, actor, p });
@@ -234,7 +247,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
 
   const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now(), ...(res.nativeRunId ? { nativeRunId: res.nativeRunId } : {}), ...(res.workflowRunId ? { workflowRunId: res.workflowRunId } : {}), ...(res.detail?.runDir ? { recordPath: join(res.detail.runDir, "run.json") } : {}) };
   mutate(id, () => ({ dispatched, dispatchFailure: undefined }), p);
-  logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session }, p);
+  logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session, ...(prefixWarning ? { prefixWarning } : {}) }, p);
   /**
    * Register the worker the spawn just started. Additive and failure-tolerant by
    * contract: the registry observes the dispatch, it must never be able to fail
@@ -274,5 +287,6 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     branch: prov.branch,
     detail: res.detail,
     ...(ungoverned ? { ungoverned } : {}),
+    ...(prefixWarning ? { prefixWarning } : {}),
   };
 }

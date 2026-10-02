@@ -9,7 +9,8 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
@@ -89,5 +90,94 @@ describe("read-only identity keys", () => {
     const write = tm(p, "owner", '"Someone Else"');
     assert.equal(write.status, 2);
     assert.match(write.stderr, /read-only/);
+  });
+});
+
+/**
+ * TM-300 — the JSON contract the gateway settings UI uses: whole effective config, one value,
+ * a revision-guarded whole-document write, and bare-string values on the key verb.
+ */
+describe("tm config JSON contract (TM-300)", () => {
+  const json = (r) => JSON.parse(r.stdout);
+  const docFile = (p, doc) => {
+    const f = `${p.root}/doc-${Math.random().toString(36).slice(2)}.json`;
+    writeFileSync(f, JSON.stringify(doc));
+    return f;
+  };
+
+  it("a bare string value is stored as a string, with no JSON parse error", () => {
+    const p = store();
+    const r = tm(p, "dispatch.integrationBranch", "develop");
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, "");
+    assert.equal(JSON.parse(readFileSync(p.config, "utf8")).dispatch.integrationBranch, "develop");
+    assert.equal(json(tm(p, "dispatch.integrationBranch", "--json")), "develop");
+  });
+
+  it("--json prints the whole effective config; --with-revision pairs it with the file's sha256", () => {
+    const p = store();
+    // The file as a person or the UI left it; writeConfig itself fills defaults in.
+    writeFileSync(p.config, JSON.stringify({ wipLimit: 3, dispatch: { enabled: false, poolWip: 2 } }));
+    assert.equal(json(tm(p, "--json")).dispatch.poolWip, 2);
+    const r = json(tm(p, "--with-revision", "--json"));
+    assert.equal(r.revision, createHash("sha256").update(readFileSync(p.config)).digest("hex"));
+    assert.equal(r.effective.wipLimit, 3);
+    assert.equal(r.effective.enforce, true);
+    assert.equal(r.stored.wipLimit, 3);
+    assert.equal("enforce" in r.stored, false, "stored is the file, without defaults filled in");
+    assert.equal("config" in r, false, "no ambiguous `config` field for a writer to send back");
+  });
+
+  it("a malformed object, array or quoted string is refused, not stored as a string", () => {
+    const p = store();
+    const before = readFileSync(p.config);
+    for (const bad of ['{"a":', "[1,", '"unterminated']) {
+      const r = tm(p, "dispatch.integrationBranch", bad);
+      assert.equal(r.status, 2, `${bad} must be refused`);
+      assert.match(r.stderr, /not valid JSON/);
+    }
+    assert.ok(readFileSync(p.config).equals(before), "a refused value writes nothing");
+  });
+
+  it("--set-file drops values equal to their defaults, so writing back effective freezes nothing", () => {
+    const p = store();
+    const { revision, effective } = json(tm(p, "--with-revision"));
+    const w = tm(p, "--set-file", docFile(p, { ...effective, wipLimit: 7 }), "--if-revision", revision, "--json");
+    assert.equal(w.status, 0, w.stderr);
+    const file = JSON.parse(readFileSync(p.config, "utf8"));
+    assert.equal(file.wipLimit, 7);
+    assert.equal(file.dispatch.poolWip, 2, "a non-default nested value is kept");
+    for (const k of ["enforce", "requireEpic", "staleMinutes", "webhooks"]) assert.equal(k in file, false, `${k} is a default and must not be frozen`);
+    assert.equal(json(tm(p, "enforce", "--json")), true, "the effective value is unchanged");
+  });
+
+  it("--set-file round-trips the effective config, returns the new revision, and refuses a stale one", () => {
+    const p = store();
+    const { revision, stored: cfg } = json(tm(p, "--with-revision"));
+    const w = tm(p, "--set-file", docFile(p, { ...cfg, wipLimit: 7 }), "--if-revision", revision, "--json");
+    assert.equal(w.status, 0, w.stderr);
+    const res = json(w);
+    assert.equal(res.previous_revision, revision);
+    assert.equal(res.revision, createHash("sha256").update(readFileSync(p.config)).digest("hex"));
+    assert.equal(JSON.parse(readFileSync(p.config, "utf8")).wipLimit, 7);
+
+    const before = readFileSync(p.config);
+    const stale = tm(p, "--set-file", docFile(p, { ...cfg, wipLimit: 9 }), "--if-revision", revision, "--json");
+    assert.equal(stale.status, 2);
+    assert.equal(json(stale).code, "TM_CONFIG_STALE");
+    assert.ok(readFileSync(p.config).equals(before), "a stale write changes nothing");
+  });
+
+  it("--set-file refuses unknown keys by name and wrong types, writing nothing", () => {
+    const p = store();
+    const before = readFileSync(p.config);
+    const unknown = tm(p, "--set-file", docFile(p, { wipLimit: 3, wiplimit: 4, bogus: true }), "--json");
+    assert.equal(unknown.status, 2);
+    assert.match(unknown.stderr, /unknown config keys: wiplimit, bogus/);
+    const typed = tm(p, "--set-file", docFile(p, { wipLimit: "lots", webhooks: {} }));
+    assert.equal(typed.status, 2);
+    assert.match(typed.stderr, /wipLimit must be an integer/);
+    assert.match(typed.stderr, /webhooks must be an array/);
+    assert.ok(readFileSync(p.config).equals(before));
   });
 });

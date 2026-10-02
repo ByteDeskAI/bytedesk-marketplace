@@ -5,11 +5,13 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { isolatedTmux, killOwnedServer } from "../helpers/isolated-tmux.mjs";
+import { implicitSocket, isolatedTmux, killEnvServer, refuseOperatorSocket } from "../helpers/isolated-tmux.mjs";
+import { operatorSessions } from "../helpers/suite-leaks.mjs";
+import { NO_PROVIDER } from "../helpers/temp-repo.mjs";
 import { sleep, writeJson } from "../../topology/lib/util.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -17,8 +19,13 @@ const root = process.cwd();
 const cli = join(root, "topology", "cli.mjs");
 const fakeAgent = join(root, "tests", "fixtures", "fake-agent.mjs");
 
+// TM-298: pinned here, not only by the preflight — CI runs these files without it. With the services
+// on, `launch` registers the consumer with process-compose, whose re-run `supervise` has a scrubbed
+// env: no TMUX_TMPDIR, so its lead lands on the operator's default server. A test may override it.
+const TEST_ENV = { AO_TRANSPORT: 'file', AGENT_ORCHESTRATION_SERVICES: '0' };
+
 async function ao(args, env = {}) {
-  const result = await execFile(process.execPath, [cli, ...args], { env: { ...process.env, AO_TRANSPORT: 'file', ...env }, encoding: "utf8", timeout: 120_000 });
+  const result = await execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...TEST_ENV, ...env }, encoding: "utf8", timeout: 120_000 });
   return result.stdout;
 }
 
@@ -27,7 +34,7 @@ async function ao(args, env = {}) {
  * did not land" — is now a legitimate outcome that has to be asserted rather than caught.
  */
 async function aoAllowingFailure(args, env = {}) {
-  return execFile(process.execPath, [cli, ...args], { env: { ...process.env, AO_TRANSPORT: 'file', ...env }, encoding: "utf8", timeout: 120_000 })
+  return execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...TEST_ENV, ...env }, encoding: "utf8", timeout: 120_000 })
     .then((result) => ({ code: 0, stdout: result.stdout, stderr: result.stderr }))
     .catch((error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" }));
 }
@@ -44,21 +51,33 @@ async function supervisorsFor(consumer) {
   return stdout.split("\n").filter(Boolean).map(Number);
 }
 
+/**
+ * TM-298: prove the activation path `launch` starts — the supervisor, and the lead and sessions it
+ * creates — can only reach this test's tmux server. Every tmux call in a supervisor resolves its
+ * server from its own `--server` flag or, failing that, its own environment, so reading both from
+ * /proc is reading where its sessions go. A services-managed supervisor (the TM-298 escape) has a
+ * scrubbed environment, so it resolves the operator's default socket and fails here.
+ */
+async function assertSupervisionIsolated(consumer) {
+  if (process.platform !== "linux") return; // ponytail: reads /proc; the suite-end check covers the rest
+  const pids = await supervisorsFor(consumer);
+  assert.ok(pids.length >= 1, `launch must have started a supervisor for ${consumer}; none found, so nothing was checked`);
+  for (const pid of pids) {
+    const procEnv = Object.fromEntries((await readFile(`/proc/${pid}/environ`, "latin1")).split("\0").filter(Boolean)
+      .map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)]));
+    const argv = (await readFile(`/proc/${pid}/cmdline`, "latin1")).split("\0");
+    const server = argv.includes("--server") ? argv[argv.indexOf("--server") + 1] : implicitSocket(procEnv);
+    assert.notEqual(procEnv.AGENT_ORCHESTRATION_SERVICES_MANAGED, "1", `supervisor ${pid} was started by the managed services, not by this test`);
+    assert.equal(procEnv.TMUX, "", `supervisor ${pid} inherits a live $TMUX`);
+    refuseOperatorSocket(server, procEnv);
+    assert.ok(server.startsWith(`${consumer}/`), `supervisor ${pid} resolves tmux server ${server}, outside ${consumer}`);
+  }
+}
+
 async function stopSupervisors(consumer) {
   for (const pid of await supervisorsFor(consumer)) { try { process.kill(pid, "SIGTERM"); } catch {} }
   for (let i = 0; i < 50 && (await supervisorsFor(consumer)).length; i += 1) await sleep(100);
   for (const pid of await supervisorsFor(consumer)) { try { process.kill(pid, "SIGKILL"); } catch {} }
-}
-
-/**
- * Kill the test's own tmux server, scoped by SOCKET (.claude/rules/tmux-test-isolation.md rule 3),
- * and only after checking that socket lives under this test's TMUX_TMPDIR — the one mistake this
- * teardown must never make is resolving to the operator's server and killing it.
- */
-async function killIsolatedServer(env) {
-  const socket = await execFile("tmux", ["list-panes", "-a", "-F", "#{socket_path}"], { env: { ...process.env, ...env } })
-    .then((result) => result.stdout.split("\n")[0].trim()).catch(() => "");
-  await killOwnedServer(env, socket);
 }
 
 /**
@@ -106,14 +125,16 @@ async function launchDeliveryRun(t, label, extraEnv = {}) {
     ],
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }],
   });
-  // TM-167: `launch` self-starts supervision only for enrolled repositories.
-  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), { enabled: true });
+  // TM-167: `launch` self-starts supervision only for enrolled repositories. TM-294: an enrolled
+  // supervisor starts a standing lead, so give it a provider that does not exist (TM-290).
+  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), { enabled: true, lead: { provider: NO_PROVIDER } });
   const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", join(root, "tests", "fixtures"), "--run-id", `${label}-${process.pid}`, "--json"], env));
   t.after(async () => {
     await stopSupervisors(consumer);
-    await killIsolatedServer(env);
+    await killEnvServer(env); // TM-298: the known socket, not a list-panes discovery that can return nothing
     await rm(consumer, { recursive: true, force: true });
   });
+  await assertSupervisionIsolated(consumer);
   const worker = launched.agents.find((agent) => agent.id === "worker-a");
   return { runDir: launched.runDir, runId: `${label}-${process.pid}`, session: launched.session, env, consumer, worker };
 }
@@ -254,7 +275,7 @@ test("launch → send → wait → status → stop with fake agents in tmux", { 
     passed = true;
   } finally {
     await stopSupervisors(consumer);
-    if (session) await killIsolatedServer(env);
+    if (session) await killEnvServer(env); // TM-298: the known socket, not a list-panes discovery that can return nothing
     // Kept on failure, deliberately. This case has failed intermittently for days and every
     // investigation started from an assertion message with no pane logs behind it, because the
     // finally had already deleted the run — including `agents/<id>/pane.log`, which is the only
@@ -316,7 +337,7 @@ test("a message rung at a deaf pane escalates rather than reporting a delivery",
 });
 
 test("a pointer stuck in the composer is resubmitted with the submit key alone, never re-typed", { skip: tmuxAvailable ? false : "tmux not installed" }, async (t) => {
-  const { runDir, env, worker } = await launchDeliveryRun(t, "stuck", { AO_RING_WINDOW_MS: "9000" });
+  const { runDir, env, worker, consumer } = await launchDeliveryRun(t, "stuck", { AO_RING_WINDOW_MS: "9000" });
   // A pane that echoes what is typed at it and never redraws a fresh prompt. The mechanism differs
   // from a real TUI — here the line discipline does the echoing — but the OBSERVABLE is identical
   // and that is what the state machine reads: the occurrence count rises, and no line matching the
@@ -340,6 +361,11 @@ test("a pointer stuck in the composer is resubmitted with the submit key alone, 
   // The direct evidence, and the assertion a future refactor of the ladder would break first.
   const screen = await ao(["capture", "--run", runDir, "--agent", "worker-a", "--lines", "60"], env);
   assert.equal(screen.split("[ao] Message").length - 1, 1, `the pointer must appear on the pane exactly once:\n${screen}`);
+  // TM-298: this test's supervisor once started its lead on the operator's default server. The
+  // supervisor check ran at launch; this is the outcome, after the whole delivery ladder ran.
+  const label = basename(consumer).toLowerCase();
+  const escaped = [...operatorSessions().keys()].filter((key) => key.toLowerCase().includes(label));
+  assert.deepEqual(escaped, [], `sessions for ${consumer} reached an operator tmux server`);
 });
 
 test("managed shell ignores ambient default-command and an unsignalled timeout is never ready", { skip: tmuxAvailable ? false : "tmux not installed" }, async () => {

@@ -8,6 +8,13 @@ lifecycle control, and structured results instead of scraping terminal output.
 See [repository leads and standing services](docs/repository-leads.md) for canonical worktree identity,
 configurable prompts, reviewer gates, durable mail and Presence v1.
 
+Prompt and configuration settings: `ao-topology config get|set|validate` read and write one
+configuration layer with a revision guard, `prompt preview --agent|--role` shows the composed prompt
+and its sources, a global `prompts.prefix` composes first, and every prompt entry can `append` or
+`replace` (`agent set-instructions` for one agent) — role protocol (lead and reviewer templates)
+is never replaced. See
+[Configuration and prompts](docs/repository-leads.md#configuration-and-prompts).
+
 ## Read-only orchestration observer
 
 The `orchestration-observer` agent attaches to one explicitly selected live orchestration. It records
@@ -91,8 +98,12 @@ supervisor. It is idempotent. It:
 6. keeps the other hosts on the same build (TM-284): it finds this plugin's Codex copy
    (`~/.codex/plugins/cache/bytedesk/agent-orchestration/…`), Grok install
    (`~/.grok/installed-plugins/agent-orchestration-*`) and the root `~/.kimi-code/mcp.json` names,
-   and replaces any copy with an OLDER version by the services' plugin root. An equal or newer copy
-   is left alone. The copy is built beside the old one and swapped in by rename, keeping the old
+   and replaces any copy with an OLDER version by the services' plugin root. A copy at the same
+   version but a different build fingerprint is replaced too (TM-299), unless it is the newer build.
+   Builds are ordered by the ordinal each refresh records in the copy's `.ao-build.json` (the
+   source's commit time at sync, or the newest `dist/` mtime outside git); a copy without that file,
+   or whose file names another build, falls back to its bundle mtime. A newer version or a newer
+   build is never overwritten, an equal ordinal is left alone, and so is the same build. The copy is built beside the old one and swapped in by rename, keeping the old
    copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
    inside a git checkout, or when the copy's `node_modules` does not satisfy the new
    `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
@@ -345,6 +356,12 @@ tmux attach -t brand-vault-<run_id>
 - **Role packs** — `roles/*.md`: domain-free contracts for orchestrator, worker, designer, judge,
   reviewer, researcher, implementer. Domain skills (e.g. `brand-brief`, `brand-concept`,
   `brand-judge` from the design-system plugin) are referenced by name and read by the agent.
+- **Prompt changes on a live agent** — `ao-topology agent restart <agent> --mode handoff|resume
+  --json` applies a changed prompt to one running agent at a safe turn boundary (never mid-turn,
+  never over typed input): `handoff` replaces the session and passes the predecessor's handoff,
+  `resume` continues the same provider conversation where the provider supports it (Claude
+  `--resume`) and otherwise falls back to `handoff` and says why. `agent list --json` flags
+  `restart_required` per agent. See [`docs/topology.md`](docs/topology.md#applying-a-changed-prompt-to-a-running-agent-agent-restart-tm-297).
 - **Mailbox** — messages are files in `<run>/agents/<id>/inbox`, replies in `outbox`; tmux only
   types a one-line pointer. Every event lands in `journal.jsonl`.
 - **Skills** — `orchestration-compose`, `orchestration-launch`, `orchestration-conduct` (the

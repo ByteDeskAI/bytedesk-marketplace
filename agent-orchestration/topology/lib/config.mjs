@@ -11,9 +11,12 @@
 // Bad config is a first-class outcome, not an exception: a layer that does not parse or that fails
 // the shape check contributes nothing and is reported in `errors`, so a refresh path can keep a
 // running agent on its last-valid prompt with the error visible instead of applying half a config.
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { expandHome, readJson } from "./util.mjs";
+import { withLock } from "./lockfile.mjs";
+import { expandHome, fail, invariant, readJson, writeJson } from "./util.mjs";
 
 export function defaultsConfigPath(pluginRoot) {
   return join(pluginRoot, "config.defaults.json");
@@ -44,6 +47,39 @@ export function mergeConfig(base, addition) {
 }
 
 const TEMPLATE_KEYS = new Set(["role", "cli", "candidates", "model", "prompt", "instructions", "skills", "mcp", "args", "env", "auto_approve", "reports_to", "name"]);
+
+/**
+ * TM-296. A prompt entry is a plain string — a Markdown path, appended, exactly as before — or
+ * `{ "file" | "text": ..., "mode": "append" | "replace" }`. `replace` drops the same slot's text
+ * from every wider layer. Returns { file, text, mode } or null for anything that is not an entry.
+ */
+export function promptEntry(value) {
+  if (typeof value === "string") return value.trim() ? { file: value, text: null, mode: "append" } : null;
+  if (!isPlainObject(value)) return null;
+  return { file: typeof value.file === "string" ? value.file : null, text: typeof value.text === "string" ? value.text : null, mode: value.mode ?? "append" };
+}
+
+export const PROMPT_MODES = ["append", "replace"];
+
+export function promptEntryErrors(value, where, { mode = true } = {}) {
+  if (typeof value === "string") return value.trim() ? [] : [`${where} must be a nonempty Markdown path`];
+  if (!isPlainObject(value)) return [`${where} must be a Markdown path or an object with "file" or "text"`];
+  const errors = [];
+  const allowed = mode ? ["file", "text", "mode"] : ["file", "text"];
+  for (const key of Object.keys(value)) if (!allowed.includes(key)) errors.push(`${where} has unknown key "${key}"`);
+  const sources = ["file", "text"].filter((key) => value[key] !== undefined);
+  if (sources.length !== 1) errors.push(`${where} must have exactly one of "file" or "text"`);
+  else if (typeof value[sources[0]] !== "string" || !value[sources[0]].trim()) errors.push(`${where} field "${sources[0]}" must be a nonempty string`);
+  if (mode && value.mode !== undefined && !PROMPT_MODES.includes(value.mode)) errors.push(`${where} field "mode" must be "append" or "replace"`);
+  return errors;
+}
+
+/** Valid but ignored content, by layer: the prefix is honoured only from the global layer. */
+export function layerWarnings(raw, scope, label = scope) {
+  return scope !== "global" && raw?.prompts?.prefix !== undefined
+    ? [`${label}: "prompts.prefix" is honoured only in the global config layer; ignored here`]
+    : [];
+}
 
 /** Shape check, forgiving by design: every problem is reported, none aborts the other layers. */
 export function validateConfigShape(raw, label) {
@@ -86,8 +122,10 @@ export function validateConfigShape(raw, label) {
     const byRole = isPlainObject(raw.prompts.common_by_role) ? Object.fromEntries(Object.entries(raw.prompts.common_by_role).map(([role, path]) => [`common_by_role.${role}`, path])) : {};
     const paths = { common: raw.prompts.common, ...byRole, ...(isPlainObject(raw.prompts.roles) ? raw.prompts.roles : {}) };
     for (const [key, value] of Object.entries(paths)) {
-      if (value !== undefined && (typeof value !== "string" || !value.trim())) errors.push(`${label}: prompt "${key}" must be a nonempty Markdown path`);
+      if (value !== undefined) errors.push(...promptEntryErrors(value, `${label}: prompt "${key}"`));
     }
+    // TM-296: the prefix is placed by position, never merged, so it takes no mode.
+    if (raw.prompts.prefix !== undefined) errors.push(...promptEntryErrors(raw.prompts.prefix, `${label}: prompt "prefix"`, { mode: false }));
   }
   if (raw.management !== undefined && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
   // ADR-0030: `node.name` names this node in session names and as its NATS leaf node. AO_NODE_NAME wins.
@@ -182,4 +220,51 @@ export function layerDirs(layers) {
   const dirs = {};
   for (const layer of layers) if (layer.ok && layer.present) dirs[layer.scope] = layer.dir ?? dirname(layer.path);
   return dirs;
+}
+
+// ── Layer documents (TM-296) ─────────────────────────────────────────────────
+// The gateway settings UI reads and writes config only through `ao-topology config get|set`, so
+// these are the contract: the raw document of ONE layer, never the merge, and a revision that is
+// the sha256 of the file's bytes so a writer can refuse to overwrite an edit it never saw.
+
+export const ABSENT_REVISION = "absent";
+export const CONFIG_SCOPES = ["global", "repo"];
+
+export function configLayerPath(scope, { consumer = null, home = homedir(), env = process.env } = {}) {
+  invariant(CONFIG_SCOPES.includes(scope), "TOPOLOGY_CONFIG_SCOPE", 'Use --scope global or --scope repo.');
+  if (scope === "global") return globalConfigPath(home, env);
+  invariant(consumer, "TOPOLOGY_CONFIG_SCOPE", "The repo scope needs --consumer <repo>.");
+  return repoConfigPath(consumer);
+}
+
+/** { scope, path, present, revision, document, errors, warnings } — invalid JSON is reported, not thrown. */
+export async function readConfigLayer(scope, options = {}) {
+  const path = configLayerPath(scope, options);
+  let bytes;
+  try { bytes = await readFile(path); }
+  catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return { scope, path, present: false, revision: ABSENT_REVISION, document: null, errors: [], warnings: [] };
+  }
+  const revision = createHash("sha256").update(bytes).digest("hex");
+  let document;
+  try { document = JSON.parse(bytes.toString("utf8")); }
+  catch (error) { return { scope, path, present: true, revision, document: null, errors: [`${path} is not valid JSON: ${error.message}`], warnings: [] }; }
+  return { scope, path, present: true, revision, document, errors: validateConfigShape(document, path), warnings: layerWarnings(document, scope, path) };
+}
+
+/** Validate BEFORE writing, refuse a stale revision, write atomically (temp + rename). */
+export async function writeConfigLayer(scope, document, { ifRevision = null, ...options } = {}) {
+  const path = configLayerPath(scope, options);
+  const errors = validateConfigShape(document, path);
+  invariant(errors.length === 0, "TOPOLOGY_CONFIG_INVALID", `Refusing to write ${path}: ${errors.join("; ")}`, { errors });
+  return withLock(`${path}.lock`, async () => {
+    const before = await readConfigLayer(scope, options);
+    if (ifRevision && ifRevision !== before.revision) {
+      fail("TOPOLOGY_CONFIG_STALE", `${path} changed since revision ${ifRevision}; it is now ${before.revision}. Re-read it and apply your change again.`, { expected: ifRevision, actual: before.revision });
+    }
+    await writeJson(path, document);
+    const after = await readConfigLayer(scope, options);
+    return { ok: true, scope, path, previous_revision: before.revision, revision: after.revision, warnings: after.warnings };
+  });
 }

@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { hostname, homedir } from 'node:os';
 import net from 'node:net';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
-import { OUTAGE_RETIRE_MS, discardLiveTransports, holdsFallbackFrom, readTransportState, retireStaleOutage, writeTransportState } from './orch-transport.mjs';
+import { OUTAGE_RETIRE_MS, discardLiveTransports, holdsFallbackFrom, readTransportState, retireStaleOutage, touchFallback, writeTransportState } from './orch-transport.mjs';
 import { readLeadRegistration } from './lead.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 
@@ -41,13 +41,13 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   discard = discardLiveTransports, now = Date.now, retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS, holds = holdsFallbackFrom }) {
   let state = await readTransportState(env, home, { retireAfterMs: Infinity });
   if (!state?.outage?.since) return null;
-  // Refreshed at most every quarter bound, so a steady fallback does not rewrite the file every reconcile.
-  const stale = now() - Date.parse(state.outage.last_fallback_at ?? state.outage.since) > retireAfterMs / 4;
-  const open = !state.outage.recovered_at, holding = open && stale && holds(state.outage);
   // A connection this supervisor still holds on the fallback is a fallback in use: keep the outage live.
-  if (holding) state = { ...state, outage: { ...state.outage, last_fallback_at: new Date(now()).toISOString() } };
+  // touchFallback is the same refresh every holder's transport heartbeat runs (TM-295).
+  if (!state.outage.recovered_at && holds(state.outage) && await touchFallback(env, home, state.outage, { now: now(), retireAfterMs })) {
+    state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  }
   const checked = retireStaleOutage(state, { now: now(), retireAfterMs });
-  if (holding || checked !== state) await writeTransportState(env, home, checked);
+  if (checked !== state) await writeTransportState(env, home, checked);
   state = checked;
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);

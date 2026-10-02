@@ -19,6 +19,7 @@ import { validateConfigShape } from '../../topology/lib/config.mjs';
 import { activateRepository, resolveEnrollment } from '../../topology/lib/repo-enrollment.mjs';
 import { startupCheck } from '../../topology/lib/startup.mjs';
 import { noProviderLead } from '../helpers/temp-repo.mjs';
+import { killEnvServer } from '../helpers/isolated-tmux.mjs';
 
 const exec = promisify(execFile);
 const GIT_ID = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
@@ -47,6 +48,7 @@ async function repoFixture(t, label) {
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
+    await killEnvServer(env); // TM-298: the supervisor's lead session lives on, and its socket goes with root
     await rm(root, { recursive: true, force: true });
   });
   const configPath = join(repo, '.bytedesk', 'agent-orchestration', 'config.json');
