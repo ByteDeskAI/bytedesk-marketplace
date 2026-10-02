@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.1] — 2026-10-01
+
+### Fixed
+
+- **A repository supervisor survives a NATS restart (TM-277).** Killing the managed `nats-server` used to end `ao-topology supervise` with exit 1. The presence heartbeat writes to the `ORCH_PRESENCE` bucket; its JetStream request timed out (`NatsError` `TIMEOUT`), the heartbeat treated that as fatal, and the error escaped the CLI's top-level `await`. A NATS outage (`TIMEOUT`, `408`, `503`, a closed, refused or dropped connection, or `TOPOLOGY_NATS_UNAVAILABLE`) now skips one heartbeat beat or degrades one tick (`degraded: "transport-unavailable"`), and the quiet tick backs off on the existing 2s/5s/15s ladder. The cached connection is closed without a drain, so the next tick dials again. The tick record counts the outages in `transport_failures` and keeps the latest in `transport_error`. Any other error still ends the supervisor, and a one-shot `supervise --once` still fails with the outage. The classifier and the discard live in one helper in `orch-transport.mjs` (`isTransportFailure`, `absorbTransportFailure`).
+- A process started by the service manager no longer starts a detached `nats-server` when the managed one is down. It used to do this after 5 seconds: a second server on the same JetStream store, with `state.json` rewritten away from the managed port. It now reports `TOPOLOGY_NATS_UNAVAILABLE` and retries on its next tick.
+- **Runs can start on macOS (TM-273).** Every non-Windows host was given the `linux-native` backend, which launches workers through `systemd-run` and `prlimit`; neither exists on macOS. darwin now selects `darwin-native`: a detached Node watchdog starts each worker as the leader of its own process group, enforces the same limits as the Linux scopes (8 hours per worker, 30 seconds per provider probe; SIGTERM, then SIGKILL after 3 seconds), and caps core dumps and file size with `ulimit`. Liveness is the recorded pid plus its start identity, and cancel signals the whole group. macOS has no per-group memory or task-count limit, so none is applied. Logs and run state use the same layout as Linux.
+- On macOS, process start identity comes from `ps -o lstart=` in the C locale instead of `/proc`, and the session host is not started through a systemd scope.
+
+### Changed
+
+- **Provider isolation is unavailable on macOS, and runs are refused rather than run unsandboxed.** Bubblewrap is Linux-only. On darwin, `doctor` reports the sandbox as `unavailable` with the reason, and `spawn` refuses with `AO_SANDBOX_UNAVAILABLE` before any provider discovery. The provider-sandbox launcher also refuses on any platform other than Linux and Windows. A macOS sandbox is follow-up work.
+- Verified on Linux only: the darwin selection is tested by injected platform, and the process-group backend (launch, liveness, cancel of the whole group, runtime-limit escalation, ulimit caps) is exercised for real on Linux, where it uses the same POSIX calls. It has not run on a Mac.
+
 ## [0.12.0] — 2026-10-01
 
 ### Added

@@ -1,8 +1,9 @@
 import { invariant } from "../errors.mjs";
 import { LinuxRuntimeFactory } from "./linux-runtime.mjs";
+import { DarwinRuntimeFactory } from "./process-group-runtime.mjs";
 import { WindowsNativeRuntimeFactory } from "./windows-native-runtime.mjs";
 
-const factories = [new WindowsNativeRuntimeFactory(), new LinuxRuntimeFactory()];
+const factories = [new WindowsNativeRuntimeFactory(), new DarwinRuntimeFactory(), new LinuxRuntimeFactory()];
 
 export function registerPlatformRuntimeFactory(factory) {
   factories.unshift(factory);
