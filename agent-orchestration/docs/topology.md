@@ -136,11 +136,43 @@ Each segment is lowercased, every other run of characters becomes one `-`, and i
   with `TOPOLOGY_AGENT_ALREADY_LIVE`, naming the session that holds it.
 - **Parallel work gets distinct agents.**
 - **Personas are unique per scope** — the team when there is one, else the repo segment — through a
-  persona registry (`allocate`, `release`, `holder`). The local registry is a lock-guarded file
-  under the topology state root (`personas/`). An agent's persona stays with the agent. A team run
-  holds its persona only while it runs: `stop` releases it, as do a dry run and a launch that left no
-  session; a run whose session vanished without a stop is reclaimed by the next allocation once it is
-  more than two minutes old.
+  persona registry (`allocate`, `release`, `holder`). An agent's persona stays with the agent. A team
+  run holds its persona only while it runs: `stop` releases it, as do a dry run and a launch that left
+  no session. The registry depends on the scope:
+
+  | Scope | Registry | Unique across |
+  |---|---|---|
+  | repo (no team) | the local registry: a lock-guarded file under the topology state root (`personas/`) | this node |
+  | team | the NATS registry: JetStream KV bucket `ORCH_PERSONAS` (TM-279) | every node of the team |
+
+  **NATS registry.** Each key is `<scope>.<persona>` (for example `team_core.ada`). Each value is
+  `{ holder, sessionId, node, repo, presence, allocatedAt }`. An allocation is an atomic KV `create`,
+  so two nodes can never take one name. A `release` deletes only at the revision it read.
+
+  **Reclaim.** A held persona is reclaimed only when both of these are true:
+  - the holder is more than two minutes old;
+  - the holder is not live in presence. That means the allocating repository's presence entry
+    (`ORCH_PRESENCE`, with a 45 s TTL) is missing, older than its `staleAfterMs` plus skew, or does not
+    list the holder.
+
+  The reclaim is a revision-checked update, so when two nodes race to reclaim the same persona,
+  exactly one wins.
+
+  **NATS unreachable.** A team allocation fails with `TOPOLOGY_PERSONA_REGISTRY_UNAVAILABLE`, which
+  names the team. It never falls back to the local file, because two nodes could then take the same
+  persona. Repo-scoped work keeps working. `AO_TRANSPORT=file` (no NATS at all, so there is one host)
+  keeps teams on the local registry.
+
+  **Local registry.** A run whose session vanished without a `stop` is reclaimed by the next allocation
+  once it is more than two minutes old. The registry checks for the session on this node's tmux server.
+
+  **Leaf nodes.** The hub hosts `ORCH_PERSONAS`, and every node of a team must reach that one bucket.
+  A leaf whose own nats-server runs no JetStream reaches the bucket over its leaf connection, with no
+  setting. A leaf whose own server runs JetStream must name the hub's JetStream domain:
+  `AO_NATS_JS_DOMAIN=<domain>`, or `"nats": { "domain": "<domain>" }` in the ao user config. The value is
+  1–64 letters, digits, hyphens or underscores. Without the domain, the leaf allocates from a separate
+  bucket on its own JetStream, and team uniqueness is lost. The domain applies to the transport's
+  whole js context, so mail, claims and presence also resolve on the hub.
 
 **The name is a label, not a key.** Every session gets a ULID and records `@ao-id`, `@ao-agent`,
 `@ao-role`, `@ao-repo`, `@ao-repo-origin` (`owner/repo`, or the path when there is no remote),

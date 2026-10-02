@@ -13,6 +13,7 @@
 //   presence  KV ORCH_PRESENCE key <repo>          TTL 45s, JSON body unchanged
 //   agents    KV ORCH_AGENTS key <repo>.<agent>
 //   reviews   object store ORCH_REVIEWS named by content hash
+//   personas  KV ORCH_PERSONAS key <scope>.<persona>   create/update/delete are revision checked (TM-279)
 //   probe     orch.<repo>.probe.<agent>            core request/reply, no file
 //   verdict   orch.<repo>.review.<nonce>           core publish, not a pane capture
 //
@@ -36,6 +37,7 @@ export const ORCH_LAYOUT = Object.freeze({
   presenceBucket: 'ORCH_PRESENCE',
   agentsBucket: 'ORCH_AGENTS',
   reviewsBucket: 'ORCH_REVIEWS',
+  personasBucket: 'ORCH_PERSONAS',
   presenceTtlMs: 45_000,
   duplicateWindowMs: 120_000,
   mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
@@ -93,7 +95,7 @@ export async function resolveTransport({ env = process.env, transport } = {}) {
   // so the file double stays selected for the existing suite.
   const selected = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
   if (transportMode(selected) === 'file') return createFileTransport();
-  const key = `${selected.AO_NATS_URL || selected.NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}`;
+  const key = `${selected.AO_NATS_URL || selected.NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}|${selected.AO_NATS_JS_DOMAIN || ''}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
   const opened = await openTransport({ env: selected });
@@ -147,6 +149,27 @@ export async function absorbTransportFailure(error) {
 
 export async function selectLiveTransport(options = {}) {
   return resolveTransport(options);
+}
+
+export const JS_DOMAIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * TM-279. The JetStream domain this node's js context addresses: `AO_NATS_JS_DOMAIN`, else
+ * `nats.domain` in the ao user config, else none. A leaf node whose own server runs JetStream names
+ * the hub's domain here so the shared buckets (ORCH_PERSONAS above all) resolve on the hub; a leaf
+ * without its own JetStream, and a single server, need none.
+ */
+export async function jetStreamDomain(env = process.env, home = homedir()) {
+  let domain = env.AO_NATS_JS_DOMAIN;
+  if (!domain) {
+    const { globalConfigPath } = await import('./config.mjs');
+    domain = (await readJson(globalConfigPath(home, env)).catch(() => null))?.nats?.domain;
+  }
+  if (domain === undefined || domain === null || domain === '') return null;
+  if (typeof domain !== 'string' || !JS_DOMAIN_PATTERN.test(domain)) {
+    fail('TOPOLOGY_NATS_DOMAIN', `JetStream domain ${JSON.stringify(domain)} is invalid: use 1-64 letters, digits, hyphen or underscore (AO_NATS_JS_DOMAIN or nats.domain).`);
+  }
+  return domain;
 }
 
 const MAX_PENDING = 10_000;
@@ -420,6 +443,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     }
   }
   const creds = credsFile || env.AO_ORCH_CREDS;
+  const domain = await jetStreamDomain(env).catch((error) => { bridge?.server.close(); throw error; });
   const dial = () => {
     const options = { servers: target, name, timeout: 4000, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
     if (local) Object.assign(options, { user: local.user, pass: local.pass });
@@ -441,14 +465,16 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
       fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}; local fallback failed: ${second.message}`);
     }
   }
-  const js = nc.jetstream();
-  const jsm = await nc.jetstreamManager();
+  const jsOptions = domain ? { domain } : {};
+  const js = nc.jetstream(jsOptions);
+  const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = new Set();
   const subscriptions = new Set();
   const timers = new Set();
   const transport = {
     kind: 'nats',
     nc,
+    domain,
     stats() {
       return { kind: 'nats', closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
@@ -629,6 +655,10 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
       const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === 'DEL') return null;
       return { via: 'nats', bucket: ORCH_LAYOUT.agentsBucket, key, body: entry.string() };
+    },
+    /** TM-279: the team persona bucket, on the same js context (and so the same domain) as the rest. */
+    async personaKv() {
+      return js.views.kv(ORCH_LAYOUT.personasBucket, { storage: StorageType.File, history: 1 });
     },
     async putReview({ bytes }) {
       const data = typeof bytes === 'string' ? Buffer.from(bytes) : Buffer.from(bytes);

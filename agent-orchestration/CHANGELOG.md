@@ -1,6 +1,27 @@
 # Changelog
 
-## Unreleased — Docs
+## [0.14.0] — 2026-10-02
+
+### Added
+
+- **Team personas are unique across nodes, through NATS KV (TM-279, ADR-0030 part 3).** `natsPersonaRegistry` implements the persona registry interface (`allocate` / `release` / `holder`) on one JetStream KV bucket, `ORCH_PERSONAS`, keyed `<scope>.<persona>` (for example `team_core.ada`). Each value is `{ holder, sessionId, node, repo, presence, allocatedAt }`. Allocation is an atomic KV `create` over the same candidate order as the local registry: first name, then `first-last`, then the holder's id. A persona the holder already holds is returned as is. `release` deletes only at the revision it read, so it never frees a persona that someone else reclaimed in between.
+- **A dead holder is reclaimed; a live one never is.** A taken persona is reclaimed only when its holder is past the two-minute grace period AND is not live in presence. Not live means that the allocating repository's presence entry is missing, older than its `staleAfterMs` plus clock skew, or does not list the holder (the agent, or a member of the holder's run). Reclaim is a revision-checked `update`, so when two nodes reclaim the same persona, exactly one wins. A record that has no presence key cannot be judged, so it is kept.
+- **Registry selection, `personaRegistryFor(scope)`.** `planSession` and `releaseRunPersona` use it when no registry is passed in. A repo scope always uses the local file-lock registry. A team scope uses the NATS registry. If NATS is unreachable, a team allocation fails with `TOPOLOGY_PERSONA_REGISTRY_UNAVAILABLE`, and the message names the team. It never falls back to the local registry, because two nodes could then take the same persona. `AO_TRANSPORT=file`, the explicit single-host double, keeps the local registry for teams.
+- **Leaf nodes: `AO_NATS_JS_DOMAIN`, or `nats.domain` in the ao user config.** The value is validated as 1–64 letters, digits, hyphens or underscores. It sets the JetStream domain for the transport's whole js context. The hub hosts `ORCH_PERSONAS`. A leaf whose own server runs JetStream names the hub's domain to reach that bucket. A leaf with no JetStream of its own, and a single server, need no domain.
+
+### Tests
+
+- `tests/unit/topology-persona-registry.test.mjs` adds the following. Each NATS case uses a throwaway nats-server (killed by PID only) and skips when no binary is found:
+  - one conformance table run against both registries;
+  - two allocator processes racing 24 allocations in one team, which asserts that their allocation windows overlap;
+  - release;
+  - stale-versus-live reclaim, including the grace period;
+  - a forced two-reclaimer race over 10 rounds;
+  - the unreachable-NATS refusal, with repo scope still working;
+  - a hub plus a leaf with its own JetStream domain, racing 20 allocations. This case also shows that a leaf with no domain set uses a separate bucket.
+- Mutation checks: replacing the atomic `create` with a plain `put` fails the race, leaf and conformance tests. Replacing the reclaim `update` with a `put` fails the reclaim race.
+
+### Docs
 
 - **Presence session-names addendum for the gateway (TM-274, ADR-0030).** `topology/PRESENCE-SESSION-NAMES-ADDENDUM.md` supersedes the name shapes in presence contract §4.3–§4.4, without editing the frozen contract: the `[team--]node--repo--role--persona` shapes per `session.kind`, the legacy `ao-<id>` and `<id>-<7 hex>` shapes until those sessions end, the slug and length rules, and the `@ao-*` options as labels rather than proof. The presence shape is unchanged (`schemaVersion` stays `2`; `session.kind` keeps its vocabulary), and a run of one agent under a new name is published as `kind: "run"`. `topology/SESSION-NAMES-COUNTERSIGNATURE-REQUEST.md` asks the gateway lead to countersign. Fixtures and `check.py` are in `topology/fixtures/presence-session-names/`, hashes in `SESSION-NAMES-HASHES.txt`, and `tests/unit/topology-presence-session-names.test.mjs` checks the real producer output, the fixtures and every hash, and proves the hash check fails when one byte changes.
 
