@@ -13,6 +13,7 @@ import { slotsDir } from "./slots.mjs";
 import { censusPath, withStaleness } from "./census.mjs";
 import { queueDepth } from "./mailbox.mjs";
 import { roleVisual } from "./identity.mjs";
+import { sessionIdentity } from "./session-names.mjs";
 import { invariant, run } from "./util.mjs";
 import { durableTopologyRoot } from './discovery.mjs';
 
@@ -260,7 +261,10 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
     const pane=panes.get(bindingKey(binding)); if(!pane) return;
     const def=library.get(agentId);
     if(!idValid(agentId)) agentId=createHash("sha256").update(bindingKey(binding)).digest("hex").slice(0,8);
-    invariant(kind !== "spawn" || pane.sessionName === `${agentId}-${spawn}`,"TOPOLOGY_PRESENCE_SPAWN","Spawn metadata disagrees with the observed incarnation name; refusing an invalid snapshot.");
+    // TM-274: who the pane is comes from its recorded @ao-* options; a session without them is a legacy
+    // spawn only when it is named exactly `<agentId>-<spawn>`, until those sessions end.
+    const observed=pane.identity?.agent ? sessionIdentity({name:pane.sessionName,meta:pane.identity}) : null;
+    invariant(kind !== "spawn" || (observed ? observed.agentId === agentId : pane.sessionName === `${agentId}-${spawn}`),"TOPOLOGY_PRESENCE_SPAWN","Spawn metadata disagrees with the observed incarnation; refusing an invalid snapshot.");
     const key=bindingKey(binding); let entry=agents.get(key);
     if(entry) {
       invariant(entry.agentId === agentId,"TOPOLOGY_PRESENCE_CONFLICT","Two identities claim one pane incarnation.");

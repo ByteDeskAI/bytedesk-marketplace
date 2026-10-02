@@ -5,6 +5,9 @@ import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute } from "node:path";
 import { fail, run, shellQuote, terminalText } from "./util.mjs";
+import { IDENTITY_FORMAT, SESSION_OPTIONS, parseIdentityFields } from "./session-names.mjs";
+
+const IDENTITY_WIDTH = Object.keys(SESSION_OPTIONS).length;
 
 const TMUX = process.env.AO_TMUX_COMMAND || "tmux";
 const selectedServer = new AsyncLocalStorage();
@@ -347,6 +350,41 @@ export async function listSessions() {
   return result.code === 0 ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean) : [];
 }
 
+/**
+ * TM-274: every live session on this tmux server with the identity ao recorded on it (`meta`, empty
+ * when none). Read per pane, so a team session yields one entry per agent it hosts (a pane option
+ * wins over the session's); identical entries are folded. Empty when there is no server.
+ */
+export async function listSessionIdentities() {
+  const result = await tmux(["list-panes", "-a", "-F", `#{session_name}\t${IDENTITY_FORMAT}`], { allowFailure: true });
+  if (result.code !== 0) return [];
+  const seen = new Map();
+  for (const line of result.stdout.split("\n").filter((entry) => entry.trim())) {
+    const [name, ...fields] = line.split("\t");
+    seen.set(line, { name, meta: parseIdentityFields(fields) });
+  }
+  return [...seen.values()];
+}
+
+/**
+ * TM-274: record who a session belongs to, as tmux user options, at creation. `session` fields go on
+ * the session that holds `pane`; `pane` fields on that one pane (a run session holds several agents,
+ * and a pane option wins over the session's in a format lookup). Values that are null are skipped.
+ */
+export async function setIdentity(pane, { session = {}, pane: own = {} } = {}) {
+  const args = [];
+  const add = (scope, fields) => {
+    for (const [key, value] of Object.entries(fields)) {
+      if (value === null || value === undefined || value === "" || !SESSION_OPTIONS[key]) continue;
+      if (args.length) args.push(";");
+      args.push("set-option", ...scope, "-t", pane, SESSION_OPTIONS[key], String(value));
+    }
+  };
+  add([], session);
+  add(["-p"], own);
+  if (args.length) await tmux(args);
+}
+
 export async function killSession(session) {
   await tmux(["kill-session", "-t", `=${session}`], { allowFailure: true });
 }
@@ -615,9 +653,12 @@ export async function listServerPanes({ tmuxServer, session, env = process.env }
   // spinner in the pane title, so one extra column on the listing the supervisor already takes
   // answers "is this agent working" for every pane on the server without a single extra tmux call.
   // Appended LAST so every existing positional destructure keeps its index.
-  const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead", "pane_title"];
+  // TM-274: the recorded identity options ride just before the title, so readers resolve who a pane is
+  // from metadata rather than by parsing its session name. The title stays last: it is the one field a
+  // program can fill with anything, a tab included.
+  const fields = ["socket_path", "pid", "session_id", "session_created", "pane_id", "pane_pid", "session_name", "pane_current_command", "pane_current_path", "pane_dead"];
   const scope = session ? ["-s", "-t", `=${session}`] : ["-a"];
-  const result = await tmux(["-u", "list-panes", ...scope, "-F", fields.map((key) => `#{${key}}`).join("\t")], { tmuxServer, env, allowFailure: true });
+  const result = await tmux(["-u", "list-panes", ...scope, "-F", `${fields.map((key) => `#{${key}}`).join("\t")}\t${IDENTITY_FORMAT}\t#{pane_title}`], { tmuxServer, env, allowFailure: true });
   if (result.code !== 0) {
     if (/no server running|error connecting.*No such file|failed to connect.*No such file/.test(result.stderr)) return [];
     // Measured on tmux 3.4: `list-panes -s -t =<missing>` says "can't find window: <name>", not "session".
@@ -625,7 +666,10 @@ export async function listServerPanes({ tmuxServer, session, env = process.env }
     fail("TOPOLOGY_TMUX_OBSERVATION_FAILED", "Cannot enumerate tmux panes; liveness is unknown.");
   }
   return result.stdout.split("\n").filter(Boolean).map((line) => {
-    const [serverKey, serverPid, sessionId, sessionCreated, paneId, panePid, sessionName, command, cwd, dead, title] = line.split("\t");
-    return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId, panePid: Number(panePid), sessionName, command, cwd, alive: dead === "0", title: title ?? "" };
+    const parts = line.split("\t");
+    const [serverKey, serverPid, sessionId, sessionCreated, paneId, panePid, sessionName, command, cwd, dead] = parts;
+    const identity = parts.slice(fields.length, fields.length + IDENTITY_WIDTH);
+    const title = parts.slice(fields.length + IDENTITY_WIDTH).join("\t");
+    return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId, panePid: Number(panePid), sessionName, command, cwd, alive: dead === "0", title, identity: parseIdentityFields(identity) };
   });
 }
