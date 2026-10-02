@@ -78,6 +78,13 @@ export function transportMode(env = process.env) {
 }
 
 const liveTransports = new Map();
+// Test seam (TM-277): lets a unit test count opens and hand out failing transports.
+let openTransport = openNatsTransport;
+export function useTransportOpener(open) {
+  const previous = openTransport;
+  openTransport = open ?? openNatsTransport;
+  return () => { openTransport = previous; };
+}
 
 export async function resolveTransport({ env = process.env, transport } = {}) {
   if (transport) return transport;
@@ -89,12 +96,12 @@ export async function resolveTransport({ env = process.env, transport } = {}) {
   const key = `${selected.AO_NATS_URL || selected.NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
-  const opened = await openNatsTransport({ env: selected });
+  const opened = await openTransport({ env: selected });
   liveTransports.set(key, opened);
   const originalClose = opened.close.bind(opened);
-  opened.close = async () => {
+  opened.close = async (options) => {
     if (liveTransports.get(key) === opened) liveTransports.delete(key);
-    await originalClose();
+    await originalClose(options);
   };
   return opened;
 }
@@ -103,6 +110,39 @@ export async function closeLiveTransports() {
   const open = [...liveTransports.values()];
   liveTransports.clear();
   for (const transport of open) await transport.close();
+}
+
+// TM-277. Errors that mean "the NATS server is not answering right now", as opposed to a bug or a
+// refusal: a request that timed out (TIMEOUT, JetStream 408), no JetStream responder yet (503, the
+// window while a restarted server loads its store), and a connection that is gone or going. The
+// nats codes are only trusted on a NatsError, so a TopologyError that happens to reuse a word is
+// never mistaken for an outage.
+const NATS_OUTAGE_CODES = new Set([
+  'TIMEOUT', '408', '503', 'CONNECTION_CLOSED', 'CONNECTION_DRAINING', 'CONNECTION_REFUSED',
+  'CONNECTION_TIMEOUT', 'DISCONNECT',
+]);
+export function isTransportFailure(error) {
+  if (error?.code === 'TOPOLOGY_NATS_UNAVAILABLE') return true;
+  return error?.name === 'NatsError' && NATS_OUTAGE_CODES.has(error.code);
+}
+
+/** Drop every cached connection without draining it (a drain waits on a server that is not there),
+ * so the next resolveTransport dials again — and re-resolves the local server's port — instead of
+ * reusing a connection stuck reconnecting to a server that moved. */
+export async function discardLiveTransports() {
+  const open = [...liveTransports.values()];
+  liveTransports.clear();
+  await Promise.all(open.map((transport) => transport.close({ force: true }).catch(() => {})));
+}
+
+/** One helper for every long-running loop: true when the error was a NATS outage and the cached
+ * connections were discarded, so the caller records it and retries on its next tick; false for
+ * anything else, which the caller must keep treating as the failure it was.
+ * ponytail: discards every cached connection, not just the failing one; a process holds one. */
+export async function absorbTransportFailure(error) {
+  if (!isTransportFailure(error)) return false;
+  await discardLiveTransports();
+  return true;
 }
 
 export async function selectLiveTransport(options = {}) {
@@ -683,7 +723,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     async saveProbe() {
       fail('TOPOLOGY_NATS_UNAVAILABLE', 'Probe files are the file transport. NATS probes use request/reply.');
     },
-    async close() {
+    async close({ force = false } = {}) {
       if (transport.closed) return;
       transport.closed = true;
       for (const timer of timers) clearTimeout(timer);
@@ -692,7 +732,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
         try { sub.unsubscribe(); } catch { /* already closed */ }
       }
       subscriptions.clear();
-      await nc.drain().catch(() => nc.close());
+      await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {});
       if (bridge) await new Promise((resolve) => bridge.server.close(resolve));
     },
   };

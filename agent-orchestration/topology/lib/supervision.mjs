@@ -56,6 +56,7 @@ import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
 import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
+import { absorbTransportFailure } from './orch-transport.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
@@ -115,6 +116,14 @@ export async function superviseRepository(options, { signal, once = false, inter
    const controller = new AbortController();
    signal?.addEventListener('abort', () => controller.abort(), {once:true});
    let latest, heartbeatError, degradedBeats=0;
+   // TM-277: NATS outages absorbed so far, by the heartbeat or a reconcile, and the latest one.
+   let transportFailures=0, transportError=null;
+   const transportFailed=async error=>{
+     if(!(await absorbTransportFailure(error))) return false;
+     transportFailures++;
+     transportError={code:error.code,message:String(error.message).slice(0,500),at:new Date().toISOString()};
+     return true;
+   };
    // TM-141. L1 publishes by ENUMERATING TMUX, so a failed listing rejects `watch` and ends the
    // heartbeat; that rejection used to end the supervisor with it, and the monitor's restart is
    // what made a flaky tmux read as a crash loop in `doctor`. Not publishing is still the right
@@ -122,11 +131,15 @@ export async function superviseRepository(options, { signal, once = false, inter
    // document ageing out IS the contract's staleness signal — but it is a ONE-BEAT answer, so the
    // beat resumes on the next interval instead of taking the process down. Every other rejection
    // is a real failure and still fatal.
+   // TM-277: a NATS outage is the same kind of one-beat answer. Presence is published to the
+   // ORCH_PRESENCE bucket, so a restarting nats-server made the beat's JetStream request time out,
+   // and that TIMEOUT became heartbeatError and ended the process. Now the beat is skipped, the dead
+   // connection is discarded, and the next beat dials again.
    const heartbeat = once ? null : (async () => {
      while (!controller.signal.aborted) {
        try { return await producer.watch({signal:controller.signal,onPublish:snapshot=>{latest=snapshot;}}); }
        catch (error) {
-         if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED') { heartbeatError=error; controller.abort(); return; }
+         if (error?.code !== 'TOPOLOGY_TMUX_OBSERVATION_FAILED' && !(await transportFailed(error))) { heartbeatError=error; controller.abort(); return; }
          degradedBeats++;
          await delay(producer.publishIntervalMs,undefined,{signal:controller.signal}).catch(()=>{});
        }
@@ -255,19 +268,25 @@ export async function superviseRepository(options, { signal, once = false, inter
        let activity=false;
        // `once` always reconciles: a single-shot supervise is asking for the expensive answer.
        //
-       // TM-141: exactly ONE failure is transient — tmux could not be enumerated — and it skips
+       // TM-141: one failure is transient — tmux could not be enumerated — and it skips
        // this tick instead of ending superviseRepository. `restarts` is what `doctor` reads to
        // identify a crash loop, so a tmux hiccup must never increment it; a supervisor that is up
        // and not reconciling shows as SUPERVISOR_STALLED (the tick record is deliberately NOT
        // rewritten on a degraded tick, so `tick_age_ms` keeps growing) which is the honest answer.
-       // Every other throw is still fatal. `once` still throws: a one-shot has no next tick to
+       // TM-277 adds the second: a NATS outage (isTransportFailure). Every other throw is still
+       // fatal. `once` still throws: a one-shot has no next tick to
        // degrade into, so the failure is its answer.
        if(once || Date.now()-lastReconcileAt>=floorMs) {
          lastReconcileAt=Date.now();
          try { ({report,activity}=await reconcile()); }
          catch(error) {
-           if(once || error?.code!=='TOPOLOGY_TMUX_OBSERVATION_FAILED') throw error;
-           report={...report,at:new Date().toISOString(),reconciled:false,degraded:'tmux-observation-failed'};
+           if(once) throw error;
+           // TM-277: a NATS outage (reconcile publishes presence when the heartbeat has not yet)
+           // degrades the tick the same way; the quiet tick walks the 2s/5s/15s ladder down while
+           // the server is away, and the next reconcile dials a fresh connection.
+           if(error?.code==='TOPOLOGY_TMUX_OBSERVATION_FAILED') report={...report,at:new Date().toISOString(),reconciled:false,degraded:'tmux-observation-failed'};
+           else if(await transportFailed(error)) report={...report,at:new Date().toISOString(),reconciled:false,degraded:'transport-unavailable'};
+           else throw error;
          }
        } else {
          // A cheap tick costs a timestamp. It exists so the observation work that belongs at this
@@ -341,6 +360,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        // Cumulative, and only when it has happened: a heartbeat that could not observe tmux is
        // invisible otherwise — the supervisor stays up and the presence document simply ages out.
        if(degradedBeats) report={...report,presence_beats_degraded:degradedBeats};
+       if(transportFailures) report={...report,transport_failures:transportFailures,transport_error:transportError};
        await onTick(report);
        if(once || signal?.aborted) return report;
        if(sleepFn===sleep) await delay(sleepMs,undefined,{signal:controller.signal}).catch(error=>{if(error.name!=='AbortError')throw error;});

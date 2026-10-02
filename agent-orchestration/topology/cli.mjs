@@ -336,7 +336,7 @@ const commands = {
     // multi-line JSON blob in every console hosting this monitor. The presence document is already
     // the durable record of a heartbeat — a reader wanting per-tick detail passes --json.
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
-    const notable = report => report?.stopped || report?.presence_beats_degraded || report?.error;
+    const notable = report => report?.stopped || report?.presence_beats_degraded || report?.transport_failures || report?.error;
     const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
     const controller = new AbortController();
     let watcher = Promise.resolve(), watcherError;

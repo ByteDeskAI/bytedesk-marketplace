@@ -152,6 +152,10 @@ export async function ensureLocalNats({ env = process.env } = {}) {
     if (state?.managed && await waitForPort(state.port)) {
       return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, port: state.port, started: false, managed: true };
     }
+    // TM-277: a managed process that finds the managed server down is watching the manager restart
+    // it. Starting a detached server here would put a second server on the same JetStream store and
+    // rewrite state.json away from the managed port; the caller retries on its next tick instead.
+    if (env.AGENT_ORCHESTRATION_SERVICES_MANAGED === '1') throw unavailable(`The managed nats-server on port ${state?.port ?? 'unknown'} is not answering; the service manager is expected to restart it.`);
     // Services could not bring it up (no binary, offline install, no service manager): fall
     // through to the detached server below rather than failing the transport.
   }
