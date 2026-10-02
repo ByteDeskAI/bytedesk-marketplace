@@ -4,7 +4,7 @@
 // lists, stops or signals a real unit or process.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,17 +79,25 @@ test("TM-284: hostCopies finds the codex, grok and kimi copies and nothing else"
   assert.deepEqual(found.map((c) => [c.host, c.root]), [["codex", codex], ["grok", grok], ["kimi", kimi]]);
 });
 
+/** Backdate a copy's bundle: the build time the same-version check compares. */
+const builtAt = (dir, seconds) => utimes(join(dir, "dist", "cli.cjs"), seconds, seconds);
+
 test("TM-284: an older copy is refreshed to the pointer's build; an equal or newer one is left alone", async (t) => {
   const root = await scratch(t, "ao-copies-refresh-");
   const source = await makeCopy(join(root, "claude-cache", "abc123"), { version: "0.14.0", fingerprint: FP("e"), marker: "NEW" });
   const { home, codex, grok, kimi } = await fakeHome(root, { codex: "0.13.0", grok: "0.14.0", kimi: "0.15.0" });
+  await builtAt(grok, 1_000_000_000);
   const pointer = { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") };
-  const before = { grok: await snapshot(grok), kimi: await snapshot(kimi) };
+  const before = { kimi: await snapshot(kimi) };
   const report = await refreshHostCopies({ pointer, home, env: {} });
   const rows = [...report.refreshed, ...report.current, ...report.skipped, ...report.failed];
   assert.equal(rows.length, 3, "every detected copy is accounted for");
 
-  assert.deepEqual(report.refreshed.map((c) => [c.host, c.from, c.version]), [["codex", "0.13.0", "0.14.0"]]);
+  // TM-299: grok is at the same version on an older build (the 2026-10-02 case) and IS refreshed.
+  assert.deepEqual(report.refreshed.map((c) => [c.host, c.from, c.version, c.reason]), [["codex", "0.13.0", "0.14.0", undefined], ["grok", "0.14.0", "0.14.0", "same version, different build"]]);
+  assert.equal(copyIdentity(grok).fingerprint, FP("e"));
+  assert.equal(await readFile(join(grok, "MARKER"), "utf8"), "NEW");
+  assert.ok(Math.abs((await stat(join(grok, "dist", "cli.cjs"))).mtimeMs - (await stat(join(source, "dist", "cli.cjs"))).mtimeMs) < 1, "the copy keeps the build's mtime");
   assert.equal(copyIdentity(codex).version, "0.14.0");
   assert.equal(copyIdentity(codex).fingerprint, FP("e"), "the refreshed copy reports the pointer's fingerprint");
   assert.equal(await readFile(join(codex, "MARKER"), "utf8"), "NEW");
@@ -97,9 +105,8 @@ test("TM-284: an older copy is refreshed to the pointer's build; an equal or new
   assert.equal(JSON.parse(await readFile(join(codex, "node_modules", "nats", "package.json"), "utf8")).version, "2.29.3", "the copy keeps its own node_modules");
   assert.deepEqual(await siblings(codex), [], "no staging directory left behind");
 
-  // Mutation check for refresh-only-if-older: the equal and the newer copy are byte-for-byte untouched.
-  assert.deepEqual(report.current.map((c) => [c.host, c.reason]), [["grok", "same version, different build"], ["kimi", "newer than the services (0.14.0)"]]);
-  assert.deepEqual(await snapshot(grok), before.grok);
+  // Mutation check for refresh-only-if-older: the newer copy is byte-for-byte untouched.
+  assert.deepEqual(report.current.map((c) => [c.host, c.reason]), [["kimi", "newer than the services (0.14.0)"]]);
   assert.deepEqual(await snapshot(kimi), before.kimi);
 
   // Fast path: a second run with everything current copies nothing and asks git nothing.
@@ -108,6 +115,26 @@ test("TM-284: an older copy is refreshed to the pointer's build; an equal or new
   assert.equal(again.refreshed.length + again.skipped.length + again.failed.length, 0);
   assert.equal(again.current.length, 3);
   assert.deepEqual([gitCalls, replaced], [0, 0]);
+});
+
+test("TM-299: a same-version copy of a NEWER build is never downgraded; an unfingerprinted one is left alone", async (t) => {
+  const root = await scratch(t, "ao-copies-newer-build-");
+  const source = await makeCopy(join(root, "src", "agent-orchestration"), { version: "0.14.0", fingerprint: FP("e"), marker: "OLD-BUILD" });
+  await builtAt(source, 1_000_000_000);
+  const { home, codex, grok } = await fakeHome(root, { codex: "0.14.0", grok: "0.14.0", kimi: "0.14.0" });
+  await writeFile(join(grok, "dist", "cli.cjs"), "no fingerprint here\n");
+  const before = { codex: await snapshot(codex), grok: await snapshot(grok) };
+  const report = await refreshHostCopies({ pointer: { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") }, home, env: {} });
+  assert.deepEqual(report.refreshed, []);
+  assert.deepEqual(report.current.map((c) => [c.host, c.reason]), [["codex", "same version, newer build than the services"], ["grok", "same build"], ["kimi", "same version, newer build than the services"]]);
+  assert.deepEqual(await snapshot(codex), before.codex);
+  assert.deepEqual(await snapshot(grok), before.grok);
+
+  // Mutation check: the same copies with the source rebuilt later ARE refreshed — the refusal is the build time.
+  await builtAt(source, Date.now() / 1000 + 60);
+  const later = await refreshHostCopies({ pointer: { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") }, home, env: {} });
+  assert.deepEqual(later.refreshed.map((c) => c.host), ["codex", "kimi"]);
+  assert.equal(await readFile(join(codex, "MARKER"), "utf8"), "OLD-BUILD");
 });
 
 test("TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole", async (t) => {

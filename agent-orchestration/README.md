@@ -91,7 +91,9 @@ supervisor. It is idempotent. It:
 6. keeps the other hosts on the same build (TM-284): it finds this plugin's Codex copy
    (`~/.codex/plugins/cache/bytedesk/agent-orchestration/…`), Grok install
    (`~/.grok/installed-plugins/agent-orchestration-*`) and the root `~/.kimi-code/mcp.json` names,
-   and replaces any copy with an OLDER version by the services' plugin root. An equal or newer copy
+   and replaces any copy with an OLDER version by the services' plugin root. A copy at the same
+   version but a different build fingerprint is replaced too (TM-299), unless its `dist/cli.cjs` is
+   newer than the source's: a newer version or a newer build is never overwritten, and the same build
    is left alone. The copy is built beside the old one and swapped in by rename, keeping the old
    copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
    inside a git checkout, or when the copy's `node_modules` does not satisfy the new

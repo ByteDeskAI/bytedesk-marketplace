@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
+  sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
+  was reported "same version, different build" and never refreshed. It now compares the build
+  fingerprint `services ensure` uses and refreshes that copy, unless the copy's `dist/cli.cjs` is
+  newer than the source's, so a newer build is never downgraded. Refreshed copies keep the source's
+  file timestamps so that comparison stays honest.
+
 - **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
   just after `AO_REVIEW <nonce> b64:` was printed (an empty or sub-4-character payload) now waits as
   `RESPONSE_INCOMPLETE` instead of failing the request. A complete `b64:` verdict no longer absorbs a
