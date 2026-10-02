@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.13.2] — 2026-10-02
+
+### Fixed
+
+- **`services ensure` no longer flaps between copies of the same build or lets an older session downgrade the managed services (TM-283).** Every session's SessionStart runs `ensure` with its own plugin root — the installed cache, the directory-marketplace source tree, or an older cache in a long-lived session — and the pointer took whichever ran last. Two copies of one build looked different (a cache was identified by its folder name, a checkout by its build fingerprint), so alternating sessions restarted every managed process each time, and a session still on an older plugin re-pointed the services at older code. The pointer now records the build fingerprint and package version: an `ensure` of the same build keeps the existing pointer and restarts nothing; an older version never replaces a newer one while that one's folder still exists; a newer version moves the pointer and restarts each process once.
+
 ## [0.13.1] — 2026-10-02
 
 ### Tests

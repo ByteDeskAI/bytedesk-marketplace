@@ -70385,8 +70385,8 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "fc0a335fe5db9a5c0ca1acd3caf32062a2d579254392c7c5675bc8550697a62b",
-  version: false ? null : "0.13.1"
+  sourceFingerprint: false ? null : "367f4e17c9d96a5c581e355575e5905e3a3342051b0c0f43ee21c093aaced8bd",
+  version: false ? null : "0.13.2"
 };
 var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises43.readFile)(path3).then((bytes) => (0, import_node_crypto27.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -70696,7 +70696,38 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "fc0a335fe5db9a5c0ca1acd3caf32062a2d579254392c7c5675bc8550697a62b";
+  return false ? null : "367f4e17c9d96a5c581e355575e5905e3a3342051b0c0f43ee21c093aaced8bd";
+}
+function pluginIdentity(pluginRoot) {
+  const fingerprint2 = false ? null : "367f4e17c9d96a5c581e355575e5905e3a3342051b0c0f43ee21c093aaced8bd";
+  let version2 = false ? null : "0.13.2";
+  if (!version2) {
+    try {
+      version2 = JSON.parse((0, import_node_fs11.readFileSync)((0, import_node_path53.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
+    } catch {
+      version2 = null;
+    }
+  }
+  return { fingerprint: fingerprint2, version: version2 };
+}
+function compareVersions(a, b) {
+  const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+}
+function choosePointer(previous, candidate, { exists: exists2 = import_node_fs11.existsSync } = {}) {
+  if (!previous?.pluginRoot || !exists2(previous.pluginRoot)) return candidate;
+  if (previous.node !== candidate.node) return candidate;
+  if (previous.fingerprint && previous.fingerprint === candidate.fingerprint) return previous;
+  if (previous.version && compareVersions(candidate.version, previous.version) < 0) return previous;
+  return candidate;
+}
+function pointerMoved(previous, pointer) {
+  if (!previous) return false;
+  if (previous.node !== pointer.node) return true;
+  if (previous.fingerprint && pointer.fingerprint) return previous.fingerprint !== pointer.fingerprint;
+  return previous.pluginRoot !== pointer.pluginRoot || previous.sha !== pointer.sha;
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);
@@ -70893,7 +70924,8 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     const { binary, installed } = await (deps.install ?? installProcessCompose)({ data: paths2.data, platform, arch, lock, fetchImpl: deps.fetchImpl });
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths2.pointer, null).catch(() => null);
-    const pointer = { pluginRoot, sha: pluginSha(pluginRoot), node };
+    const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...deps.identity ?? pluginIdentity(pluginRoot) };
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs11.existsSync });
     const changed = {
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
       pointer: await writeIfChanged(paths2.pointer, json4(pointer), 420)
@@ -70935,8 +70967,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
         await client2.reload();
         actions.push("reloaded");
       }
-      const moved = ["pluginRoot", "sha", "node"].some((key) => previousPointer?.[key] !== pointer[key]);
-      if (previousPointer && moved) {
+      if (pointerMoved(previousPointer, pointer)) {
         for (const name of Object.keys(project.processes)) {
           await client2.restart(name).catch(() => {
           });
@@ -71794,7 +71825,7 @@ function register2(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.13.1" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.13.2" });
   register2(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });
