@@ -8,6 +8,12 @@ lifecycle control, and structured results instead of scraping terminal output.
 See [repository leads and standing services](docs/repository-leads.md) for canonical worktree identity,
 configurable prompts, reviewer gates, durable mail and Presence v1.
 
+Prompt and configuration settings: `ao-topology config get|set|validate` read and write one
+configuration layer with a revision guard, `prompt preview --agent|--role` shows the composed prompt
+and its sources, a global `prompts.prefix` composes first, and every prompt entry can `append` or
+`replace` (`agent set-instructions` for one agent). See
+[Configuration and prompts](docs/repository-leads.md#configuration-and-prompts).
+
 ## Read-only orchestration observer
 
 The `orchestration-observer` agent attaches to one explicitly selected live orchestration. It records

@@ -2,6 +2,7 @@
 // launch, session start, restart, enrollment — composes through composePrompt(), in the same
 // order, from the same sources:
 //
+//   0. global prefix  prompts.prefix from the GLOBAL layer only (TM-296); ignored, with a warning, elsewhere
 //   1. generated      identity + path discipline + protocol (code, not config — see agents.mjs)
 //   2. template       the named template's prompt file / inline instructions
 //   3. defaults common  bundled prompts.common (or prompts.common_by_role[role] in its place, per layer)
@@ -12,13 +13,19 @@
 //   8. repo role      prompts.roles[role] from the repo config layer
 //   9. per-agent      the agent record's own inline instructions
 //
+// TM-296: every prompt entry is a path string (append, as always) or { file|text, mode }. A
+// `replace` entry drops the same slot's text from every wider layer. The slots are `common`,
+// `role`, and `agent` — the template, the per-agent file and the per-agent instructions, which are
+// all the agent's own text; per-agent `instructions_mode: "replace"` drops the template and file.
+// Nothing replaces the generated layer, so the permission rule it states is always present.
+//
 // Every layer is hashed, so the composed text carries a revision and a list of sources that a
 // `preview`/`status` surface can show. A prompt never grants a permission: argv and grants are
 // built elsewhere, and nothing here can add one.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findTemplate, layerDirs, resolveConfigPath } from "./config.mjs";
+import { findTemplate, layerDirs, layerWarnings, promptEntry, resolveConfigPath } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { exists, renderDeep, shellQuote } from "./util.mjs";
 
@@ -99,6 +106,24 @@ export function promptErrorDetail(errors) {
 export async function composePrompt({ agent, consumer, dir, loaded, templateName = null }) {
   const role = agent.role || "worker";
   const layers = [];
+  const dirs = layerDirs(loaded.layers);
+  const scoped = (scope) => loaded.layers.find((item) => item.scope === scope && item.ok && item.present);
+  // A `replace` entry removes what wider layers put in its slot; the generated layer has no slot.
+  const push = (entry) => {
+    if (entry.mode === "replace") for (let i = layers.length - 1; i >= 0; i -= 1) if (layers[i].slot === entry.slot) layers.splice(i, 1);
+    layers.push(entry);
+  };
+  const fromEntry = async (value, baseDir, layer, slot) => {
+    const entry = promptEntry(value);
+    if (!entry) return;
+    if (entry.text !== null) return push({ layer, path: null, slot, mode: entry.mode, text: entry.text });
+    const path = resolveConfigPath(entry.file, baseDir);
+    push({ layer, path, slot, mode: entry.mode, ...await readLayer(path) });
+  };
+
+  const warnings = loaded.layers.filter((item) => item.ok && item.present).flatMap((item) => layerWarnings(item.raw, item.scope, item.path));
+  const prefix = scoped("global")?.raw?.prompts?.prefix;
+  if (prefix !== undefined) await fromEntry(prefix, dirs.global, "global prefix", null);
 
   layers.push({ layer: "generated", path: null, text: generatedPrompt(agent, consumer, dir) });
 
@@ -106,50 +131,48 @@ export async function composePrompt({ agent, consumer, dir, loaded, templateName
   if (templateRef) {
     const found = findTemplate(loaded.layers, templateRef);
     if (!found) {
-      layers.push({ layer: "template", path: null, missing: true, note: `template "${templateRef}" is not defined in any config layer` });
+      layers.push({ layer: "template", path: null, slot: "agent", missing: true, note: `template "${templateRef}" is not defined in any config layer` });
     } else {
       const file = resolveConfigPath(found.template.prompt, found.dir);
       if (file) {
         // An explicit source is required; inline text must not conceal its absence.
-        layers.push({ layer: "template", path: file, ...await readLayer(file) });
+        layers.push({ layer: "template", path: file, slot: "agent", ...await readLayer(file) });
       } else if (typeof found.template.instructions === "string") {
-        layers.push({ layer: "template", path: null, text: found.template.instructions });
+        layers.push({ layer: "template", path: null, slot: "agent", text: found.template.instructions });
       } else {
-        layers.push({ layer: "template", path: null, missing: true, required: true, note: `template "${templateRef}" has no prompt` });
+        layers.push({ layer: "template", path: null, slot: "agent", missing: true, required: true, note: `template "${templateRef}" has no prompt` });
       }
     }
   }
 
-  const dirs = layerDirs(loaded.layers);
   for (const scope of ["defaults", "global", "repo"]) {
-    const raw = loaded.layers.find((item) => item.scope === scope && item.ok && item.present)?.raw;
+    const raw = scoped(scope)?.raw;
     if (!raw?.prompts) continue;
     // TM-215 e: a role that cannot follow the shared common layer (the restricted reviewer cannot
     // write reply files or run commands) gets its own variant in place of it, per layer.
-    const commonPath = resolveConfigPath(raw.prompts.common_by_role?.[role] ?? raw.prompts.common, dirs[scope]);
-    const rolePath = resolveConfigPath(raw.prompts.roles?.[role], dirs[scope]);
-    for (const [name, path] of [[`${scope} common`, commonPath], [`${scope} role:${role}`, rolePath]]) {
-      if (!path) continue;
-      layers.push({ layer: name, path, ...await readLayer(path) });
-    }
+    await fromEntry(raw.prompts.common_by_role?.[role] ?? raw.prompts.common, dirs[scope], `${scope} common`, "common");
+    await fromEntry(raw.prompts.roles?.[role], dirs[scope], `${scope} role:${role}`, "role");
   }
 
+  const agentMode = agent.instructions_mode === "replace" ? "replace" : "append";
+  let agentReplaced = false;
+  const pushAgent = (entry) => { push({ ...entry, slot: "agent", mode: agentReplaced ? "append" : agentMode }); agentReplaced = true; };
   if (agent.instructions_file && agent.instructions_file !== "prompt.md") {
     const path = resolveConfigPath(agent.instructions_file, dir);
     const source = await readLayer(path);
     if (source.text !== undefined) source.text = renderDeep(source.text, agent._prompt_vars || {});
-    layers.push({ layer: "per-agent file", path, ...source });
+    pushAgent({ layer: "per-agent file", path, ...source });
   }
   if (typeof agent.instructions === "string" && agent.instructions.trim()) {
-    layers.push({ layer: "per-agent", path: null, text: agent.instructions });
+    pushAgent({ layer: "per-agent", path: null, text: agent.instructions });
   }
 
   const present = layers.filter((item) => item.text !== undefined);
   const missing = layers.filter((item) => item.missing).map(({ layer, path, note }) => ({ layer, path, note }));
   const text = present.map((item) => item.text.trim()).join("\n\n") + "\n";
-  const sources = present.map((item) => ({ layer: item.layer, path: item.path, sha256: sha(item.text).slice(0, 12) }));
+  const sources = present.map((item) => ({ layer: item.layer, path: item.path, sha256: sha(item.text).slice(0, 12), ...(item.mode === "replace" ? { mode: "replace" } : {}) }));
   const errors = [...(loaded.errors || []), ...missing];
-  return { ok: errors.length === 0, errors, text, revision: sha(text).slice(0, 16), sources, missing };
+  return { ok: errors.length === 0, errors, warnings, text, revision: sha(text).slice(0, 16), sources, missing };
 }
 
 // ── Applied state ────────────────────────────────────────────────────────────

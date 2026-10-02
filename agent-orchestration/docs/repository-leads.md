@@ -125,6 +125,55 @@ replacement. `prompt ack` checks agent identity, nonce and exact staged revision
 an applied revision. Malformed configuration and missing/unreadable referenced files preserve the
 last valid prompt with a visible error. Prompts grant no permissions.
 
+### Prompt entries: add or replace (TM-296)
+
+Every prompt entry — `prompts.common`, `prompts.common_by_role.<role>` and `prompts.roles.<role>`
+— is either a plain string, which is a Markdown path that is **appended** (the behaviour before
+modes existed, composed byte for byte the same), or an object:
+
+```json
+{ "prompts": {
+    "common": { "file": "./common.md", "mode": "replace" },
+    "roles": { "lead": { "text": "Answer in British English.", "mode": "append" } } } }
+```
+
+Give exactly one of `file` or `text`; `mode` defaults to `append`. Layers compose widest first:
+bundled defaults, global, repository, then the agent's own. A `replace` entry drops the **same
+slot** from every wider layer and keeps the rest. The slots are `common` (common or its per-role
+variant), `role`, and the agent's own text (template plus per-agent instructions).
+
+Per-agent instructions live in `agent.json` as `instructions` (inline text) or `instructions_file`
+(a Markdown path), with `instructions_mode`. Set them with
+`ao-topology agent set-instructions <id> (--file <md> | --text <s>) [--mode append|replace]`. The
+new source replaces the agent's previous own instructions; `--mode replace` also drops its template
+prompt. `prompt refresh <id>` applies the change, staged as `restart-required` for a live agent.
+
+No mode can remove the generated identity and protocol layer, so the statement that prompts grant
+no permissions is always present.
+
+### Global prefix
+
+`prompts.prefix` — a Markdown path or `{ "text": "..." }`, no `mode` — is composed **first**,
+before the generated layer. It is honoured only in the global configuration file; in a repository
+or bundled layer it is ignored and reported in `warnings`. It is part of the composed text, so
+changing it changes the prompt revision and the usual refresh and restart-required flow applies.
+
+### Configuration verbs
+
+These are the contract the gateway settings UI uses. All print JSON with `--json`.
+
+| Verb | Result |
+|---|---|
+| `config get --scope global\|repo [--consumer <repo>]` | `path`, `present`, `document` (the raw layer, not the merge), `revision`, `errors`, `warnings` |
+| `config set --scope global\|repo [--consumer <repo>] --file <json> [--if-revision <rev>]` | validates first, refuses a stale revision with `TOPOLOGY_CONFIG_STALE`, writes atomically, returns the new `revision` |
+| `config validate --file <json> [--scope global\|repo]` | `ok`, `errors`, `warnings`; writes nothing |
+| `prompt preview (--agent <id> \| --role <role>) [--consumer <repo>]` | composed `text`, `sources` (layer, path, sha256, mode), `revision`, `warnings` |
+
+The revision is the sha256 of the file's bytes, or `absent` when the file does not exist; pass
+`--if-revision absent` to create a file only if nobody else has. A refused write leaves the file
+untouched. `--role` previews what a new agent of that role would be told, using the configured
+`lead`/`reviewer` template for those roles.
+
 ## Standing mailbox
 
 `mailbox send` takes an explicit source repository (or launcher-owned `AO_CONSUMER`) and source
