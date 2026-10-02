@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **tmux and manual workers now receive agent-orchestration's global prompt prefix (TM-300).**
+  These backends hand the worker tm's handoff directly, so ao's global `prompts.prefix` (TM-296)
+  never reached them. Dispatch now reads it with `ao-topology config get --scope global --json`
+  and puts it in front of the handoff. The topology backend is unchanged, because ao already
+  composes the prefix there. If ao is missing or the read fails, dispatch still proceeds, prints
+  a one-line `WARNING:` and records `prefixWarning` on the result and the `dispatched` event.
+
+- **`tm config` has a JSON contract for the gateway settings UI (TM-300).** `tm config --json`
+  prints the whole effective config, `tm config <key> --json` one value, and
+  `tm config --with-revision` returns `stored` (the file) and `effective` (defaults filled in) with a
+  revision (the sha256 of `config.json`); writers edit and send back `stored`.
+  `tm config --set-file <json> [--if-revision <rev>] --json` validates the whole document (unknown
+  keys are refused by name, types are checked, read-only keys cannot change) and writes it
+  atomically, refusing a stale revision with `TM_CONFIG_STALE`. `tm config <key> <value>` now
+  stores a value that is not valid JSON as a plain string, instead of failing with
+  "Unexpected token"; a malformed object, array or quoted string is still refused. `--set-file`
+  drops values equal to their defaults, so writing back the effective config freezes nothing.
+  Dispatch does not apply ao's prefix when ao reports its global layer invalid, and says so.
+
 - **The per-session monitors no longer create a store in a project nobody initialized.**
   `tm-dashboard` ran `ensureDirs` before any check, so opening a session in any directory built
   `.bytedesk/task-management/` there, which then made the pool start too. It now exits quietly

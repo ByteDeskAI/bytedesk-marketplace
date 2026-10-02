@@ -20,6 +20,10 @@ export const GENERIC_ADAPTER = {
   // own per-agent cwd (that is what gives it its own memory), so the repo it works on has to be
   // granted explicitly. `{{dir}}` is the directory. Empty means the CLI cannot do this.
   add_dir_args: [],
+  // TM-297: appended to a relaunch that continues the predecessor's provider conversation
+  // (`agent restart --mode resume`); `{{provider_session_id}}` is its id. Empty means the CLI cannot
+  // resume, and the restart falls back to a handoff and says so.
+  resume_args: [],
   // Where this CLI keeps the state that makes an agent remember: `scope` is the key it files that
   // state under, `path` a renderable location ({{home}}, {{cwd}}, {{cwd_slug}}) or null when the
   // CLI keys internally rather than by path. Declared, not inferred, so adding a CLI stays a JSON
@@ -91,7 +95,7 @@ export function normalizeAdapter(raw, source) {
   invariant(raw && typeof raw === "object", "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} must be a JSON object.`);
   invariant(typeof raw.id === "string" && raw.id, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} needs an "id".`);
   const adapter = { ...GENERIC_ADAPTER, ...raw, source };
-  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "coordinator_args", "add_dir_args", "submit_keys", "failure_patterns"]) {
+  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "coordinator_args", "add_dir_args", "resume_args", "submit_keys", "failure_patterns"]) {
     invariant(Array.isArray(adapter[key]), "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: "${key}" must be an array.`);
     adapter[key] = adapter[key].map(String);
   }
