@@ -219,3 +219,51 @@ test('a configured server that accepts TCP but refuses NATS is re-dialled with b
   assert.equal(await at(90_000), 3);
   assert.equal(f.mail.length, 1, 'the outage itself is still reported once');
 });
+
+async function doctorFlags(f, env) {
+  const { doctor } = await import('../../topology/lib/doctor.mjs');
+  const report = await doctor({ adapters: new Map(), workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [], consumer: f.repo, env, home: f.home });
+  return report.problems.some(p => p.code === 'NATS_CONFIGURED_UNREACHABLE');
+}
+
+test('an outage nothing falls back from any more is retired after the bound: one closing mail, doctor clears, no re-dials', { timeout: 60_000 }, async t => {
+  const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const f = await outageFixture(t, 'ao-nats-retire-');
+  const env = { ...f.env, AO_NATS_SERVER: bin };
+  const fixed = { ...env };
+  delete fixed.NATS_URL; // the operator applied doctor's fix
+  const bound = 60_000, start = Date.now();
+  let clock = start, discards = 0;
+  const tick = () => natsOutageTick({ consumer: f.repo, env, home: f.home, lead: f.lead, deliver: f.deliver, retireAfterMs: bound,
+    reachable: async () => true, discard: async () => { discards += 1; }, now: () => clock });
+
+  await resolveTransport({ env });
+  assert.equal((await tick()).kind, 'outage');
+  assert.equal(await doctorFlags(f, fixed), true, 'control: doctor reports the open outage');
+  // While this process still holds the fallback, the outage is in use and is not retired.
+  clock = start + 3 * bound;
+  await tick();
+  assert.equal((await readTransportState(env, f.home, { now: clock, retireAfterMs: bound })).outage.recovered_at, null, 'a held fallback keeps the outage open');
+
+  await closeLiveTransports();
+  const plain = await resolveTransport({ env: fixed });
+  assert.equal(plain.selection.fallback, null);
+  discards = 0;
+  clock = start + 5 * bound;
+  const closing = await tick();
+  assert.equal(closing.kind, 'retired');
+  const retired = (await readTransportState(env, f.home, { retireAfterMs: Infinity })).outage;
+  assert.equal(retired.retired, true, 'retirement is persisted, not only derived');
+  assert.ok(retired.recovered_at);
+  assert.match(retired.note, /retired: no open has fallen back/);
+  assert.equal(discards, 0, 'a retired outage is never re-dialled');
+
+  assert.equal(await doctorFlags(f, fixed), false, 'doctor no longer reports the outage');
+
+  clock += 10 * bound;
+  assert.equal(await tick(), null);
+  assert.equal(discards, 0);
+  assert.deepEqual(f.mail.map(m => m.subject), [`NATS outage: ${f.configured}`, `NATS retired: ${f.configured}`]);
+  assert.match(f.mail[1].body, /NATS OUTAGE RETIRED/);
+});

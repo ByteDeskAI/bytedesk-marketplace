@@ -3,13 +3,14 @@
 // openNatsTransport records the outage in transport.json when it falls back to the managed local
 // server, and closes it when an open needs no fallback. This tick, run by each repository's
 // supervisor, turns that record into at most two durable standing messages to the lead per outage:
-// one when it starts, one when it ends. Message ids derive from the outage's `since`, so a
+// one when it starts, one when it ends (recovered, or retired once nothing on the host has fallen back
+// from it for OUTAGE_RETIRE_MS — the operator removed the dead URL). Message ids derive from the outage's `since`, so a
 // restarted supervisor or a retried send never mails twice.
 import { createHash } from 'node:crypto';
 import { hostname, homedir } from 'node:os';
 import net from 'node:net';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
-import { discardLiveTransports, readTransportState } from './orch-transport.mjs';
+import { OUTAGE_RETIRE_MS, discardLiveTransports, holdsFallbackFrom, readTransportState, retireStaleOutage, writeTransportState } from './orch-transport.mjs';
 import { readLeadRegistration } from './lead.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 
@@ -37,10 +38,18 @@ export function canReach(url, timeoutMs = 1000) {
 
 /** Returns null when there is nothing to say, else what was sent or why it was not. Never throws for a missing lead. */
 export async function natsOutageTick({ consumer, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration, reachable = canReach,
-  discard = discardLiveTransports, now = Date.now }) {
-  const state = await readTransportState(env, home);
-  const outage = state?.outage;
-  if (!outage?.since) return null;
+  discard = discardLiveTransports, now = Date.now, retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS, holds = holdsFallbackFrom }) {
+  let state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  if (!state?.outage?.since) return null;
+  // Refreshed at most every quarter bound, so a steady fallback does not rewrite the file every reconcile.
+  const stale = now() - Date.parse(state.outage.last_fallback_at ?? state.outage.since) > retireAfterMs / 4;
+  const open = !state.outage.recovered_at, holding = open && stale && holds(state.outage);
+  // A connection this supervisor still holds on the fallback is a fallback in use: keep the outage live.
+  if (holding) state = { ...state, outage: { ...state.outage, last_fallback_at: new Date(now()).toISOString() } };
+  const checked = retireStaleOutage(state, { now: now(), retireAfterMs });
+  if (holding || checked !== state) await writeTransportState(env, home, checked);
+  state = checked;
+  const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
   const outageId = messageId('outage', key, outage.since), recoveryId = messageId('recovered', key, outage.since);
   const sent = async (id) => Boolean(await readStandingMessage({ id, env, home }).catch(() => null));
@@ -56,11 +65,11 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
     const wait = redial ? Math.min(redial.wait * 2, REDIAL_MAX_MS) : REDIAL_FIRST_MS;
     redials.set(redialKey, { at: now() + wait, wait });
   }
-  const kind = outage.recovered_at ? 'recovered' : 'outage';
-  const id = kind === 'outage' ? outageId : recoveryId;
+  const kind = outage.retired ? 'retired' : outage.recovered_at ? 'recovered' : 'outage';
+  const id = kind === 'outage' ? outageId : recoveryId; // recovered and retired share one closing id
   if (await sent(id)) return probed ? { kind, status: 'already-sent', probed } : null;
-  // A recovery is only news to a lead that was told about the outage.
-  if (kind === 'recovered' && !(await sent(outageId))) return null;
+  // A recovery or retirement is only news to a lead that was told about the outage.
+  if (kind !== 'outage' && !(await sent(outageId))) return null;
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { kind, status: 'skipped', reason: 'no lead is registered for this repository' };
@@ -71,11 +80,14 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
     `Since: ${outage.since}`,
     `Fallback: ao is working on the managed local NATS ${state.url ?? 'on this host'}. Work on this host continues, but agents on other machines that use ${outage.url} do not see this host's mail, claims or presence until it is back.`,
     `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. You will get one more message when it answers again.`,
+  ] : kind === 'retired' ? [
+    `NATS OUTAGE RETIRED on ${hostname()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
+    `It was not proven reachable. ao is on ${state.url} (${state.source}). The outage began ${outage.since}: ${outage.error}`,
   ] : [
     `NATS RECOVERED on ${hostname()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? 'back on it' : `now on ${state.url} (${state.source})`}.`,
     `The outage began ${outage.since}: ${outage.error}`,
   ];
-  return deliver({ id, consumer, to: leadId, subject: kind === 'outage' ? `NATS outage: ${outage.url}` : `NATS recovered: ${outage.url}`,
+  return deliver({ id, consumer, to: leadId, subject: `NATS ${kind}: ${outage.url}`,
     body: body.join('\n'), provenance: { source: 'ao-topology supervise' } }, { env, home })
     .then(record => ({ kind, status: record?.status ?? 'sent', to: leadId, message_id: id }))
     .catch(error => ({ kind, status: 'failed', to: leadId, reason: error?.code ?? String(error) }));

@@ -14,7 +14,11 @@
   `AO_NATS_URL` is still never replaced. Only an open that dialled the outage's own source and url without
   falling back closes it, so another process's env cannot fake a recovery; the selection is recorded
   under the caller's `home`; and a configured server that accepts TCP but refuses NATS is re-dialled
-  with a per-outage backoff (30 s doubling to 15 min) instead of on every reconcile.
+  with a per-outage backoff (30 s doubling to 15 min) instead of on every reconcile. Every fallback
+  records `last_fallback_at`; once nothing on the host has fallen back from that source and url for
+  an hour (`AO_NATS_OUTAGE_RETIRE_MS`), the outage is retired (`retired: true` and a note, never
+  claimed reachable), so removing the dead `NATS_URL` clears `doctor`, stops the re-dials, and the
+  lead gets one `NATS retired` message in place of the recovery message.
 
 ## [0.15.1] — 2026-10-02
 

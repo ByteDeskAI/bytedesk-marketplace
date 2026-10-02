@@ -414,9 +414,34 @@ export function redactUrl(url) {
 
 export const transportStatePath = (env = process.env, home = homedir()) => join(stateRoot(env, home), 'transport.json');
 
+// TM-276: an outage nobody has fallen back from for this long is retired, not recovered: the operator
+// removed the dead URL (the fix doctor names), so nothing on this host is configured to use it any more.
+export const OUTAGE_RETIRE_MS = 60 * 60_000;
+
+/** An open outage whose last fallback is older than the bound, closed with `retired: true`. Pure. */
+export function retireStaleOutage(state, { now = Date.now(), retireAfterMs = OUTAGE_RETIRE_MS } = {}) {
+  const outage = state?.outage;
+  if (!outage || outage.recovered_at) return state;
+  const last = outage.last_fallback_at ?? outage.since;
+  if (now - Date.parse(last) < retireAfterMs) return state;
+  return { ...state, outage: { ...outage, recovered_at: new Date(now).toISOString(), retired: true,
+    note: `retired: no open has fallen back from ${outage.url} (${outage.source}) since ${last}; it was not proven reachable` } };
+}
+
 /** TM-276: the last selection on this host, plus the configured NATS outage it fell back from, if any. */
-export async function readTransportState(env = process.env, home = homedir()) {
-  return readJson(transportStatePath(env, home)).catch(() => null);
+export async function readTransportState(env = process.env, home = homedir(), { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  return retireStaleOutage(await readJson(transportStatePath(env, home)).catch(() => null), { now, retireAfterMs });
+}
+
+/** Persists an outage close (or a fresh last_fallback_at) that a reader derived. */
+export async function writeTransportState(env, home, state) {
+  await writeJson(transportStatePath(env, home), state);
+}
+
+/** True when a connection this process holds fell back from `source`+`url`: the outage is still in use here. */
+export function holdsFallbackFrom({ source, url }) {
+  return [...liveTransports.values()].some((t) => t.selection?.fallback?.source === source && t.selection.fallback.url === url
+    && t.stats?.().closed === false);
 }
 
 /** What status, doctor and the supervisor log report: the file double, or the last NATS selection. */
@@ -432,14 +457,16 @@ export async function describeTransport(env = process.env, home = homedir()) {
  * the outage identity the lead is told about, kept across reopens); any later open that needs no
  * fallback AND dialled that outage's own source and url closes it with `recovered_at`. The file is
  * host-wide and processes differ in env, so an open that never tried the configured server (another
- * source, another url) proves nothing about it and leaves the outage open.
+ * source, another url) proves nothing about it and leaves the outage open. Every fallback refreshes
+ * `last_fallback_at`; readTransportState retires an outage once that is older than OUTAGE_RETIRE_MS.
  * ponytail: read-modify-write without a lock; two racing first fallbacks can mint two `since`s.
  */
 async function recordTransportSelection(env, selection, home = homedir()) {
   const previous = await readTransportState(env, home);
+  const at = new Date().toISOString();
   const outageOf = (fallback) => fallback && { source: fallback.source, url: fallback.url, error: fallback.error,
-    since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : new Date().toISOString(),
-    recovered_at: null };
+    since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : at,
+    last_fallback_at: at, recovered_at: null };
   let outage = previous?.outage ?? null;
   if (selection.fallback) outage = outageOf(selection.fallback);
   else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
