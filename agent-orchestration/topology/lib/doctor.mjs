@@ -192,6 +192,11 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
       leadRecovery = { error: error.message };
     }
   }
+  // TM-276 / ADR-0031: which NATS this host is on and why, and an unreachable configured one.
+  const { describeTransport } = await import("./orch-transport.mjs");
+  const transport = await describeTransport(env ?? process.env, home).catch((error) => ({ error: error.message }));
+  const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
+  if (outage) problems.push({ code: "NATS_CONFIGURED_UNREACHABLE", message: `The configured NATS ${outage.url} (${outage.source}) has been unreachable since ${outage.since}: ${outage.error}. ao is working on ${transport.source} ${transport.url}; other machines on ${outage.url} cannot see this host.`, fix: { note: `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. Once nothing on this host has fallen back from it for an hour (AO_NATS_OUTAGE_RETIRE_MS), the outage is retired and this check clears. Each repository supervisor mails its registered lead once per outage and once when it recovers or is retired.` } });
   // TM-155: the first-run trust gate, and the socket-path limit. Both are conditions an operator
   // meets as a stalled pane or a raw tmux error, and both are knowable before anything is launched.
   const trust = await claudeTrust(consumer, home);
@@ -204,5 +209,5 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   }
   const socket = socketPathProblem(env);
   if (socket) problems.push(socket);
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, trust, problems };
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, trust, problems };
 }

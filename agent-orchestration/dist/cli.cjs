@@ -549,9 +549,9 @@ function slugPart(value, cap) {
 function shortHost(name = (0, import_node_os6.hostname)()) {
   return slugPart(String(name ?? "").split(".")[0], PART_CAPS.node) || "host";
 }
-async function nodeName({ env = process.env, home = (0, import_node_os6.homedir)(), hostname: hostname3 = (0, import_node_os6.hostname)() } = {}) {
+async function nodeName({ env = process.env, home = (0, import_node_os6.homedir)(), hostname: hostname4 = (0, import_node_os6.hostname)() } = {}) {
   const configured = env.AO_NODE_NAME || (await readJson3(globalConfigPath(home, env)).catch(() => null))?.node?.name;
-  return slugPart(configured, PART_CAPS.node) || shortHost(hostname3);
+  return slugPart(configured, PART_CAPS.node) || shortHost(hostname4);
 }
 function originPath(url2) {
   const path3 = String(url2 ?? "").trim().replace(/\/+$/, "").replace(/\.git$/, "").replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//i, "").replace(/^[^@/]+@[^:/]+:/, "");
@@ -3316,12 +3316,12 @@ var require_servers = __commonJS({
       const protocol = port === 80 ? "https" : "http";
       const url2 = new URL(`${protocol}://${u}`);
       url2.port = `${port}`;
-      let hostname3 = url2.hostname;
-      if (hostname3.charAt(0) === "[") {
-        hostname3 = hostname3.substring(1, hostname3.length - 1);
+      let hostname4 = url2.hostname;
+      if (hostname4.charAt(0) === "[") {
+        hostname4 = hostname4.substring(1, hostname4.length - 1);
       }
       const listen = url2.host;
-      return { listen, hostname: hostname3, port };
+      return { listen, hostname: hostname4, port };
     }
     var ServerImpl = class _ServerImpl {
       constructor(u, gossiped = false) {
@@ -18439,20 +18439,28 @@ var orch_transport_exports = {};
 __export(orch_transport_exports, {
   JS_DOMAIN_PATTERN: () => JS_DOMAIN_PATTERN,
   ORCH_LAYOUT: () => ORCH_LAYOUT,
+  OUTAGE_RETIRE_MS: () => OUTAGE_RETIRE_MS,
   absorbTransportFailure: () => absorbTransportFailure,
   closeLiveTransports: () => closeLiveTransports,
   createFileTransport: () => createFileTransport,
+  describeTransport: () => describeTransport,
   discardLiveTransports: () => discardLiveTransports,
+  holdsFallbackFrom: () => holdsFallbackFrom,
   isTransportFailure: () => isTransportFailure,
   jetStreamDomain: () => jetStreamDomain,
   openNatsTransport: () => openNatsTransport,
   orchName: () => orchName,
   orchSocketPath: () => orchSocketPath,
   publishReviewVerdict: () => publishReviewVerdict,
+  readTransportState: () => readTransportState,
+  redactUrl: () => redactUrl,
   resolveTransport: () => resolveTransport,
+  retireStaleOutage: () => retireStaleOutage,
   selectLiveTransport: () => selectLiveTransport,
   transportMode: () => transportMode,
-  useTransportOpener: () => useTransportOpener
+  transportStatePath: () => transportStatePath,
+  useTransportOpener: () => useTransportOpener,
+  writeTransportState: () => writeTransportState
 });
 function orchName(value) {
   const cleaned = String(value ?? "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
@@ -18483,14 +18491,14 @@ function useTransportOpener(open12) {
     openTransport = previous;
   };
 }
-async function resolveTransport({ env = process.env, transport } = {}) {
+async function resolveTransport({ env = process.env, transport, home } = {}) {
   if (transport) return transport;
   const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
   if (transportMode(selected2) === "file") return createFileTransport();
   const key = `${selected2.AO_NATS_URL || selected2.NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}|${selected2.AO_NATS_JS_DOMAIN || ""}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
-  const opened = await openTransport({ env: selected2 });
+  const opened = await openTransport({ env: selected2, home });
   liveTransports.set(key, opened);
   const originalClose = opened.close.bind(opened);
   opened.close = async (options) => {
@@ -18559,6 +18567,7 @@ function createFileTransport() {
   };
   const api = {
     kind: "file",
+    selection: { kind: "file", source: "AO_TRANSPORT", url: null, fallback: null },
     stats() {
       let pendingMail = 0;
       let retainedAcked = 0;
@@ -18572,17 +18581,17 @@ function createFileTransport() {
       for (const list of verdictWaiters.values()) verdictWaitersOpen += list.length;
       return { kind: "file", pendingMail, retainedAcked, claims: claims.size, probes: probes.size, verdictWaiters: verdictWaitersOpen, timers: timers.size };
     },
-    async publishMail({ repo, agent, messageId, body, inboxPath }) {
+    async publishMail({ repo, agent, messageId: messageId2, body, inboxPath }) {
       const subject = ORCH_LAYOUT.mailSubject(orchName(repo), orchName(agent));
       const now = Date.now();
-      const dedupeKey = messageId ? `${subject}:${messageId}` : "";
+      const dedupeKey = messageId2 ? `${subject}:${messageId2}` : "";
       for (const [id, expiry] of seen) if (expiry <= now) seen.delete(id);
       if (dedupeKey && (seen.get(dedupeKey) ?? 0) > now) {
         return { via: "file", subject, duplicate: true, inboxPath: inboxPath ?? null };
       }
       if (dedupeKey) seen.set(dedupeKey, now + ORCH_LAYOUT.duplicateWindowMs);
       const queue = pruneAcked(takeQueue(mail, subject));
-      queue.push({ messageId: messageId ?? null, body, acked: false });
+      queue.push({ messageId: messageId2 ?? null, body, acked: false });
       if (inboxPath) await writeText(inboxPath, body);
       return { via: "file", subject, duplicate: false, inboxPath: inboxPath ?? null };
     },
@@ -18659,10 +18668,10 @@ function createFileTransport() {
       const data = reviews.get(name);
       return data ? { via: "file", bucket: ORCH_LAYOUT.reviewsBucket, name, bytes: data } : null;
     },
-    async publishReady({ repo, messageId, body }) {
+    async publishReady({ repo, messageId: messageId2, body }) {
       const subject = ORCH_LAYOUT.tasksSubject(orchName(repo));
       const queue = pruneAcked(takeQueue(tasks, subject));
-      queue.push({ messageId: messageId ?? null, body, acked: false });
+      queue.push({ messageId: messageId2 ?? null, body, acked: false });
       return { via: "file", subject };
     },
     async pullReady({ repo, timeoutMs = 200 }) {
@@ -18768,7 +18777,72 @@ async function bridgeUnixSocket(socketPath) {
   const { port } = server.address();
   return { server, servers: `nats://127.0.0.1:${port}` };
 }
-async function openNatsTransport({ env = process.env, servers, credsFile, name = "ao-orch" } = {}) {
+function redactUrl(url2) {
+  if (!url2) return null;
+  try {
+    const parsed2 = new URL(url2);
+    parsed2.username = "";
+    parsed2.password = "";
+    return parsed2.toString().replace(/\/$/, "");
+  } catch {
+    return url2;
+  }
+}
+function retireStaleOutage(state, { now = Date.now(), retireAfterMs = OUTAGE_RETIRE_MS } = {}) {
+  const outage = state?.outage;
+  if (!outage || outage.recovered_at) return state;
+  const last = outage.last_fallback_at ?? outage.since;
+  if (now - Date.parse(last) < retireAfterMs) return state;
+  return { ...state, outage: {
+    ...outage,
+    recovered_at: new Date(now).toISOString(),
+    retired: true,
+    note: `retired: no open has fallen back from ${outage.url} (${outage.source}) since ${last}; it was not proven reachable`
+  } };
+}
+async function readTransportState(env = process.env, home = (0, import_node_os11.homedir)(), { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  return retireStaleOutage(await readJson3(transportStatePath(env, home)).catch(() => null), { now, retireAfterMs });
+}
+async function writeTransportState(env, home, state) {
+  await writeJson(transportStatePath(env, home), state);
+}
+function holdsFallbackFrom({ source, url: url2 }) {
+  return [...liveTransports.values()].some((t) => t.selection?.fallback?.source === source && t.selection.fallback.url === url2 && t.stats?.().closed === false);
+}
+async function describeTransport(env = process.env, home = (0, import_node_os11.homedir)()) {
+  if (transportMode(env) === "file") return { kind: "file", source: "AO_TRANSPORT", url: null, fallback: null, outage: null };
+  const state = await readTransportState(env, home);
+  return state ? { kind: state.kind, source: state.source, url: state.url, fallback: state.fallback ?? null, outage: state.outage ?? null, at: state.at } : { kind: "nats", source: null, url: null, fallback: null, outage: null, note: "no NATS connection recorded on this host yet" };
+}
+async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
+  const previous = await readTransportState(env, home);
+  const at = (/* @__PURE__ */ new Date()).toISOString();
+  const outageOf = (fallback) => fallback && {
+    source: fallback.source,
+    url: fallback.url,
+    error: fallback.error,
+    since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : at,
+    last_fallback_at: at,
+    recovered_at: null
+  };
+  let outage = previous?.outage ?? null;
+  if (selection.fallback) outage = outageOf(selection.fallback);
+  else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
+    outage = { ...outage, recovered_at: (/* @__PURE__ */ new Date()).toISOString() };
+  }
+  const same = previous && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
+  if (same) return;
+  await writeJson(transportStatePath(env, home), {
+    kind: selection.kind,
+    source: selection.source,
+    url: selection.url,
+    fallback: selection.fallback,
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    pid: process.pid,
+    outage
+  });
+}
+async function openNatsTransport({ env = process.env, home = (0, import_node_os11.homedir)(), servers, credsFile, name = "ao-orch" } = {}) {
   const {
     AckPolicy,
     DeliverPolicy,
@@ -18784,6 +18858,8 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
   });
   const sc = StringCodec();
   const url2 = servers || env.AO_NATS_URL || env.NATS_URL || "";
+  const configuredSource = servers ? "servers" : env.AO_NATS_URL ? "AO_NATS_URL" : env.NATS_URL ? "NATS_URL" : null;
+  let selection = { kind: "nats", source: configuredSource, url: redactUrl(url2), fallback: null };
   let bridge = null;
   let target = url2;
   const explicit = Boolean(servers || env.AO_NATS_URL);
@@ -18792,12 +18868,14 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
   const useLocal = async () => {
     local = await ensureLocalNats({ env });
     target = local.servers;
+    selection = { ...selection, source: "managed-local", url: local.servers };
   };
   if (!target) {
     const socketPath = orchSocketPath(env);
     if ((0, import_node_fs9.existsSync)(socketPath)) {
       bridge = await bridgeUnixSocket(socketPath);
       target = bridge.servers;
+      selection = { ...selection, source: "orch.sock", url: socketPath };
     } else if (autostart) {
       await useLocal();
     } else {
@@ -18822,13 +18900,17 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
     bridge?.server.close();
     bridge = null;
     if (!autostart || local) fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}`);
+    const unreachable = { source: selection.source, url: selection.url, error: String(error51.message).slice(0, 500) };
     try {
       await useLocal();
+      selection = { ...selection, fallback: unreachable };
       nc = await dial();
     } catch (second) {
       fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}; local fallback failed: ${second.message}`);
     }
   }
+  if (!servers) await recordTransportSelection(env, selection, home).catch(() => {
+  });
   const jsOptions = domain2 ? { domain: domain2 } : {};
   const js = nc.jetstream(jsOptions);
   const jsm = await nc.jetstreamManager(jsOptions);
@@ -18839,6 +18921,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
     kind: "nats",
     nc,
     domain: domain2,
+    selection,
     stats() {
       return { kind: "nats", closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
@@ -18904,12 +18987,12 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
         ensured.add(replyKey);
       }
     },
-    async publishMail({ repo, agent, messageId, body }) {
+    async publishMail({ repo, agent, messageId: messageId2, body }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, agents: [nameAgent] });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.${messageId}` } : void 0);
+      const ack = await js.publish(subject, sc.encode(body), messageId2 ? { msgID: `${nameRepo}.${nameAgent}.${messageId2}` } : void 0);
       return { via: "nats", subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullMail({ repo, agent, timeoutMs = 1e3 }) {
@@ -18933,12 +19016,12 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
         }
       };
     },
-    async publishReply({ repo, agent, messageId, body }) {
+    async publishReply({ repo, agent, messageId: messageId2, body }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
       const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId}` } : void 0);
+      const ack = await js.publish(subject, sc.encode(body), messageId2 ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId2}` } : void 0);
       return { via: "nats", subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullReply({ repo, agent, replyTo, from, timeoutMs = 1e3 }) {
@@ -19042,11 +19125,11 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       const bytes = await store.getBlob(name2).catch(() => null);
       return bytes ? { via: "nats", bucket: ORCH_LAYOUT.reviewsBucket, name: name2, bytes: Buffer.from(bytes) } : null;
     },
-    async publishReady({ repo, messageId, body }) {
+    async publishReady({ repo, messageId: messageId2, body }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const subject = ORCH_LAYOUT.tasksSubject(nameRepo);
-      await js.publish(subject, sc.encode(body), messageId ? { msgID: messageId } : void 0);
+      await js.publish(subject, sc.encode(body), messageId2 ? { msgID: messageId2 } : void 0);
       return { via: "nats", subject };
     },
     async pullReady({ repo, timeoutMs = 1e3 }) {
@@ -19167,7 +19250,7 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto16, import_node_fs9, import_node_net2, import_node_os11, import_node_path34, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING;
+var import_node_crypto16, import_node_fs9, import_node_net2, import_node_os11, import_node_path34, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto16 = require("node:crypto");
@@ -19177,6 +19260,7 @@ var init_orch_transport = __esm({
     import_node_path34 = require("node:path");
     init_util();
     init_nats_local();
+    init_repoid();
     ORCH_LAYOUT = Object.freeze({
       mailStream: "ORCH_MAIL",
       tasksStream: "ORCH_TASKS",
@@ -19212,6 +19296,8 @@ var init_orch_transport = __esm({
     ]);
     JS_DOMAIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
     MAX_PENDING = 1e4;
+    transportStatePath = (env = process.env, home = (0, import_node_os11.homedir)()) => (0, import_node_path34.join)(stateRoot2(env, home), "transport.json");
+    OUTAGE_RETIRE_MS = 60 * 6e4;
   }
 });
 
@@ -20545,11 +20631,11 @@ async function readRequests(dir) {
   const rows = await Promise.all(names2.map(async (name) => ({ name, ...await readJson3((0, import_node_path43.join)(dir, name)).catch(() => ({})) })));
   return rows;
 }
-async function requestLeadRecovery({ consumer, reason = "unspecified", messageId = null, env = process.env, home = (0, import_node_os15.homedir)() }) {
+async function requestLeadRecovery({ consumer, reason = "unspecified", messageId: messageId2 = null, env = process.env, home = (0, import_node_os15.homedir)() }) {
   const p = await recoveryPaths({ consumer, env, home });
-  const name = (0, import_node_crypto18.createHash)("sha256").update(`${messageId ?? ""}\0${reason}`).digest("hex");
+  const name = (0, import_node_crypto18.createHash)("sha256").update(`${messageId2 ?? ""}\0${reason}`).digest("hex");
   const file2 = (0, import_node_path43.join)(p.requests, `${name}.json`);
-  await writeJson(file2, { repo_id: p.identity.id, consumer, reason, message_id: messageId, requested_at: nowIso() });
+  await writeJson(file2, { repo_id: p.identity.id, consumer, reason, message_id: messageId2, requested_at: nowIso() });
   return { requested: true, repo_id: p.identity.id, file: file2 };
 }
 function view(record2) {
@@ -21002,14 +21088,14 @@ async function readStandingMessage({ id, ...options }) {
   }
   return record2;
 }
-async function recordStandingReply({ consumer, messageId, agentId, body, env = process.env, home = (0, import_node_os16.homedir)() }) {
-  invariant2(typeof messageId === "string" && messageId, "TOPOLOGY_MESSAGE_ID_INVALID", "Standing reply requires a message ID.");
+async function recordStandingReply({ consumer, messageId: messageId2, agentId, body, env = process.env, home = (0, import_node_os16.homedir)() }) {
+  invariant2(typeof messageId2 === "string" && messageId2, "TOPOLOGY_MESSAGE_ID_INVALID", "Standing reply requires a message ID.");
   invariant2(typeof body === "string" && body.trim(), "TOPOLOGY_REPLY_EMPTY", "A standing reply must have content.");
   invariant2(agentId && env.AO_AGENT_ID === agentId && env.AO_CONSUMER, "TOPOLOGY_AGENT_UNAUTHORIZED", "Standing replies require the receiving launcher identity and repository.");
   const destination = await canonicalRepoId(consumer);
   const current = await canonicalRepoId(env.AO_CONSUMER);
   invariant2(current.id === destination.id, "TOPOLOGY_AGENT_UNAUTHORIZED", "Launcher repository does not match the receiving repository.");
-  const p = paths(messageId, { env, home });
+  const p = paths(messageId2, { env, home });
   const settled = await withLock(p.lock, async () => {
     const record2 = await read(p.file);
     invariant2(record2?.status === "delivered", "TOPOLOGY_MESSAGE_UNDELIVERED", "A held or missing message cannot be answered.");
@@ -21034,8 +21120,8 @@ async function recordStandingReply({ consumer, messageId, agentId, body, env = p
     await transport.publishReply({
       repo: repoKey2(destination.id),
       agent: orchName2(settled.record.envelope.from),
-      messageId: `${messageId}.reply.${agentId}`,
-      body: JSON.stringify({ reply_to: messageId, from: agentId, body })
+      messageId: `${messageId2}.reply.${agentId}`,
+      body: JSON.stringify({ reply_to: messageId2, from: agentId, body })
     });
   }
   return settled.reply;
@@ -23433,10 +23519,10 @@ async function openIncident({ identity, key, env, home, consumer, consent, agent
       await writeJson(path3, next2);
       return next2;
     }
-    const messageId = (0, import_node_crypto23.createHash)("sha256").update(`quota-incident:${record2.incident_id}`).digest("hex").slice(0, 32);
+    const messageId2 = (0, import_node_crypto23.createHash)("sha256").update(`quota-incident:${record2.incident_id}`).digest("hex").slice(0, 32);
     const mail = await deliver(
       {
-        id: messageId,
+        id: messageId2,
         consumer,
         to: leadId,
         subject: `provider quota suspected: ${agentId}`,
@@ -23445,7 +23531,7 @@ async function openIncident({ identity, key, env, home, consumer, consent, agent
       },
       { env, home }
     ).catch((error51) => ({ status: "failed", reason: error51?.code ?? String(error51) }));
-    const next = { ...record2, announced: { status: mail?.status ?? "failed", to: leadId, message_id: messageId, reason: mail?.reason ?? null } };
+    const next = { ...record2, announced: { status: mail?.status ?? "failed", to: leadId, message_id: messageId2, reason: mail?.reason ?? null } };
     await writeJson(path3, next);
     return next;
   });
@@ -25298,13 +25384,13 @@ async function saveRun(runDir, run2) {
   }
   await publishDiscovery(runDir, run2);
 }
-async function recordRedirect(runDir, { messageId, intended, deliveredTo, reason }) {
+async function recordRedirect(runDir, { messageId: messageId2, intended, deliveredTo, reason }) {
   return withLock((0, import_node_path51.join)(runDir, ".mailbox-sequence.lock"), async () => {
     const run2 = await loadRun(runDir);
     run2.redirects = run2.redirects || {};
-    run2.redirects[`${messageId}:${intended}`] = deliveredTo;
+    run2.redirects[`${messageId2}:${intended}`] = deliveredTo;
     await saveRun(runDir, run2);
-    await appendJournal(runDir, { type: "route.redirect", id: messageId, intended, delivered_to: deliveredTo, reason: reason || null });
+    await appendJournal(runDir, { type: "route.redirect", id: messageId2, intended, delivered_to: deliveredTo, reason: reason || null });
     return run2.redirects;
   });
 }
@@ -25677,8 +25763,8 @@ async function obligations(runDir, run2, agentId, transport = null) {
     };
   })];
 }
-function replyFileNameFor(messageId) {
-  return `${messageId}.reply.md`;
+function replyFileNameFor(messageId2) {
+  return `${messageId2}.reply.md`;
 }
 function expandFanout(run2, ids) {
   const known = new Set(run2.agents.map((agent) => agent.id));
@@ -27184,6 +27270,112 @@ var init_presence = __esm({
   }
 });
 
+// topology/lib/nats-outage.mjs
+function canReach(url2, timeoutMs = 1e3) {
+  return new Promise((resolve19) => {
+    let target;
+    try {
+      if (String(url2).startsWith("/")) target = { path: url2 };
+      else {
+        const parsed2 = new URL(String(url2).split(",")[0]);
+        target = { host: parsed2.hostname, port: Number(parsed2.port) || 4222 };
+      }
+    } catch {
+      resolve19(false);
+      return;
+    }
+    const socket = import_node_net3.default.connect(target, () => {
+      socket.destroy();
+      resolve19(true);
+    });
+    socket.once("error", () => resolve19(false));
+    socket.setTimeout(timeoutMs, () => {
+      socket.destroy();
+      resolve19(false);
+    });
+  });
+}
+async function natsOutageTick({
+  consumer,
+  env = process.env,
+  home = (0, import_node_os26.homedir)(),
+  deliver = sendStandingMessage,
+  lead = readLeadRegistration,
+  reachable = canReach,
+  discard = discardLiveTransports,
+  now = Date.now,
+  retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS,
+  holds = holdsFallbackFrom
+}) {
+  let state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  if (!state?.outage?.since) return null;
+  const stale = now() - Date.parse(state.outage.last_fallback_at ?? state.outage.since) > retireAfterMs / 4;
+  const open12 = !state.outage.recovered_at, holding = open12 && stale && holds(state.outage);
+  if (holding) state = { ...state, outage: { ...state.outage, last_fallback_at: new Date(now()).toISOString() } };
+  const checked = retireStaleOutage(state, { now: now(), retireAfterMs });
+  if (holding || checked !== state) await writeTransportState(env, home, checked);
+  state = checked;
+  const outage = state.outage;
+  const key = repoKey((await canonicalRepoId(consumer)).id);
+  const outageId = messageId("outage", key, outage.since), recoveryId = messageId("recovered", key, outage.since);
+  const sent = async (id2) => Boolean(await readStandingMessage({ id: id2, env, home }).catch(() => null));
+  let probed = false;
+  const redialKey = `${outage.since}|${outage.url}`;
+  const redial = redials.get(redialKey);
+  if (outage.recovered_at) redials.delete(redialKey);
+  else if ((!redial || now() >= redial.at) && await reachable(outage.url)) {
+    await discard();
+    probed = true;
+    const wait = redial ? Math.min(redial.wait * 2, REDIAL_MAX_MS) : REDIAL_FIRST_MS;
+    redials.set(redialKey, { at: now() + wait, wait });
+  }
+  const kind = outage.retired ? "retired" : outage.recovered_at ? "recovered" : "outage";
+  const id = kind === "outage" ? outageId : recoveryId;
+  if (await sent(id)) return probed ? { kind, status: "already-sent", probed } : null;
+  if (kind !== "outage" && !await sent(outageId)) return null;
+  const registration = await lead({ consumer, env, home }).catch(() => null);
+  const leadId = registration?.record?.agent_id ?? null;
+  if (!leadId) return { kind, status: "skipped", reason: "no lead is registered for this repository" };
+  const where = `${outage.url} (${outage.source})`;
+  const body = kind === "outage" ? [
+    `NATS OUTAGE on ${(0, import_node_os26.hostname)()}: the configured NATS ${where} is unreachable.`,
+    `Error: ${outage.error}`,
+    `Since: ${outage.since}`,
+    `Fallback: ao is working on the managed local NATS ${state.url ?? "on this host"}. Work on this host continues, but agents on other machines that use ${outage.url} do not see this host's mail, claims or presence until it is back.`,
+    `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. You will get one more message when it answers again.`
+  ] : kind === "retired" ? [
+    `NATS OUTAGE RETIRED on ${(0, import_node_os26.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
+    `It was not proven reachable. ao is on ${state.url} (${state.source}). The outage began ${outage.since}: ${outage.error}`
+  ] : [
+    `NATS RECOVERED on ${(0, import_node_os26.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
+    `The outage began ${outage.since}: ${outage.error}`
+  ];
+  return deliver({
+    id,
+    consumer,
+    to: leadId,
+    subject: `NATS ${kind}: ${outage.url}`,
+    body: body.join("\n"),
+    provenance: { source: "ao-topology supervise" }
+  }, { env, home }).then((record2) => ({ kind, status: record2?.status ?? "sent", to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
+}
+var import_node_crypto29, import_node_os26, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId;
+var init_nats_outage = __esm({
+  "topology/lib/nats-outage.mjs"() {
+    import_node_crypto29 = require("node:crypto");
+    import_node_os26 = require("node:os");
+    import_node_net3 = __toESM(require("node:net"), 1);
+    init_repoid();
+    init_orch_transport();
+    init_lead();
+    init_standing_mailbox();
+    REDIAL_FIRST_MS = 3e4;
+    REDIAL_MAX_MS = 15 * 6e4;
+    redials = /* @__PURE__ */ new Map();
+    messageId = (kind, key, since) => (0, import_node_crypto29.createHash)("sha256").update(`nats-${kind}:${key}:${since}`).digest("hex").slice(0, 32);
+  }
+});
+
 // topology/lib/supervision.mjs
 var supervision_exports = {};
 __export(supervision_exports, {
@@ -27200,7 +27392,7 @@ async function sourceIdentity() {
   const implementation = (0, import_node_url6.fileURLToPath)(__aoImportMetaUrl);
   const source_entrypoint = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
   const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises45.readFile)(source_entrypoint), (0, import_promises45.readFile)(implementation)]);
-  return { source_entrypoint, source_fingerprint: (0, import_node_crypto29.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
+  return { source_entrypoint, source_fingerprint: (0, import_node_crypto30.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
 }
 function nextRung(rung, activity) {
   return activity ? 0 : Math.min(rung + 1, SLEEP_LADDER_MS.length - 1);
@@ -27213,7 +27405,7 @@ function reconcileFloor(env, override) {
 async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {
 }, onOwned = () => {
 }, sleepFn = sleep } = {}) {
-  const { env = process.env, home = (0, import_node_os26.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os27.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   options = { ...options, consumer };
   const identity = await canonicalRepoId(consumer), root = (0, import_node_path55.join)(stateRoot2(env, home), "supervision");
@@ -27331,6 +27523,8 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       const snapshot = latest || await producer.publish();
       const recovery = await recoverLead(options).catch((error51) => ({ action: "failed", attempts: null, last_error: error51?.code ?? String(error51), next_retry_at: null }));
       const resumed = await resumeStandingMessages(options);
+      const natsOutage = await natsOutageTick({ ...options, env, home }).catch((error51) => ({ status: "failed", reason: error51?.code ?? String(error51) }));
+      const transport = await describeTransport(env, home).catch(() => null);
       const launched = ["created", "restarted"].includes(recovery.action);
       const activity = prompts.some((p) => p.state?.status && p.state.status !== "current") || resumed.length > 0 || launched;
       const report = {
@@ -27345,7 +27539,9 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         prompts: prompts.map((p) => ({ agent: p.agent, status: p.state.status, errors: p.state.errors })),
         mail: resumed.map((m) => ({ id: m.envelope.id, status: m.status, reason: m.reason })),
         // Only when there is something to say, like slots and quota: a healthy lead adds no key.
-        ...launched || recovery.alert || recovery.woken || recovery.attempts !== 0 ? { lead_recovery: recovery } : {}
+        ...launched || recovery.alert || recovery.woken || recovery.attempts !== 0 ? { lead_recovery: recovery } : {},
+        transport,
+        ...natsOutage ? { nats_outage: natsOutage } : {}
       };
       report.reviews = await collectPendingReviews(options).catch((error51) => [{ state: "collection-failed", reason: error51.code ?? error51.message }]);
       await writeJson((0, import_node_path55.join)(root, `${key}.json`), report);
@@ -27484,7 +27680,7 @@ function pidAlive(pid) {
     return true;
   }
 }
-async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os26.homedir)() } = {}) {
+async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os27.homedir)() } = {}) {
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
   const root = (0, import_node_path55.join)(stateRoot2(env, home), "supervision");
   const owner = await lockOwner((0, import_node_path55.join)(root, `${key}.lock`));
@@ -27522,11 +27718,12 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
     log: record2?.log ?? (0, import_node_path55.join)(root, `${key}.log`),
     last_tick_at: tick?.at ?? null,
     tick_age_ms: Number.isFinite(at) ? Date.now() - at : null,
-    reconcile_min_ms: tick?.reconcile_min_ms ?? reconcileFloor(env)
+    reconcile_min_ms: tick?.reconcile_min_ms ?? reconcileFloor(env),
+    transport: tick?.transport ?? null
   };
 }
 async function startRepositorySupervision(options) {
-  const { env = process.env, home = (0, import_node_os26.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os27.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   const startTimeoutRaw = options.startTimeoutMs ?? env.AO_SUPERVISION_START_TIMEOUT_MS;
   const startTimeoutMs = Number.isFinite(Number(startTimeoutRaw)) && Number(startTimeoutRaw) > 0 ? Number(startTimeoutRaw) : DEFAULT_START_TIMEOUT_MS;
@@ -27594,14 +27791,14 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path55, import_node_crypto29, import_node_child_process13, import_node_url6, import_node_os26, import_promises45, import_promises46, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path55, import_node_crypto30, import_node_child_process13, import_node_url6, import_node_os27, import_promises45, import_promises46, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path55 = require("node:path");
-    import_node_crypto29 = require("node:crypto");
+    import_node_crypto30 = require("node:crypto");
     import_node_child_process13 = require("node:child_process");
     import_node_url6 = require("node:url");
-    import_node_os26 = require("node:os");
+    import_node_os27 = require("node:os");
     import_promises45 = require("node:fs/promises");
     import_promises46 = require("node:timers/promises");
     init_presence();
@@ -27621,6 +27818,7 @@ var init_supervision = __esm({
     init_util();
     init_services_client();
     init_orch_transport();
+    init_nats_outage();
     SLEEP_LADDER_MS = [2e3, 5e3, 15e3];
     DEFAULT_RECONCILE_MIN_MS = 1e4;
     DEFAULT_START_TIMEOUT_MS = 1e4;
@@ -27634,7 +27832,7 @@ var import_node_path64 = require("node:path");
 
 // src/service.mjs
 var import_promises52 = require("node:fs/promises");
-var import_node_os30 = require("node:os");
+var import_node_os31 = require("node:os");
 var import_node_path61 = require("node:path");
 
 // src/policy/catalog.mjs
@@ -57097,12 +57295,13 @@ async function defaultOpenLog(stateRoot3) {
 }
 
 // src/diagnostics.mjs
-var import_node_crypto31 = require("node:crypto");
+var import_node_crypto32 = require("node:crypto");
 var import_promises51 = require("node:fs/promises");
 var import_node_path60 = require("node:path");
-var import_node_os29 = require("node:os");
+var import_node_os30 = require("node:os");
 init_repoid();
 init_supervision();
+init_orch_transport();
 init_incarnation();
 init_lead();
 init_reviewer();
@@ -57111,21 +57310,22 @@ init_config();
 init_prompts();
 
 // src/services/services.mjs
-var import_node_crypto30 = require("node:crypto");
+var import_node_crypto31 = require("node:crypto");
 var import_node_fs13 = require("node:fs");
 var import_promises49 = require("node:fs/promises");
-var import_node_net3 = __toESM(require("node:net"), 1);
-var import_node_os28 = __toESM(require("node:os"), 1);
+var import_node_net4 = __toESM(require("node:net"), 1);
+var import_node_os29 = __toESM(require("node:os"), 1);
 var import_node_path58 = require("node:path");
 var import_promises50 = require("node:timers/promises");
 init_lockfile();
 init_nats_local();
+init_orch_transport();
 
 // src/services/os-registration.mjs
 var import_node_child_process14 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
 var import_promises47 = require("node:fs/promises");
-var import_node_os27 = __toESM(require("node:os"), 1);
+var import_node_os28 = __toESM(require("node:os"), 1);
 var import_node_path56 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
@@ -57138,11 +57338,11 @@ function windowsQuote2(value) {
   const text = String(value);
   return /[\s"]/.test(text) || text === "" ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
-async function registrationMode({ platform = process.platform, home = import_node_os27.default.homedir(), env = process.env } = {}) {
+async function registrationMode({ platform = process.platform, home = import_node_os28.default.homedir(), env = process.env } = {}) {
   if (platform === "darwin") return "launchd";
   if (platform === "win32") return "schtasks";
   if (platform !== "linux") return "detached";
-  if (home !== import_node_os27.default.userInfo().homedir) return "detached";
+  if (home !== import_node_os28.default.userInfo().homedir) return "detached";
   try {
     await canonicalUserBusEnvironment(env);
     return "systemd";
@@ -57150,7 +57350,7 @@ async function registrationMode({ platform = process.platform, home = import_nod
     return "detached";
   }
 }
-function registrationPath({ mode, home = import_node_os27.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
+function registrationPath({ mode, home = import_node_os28.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
       return (0, import_node_path56.join)(env.XDG_CONFIG_HOME || (0, import_node_path56.join)(home, ".config"), "systemd", "user", UNIT_NAME);
@@ -57500,7 +57700,7 @@ var row = (copy) => ({ host: copy.host, root: copy.root });
 function readLock(pluginRoot = PLUGIN_ROOT) {
   return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path58.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
-function dataHome({ platform = process.platform, env = process.env, home = import_node_os28.default.homedir() } = {}) {
+function dataHome({ platform = process.platform, env = process.env, home = import_node_os29.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
   if (platform === "win32") return import_node_path58.win32.join(env.LOCALAPPDATA || import_node_path58.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
   if (platform === "darwin") return import_node_path58.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
@@ -57541,10 +57741,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path58.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ff732c4de4cde8274c0f4703c5172676b90a33d848404def7c233971ea8aaaa8";
+  return false ? null : "6bc2f17f8012b155f532d03e201c1a5d1f995d30fc153d4af4ff9ddde87eb924";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ff732c4de4cde8274c0f4703c5172676b90a33d848404def7c233971ea8aaaa8";
+  const fingerprint2 = false ? null : "6bc2f17f8012b155f532d03e201c1a5d1f995d30fc153d4af4ff9ddde87eb924";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -57625,7 +57825,7 @@ async function extractArchive(archive, into, platform) {
 async function pickPort() {
   for (let port = 45100; port < 45200; port += 1) {
     const free = await new Promise((resolve19) => {
-      const probe = import_node_net3.default.createServer();
+      const probe = import_node_net4.default.createServer();
       probe.once("error", () => resolve19(false));
       probe.listen(port, "127.0.0.1", () => probe.close(() => resolve19(true)));
     });
@@ -57758,7 +57958,7 @@ async function context({ pluginRoot, stateRoot: stateRoot3, env, platform, home,
   const lock = deps.lock ?? readLock(pluginRoot);
   return { data, paths: paths2, mode, lock, node };
 }
-async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const ctx = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
@@ -57773,7 +57973,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
       pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
     };
-    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises49.writeFile)(paths2.token, (0, import_node_crypto30.randomBytes)(24).toString("hex"), { mode: 384 });
+    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises49.writeFile)(paths2.token, (0, import_node_crypto31.randomBytes)(24).toString("hex"), { mode: 384 });
     const token = (await (0, import_promises49.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
@@ -57833,7 +58033,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     };
   }, { timeoutMs: 3e5 });
 }
-async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const { paths: paths2, mode } = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const manager = await readJson(paths2.manager, null).catch(() => null);
   const registration = await registrationState({ mode: manager?.mode ?? mode, home, env, servicesDir: paths2.dir, run: deps.run });
@@ -57844,10 +58044,10 @@ async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
   const repos = await readRepos(paths2.repos);
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
   const selfHeal2 = await readJson((0, import_node_path58.join)(paths2.dir, "self-heal.json"), null).catch(() => null);
-  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) }, selfHeal: selfHeal2 };
+  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) }, transport: await describeTransport(env, home).catch(() => null), selfHeal: selfHeal2 };
 }
 var processRow = (p) => ({ name: p.name, pid: p.pid, state: p.status, restarts: p.restarts, ready: p.is_ready, exitCode: p.exit_code });
-async function controlProcess(action, name, { pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function controlProcess(action, name, { pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
   invariant(action === "restart" || action === "stop", "AO_SERVICES_USAGE", `Unknown action ${action}. Use restart or stop.`);
   const { paths: paths2 } = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps: { mode: "detached", lock: {}, ...deps } });
   const manager = await readJson(paths2.manager, null).catch(() => null);
@@ -57877,7 +58077,7 @@ async function probeService(name, { stateRoot: stateRoot3, env = process.env } =
     const state = await readJson((0, import_node_path58.join)(localNatsHome(env), "state.json"), null).catch(() => null);
     if (!state?.port) return false;
     return new Promise((resolve19) => {
-      const socket = import_node_net3.default.connect({ host: "127.0.0.1", port: state.port }, () => {
+      const socket = import_node_net4.default.connect({ host: "127.0.0.1", port: state.port }, () => {
         socket.destroy();
         resolve19(true);
       });
@@ -57890,7 +58090,7 @@ async function probeService(name, { stateRoot: stateRoot3, env = process.env } =
   }
   invariant(false, "AO_SERVICES_UNKNOWN_PROBE", `No probe named ${name}. Use session-host or nats.`);
 }
-async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const { paths: paths2, mode } = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const manager = await readJson(paths2.manager, null).catch(() => null);
   const token = await (0, import_promises49.readFile)(paths2.token, "utf8").then((text) => text.trim(), () => null);
@@ -58102,11 +58302,11 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ff732c4de4cde8274c0f4703c5172676b90a33d848404def7c233971ea8aaaa8",
+  sourceFingerprint: false ? null : "6bc2f17f8012b155f532d03e201c1a5d1f995d30fc153d4af4ff9ddde87eb924",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises51.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
-var fingerprint = (path3) => (0, import_promises51.readFile)(path3).then((bytes) => (0, import_node_crypto31.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
+var fingerprint = (path3) => (0, import_promises51.readFile)(path3).then((bytes) => (0, import_node_crypto32.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
 async function rolePromptEvidence(options, record2, role, repositoryId) {
   const result = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
   if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result;
@@ -58124,18 +58324,21 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   if (result.state === "current" && !result.current) result.state = "stale";
   return result;
 }
-async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os29.homedir)(), platform = process.platform, deps = {} }) {
+async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os30.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
   const pointer = await json4(paths2.pointer);
   const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path60.join)(paths2.dir, "self-heal.json"))]);
   const tmuxSocket = tmuxSocketCheck({ env, platform });
+  const transport = await describeTransport(env, home).catch(() => null);
+  const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
   const problems = [
     ...stale.servers.map((server) => `stale ao MCP server: ${server.host} pid ${server.pid} (${server.reasons.join("; ")}). ${server.advice}`),
-    ...tmuxSocket.ok ? [] : [`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`]
+    ...tmuxSocket.ok ? [] : [`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`],
+    ...outage ? [`configured NATS ${outage.url} (${outage.source}) unreachable since ${outage.since}: ${outage.error}; working on ${transport.source} ${transport.url}.`] : []
   ];
-  return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, lastSelfHeal, problems };
+  return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, transport, lastSelfHeal, problems };
 }
-async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os29.homedir)() }) {
+async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os30.homedir)() }) {
   let consumer = null, admission = { provided: Boolean(consumerCwd), admitted: null };
   if (consumerCwd) {
     try {
@@ -58758,7 +58961,7 @@ var OrchestrationService = class {
    * explicitly and falls back only to a directory that still exists.
    */
   async resolveDiscoveryCwd(preferred) {
-    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os30.homedir)()]) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os31.homedir)()]) {
       if (!candidate) continue;
       try {
         const stats = await (0, import_promises52.stat)(candidate);
@@ -58855,7 +59058,7 @@ var OrchestrationService = class {
 var import_node_child_process17 = require("node:child_process");
 var import_node_fs16 = require("node:fs");
 var import_promises53 = require("node:fs/promises");
-var import_node_os31 = __toESM(require("node:os"), 1);
+var import_node_os32 = __toESM(require("node:os"), 1);
 var import_node_path63 = require("node:path");
 init_services_client();
 init_repoid();
@@ -58973,7 +59176,7 @@ async function runServicesCommand(sub, values, positionals) {
         if (consumerCwd) await registerRepository(consumerCwd, stateRoot3);
         const report = await ensureServices({ stateRoot: stateRoot3 });
         const dir = servicePaths({ stateRoot: stateRoot3, data: dataHome() }).dir;
-        report.selfHeal = await withLock((0, import_node_path63.join)(dir, "self-heal.lock"), () => selfHeal({ pointer: report.pointer, stateRoot: stateRoot3, home: import_node_os31.default.homedir() }), { timeoutMs: 12e4 }).catch((error51) => ({ error: error51.message }));
+        report.selfHeal = await withLock((0, import_node_path63.join)(dir, "self-heal.lock"), () => selfHeal({ pointer: report.pointer, stateRoot: stateRoot3, home: import_node_os32.default.homedir() }), { timeoutMs: 12e4 }).catch((error51) => ({ error: error51.message }));
         await (0, import_promises53.writeFile)((0, import_node_path63.join)(dir, "self-heal.json"), `${JSON.stringify(report.selfHeal, null, 2)}
 `, { mode: 384 }).catch(() => {
         });

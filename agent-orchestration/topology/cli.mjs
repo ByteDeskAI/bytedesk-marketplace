@@ -368,12 +368,29 @@ const commands = {
     // the durable record of a heartbeat — a reader wanting per-tick detail passes --json.
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
     const notable = report => report?.stopped || report?.presence_beats_degraded || report?.transport_failures || report?.error;
-    const onTick = flags.json ? out : report => { if (notable(report)) out(report); };
+    // TM-276 / ADR-0031: the transport and its source are logged at start and again whenever they
+    // change, a fallback from an unreachable configured NATS as a named warning.
+    let loggedTransport = null;
+    const logTransport = (transport, at) => {
+      const key = JSON.stringify([transport?.source, transport?.url, transport?.outage?.since, transport?.outage?.recovered_at]);
+      if (!transport || key === loggedTransport) return;
+      loggedTransport = key;
+      const outage = transport.outage && !transport.outage.recovered_at ? transport.outage : null;
+      out({ event: outage ? 'transport-fallback' : 'transport-selected', at: at ?? new Date().toISOString(), consumer: ctx.consumer,
+        transport: transport.kind, source: transport.source, url: transport.url,
+        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}) });
+    };
+    const onTick = report => { logTransport(report?.transport, report?.at); if (flags.json || notable(report)) out(report); };
     const controller = new AbortController();
     let watcher = Promise.resolve(), watcherError;
     // Start the watcher only after winning repository ownership. Both loops
     // share a lifetime; a failed or losing supervisor cannot leave one behind.
-    const onOwned = () => {
+    const onOwned = async () => {
+      const { resolveTransport, describeTransport } = await import('./lib/orch-transport.mjs');
+      // Open it now so the start log names what this supervisor will use, not a stale record.
+      const opened = await resolveTransport({ env: process.env }).catch((error) => ({ error }));
+      if (opened.error) out({ event: 'transport-unavailable', consumer: ctx.consumer, code: opened.error.code ?? null, message: opened.error.message });
+      else logTransport(await describeTransport(process.env));
       watcher = watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId, signal: controller.signal })
         .catch(error => { watcherError = error; controller.abort(); });
     };
@@ -818,6 +835,8 @@ const commands = {
       const age = s.tick_age_ms === null ? "no tick yet" : `last tick ${Math.round(s.tick_age_ms / 1000)}s ago`;
       out(`Supervisor: ${s.state}${s.pid ? ` pid ${s.pid}` : ""} · ${age}${s.restarts ? ` · ${s.restarts} restarts` : ""}`);
     }
+    const t = report.transport;
+    if (t && !t.error) out(`Transport: ${t.kind}${t.source ? ` via ${t.source}` : ""}${t.url ? ` ${t.url}` : ""}${t.note ? ` (${t.note})` : ""}`);
     out("Providers:");
     for (const provider of report.providers) {
       out(`  ${provider.ready ? "✓" : "✗"} ${provider.id} — ${provider.ready ? `${provider.path}${provider.version ? ` (${provider.version})` : ""}` : `not found; ${provider.install_hint}`}`);
