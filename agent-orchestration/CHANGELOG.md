@@ -17,6 +17,22 @@
 
 ### Fixed
 
+- **Tests can no longer reach the managed services, and a run fails if it leaves tmux or processes
+  behind (TM-298).** The contract suite never set `AGENT_ORCHESTRATION_SERVICES=0`, so `launch` in
+  an enrolled temp repository registered it with process-compose, which re-ran `supervise` with a
+  scrubbed environment: no `TMUX_TMPDIR`, so the operator's default tmux server, and no provider-shim
+  `PATH`, so a real provider lead. The shared test preflight now forces the opt-out for both suites,
+  and `topology-tmux` and `topology-activation-tmux` pin it in their own child environments, because
+  CI runs the contract files without the preflight. A new suite-end check
+  (`tests/helpers/suite-leaks.mjs`) makes the run exit non-zero when it leaves a process carrying the
+  run's environment, or a new temp-directory session on an operator tmux server, and names each
+  leaked process and session. It found lead tmux servers left by `topology-repo-enrollment`,
+  `topology-supervision`, `topology-activation-tmux` and `topology-lead-recovery-tmux`: their
+  teardowns reaped the supervisor but not the server its lead ran on, or found that server by a
+  discovery that returned nothing on failure. They now use one helper, `killEnvServer`, which also
+  reaps a server orphaned when two supervisors start the first session on a fresh socket at once.
+  `topology-tmux` asserts that its delivery runs' supervisors resolve only the test's own socket.
+
 - **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
   just after `AO_REVIEW <nonce> b64:` was printed (an empty or sub-4-character payload) now waits as
   `RESPONSE_INCOMPLETE` instead of failing the request. A complete `b64:` verdict no longer absorbs a

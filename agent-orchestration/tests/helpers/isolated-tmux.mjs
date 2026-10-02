@@ -63,6 +63,26 @@ export async function killOwnedServer(env, socket) {
 }
 
 /**
+ * Kill the default server inside `env`'s own TMUX_TMPDIR — the one a library call or a supervisor
+ * given `env` creates without naming a socket (TM-298: a supervisor's lead session outlived every
+ * test that only reaped the supervisor). Call it BEFORE removing that directory.
+ *
+ * Then reap, by pid, any tmux server still carrying that TMUX_TMPDIR. Two supervisors that start the
+ * first session on a fresh socket at once start two servers; the second re-binds the path and the
+ * first is orphaned with no socket, so no `-S` call can reach it (measured in
+ * topology-lead-recovery-tmux). Only processes whose environment names this test's own directory
+ * are touched, and only after killOwnedServer has validated that directory.
+ */
+export async function killEnvServer(env) {
+  await killOwnedServer(env, join(env.TMUX_TMPDIR, `tmux-${uid()}`, "default"));
+  const { markedProcesses } = await import("./suite-leaks.mjs");
+  for (const { pid, command } of markedProcesses(`TMUX_TMPDIR=${env.TMUX_TMPDIR}`)) {
+    // SIGKILL: an orphaned server with a control client attached ignores SIGTERM (measured).
+    if (basename(command.split(" ")[0]) === "tmux") { try { process.kill(pid, "SIGKILL"); } catch {} }
+  }
+}
+
+/**
  * An isolated tmux environment for one test. `socket` is the default socket INSIDE the private
  * TMUX_TMPDIR, so explicit `-S socket` calls, library calls under `within()`, and subprocesses given
  * `env` all land on the same server — and the teardown reaches all of it. The directory is short

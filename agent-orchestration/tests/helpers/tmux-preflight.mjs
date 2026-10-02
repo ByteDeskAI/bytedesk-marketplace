@@ -11,6 +11,14 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 
 import { implicitSocket, refuseOperatorSocket } from "./isolated-tmux.mjs";
 import "./provider-guard.mjs"; // TM-290: no test may start a real provider CLI
+import "./suite-leaks.mjs"; // TM-298: no test may leave a tmux server or process running
+
+// TM-272/TM-298: the managed services are the product default, and a `launch` that reaches them
+// registers the test repository with process-compose, which re-runs `supervise` with a scrubbed
+// environment: no TMUX_TMPDIR (so the operator's default server) and no shim PATH (so a real
+// provider lead). Forced, not defaulted: an operator shell exporting it must not re-open that path.
+// A test that drives the services passes its own value in its child's env.
+process.env.AGENT_ORCHESTRATION_SERVICES = "0";
 
 const live = /^(.*),[0-9]+,[^,]*$/.exec(process.env.TMUX ?? "")?.[1];
 if (live && !process.env.AO_TEST_OPERATOR_TMUX_SOCKET) process.env.AO_TEST_OPERATOR_TMUX_SOCKET = live;
