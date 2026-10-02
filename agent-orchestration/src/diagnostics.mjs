@@ -6,6 +6,7 @@ import { resolveConsumerRepository } from './workspace/repository.mjs';
 import { probeSessionHost } from './session/host.mjs';
 import { canonicalRepoId, repoKey, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
 import { supervisionStatus } from '../topology/lib/supervision.mjs';
+import { describeTransport } from '../topology/lib/orch-transport.mjs';
 import { incarnationOf, sameIncarnation } from '../topology/lib/incarnation.mjs';
 import { leadState } from '../topology/lib/lead.mjs';
 import { reviewerStanding } from '../topology/lib/reviewer.mjs';
@@ -55,11 +56,15 @@ export async function setupDiagnostics({stateRoot,env=process.env,home=homedir()
   const pointer=await json(paths.pointer);
   const [stale,lastSelfHeal]=await Promise.all([(deps.staleMcpServers??staleMcpServers)({pointer,platform}).catch(error=>({supported:false,note:error.message,servers:[]})),json(join(paths.dir,'self-heal.json'))]);
   const tmuxSocket=tmuxSocketCheck({env,platform});
+  // TM-276: the NATS this host is on, and a configured one it had to fall back from.
+  const transport=await describeTransport(env,home).catch(()=>null);
+  const outage=transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
   const problems=[
     ...stale.servers.map(server=>`stale ao MCP server: ${server.host} pid ${server.pid} (${server.reasons.join('; ')}). ${server.advice}`),
     ...(tmuxSocket.ok?[]:[`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`]),
+    ...(outage?[`configured NATS ${outage.url} (${outage.source}) unreachable since ${outage.since}: ${outage.error}; working on ${transport.source} ${transport.url}.`]:[]),
   ];
-  return {servicesPointer:pointer?{pluginRoot:pointer.pluginRoot,version:pointer.version??null}:null,staleMcpServers:stale,tmuxSocket,lastSelfHeal,problems};
+  return {servicesPointer:pointer?{pluginRoot:pointer.pluginRoot,version:pointer.version??null}:null,staleMcpServers:stale,tmuxSocket,transport,lastSelfHeal,problems};
 }
 
 export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=process.env,home=homedir()}) {

@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **The NATS transport names itself, and an unreachable configured NATS is reported to the lead
+  (TM-276, ADR-0031).** A dead ambient `NATS_URL` or stale gateway `orch.sock` still falls back to
+  the managed local server, but the selection, its source (`AO_NATS_URL`, `NATS_URL`, `orch.sock`,
+  `managed-local`) and any outage are recorded in `<state>/transport.json`. `supervise` logs a
+  `transport-selected` or `transport-fallback` event at start and on every change; `services status`
+  and `doctor` show `transport`, and `doctor` raises `NATS_CONFIGURED_UNREACHABLE`. Each repository
+  supervisor mails its lead one durable standing message per outage and one on recovery. An explicit
+  `AO_NATS_URL` is still never replaced.
+
 ## [0.15.1] — 2026-10-02
 
 ### Fixed

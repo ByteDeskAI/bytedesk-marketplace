@@ -25,6 +25,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readJson, writeJson, writeText } from './util.mjs';
 import { ensureLocalNats } from './nats-local.mjs';
+import { stateRoot } from './repoid.mjs';
 
 // `nats` is loaded only when the NATS transport opens. A copied plugin tree that
 // uses the file double does not carry node_modules, and a top-level import would
@@ -200,6 +201,7 @@ export function createFileTransport() {
   };
   const api = {
     kind: 'file',
+    selection: { kind: 'file', source: 'AO_TRANSPORT', url: null, fallback: null },
     stats() {
       let pendingMail = 0;
       let retainedAcked = 0;
@@ -403,6 +405,49 @@ async function bridgeUnixSocket(socketPath) {
   return { server, servers: `nats://127.0.0.1:${port}` };
 }
 
+/** Drops user:password from a URL before it is logged, stored or mailed. */
+export function redactUrl(url) {
+  if (!url) return null;
+  try { const parsed = new URL(url); parsed.username = ''; parsed.password = ''; return parsed.toString().replace(/\/$/, ''); }
+  catch { return url; }
+}
+
+export const transportStatePath = (env = process.env, home = homedir()) => join(stateRoot(env, home), 'transport.json');
+
+/** TM-276: the last selection on this host, plus the configured NATS outage it fell back from, if any. */
+export async function readTransportState(env = process.env, home = homedir()) {
+  return readJson(transportStatePath(env, home)).catch(() => null);
+}
+
+/** What status, doctor and the supervisor log report: the file double, or the last NATS selection. */
+export async function describeTransport(env = process.env, home = homedir()) {
+  if (transportMode(env) === 'file') return { kind: 'file', source: 'AO_TRANSPORT', url: null, fallback: null, outage: null };
+  const state = await readTransportState(env, home);
+  return state ? { kind: state.kind, source: state.source, url: state.url, fallback: state.fallback ?? null, outage: state.outage ?? null, at: state.at }
+    : { kind: 'nats', source: null, url: null, fallback: null, outage: null, note: 'no NATS connection recorded on this host yet' };
+}
+
+/**
+ * Writes transport.json only when the answer changed. A fallback opens an outage (its `since` is
+ * the outage identity the lead is told about, kept across reopens); any later open that needs no
+ * fallback closes it with `recovered_at`.
+ * ponytail: read-modify-write without a lock; two racing first fallbacks can mint two `since`s.
+ */
+async function recordTransportSelection(env, selection) {
+  const previous = await readTransportState(env);
+  const outageOf = (fallback) => fallback && { source: fallback.source, url: fallback.url, error: fallback.error,
+    since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : new Date().toISOString(),
+    recovered_at: null };
+  let outage = previous?.outage ?? null;
+  if (selection.fallback) outage = outageOf(selection.fallback);
+  else if (outage && !outage.recovered_at) outage = { ...outage, recovered_at: new Date().toISOString() };
+  const same = previous && previous.source === selection.source && previous.url === selection.url
+    && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
+  if (same) return;
+  await writeJson(transportStatePath(env), { kind: selection.kind, source: selection.source, url: selection.url,
+    fallback: selection.fallback, at: new Date().toISOString(), pid: process.pid, outage });
+}
+
 export async function openNatsTransport({ env = process.env, servers, credsFile, name = 'ao-orch' } = {}) {
   const {
     AckPolicy,
@@ -420,6 +465,9 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
   });
   const sc = StringCodec();
   const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
+  // TM-276 / ADR-0031: which NATS this is and why, so supervisor start, status and doctor can say.
+  const configuredSource = servers ? 'servers' : env.AO_NATS_URL ? 'AO_NATS_URL' : env.NATS_URL ? 'NATS_URL' : null;
+  let selection = { kind: 'nats', source: configuredSource, url: redactUrl(url), fallback: null };
   let bridge = null;
   let target = url;
   // An explicit `servers` argument or AO_NATS_URL is the operator's choice and is never replaced.
@@ -430,12 +478,14 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
   const useLocal = async () => {
     local = await ensureLocalNats({ env });
     target = local.servers;
+    selection = { ...selection, source: 'managed-local', url: local.servers };
   };
   if (!target) {
     const socketPath = orchSocketPath(env);
     if (existsSync(socketPath)) {
       bridge = await bridgeUnixSocket(socketPath);
       target = bridge.servers;
+      selection = { ...selection, source: 'orch.sock', url: socketPath };
     } else if (autostart) {
       await useLocal();
     } else {
@@ -458,13 +508,17 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     bridge = null;
     if (!autostart || local) fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}`);
     // The configured target (ambient NATS_URL or a stale gateway socket) is down: start the local one.
+    const unreachable = { source: selection.source, url: selection.url, error: String(error.message).slice(0, 500) };
     try {
       await useLocal();
+      selection = { ...selection, fallback: unreachable };
       nc = await dial();
     } catch (second) {
       fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}; local fallback failed: ${second.message}`);
     }
   }
+  // An explicit `servers` caller (a test reader, a probe) is not this host's selection; record only the rest.
+  if (!servers) await recordTransportSelection(env, selection).catch(() => {});
   const jsOptions = domain ? { domain } : {};
   const js = nc.jetstream(jsOptions);
   const jsm = await nc.jetstreamManager(jsOptions);
@@ -475,6 +529,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     kind: 'nats',
     nc,
     domain,
+    selection,
     stats() {
       return { kind: 'nats', closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
