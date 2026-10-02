@@ -36,7 +36,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { agentDirs, createAgent, listAgents, requireAgent } from "./agents.mjs";
 import { displayName, roleVisual, titleForRole } from "./identity.mjs";
-import { openRoleSession, registeredLeadId, roleSessionName, roleSessionPath } from "./launch.mjs";
+import { openRoleSession, recordedRoleSession, registeredLeadId, roleSessionFor, roleSessionPath } from "./launch.mjs";
 import { assignLead, detachLead, ensureLead, leadState, readLeadRegistration } from "./lead.mjs";
 import { leadQueueDepth } from "./mailbox.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
@@ -120,7 +120,7 @@ async function retag(agent, role) {
 async function aliveSessions(agents, { env = process.env, listPanesFn = tmux.listServerPanes } = {}) {
   const live = new Set();
   for (const agent of agents) {
-    const session = roleSessionName(agent.id);
+    const session = await recordedRoleSession({ agentsDir: agent._dir ? dirname(agent._dir) : null, agentId: agent.id });
     // A session is not a server. When the agent's own session record names its server, ask THAT server;
     // with no record the server is implicit ($TMUX or the default socket), which this advisory status accepts.
     const tmuxServer = agent._dir ? (await readJson(join(agent._dir, "session.json")).catch(() => null))?.binding?.serverKey : undefined;
@@ -140,7 +140,7 @@ async function aliveSessions(agents, { env = process.env, listPanesFn = tmux.lis
 async function openAgentSession({ agent, consumer, home, pluginRoot, env = process.env, log = () => {}, open = openRoleSession }) {
   const adapters = await loadAdapters(providerDirs({ pluginRoot, consumer, home }));
   const adapter = adapterFor(agent, adapters);
-  const session = roleSessionName(agent.id);
+  const session = await roleSessionFor({ agentsDir: dirname(agent._dir), agentId: agent.id, consumer, role: agent.role, env, home });
   const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
   invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Prompt config is invalid; the existing session is preserved.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
   const vars = {
@@ -157,6 +157,7 @@ async function openAgentSession({ agent, consumer, home, pluginRoot, env = proce
     adapter,
     argv,
     env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: consumer, ...agent.env },
+    session,
     role: agent.role,
     log,
   });
@@ -206,12 +207,12 @@ export async function roleStatus({ role, consumer, home = homedir(), env = proce
   const leadId = await registeredLeadId({ consumer, env, home });
   return {
     role, singleton: entry.singleton,
-    holders: agents.map((agent) => ({
+    holders: await Promise.all(agents.map(async (agent) => ({
       id: agent.id, name: displayName(agent), title: agent.title ?? titleForRole(role), ...roleVisual({ role: agent.role ?? role, repoRole: agent.id === leadId ? "lead" : null }),
       registered: true, alive: live.has(agent.id), responsive: null,
       responsive_reason: "this role has no readiness handshake; alive is all that is proven",
-      session: roleSessionName(agent.id),
-    })),
+      session: await recordedRoleSession({ agentsDir: agent._dir ? dirname(agent._dir) : null, agentId: agent.id }),
+    }))),
   };
 }
 
@@ -307,7 +308,7 @@ async function detachInternal({ role, agentRef = null, kill = false, consumer, h
     // the agent, and an externally-owned pane is never killed however dead it looks.
     const owned = await exists(roleSessionPath(dirname(agent._dir), agent.id));
     invariant(owned, "TOPOLOGY_ROLE_OWNERSHIP_UNKNOWN", `No managed role-session record for ${displayName(agent)}; refusing to kill a session this repository did not open.`, { agent_id: agent.id });
-    const session = roleSessionName(agent.id);
+    const session = await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     if (await tmux.hasSession(session)) { await tmux.killSession(session); killed = true; }
   }
   // The agent and its directory survive: detaching ends a standing role, not an identity.

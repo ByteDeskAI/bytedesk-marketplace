@@ -41,7 +41,7 @@ import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
-import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
+import { openRoleSession, recordedRoleSession, roleSessionFor, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
@@ -371,7 +371,7 @@ async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, op
   invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Invalid lead prompt; refusing restart.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
   const adapters = await loadAdapters(providerDirs({ pluginRoot, consumer, home }));
   const adapter = adapterFor(agent, adapters);
-  const session = roleSessionName(agent.id);
+  const session = await roleSessionFor({ agentsDir: dirname(agent._dir), agentId: agent.id, consumer, role: agent.role, env, home });
   const addDirs = agent.coordinates_only === true ? [] : [consumer];
   const vars = {
     session,
@@ -394,6 +394,7 @@ async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, op
       AO_CONSUMER: consumer,
       AO_LEAD_ID: agent.id,
     },
+    session,
     role: agent.role,
     log,
   });
@@ -509,7 +510,7 @@ export async function assignLead({ consumer, agentRef, session: existingSession 
 
   return withLock(lockPath, async () => {
     const agent = await requireAgent(agentRef, agentDirs({ pluginRoot, consumer, home }));
-    const session = existingSession || roleSessionName(agent.id);
+    const session = existingSession || await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     const previous = (await exists(recordPath)) ? await readJson(recordPath) : null;
     invariant(!previous || previous.agent_id === agent.id, "TOPOLOGY_LEAD_ALREADY_ASSIGNED", "Detach the existing lead before assigning a different identity.");
     const candidate = { session, pane: null, agent_id: agent.id, repo_id: identity.id, consumer, provider: agent.cli ?? null };

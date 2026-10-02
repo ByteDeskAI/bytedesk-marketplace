@@ -101,26 +101,8 @@ export function addressOf(agent) {
   return agent?.id || null;
 }
 
-/** Session name for one spawn of one agent: stable address plus a per-spawn discriminator. */
-export function sessionName(agentId, spawn) {
-  return `${agentId}-${spawn}`;
-}
-
-/**
- * The other direction: which agent, and which spawn, is this session name?
- *
- * The two identifiers travel together in one string precisely so that a name found in `tmux ls` —
- * or in a gateway tab, or pasted by a person — can be resolved back without a lookup table. Parsing
- * is anchored on the discriminator rather than on the id, because an id may contain `-` while the
- * discriminator never does: it is exactly seven hex characters, minted by `mintSpawn`.
- *
- * Returns `{ agentId, spawn }`, or `null` when the name is not a spawn session — a run session
- * (`p1-slow-20260905-…`) and a durable role-session (`ao-<id>`) both correctly return null.
- */
-export function parseSessionName(name) {
-  const match = /^(.+)-([0-9a-f]{7})$/.exec(String(name ?? ""));
-  return match ? { agentId: match[1], spawn: match[2] } : null;
-}
+// Session names and who a session belongs to live in session-names.mjs (TM-274): the name is a
+// label, `<host>-<repo>-<role>-<name>`, and identity is recorded metadata, never parsed from it.
 
 /** The on-disk directory name for an agent's definition and its per-agent cwd. */
 export function agentDirName(agent) {

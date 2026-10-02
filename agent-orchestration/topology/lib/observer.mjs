@@ -15,6 +15,7 @@ import { readPromptState } from './prompts.mjs';
 import * as defaultTmux from './tmux.mjs';
 import { exists, invariant, nowIso } from './util.mjs';
 import { durableTopologyRoot, registeredWorktrees } from './discovery.mjs';
+import { recordedRoleSession } from './launch.mjs';
 
 const OBSERVER_ID = /^[A-Za-z0-9_-]{1,96}$/;
 const TERMINAL_RUN_STATES = new Set(['complete', 'completed', 'failed', 'stopped', 'cancelled']);
@@ -81,8 +82,10 @@ export async function discoverObserverTargets({ consumer, agentDirs = [], tmux =
   const lead = await findLead(agentDirs).catch(() => null);
   if (lead?.id) {
     const census = await readCensus({ consumer, env, home, identity }).catch(() => null);
-    const row = census?.agents?.find(agent => agent.agentId === lead.id || agent.sessionName === `ao-${lead.id}`);
-    const session = row?.sessionName || `ao-${lead.id}`;
+    // TM-274: the census row is matched by agent id (resolved from bindings), never by session name;
+    // the session it names, else the lead's own record, else its legacy `ao-<id>`.
+    const row = census?.agents?.find(agent => agent.agentId === lead.id);
+    const session = row?.sessionName || await recordedRoleSession({ agentsDir: lead._dir ? dirname(lead._dir) : null, agentId: lead.id });
     if (!census?.stale && row?.binding && await tmux.hasSession(session) &&
         (await tmux.listServerPanes({ tmuxServer: row.binding.serverKey }).catch(() => []))
           .filter(pane => pane.alive !== false && sameIncarnation(pane, row.binding)).length === 1) targets.push({

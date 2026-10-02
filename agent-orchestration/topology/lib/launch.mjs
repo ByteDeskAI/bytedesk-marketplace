@@ -13,7 +13,9 @@ import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mai
 import { composerEmptyStyled } from "./delivery.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
-import { displayName, mintSpawn, roleVisual, sessionName } from "./identity.mjs";
+import { displayName, mintSpawn, roleVisual } from "./identity.mjs";
+import { composeSessionName, legacyRoleSessionName, nodeName, repoIdentity, sessionIdentity, slugPart, PART_CAPS, ulid } from "./session-names.mjs";
+import { localPersonaRegistry, personaScope } from "./persona-registry.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
 import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
@@ -21,7 +23,7 @@ import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
-import { materializeSpec } from './spec.mjs';
+import { materializeSpec, soloAgent } from './spec.mjs';
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -525,17 +527,39 @@ export function decideFromSubscription(value, { promptLines = 1 } = {}) {
 }
 
 /**
- * A tmux session name for one spawn of one agent: the agent's stable id plus a per-spawn
- * discriminator. Uniqueness scope is **live sessions on this host** — the discriminator only has to
- * tell two concurrent spawns apart, and that is the scope tmux itself enforces, so it is checked
- * against tmux rather than assumed from randomness.
+ * TM-274 / ADR-0030: plan one new session — its name `[team--]node--repo--role--persona` and the
+ * identity it will carry as `@ao-*` options and in its durable record. An agent's persona comes from
+ * the persona registry (unique per team, else per repo); a team run session is role `run` with the
+ * workflow as its persona. Readers resolve identity from `identity`, never from `name`.
  */
-export async function uniqueSessionName(agentId, { has = tmux.hasSession, mint = mintSpawn, attempts = 10 } = {}) {
-  for (let i = 0; i < attempts; i += 1) {
-    const name = sessionName(agentId, mint());
-    if (!(await has(name))) return name;
+export async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = homedir(), personas = localPersonaRegistry({ env, home }) }) {
+  const identity = await newIdentity({ consumer, role, agentId: agent?.id ?? null, team, runId, env, home });
+  const persona = agent ? await personas.allocate(personaScope({ team: identity.team, repo: identity.repo }), agent) : workflow;
+  return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role, persona })), identity };
+}
+
+/** A new session's identity: a fresh ULID plus agent, role, repo, node, team and run. */
+export async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, env = process.env, home = homedir() }) {
+  const [node, repo] = await Promise.all([nodeName({ env, home }), repoIdentity(consumer)]);
+  return { id: ulid(), agent: agentId, role: slugPart(role, PART_CAPS.role) || null, repo: repo.slug, repoOrigin: repo.origin, node, team: slugPart(team, PART_CAPS.team) || null, run: runId };
+}
+
+/**
+ * ADR-0030: an agent holds at most one live session. Returns the name of a live session that already
+ * belongs to `agentId` — found from session metadata, the agent's role-session record, or a legacy
+ * name — other than `except`, or null. The handoff flow (TM-280) replaces the refusal this feeds.
+ */
+export async function liveSessionOf(agentId, { agentsDir = null, except = null } = {}) {
+  for (const entry of await tmux.listSessionIdentities()) {
+    if (entry.name !== except && sessionIdentity(entry)?.agentId === agentId) return entry.name;
   }
-  fail("TOPOLOGY_SESSION_NAME_EXHAUSTED", `Could not mint a free session name for agent ${agentId} in ${attempts} attempts. Stop some sessions: tmux ls.`);
+  const recorded = agentsDir ? await recordedRoleSession({ agentsDir, agentId }) : null;
+  return recorded && recorded !== except && await tmux.hasSession(recorded) ? recorded : null;
+}
+
+async function assertNotLive(agentId, options) {
+  const holder = await liveSessionOf(agentId, options);
+  invariant(!holder, "TOPOLOGY_AGENT_ALREADY_LIVE", `Agent ${agentId} already has a live session, "${holder}". One agent holds one session: use that one, stop it first, or give the parallel work to a different agent.`, { agent_id: agentId, session: holder });
 }
 
 /**
@@ -744,7 +768,17 @@ async function recordChild(lineage, child) {
 
 export async function materializeWorkflowSpec(rawSpec, context, { stateHome } = {}) {
   const location = await topologyRunLocation({ consumer: context.consumer, nativeRunId: context.runId, stateHome });
-  const spec = materializeSpec(rawSpec, { ...context, runDir: location.runDir });
+  // TM-274 / ADR-0030: a run of one library agent is a spawn of that agent and is named after it
+  // (`[team--]node--repo--<role>--<persona>`); anything else is `[team--]node--repo--run--<workflow>`.
+  // A re-render of an admitted attempt passes the name and identity it already has.
+  const team = context.team ?? rawSpec.team ?? null;
+  const solo = context.session ? null : soloAgent(rawSpec, context);
+  const planned = context.session ? { name: context.session, identity: context.sessionIdentity ?? null }
+    : await planSession({ consumer: context.consumer, role: solo ? solo.role : "run", agent: solo ? { ...solo, id: solo._agent } : null,
+      workflow: rawSpec.name, team, runId: context.runId, home: context.home ?? homedir(), personas: context.personas });
+  const spec = materializeSpec(rawSpec, { ...context, team, session: planned.name, runDir: location.runDir });
+  spec.session_identity = planned.identity;
+  spec.team = slugPart(team, PART_CAPS.team) || null;
   return { ...spec, repository: location.repository, state_home: location.stateHome, workload_cwd: spec.cwd };
 }
 
@@ -762,7 +796,7 @@ export async function retryWorkflowSpec(run, { runId, stateHome, actor } = {}) {
   const recipe = run.render_recipe || run.launch_spec?.render_recipe;
   invariant(recipe?.schemaVersion === 1 && recipe.spec && recipe.context?.consumer === run.consumer,
     'TOPOLOGY_RETRY_UNAVAILABLE', 'This attempt has no retained original workflow recipe. Preserve it and launch a reviewed saved workflow.');
-  const spec = await materializeWorkflowSpec(recipe.spec, { ...recipe.context, runId, session: `${run.name}-${runId}`,
+  const spec = await materializeWorkflowSpec(recipe.spec, { ...recipe.context, runId, session: undefined,
     instructionFiles: recipe.instruction_files, replayRecipe: true }, { stateHome: stateHome || run.state_home });
   assertRetainedScope(run, spec);
   return { ...spec, retry_of: run.run_id, root_workflow_id: run.root_workflow_id || `topology:${run.run_id}`,
@@ -776,7 +810,7 @@ export async function launchRun(options) {
   if (original.run_dir !== location.runDir) {
     const recipe = original.render_recipe;
     invariant(recipe?.schemaVersion === 1 && recipe.context?.consumer === original.consumer, 'TOPOLOGY_TEMPLATE_CONTEXT_REQUIRED', 'Materialize this workflow through the durable producer before launch; rendered prose cannot safely be relocated.');
-    rendered = await materializeWorkflowSpec(recipe.spec, { ...recipe.context, runId: original.run_id, session: original.session,
+    rendered = await materializeWorkflowSpec(recipe.spec, { ...recipe.context, runId: original.run_id, session: original.session, sessionIdentity: original.session_identity,
       instructionFiles: recipe.instruction_files, replayRecipe: true }, { stateHome: location.stateHome });
     assertRetainedScope(original, rendered);
   }
@@ -845,6 +879,12 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
     invariant(lead.status === 'responsive' && reviewer.available, 'TOPOLOGY_STARTUP_NOT_READY', 'Governed workflow launch requires a responsive repository lead and independent reviewer. Create or assign the lead first; no workflow panes were created.');
   }
   invariant(!(await exists(join(spec.run_dir, "run.json"))), "TOPOLOGY_RUN_EXISTS", `Run directory already exists: ${spec.run_dir}`);
+  // ADR-0030: a library agent that already holds a live session is not spawned a second time.
+  if (!dryRun) {
+    for (const agent of spec.agents.filter((entry) => entry._agent)) {
+      await assertNotLive(agent._agent, { agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null });
+    }
+  }
   if (!dryRun && (await tmux.hasSession(spec.session))) {
     fail("TOPOLOGY_SESSION_EXISTS", `tmux session "${spec.session}" already exists. Stop it first: ao-topology stop --session ${spec.session}`);
   }
@@ -927,6 +967,7 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
     name: spec.name,
     run_id: spec.run_id,
     session: spec.session,
+    session_identity: spec.session_identity ?? null,
     consumer: spec.consumer,
     run_dir: spec.run_dir,
     repository: spec.repository,
@@ -1002,6 +1043,9 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
   await saveRun(spec.run_dir, run);
   const firstPane = await tmux.newSession(spec.session, { cwd: first.agent.cwd, windowName: spec.layout === "windows" ? first.agent.id : "main", ...geometry });
   const firstServer = await tmux.serverOf(firstPane);
+  // TM-274: who this session is, recorded before anything reads it. A spawn's session carries its
+  // agent; a team session carries the run, and each pane carries its own agent below.
+  await tmux.setIdentity(firstPane, { session: spec.session_identity ?? {} });
   const firstEntry = run.agents.find(agent => agent.id === first.agent.id);
   firstEntry.pane = firstPane;
   firstEntry.binding = (await tmux.listServerPanes({ tmuxServer: firstServer, session: spec.session })).find(pane => pane.paneId === firstPane) || null;
@@ -1029,6 +1073,9 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
       }),
     ),
   );
+  // TM-274: each pane says which agent it hosts; a pane option wins over the session's in a lookup.
+  await Promise.all(ordered.map((item) => tmux.setIdentity(panes.get(item.agent.id), {
+    pane: { agent: item.agent._agent || item.agent.id, role: slugPart(item.agent.role, PART_CAPS.role) || null } })));
   // One hook for the whole session: a death pushes a record instead of a poll discovering it later.
   // `#{pane_dead_status}` is the process's real exit code, readable only because remain-on-exit was
   // set above. `show-hooks` will not list this hook even though it fires — do not go looking there.
@@ -1153,7 +1200,9 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
 //
 // Three rules, and the third is the one that is easy to get silently wrong.
 //
-//  1. The name is derived from the agent's stable id, never from a run id. `<prefix>-<agent id>`.
+//  1. The name is chosen once and RECORDED (TM-274): `<host>-<repo>-<role>-<name>`, kept in the
+//     agent's session.json and on the session as `@ao-*` options, and found again from the record —
+//     never re-derived. A legacy `ao-<agent id>` session is reattached until it ends.
 //     `.` and `:` are refused: measured on tmux 3.4, `new-session -s "a.b"` silently creates `a_b`
 //     and `has-session -t "a.b"` then fails, so a dotted name would make the reattach probe miss and
 //     quietly create a second session every time.
@@ -1168,28 +1217,55 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
 //     after the run that created it is gone, and running it twice reconstructs the same workspace.
 //     Anything that launches a role-session by a different command breaks gateway restore silently.
 
-const ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,96}$/;
+// 128: four capped parts (24+32+16+24) and three dashes are 99, plus a collision suffix.
+const ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,128}$/;
 
-/**
- * The durable session name for one agent. Stable across runs and across restarts — the discriminator
- * that `identity.mjs` mints is for one SPAWN of an agent, which is a different question from where
- * that agent permanently lives.
- */
-export function roleSessionName(agentId, { prefix = "ao" } = {}) {
-  // An empty id would give every agent the same session name, which is the one failure this
-  // function exists to prevent — and `ao-` passes the charset check on its own.
+function assertAgentId(agentId) {
+  // An empty id would give every agent the same record and legacy name — the one failure this exists
+  // to prevent.
   invariant(
     typeof agentId === "string" && /^[A-Za-z0-9_-]+$/.test(agentId),
     "TOPOLOGY_SESSION_NAME_INVALID",
     `A role-session needs an agent id to be named after; got ${JSON.stringify(agentId)}.`,
   );
-  const name = `${prefix}-${agentId}`;
+}
+
+function assertSessionName(name) {
   invariant(
-    ROLE_SESSION_NAME.test(name),
+    typeof name === "string" && ROLE_SESSION_NAME.test(name),
     "TOPOLOGY_SESSION_NAME_INVALID",
-    `"${name}" cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 96 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`,
+    `${JSON.stringify(name)} cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 128 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`,
   );
   return name;
+}
+
+/**
+ * The session an agent's durable role lives in, as its record says: the recorded name when the record
+ * is this agent's, else the legacy `ao-<id>`. For readers asking "is it alive / which one do I
+ * address" — it never invents a new name. Opening uses `roleSessionFor`.
+ */
+export async function recordedRoleSession({ agentsDir, agentId }) {
+  assertAgentId(agentId);
+  const record = agentsDir ? await readJson(roleSessionPath(agentsDir, agentId)).catch(() => null) : null;
+  return record?.agent_id === agentId && typeof record.session === "string" && record.session ? record.session : legacyRoleSessionName(agentId);
+}
+
+/**
+ * The session to open (or reattach) for one agent. In order: the recorded session while it is live;
+ * a live legacy `ao-<id>` (recognised until it ends); otherwise a new `node--repo--role--persona`,
+ * the persona allocated from the registry, so it is stable for this agent and unique in its repo.
+ * A dead legacy session is never recreated under its old name — that is the migration.
+ */
+export async function roleSessionFor({ agentsDir, agentId, consumer, role, has = tmux.hasSession, env = process.env, home = homedir(), personas }) {
+  assertAgentId(agentId);
+  const record = await readJson(roleSessionPath(agentsDir, agentId)).catch(() => null);
+  const recorded = record?.agent_id === agentId && typeof record.session === "string" && record.session ? record.session : null;
+  if (recorded && await has(recorded)) return recorded;
+  const legacy = legacyRoleSessionName(agentId);
+  if (await has(legacy)) return legacy;
+  const stored = await readJson(join(agentsDir, String(agentId), "agent.json")).catch(() => null);
+  const planned = await planSession({ consumer: consumer || agentsDir, role: role || stored?.role || "worker", agent: { ...stored, id: agentId }, env, home, ...(personas ? { personas } : {}) });
+  return planned.name;
 }
 
 /** Where an agent's durable session record lives: beside the agent, not inside any run. */
@@ -1209,8 +1285,9 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
   return !coordinatesOnly && !['lead', 'reviewer'].includes(role);
 }
 
-export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, prefix = "ao", role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {} }) {
-  const session = roleSessionName(agentId, { prefix });
+export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, session: chosen = null, role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {} }) {
+  // The caller's name when it already chose one (it put it in AO_SESSION); otherwise the same resolver.
+  const session = assertSessionName(chosen || await roleSessionFor({ agentsDir, agentId, consumer: env.AO_CONSUMER, role, env: { ...process.env, ...env } }));
   const dir = join(agentsDir, String(agentId));
   const recordPath = roleSessionPath(agentsDir, agentId);
   // TM-168 title bar. Read-only: the stored definition supplies the readable name, and agent.json is
@@ -1261,6 +1338,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
     return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
+  // ADR-0030: creating, not reattaching — the agent must not already be live in another session.
+  await assertNotLive(agentId, { agentsDir, except: session });
+  const identity = await newIdentity({ consumer: env.AO_CONSUMER || agentsDir, role, agentId, env: { ...process.env, ...env } });
   const launcher = join(dir, "session.sh");
   // The one command the session is ever started by — ours to run, and the gateway's to restore from.
   const command = `bash ${shellQuote(launcher)}`;
@@ -1270,6 +1350,7 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   const record = {
     version: 1,
     session,
+    identity,
     agent_id: agentId,
     role,
     cwd: dir,
@@ -1283,6 +1364,7 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   await writeJson(recordPath, record);
 
   const pane = await tmux.newSession(session, { cwd: dir, windowName: agentId });
+  await tmux.setIdentity(pane, { session: identity });
   const sessionServer = await tmux.serverOf(pane);
   record.binding=(await panesOn(sessionServer)).find(p=>p.paneId===pane && p.sessionName===session);
   await writeJson(recordPath,record);

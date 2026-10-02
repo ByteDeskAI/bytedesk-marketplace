@@ -20,7 +20,8 @@ export function specSchemaSummary() {
       name: "slug; becomes the template name",
       description: "one sentence shown by `ao-topology workflows`",
       inputs: "map of input name -> { description, required, default, options?: [value | {value, description}], multi?: bool }; referenced as {{inputs.<name>}}; options make the launcher show a menu",
-      session: "tmux session name template (default '{{name}}-{{run_id}}')",
+      session: "legacy tmux session name template (default '{{name}}-{{run_id}}'); since TM-274 a launched run is named [team--]node--repo--run--<workflow name> (or after its one library agent) regardless, and {{session}} renders that name",
+      team: "optional team name: prefixes every session name in the run and scopes persona allocation (ADR-0030)",
       cwd: "default working directory for every agent (default '{{consumer}}')",
       run_dir: "legacy requested storage hint; launch assigns durable <stateRoot>/repositories/<canonical-repo-key>/topology/runs/<run_id> and preserves workload cwd separately",
       layout: LAYOUTS,
@@ -73,6 +74,8 @@ export function validateSpec(raw) {
 
   spec.description = typeof spec.description === "string" ? spec.description : "";
   spec.session = typeof spec.session === "string" && spec.session ? spec.session : DEFAULT_SESSION;
+  // ADR-0030: an optional team prefixes every session name in the run and scopes its personas.
+  if (spec.team !== undefined && spec.team !== null && (typeof spec.team !== "string" || !spec.team.trim())) note("team must be a nonempty string when set");
   spec.cwd = typeof spec.cwd === "string" && spec.cwd ? spec.cwd : "{{consumer}}";
   spec.run_dir = typeof spec.run_dir === "string" && spec.run_dir ? spec.run_dir : "{{consumer}}/.bytedesk/agent-orchestration/runs/{{run_id}}";
   spec.layout = spec.layout ?? "main-vertical";
@@ -302,9 +305,9 @@ function derivedAgentId(stored, taken) {
  * and prints the roster rather than launching a half-configured agent.
  */
 /**
- * The session name a spec gets when it does not name one itself. A run is addressed by what ran and
- * when — until `agentAddress` says the run is a spawn of one known agent, and then it is addressed
- * by who.
+ * The legacy session template a spec gets when it does not name one. Since TM-274 a launched run is
+ * always named by ao (`<host>-<repo>-run-<name>`, or `<host>-<repo>-<role>-<name>` for a spawn of one
+ * library agent) and that name is passed in; the template only renders when no caller supplies one.
  */
 export const DEFAULT_SESSION = "{{name}}-{{run_id}}";
 
@@ -318,9 +321,13 @@ export const DEFAULT_SESSION = "{{name}}-{{run_id}}";
  * address, and two unrelated specs both saying `id: "worker"` would collide into one name.
  */
 export function agentAddress(rawSpec, context) {
+  return soloAgent(rawSpec, context)?._agent || null;
+}
+
+/** The one library agent this run is a spawn of (its resolved spec entry, `_agent` = id), or null. */
+export function soloAgent(rawSpec, context) {
   const spec = expandAgentRefs(rawSpec, context);
-  if (spec.agents.length !== 1) return null;
-  return spec.agents[0]._agent || null;
+  return spec.agents.length === 1 && spec.agents[0]._agent ? spec.agents[0] : null;
 }
 
 function expandAgentRefs(spec, context) {
@@ -429,8 +436,11 @@ export function materializeSpec(rawSpec, context) {
   // Inputs may themselves contain placeholders (a default of "{{consumer}}"); render them first.
   const vars = { ...base, inputs: renderDeep(context.inputs ?? {}, base) };
   // An explicit session from the caller wins over the template: it is how `launch` hands back a name
-  // it has already probed against the live tmux server, which the template cannot do.
-  const session = context.session ? slug(context.session) : slug(renderDeep(spec.session, vars));
+  // it has already probed against the live tmux server, which the template cannot do. TM-274: that
+  // name is `<host>-<repo>-<role>-<name>`, longer than slug()'s 48, so it is kept whole when tmux-safe.
+  const session = context.session
+    ? (/^[a-z0-9-]{1,128}$/.test(context.session) ? context.session : slug(context.session))
+    : slug(renderDeep(spec.session, vars));
   vars.session = session;
   const requestedRunDir = absolutize(renderDeep(spec.run_dir, vars), context.consumer);
   containPath(requestedRunDir, context.consumer, "run_dir", context);
@@ -483,7 +493,7 @@ export function materializeSpec(rawSpec, context) {
   rendered.consumer = context.consumer;
   rendered.requested_run_dir = requestedRunDir;
   rendered.render_recipe = { schemaVersion: 1, spec: recipeSpec, instruction_files: instructionFiles,
-    context: { consumer: context.consumer, home: context.home, inputs: structuredClone(context.inputs ?? {}),
+    context: { consumer: context.consumer, home: context.home, inputs: structuredClone(context.inputs ?? {}), ...(context.team ? { team: context.team } : {}),
       allowOutside: Boolean(context.allowOutside), ...(context.maxFanout === undefined ? {} : { maxFanout: context.maxFanout }) } };
   return rendered;
 }

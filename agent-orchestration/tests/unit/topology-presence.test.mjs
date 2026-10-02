@@ -158,6 +158,14 @@ test("spawn metadata is explicit, validated, and preserves library standing inde
  const producer=await createPresenceProducer(ctx),snapshot=await producer.publish();assert.equal(snapshot.agents[0].session.kind,"spawn");assert.equal(snapshot.agents[0].repoRole,"member");
  await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
 });
+test("TM-274: a spawn is identified by its recorded @ao-* metadata, whatever its session is named",async t=>{
+ const ctx=await setup(t);const observed=pane(1,{sessionName:"agents1--repo--worker--ada",identity:{id:"01J0000000000000000000000A",agent:"work0001",role:"worker",run:"r1"}});ctx.listPanesFn=async()=>[observed];
+ await agent(ctx,"work0001","worker");await workflow(ctx,"spawn-run",[{id:"work0001",role:"orchestrator",binding:observed,spawn:"abcdef1"}]);
+ const snapshot=await (await createPresenceProducer(ctx)).publish();assert.equal(snapshot.agents.length,1);assert.equal(snapshot.agents[0].session.kind,"spawn");assert.equal(snapshot.agents[0].session.spawn,"abcdef1");
+ // Metadata naming another agent is a contradiction, not a fallback to the (legacy-shaped) name.
+ observed.identity={agent:"other001",run:"r1"};observed.sessionName="work0001-abcdef1";
+ await assert.rejects((await createPresenceProducer(ctx)).publish(),e=>e.code==="TOPOLOGY_PRESENCE_SPAWN");
+});
 test("multiple library leads refuse publication and preserve prior metadata",async t=>{
  const ctx=await setup(t),producer=await createPresenceProducer(ctx);await producer.publish();const original=await readFile(producer.path,"utf8");
  await agent(ctx,"lead0001","lead",pane(1));await agent(ctx,"lead0002","lead",pane(2));

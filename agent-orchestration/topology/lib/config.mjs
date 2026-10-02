@@ -90,6 +90,10 @@ export function validateConfigShape(raw, label) {
     }
   }
   if (raw.management !== undefined && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
+  // ADR-0030: `node.name` names this node in session names and as its NATS leaf node. AO_NODE_NAME wins.
+  if (raw.node !== undefined && (!isPlainObject(raw.node) || (raw.node.name !== undefined && (typeof raw.node.name !== "string" || !raw.node.name.trim())))) {
+    errors.push(`${label}: "node" must be an object whose "name" is a nonempty string`);
+  }
   // TM-167: enrollment reads `enabled` from the repo layer (repo-enrollment.mjs), and a non-boolean
   // there fails closed as `enabled: false`. Reporting it here too makes the refusal visible.
   if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") errors.push(`${label}: "enabled" must be true or false`);
