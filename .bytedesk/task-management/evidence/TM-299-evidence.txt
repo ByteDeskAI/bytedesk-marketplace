@@ -1,0 +1,16 @@
+
+== Round 2 (build ordinal) — 2026-10-02T17:41:15-04:00 — HEAD 4a6ff3b90914d6dce98fe76c70f4279230a1660c (clean tree) ==
+Change: build.mjs stamps /* ao-build-ordinal:<git log -1 %ct, else build time> */ on line one of each
+application bundle; host-copies.mjs orders same-version different-fingerprint copies by it, bundle
+mtime only when a side lacks an ordinal; newer or equal ordinal never overwritten; check-bundle masks it.
+Unit test "same-version builds are ordered by build ordinal; mtime only for a copy without one":
+fake roots under mktemp: older-installed-later -> refreshed; newer-with-older-mtime -> kept;
+equal ordinal -> kept; no ordinal old/new mtime -> refreshed/kept. Mutation (ordinal branch disabled)
+-> that test fails (14 pass / 1 fail); restored -> setup-self-heal 15/15.
+dist/cli.cjs line 2: /* ao-build-ordinal:1790976723 */
+npm ci: 0; npm run build: 0; build:check: 0 (run after the merge commit, so the mask is exercised)
+test:contract: 19/19 pass
+test:unit: 1002 pass / 4 fail / 4 skipped — the 4 fails are topology-management landing/governed
+completion tests (TM-293); they fail identically on base 0085a30c in a separate clean worktree
+(node_modules symlinked from this tree).
+Criterion 2 (live resync of real grok/codex copies) NOT done — lead does it after merge.
