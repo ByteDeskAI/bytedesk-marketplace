@@ -20,6 +20,7 @@ import { localPersonaRegistry, personaScope, releaseRunPersona } from "../../top
 import { liveSessionOf, planSession } from "../../topology/lib/launch.mjs";
 import * as tmux from "../../topology/lib/tmux.mjs";
 import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
+import { optOutOfEnrollment } from "../helpers/temp-repo.mjs";
 
 const exec = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -293,6 +294,7 @@ test("readers resolve real tmux sessions from their @ao-* options, and one agent
 test("two concurrent runs of one workflow in one repo get distinct sessions; stop frees the run's persona", { skip: haveTmux ? false : "no tmux" }, async (t) => {
   const consumer = await scratch(t, "ao-runs-");
   await git(consumer, "init", "-q");
+  await optOutOfEnrollment(consumer); // TM-290: launch self-starts a supervisor, whose lead would be real
   const tmuxDir = await mkdtemp("/tmp/aot-"); // short: the unix socket path limit is 108 characters
   const env = { ...process.env, TMUX: "", TMUX_PANE: "", TMUX_TMPDIR: tmuxDir, AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file",
     AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(consumer, ".state"), XDG_CONFIG_HOME: join(consumer, ".cfg"), AO_NODE_NAME: "agents1", AO_CONSUMER: consumer };

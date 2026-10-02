@@ -10,16 +10,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { run, readJson, sleep } from '../../topology/lib/util.mjs';
+import { readJson, sleep } from '../../topology/lib/util.mjs';
 import { SUPERVISE_EXIT } from '../../topology/lib/supervision.mjs';
 import { addServiceRepo, readServiceRepos } from '../../topology/lib/services-client.mjs';
 import { withLock } from '../../topology/lib/lockfile.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
+import { initTempRepo } from '../helpers/temp-repo.mjs';
 
 const CLI = fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url));
 
@@ -27,11 +28,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-supervise-exit-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
-  await run('git', ['init', '-q', repo]);
-  // Opt out of enrollment: a Git repository is enrolled by default, and an enrolled supervisor
-  // starts a real lead provider in its first tick. These tests are about the exit code only.
-  await mkdir(join(repo, '.bytedesk', 'agent-orchestration'), { recursive: true });
-  await writeFile(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), JSON.stringify({ enabled: false }));
+  await initTempRepo(repo); // opted out: an enrolled supervisor starts a real lead (TM-290)
   const { env: tmuxEnv, socket } = isolatedTmux(t);
   const env = { ...tmuxEnv, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
   delete env.AGENT_ORCHESTRATION_SERVICES_MANAGED; // never let a test reach the live services
