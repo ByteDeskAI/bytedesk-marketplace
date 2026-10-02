@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
+  regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool
+  collected it again on every tick: 575 identical comments and `task_result` events on TM-290. The
+  result is now stamped on the dispatch record (`dispatched.collected`, keyed on `dispatched.at`
+  plus `run`, so a dispatch with no run handle is covered too). `recordResult` treats only a true
+  repeat — same dispatch, same outcome — as a `duplicate` and writes no comment or event for it; a
+  changed outcome for the same run (blocked after ready-for-review) is recorded normally. `collect`
+  skips a blocked, parked or done task whose dispatch was already collected without probing the
+  backend. A re-dispatch writes a new record, so the next run is collected once again.
+
 - **tmux and manual workers now receive agent-orchestration's global prompt prefix (TM-300).**
   These backends hand the worker tm's handoff directly, so ao's global `prompts.prefix` (TM-296)
   never reached them. Dispatch now reads it with `ao-topology config get --scope global --json`
