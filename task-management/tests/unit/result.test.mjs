@@ -18,6 +18,7 @@ import { handoff } from "../../lib/render.mjs";
 import { create, mutate, now, read, readEvents, seedGitContract, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { collect, collectOrchestration, collectTmux, collectTopology, recordResult } from "../../lib/dispatch/collect.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
+import { poolTick } from "../../lib/dispatch/pool.mjs";
 import { managementIdentity } from "../../lib/governance-check.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -608,5 +609,60 @@ describe("the done path records the pull request (TM-180)", () => {
     const execB = spawnReturning({ status: 0, stdout: "https://github.com/o/r/pull/9\n" });
     recordResult(failed, { outcome: "failed", summary: "died" }, p, { exec: execB });
     assert.equal(execB.calls.length, 0, "a failure has no PR to record");
+  });
+});
+
+describe("collect — one result per dispatch run (TM-238, TM-303)", () => {
+  const workerComments = (p, id) => (read(id, p).comments || []).filter((c) => c.author.startsWith("worker:"));
+  const dead = () => spawnReturning({ status: 1 });
+
+  it("several pool ticks over a finished review-ready worker record one event and one comment", async () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux" });
+    mutate(id, () => ({ governance: { state: "ready-for-review" } }), p);
+    const probe = dead();
+    const impls = { tmux: (tid, { p: pp }) => collectTmux(tid, { p: pp, spawnImpl: probe }) };
+
+    const ticks = [];
+    for (let i = 0; i < 5; i++) ticks.push(await poolTick({ p, registry: {}, caps: {}, impls }));
+
+    assert.equal(read(id, p).status, "in_progress", "review keeps the task open, which is why the pool comes back");
+    assert.equal(ticks[0].collected[0].outcome, "ready-for-review");
+    assert.deepEqual(ticks.slice(1).map((t) => t.collected[0].duplicate), [true, true, true, true]);
+    assert.equal(results(p).length, 1, "exactly one task_result event");
+    assert.equal(workerComments(p, id).length, 1, "exactly one worker comment");
+    assert.equal(probe.calls.length, 1, "a collected run is not probed again");
+  });
+
+  // A review-ready worker later blocked or parked; an ungoverned worker that closed through the gates.
+  for (const [status, first] of [["blocked", "ready-for-review"], ["parked", "ready-for-review"], ["done", "done"]]) {
+    it(`a ${status} task whose dispatch was already collected is skipped`, async () => {
+      const p = store();
+      const id = dispatched(p, { backend: "tmux", ...(status === "done" ? { status, claim: false } : {}) });
+      if (status !== "done") mutate(id, () => ({ governance: { state: "ready-for-review" } }), p);
+      assert.equal((await collect(id, p, { tmux: (tid, { p: pp }) => collectTmux(tid, { p: pp, spawnImpl: dead() }) })).outcome, first);
+      if (status !== "done") mutate(id, () => ({ status }), p);
+
+      const probe = dead();
+      const res = await collect(id, p, { tmux: (tid, { p: pp }) => collectTmux(tid, { p: pp, spawnImpl: probe }) });
+      assert.equal(res.ok, true);
+      assert.equal(res.duplicate, true);
+      assert.equal(probe.calls.length, 0);
+      assert.equal(recordResult(id, { outcome: first, summary: "again" }, p).duplicate, true, "the write path refuses a repeat too");
+      assert.equal(results(p).length, 1);
+      assert.equal(workerComments(p, id).length, 1);
+    });
+  }
+
+  it("a re-dispatch is a new run and is collected once more", async () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux" });
+    mutate(id, () => ({ governance: { state: "ready-for-review" } }), p);
+    const impls = { tmux: (tid, { p: pp }) => collectTmux(tid, { p: pp, spawnImpl: dead() }) };
+    await collect(id, p, impls);
+    mutate(id, () => ({ dispatched: { backend: "tmux", run: `tmux:tm-${id}-r2`, session: SESSION, at: now() } }), p);
+    await collect(id, p, impls);
+    await collect(id, p, impls);
+    assert.deepEqual(results(p).map((e) => e.run), [`tmux:tm-${id}`, `tmux:tm-${id}-r2`]);
   });
 });

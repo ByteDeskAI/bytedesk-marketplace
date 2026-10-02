@@ -41,6 +41,17 @@ export const PR_LOOKUP_TIMEOUT_MS = 5_000;
 
 const OUTCOMES = new Set(["done", "ready-for-review", "blocked", "failed"]);
 
+/**
+ * The result already recorded for the task's CURRENT dispatch run, or null (TM-238, TM-303).
+ * The ready-for-review path changes no state, so without this the pool re-collected the same
+ * exited worker every tick: 575 identical comments and events on TM-290. The stamp lives on the
+ * dispatch record, which a re-dispatch replaces wholesale, so a new run is collected again.
+ */
+function alreadyCollected(task) {
+  const d = task?.dispatched;
+  return d?.run && d.collected?.run === d.run ? d.collected : null;
+}
+
 /** Orchestration's TERMINAL_STATES (agent-orchestration/src/state/store.mjs). */
 const ORCH_TERMINAL = new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
 
@@ -100,6 +111,8 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     }
     if (!OUTCOMES.has(outcome)) return { ok: false, reason: `unknown outcome: ${outcome}` };
     if (run && run !== task.dispatched.run) return { ok: false, reason: "worker result belongs to an earlier or different dispatch", failureScope: "task" };
+    const prior = alreadyCollected(task);
+    if (prior) return { ok: true, id, outcome: prior.outcome, duplicate: true, downgraded: false, parked: false };
 
     let final = outcome;
     let note = String(summary || "").trim();
@@ -130,7 +143,8 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     const pr = ["done", "ready-for-review"].includes(final) ? recordPullRequest(task, p, exec) : null;
 
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
-    logEvent("task_result", { id, run: run ?? task.dispatched.run, outcome: final }, p);
+    mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, collected: { run: task.dispatched.run, outcome: final, at: now() } } }), p);
+    logEvent("task_result", { id, run: task.dispatched.run, outcome: final }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
     return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: failureScope({ ...result, summary: note }), ...(pr ? { pr } : {}) };
   } catch (err) {
@@ -424,6 +438,9 @@ export async function collect(id, p = paths(), impls = {}) {
     if (!task) return { ok: false, reason: `not found: ${id}` };
     const backend = task.dispatched?.backend;
     if (!backend) return { ok: false, reason: `${id} was never dispatched — there is no worker result to collect` };
+    // Collected once per run: no backend probe, no release, no comment, no event on a repeat.
+    const prior = alreadyCollected(task);
+    if (prior) return { ok: true, pending: false, duplicate: true, outcome: prior.outcome, skipped: `${task.dispatched.run} was already collected (${prior.outcome}); nothing to collect` };
     const routes = { topology: collectTopology, orchestration: collectOrchestration, tmux: collectTmux, idle: collectIdle, ...impls };
     const route = routes[backend];
     if (!route) return { ok: false, reason: `no collector for backend "${backend}"` };
