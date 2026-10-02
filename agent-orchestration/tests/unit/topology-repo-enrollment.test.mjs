@@ -18,6 +18,7 @@ import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { validateConfigShape } from '../../topology/lib/config.mjs';
 import { activateRepository, resolveEnrollment } from '../../topology/lib/repo-enrollment.mjs';
 import { startupCheck } from '../../topology/lib/startup.mjs';
+import { noProviderLead } from '../helpers/temp-repo.mjs';
 
 const exec = promisify(execFile);
 const GIT_ID = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
@@ -40,6 +41,9 @@ async function repoFixture(t, label) {
     AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
   for (const key of ['AO_TMUX_COMMAND', 'AO_LEAD_ID', 'AO_AGENT_ID']) delete env[key];
   await exec('git', ['init', '-q', repo]);
+  // TM-290: these repositories are enrolled on purpose, so the lead provider is one that does not
+  // exist. Written to the GLOBAL layer, so a test's own setConfig cannot drop it.
+  await noProviderLead(join(home, '.config', 'agent-orchestration', 'config.json'));
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);

@@ -170,6 +170,17 @@
 
 ## [Unreleased]
 
+### Tests
+
+- **No test can start a real provider CLI (TM-290).** A temp `git init` repository is enrolled by
+  default, so tests that reached supervise, launch or startup were starting a real `claude` lead.
+  The test preflight now puts a recording shim for every catalog provider (`claude`, `codex`,
+  `grok`, `kimi`, `gemini`, `copilot`) first on PATH. A shim refuses with 127, and the test file
+  that ran it fails, named. `tests/helpers/temp-repo.mjs` creates temp repositories opted out of
+  enrollment by default, or enrolled with a lead provider that does not exist. The guard found
+  six spawns, in `topology-repo-enrollment`, `topology-respawn`, `topology-session-names` and
+  `topology-supervision`. Those four files and the `topology-activation-tmux` contract are fixed.
+
 ### Added
 
 - **The repository lead records landings without a grant, and a server-side lead-autonomy policy

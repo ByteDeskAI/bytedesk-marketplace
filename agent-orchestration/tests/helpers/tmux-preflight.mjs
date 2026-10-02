@@ -10,6 +10,7 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 
 import { implicitSocket, refuseOperatorSocket } from "./isolated-tmux.mjs";
+import "./provider-guard.mjs"; // TM-290: no test may start a real provider CLI
 
 const live = /^(.*),[0-9]+,[^,]*$/.exec(process.env.TMUX ?? "")?.[1];
 if (live && !process.env.AO_TEST_OPERATOR_TMUX_SOCKET) process.env.AO_TEST_OPERATOR_TMUX_SOCKET = live;
