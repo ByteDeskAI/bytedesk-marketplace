@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
+  just after `AO_REVIEW <nonce> b64:` was printed (an empty or sub-4-character payload) now waits as
+  `RESPONSE_INCOMPLETE` instead of failing the request. A complete `b64:` verdict no longer absorbs a
+  following indented row made of base64 characters (a one-word line printed after it). Every process
+  holding a NATS fallback, not only a repository supervisor, refreshes its outage's
+  `last_fallback_at` from a transport heartbeat, so a long-lived MCP server on the fallback does not
+  see its outage retired and then mint a second outage mail.
+
 ### Changed
 
 - **The NATS transport names itself, and an unreachable configured NATS is reported to the lead

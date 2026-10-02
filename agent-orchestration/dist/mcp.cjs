@@ -25480,6 +25480,7 @@ __export(orch_transport_exports, {
   resolveTransport: () => resolveTransport,
   retireStaleOutage: () => retireStaleOutage,
   selectLiveTransport: () => selectLiveTransport,
+  touchFallback: () => touchFallback,
   transportMode: () => transportMode,
   transportStatePath: () => transportStatePath,
   useTransportOpener: () => useTransportOpener,
@@ -25829,6 +25830,14 @@ async function readTransportState(env = process.env, home = (0, import_node_os11
 async function writeTransportState(env, home, state) {
   await writeJson(transportStatePath(env, home), state);
 }
+async function touchFallback(env, home, { source, url: url2 }, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  const state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  const outage = state?.outage;
+  if (!outage || outage.recovered_at || outage.source !== source || outage.url !== url2) return false;
+  if (now - Date.parse(outage.last_fallback_at ?? outage.since) <= retireAfterMs / 4) return false;
+  await writeTransportState(env, home, { ...state, outage: { ...outage, last_fallback_at: new Date(now).toISOString() } });
+  return true;
+}
 function holdsFallbackFrom({ source, url: url2 }) {
   return [...liveTransports.values()].some((t) => t.selection?.fallback?.source === source && t.selection.fallback.url === url2 && t.stats?.().closed === false);
 }
@@ -25939,6 +25948,15 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
   }
   if (!servers) await recordTransportSelection(env, selection, home).catch(() => {
   });
+  let heartbeat = null;
+  if (!servers && selection.fallback) {
+    const retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS;
+    heartbeat = setInterval(() => {
+      if (!nc.isClosed()) touchFallback(env, home, selection.fallback, { retireAfterMs }).catch(() => {
+      });
+    }, retireAfterMs / 4);
+    heartbeat.unref();
+  }
   const jsOptions = domain2 ? { domain: domain2 } : {};
   const js = nc.jetstream(jsOptions);
   const jsm = await nc.jetstreamManager(jsOptions);
@@ -26259,6 +26277,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     async close({ force = false } = {}) {
       if (transport.closed) return;
       transport.closed = true;
+      clearInterval(heartbeat);
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
       for (const sub of subscriptions) {
@@ -29470,8 +29489,10 @@ function decodeReviewPayload(text) {
 }
 function b64Closed(data) {
   const base643 = data.slice(B64_PREFIX.length);
+  if (base643.length < 4) return false;
   if (/=$/.test(base643)) return true;
   const text = Buffer.from(base643, "base64").toString("utf8");
+  if (!text.trim()) return false;
   return !text.trimStart().startsWith("{") || lenientJson(text).closed;
 }
 function reviewResponsesOnScreen(screen, nonce) {
@@ -29485,7 +29506,7 @@ function reviewResponsesOnScreen(screen, nonce) {
     let payload = line.slice(prefix.length).trim();
     if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
     if (payload.startsWith(B64_PREFIX)) {
-      while (/^[A-Za-z0-9+/=]+$/.test(next() ?? "")) payload += protocolOutputLine(lines[++i]);
+      while (!b64Closed(payload) && /^[A-Za-z0-9+/=]+$/.test(next() ?? "")) payload += protocolOutputLine(lines[++i]);
       const texts2 = [payload];
       texts2.closed = b64Closed(payload);
       responses.push(texts2);
@@ -36274,11 +36295,11 @@ async function natsOutageTick({
 }) {
   let state = await readTransportState(env, home, { retireAfterMs: Infinity });
   if (!state?.outage?.since) return null;
-  const stale = now() - Date.parse(state.outage.last_fallback_at ?? state.outage.since) > retireAfterMs / 4;
-  const open14 = !state.outage.recovered_at, holding = open14 && stale && holds(state.outage);
-  if (holding) state = { ...state, outage: { ...state.outage, last_fallback_at: new Date(now()).toISOString() } };
+  if (!state.outage.recovered_at && holds(state.outage) && await touchFallback(env, home, state.outage, { now: now(), retireAfterMs })) {
+    state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  }
   const checked = retireStaleOutage(state, { now: now(), retireAfterMs });
-  if (holding || checked !== state) await writeTransportState(env, home, checked);
+  if (checked !== state) await writeTransportState(env, home, checked);
   state = checked;
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
@@ -76107,10 +76128,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2bc19732e12789cc61748beae1f3e7c71549bc5200a2255d01d8d7261efc6ea6";
+  return false ? null : "73bb09dab99bc6dd594e17d924178f826eb88ec2a4cbf72c0c8ac8d31ec51143";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2bc19732e12789cc61748beae1f3e7c71549bc5200a2255d01d8d7261efc6ea6";
+  const fingerprint2 = false ? null : "73bb09dab99bc6dd594e17d924178f826eb88ec2a4cbf72c0c8ac8d31ec51143";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -76507,7 +76528,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2bc19732e12789cc61748beae1f3e7c71549bc5200a2255d01d8d7261efc6ea6",
+  sourceFingerprint: false ? null : "73bb09dab99bc6dd594e17d924178f826eb88ec2a4cbf72c0c8ac8d31ec51143",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises55.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

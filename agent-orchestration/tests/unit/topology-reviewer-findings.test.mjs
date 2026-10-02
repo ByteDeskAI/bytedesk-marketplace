@@ -483,6 +483,32 @@ test('a malformed b64 verdict is refused and fails its request; one still printi
   assert.equal((await collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good}` })).verdict, 'approve');
 });
 
+// TM-295: a capture taken just after the prefix was printed is still printing, not a refusal.
+test('a b64 verdict captured right after its prefix waits instead of failing its request', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => null, deliver: async () => assert.fail('no lead registered') };
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  for (const tail of ['b64:', 'b64: ', 'b64:e', 'b64:ey', 'b64:eyJ']) {
+    await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${tail}` }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' }, tail);
+    assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', tail);
+  }
+  const good = b64({ verdict: 'approve', findings: [finding()] });
+  assert.equal((await collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good}` })).verdict, 'approve');
+});
+
+// TM-295: a closed payload takes no more rows, even one made only of base64-alphabet characters.
+test('a complete b64 verdict followed by a one-word row decodes intact', () => {
+  const nonce = 'n0nce';
+  for (const response of [{ verdict: 'approve', findings: [] }, { verdict: 'changes_requested', findings: [quoting] }]) {
+    for (const width of [50, 80, 400]) {
+      const pane = tuiWrap(`AO_REVIEW ${nonce} ${b64(response)}`, width).replace('\n\n✻', '\n  Done\n\n✻');
+      assert.match(pane, /\n  Done\n/);
+      assert.deepEqual(parseReviewResponse(pane, nonce), response, `width ${width}`);
+    }
+  }
+});
+
 for (const transport of ['file', 'nats']) {
   test(`a failed request is refused without escalating again under the ${transport} transport (TM-220)`, async t => {
     const f = await fixture(t);
