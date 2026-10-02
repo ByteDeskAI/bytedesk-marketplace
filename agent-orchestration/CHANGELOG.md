@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1] — 2026-10-01
+
+### Fixed
+
+- **A repository supervisor survives a NATS restart (TM-277).** Killing the managed `nats-server` used to end `ao-topology supervise` with exit 1. The presence heartbeat writes to the `ORCH_PRESENCE` bucket; its JetStream request timed out (`NatsError` `TIMEOUT`), the heartbeat treated that as fatal, and the error escaped the CLI's top-level `await`. A NATS outage (`TIMEOUT`, `408`, `503`, a closed, refused or dropped connection, or `TOPOLOGY_NATS_UNAVAILABLE`) now skips one heartbeat beat or degrades one tick (`degraded: "transport-unavailable"`), and the quiet tick backs off on the existing 2s/5s/15s ladder. The cached connection is closed without a drain, so the next tick dials again. The tick record counts the outages in `transport_failures` and keeps the latest in `transport_error`. Any other error still ends the supervisor, and a one-shot `supervise --once` still fails with the outage. The classifier and the discard live in one helper in `orch-transport.mjs` (`isTransportFailure`, `absorbTransportFailure`).
+- A process started by the service manager no longer starts a detached `nats-server` when the managed one is down. It used to do this after 5 seconds: a second server on the same JetStream store, with `state.json` rewritten away from the managed port. It now reports `TOPOLOGY_NATS_UNAVAILABLE` and retries on its next tick.
+
 ## [0.12.0] — 2026-10-01
 
 ### Added

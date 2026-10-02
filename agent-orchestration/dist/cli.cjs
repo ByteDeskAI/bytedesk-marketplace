@@ -1766,6 +1766,7 @@ async function ensureLocalNats({ env = process.env } = {}) {
     if (state?.managed && await waitForPort(state.port)) {
       return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, port: state.port, started: false, managed: true };
     }
+    if (env.AGENT_ORCHESTRATION_SERVICES_MANAGED === "1") throw unavailable(`The managed nats-server on port ${state?.port ?? "unknown"} is not answering; the service manager is expected to restart it.`);
   }
   const home = localNatsHome(env);
   await (0, import_promises25.mkdir)(home, { recursive: true, mode: 448 });
@@ -18014,15 +18015,19 @@ var require_nats2 = __commonJS({
 var orch_transport_exports = {};
 __export(orch_transport_exports, {
   ORCH_LAYOUT: () => ORCH_LAYOUT,
+  absorbTransportFailure: () => absorbTransportFailure,
   closeLiveTransports: () => closeLiveTransports,
   createFileTransport: () => createFileTransport,
+  discardLiveTransports: () => discardLiveTransports,
+  isTransportFailure: () => isTransportFailure,
   openNatsTransport: () => openNatsTransport,
   orchName: () => orchName,
   orchSocketPath: () => orchSocketPath,
   publishReviewVerdict: () => publishReviewVerdict,
   resolveTransport: () => resolveTransport,
   selectLiveTransport: () => selectLiveTransport,
-  transportMode: () => transportMode
+  transportMode: () => transportMode,
+  useTransportOpener: () => useTransportOpener
 });
 function orchName(value) {
   const cleaned = String(value ?? "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
@@ -18046,6 +18051,13 @@ function fail2(code, message) {
 function transportMode(env = process.env) {
   return env.AO_TRANSPORT === "file" ? "file" : "nats";
 }
+function useTransportOpener(open10) {
+  const previous = openTransport;
+  openTransport = open10 ?? openNatsTransport;
+  return () => {
+    openTransport = previous;
+  };
+}
 async function resolveTransport({ env = process.env, transport } = {}) {
   if (transport) return transport;
   const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
@@ -18053,12 +18065,12 @@ async function resolveTransport({ env = process.env, transport } = {}) {
   const key = `${selected2.AO_NATS_URL || selected2.NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
-  const opened = await openNatsTransport({ env: selected2 });
+  const opened = await openTransport({ env: selected2 });
   liveTransports.set(key, opened);
   const originalClose = opened.close.bind(opened);
-  opened.close = async () => {
+  opened.close = async (options) => {
     if (liveTransports.get(key) === opened) liveTransports.delete(key);
-    await originalClose();
+    await originalClose(options);
   };
   return opened;
 }
@@ -18066,6 +18078,21 @@ async function closeLiveTransports() {
   const open10 = [...liveTransports.values()];
   liveTransports.clear();
   for (const transport of open10) await transport.close();
+}
+function isTransportFailure(error51) {
+  if (error51?.code === "TOPOLOGY_NATS_UNAVAILABLE") return true;
+  return error51?.name === "NatsError" && NATS_OUTAGE_CODES.has(error51.code);
+}
+async function discardLiveTransports() {
+  const open10 = [...liveTransports.values()];
+  liveTransports.clear();
+  await Promise.all(open10.map((transport) => transport.close({ force: true }).catch(() => {
+  })));
+}
+async function absorbTransportFailure(error51) {
+  if (!isTransportFailure(error51)) return false;
+  await discardLiveTransports();
+  return true;
 }
 async function selectLiveTransport(options = {}) {
   return resolveTransport(options);
@@ -18655,7 +18682,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
     async saveProbe() {
       fail2("TOPOLOGY_NATS_UNAVAILABLE", "Probe files are the file transport. NATS probes use request/reply.");
     },
-    async close() {
+    async close({ force = false } = {}) {
       if (transport.closed) return;
       transport.closed = true;
       for (const timer of timers) clearTimeout(timer);
@@ -18667,7 +18694,8 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
         }
       }
       subscriptions.clear();
-      await nc.drain().catch(() => nc.close());
+      await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {
+      });
       if (bridge) await new Promise((resolve16) => bridge.server.close(resolve16));
     }
   };
@@ -18692,7 +18720,7 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto14, import_node_fs9, import_node_net2, import_node_os10, import_node_path32, ORCH_LAYOUT, liveTransports, MAX_PENDING;
+var import_node_crypto14, import_node_fs9, import_node_net2, import_node_os10, import_node_path32, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, MAX_PENDING;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto14 = require("node:crypto");
@@ -18723,6 +18751,17 @@ var init_orch_transport = __esm({
       tasksDurable: (repo) => `tasks_${repo}`
     });
     liveTransports = /* @__PURE__ */ new Map();
+    openTransport = openNatsTransport;
+    NATS_OUTAGE_CODES = /* @__PURE__ */ new Set([
+      "TIMEOUT",
+      "408",
+      "503",
+      "CONNECTION_CLOSED",
+      "CONNECTION_DRAINING",
+      "CONNECTION_REFUSED",
+      "CONNECTION_TIMEOUT",
+      "DISCONNECT"
+    ]);
     MAX_PENDING = 1e4;
   }
 });
@@ -23729,6 +23768,13 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
     const controller = new AbortController();
     signal?.addEventListener("abort", () => controller.abort(), { once: true });
     let latest, heartbeatError, degradedBeats = 0;
+    let transportFailures = 0, transportError = null;
+    const transportFailed = async (error51) => {
+      if (!await absorbTransportFailure(error51)) return false;
+      transportFailures++;
+      transportError = { code: error51.code, message: String(error51.message).slice(0, 500), at: (/* @__PURE__ */ new Date()).toISOString() };
+      return true;
+    };
     const heartbeat = once ? null : (async () => {
       while (!controller.signal.aborted) {
         try {
@@ -23736,7 +23782,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
             latest = snapshot;
           } });
         } catch (error51) {
-          if (error51?.code !== "TOPOLOGY_TMUX_OBSERVATION_FAILED") {
+          if (error51?.code !== "TOPOLOGY_TMUX_OBSERVATION_FAILED" && !await transportFailed(error51)) {
             heartbeatError = error51;
             controller.abort();
             return;
@@ -23846,8 +23892,10 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
           try {
             ({ report, activity } = await reconcile2());
           } catch (error51) {
-            if (once || error51?.code !== "TOPOLOGY_TMUX_OBSERVATION_FAILED") throw error51;
-            report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, degraded: "tmux-observation-failed" };
+            if (once) throw error51;
+            if (error51?.code === "TOPOLOGY_TMUX_OBSERVATION_FAILED") report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, degraded: "tmux-observation-failed" };
+            else if (await transportFailed(error51)) report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, degraded: "transport-unavailable" };
+            else throw error51;
           }
         } else {
           report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, activity: false };
@@ -23910,6 +23958,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         const sleepMs = intervalMs ?? SLEEP_LADDER_MS[rung];
         report = { ...report, sleep_ms: sleepMs };
         if (degradedBeats) report = { ...report, presence_beats_degraded: degradedBeats };
+        if (transportFailures) report = { ...report, transport_failures: transportFailures, transport_error: transportError };
         await onTick(report);
         if (once || signal?.aborted) return report;
         if (sleepFn === sleep) await (0, import_promises40.setTimeout)(sleepMs, void 0, { signal: controller.signal }).catch((error51) => {
@@ -24095,6 +24144,7 @@ var init_supervision = __esm({
     init_quota();
     init_util();
     init_services_client();
+    init_orch_transport();
     SLEEP_LADDER_MS = [2e3, 5e3, 15e3];
     DEFAULT_RECONCILE_MIN_MS = 1e4;
     DEFAULT_START_TIMEOUT_MS = 1e4;
@@ -53398,8 +53448,8 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4bacd39a068905a2154452b1cbe2274d176b815c9dd98764a8cbec3ad956b57f",
-  version: false ? null : "0.12.0"
+  sourceFingerprint: false ? null : "baa178633dbffc31f9f19f7bf2c8df6ed21af61dfcf06814ba08e8aa0e8f8a3a",
+  version: false ? null : "0.12.1"
 };
 var json3 = (path3) => (0, import_promises41.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises41.readFile)(path3).then((bytes) => (0, import_node_crypto25.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -53738,7 +53788,7 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path50.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4bacd39a068905a2154452b1cbe2274d176b815c9dd98764a8cbec3ad956b57f";
+  return false ? null : "baa178633dbffc31f9f19f7bf2c8df6ed21af61dfcf06814ba08e8aa0e8f8a3a";
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises43.readFile)(path3, "utf8").catch(() => null);
