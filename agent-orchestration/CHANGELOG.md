@@ -198,6 +198,8 @@
 
 ### Tests
 
+- **The topology-tmux contract test no longer starts real leads (TM-294).** Its enrolled delivery
+  runs name a lead provider that does not exist, so `test:contract` passes with no TM-290 guard hits.
 - **No test can start a real provider CLI (TM-290).** A temp `git init` repository is enrolled by
   default, so tests that reached supervise, launch or startup were starting a real `claude` lead.
   The test preflight now puts a recording shim for every catalog provider (`claude`, `codex`,
