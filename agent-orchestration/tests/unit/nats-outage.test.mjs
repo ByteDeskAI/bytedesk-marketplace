@@ -267,3 +267,27 @@ test('an outage nothing falls back from any more is retired after the bound: one
   assert.deepEqual(f.mail.map(m => m.subject), [`NATS outage: ${f.configured}`, `NATS retired: ${f.configured}`]);
   assert.match(f.mail[1].body, /NATS OUTAGE RETIRED/);
 });
+
+// TM-295: a long-lived process that is not a supervisor (an MCP server with the dead NATS_URL) and
+// never runs the tick keeps its outage open while it holds the fallback, through its own heartbeat.
+test('a non-supervisor holding the fallback keeps its outage open; closing it lets the outage retire', { timeout: 60_000 }, async t => {
+  const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const f = await outageFixture(t, 'ao-nats-held-');
+  const bound = 800;
+  const env = { ...f.env, AO_NATS_SERVER: bin, AO_NATS_OUTAGE_RETIRE_MS: String(bound) };
+  const read = () => readTransportState(env, f.home, { retireAfterMs: bound });
+
+  const held = await resolveTransport({ env });
+  assert.ok(held.selection.fallback, 'control: the open fell back');
+  const since = (await read()).outage.since;
+  await sleep(3 * bound);
+  const during = (await read()).outage;
+  assert.equal(during.recovered_at, null, 'a held fallback is refreshed by its holder, not only by a supervisor');
+  assert.equal(during.since, since);
+  assert.ok(Date.parse(during.last_fallback_at) > Date.parse(since), 'last_fallback_at advanced');
+
+  await closeLiveTransports();
+  await sleep(2 * bound);
+  assert.equal((await read()).outage.retired, true, 'control: once nothing holds it, the outage retires');
+});

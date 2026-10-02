@@ -11,7 +11,19 @@
   before everything and joins the revision. Every prompt entry may be `{ file|text, mode }`, where
   `replace` drops the same slot from wider layers; plain-string configs compose byte-identically.
   `agent set-instructions <id> (--file|--text) [--mode append|replace]` sets an agent's own
-  instructions.
+  instructions; `--file` is stored relative to the agent directory and refused outside the
+  repository. A `replace` keeps role protocol — the lead/reviewer template and the bundled
+  `common_by_role` variant — and reports the kept layer in `warnings`.
+
+### Fixed
+
+- **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
+  just after `AO_REVIEW <nonce> b64:` was printed (an empty or sub-4-character payload) now waits as
+  `RESPONSE_INCOMPLETE` instead of failing the request. A complete `b64:` verdict no longer absorbs a
+  following indented row made of base64 characters (a one-word line printed after it). Every process
+  holding a NATS fallback, not only a repository supervisor, refreshes its outage's
+  `last_fallback_at` from a transport heartbeat, so a long-lived MCP server on the fallback does not
+  see its outage retired and then mint a second outage mail.
 
 ### Changed
 
@@ -209,6 +221,8 @@
 
 ### Tests
 
+- **The topology-tmux contract test no longer starts real leads (TM-294).** Its enrolled delivery
+  runs name a lead provider that does not exist, so `test:contract` passes with no TM-290 guard hits.
 - **No test can start a real provider CLI (TM-290).** A temp `git init` repository is enrolled by
   default, so tests that reached supervise, launch or startup were starting a real `claude` lead.
   The test preflight now puts a recording shim for every catalog provider (`claude`, `codex`,

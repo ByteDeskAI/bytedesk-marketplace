@@ -1195,8 +1195,12 @@ export function decodeReviewPayload(text) {
  */
 function b64Closed(data) {
   const base64 = data.slice(B64_PREFIX.length);
+  // TM-295: under one base64 quantum nothing has decoded yet, so a capture taken just after the
+  // prefix was printed waits like an unclosed JSON prefix instead of being refused.
+  if (base64.length < 4) return false;
   if (/=$/.test(base64)) return true;
   const text = Buffer.from(base64, 'base64').toString('utf8');
+  if (!text.trim()) return false;
   return !text.trimStart().startsWith('{') || lenientJson(text).closed;
 }
 
@@ -1226,7 +1230,8 @@ export function reviewResponsesOnScreen(screen, nonce) {
     let payload = line.slice(prefix.length).trim();
     if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
     if (payload.startsWith(B64_PREFIX)) {
-      while (/^[A-Za-z0-9+/=]+$/.test(next() ?? '')) payload += protocolOutputLine(lines[++i]);
+      // TM-295: a closed payload takes no more rows, so a word printed after the verdict is not appended.
+      while (!b64Closed(payload) && /^[A-Za-z0-9+/=]+$/.test(next() ?? '')) payload += protocolOutputLine(lines[++i]);
       const texts = [payload];
       texts.closed = b64Closed(payload);
       responses.push(texts);

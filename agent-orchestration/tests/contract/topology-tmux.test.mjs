@@ -10,6 +10,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { isolatedTmux, killOwnedServer } from "../helpers/isolated-tmux.mjs";
+import { NO_PROVIDER } from "../helpers/temp-repo.mjs";
 import { sleep, writeJson } from "../../topology/lib/util.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -106,8 +107,9 @@ async function launchDeliveryRun(t, label, extraEnv = {}) {
     ],
     workflow: [{ stage: "ping", from: "conductor", to: ["worker-a"] }],
   });
-  // TM-167: `launch` self-starts supervision only for enrolled repositories.
-  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), { enabled: true });
+  // TM-167: `launch` self-starts supervision only for enrolled repositories. TM-294: an enrolled
+  // supervisor starts a standing lead, so give it a provider that does not exist (TM-290).
+  await writeJson(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), { enabled: true, lead: { provider: NO_PROVIDER } });
   const launched = JSON.parse(await ao(["launch", "--spec", specPath, "--consumer", consumer, "--providers-dir", join(root, "tests", "fixtures"), "--run-id", `${label}-${process.pid}`, "--json"], env));
   t.after(async () => {
     await stopSupervisors(consumer);
