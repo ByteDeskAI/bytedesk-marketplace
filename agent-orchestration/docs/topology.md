@@ -271,8 +271,20 @@ Refusals: `TOPOLOGY_SESSION_OWNERSHIP` when the same-named session has no matchi
 its incarnation changed; `TOPOLOGY_AGENT_BUSY` when the turn or typed input did not finish in time
 (the session is untouched); `TOPOLOGY_AGENT_NOT_LIVE` when there is nothing to restart (open it
 instead); `TOPOLOGY_RESTART_MODE` for a missing or unknown `--mode`; `TOPOLOGY_RESPAWN_SHARED_SESSION`
-for an agent that is one pane of a workflow team session. The reviewer cannot be restarted this way
-(`TOPOLOGY_REVIEWER_READ_ONLY`, as for `session open`).
+for an agent that is one pane of a workflow team session.
+
+**The reviewer (TM-302)** takes its own path, because it launches only read-only. `agent restart` on
+the registered reviewer is refused `TOPOLOGY_AGENT_BUSY` while any review request to it is published
+and not yet collected (`details.pending` names each task, revision and nonce; collect first), and
+again if its turn does not end within `--turn-timeout`. Otherwise the exact managed pane incarnation
+is ended and the reviewer is relaunched under the same identity through `reviewer ensure`'s
+read-only launch, on the freshly composed prompt. A reviewer keeps no conversation state and cannot
+write a handoff, so both modes are a fresh launch and the result says so: `restart` carries
+`mode: "fresh"`, `requested_mode`, `fallback: "fresh"` with `fallback_reason`, `read_only: true`,
+`old_session` / `new_session` (session and incarnation), `relaunched`, and `prompt_revision`. An
+assigned (externally owned) reviewer is refused `TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN`, and an agent
+that is not the registered reviewer `TOPOLOGY_REVIEWER_NOT_REGISTERED`. `session open` on a reviewer
+is still refused `TOPOLOGY_REVIEWER_READ_ONLY`.
 
 The JSON result carries `restart`: `mode` (used), `requested_mode`, `fallback`/`fallback_reason`
 when it fell back, `provider_session_id` when it resumed, `old_session` and `new_session` (name and

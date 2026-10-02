@@ -17,6 +17,16 @@
 
 ### Fixed
 
+- **`agent restart` applies a staged prompt to the reviewer (TM-302).** It refused every reviewer
+  with `TOPOLOGY_REVIEWER_READ_ONLY`, and `reviewer ensure` leaves a live reviewer alone, so a
+  reviewer's staged prompt could never be applied and `agent list` showed it `restart_required`
+  forever. A reviewer restart now refuses `TOPOLOGY_AGENT_BUSY` (naming each pending nonce) while a
+  review request to it is published and uncollected, waits out its turn, ends the exact managed pane
+  and relaunches the same identity through the existing read-only launch on the current prompt.
+  `--mode resume` and `--mode handoff` are both a fresh read-only launch for a reviewer — it keeps no
+  state and cannot write a handoff — and the result says so (`fallback: "fresh"`). The read-only
+  launch itself is unchanged.
+
 - **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
   sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
   was reported "same version, different build" and never refreshed. It now compares the build

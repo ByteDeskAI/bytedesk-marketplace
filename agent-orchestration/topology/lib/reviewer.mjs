@@ -690,6 +690,75 @@ export async function detachReviewer({ consumer, env = process.env, home = homed
   });
 }
 
+/** Review requests for `agentId` that are published (or mid-publication) and not yet collected or failed. */
+async function uncollectedReviewRequests(consumer, agentId, env, home) {
+  const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
+  const names = (await readdir(dir).catch(() => [])).filter(name => name.endsWith('.json'));
+  const requests = await Promise.all(names.map(name => readJson(join(dir, name)).catch(() => null)));
+  return requests.filter(request => request && request.reviewer_id === agentId && !request.collected_at && request.state !== 'failed');
+}
+
+async function assertNoReviewInFlight(consumer, agentId, env, home) {
+  const pending = await uncollectedReviewRequests(consumer, agentId, env, home);
+  invariant(!pending.length, 'TOPOLOGY_AGENT_BUSY',
+    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map(r => `${r.task} nonce ${r.nonce}`).join(', ')}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>.`,
+    { agent_id: agentId, pending: pending.map(r => ({ task: r.task, revision: r.revision, nonce: r.nonce, state: r.state ?? null })) });
+}
+
+/**
+ * TM-302: `agent restart` for the reviewer, so a staged prompt can be applied to a live, healthy one.
+ * Never mid-review: refused with TOPOLOGY_AGENT_BUSY while any request to this reviewer is uncollected
+ * (checked again after the turn wait, because one can publish meanwhile), or while its turn has not
+ * ended. Then the exact managed pane incarnation is ended and ensureReviewer's own dead-reviewer path
+ * relaunches the SAME identity — read-only argv, freshly composed prompt promoted to the new
+ * incarnation. There is no handoff and no resume: a reviewer cannot write a handoff file and keeps no
+ * state between reviews, so either requested mode is a fresh read-only launch, and the result says so.
+ */
+export async function restartReviewer({ consumer, agentId, mode = 'handoff', home = homedir(), pluginRoot = null, env = process.env, log = () => {}, turnTimeoutMs = 600_000, probes = null }) {
+  const session = {
+    ...defaultProbes(),
+    turnEnd: async (record) => {
+      const { waitForTurnEnd } = await import('./respawn.mjs');
+      const adapter = adapterFor({ cli: record.provider, model: null, args: [], skills: [] }, await loadAdapters(providerDirs({ consumer, home, env })));
+      return waitForTurnEnd({ session: record.session, pane: record.binding.paneId, adapter, timeoutMs: turnTimeoutMs });
+    },
+    kill: async (record) => {
+      invariant(await bindingAlive(record), 'TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN', 'Exact managed pane incarnation is absent or changed; refusing termination.');
+      await tmux.tmux(['kill-pane', '-t', record.binding.paneId], { tmuxServer: record.binding.serverKey });
+    },
+    ...probes,
+  };
+  const { lockPath } = await reviewerPaths(consumer, env, home);
+  const before = await withLock(lockPath, async () => {
+    const record = await readReviewerRecord(consumer, env, home);
+    invariant(record?.agent_id === agentId, 'TOPOLOGY_REVIEWER_NOT_REGISTERED', `${agentId} is not this repository's registered reviewer; nothing was restarted. Use: ao-topology reviewer ensure.`, { agent_id: agentId });
+    invariant(record.managed !== false && record.externally_owned !== true, 'TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN', `Reviewer ${agentId} runs in a session this host did not launch (assigned); restart it where it is owned.`, { agent_id: agentId });
+    await assertNoReviewInFlight(consumer, agentId, env, home);
+    if (!(await session.alive(record.session, record))) return { record, ended: false };
+    const turn = await session.turnEnd(record);
+    invariant(turn.ended, 'TOPOLOGY_AGENT_BUSY', `Reviewer ${agentId} is mid-turn in "${record.session}" and did not finish within ${turnTimeoutMs}ms; it was not interrupted. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: record.session, reason: turn.reason });
+    await assertNoReviewInFlight(consumer, agentId, env, home);
+    await session.kill(record);
+    return { record, ended: true };
+  });
+  // ponytail: the lock is released before the relaunch because ensureReviewer takes it itself; a
+  // concurrent ensure in that gap also relaunches read-only on the current prompt, which is the same outcome.
+  const ensured = await ensureReviewer({ consumer, home, pluginRoot, env, log, probes: { alive: session.alive, open: session.open } });
+  const { readPromptState } = await import('./prompts.mjs');
+  log(`restarted reviewer ${agentId} read-only in ${ensured.record.session}`);
+  return {
+    mode: 'fresh',
+    requested_mode: mode,
+    fallback: 'fresh',
+    fallback_reason: `a reviewer keeps no conversation state and cannot write a handoff, so ${mode} is a fresh read-only launch`,
+    read_only: true,
+    old_session: { session: before.record.session, incarnation: incarnationOf(before.record.binding), ended: before.ended },
+    new_session: { session: ensured.record.session, incarnation: incarnationOf(ensured.record.binding) },
+    relaunched: ensured.restarted,
+    prompt_revision: (await readPromptState(ensured.agent._dir))?.desired_revision ?? null,
+  };
+}
+
 // ── Review records ───────────────────────────────────────────────────────────
 // A review is evidence about ONE exact revision. It lives in the consumer repo (not the host
 // registry) because it is project history: <consumer>/.bytedesk/agent-orchestration/reviews/

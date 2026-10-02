@@ -1770,6 +1770,14 @@ var init_identity = __esm({
 });
 
 // topology/lib/prompts.mjs
+var prompts_exports = {};
+__export(prompts_exports, {
+  composePrompt: () => composePrompt,
+  generatedPrompt: () => generatedPrompt,
+  promptErrorDetail: () => promptErrorDetail,
+  promptStatePath: () => promptStatePath,
+  readPromptState: () => readPromptState
+});
 function generatedPrompt(agent, consumer, dir) {
   return `# ${displayName(agent)}
 
@@ -20678,6 +20686,25 @@ var init_resolve = __esm({
 });
 
 // topology/lib/respawn.mjs
+var respawn_exports = {};
+__export(respawn_exports, {
+  claimAgent: () => claimAgent,
+  fallbackHandoff: () => fallbackHandoff,
+  findTranscript: () => findTranscript,
+  handoffPath: () => handoffPath,
+  handoffPointer: () => handoffPointer,
+  handoffRequest: () => handoffRequest,
+  passHandoff: () => passHandoff,
+  readHandoff: () => readHandoff,
+  readTail: () => readTail,
+  respawnBounds: () => respawnBounds,
+  respawnDir: () => respawnDir,
+  resumableSession: () => resumableSession,
+  sessionPanes: () => sessionPanes,
+  transcriptTurns: () => transcriptTurns,
+  waitForFile: () => waitForFile,
+  waitForTurnEnd: () => waitForTurnEnd
+});
 function respawnBounds(env = process.env, overrides = {}) {
   return {
     turnTimeoutMs: overrides.turnTimeoutMs ?? envMs("AO_RESPAWN_TURN_TIMEOUT_MS", 6e5, env),
@@ -20922,6 +20949,18 @@ async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, i
   const transcript = await findTranscript({ adapterId: adapter.id, cwd, home });
   if (!transcript) return no(`no ${adapter.id} session transcript was found for ${cwd}`);
   return { provider_session_id: (0, import_node_path41.basename)(transcript, ".jsonl"), transcript };
+}
+async function readHandoff(record2) {
+  if (!record2?.handoff?.path) return null;
+  const { readFile: readFile32 } = await import("node:fs/promises");
+  return readFile32(record2.handoff.path, "utf8").catch(() => null);
+}
+function handoffPointer(path3) {
+  return `[ao] Your previous session left a handoff: read ${path3} before continuing.`;
+}
+async function passHandoff({ pane, adapter = null, path: path3 }) {
+  const { deliverPointer: deliverPointer2 } = await Promise.resolve().then(() => (init_launch(), launch_exports));
+  return deliverPointer2(pane, adapter ?? { submit_keys: ["Enter"] }, handoffPointer(path3));
 }
 var import_promises33, import_node_os14, import_node_path41, envMs, clip;
 var init_respawn = __esm({
@@ -21860,6 +21899,7 @@ __export(reviewer_exports, {
   readySignalOnScreen: () => readySignalOnScreen,
   recordReview: () => recordReview,
   requestReview: () => requestReview,
+  restartReviewer: () => restartReviewer,
   reviewEligibility: () => reviewEligibility,
   reviewRangeBase: () => reviewRangeBase,
   reviewResponsesOnScreen: () => reviewResponsesOnScreen,
@@ -22295,6 +22335,64 @@ async function detachReviewer({ consumer, env = process.env, home = (0, import_n
     log(`detached reviewer ${record2.agent_id}${killed ? " and killed its managed session" : ""}`);
     return { action: "detached", detached: true, record: record2, killed };
   });
+}
+async function uncollectedReviewRequests(consumer, agentId, env, home) {
+  const dir = (0, import_node_path46.join)(await reviewerInboxRoot(consumer, env, home), "requests");
+  const names2 = (await (0, import_promises37.readdir)(dir).catch(() => [])).filter((name) => name.endsWith(".json"));
+  const requests = await Promise.all(names2.map((name) => readJson3((0, import_node_path46.join)(dir, name)).catch(() => null)));
+  return requests.filter((request) => request && request.reviewer_id === agentId && !request.collected_at && request.state !== "failed");
+}
+async function assertNoReviewInFlight(consumer, agentId, env, home) {
+  const pending = await uncollectedReviewRequests(consumer, agentId, env, home);
+  invariant2(
+    !pending.length,
+    "TOPOLOGY_AGENT_BUSY",
+    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map((r) => `${r.task} nonce ${r.nonce}`).join(", ")}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>.`,
+    { agent_id: agentId, pending: pending.map((r) => ({ task: r.task, revision: r.revision, nonce: r.nonce, state: r.state ?? null })) }
+  );
+}
+async function restartReviewer({ consumer, agentId, mode = "handoff", home = (0, import_node_os18.homedir)(), pluginRoot = null, env = process.env, log = () => {
+}, turnTimeoutMs = 6e5, probes = null }) {
+  const session = {
+    ...defaultProbes(),
+    turnEnd: async (record2) => {
+      const { waitForTurnEnd: waitForTurnEnd2 } = await Promise.resolve().then(() => (init_respawn(), respawn_exports));
+      const adapter = adapterFor({ cli: record2.provider, model: null, args: [], skills: [] }, await loadAdapters(providerDirs({ consumer, home, env })));
+      return waitForTurnEnd2({ session: record2.session, pane: record2.binding.paneId, adapter, timeoutMs: turnTimeoutMs });
+    },
+    kill: async (record2) => {
+      invariant2(await bindingAlive(record2), "TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN", "Exact managed pane incarnation is absent or changed; refusing termination.");
+      await tmux(["kill-pane", "-t", record2.binding.paneId], { tmuxServer: record2.binding.serverKey });
+    },
+    ...probes
+  };
+  const { lockPath } = await reviewerPaths(consumer, env, home);
+  const before = await withLock(lockPath, async () => {
+    const record2 = await readReviewerRecord(consumer, env, home);
+    invariant2(record2?.agent_id === agentId, "TOPOLOGY_REVIEWER_NOT_REGISTERED", `${agentId} is not this repository's registered reviewer; nothing was restarted. Use: ao-topology reviewer ensure.`, { agent_id: agentId });
+    invariant2(record2.managed !== false && record2.externally_owned !== true, "TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN", `Reviewer ${agentId} runs in a session this host did not launch (assigned); restart it where it is owned.`, { agent_id: agentId });
+    await assertNoReviewInFlight(consumer, agentId, env, home);
+    if (!await session.alive(record2.session, record2)) return { record: record2, ended: false };
+    const turn = await session.turnEnd(record2);
+    invariant2(turn.ended, "TOPOLOGY_AGENT_BUSY", `Reviewer ${agentId} is mid-turn in "${record2.session}" and did not finish within ${turnTimeoutMs}ms; it was not interrupted. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: record2.session, reason: turn.reason });
+    await assertNoReviewInFlight(consumer, agentId, env, home);
+    await session.kill(record2);
+    return { record: record2, ended: true };
+  });
+  const ensured = await ensureReviewer({ consumer, home, pluginRoot, env, log, probes: { alive: session.alive, open: session.open } });
+  const { readPromptState: readPromptState2 } = await Promise.resolve().then(() => (init_prompts(), prompts_exports));
+  log(`restarted reviewer ${agentId} read-only in ${ensured.record.session}`);
+  return {
+    mode: "fresh",
+    requested_mode: mode,
+    fallback: "fresh",
+    fallback_reason: `a reviewer keeps no conversation state and cannot write a handoff, so ${mode} is a fresh read-only launch`,
+    read_only: true,
+    old_session: { session: before.record.session, incarnation: incarnationOf(before.record.binding), ended: before.ended },
+    new_session: { session: ensured.record.session, incarnation: incarnationOf(ensured.record.binding) },
+    relaunched: ensured.restarted,
+    prompt_revision: (await readPromptState2(ensured.agent._dir))?.desired_revision ?? null
+  };
 }
 async function reviewsRoot(consumer, env = process.env, home = (0, import_node_os18.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -60038,10 +60136,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
+  return false ? null : "b02585e9bc7c934d726c55a098957c28c2e6500f61bb0e606cc7b995303f7076";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
+  const fingerprint2 = false ? null : "b02585e9bc7c934d726c55a098957c28c2e6500f61bb0e606cc7b995303f7076";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -60599,7 +60697,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855",
+  sourceFingerprint: false ? null : "b02585e9bc7c934d726c55a098957c28c2e6500f61bb0e606cc7b995303f7076",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
