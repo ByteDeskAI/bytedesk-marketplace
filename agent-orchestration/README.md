@@ -88,6 +88,26 @@ supervisor. It is idempotent. It:
    Linger is not enabled, so the services run while you are logged in;
 5. starts it if it is not answering, reloads the project if it changed, and restarts the processes if
    the plugin changed. A second run with nothing changed writes nothing.
+6. keeps the other hosts on the same build (TM-284): it finds this plugin's Codex copy
+   (`~/.codex/plugins/cache/bytedesk/agent-orchestration/…`), Grok install
+   (`~/.grok/installed-plugins/agent-orchestration-*`) and the root `~/.kimi-code/mcp.json` names,
+   and replaces any copy with an OLDER version by the services' plugin root. An equal or newer copy
+   is left alone. The copy is built beside the old one and swapped in by rename, keeping the old
+   copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
+   inside a git checkout, or when the copy's `node_modules` does not satisfy the new
+   `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
+7. cleans up after earlier installs (TM-285): stops leaked `agent-orchestration-session-*.scope`
+   units whose state root no longer exists, hands the managed state root over from a pre-services
+   session host (a 24-hour scope or a hand-run host) and a detached `nats-server`, and never touches
+   a scope whose state root exists and is not the managed one. It lists ao MCP servers still running
+   an older build — by host and pid, with the advice to restart that session — and never stops them.
+
+What step 6 and 7 found is printed by `ensure`, kept in `<state root>/services/self-heal.json`, and
+shown by `services status --json` (`selfHeal`). `orchestration_doctor` reports stale MCP servers and
+a `TMUX_TMPDIR` too long for tmux's socket (`diagnostics.setup.problems`). The SessionStart hook
+also warns, with the exact fix, when the session's repository enables `agent-orchestration` or
+`task-management` in its own `.claude/settings.json` — the same check that would otherwise block
+the first `git commit`.
 
 **Check them:** `agent-orchestration services status` (`--json` for every field) shows the OS
 registration, whether process-compose answers, and each process's state, pid, restart count and

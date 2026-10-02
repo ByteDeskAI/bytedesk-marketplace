@@ -8,6 +8,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyIdentity, refreshHostCopies } from "../../../src/services/host-copies.mjs";
 
 const HOSTS = Object.freeze(["claude", "codex", "grok", "kimi"]);
 const SKILL_NAMES = Object.freeze([
@@ -192,10 +193,31 @@ function formatResults(plan, results) {
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * TM-284: bring every OLDER installed copy (Codex cache, Grok install, the root Kimi names) up to
+ * this plugin root, so all hosts run one ao build. Same rules as `services ensure`.
+ */
+export function refreshCopies({ pluginRoot, home, dryRun = false, env = process.env }) {
+  const { version, fingerprint } = copyIdentity(pluginRoot);
+  return refreshHostCopies({ pointer: { pluginRoot, version, fingerprint }, home, env, dryRun });
+}
+
+export function formatRefresh(report) {
+  const rows = [
+    ...report.refreshed.map((c) => `${c.host}: ${c.dryRun ? "would refresh" : "refreshed"} ${c.root} ${c.from ?? "?"} -> ${c.version}`),
+    ...report.current.map((c) => `${c.host}: current ${c.root} (${c.version ?? "?"}, ${c.reason})`),
+    ...[...report.skipped, ...report.failed].map((c) => `${c.host}: not refreshed ${c.root} (${c.version ?? "?"}): ${c.reason}`),
+  ];
+  return rows.length ? `${rows.join("\n")}\n` : "No other installed agent-orchestration copies found.\n";
+}
+
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const options = parseArgs(process.argv.slice(2));
   const plan = planHostInstall(options);
   const results = applyHostInstall(plan, { dryRun: options.dryRun });
   process.stdout.write(formatResults(plan, results));
+  const refresh = await refreshCopies({ pluginRoot: options.pluginRoot, home: options.home, dryRun: options.dryRun });
+  process.stdout.write(formatRefresh(refresh));
+  if (refresh.failed.length) process.exitCode = 1;
 }

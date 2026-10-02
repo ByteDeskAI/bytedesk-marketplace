@@ -17,6 +17,7 @@ import { probeSessionHost } from "../session/host.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
 import { localNatsEnabled, localNatsHome, prepareLocalNats } from "../../topology/lib/nats-local.mjs";
 import { registrationMode, register, registrationState, start, unregister } from "./os-registration.mjs";
+import { compareVersions } from "./host-copies.mjs";
 
 export function readLock(pluginRoot = PLUGIN_ROOT) {
   return JSON.parse(readFileSync(join(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
@@ -82,13 +83,7 @@ export function pluginIdentity(pluginRoot) {
   return { fingerprint, version };
 }
 
-/** Numeric x.y.z comparison; a missing or unparsable version sorts lowest. */
-export function compareVersions(a, b) {
-  const parts = (v) => (/^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1]);
-  const [x, y] = [parts(a), parts(b)];
-  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
-  return 0;
-}
+export { compareVersions };
 
 /**
  * Which plugin copy the managed services should run (TM-283). Every session's SessionStart runs
@@ -357,7 +352,8 @@ export async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
       }
     }
     invariant(alive, "AO_SERVICES_UNAVAILABLE", `process-compose did not answer on 127.0.0.1:${port}; see ${log}.`, { mode });
-    return { ok: true, mode, port, version: lock.version, binary, actions, changed, processes: Object.keys(project.processes), unsupported };
+    return { ok: true, mode, port, version: lock.version, binary, actions, changed, processes: Object.keys(project.processes), unsupported,
+      pointer: { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null, fingerprint: pointer.fingerprint ?? null } };
   }, { timeoutMs: 300_000 }); // a concurrent first ensure may be downloading the binary
 }
 
@@ -371,7 +367,9 @@ export async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
   const processes = alive ? (await client.processes()).map(processRow) : [];
   const repos = await readRepos(paths.repos);
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
-  return { ok: alive, registration, processCompose: { alive, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) } };
+  // TM-285: what the last ensure found and repaired (stale MCP servers, refreshed host copies, leaked scopes).
+  const selfHeal = await readJson(join(paths.dir, "self-heal.json"), null).catch(() => null);
+  return { ok: alive, registration, processCompose: { alive, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) }, selfHeal };
 }
 
 /** One managed process as `services status --json` reports it: scripts read the pid here, never from pgrep. */
