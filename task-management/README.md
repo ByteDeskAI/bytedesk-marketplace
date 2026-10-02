@@ -359,6 +359,7 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 | [`docs/dashboard-api.md`](docs/dashboard-api.md) | HTTP contract |
 | [`docs/dashboard-contract.md`](docs/dashboard-contract.md) | SPA contract |
 | [`docs/goal-planner.md`](docs/goal-planner.md) | the goal planner: the four proposable operations, the governed boundary, configuring an ACP agent |
+| [`docs/goal-feedback.md`](docs/goal-feedback.md) | original goal scope, stable criteria, product/workflow findings, independent deployed proof, and bounded repair cycles |
 
 ## CLI
 

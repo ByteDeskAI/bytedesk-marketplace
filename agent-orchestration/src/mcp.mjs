@@ -9,6 +9,7 @@ import { serializeError } from "./errors.mjs";
 import { TASK_INTENTS } from "./policy/catalog.mjs";
 import { MODEL_CATALOG, PROVIDER_CATALOG } from "./providers/index.mjs";
 import { PROTOCOL_DEFINITIONS } from "./protocols/definitions.mjs";
+import { createTopologyApi } from "./topology-api.mjs";
 
 const intent = z.enum(TASK_INTENTS);
 const effort = z.enum([...new Set(MODEL_CATALOG.flatMap((entry) => entry.supportedEfforts))]);
@@ -250,13 +251,46 @@ export async function createServer(options = {}) {
   // it does not prove who performed it, and the description says so where a caller will read it.
   register(server, service, "orchestration_decision_approve", "Record an approval or rejection of an architecture decision with a rationale. `approvedBy` is an unverified label, not an authenticated identity: this gate proves a separate explicit act was taken and journals it, it does not prove a human took it. For an approval an agent cannot make, use the run's loopback session UI, which mints a capability token this process holds.", { ...runFields, approved: z.boolean(), rationale: z.string().min(1), approvedBy: z.string().min(1) }, approvedDecisionData, service.approveDecision);
 
+  const topology = createTopologyApi(service);
+  const record = z.object({}).passthrough();
+  const receipt = z.object({ messageId: z.string(), status: z.enum(['accepted', 'handled', 'deferred', 'rejected']), agent: z.string() }).passthrough();
+  const loopRecord = z.object({ loopId: z.string(), state: z.string(), revision: z.number() }).passthrough();
+  const agent = z.string().min(1).max(160);
+  const loopId = z.string().regex(/^gl-[a-f0-9]{24}$/);
+  const mailboxFields = { consumerCwd, agent: agent.optional(), kind: z.enum(['mail', 'reply']).optional(),
+    status: z.enum(['accepted', 'handled', 'deferred', 'rejected']).optional(),
+    workflowId: z.string().optional(), runId: z.string().optional(), taskId: z.string().optional() };
+  register(server, topology, 'orchestration_mailbox_send', 'Send a durable inter-agent message through the logical mailbox. Publication, recipient acceptance and task ownership are separate outcomes.',
+    { consumerCwd, destinationConsumerCwd: consumerCwd.optional(), from: agent, to: z.string().min(1).max(512), id: z.string().min(1).max(200), body: z.string().min(1).max(131072),
+      task: z.string().optional(), stage: z.string().optional(), subject: z.string().optional(), context: record.optional() },
+    z.object({ envelope: record, status: z.string() }).passthrough(), topology.mailboxSend);
+  register(server, topology, 'orchestration_mailbox_receive', 'Receive mail into a durable recipient inbox before broker ACK. This accepts an obligation but does not claim or complete a task. Use mailbox_list for nondestructive inspection.',
+    { consumerCwd, agent, limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
+  register(server, topology, 'orchestration_mailbox_list', 'Inspect retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',
+    mailboxFields, z.object({ receipts: z.array(receipt) }).passthrough(), topology.mailboxList);
+  register(server, topology, 'orchestration_mailbox_dispose', 'Record handled, deferred or rejected disposition for a retained recipient obligation. Task claims and completion remain in Task Management.',
+    { consumerCwd, agent, messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
+      disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional() }, receipt, topology.mailboxDispose);
+  register(server, topology, 'orchestration_goal_start', 'Start a persistent feedback loop for an explicitly admitted Task Management goal, pinned authority and approved deployment recipe.',
+    { consumerCwd, goalId: z.string().regex(/^EP-\d+$/), request: record }, loopRecord, topology.goalStart);
+  register(server, topology, 'orchestration_goal_status', 'Inspect a goal loop or list this repository\'s loops without launching work or consuming mail.',
+    { consumerCwd, loopId: loopId.optional() }, record, topology.goalStatus);
+  register(server, topology, 'orchestration_goal_report', 'Record a correlated phase outcome from the current lead. Goal, obligation, attempt, source revision and evidence must match; acceptance alone cannot advance a phase.',
+    { consumerCwd, loopId, report: record }, loopRecord, topology.goalReport);
+  register(server, topology, 'orchestration_goal_control', 'Control an owned goal loop with a revision-bound request. This tool does not attest human identity or authorize public release, destructive work, or expanded scope.',
+    { consumerCwd, loopId, request: record }, loopRecord, topology.goalControl);
+  register(server, topology, 'orchestration_goal_reconcile', 'Reconcile pending obligations and expired deadlines without resetting budgets or creating a second writer.',
+    { consumerCwd, loopId: loopId.optional() }, record, topology.goalReconcile);
+
   return { server, service };
 }
 
 async function main() {
-  const { server } = await createServer();
+  const { server, service } = await createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  const closeProtocol = transport.onclose;
+  transport.onclose = () => { closeProtocol?.(); void service.dispose(); };
 }
 
 process.stdout.on("error", (error) => {

@@ -57,8 +57,9 @@ export function writeState(s, p = paths()) {
 }
 
 export function logEvent(kind, payload = {}, p = paths()) {
-  if (!p.events) return;
-  ensureDirs(p);
+  // Never create a bundle as a side effect: a hook that logs in a project nobody ran `km init` in
+  // would otherwise build .bytedesk/knowledge/ there. initBundle logs only after index.md exists.
+  if (!p.events || !isInitialized(p)) return;
   const row = {
     ts: now(),
     kind,

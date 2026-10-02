@@ -20,6 +20,12 @@
   claimed reachable), so removing the dead `NATS_URL` clears `doctor`, stops the re-dials, and the
   lead gets one `NATS retired` message in place of the recovery message.
 
+### Added
+
+- Durable NATS mailbox obligations, sender publication recovery and explicit recipient dispositions. Broker acknowledgment follows local durable acceptance; console inspection does not consume messages.
+- A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
+- Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
+
 ## [0.15.1] — 2026-10-02
 
 ### Fixed

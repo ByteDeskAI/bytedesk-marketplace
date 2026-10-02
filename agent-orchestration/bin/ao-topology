@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Launcher for the tmux topology CLI. The topology layer is dependency-free ESM and runs directly
-// from the installed plugin cache; no bundle step is required.
+// Launcher for the tmux topology CLI. ESM runs from the installed cache; the
+// pinned NATS client is shipped in dist so consumers need no node_modules.
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -11,6 +11,7 @@ import { withLock } from "./lockfile.mjs";
 import { publishTopologyWorkflow } from './discovery.mjs';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
 import { ORCH_LAYOUT, orchName, resolveTransport } from './orch-transport.mjs';
+import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts } from './mailbox-receipts.mjs';
 
 export const RUN_FILE = "run.json";
 export const JOURNAL_FILE = "journal.jsonl";
@@ -122,40 +123,51 @@ async function hasAnswer(path) {
   }
 }
 
-const natsReplyCache = new Map();
+function durableOptions(run, env = process.env) {
+  return { env: { ...env, ...(run.state_home ? { AGENT_ORCHESTRATION_STATE_HOME: run.state_home } : {}) } };
+}
+
+function wireMessageId(runDir, run, id) {
+  return `run:${run.run_id || createHash('sha256').update(resolve(runDir)).digest('hex')}:${id}`;
+}
 
 /** A reply lives on its own subject. Inbox ack of ordinary mail cannot take it. */
 async function readNatsReply(runDir, item, transport) {
   if (!item?.replyAgent || !item?.repo) return null;
-  const key = `${resolve(runDir)}:${item.replyToId ?? item.id}:${item.answerer}`;
-  if (natsReplyCache.has(key)) return natsReplyCache.get(key);
+  const run = await loadRun(runDir), options = durableOptions(run);
+  const consumer = item.replyConsumer || run.consumer;
+  const find = async () => (await listMailboxReceipts({ consumer, agent: item.replyAgent, kind: 'reply', ...options }))
+    .find(receipt => receipt.envelope.replyTo === (item.replyToId ?? item.id) && receipt.envelope.from === item.answerer);
+  const saved = await find();
+  if (saved) return { via: 'nats', subject: saved.subject, body: saved.envelope.body };
   const active = transport?.kind === 'nats' ? transport : await resolveTransport({ env: process.env });
   if (active.kind !== 'nats') return null;
-  const reply = await active.pullReply({
-    repo: item.repo,
-    agent: orchName(item.replyAgent),
-    replyTo: item.replyToId ?? item.id,
-    from: item.answerer,
-    timeoutMs: 200,
-  });
-  if (!reply) return null;
-  natsReplyCache.set(key, reply);
-  return reply;
+  // Persist every pulled reply, including another outstanding request's reply.
+  // Correlation is a ledger lookup, never a destructive queue filter.
+  for (let count = 0; count < 100; count++) {
+    const reply = await active.pullReply({ repo: item.repo, agent: orchName(item.replyAgent), timeoutMs: 200 });
+    if (!reply) break;
+    try { await acceptMailboxDelivery({ consumer, agent: item.replyAgent, kind: 'reply', delivery: reply, ...options }); }
+    catch (error) { await reply.nak?.(); throw error; }
+    const found = await find();
+    if (found) return { via: 'nats', subject: found.subject, body: found.envelope.body };
+  }
+  return null;
 }
 
-async function publishNatsReply({ run, agentId, messageId, body, replyTo, transport }) {
+async function publishNatsReply({ runDir, run, agentId, messageId, body, replyTo, transport }) {
   const envelope = run.message_envelopes?.[messageId];
   const sender = envelope?.from;
   invariant(sender, 'TOPOLOGY_MESSAGE_ID_INVALID', `No sent envelope for ${messageId}; a NATS reply needs the original sender.`);
-  const repo = repoKey((await canonicalRepoId(run.consumer)).id);
+  const repositoryId = (await canonicalRepoId(run.consumer)).id;
   const active = transport?.kind === 'nats' ? transport : await resolveTransport({ env: process.env });
-  const payload = JSON.stringify({ reply_to: replyTo ?? messageId, from: agentId, body });
-  return active.publishReply({
-    repo,
-    agent: orchName(sender),
-    messageId: `${replyTo ?? messageId}.reply.${agentId}`,
-    body: payload,
-  });
+  const originalId = replyTo ?? run.message_deliveries?.[messageId]?.find(item => item.agent === agentId)?.messageId ?? messageId;
+  const publication = await publishMailboxEnvelope({ ...durableOptions(run), transport: active, envelope: createMailboxEnvelope({
+    kind: 'reply', id: `${originalId}.reply.${agentId}`, repositoryId, from: agentId, to: sender, body, replyTo: originalId,
+    context: { sourceRepositoryId: repositoryId, runId: run.run_id ?? null, workflowId: run.run_id ? `topology:${run.run_id}` : null,
+      messageId, taskId: envelope.task ?? run.task_id ?? null },
+  }) });
+  return publication.result;
 }
 
 export function replyFileName(seq, stage) {
@@ -281,6 +293,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
   // Persist the original content/source once. Child workflow forwarding reads
   // this envelope, never mutable CLI flags or the forwarding process's cwd/env.
   const envelope = JSON.parse(JSON.stringify({ id, from, to, stage, body,
+    ...(run.message_envelopes?.[id] ? (run.message_envelopes[id].createdAt ? { createdAt: run.message_envelopes[id].createdAt } : {}) : { createdAt: nowIso() }),
     contract: contract ?? null, round: round ?? null, subject: subject ?? null,
     fromProject: sourceProject, consumer: destination, task: task ?? null,
     token: token ?? null, via: chain, assignment: isAssignment,
@@ -343,7 +356,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       // standing delivery is not available (the record is durable and the pointer may already have
       // been rung), so it throws with the delivery recorded rather than pretending it did not occur.
       decision = record.decision;
-      if (!known.has(record.delivered_to)) {
+      if (!known.has(record.delivered_to) || activeTransport.kind === 'nats') {
         deliveries.push({ agent: record.delivered_to, requested, standing: true,
           standingId, redirected: Boolean(decision.redirected), via: record.delivered_via });
         if (decision.redirected) notices.push({ requested, delivered_to: record.delivered_to, reason: decision.reason, via: record.delivered_via });
@@ -380,7 +393,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       subject,
       task,
       via: hops.length > 0 ? hops : undefined,
-      created: nowIso(),
+      created: envelope.createdAt ?? run.created ?? null,
       reply_to: replySubject ?? outbox,
     });
     const redirectNote = decision.redirected
@@ -390,7 +403,21 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       ? `\n\n<!-- Reply on NATS subject ${replySubject} with: ao-topology reply --message ${id} -->\n`
       : `\n\n<!-- Write your complete reply to: ${outbox} -->\n`;
     const rendered = `${header}${redirectNote}\n${body.trim()}\n${instructions}`;
-    const published = await activeTransport.publishMail({
+    const messageId = wireMessageId(runDir, run, id);
+    const pendingDelivery = { agent: recipient, requested, redirected: Boolean(decision.redirected), via: hops,
+      inbox: activeTransport.kind === 'file' ? inbox : null, outbox: activeTransport.kind === 'file' ? outbox : null,
+      transport: activeTransport.kind, ...(activeTransport.kind === 'nats' ? { messageId, publication: 'pending' } : {}) };
+    if (activeTransport.kind === 'nats') await withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
+      const current = await loadRun(runDir); current.message_deliveries ??= {};
+      current.message_deliveries[id] = [...deliveries, pendingDelivery]; await saveRun(runDir, current);
+    });
+    const published = activeTransport.kind === 'nats' ? (await publishMailboxEnvelope({ ...durableOptions(run, env), transport: activeTransport,
+      envelope: createMailboxEnvelope({ id: messageId, repositoryId: (await canonicalRepoId(destination)).id,
+        from, to: recipient, body: rendered, context: { sourceRepositoryId: (await canonicalRepoId(sourceProject || destination)).id,
+          runId: run.run_id ?? null, workflowId: run.run_id ? `topology:${run.run_id}` : null, messageId: id,
+          taskId: task ?? run.task_id ?? null, stage, round: round ?? null, contract: contract ?? null, subject: subject ?? null,
+          intendedFor: requested, via: hops, parentId: parentId ?? null, provenance: provenance ?? null } }) })).result
+      : await activeTransport.publishMail({
       repo,
       agent: orchName(recipient),
       messageId: id,
@@ -406,6 +433,7 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       outbox: activeTransport.kind === 'file' ? outbox : null,
       subject: published.subject,
       transport: activeTransport.kind,
+      ...(activeTransport.kind === 'nats' ? { messageId, publication: 'published' } : {}),
     });
 
     if (decision.redirected) {
@@ -490,7 +518,8 @@ async function obligations(runDir, run, agentId, transport = null) {
       standingId, status: natsStanding ? 'delivered-unanswered' : state, reason: record?.reason ?? null,
       replyBody: natsStanding ? null : (state === 'answered' ? record.reply.body : null),
       transport: natsStanding ? 'nats' : undefined,
-      repo: natsStanding ? repoKey(record.envelope.destinationRepoId) : undefined,
+      repo: natsStanding ? repoKey(record.envelope.sourceRepoId || record.envelope.destinationRepoId) : undefined,
+      replyConsumer: natsStanding ? record.envelope.fromProject || run.consumer : undefined,
       replyAgent: natsStanding ? record.envelope.from : undefined,
       replyToId: natsStanding ? record.envelope.id : undefined,
       created_at: record?.created_at, inbox: null, outbox: null, addressee_outbox: null });
@@ -506,6 +535,7 @@ async function obligations(runDir, run, agentId, transport = null) {
         transport: 'nats',
         repo,
         replyAgent: run.message_envelopes?.[id]?.from ?? null,
+        replyToId: delivery.messageId ?? id,
         inbox: null,
         outbox: null,
         addressee_outbox: null,
@@ -703,7 +733,7 @@ export async function recordReply({ runDir, agentId, messageId, body, token = pr
   invariant(standingRefs.length === 0 || standingAnswered, "TOPOLOGY_AGENT_UNAUTHORIZED", "Only the actual receiving agent can answer this standing request.");
   const active = await resolveTransport({ env: process.env });
   if (active.kind === 'nats' && standingRefs.length === 0) {
-    const published = await publishNatsReply({ run, agentId, messageId, body: text, transport: active });
+    const published = await publishNatsReply({ runDir, run, agentId, messageId, body: text, transport: active });
     await appendJournal(runDir, { type: "message.replied", id: messageId, from: agentId, bytes: Buffer.byteLength(text), transport: 'nats', subject: published.subject });
     return published.subject;
   }

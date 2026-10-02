@@ -1,8 +1,8 @@
 // One transport for mailbox, claims, presence, probes, and reviewer verdicts.
 //
 // The live default is NATS on the gateway orch layout. `AO_TRANSPORT=file` selects the
-// file double used by the pre-NATS suite. Unset `AO_TRANSPORT` never writes an inbox
-// or a standing-mailbox file to deliver a body.
+// file double used by the pre-NATS suite. NATS delivery is accepted into AO's
+// durable receipt ledger before ACK; a consumer must never ACK merely on read.
 //
 // Gateway layout (EnsureOrchLayout / docs/contracts/orch-file-mapping.md):
 //   mail      orch.<repo>.mail.<agent>     stream ORCH_MAIL, durable mail_<repo>_<agent>
@@ -489,10 +489,16 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     connect,
     credsAuthenticator,
     nanos,
-  } = await import('nats').catch((error) => {
-    // The dist bundles inline nats; the unbundled topology in a copied plugin tree has no node_modules.
+  } = await import('nats').catch(async (error) => {
+    // Installed topology remains ESM and has no node_modules. Ship the same
+    // pinned client as a standalone bundle instead of requiring an install step.
     if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
-    return fail('TOPOLOGY_NATS_UNAVAILABLE', 'NATS is the selected transport but the nats client package is not installed in this plugin tree. Run npm ci in the plugin, or set AO_TRANSPORT=file for the file double.');
+    try {
+      const client = await import(new URL('../../dist/nats-client.cjs', import.meta.url).href);
+      return client.default || client;
+    } catch {
+      return fail('TOPOLOGY_NATS_UNAVAILABLE', 'The installed NATS client bundle is missing or invalid. Refresh the agent-orchestration plugin installation.');
+    }
   });
   const sc = StringCodec();
   const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
@@ -647,7 +653,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
         body: sc.decode(msg.data),
-        ack: async () => { msg.ack(); },
+        ack: async () => { msg.ack(); await nc.flush(); },
         nak: async () => { msg.nak(); },
       };
     },
@@ -672,9 +678,14 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       for (const msg of batch) {
         let parsed = null;
         try { parsed = JSON.parse(sc.decode(msg.data)); } catch { parsed = null; }
-        if (!found && parsed?.reply_to === replyTo && parsed?.from === from) {
-          found = { via: 'nats', subject: msg.subject || subject, body: String(parsed.body ?? '') };
-          msg.ack();
+        const correlation = parsed?.replyTo ?? parsed?.reply_to;
+        if (!found && (!replyTo || correlation === replyTo) && (!from || parsed?.from === from)) {
+          // The caller persists a receipt before invoking ACK. Returning bytes
+          // is not acceptance, including for a matched reply.
+          found = { via: 'nats', subject: msg.subject || subject, body: String(parsed?.body ?? sc.decode(msg.data)),
+            rawBody: sc.decode(msg.data), messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
+            replyTo: correlation ?? null, from: parsed?.from ?? null,
+            ack: async () => { msg.ack(); await nc.flush(); }, nak: async () => { msg.nak(); } };
         } else {
           msg.nak();
         }

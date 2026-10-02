@@ -1,8 +1,7 @@
+import { natsServerBin } from '../helpers/nats-server.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, rm, stat } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import net from 'node:net';
@@ -53,24 +52,6 @@ function freePort() {
 
 const execFileAsync = promisify(execFile);
 
-async function natsServerBin() {
-  if (process.env.AO_NATS_SERVER) return process.env.AO_NATS_SERVER;
-  const cached = join(os.homedir(), '.cache', 'ao-orch', 'nats-server');
-  try {
-    await access(cached);
-    return cached;
-  } catch { /* download */ }
-  const version = 'v2.15.0';
-  const archive = join(os.tmpdir(), `nats-server-${version}.tar.gz`);
-  const response = await fetch(`https://github.com/nats-io/nats-server/releases/download/${version}/nats-server-${version}-linux-amd64.tar.gz`);
-  if (!response.ok) throw new Error(`nats-server download failed: ${response.status}`);
-  await pipeline(response.body, createWriteStream(archive));
-  await execFileAsync('tar', ['-xzf', archive, '-C', os.tmpdir()]);
-  const unpacked = join(os.tmpdir(), `nats-server-${version}-linux-amd64`, 'nats-server');
-  await execFileAsync('mkdir', ['-p', join(os.homedir(), '.cache', 'ao-orch')]);
-  await execFileAsync('install', ['-m', '755', unpacked, cached]);
-  return cached;
-}
 
 async function startBroker() {
   const port = await freePort();

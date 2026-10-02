@@ -100,6 +100,8 @@ export class OrchestrationService {
       await new Promise((resolveClose) => this.sessionHost.server.close(resolveClose));
     }
     this.sessionHost = null;
+    const { closeLiveTransports } = await import('../topology/lib/orch-transport.mjs');
+    await closeLiveTransports();
   }
 
   async terminateRecordedProcessGroup(worker) {
@@ -176,6 +178,9 @@ export class OrchestrationService {
       protocols: ["architecture.adversarial.v1", "single.v1", "followup.v1"],
       permissionProfiles: ["read", "write"],
       consumerRepository: "required-explicit-absolute-path",
+      mailbox: { transport: 'nats', acceptance: 'durable-before-ack', receiptIsTaskClaim: false, inspectionConsumes: false },
+      goalFeedback: { runtime: 'goal-loop', recipe: 'goal-feedback/v1', goalOwner: 'task-management', supervisor: 'repository',
+        limits: { maxNoProgressCycles: 3, maxRepairCycles: 10, phaseTimeoutMs: 1800000 }, humanControl: 'authenticated-operator-only' },
       worktreeDerivation: "consumer-repository-sibling",
       concurrency: { global: this.maxConcurrentRuns, perProvider: this.maxConcurrentPerProvider },
       sessionModes: ["oneshot", "persistent"],

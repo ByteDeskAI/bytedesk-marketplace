@@ -8,6 +8,11 @@ trap 'rm -rf "$TMP"' EXIT
 export KM_ROOT="$TMP"
 export KM_NO_AUTOLINK=1
 
+echo "== hooks create nothing before km init =="
+echo '{}' | bash "$HOOK" session-start >/dev/null
+echo '{}' | bash "$HOOK" pre-compact >/dev/null
+if [[ -e "$TMP/.bytedesk" ]]; then echo "FAIL: hooks created $(find "$TMP/.bytedesk" | head -3)"; exit 1; fi
+
 node "$KM" init
 node "$KM" concept new "Hook Topic" --type Reference --desc "for hooks"
 

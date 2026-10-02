@@ -65,6 +65,7 @@ import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/
 import { FORMATS, exportStore } from "../lib/export.mjs";
 import { MAX_TOUCHES, observe, record } from "../lib/touches.mjs";
 import { importGoalDoc, importManifest } from "../lib/goal-import.mjs";
+import { GOAL_OPERATIONS } from "../lib/goal-feedback.mjs";
 import { batches } from "../lib/parallel.mjs";
 import { attachEvidence, evidenceSyncReport, detachEvidence } from "../lib/evidence.mjs";
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
@@ -384,6 +385,24 @@ const VERBS = {
    */
   goal(sub, ...rest) {
     requireInit();
+    if (Object.hasOwn(GOAL_OPERATIONS, sub)) {
+      const id = rest[0];
+      try {
+        if (!id) throw new Error(`usage: tm goal ${sub} EP-id${sub === "show" ? "" : " --file input.json"} --json`);
+        let input = {};
+        if (sub !== "show") {
+          const fi = rest.indexOf("--file");
+          if (fi < 0 || !rest[fi + 1]) throw new Error(`tm goal ${sub} requires --file input.json`);
+          input = JSON.parse(readFileSync(rest[fi + 1] === "-" ? 0 : resolve(rest[fi + 1]), "utf8"));
+        }
+        const result = sub === "show" ? GOAL_OPERATIONS.show(id, P) : GOAL_OPERATIONS[sub](id, input, P);
+        out(JSON_OUT ? JSON.stringify(result) : `${id}: ${result.goal.status}; scope revision ${result.goal.revision}; ${result.goal.criteria.length} criteria`);
+      } catch (error) {
+        if (JSON_OUT) { out(JSON.stringify({ ok: false, id, error: error.message })); process.exitCode = 1; }
+        else die(error.message);
+      }
+      return;
+    }
     if (sub !== "import") die('usage: tm goal import <doc.md|manifest.plan.json> [--epic EP-001]');
     const ei = rest.indexOf("--epic");
     const epic = ei === -1 ? null : rest[ei + 1];
@@ -1418,6 +1437,9 @@ const VERBS = {
    * `ensure` spawns nothing, `start` refuses. TM_ENFORCE=off disables the tick.
    */
   async pool(action, ...rest) {
+    // `ensure` is the per-session monitor trigger: in an uninitialized project it has nothing to
+    // ensure, and must say nothing rather than fail every session.
+    if ((action === "ensure" || (action === "run" && rest.includes("--auto"))) && P.root && !isInitialized(P)) return;
     requireInit();
     if (!action || action.startsWith("--")) {
       rest = [action, ...rest].filter(Boolean);
@@ -1661,6 +1683,8 @@ const VERBS = {
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
+        "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
+        "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",

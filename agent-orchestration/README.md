@@ -231,6 +231,22 @@ The `agent-orchestrate` skill drives the public MCP surface:
 | Lifecycle | `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events` |
 | Control | `orchestration_cancel`, `orchestration_cleanup` |
 | Approval | `orchestration_decision_get`, `orchestration_decision_approve` |
+| Durable mail | `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose` |
+| Goal feedback | `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile` |
+
+The [goal feedback controller](docs/goal-loop-runtime.md) drives a bounded PM, build, QA,
+review, integration, validation of the landed artifact, test deployment, dogfood and assessment cycle through the existing
+standing lead. Task Management retains the original goal and verifies deployed evidence.
+It stops when that goal is proven, or presents a specific human decision when a limit or
+authority gate prevents progress. NATS publication, recipient acceptance, message disposition,
+task ownership and goal completion remain distinct facts.
+
+Mail send requires an explicit source `consumerCwd`; optional `destinationConsumerCwd`
+selects another admitted repository through the existing standing-mail routing rules.
+Use `mailbox_list` to inspect without consuming. `orchestration_send` continues to mean an
+ACP child follow-up. Human goal controls are refused through MCP and use Gateway's
+authenticated operator surface. This local bridge trusts the Gateway host process; it
+does not protect against another process with the same OS account editing local state.
 
 **What the approval gate guarantees.** `orchestration_decision_approve` is a state gate, not an
 identity gate. It enforces repository authority, that the run is an architecture run waiting for a

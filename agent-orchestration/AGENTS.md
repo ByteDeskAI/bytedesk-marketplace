@@ -53,6 +53,15 @@ These names are compatibility contracts:
 - Lifecycle: `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events`
 - Control: `orchestration_cancel`, `orchestration_cleanup`
 - Approval: `orchestration_decision_get`, `orchestration_decision_approve`
+- Durable mail: `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`
+- Goal feedback: `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile`
+
+Goal feedback uses the repository supervisor and standing lead, with Task Management as the
+original-goal and evidence authority. See `docs/goal-loop-runtime.md`. `mailbox_list` reads
+retained receipts without consuming broker messages; `mailbox_receive` accepts before ACK.
+Neither a mail receipt nor a handled disposition claims or completes a task. Goal human
+controls are denied through MCP; Gateway authenticates the operator before invoking the
+local console bridge. An actor label in JSON is attribution, never an authentication proof.
 
 Provider IDs are `claude`, `codex`, `grok-build`, and `kimi`. Routing decisions and explanations travel in
 route, plan, spawn, and status results rather than a second provider-specific tool family.
