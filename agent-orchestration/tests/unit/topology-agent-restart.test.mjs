@@ -121,6 +121,11 @@ test("agent restart --mode handoff replaces the live session on the promoted pro
   assert.equal(resumed.restart.fallback, "handoff");
   assert.match(resumed.restart.fallback_reason, /fake-turn declares no resume_args/);
   assert.equal(resumed.restart.old_session.id, r.new_session.id);
+  // The fallback collected a handoff, so the successor must get it — else it starts with no context.
+  assert.equal(resumed.respawned.handoff.source, "agent");
+  assert.equal(resumed.respawned.passed_to_new_session, true, "a resume that fell back to handoff passes the handoff");
+  const third = await until(async () => (await events(log)).find((entry) => entry.event === "start" && entry.pid !== first.pid && entry.pid !== second.pid), 20_000, "the fallback successor");
+  await until(async () => (await events(log)).find((entry) => entry.pid === third.pid && entry.event === "received" && entry.line.includes(resumed.respawned.handoff.path)), 20_000, "the fallback handoff pointer");
 
   await assert.rejects(ao("agent", "restart", agent.id, "--mode", "sideways"), (error) => /TOPOLOGY_RESTART_MODE/.test(error.message));
   await ao("session", "close", agent.id);
@@ -180,4 +185,42 @@ test("agent restart never interrupts typed input, and refuses a session the agen
   await iso.tmux(["new-session", "-d", "-s", "agents1--app--worker--gus", "sleep", "600"]);
   await assert.rejects(open("a7a7a7a7", "agents1--app--worker--gus", "handoff"), { code: "TOPOLOGY_SESSION_OWNERSHIP" });
   assert.equal(await iso.within(() => tmux.hasSession("agents1--app--worker--gus")), true);
+});
+
+test("agent restart --mode resume --pass-handoff on a resuming provider returns a result with no handoff to pass", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await scratch(t);
+  const consumer = join(root, "app");
+  await mkdir(consumer);
+  await exec("git", ["-C", consumer, "init", "-q"]);
+  await optOutOfEnrollment(consumer);
+  const providers = join(root, "providers");
+  await mkdir(providers);
+  // claude's id (so its transcript is looked up) and resume_args, running the fake — never a real claude.
+  await writeFile(join(providers, "claude.json"), JSON.stringify({ id: "claude", command: process.execPath, args: [AGENT], submit_keys: ["Enter"], exit_command: "/exit",
+    resume_args: ["--resume", "{{provider_session_id}}"], composer: COMPOSER, ready: { pattern: "^>", tmux_pattern: "^>", delay_ms: 300, timeout_ms: 30_000 } }));
+  const log = join(root, "agent.log");
+  const home = join(root, "home");
+  const iso = isolatedTmux(t, { extraEnv: { AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file", AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"),
+    HOME: home, XDG_CONFIG_HOME: join(root, ".cfg"), AO_NODE_NAME: "agents1", FAKE_TURN_LOG: log, FAKE_TURN_BUSY_MS: "300" } });
+  assert.equal(iso.env.TMUX, "", "never inherit an operator tmux server");
+  const ao = async (...args) => JSON.parse((await exec(process.execPath, [CLI, ...args, "--consumer", consumer, "--providers-dir", providers, "--json"], { env: iso.env, timeout: 180_000 })
+    .catch((error) => { error.message = `${args.slice(0, 2).join(" ")} failed: ${error.stdout}${error.stderr}`; throw error; })).stdout);
+
+  const agent = await ao("agent", "new", "--role", "lead", "--cli", "claude", "--name", "Rita Resume");
+  const opened = await ao("session", "open", agent.id);
+  const first = await until(async () => (await events(log)).find((entry) => entry.event === "start"), 20_000, "the first incarnation");
+  await until(async () => (await events(log)).some((entry) => entry.pid === first.pid && entry.event === "received"), 20_000, "the bootstrap");
+  const transcripts = join(home, ".claude", "projects", sanitizeCwd(opened.cwd));
+  await mkdir(transcripts, { recursive: true });
+  await writeFile(join(transcripts, "1c6f8e3b-2222-4333-8444-a55556666777.jsonl"), `${JSON.stringify({ type: "user", message: { content: "hello" } })}\n`);
+
+  const restarted = await ao("agent", "restart", agent.id, "--mode", "resume", "--pass-handoff", "--turn-timeout", "60s", "--handoff-timeout", "20s");
+  assert.equal(restarted.restart.mode, "resume");
+  assert.equal(restarted.restart.fallback, undefined);
+  assert.equal(restarted.restart.provider_session_id, "1c6f8e3b-2222-4333-8444-a55556666777");
+  assert.equal(restarted.respawned.handoff, null, "a resumed conversation collected no handoff");
+  assert.equal(restarted.respawned.passed_to_new_session, false);
+  const second = await until(async () => (await events(log)).find((entry) => entry.event === "start" && entry.pid !== first.pid), 20_000, "the successor");
+  assert.deepEqual(second.argv.slice(-2), ["--resume", "1c6f8e3b-2222-4333-8444-a55556666777"]);
+  await ao("session", "close", agent.id);
 });

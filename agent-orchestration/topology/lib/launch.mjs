@@ -578,12 +578,16 @@ export async function newIdentity({ consumer, role, agentId = null, team = null,
  * belongs to `agentId` — found from session metadata, the agent's role-session record, or a legacy
  * name — other than `except`, or null. respawn.mjs (TM-280) re-spawns the holder, or refuses on request.
  */
-export async function liveSessionOf(agentId, { agentsDir = null, except = null } = {}) {
-  for (const entry of await tmux.listSessionIdentities()) {
+// `sessions`: a listSessionIdentities() result the caller already holds, so a roster costs one tmux
+// query rather than two per agent (TM-297 `agent list --json`). It names every pane, so every session.
+export async function liveSessionOf(agentId, { agentsDir = null, except = null, sessions = null } = {}) {
+  const known = sessions ?? await tmux.listSessionIdentities();
+  for (const entry of known) {
     if (entry.name !== except && sessionIdentity(entry)?.agentId === agentId) return entry.name;
   }
   const recorded = agentsDir ? await recordedRoleSession({ agentsDir, agentId }) : null;
-  return recorded && recorded !== except && await tmux.hasSession(recorded) ? recorded : null;
+  if (!recorded || recorded === except) return null;
+  return (sessions ? known.some((entry) => entry.name === recorded) : await tmux.hasSession(recorded)) ? recorded : null;
 }
 
 /**
