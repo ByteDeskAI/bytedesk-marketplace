@@ -258,6 +258,17 @@
 
 ### Fixed
 
+- **Reviewer verdicts carry their findings intact on every transport (TM-195, TM-220).** The
+  write-free reviewer now emits `AO_REVIEW <nonce> b64:<base64 of the JSON>`: base64 has no quote
+  to leave unescaped and no space a pane wrap can lose, so a verdict quoting shell code survives.
+  Bare JSON is still read, so a reviewer running the old instruction keeps working until it is
+  relaunched. Its pane is its one channel on both transports: under NATS, collection used to wait
+  for a verdict the reviewer had no shell to publish. Pane and `review publish` share one decoder,
+  and a response that does not decode to `{verdict, findings: [...]}` is refused, including one with
+  no findings array, which used to record as an approval. `review publish` needs `--response` with
+  the whole response; it no longer publishes `findings: []` or defaults to approve. A failed
+  request is refused on collect without escalating again (`TOPOLOGY_REVIEWER_REQUEST_FAILED`), and
+  the approve refusal names minor, nit and note.
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
   The review range was pinned to the admission commit, so a branch that merged `main` to clear a
   conflict carried every task already landed there, and the reviewer judged them as part of this
