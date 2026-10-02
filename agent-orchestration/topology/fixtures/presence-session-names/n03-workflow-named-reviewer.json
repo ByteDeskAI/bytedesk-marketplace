@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 2,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "14",
+  "revision": "1",
+  "generatedAt": "2026-10-02T14:05:00.000Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "a1b2c3d4",
+      "displayName": "Ada Mensah",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "run",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$31",
+        "sessionCreated": 1790950900,
+        "sessionName": "agents1--bytedesk-marketplace--reviewer--ada",
+        "paneId": "%60",
+        "panePid": 27001,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-team-3c",
+          "parentRunId": null,
+          "rootRunId": "run-team-3c",
+          "runName": "reviewer",
+          "depth": 0,
+          "chain": [
+            "reviewer"
+          ]
+        }
+      ],
+      "primaryRunId": "run-team-3c",
+      "roleName": "worker",
+      "roleIcon": "🔧",
+      "roleLabel": "Worker"
+    },
+    {
+      "agentId": "e5f6g7h8",
+      "displayName": "Grace Liu",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "run",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$31",
+        "sessionCreated": 1790950900,
+        "sessionName": "agents1--bytedesk-marketplace--reviewer--ada",
+        "paneId": "%61",
+        "panePid": 27002,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-team-3c",
+          "parentRunId": null,
+          "rootRunId": "run-team-3c",
+          "runName": "reviewer",
+          "depth": 0,
+          "chain": [
+            "reviewer"
+          ]
+        }
+      ],
+      "primaryRunId": "run-team-3c",
+      "roleName": "worker",
+      "roleIcon": "🔧",
+      "roleLabel": "Worker"
+    }
+  ],
+  "slotQueues": []
+}

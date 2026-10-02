@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 2,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "14",
+  "revision": "1",
+  "generatedAt": "2026-10-02T14:05:00.000Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "s2v7ho3j",
+      "displayName": "Kenji Watanabe",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "spawn",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$12",
+        "sessionCreated": 1790949800,
+        "sessionName": "agents1--bytedesk-marketplace--worker--kenji",
+        "paneId": "%20",
+        "panePid": 26110,
+        "spawn": "abcdef1"
+      },
+      "memberships": [
+        {
+          "runId": "run-solo-1a",
+          "parentRunId": null,
+          "rootRunId": "run-solo-1a",
+          "runName": "fix-flaky-test",
+          "depth": 0,
+          "chain": [
+            "fix-flaky-test"
+          ]
+        }
+      ],
+      "primaryRunId": "run-solo-1a",
+      "roleName": "worker",
+      "roleIcon": "🔧",
+      "roleLabel": "Worker"
+    }
+  ],
+  "slotQueues": []
+}
