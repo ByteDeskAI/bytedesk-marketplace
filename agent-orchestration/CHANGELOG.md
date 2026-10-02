@@ -258,6 +258,12 @@
 
 ### Fixed
 
+- **Presence no longer publishes `kind: "spawn"` under a new-style session name (TM-287).** A
+  run.json agent with a seven-hex `spawn` token whose pane carries matching `@ao-agent` metadata was
+  published as `spawn` whatever its session was called, which the Presence v2 validator rejects.
+  Such a session is now published as `kind: "run"` with `spawn: null`, as session-names addendum §3.3
+  specifies; `spawn` stays reserved for a legacy `<agentId>-<7 hex>` name. `topology-presence` tests
+  now run every snapshot they publish through the v2 validator.
 - **Reviewer verdicts carry their findings intact on every transport (TM-195, TM-220).** The
   write-free reviewer now emits `AO_REVIEW <nonce> b64:<base64 of the JSON>`: base64 has no quote
   to leave unescaped and no space a pane wrap can lose, so a verdict quoting shell code survives.

@@ -26997,6 +26997,10 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
     if (!idValid(agentId)) agentId = (0, import_node_crypto28.createHash)("sha256").update(bindingKey3(binding)).digest("hex").slice(0, 8);
     const observed = pane.identity?.agent ? sessionIdentity({ name: pane.sessionName, meta: pane.identity }) : null;
     invariant2(kind !== "spawn" || (observed ? observed.agentId === agentId : pane.sessionName === `${agentId}-${spawn13}`), "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation; refusing an invalid snapshot.");
+    if (kind === "spawn" && pane.sessionName !== `${agentId}-${spawn13}`) {
+      kind = "run";
+      spawn13 = null;
+    }
     const key = bindingKey3(binding);
     let entry = agents.get(key);
     if (entry) {
@@ -57537,10 +57541,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path58.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "282cfff8301e3a03ac8ecc4db8cf1f6f2502350693584b994a25b2203c300a69";
+  return false ? null : "ff732c4de4cde8274c0f4703c5172676b90a33d848404def7c233971ea8aaaa8";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "282cfff8301e3a03ac8ecc4db8cf1f6f2502350693584b994a25b2203c300a69";
+  const fingerprint2 = false ? null : "ff732c4de4cde8274c0f4703c5172676b90a33d848404def7c233971ea8aaaa8";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -58098,7 +58102,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "282cfff8301e3a03ac8ecc4db8cf1f6f2502350693584b994a25b2203c300a69",
+  sourceFingerprint: false ? null : "ff732c4de4cde8274c0f4703c5172676b90a33d848404def7c233971ea8aaaa8",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises51.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
