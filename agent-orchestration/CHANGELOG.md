@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — Docs
+
+- **Presence session-names addendum for the gateway (TM-274, ADR-0030).** `topology/PRESENCE-SESSION-NAMES-ADDENDUM.md` supersedes the name shapes in presence contract §4.3–§4.4, without editing the frozen contract: the `[team--]node--repo--role--persona` shapes per `session.kind`, the legacy `ao-<id>` and `<id>-<7 hex>` shapes until those sessions end, the slug and length rules, and the `@ao-*` options as labels rather than proof. The presence shape is unchanged (`schemaVersion` stays `2`; `session.kind` keeps its vocabulary), and a run of one agent under a new name is published as `kind: "run"`. `topology/SESSION-NAMES-COUNTERSIGNATURE-REQUEST.md` asks the gateway lead to countersign. Fixtures and `check.py` are in `topology/fixtures/presence-session-names/`, hashes in `SESSION-NAMES-HASHES.txt`, and `tests/unit/topology-presence-session-names.test.mjs` checks the real producer output, the fixtures and every hash, and proves the hash check fails when one byte changes.
+
 ## [0.13.2] — 2026-10-02
 
 ### Fixed

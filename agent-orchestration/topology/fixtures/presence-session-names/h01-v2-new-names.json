@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 2,
+  "repositoryKey": "9f2c41ab77e0d3b5",
+  "repositoryRoot": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace",
+  "generation": "14",
+  "revision": "1",
+  "generatedAt": "2026-10-02T14:05:00.000Z",
+  "staleAfterMs": 30000,
+  "clockSkewToleranceMs": 5000,
+  "agents": [
+    {
+      "agentId": "k3n8vq2a",
+      "displayName": "Priya Raman",
+      "title": "Engineering Lead",
+      "repoRole": "lead",
+      "runRole": null,
+      "coordinatesOnly": true,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$7",
+        "sessionCreated": 1790949500,
+        "sessionName": "agents1--bytedesk-marketplace--lead--priya",
+        "paneId": "%3",
+        "panePid": 25863,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "roleName": "lead",
+      "roleIcon": "👑",
+      "roleLabel": "Lead"
+    },
+    {
+      "agentId": "r5t2lw8n",
+      "displayName": "Linus Berg",
+      "title": "Staff Engineer",
+      "repoRole": "reviewer",
+      "runRole": null,
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "ready",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "role-session",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$9",
+        "sessionCreated": 1790949510,
+        "sessionName": "agents1--bytedesk-marketplace--reviewer--linus",
+        "paneId": "%8",
+        "panePid": 25901,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "roleName": "reviewer",
+      "roleIcon": "🔍",
+      "roleLabel": "Reviewer"
+    },
+    {
+      "agentId": "s2v7ho3j",
+      "displayName": "Kenji Watanabe",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "worker",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "run",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$12",
+        "sessionCreated": 1790949800,
+        "sessionName": "agents1--bytedesk-marketplace--worker--kenji",
+        "paneId": "%20",
+        "panePid": 26110,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-solo-1a",
+          "parentRunId": null,
+          "rootRunId": "run-solo-1a",
+          "runName": "fix-flaky-test",
+          "depth": 0,
+          "chain": [
+            "fix-flaky-test"
+          ]
+        }
+      ],
+      "primaryRunId": "run-solo-1a",
+      "roleName": "worker",
+      "roleIcon": "🔧",
+      "roleLabel": "Worker"
+    },
+    {
+      "agentId": "a1b2c3d4",
+      "displayName": "Ada Mensah",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "reviewer",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "run",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$21",
+        "sessionCreated": 1790950100,
+        "sessionName": "core--agents1--bytedesk-marketplace--parallel-review--ada",
+        "paneId": "%40",
+        "panePid": 26450,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-team-2b",
+          "parentRunId": null,
+          "rootRunId": "run-team-2b",
+          "runName": "parallel-review",
+          "depth": 0,
+          "chain": [
+            "parallel-review"
+          ]
+        }
+      ],
+      "primaryRunId": "run-team-2b",
+      "roleName": "reviewer",
+      "roleIcon": "🔍",
+      "roleLabel": "Reviewer"
+    },
+    {
+      "agentId": "e5f6g7h8",
+      "displayName": "Grace Liu",
+      "title": "Engineer",
+      "repoRole": "member",
+      "runRole": "judge",
+      "coordinatesOnly": false,
+      "enrollment": "enrolled",
+      "lifecycle": "busy",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "run",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$21",
+        "sessionCreated": 1790950100,
+        "sessionName": "core--agents1--bytedesk-marketplace--parallel-review--ada",
+        "paneId": "%41",
+        "panePid": 26451,
+        "spawn": null
+      },
+      "memberships": [
+        {
+          "runId": "run-team-2b",
+          "parentRunId": null,
+          "rootRunId": "run-team-2b",
+          "runName": "parallel-review",
+          "depth": 0,
+          "chain": [
+            "parallel-review"
+          ]
+        }
+      ],
+      "primaryRunId": "run-team-2b",
+      "roleName": "judge",
+      "roleIcon": "⚖️",
+      "roleLabel": "Judge"
+    },
+    {
+      "agentId": "f9k1ps5u",
+      "displayName": "Unenrolled agent",
+      "title": "Agent",
+      "repoRole": "member",
+      "runRole": null,
+      "coordinatesOnly": false,
+      "enrollment": "pending",
+      "lifecycle": "starting",
+      "readinessCheckedAt": "2026-10-02T13:58:40.010Z",
+      "session": {
+        "kind": "external",
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 24390,
+        "sessionId": "$14",
+        "sessionCreated": 1790949600,
+        "sessionName": "zsh",
+        "paneId": "%30",
+        "panePid": 26011,
+        "spawn": null
+      },
+      "memberships": [],
+      "primaryRunId": null,
+      "roleIcon": "🤖",
+      "roleLabel": "Agent"
+    }
+  ],
+  "slotQueues": []
+}
