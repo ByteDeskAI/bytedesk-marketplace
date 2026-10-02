@@ -50,8 +50,12 @@ async function runFile(command, args, options = {}) {
 // src/platform/host-adapters.mjs
 var PLUGIN_ROOT = (0, import_node_path.dirname)((0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)));
 var NATIVE_HELPER = (0, import_node_path.join)(PLUGIN_ROOT, "dist", "windows-native", "AgentOrchestration.Windows.dll");
+function defaultBackend(platform) {
+  if (platform === "win32") return "windows-native";
+  return platform === "darwin" ? "darwin-native" : "linux-native";
+}
 var DirectHostAdapter = class {
-  constructor({ backend = process.platform === "win32" ? "windows-native" : "linux-native" } = {}) {
+  constructor({ backend = defaultBackend(process.platform) } = {}) {
     this.id = backend;
   }
   async command(entrypoint) {
@@ -107,7 +111,7 @@ var WindowsWslHostAdapter = class {
   }
 };
 async function createHostAdapter({ platform = process.platform, env = process.env } = {}) {
-  if (platform !== "win32") return new DirectHostAdapter({ backend: "linux-native" });
+  if (platform !== "win32") return new DirectHostAdapter({ backend: defaultBackend(platform) });
   const requested = (env.AGENT_ORCHESTRATION_WINDOWS_BACKEND || "auto").toLowerCase();
   invariant(["auto", "native", "wsl"].includes(requested), "AO_WINDOWS_BACKEND_INVALID", "AGENT_ORCHESTRATION_WINDOWS_BACKEND must be auto, native, or wsl.");
   if (requested === "native") return new DirectHostAdapter({ backend: "windows-native" });

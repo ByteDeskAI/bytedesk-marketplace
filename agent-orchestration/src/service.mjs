@@ -241,6 +241,12 @@ export class OrchestrationService {
   }
 
   async spawn(input) {
+    // Every provider run executes inside the provider sandbox. A host without one refuses here,
+    // with the reason, instead of failing later inside the worker or running unsandboxed.
+    if (this.platformRuntime.metadata?.isolation === "unavailable") {
+      const sandbox = await this.platformRuntime.providerSandbox.probe({ checks: [] });
+      throw new AgentOrchestrationError("AO_SANDBOX_UNAVAILABLE", sandbox.reason ?? "Provider isolation is unavailable on this host.", { runtime: this.platformRuntime.id });
+    }
     const availability = await this.providerAvailabilitySnapshot(input?.consumerCwd);
     const prepared = await this.plan({ ...input, availability, requireAvailable: true });
     invariant(prepared.plan.status === "ready", "AO_ROUTING_BLOCKED", "No eligible live provider/model route satisfies the execution policy.", getRoutingExplanation(prepared.plan));
