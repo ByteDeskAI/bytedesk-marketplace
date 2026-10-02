@@ -63,6 +63,14 @@ export const SLEEP_LADDER_MS = [2000, 5000, 15000];
 /** Floor between two runs of the expensive reconcile body. AO_RECONCILE_MIN_MS overrides. */
 export const DEFAULT_RECONCILE_MIN_MS = 10_000;
 export const DEFAULT_START_TIMEOUT_MS = 10_000;
+/**
+ * TM-289: how `ao-topology supervise` exits, read by process-compose's `restart: on_failure`
+ * (src/services/services.mjs), which restarts a process exactly when its exit code is non-zero.
+ * RETIRED — the repository is gone, so there is nothing left to supervise: do not restart.
+ * TRY_LATER — another supervisor holds this repository's lock (EX_TEMPFAIL): retry with backoff,
+ * and the retry takes over once the holder ends. Any other non-zero code is a crash and is retried.
+ */
+export const SUPERVISE_EXIT = Object.freeze({ RETIRED: 0, TRY_LATER: 75 });
 
 async function sourceIdentity() {
   const implementation=fileURLToPath(import.meta.url);

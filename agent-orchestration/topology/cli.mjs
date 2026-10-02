@@ -335,7 +335,7 @@ async function activate(ctx, reason) {
 
 const commands = {
   async supervise({ flags }) {
-    const { superviseRepository } = await import('./lib/supervision.mjs');
+    const { superviseRepository, SUPERVISE_EXIT } = await import('./lib/supervision.mjs');
     const ctx = context(flags);
     // TM-167: `supervise` runs in EVERY repository, enrolled or not, and stays read-only — presence,
     // census, slots, quota, prompt refresh for standing agents that already exist. It starts nothing, so
@@ -348,14 +348,16 @@ const commands = {
     const { canonicalRepoId } = await import('./lib/repoid.mjs');
     const repoId = (await canonicalRepoId(ctx.consumer)).id;
     // Linked worktrees share one canonical repository id, so a machine with N worktrees of this
-    // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome and
-    // therefore not an error: exit 0 saying who owns it, so a monitor host does not read the loss
-    // as a crash and restart it in a loop.
+    // repo open starts N supervisors and N-1 of them MUST lose. Losing is the correct outcome, not
+    // an error — but it is not a finish either. TM-289: it exits TRY_LATER (75), so process-compose's
+    // `on_failure` retries it with backoff and the retry takes over once the holder ends. Exit 0 here
+    // would strand the repository unsupervised when the winner dies.
     const owned = async (task) => {
       try { return await task(); }
       catch (error) {
         if (error?.code !== 'TOPOLOGY_SUPERVISION_OWNED') throw error;
-        return out({ ok: true, supervising: false, reason: 'another-supervisor-owns-this-repository', consumer: ctx.consumer });
+        process.exitCode = SUPERVISE_EXIT.TRY_LATER;
+        return out({ ok: true, supervising: false, reason: 'another-supervisor-owns-this-repository', consumer: ctx.consumer, exit_code: SUPERVISE_EXIT.TRY_LATER });
       }
     };
     if (flags.once) return owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { once: true, onTick: out }));
@@ -375,13 +377,28 @@ const commands = {
       watcher = watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId, signal: controller.signal })
         .catch(error => { watcherError = error; controller.abort(); });
     };
+    let report;
     try {
-      return await owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick, onOwned, signal: controller.signal }));
+      report = await owned(() => superviseRepository({ ...ctx, tmuxServer: flags.server }, { onTick, onOwned, signal: controller.signal }));
     } finally {
       controller.abort();
       await watcher;
       if (watcherError) throw watcherError;
     }
+    // TM-289: a retired supervisor (its repository is gone) exits RETIRED (0), which `on_failure`
+    // does not restart, and takes the repository off the supervise list so the next `services
+    // ensure` does not render it again. Under process-compose it runs that ensure itself, so the
+    // project reloads now and the finished process disappears from `services status`.
+    if (report?.stopped === 'consumer-gone') {
+      const { removeServiceRepo, runServicesEnsure, servicesEnabled } = await import('./lib/services-client.mjs');
+      const { repoKey } = await import('./lib/repoid.mjs');
+      const deregistered = await removeServiceRepo({ key: repoKey(repoId), consumer: ctx.consumer }).catch(() => false);
+      const managed = process.env.AGENT_ORCHESTRATION_SERVICES_MANAGED === '1' && servicesEnabled();
+      const reloaded = managed && deregistered ? (await runServicesEnsure()).ok === true : false;
+      process.exitCode = SUPERVISE_EXIT.RETIRED;
+      out({ ok: true, supervising: false, reason: 'retired-consumer-gone', consumer: ctx.consumer, deregistered, reloaded, exit_code: SUPERVISE_EXIT.RETIRED });
+    }
+    return report;
   },
 
   async census({ flags }) {

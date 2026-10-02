@@ -234,7 +234,10 @@ export function renderProject({ platform = process.platform, node, launcher, sta
       entrypoint: [node, launcher, "ao-topology", "supervise", "--consumer", repo.consumer],
       working_dir: repo.consumer,
       environment,
-      availability: { restart: "always", backoff_seconds: 3 },
+      // TM-289: on_failure, not always. A supervisor exits 0 only when it retires on purpose (its
+      // repository is gone) and must then stay down; a lock loser exits 75 and a crash exits
+      // non-zero, and both are retried with this backoff. max_restarts unset = unlimited.
+      availability: { restart: "on_failure", backoff_seconds: 3 },
       log_location: join(logs, `${name}.log`),
       log_configuration: rotation,
     };

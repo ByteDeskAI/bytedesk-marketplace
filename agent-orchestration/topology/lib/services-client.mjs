@@ -44,6 +44,21 @@ export async function addServiceRepo(consumer, { env = process.env, home = homed
   });
 }
 
+/**
+ * TM-289: drops one repository from the supervise list, matched by key OR by the consumer path it
+ * was registered with — a deleted checkout no longer resolves to the canonical id it had, so its key
+ * cannot be recomputed. Returns true when the list changed.
+ */
+export async function removeServiceRepo({ key, consumer }, { env = process.env, home = homedir() } = {}) {
+  return withLock(`${reposPath(env, home)}.lock`, async () => {
+    const repos = await readServiceRepos(env, home);
+    const kept = repos.filter((repo) => repo.key !== key && repo.consumer !== consumer);
+    if (kept.length === repos.length) return false;
+    await writeJson(reposPath(env, home), { repos: kept });
+    return true;
+  });
+}
+
 /** Runs `agent-orchestration services ensure` from the bundle next to this tree. */
 export function runServicesEnsure({ env = process.env, timeoutMs = 120_000 } = {}) {
   const cli = fileURLToPath(new URL('../../dist/cli.cjs', import.meta.url));
