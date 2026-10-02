@@ -91,7 +91,16 @@ supervisor. It is idempotent. It:
 
 **Check them:** `agent-orchestration services status` (`--json` for every field) shows the OS
 registration, whether process-compose answers, and each process's state, pid, restart count and
-readiness. Logs are in `<state root>/services/logs/`.
+readiness. Logs are in `<state root>/services/logs/`. `--json` lists every managed process as
+`{ name, pid, state, restarts, ready, exitCode }`; read a pid from there, never from `pgrep`.
+
+**Restart or stop one process:** `agent-orchestration services restart <name>` and
+`agent-orchestration services stop <name>`, where `<name>` is one `services status` lists
+(`session-host`, `nats`, `supervise-<repo>`). Both go through the process-compose API, so they act
+on exactly that managed process; an unknown name is refused. `restart` reports the old and new pid.
+**Never `pkill`, `pgrep` or `kill` a managed process by name or command line:** dev machines run
+unrelated processes with the same binary (microk8s runs its own `nats-server -c …`), and
+process-compose restarts a killed child anyway.
 
 **Remove them:** `agent-orchestration services uninstall` removes the OS registration and stops
 process-compose. It keeps the binary and all state.

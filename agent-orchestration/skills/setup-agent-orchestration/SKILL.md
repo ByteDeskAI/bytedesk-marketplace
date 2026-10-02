@@ -69,6 +69,19 @@ itself from the first run onward.
 5. Smoke test with a one-agent spec (`role: orchestrator`, `cli: <command>`) and `AO launch --dry-run`,
    then a real launch, then `AO stop`.
 
-## 6. Confirm
+## 6. Managed processes
+
+The session host, the local NATS server and each repository supervisor run under process-compose.
+Act on them only through their names:
+
+- `agent-orchestration services status --json` — every managed process with its pid, state,
+  restart count and readiness.
+- `agent-orchestration services restart <name>` / `agent-orchestration services stop <name>` —
+  exactly that process, through the process-compose API; an unknown name is refused.
+
+Never `pkill`, `pgrep` or `kill` these by name or command line: unrelated `nats-server` processes
+(microk8s, for one) exist on dev machines, and process-compose restarts a killed child anyway.
+
+## 7. Confirm
 
 Run `AO doctor` again and report the line `OK — ready to launch.` or the remaining problems.

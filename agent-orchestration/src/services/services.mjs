@@ -274,6 +274,7 @@ export function apiClient({ port, token }, fetchImpl = fetch) {
     processes: async () => (await call("GET", "/processes"))?.data ?? [],
     reload: () => call("POST", "/project/configuration", 15_000),
     restart: (name) => call("POST", `/process/restart/${encodeURIComponent(name)}`, 15_000),
+    stopProcess: (name) => call("PATCH", `/process/stop/${encodeURIComponent(name)}`, 15_000),
     stop: () => call("POST", "/project/stop", 15_000),
   };
 }
@@ -367,12 +368,41 @@ export async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
   const token = await readFile(paths.token, "utf8").then((text) => text.trim(), () => null);
   const client = manager?.port && token ? apiClient({ port: manager.port, token }, deps.fetchImpl) : null;
   const alive = client ? await client.alive() : false;
-  const processes = alive ? (await client.processes()).map((p) => ({
-    name: p.name, status: p.status, pid: p.pid, restarts: p.restarts, ready: p.is_ready, exitCode: p.exit_code,
-  })) : [];
+  const processes = alive ? (await client.processes()).map(processRow) : [];
   const repos = await readRepos(paths.repos);
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
   return { ok: alive, registration, processCompose: { alive, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) } };
+}
+
+/** One managed process as `services status --json` reports it: scripts read the pid here, never from pgrep. */
+const processRow = (p) => ({ name: p.name, pid: p.pid, state: p.status, restarts: p.restarts, ready: p.is_ready, exitCode: p.exit_code });
+
+/**
+ * TM-286: restart or stop ONE managed process by its process-compose name. Unrelated processes
+ * with the same binary (a microk8s nats-server) exist on dev machines, so nothing here matches by
+ * command line: the name must be one process-compose runs, or the call is refused.
+ */
+export async function controlProcess(action, name, { pluginRoot = PLUGIN_ROOT, stateRoot, env = process.env, platform = process.platform, home = os.homedir(), node = process.execPath, deps = {} } = {}) {
+  invariant(action === "restart" || action === "stop", "AO_SERVICES_USAGE", `Unknown action ${action}. Use restart or stop.`);
+  const { paths } = await context({ pluginRoot, stateRoot, env, platform, home, node, deps: { mode: "detached", lock: {}, ...deps } });
+  const manager = await readJson(paths.manager, null).catch(() => null);
+  const token = await readFile(paths.token, "utf8").then((text) => text.trim(), () => null);
+  invariant(manager?.port && token, "AO_SERVICES_UNAVAILABLE", "The services are not installed here; run `agent-orchestration services ensure` first.");
+  const client = apiClient({ port: manager.port, token }, deps.fetchImpl);
+  invariant(await client.alive(), "AO_SERVICES_UNAVAILABLE", `process-compose is not answering on 127.0.0.1:${manager.port}.`);
+  const list = await client.processes();
+  const before = list.find((p) => p.name === name);
+  invariant(before, "AO_SERVICES_UNKNOWN_PROCESS", `No managed process named ${JSON.stringify(name ?? "")}. Managed processes: ${list.map((p) => p.name).join(", ") || "none"}.`);
+  if (action === "stop") {
+    await client.stopProcess(name);
+    return { ok: true, action, name, pid: before.pid, state: (await client.processes()).find((p) => p.name === name)?.status ?? null };
+  }
+  await client.restart(name);
+  let after = null;
+  // A restart is done when the process runs under a NEW pid; report what it is.
+  await waitFor(async () => { after = (await client.processes()).find((p) => p.name === name); return Boolean(after?.pid && after.pid !== before.pid); }, deps.restartTimeoutMs ?? 15_000);
+  const restarted = Boolean(after?.pid && after.pid !== before.pid);
+  return { ok: restarted, action, name, previousPid: before.pid, pid: after?.pid ?? null, state: after?.status ?? null, ...(restarted ? {} : { message: `${name} did not come back under a new pid; see services status.` }) };
 }
 
 /** Readiness probes process-compose runs. Exit status is the answer. */

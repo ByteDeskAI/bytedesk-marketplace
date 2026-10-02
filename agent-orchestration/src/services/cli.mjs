@@ -6,13 +6,13 @@ import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from ".
 import { serializeError } from "../errors.mjs";
 import { addServiceRepo } from "../../topology/lib/services-client.mjs";
 import { canonicalRepoId, repositoryConsumer } from "../../topology/lib/repoid.mjs";
-import { dataHome, ensureServices, installProcessCompose, probeService, servicesStatus, uninstallServices } from "./services.mjs";
+import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicesStatus, uninstallServices } from "./services.mjs";
 
-const USAGE = "Usage: agent-orchestration services install|ensure|status|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
+const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
 
 function summary(report) {
   if (report.processCompose) {
-    const rows = report.processes.map((p) => `${p.name}=${p.status}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
+    const rows = report.processes.map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
     return `services: process-compose ${report.processCompose.alive ? "answering" : "not answering"} (${report.registration.mode}, ${report.registration.active ?? "n/a"})${rows.length ? `; ${rows.join("; ")}` : ""}${report.unsupported.length ? `; unsupported: ${report.unsupported.map((u) => u.process).join(", ")}` : ""}`;
   }
   return `services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`;
@@ -76,6 +76,17 @@ export async function runServicesCommand(sub, values, positionals) {
       const report = await servicesStatus({ stateRoot });
       print(report);
       return report.ok ? 0 : 1;
+    }
+    case "restart":
+    case "stop": {
+      try {
+        const result = await controlProcess(sub, positionals[0], { stateRoot });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        return result.ok ? 0 : 1;
+      } catch (error) {
+        process.stderr.write(`${JSON.stringify({ ok: false, ...serializeError(error) })}\n`);
+        return 1;
+      }
     }
     case "probe":
       return await probeService(positionals[0], { stateRoot }) ? 0 : 1;
