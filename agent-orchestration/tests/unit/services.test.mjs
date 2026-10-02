@@ -167,13 +167,65 @@ test("ensure is idempotent: the second run writes nothing, reloads nothing, star
   const rewritten = [...filesAfter].filter(([path, sig]) => filesBefore.get(path) !== sig && !path.endsWith(".lock") && !path.includes(".lock/"));
   assert.deepEqual(rewritten, [], "no file rewritten");
 
-  // A plugin update moves only the pointer: every process restarts, the project is not rewritten.
+  // A plugin update (a newer version) moves only the pointer: every process restarts, the project is not rewritten.
   const moved = join(root, "cache", "agent-orchestration", "0123456789ab");
-  const third = await ensureServices({ pluginRoot: moved, stateRoot, env, home, platform: "linux", deps: { ...deps, lock: readLock(pluginRoot) } });
+  const third = await ensureServices({ pluginRoot: moved, stateRoot, env, home, platform: "linux", deps: { ...deps, lock: readLock(pluginRoot), identity: { fingerprint: "fp-update", version: "99.0.0" } } });
   assert.equal(third.changed.pointer, true);
   assert.equal(third.changed.project, false);
   assert.deepEqual(api.calls.filter((call) => call.startsWith("POST")), ["POST /process/restart/session-host"]);
   assert.equal(JSON.parse(await readFile(servicePaths({ stateRoot, data }).pointer, "utf8")).sha, "0123456789ab");
+});
+
+test("TM-283: equivalent copies never flap, an older session never downgrades, a newer one moves once", async (t) => {
+  const root = await scratch(t, "ao-services-pointer-");
+  const home = join(root, "home"), stateRoot = join(root, "state"), data = join(root, "data");
+  const managers = await fakeManagers(root);
+  const api = fakeApi();
+  const base = {
+    mode: "systemd", install: async () => ({ binary: join(data, "bin", "pc"), installed: false }), prepareNats: async () => null,
+    fetchImpl: api.fetchImpl, lock: readLock(pluginRoot),
+    run: async (mode, args) => { const result = await managers.runFake(mode, args); if (args.includes("start")) api.state.started = true; return result; },
+  };
+  const env = { AGENT_ORCHESTRATION_DATA_HOME: data, XDG_CONFIG_HOME: join(home, ".config") };
+  const copy = async (name) => { const dir = join(root, name, "agent-orchestration"); await mkdir(dir, { recursive: true }); return dir; };
+  const cache = await copy("cache-60a3328828f4"), source = await copy("marketplace"), old = await copy("cache-28907b10ba33"), newer = await copy("cache-new");
+  const build = { fingerprint: "fp-0.13.1", version: "0.13.1" };
+  const ensure = (pluginRoot, identity) => ensureServices({ pluginRoot, stateRoot, env, home, platform: "linux", deps: { ...base, identity } });
+  const restarts = () => api.calls.filter((call) => call.startsWith("POST /process/restart")).length;
+  const pointer = async () => JSON.parse(await readFile(servicePaths({ stateRoot, data }).pointer, "utf8"));
+
+  await ensure(cache, build);
+  assert.equal((await pointer()).pluginRoot, cache);
+  // Alternating SessionStart ensures from the cache and the source tree of the SAME build.
+  const rounds = [source, cache, source, cache, source];
+  assert.equal(rounds.length, 5);
+  for (const dir of rounds) await ensure(dir, build);
+  assert.equal(restarts(), 0, "same build in another folder restarts nothing");
+  assert.equal((await pointer()).pluginRoot, cache, "the pointer keeps its first path");
+
+  // A long-lived session still on an older plugin must not downgrade the services.
+  await ensure(old, { fingerprint: "fp-0.12.0", version: "0.12.0" });
+  assert.equal(restarts(), 0, "older version restarts nothing");
+  assert.equal((await pointer()).version, "0.13.1");
+
+  // A newer build moves the pointer and restarts each process exactly once.
+  await ensure(newer, { fingerprint: "fp-0.14.0", version: "0.14.0" });
+  const afterUpgrade = restarts();
+  assert.ok(afterUpgrade >= 1, `expected restarts after an upgrade, saw ${afterUpgrade}`);
+  await ensure(newer, { fingerprint: "fp-0.14.0", version: "0.14.0" });
+  assert.equal(restarts(), afterUpgrade, "a second ensure of the same build restarts nothing");
+
+  // When the current root is gone, an older copy is accepted rather than leaving services pointing nowhere.
+  await rm(newer, { recursive: true, force: true });
+  await ensure(old, { fingerprint: "fp-0.12.0", version: "0.12.0" });
+  assert.equal((await pointer()).pluginRoot, old);
+});
+
+test("TM-283: compareVersions orders x.y.z numerically and sorts junk lowest", async () => {
+  const { compareVersions } = await import("../../src/services/services.mjs");
+  const cases = [["0.13.1", "0.13.0", 1], ["0.9.0", "0.10.0", -1], ["1.0.0", "1.0.0", 0], [null, "0.0.1", -1], ["0.14.0-rc1", "0.13.9", 1]];
+  assert.equal(cases.length, 5);
+  for (const [a, b, want] of cases) assert.equal(compareVersions(a, b), want, `${a} vs ${b}`);
 });
 
 test("ensure leaves nats out when AO_NATS_URL is set, and hot-reloads a changed project", async (t) => {

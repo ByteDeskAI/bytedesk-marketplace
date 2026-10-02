@@ -74,6 +74,45 @@ export function pluginSha(pluginRoot) {
   return typeof __AO_BUILD_FINGERPRINT__ === "undefined" ? null : __AO_BUILD_FINGERPRINT__;
 }
 
+/** What code a plugin root runs: the build fingerprint and package version, not its folder path. */
+export function pluginIdentity(pluginRoot) {
+  const fingerprint = typeof __AO_BUILD_FINGERPRINT__ === "undefined" ? null : __AO_BUILD_FINGERPRINT__;
+  let version = typeof __AO_BUILD_VERSION__ === "undefined" ? null : __AO_BUILD_VERSION__;
+  if (!version) { try { version = JSON.parse(readFileSync(join(pluginRoot, "package.json"), "utf8")).version ?? null; } catch { version = null; } }
+  return { fingerprint, version };
+}
+
+/** Numeric x.y.z comparison; a missing or unparsable version sorts lowest. */
+export function compareVersions(a, b) {
+  const parts = (v) => (/^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1]);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+}
+
+/**
+ * Which plugin copy the managed services should run (TM-283). Every session's SessionStart runs
+ * ensure with its own plugin root — the installed cache, the directory-marketplace source tree, or
+ * an older cache in a long-lived session — so last-writer-wins would flap between equivalent copies
+ * and let an old session downgrade the services. Keep the current pointer when it runs the same
+ * build, never move to an older version while the current root still exists, otherwise move.
+ */
+export function choosePointer(previous, candidate, { exists = existsSync } = {}) {
+  if (!previous?.pluginRoot || !exists(previous.pluginRoot)) return candidate;
+  if (previous.node !== candidate.node) return candidate;
+  if (previous.fingerprint && previous.fingerprint === candidate.fingerprint) return previous;
+  if (previous.version && compareVersions(candidate.version, previous.version) < 0) return previous;
+  return candidate;
+}
+
+/** Did the code the services run change? Fingerprint when both have one, else the path. */
+function pointerMoved(previous, pointer) {
+  if (!previous) return false;
+  if (previous.node !== pointer.node) return true;
+  if (previous.fingerprint && pointer.fingerprint) return previous.fingerprint !== pointer.fingerprint;
+  return previous.pluginRoot !== pointer.pluginRoot || previous.sha !== pointer.sha;
+}
+
 async function writeIfChanged(path, text, mode = 0o600) {
   const current = await readFile(path, "utf8").catch(() => null);
   if (current === text) return false;
@@ -275,7 +314,8 @@ export async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
     const { binary, installed } = await (deps.install ?? installProcessCompose)({ data: paths.data, platform, arch, lock, fetchImpl: deps.fetchImpl });
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths.pointer, null).catch(() => null);
-    const pointer = { pluginRoot, sha: pluginSha(pluginRoot), node };
+    const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...(deps.identity ?? pluginIdentity(pluginRoot)) };
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? existsSync });
     const changed = {
       launcher: await writeIfChanged(paths.launcher, LAUNCHER_SOURCE, 0o644),
       pointer: await writeIfChanged(paths.pointer, json(pointer), 0o644),
@@ -311,8 +351,7 @@ export async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
       alive = await waitFor(client.alive, deps.startTimeoutMs ?? 15_000);
     } else {
       if (changed.project) { await client.reload(); actions.push("reloaded"); }
-      const moved = ["pluginRoot", "sha", "node"].some((key) => previousPointer?.[key] !== pointer[key]);
-      if (previousPointer && moved) {
+      if (pointerMoved(previousPointer, pointer)) {
         for (const name of Object.keys(project.processes)) { await client.restart(name).catch(() => {}); actions.push(`restarted:${name}`); }
       }
     }
