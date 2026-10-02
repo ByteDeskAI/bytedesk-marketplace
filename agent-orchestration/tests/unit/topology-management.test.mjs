@@ -16,6 +16,7 @@ const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(
 const SHELL_ANCESTRY = async () => ['zsh', 'tmux: server'];
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 
 const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
 const NO_SERVER_COMPARE = async () => { throw new Error('no server in the fixture'); };
@@ -268,9 +269,8 @@ test('tmux default worker proof binds the real pane incarnation and waits for it
   const { opts, doc, finish } = await fixture(t);
   const { bindTaskWorker, taskWorkerState, managementStatus } = await import('../../topology/lib/management.mjs');
   await admitTask(opts);
-  const socket = join(opts.home, 'worker.sock'); await mkdir(opts.home, { recursive: true });
-  await run('tmux', ['-S', socket, 'new-session', '-d', '-s', 'owned-worker', '-c', doc.worktree, 'sleep', '30']);
-  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { allowFailure: true }));
+  const iso = isolatedTmux(t), socket = iso.socket;
+  await iso.tmux(['new-session', '-d', '-s', 'owned-worker', '-c', doc.worktree, 'sleep', '30']);
   const serverPid = (await run('tmux', ['-S', socket, 'display-message', '-p', '#{pid}'])).stdout.trim();
   doc.dispatched = { backend: 'tmux', run: 'tmux:owned-worker', session: 'author' };
   opts.store.workers = async () => [{ name: 'fixture-tmux-worker', backend: 'tmux', runId: doc.dispatched.run, session: 'author', registeredAt: 'fixture', status: 'active', pid: null }];
@@ -289,14 +289,9 @@ async function nativeFixture(t, { members = 1, nested = false } = {}) {
   if ((await run('tmux', ['-V'], { allowFailure: true })).code !== 0) { t.skip('tmux unavailable'); return null; }
   const fixtureValue = await fixture(t), { opts, doc } = fixtureValue;
   await admitTask(opts);
-  // Keep the socket outside the Git fixture so teardown can always reach and stop only
+  // Keep the sockets outside the Git fixture so teardown can always reach and stop only
   // these test-owned servers, even if the repository's earlier cleanup hook has run.
-  const socketRoot = await mkdtemp(join(tmpdir(), 'ao-native-owner-'));
-  const socket = join(socketRoot, 'native.sock'), decoySocket = join(socketRoot, 'decoy.sock');
-  t.after(async () => {
-    for (const path of [socket, decoySocket]) await run('tmux', ['-S', path, 'kill-server'], { allowFailure: true });
-    await rm(socketRoot, { recursive: true, force: true });
-  });
+  const socket = isolatedTmux(t).socket, decoySocket = isolatedTmux(t).socket;
   const tmux = (args, server = socket) => run('tmux', ['-S', server, ...args]);
   async function createNative(id, session, count, parent = null) {
     await tmux(['new-session', '-d', '-s', session, '-c', doc.worktree, 'sleep', '120']);
@@ -679,10 +674,8 @@ test("this repository's committed management policy raises no policy reasons", a
 async function paneServer(t, opts) {
   if ((await run('tmux', ['-V'], { allowFailure: true })).code !== 0) { t.skip('tmux unavailable'); return null; }
   await mkdir(opts.home, { recursive: true });
-  const socket = join(opts.home, 'w.sock');
-  const tmux = args => run('tmux', ['-S', socket, ...args]);
+  const { socket, tmux } = isolatedTmux(t);
   await tmux(['new-session', '-d', '-s', 'keepalive', 'sleep', '120']);
-  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { allowFailure: true }));
   const serverPid = (await tmux(['display-message', '-p', '#{pid}'])).stdout.trim();
   const env = { ...opts.env, TMUX: `${socket},${serverPid},0`, TMUX_PANE: '' };
   const paneOf = async session => (await listServerPanes({ tmuxServer: socket, session })).find(p => p.alive)?.paneId;

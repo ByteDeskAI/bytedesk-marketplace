@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
+import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
 import { collectPresenceAgents, createPresenceProducer, publishPresence } from "../../topology/lib/presence.mjs";
 const run=promisify(execFile);
 const python=args=>run("python3",args,{env:{...process.env,PYTHONDONTWRITEBYTECODE:"1"}});
@@ -139,16 +140,15 @@ test("all linked worktrees publish into the main checkout repository identity",a
 });
 test("real isolated tmux pane observation publishes only its exact standing incarnation",async t=>{
  try {await run("tmux",["-V"]);} catch {t.skip("tmux unavailable");return;}
- const ctx=await setup(t),server=join(ctx.root,"presence.sock");
- t.after(()=>run("tmux",["-S",server,"kill-server"]).catch(()=>{}));
- await run("tmux",["-S",server,"-f","/dev/null","new-session","-d","-s","arbitrary","-c",ctx.consumer,"sleep","30"]);
+ const ctx=await setup(t),iso=isolatedTmux(t),server=iso.socket;
+ await iso.tmux(["-f","/dev/null","new-session","-d","-s","arbitrary","-c",ctx.consumer,"sleep","30"]);
  const {listServerPanes}=await import("../../topology/lib/tmux.mjs");
  const [observed]=await listServerPanes({tmuxServer:server,env:ctx.env});
  await agent(ctx,"lead0001","lead",observed);
  const producer=await createPresenceProducer({...ctx,listPanesFn:listServerPanes});
  const snapshot=await producer.publish();assert.equal(snapshot.agents.length,1);assert.equal(snapshot.agents[0].session.serverKey,server);
  await python([join(fixturesV2,"validate_presence_v2.py"),producer.path]);
- await run("tmux",["-S",server,"kill-session","-t","arbitrary"]);
+ await iso.tmux(["kill-session","-t","arbitrary"]);
  assert.deepEqual((await producer.publish()).agents,[]);
 });
 

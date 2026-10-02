@@ -10,6 +10,7 @@ import { readWorkflowIndex, topologyRunLocation, workflowRepository } from '../.
 import { loadRun, saveRun } from '../../topology/lib/mailbox.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
 import * as tmux from '../../topology/lib/tmux.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 
 const execute = promisify(execFile);
 const binding = { serverKey: '/fixture/tmux.sock', serverPid: 100, sessionId: '$1', sessionCreated: 1234567890, paneId: '%2', panePid: 200, sessionName: 'same-name', alive: true };
@@ -169,12 +170,10 @@ test('native writer observation includes child writers and holds missing virtual
 
 test('real isolated tmux stop addresses the recorded server and leaves a same-named peer intact', async t => {
   if (!(await execute('tmux', ['-V']).catch(() => null))) return t.skip('tmux is unavailable');
-  const cleanup = [], f = await fixture({ after: fn => cleanup.push(fn) }), ownedSocket = join(f.dir, 'a.sock'), peerSocket = join(f.dir, 'b.sock');
-  t.after(async () => {
-    for (const socket of [ownedSocket, peerSocket]) await execute('tmux', ['-S', socket, 'kill-server']).catch(() => {});
-    for (const dispose of cleanup) await dispose();
-  });
-  for (const socket of [ownedSocket, peerSocket]) await execute('tmux', ['-S', socket, '-f', '/dev/null', 'new-session', '-d', '-s', 'same-name', 'sleep', '300']);
+  const cleanup = [], f = await fixture({ after: fn => cleanup.push(fn) }), owned = isolatedTmux(t), peer = isolatedTmux(t);
+  const ownedSocket = owned.socket, peerSocket = peer.socket;
+  t.after(async () => { for (const dispose of cleanup) await dispose(); });
+  for (const iso of [owned, peer]) await iso.tmux(['-f', '/dev/null', 'new-session', '-d', '-s', 'same-name', 'sleep', '300']);
   const [observed] = await tmux.listServerPanes({ tmuxServer: ownedSocket, session: 'same-name' });
   f.run.agents[0].pane = observed.paneId; f.run.agents[0].binding = observed; await saveRun(f.runDir, f.run);
   const result = await stopNativeRun({ runDir: f.runDir });

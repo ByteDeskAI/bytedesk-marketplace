@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { sleep, writeJson } from '../../topology/lib/util.mjs';
 
 const exec = promisify(execFile);
@@ -34,7 +35,7 @@ async function fixture(t, label, { enrolled }) {
   try { await exec('tmux', ['-V']); } catch { t.skip('tmux unavailable'); return null; }
   // Short root: a tmux socket path must fit in sun_path.
   const root = await realpath(await mkdtemp(join(tmpdir(), `ao-act-${label}-`)));
-  const repo = join(root, 'repo'), home = join(root, 'home'), tmuxTmp = join(root, 't'), socket = join(root, 's');
+  const repo = join(root, 'repo'), home = join(root, 'home'), tmuxTmp = join(root, 't'), socket = join(tmuxTmp, 's');
   await mkdir(tmuxTmp, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxTmp, HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
     AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file' };
@@ -45,8 +46,7 @@ async function fixture(t, label, { enrolled }) {
 
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
-    assert.ok(env.TMUX === '' && socket.startsWith(`${root}/`), `refusing to kill a tmux server outside this test: ${socket}`);
-    await exec('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
+    await killOwnedServer(env, socket);
     await rm(root, { recursive: true, force: true });
   });
 

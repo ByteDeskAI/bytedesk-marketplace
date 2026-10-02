@@ -41,7 +41,7 @@ const results = [];
 for (let i = 1; i <= runs; i++) {
   // Never let a nonzero exit (a failing suite is the normal case here) throw away the output.
   const { stdout } = await exec(process.execPath,
-    ['--test', '--test-concurrency=1', ...pattern.split(' ')],
+    ['--import', './tests/helpers/tmux-preflight.mjs', '--test', '--test-concurrency=1', ...pattern.split(' ')],
     { cwd: root, maxBuffer: 64 * 1024 * 1024 }).catch(e => e);
   const out = stdout ?? '';
   const failed = [...out.matchAll(/^not ok \d+ - (.+)$/gm)].map(m => m[1].trim());

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1] — 2026-10-02
+
+### Tests
+
+- **No test can reach the operator's tmux server (TM-281).** The real-tmux cases in `topology-launch.test.mjs` set only `TMUX=''`, so a plain `TMUX= npm run test:unit` created and killed sessions on the default server, where live agent sessions run — the hazard behind INCIDENT-2026-09-09. Every real-tmux test now goes through one helper, `tests/helpers/isolated-tmux.mjs`. It gives each test a blank `TMUX`, a private `TMUX_TMPDIR` under `/tmp/aot-*`, a socket inside it, and a teardown that runs `kill-server` only with `-S` on that socket. It refuses, by resolved path, the default socket `/tmp/tmux-<uid>/default` and the server the suite was started from.
+- Every test script (`test:unit`, `test:topology`, `test:contract`, `test:topology:tmux`, `run-tests.sh`, `tests/stability.mjs`) now loads `tests/helpers/tmux-preflight.mjs` with `--import`. Library calls that are given no server or env resolve tmux from `process.env`, so the preflight blanks `TMUX` and sets a private `TMUX_TMPDIR` when none is set or it is `/tmp`. It fails at load if a bare `tmux` would still reach an operator socket. `tests/unit/tmux-isolation.test.mjs` proves the preflight ran, that the helper refuses the default socket and the operator's live socket, and that a refused kill never runs tmux.
+
 ## [0.13.0] — 2026-10-02
 
 ### Changed

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
+import { isolatedTmux, killOwnedServer } from "../helpers/isolated-tmux.mjs";
 import { sleep, writeJson } from "../../topology/lib/util.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -57,9 +58,7 @@ async function stopSupervisors(consumer) {
 async function killIsolatedServer(env) {
   const socket = await execFile("tmux", ["list-panes", "-a", "-F", "#{socket_path}"], { env: { ...process.env, ...env } })
     .then((result) => result.stdout.split("\n")[0].trim()).catch(() => "");
-  if (!socket) return;
-  assert.ok(env.TMUX === "" && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to kill a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
-  await execFile("tmux", ["-S", socket, "kill-server"], { env: { ...process.env, ...env } }).catch(() => {});
+  await killOwnedServer(env, socket);
 }
 
 /**
@@ -344,8 +343,7 @@ test("a pointer stuck in the composer is resubmitted with the submit key alone, 
 });
 
 test("managed shell ignores ambient default-command and an unsignalled timeout is never ready", { skip: tmuxAvailable ? false : "tmux not installed" }, async () => {
-  const dir = await mkdtemp(join(os.tmpdir(), 'ao-tmux-shell-'));
-  const env = { ...process.env, TMUX: '', TMUX_TMPDIR: dir, AO_TMUX_COMMAND: 'tmux' };
+  const iso = isolatedTmux(null, { extraEnv: { AO_TMUX_COMMAND: 'tmux' } }), { dir, env } = iso;
   try {
     // A deliberately non-shell default is a deterministic stand-in for a stalled login rc.
     await execFile('tmux', ['new-session', '-d', '-s', 'sentinel', 'cat'], { env });
@@ -370,12 +368,9 @@ test("managed shell ignores ambient default-command and an unsignalled timeout i
   } finally {
     // Scoped by SOCKET, not only by env. This teardown used to be a bare `kill-server` in a
     // sibling test, and an inherited $TMUX made it target the OPERATOR'S server: it destroyed 37
-    // live agent sessions on 2026-09-09. Env isolation is correct here and is kept, but it is one
-    // careless edit away from doing that again, so the socket is named explicitly as well.
-    const socket = await execFile('tmux', ['display-message', '-p', '#{socket_path}'], { env })
-      .then(r => r.stdout.trim()).catch(() => '');
-    if (socket) await execFile('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
-    await rm(dir, { recursive: true, force: true });
+    // live agent sessions on 2026-09-09. The helper's socket is the default one inside its private
+    // TMUX_TMPDIR, so the server the implicit calls above started is the one this kills.
+    await iso.teardown();
   }
 });
 

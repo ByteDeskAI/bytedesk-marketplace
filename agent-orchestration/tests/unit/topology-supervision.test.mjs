@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {run,writeJson,readJson,sleep as sleepMs} from '../../topology/lib/util.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
 import {superviseRepository,nextRung,SLEEP_LADDER_MS,DEFAULT_START_TIMEOUT_MS} from '../../topology/lib/supervision.mjs';
 import {censusPath,withStaleness} from '../../topology/lib/census.mjs';
@@ -31,8 +32,8 @@ for(const durable of [false,true]) test(`supervision refreshes a live ${durable?
  const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
  const repo=join(root,'repo'),home=join(root,'home'),env=isolatedEnv(root,home);
  await run('git',['init',repo]);
- const server=`ao-supervise-${process.pid}-${Date.now()}`;t.after(()=>run('tmux',['-L',server,'kill-server'],{allowFailure:true}));
- await run('tmux',['-L',server,'new-session','-d','-s','workflow','-c',repo,'sleep','60']);
+ const iso=isolatedTmux(t),server=iso.socket;
+ await iso.tmux(['new-session','-d','-s','workflow','-c',repo,'sleep','60']);
  const binding=(await listServerPanes({tmuxServer:server}))[0];
  const conf=join(repo,'.bytedesk/agent-orchestration');await mkdir(conf,{recursive:true});
  await writeJson(join(conf,'config.json'),{prompts:{common:'./policy.md'}});await writeFile(join(conf,'policy.md'),'initial policy');

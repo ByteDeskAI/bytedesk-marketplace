@@ -70342,8 +70342,8 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "29beb92a3640296e30a6f7b601b9c907e0e15f5596c4205592e0f5724a74f04e",
-  version: false ? null : "0.13.0"
+  sourceFingerprint: false ? null : "33f53b6d5071a7b8b03e442e58d185521abef8765babdf0369c3d1329fab9911",
+  version: false ? null : "0.13.1"
 };
 var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises43.readFile)(path3).then((bytes) => (0, import_node_crypto27.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -70653,7 +70653,7 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "29beb92a3640296e30a6f7b601b9c907e0e15f5596c4205592e0f5724a74f04e";
+  return false ? null : "33f53b6d5071a7b8b03e442e58d185521abef8765babdf0369c3d1329fab9911";
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);
@@ -71751,7 +71751,7 @@ function register2(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.13.0" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.13.1" });
   register2(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });
