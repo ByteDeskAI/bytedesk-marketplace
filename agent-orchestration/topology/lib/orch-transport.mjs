@@ -438,6 +438,21 @@ export async function writeTransportState(env, home, state) {
   await writeJson(transportStatePath(env, home), state);
 }
 
+/**
+ * TM-295: keeps an open outage live for a holder of its fallback, so a long-lived process that is not
+ * a supervisor (an MCP server with the dead NATS_URL) does not see its outage retired and then mint a
+ * second one on reconnect. Writes only when last_fallback_at is over a quarter bound old. Returns
+ * whether it wrote.
+ */
+export async function touchFallback(env, home, { source, url }, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  const state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  const outage = state?.outage;
+  if (!outage || outage.recovered_at || outage.source !== source || outage.url !== url) return false;
+  if (now - Date.parse(outage.last_fallback_at ?? outage.since) <= retireAfterMs / 4) return false;
+  await writeTransportState(env, home, { ...state, outage: { ...outage, last_fallback_at: new Date(now).toISOString() } });
+  return true;
+}
+
 /** True when a connection this process holds fell back from `source`+`url`: the outage is still in use here. */
 export function holdsFallbackFrom({ source, url }) {
   return [...liveTransports.values()].some((t) => t.selection?.fallback?.source === source && t.selection.fallback.url === url
@@ -457,8 +472,8 @@ export async function describeTransport(env = process.env, home = homedir()) {
  * the outage identity the lead is told about, kept across reopens); any later open that needs no
  * fallback AND dialled that outage's own source and url closes it with `recovered_at`. The file is
  * host-wide and processes differ in env, so an open that never tried the configured server (another
- * source, another url) proves nothing about it and leaves the outage open. Every fallback refreshes
- * `last_fallback_at`; readTransportState retires an outage once that is older than OUTAGE_RETIRE_MS.
+ * source, another url) proves nothing about it and leaves the outage open. Every fallback, and every
+ * holder's heartbeat (touchFallback), refreshes `last_fallback_at`; readTransportState retires an outage once that is older than OUTAGE_RETIRE_MS.
  * ponytail: read-modify-write without a lock; two racing first fallbacks can mint two `since`s.
  */
 async function recordTransportSelection(env, selection, home = homedir()) {
@@ -556,6 +571,13 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   }
   // An explicit `servers` caller (a test reader, a probe) is not this host's selection; record only the rest.
   if (!servers) await recordTransportSelection(env, selection, home).catch(() => {});
+  // TM-295: every process holding a fallback refreshes its outage, not only a repository supervisor.
+  let heartbeat = null;
+  if (!servers && selection.fallback) {
+    const retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS;
+    heartbeat = setInterval(() => { if (!nc.isClosed()) touchFallback(env, home, selection.fallback, { retireAfterMs }).catch(() => {}); }, retireAfterMs / 4);
+    heartbeat.unref();
+  }
   const jsOptions = domain ? { domain } : {};
   const js = nc.jetstream(jsOptions);
   const jsm = await nc.jetstreamManager(jsOptions);
@@ -853,6 +875,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async close({ force = false } = {}) {
       if (transport.closed) return;
       transport.closed = true;
+      clearInterval(heartbeat);
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
       for (const sub of subscriptions) {
