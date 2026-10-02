@@ -30,6 +30,9 @@
 - **A re-spawn also waits out typed, unsent input (TM-297).** The turn-end wait treats a composer
   that is not empty as busy, for any adapter that declares `composer.empty_pattern`, so neither
   `agent restart` nor a `launch`/`session open` re-spawn types over text someone is writing.
+  A `resume` restart that falls back to handoff passes the collected handoff to the successor;
+  a resumed restart with `--pass-handoff` reports `handoff: null` rather than failing. `agent list
+  --json` asks tmux once for the whole roster, not twice per agent.
 
 - **The NATS transport names itself, and an unreachable configured NATS is reported to the lead
   (TM-276, ADR-0031).** A dead ambient `NATS_URL` or stale gateway `orch.sock` still falls back to
