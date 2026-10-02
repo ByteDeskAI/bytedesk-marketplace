@@ -287,7 +287,7 @@ function orchestratorProblem(agents) {
 }
 
 /** Fields a stored agent contributes to a spec entry that references it. */
-const FROM_LIBRARY = ["template", "full_name", "title", "role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "args", "env", "auto_approve", "coordinates_only", "cwd"];
+const FROM_LIBRARY = ["template", "full_name", "title", "role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "instructions_mode", "args", "env", "auto_approve", "coordinates_only", "cwd"];
 
 /** A spec entry that omits `id` borrows the stored agent's name, uniquely within the run. */
 function derivedAgentId(stored, taken) {

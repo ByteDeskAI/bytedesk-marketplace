@@ -67,6 +67,8 @@ Conduct (used by the orchestrator agent)
   agent new --role <role> [--cli <id>] [--reports-to <id>] [--name "First Last"]
   agent list [--json]                          the repo's roster, by name and title
   agent show <id|"Full Name">                  one agent
+  agent set-instructions <id> (--file <md> | --text <s>) [--mode append|replace]
+                                               the agent's own instructions; replace drops its template
 
   session open <id|"Full Name">                open this agent's durable session, or reattach to it
        [--no-respawn] [--pass-handoff] [--turn-timeout 10m] [--handoff-timeout 5m]
@@ -129,6 +131,11 @@ Standing repository services
        |reassign <role> [<agent>] [--force]|detach <role> [<agent>] [--kill]|history <role>
                                                lead, reviewer, worker, designer, image-gen
   prompt preview|refresh|watch|ack <agent> [--revision <hash> --nonce <nonce>]
+  prompt preview (--agent <id> | --role <role>) [--consumer <repo>]   composed text + layer sources
+  config get --scope global|repo [--consumer <repo>]                   one layer's raw document + revision
+  config set --scope global|repo [--consumer <repo>] --file <json> [--if-revision <rev>]
+                                               validated, atomic; refuses a stale --if-revision
+  config validate --file <json> [--scope global|repo]
   startup pending|watch|hooks|install-hooks|uninstall-hooks [--provider <id> --server <name>]
   startup-check --source hook|manual
   git-hook install|uninstall|status [--consumer <repo>]   real git pre-commit hook: blocks a commit that enables
@@ -796,12 +803,44 @@ const commands = {
       ? { ...result, supervision: await activate(ctx, 'role-holder') }
       : result);
   },
+  async config({ flags, positional }) {
+    // TM-296: the contract the gateway settings UI reads and writes config through. One layer's raw
+    // document at a time, validated before any write, guarded by the revision the caller last read.
+    const ctx = context(flags);
+    const api = await import('./lib/config.mjs');
+    const sub = positional[0];
+    const scope = typeof flags.scope === 'string' ? flags.scope : null;
+    const options = { consumer: ctx.consumer, home: ctx.home };
+    const document = async () => {
+      invariant(typeof flags.file === 'string', 'TOPOLOGY_CONFIG_FILE_REQUIRED', 'Pass --file <json>.');
+      return readJson(absolutize(flags.file));
+    };
+    if (sub === 'get') return out({ ok: true, ...await api.readConfigLayer(scope, options) });
+    if (sub === 'validate') {
+      const doc = await document();
+      const errors = api.validateConfigShape(doc, flags.file);
+      return out({ ok: errors.length === 0, errors, warnings: scope ? api.layerWarnings(doc, scope, flags.file) : [] });
+    }
+    invariant(sub === 'set', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use config get|set|validate.');
+    return out(await api.writeConfigLayer(scope, await document(), { ...options, ifRevision: typeof flags['if-revision'] === 'string' ? flags['if-revision'] : null }));
+  },
   async prompt({ flags, positional }) {
     const ctx = context(flags);
+    const agentRef = positional[1] ?? (typeof flags.agent === 'string' ? flags.agent : undefined);
+    if (positional[0] === 'preview' && agentRef === undefined && typeof flags.role === 'string') {
+      // TM-296: what an agent of this role WOULD be told, before any agent of it exists.
+      const { composePrompt } = await import('./lib/prompts.mjs');
+      const { loadConfig } = await import('./lib/config.mjs');
+      const { titleForRole } = await import('./lib/identity.mjs');
+      const loaded = await loadConfig(ctx);
+      const role = flags.role;
+      const agent = { id: 'preview', full_name: `(preview ${role})`, title: titleForRole(role), role };
+      return out(await composePrompt({ ...ctx, agent, dir: '<agent directory>', loaded, templateName: loaded.config?.[role]?.template ?? null }));
+    }
     let agent, promptSession, recordedBinding = null;
     if (flags.run) {
       const runDir = await runDirFrom(flags), run = await loadRun(runDir);
-      const entry = run.agents.find(a => a.id === positional[1]);
+      const entry = run.agents.find(a => a.id === agentRef);
       invariant(entry, 'TOPOLOGY_UNKNOWN_AGENT', 'Agent is not in this workflow run.');
       invariant(run.consumer, 'TOPOLOGY_RUN_CONSUMER_REQUIRED', 'Workflow prompt composition requires its recorded repository.');
       const dir = join(runDir, 'agents', entry.id);
@@ -811,7 +850,7 @@ const commands = {
       ctx.consumer = run.consumer;
       promptSession = run.session;
     } else {
-      agent = await requireAgent(positional[1], ctx.agentDirs);
+      agent = await requireAgent(agentRef, ctx.agentDirs);
       const record = await readJson(join(agent._dir, 'session.json')).catch(() => null);
       recordedBinding = record?.binding ?? null;
     }
@@ -1169,6 +1208,23 @@ const commands = {
       }, ctx.agentDirs, ctx);
       out({ ok: true, agent: displayName(agent), id: agent.id, role: agent.role, ...roleVisual({ role: agent.role }), dir: agent._dir, reports_to: agent.reports_to });
       return;
+    }
+    if (sub === "set-instructions") {
+      const agent = await requireAgent(String(positional[1] || ""), ctx.agentDirs);
+      invariant(!agent._dir.startsWith(`${PLUGIN_ROOT}/`), "TOPOLOGY_AGENT_READ_ONLY", `${displayName(agent)} is a bundled plugin agent; a plugin update would overwrite the change.`);
+      const { setAgentInstructions } = await import('./lib/agents.mjs');
+      const updated = await setAgentInstructions(agent, {
+        file: typeof flags.file === "string" ? absolutize(flags.file) : null,
+        text: typeof flags.text === "string" ? flags.text : null,
+        mode: typeof flags.mode === "string" ? flags.mode : "append",
+        repo: ctx.consumer,
+      });
+      // A replace that meets role protocol keeps it; say so where the operator made the change.
+      const { composePrompt } = await import('./lib/prompts.mjs');
+      const { loadConfig } = await import('./lib/config.mjs');
+      const { warnings } = await composePrompt({ ...ctx, agent: { ...agent, ...updated }, dir: updated._dir, loaded: await loadConfig(ctx), templateName: agent.template });
+      return out({ ok: true, id: updated.id, file: updated._file, instructions_mode: updated.instructions_mode, instructions_file: updated.instructions_file, warnings,
+        next: `ao-topology prompt refresh ${updated.id} applies it (a live agent is staged as restart-required).` });
     }
     if (sub === "show") {
       const agent = await requireAgent(String(positional[1] || ""), ctx.agentDirs);
