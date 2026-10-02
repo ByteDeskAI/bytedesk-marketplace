@@ -109,6 +109,21 @@ export async function promotePromptForIncarnation({ agent, binding, consumer, se
   });
 }
 
+/**
+ * TM-297: the revision an agent's process was given against the one config composes now, so a UI can
+ * flag the agents `agent restart` would change. Given = acknowledged, else the one staged into the
+ * running incarnation at start (awaiting its ack). Only a live agent needs a restart: a stopped one
+ * starts on the current prompt.
+ */
+export async function promptRevisions({ agent, consumer, loaded, live }) {
+  const state = await readPromptState(agent._dir) || {};
+  const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName: agent.template });
+  const applied = state.applied_revision ?? (state.status === 'awaiting-ack' ? state.desired_revision : null) ?? null;
+  const desired = composed.ok ? composed.revision : null;
+  return { applied_revision: applied, desired_revision: desired, prompt_status: composed.ok ? state.status ?? null : 'invalid-config',
+    restart_required: Boolean(live && desired && applied !== desired) };
+}
+
 // Polling re-reads config plus every referenced file; rename-based editor saves cannot lose a watch.
 export async function watchPrompts(options, { signal, intervalMs = 1000, onChange = () => {} } = {}) {
   let last;

@@ -352,6 +352,12 @@ tmux attach -t brand-vault-<run_id>
 - **Role packs** — `roles/*.md`: domain-free contracts for orchestrator, worker, designer, judge,
   reviewer, researcher, implementer. Domain skills (e.g. `brand-brief`, `brand-concept`,
   `brand-judge` from the design-system plugin) are referenced by name and read by the agent.
+- **Prompt changes on a live agent** — `ao-topology agent restart <agent> --mode handoff|resume
+  --json` applies a changed prompt to one running agent at a safe turn boundary (never mid-turn,
+  never over typed input): `handoff` replaces the session and passes the predecessor's handoff,
+  `resume` continues the same provider conversation where the provider supports it (Claude
+  `--resume`) and otherwise falls back to `handoff` and says why. `agent list --json` flags
+  `restart_required` per agent. See [`docs/topology.md`](docs/topology.md#applying-a-changed-prompt-to-a-running-agent-agent-restart-tm-297).
 - **Mailbox** — messages are files in `<run>/agents/<id>/inbox`, replies in `outbox`; tmux only
   types a one-line pointer. Every event lands in `journal.jsonl`.
 - **Skills** — `orchestration-compose`, `orchestration-launch`, `orchestration-conduct` (the
