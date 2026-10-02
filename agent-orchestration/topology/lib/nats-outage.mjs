@@ -13,6 +13,12 @@ import { discardLiveTransports, readTransportState } from './orch-transport.mjs'
 import { readLeadRegistration } from './lead.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 
+// A server that accepts TCP but refuses NATS (auth, TLS, not NATS at all) passes canReach on every
+// tick, and each pass force-closes every cached transport. So re-dials back off per outage: 30 s,
+// doubling to 15 min. ponytail: in-process; a restarted supervisor starts the ladder again.
+const REDIAL_FIRST_MS = 30_000, REDIAL_MAX_MS = 15 * 60_000;
+const redials = new Map();
+
 const messageId = (kind, key, since) => createHash('sha256').update(`nats-${kind}:${key}:${since}`).digest('hex').slice(0, 32);
 
 /** TCP reachability of a nats:// URL or a unix socket path. ponytail: first server of a list only. */
@@ -30,7 +36,8 @@ export function canReach(url, timeoutMs = 1000) {
 }
 
 /** Returns null when there is nothing to say, else what was sent or why it was not. Never throws for a missing lead. */
-export async function natsOutageTick({ consumer, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration, reachable = canReach }) {
+export async function natsOutageTick({ consumer, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration, reachable = canReach,
+  discard = discardLiveTransports, now = Date.now }) {
   const state = await readTransportState(env, home);
   const outage = state?.outage;
   if (!outage?.since) return null;
@@ -38,12 +45,16 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   const outageId = messageId('outage', key, outage.since), recoveryId = messageId('recovered', key, outage.since);
   const sent = async (id) => Boolean(await readStandingMessage({ id, env, home }).catch(() => null));
   let probed = false;
-  if (!outage.recovered_at && await reachable(outage.url)) {
-    // The configured NATS answers again. Drop the cached local connection so the next open dials
+  const redialKey = `${outage.since}|${outage.url}`;
+  const redial = redials.get(redialKey);
+  if (outage.recovered_at) redials.delete(redialKey);
+  else if ((!redial || now() >= redial.at) && await reachable(outage.url)) {
+    // The configured NATS answers TCP again. Drop the cached local connection so the next open dials
     // the configured one through the real connect path, which is what closes the outage.
-    // ponytail: TCP only; a server that accepts the socket but refuses auth is re-dialled each reconcile.
-    await discardLiveTransports();
+    await discard();
     probed = true;
+    const wait = redial ? Math.min(redial.wait * 2, REDIAL_MAX_MS) : REDIAL_FIRST_MS;
+    redials.set(redialKey, { at: now() + wait, wait });
   }
   const kind = outage.recovered_at ? 'recovered' : 'outage';
   const id = kind === 'outage' ? outageId : recoveryId;

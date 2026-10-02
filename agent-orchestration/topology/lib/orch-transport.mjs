@@ -89,7 +89,7 @@ export function useTransportOpener(open) {
   return () => { openTransport = previous; };
 }
 
-export async function resolveTransport({ env = process.env, transport } = {}) {
+export async function resolveTransport({ env = process.env, transport, home } = {}) {
   if (transport) return transport;
   // Callers pass a partial env for the repo under test. Transport selection still
   // inherits AO_TRANSPORT from the process when that partial env does not set it,
@@ -99,7 +99,7 @@ export async function resolveTransport({ env = process.env, transport } = {}) {
   const key = `${selected.AO_NATS_URL || selected.NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}|${selected.AO_NATS_JS_DOMAIN || ''}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
-  const opened = await openTransport({ env: selected });
+  const opened = await openTransport({ env: selected, home });
   liveTransports.set(key, opened);
   const originalClose = opened.close.bind(opened);
   opened.close = async (options) => {
@@ -430,25 +430,29 @@ export async function describeTransport(env = process.env, home = homedir()) {
 /**
  * Writes transport.json only when the answer changed. A fallback opens an outage (its `since` is
  * the outage identity the lead is told about, kept across reopens); any later open that needs no
- * fallback closes it with `recovered_at`.
+ * fallback AND dialled that outage's own source and url closes it with `recovered_at`. The file is
+ * host-wide and processes differ in env, so an open that never tried the configured server (another
+ * source, another url) proves nothing about it and leaves the outage open.
  * ponytail: read-modify-write without a lock; two racing first fallbacks can mint two `since`s.
  */
-async function recordTransportSelection(env, selection) {
-  const previous = await readTransportState(env);
+async function recordTransportSelection(env, selection, home = homedir()) {
+  const previous = await readTransportState(env, home);
   const outageOf = (fallback) => fallback && { source: fallback.source, url: fallback.url, error: fallback.error,
     since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : new Date().toISOString(),
     recovered_at: null };
   let outage = previous?.outage ?? null;
   if (selection.fallback) outage = outageOf(selection.fallback);
-  else if (outage && !outage.recovered_at) outage = { ...outage, recovered_at: new Date().toISOString() };
+  else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
+    outage = { ...outage, recovered_at: new Date().toISOString() };
+  }
   const same = previous && previous.source === selection.source && previous.url === selection.url
     && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
   if (same) return;
-  await writeJson(transportStatePath(env), { kind: selection.kind, source: selection.source, url: selection.url,
+  await writeJson(transportStatePath(env, home), { kind: selection.kind, source: selection.source, url: selection.url,
     fallback: selection.fallback, at: new Date().toISOString(), pid: process.pid, outage });
 }
 
-export async function openNatsTransport({ env = process.env, servers, credsFile, name = 'ao-orch' } = {}) {
+export async function openNatsTransport({ env = process.env, home = homedir(), servers, credsFile, name = 'ao-orch' } = {}) {
   const {
     AckPolicy,
     DeliverPolicy,
@@ -518,7 +522,7 @@ export async function openNatsTransport({ env = process.env, servers, credsFile,
     }
   }
   // An explicit `servers` caller (a test reader, a probe) is not this host's selection; record only the rest.
-  if (!servers) await recordTransportSelection(env, selection).catch(() => {});
+  if (!servers) await recordTransportSelection(env, selection, home).catch(() => {});
   const jsOptions = domain ? { domain } : {};
   const js = nc.jetstream(jsOptions);
   const jsm = await nc.jetstreamManager(jsOptions);

@@ -11,7 +11,10 @@
   `transport-selected` or `transport-fallback` event at start and on every change; `services status`
   and `doctor` show `transport`, and `doctor` raises `NATS_CONFIGURED_UNREACHABLE`. Each repository
   supervisor mails its lead one durable standing message per outage and one on recovery. An explicit
-  `AO_NATS_URL` is still never replaced.
+  `AO_NATS_URL` is still never replaced. Only an open that dialled the outage's own source and url without
+  falling back closes it, so another process's env cannot fake a recovery; the selection is recorded
+  under the caller's `home`; and a configured server that accepts TCP but refuses NATS is re-dialled
+  with a per-outage backoff (30 s doubling to 15 min) instead of on every reconcile.
 
 ## [0.15.1] — 2026-10-02
 
