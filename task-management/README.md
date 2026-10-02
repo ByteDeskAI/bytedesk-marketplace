@@ -182,6 +182,15 @@ for it explicitly when a dispatch needs the sandbox. `manual` is the floor and n
 when no launcher exists, dispatch still succeeds at handing the work over; it hands it to
 *you*, as the commands to run.
 
+**tmux and manual workers get agent-orchestration's global prompt prefix.** Those two backends hand
+the worker tm's handoff directly, so dispatch reads ao's global `prompts.prefix` with
+`ao-topology config get --scope global --json` (a Markdown path relative to that config file, or a
+`{file}` / `{text}` entry) and puts it in front of the handoff. The topology backend is left alone,
+because ao composes the prefix into every prompt it launches. This step never blocks dispatch: if ao
+is not installed, the read fails, or the prefix file cannot be read, the worker starts without the
+prefix, `tm dispatch` prints a one-line `WARNING:` on stderr, and the warning is recorded as
+`prefixWarning` on the dispatch result and on the `dispatched` event.
+
 **`idle` is the backend that starts nothing.** It is not in the default order — set
 `dispatch.preferIdle: true` (or `--backend idle`) — and instead of launching a worker it asks the
 topology layer for an agent that is already running and binds this task to it. A standing agent
@@ -1223,6 +1232,24 @@ against is [`docs/dashboard-contract.md`](docs/dashboard-contract.md).
 ## Config
 
 `.bytedesk/task-management/bin/tm config` prints the current policy; `.bytedesk/task-management/bin/tm config <key> <json>` sets one.
+A value that is not valid JSON is stored as a string, so `tm config dispatch.integrationBranch develop`
+works without extra quoting.
+
+The gateway settings UI uses a JSON contract that mirrors `ao-topology config get|set`:
+
+| Command | Output |
+|---|---|
+| `tm config --json` | the whole effective config (stored values with defaults filled in) |
+| `tm config <key> --json` | one value; a dotted key is a path |
+| `tm config --with-revision` | `{ path, revision, config }` from one read; `revision` is the sha256 of `config.json`'s bytes, or `"absent"` |
+| `tm config --set-file <json> [--if-revision <rev>] --json` | validates the whole document, then writes it atomically under the store lock and returns `{ ok, path, previous_revision, revision }` |
+
+`--set-file` replaces the document; keys it leaves out fall back to their defaults. It refuses with
+exit 2 and writes nothing when: a top-level key is unknown (the refusal names every one), a key has
+the wrong type, a read-only key (`boardId`, `owner`) differs from its current value, or
+`--if-revision` no longer matches the file (`TM_CONFIG_STALE`). Read with `--with-revision`, edit,
+and write back with that revision, so you never overwrite a change you did not see. Free-form
+sections such as `dispatch.tmuxCommand` and `board.views` are not type-checked.
 
 | Key | Default | Effect |
 |---|---|---|

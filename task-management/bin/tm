@@ -71,7 +71,7 @@ import { attachEvidence, evidenceSyncReport, detachEvidence } from "../lib/evide
 import { capturePlan as saveCapturedPlan } from "../lib/plans.mjs";
 import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
-import { getPath, setPath } from "../lib/settings.mjs";
+import { getPath, readConfigDocument, setPath, writeConfigDocument } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview } from "../lib/governance.mjs";
@@ -1077,8 +1077,36 @@ const VERBS = {
     out("override armed — the next gate will pass and clear it");
   },
 
-  config(key, value) {
+  config(key, value, ...rest) {
     requireInit();
+    // TM-300: the whole-document contract the gateway settings UI uses, beside the key verbs.
+    const args = [key, value, ...rest].filter((a) => a !== undefined);
+    const flag = (name) => {
+      const i = args.indexOf(name);
+      if (i === -1) return null;
+      return args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : die(`usage: tm config ${name} <value>`);
+    };
+    if (args.includes("--set-file")) {
+      const file = flag("--set-file");
+      let doc;
+      try {
+        doc = JSON.parse(readFileSync(file, "utf8"));
+      } catch (err) {
+        die(`cannot read ${file} as JSON: ${err.message}`, 2);
+      }
+      const res = writeConfigDocument(doc, { ifRevision: flag("--if-revision"), p: P });
+      if (!res.ok) {
+        if (JSON_OUT) out(JSON.stringify(res, null, 2));
+        die(`${res.code}: ${res.reason}`, 2);
+      }
+      out(JSON_OUT ? JSON.stringify(res, null, 2) : `config written (revision ${res.revision})`);
+      tryEnsurePool();
+      return;
+    }
+    if (args.includes("--with-revision")) {
+      const { path, revision, config: effective } = readConfigDocument(P);
+      return out(JSON.stringify({ path, revision, config: effective }, null, 2));
+    }
     if (!key) return out(JSON.stringify(config(P), null, 2));
     // A read never writes: `{ [key]: undefined }` through writeConfig would drop the key (TM-174).
     if (value === undefined) return out(JSON.stringify(getPath(config(P), key) ?? null, null, 2));
@@ -1101,7 +1129,14 @@ const VERBS = {
       }
     }
     // A dotted key is a path: `dispatch.enabled` sets config.dispatch.enabled, siblings kept.
-    out(JSON.stringify(writeConfig(setPath(config(P), key, JSON.parse(value)), P), null, 2));
+    // A value that is not JSON is a bare string: `tm config dispatch.integrationBranch develop`.
+    let parsed;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      parsed = value;
+    }
+    out(JSON.stringify(writeConfig(setPath(config(P), key, parsed), P), null, 2));
     // Turning the pool on is the moment it should start, not the next session (TM-178). Ensuring
     // after every dispatch.* write is one call and no branch: it is a no-op while a pool is live
     // and a no-op while the pool is off. It can never fail the write that already landed.
@@ -1405,6 +1440,8 @@ const VERBS = {
     if (!res.ok) die(res.code ? `${res.code}: ${res.reason}` : res.reason, 2);
     // TM-240: an explicit governance opt-out is said on stderr in every output mode.
     if (res.ungoverned) process.stderr.write(`WARNING: ${res.ungoverned}\n`);
+    // TM-300: a missing ao prefix never blocks a dispatch, but it is never silent either.
+    if (res.prefixWarning) process.stderr.write(`WARNING: ${res.prefixWarning}\n`);
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.
@@ -1709,7 +1746,7 @@ const VERBS = {
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
-        "  reindex | override <reason> | override --clear | config [key value] | context",
+        "  reindex | override <reason> | override --clear | config [key [value]] | config --with-revision | config --set-file <json> [--if-revision <rev>] | context",
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
