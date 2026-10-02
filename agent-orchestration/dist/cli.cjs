@@ -53924,8 +53924,8 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "e64ae6e2c4fb3a35a5a02329c7ffbf3616d761e6580d12fc9910db2f453d568d",
-  version: false ? null : "0.13.0"
+  sourceFingerprint: false ? null : "fc0a335fe5db9a5c0ca1acd3caf32062a2d579254392c7c5675bc8550697a62b",
+  version: false ? null : "0.13.1"
 };
 var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises43.readFile)(path3).then((bytes) => (0, import_node_crypto27.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -54264,7 +54264,7 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "e64ae6e2c4fb3a35a5a02329c7ffbf3616d761e6580d12fc9910db2f453d568d";
+  return false ? null : "fc0a335fe5db9a5c0ca1acd3caf32062a2d579254392c7c5675bc8550697a62b";
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);

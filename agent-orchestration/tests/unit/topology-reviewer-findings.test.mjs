@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run, writeJson } from '../../topology/lib/util.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 import { composePrompt } from '../../topology/lib/prompts.mjs';
 import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewStatus, ensureReviewer, independentReviewStatus, latestReview,
@@ -210,17 +211,16 @@ test('a note is informational: it may omit evidence and fix, never blocks approv
 });
 
 test('collection reads a verdict that has scrolled far above the bottom of the pane', async t => {
-  const socket = join(await mkdtemp(join(tmpdir(), 'ao-tmux-')), 's');
-  t.after(() => run('tmux', ['-S', socket, 'kill-server'], { allowFailure: true }));
-  const signal = join(dirname(socket), 'verdict.txt');
-  await run('tmux', ['-S', socket, 'new-session', '-d', '-x', '200', '-y', '40', '-s', 'review', `sh -c 'while [ ! -f ${signal} ]; do sleep 0.1; done; cat ${signal}; seq 1 400; echo DONE; sleep 60'`]);
+  const iso = isolatedTmux(t), socket = iso.socket;
+  const signal = join(iso.dir, 'verdict.txt');
+  await iso.tmux(['new-session', '-d', '-x', '200', '-y', '40', '-s', 'review', `sh -c 'while [ ! -f ${signal} ]; do sleep 0.1; done; cat ${signal}; seq 1 400; echo DONE; sleep 60'`]);
   const { listServerPanes } = await import('../../topology/lib/tmux.mjs');
   const observed = (await listServerPanes({ tmuxServer: socket }))[0];
   const f = await fixture(t, observed);
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   await writeFile(signal, `● ${say(request.nonce, { verdict: 'approve', findings: [] })}\n`);
   for (let i = 0; i < 100; i++) {
-    const shown = (await run('tmux', ['-S', socket, 'capture-pane', '-p', '-t', observed.paneId])).stdout;
+    const shown = (await iso.tmux(['capture-pane', '-p', '-t', observed.paneId])).stdout;
     if (shown.includes('DONE')) break;
     await new Promise(resolve => setTimeout(resolve, 50));
   }

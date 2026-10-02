@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
 
 import {
   afterSessionOpen,
@@ -339,12 +340,12 @@ test("real isolated tmux servers bind hookless provider panes to repository cwd"
   const run = promisify(execFile);
   try { await run("tmux", ["-V"]); } catch { t.skip("tmux unavailable"); return; }
   const root = await scratch();
-  const servers = [join(root, "one.sock"), join(root, "two.sock")];
-  t.after(async () => { for (const server of servers) await run("tmux", ["-S", server, "kill-server"]).catch(() => {}); await rm(root, { recursive: true, force: true }); });
+  const isos = [isolatedTmux(t), isolatedTmux(t)], servers = isos.map(iso => iso.socket);
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
   const { copyFile } = await import("node:fs/promises");
   const bin = join(root, "kimi"); await copyFile("/bin/sleep", bin); await chmod(bin, 0o700);
-  for (const server of servers) {
-    await run("tmux", ["-S", server, "-f", "/dev/null", "new-session", "-d", "-s", "work", "-c", root, bin, "30"]);
+  for (const [index, server] of servers.entries()) {
+    await isos[index].tmux(["-f", "/dev/null", "new-session", "-d", "-s", "work", "-c", root, bin, "30"]);
     const { listServerPanes } = await import("../../topology/lib/tmux.mjs");
     let panes;
     for (let i = 0; i < 50; i++) { panes = await listServerPanes({ tmuxServer: server }); if (panes[0]?.command === "kimi") break; await new Promise(r => setTimeout(r, 20)); }

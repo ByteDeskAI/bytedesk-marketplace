@@ -19,6 +19,7 @@ import {
 import { localPersonaRegistry, personaScope, releaseRunPersona } from "../../topology/lib/persona-registry.mjs";
 import { liveSessionOf, planSession } from "../../topology/lib/launch.mjs";
 import * as tmux from "../../topology/lib/tmux.mjs";
+import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
 
 const exec = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -245,12 +246,9 @@ test("identity is read from metadata; legacy shapes are recognised; an ao-lookin
 const haveTmux = await exec("tmux", ["-V"]).then(() => true, () => false);
 
 test("readers resolve real tmux sessions from their @ao-* options, and one agent holds one live session", { skip: haveTmux ? false : "no tmux" }, async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "ao-t274-"));
-  const socket = join(dir, "s");
-  const env = { ...process.env, TMUX: "", TMUX_PANE: "", TMUX_TMPDIR: dir };
+  const iso = isolatedTmux(t), { socket, env } = iso;
   assert.equal(env.TMUX, "", "never inherit an operator tmux server");
-  const run = (...args) => exec("tmux", ["-S", socket, "-f", "/dev/null", ...args], { env });
-  t.after(async () => { await run("kill-server").catch(() => {}); await rm(dir, { recursive: true, force: true }); });
+  const run = (...args) => iso.tmux(["-f", "/dev/null", ...args]);
 
   const names = ["arbitrary-label", "ao-panestate-1", "ao-a1b2c3d4", "a1b2c3d4-1f4c9de", "agents1--app--lead--ada", "core--agents1--app--run--studio"];
   for (const name of names) await run("new-session", "-d", "-s", name, "sleep", "60");

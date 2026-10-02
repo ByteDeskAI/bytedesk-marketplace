@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { killOwnedServer, refuseOperatorSocket } from '../helpers/isolated-tmux.mjs';
 import { leadRecoveryStatus } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
@@ -60,13 +61,13 @@ async function stopSupervisors(dir) {
 
 function ownSocket(env, socket) {
   assert.ok(env.TMUX === '' && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to touch a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
-  return socket;
+  return refuseOperatorSocket(socket, env);
 }
 
 async function killIsolatedServer(env) {
   const socket = await execFile('tmux', ['list-panes', '-a', '-F', '#{socket_path}'], { env })
     .then((result) => result.stdout.split('\n')[0].trim()).catch(() => '');
-  if (socket) await execFile('tmux', ['-S', ownSocket(env, socket), 'kill-server'], { env }).catch(() => {});
+  await killOwnedServer(env, socket);
 }
 
 async function sessionsOn(env, socket) {
