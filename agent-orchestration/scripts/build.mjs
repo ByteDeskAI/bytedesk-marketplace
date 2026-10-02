@@ -3,7 +3,6 @@ import { cp, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { spawnSync } from "node:child_process";
 import { sourceFingerprint } from './source-fingerprint.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -11,11 +10,6 @@ const outdir = process.env.AO_BUILD_OUTDIR || join(root, "dist");
 const require = createRequire(import.meta.url);
 const fingerprint = await sourceFingerprint(root);
 const packageVersion = JSON.parse(await readFile(join(root,'package.json'),'utf8')).version;
-// TM-299: a fingerprint says WHICH build, not which is newer. The ordinal orders same-version builds
-// (host-copies.mjs never overwrites a higher one): the source commit time, or the build time without
-// git. It is a stamp, not content, so check-bundle.mjs masks it — see ORDINAL there.
-const commitTime = spawnSync('git', ['-C', root, 'log', '-1', '--format=%ct'], { encoding: 'utf8' });
-const ordinal = Number(commitTime.status === 0 && commitTime.stdout.trim()) || Math.floor(Date.now() / 1000);
 
 /**
  * TM-152, the half `preserveSymlinks` cannot reach. esbuild can be told not to realpath, but
@@ -60,7 +54,7 @@ const cjsApplication = {
   ...common,
   format: "cjs",
   define: { "import.meta.url": "__aoImportMetaUrl", __AO_BUILD_FINGERPRINT__:JSON.stringify(fingerprint), __AO_BUILD_VERSION__:JSON.stringify(packageVersion) },
-  banner: { js: `/* ao-build-ordinal:${ordinal} */\nconst __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;` },
+  banner: { js: "const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
 };
 const isolateClaudeSettings = {
   name: "isolate-claude-settings",

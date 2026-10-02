@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* ao-build-ordinal:1790976723 */
 const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -28774,8 +28773,8 @@ function reconcile(record2, alive2, at = nowIso()) {
     queue = queue.filter((entry) => alive2(entry.binding) !== false);
   }
   if (!holder && queue.length) {
-    const head2 = queue[0];
-    holder = { ...head2, granted_at: at, granted_binding: head2.binding };
+    const head = queue[0];
+    holder = { ...head, granted_at: at, granted_binding: head.binding };
     queue = queue.slice(1);
     events.push({ type: "granted", at, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason });
   }
@@ -31429,8 +31428,8 @@ var RunStore = class {
     return (0, import_node_path14.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile: writeFile10 } = await import("node:fs/promises");
-    await writeFile10(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile11 } = await import("node:fs/promises");
+    await writeFile11(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -31457,8 +31456,8 @@ var RunStore = class {
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile: writeFile10 } = await import("node:fs/promises");
-    await writeFile10((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile11 } = await import("node:fs/promises");
+    await writeFile11((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
@@ -46349,12 +46348,12 @@ async function createOrchestrationWorktree(repository, { runId, taskId: taskId2 
   await git(repository.checkoutRoot, ["worktree", "add", "--detach", "--", worktreePath, baseSha], { timeoutMs: 12e4 });
   const actualPath = await (0, import_promises10.realpath)(worktreePath);
   invariant(isPathWithin(root, actualPath), "AO_WORKTREE_ESCAPE", "Git created a worktree outside the consumer-derived orchestration root.");
-  const [{ stdout: head2 }, { stdout: commonGitDir }, { stdout: gitDir }] = await Promise.all([
+  const [{ stdout: head }, { stdout: commonGitDir }, { stdout: gitDir }] = await Promise.all([
     git(actualPath, ["rev-parse", "HEAD"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"])
   ]);
-  invariant(head2 === baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Created worktree does not match the requested base SHA.");
+  invariant(head === baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Created worktree does not match the requested base SHA.");
   invariant(await (0, import_promises10.realpath)(commonGitDir) === repository.commonGitDir, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree belongs to a different repository.");
   const actualGitDir = await (0, import_promises10.realpath)(gitDir);
   const worktreeAdminRoot = await (0, import_promises10.realpath)((0, import_node_path15.join)(repository.commonGitDir, "worktrees"));
@@ -46429,14 +46428,14 @@ async function removeOrchestrationWorktree(repository, workspace) {
   const markerInfo = await (0, import_promises10.lstat)((0, import_node_path15.join)(actualPath, ".git"));
   invariant(markerInfo.isFile(), "AO_GIT_METADATA_CHANGED", "The worktree .git marker was replaced before cleanup.");
   invariant(sha256(await (0, import_promises10.readFile)((0, import_node_path15.join)(actualPath, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed before cleanup.");
-  const [{ stdout: commonGitDir }, { stdout: head2 }, { stdout: gitDir }, { stdout: worktreeList }] = await Promise.all([
+  const [{ stdout: commonGitDir }, { stdout: head }, { stdout: gitDir }, { stdout: worktreeList }] = await Promise.all([
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(actualPath, ["rev-parse", "HEAD"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
     git(repository.checkoutRoot, ["worktree", "list", "--porcelain", "-z"])
   ]);
   invariant(await (0, import_promises10.realpath)(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
-  invariant(head2 === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
+  invariant(head === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
   invariant(await (0, import_promises10.realpath)(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
   const registeredPaths = await Promise.all(registeredWorktreePaths(worktreeList).map((path3) => (0, import_promises10.realpath)(path3).catch(() => (0, import_node_path15.resolve)(path3))));
   invariant(registeredPaths.includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
@@ -51964,12 +51963,12 @@ function inferToolKind(params) {
   if (params.toolCall.kind) return params.toolCall.kind;
   const title = params.toolCall.title?.trim().toLowerCase();
   if (!title) return;
-  const head2 = title.split(":", 1)[0]?.trim();
-  if (!head2) return;
-  return titleHeadToolKind(head2) ?? "other";
+  const head = title.split(":", 1)[0]?.trim();
+  if (!head) return;
+  return titleHeadToolKind(head) ?? "other";
 }
-function titleHeadToolKind(head2) {
-  return TOOL_KIND_TITLE_MATCHERS.find(({ needles }) => needles.some((needle) => head2.includes(needle)))?.kind;
+function titleHeadToolKind(head) {
+  return TOOL_KIND_TITLE_MATCHERS.find(({ needles }) => needles.some((needle) => head.includes(needle)))?.kind;
 }
 function isAutoApprovedReadKind(kind) {
   return kind === "read" || kind === "search";
@@ -51996,8 +51995,8 @@ function readToolName(params) {
     "toolName"
   ]);
   if (rawInputName) return rawInputName;
-  const head2 = params.toolCall.title?.trim()?.split(/[:\s]/, 1)[0]?.trim();
-  return head2 && head2.length > 0 ? head2 : void 0;
+  const head = params.toolCall.title?.trim()?.split(/[:\s]/, 1)[0]?.trim();
+  return head && head.length > 0 ? head : void 0;
 }
 function normalizeMatcher(value) {
   return value.trim().toLowerCase();
@@ -52015,8 +52014,8 @@ function permissionMatchTokens(params) {
     toolName
   ]) if (typeof value === "string" && value.trim().length > 0) tokens.add(normalizeMatcher(value));
   if (title) {
-    const head2 = title.split(/[:\s]/, 1)[0]?.trim();
-    if (head2) tokens.add(normalizeMatcher(head2));
+    const head = title.split(/[:\s]/, 1)[0]?.trim();
+    if (head) tokens.add(normalizeMatcher(head));
   }
   return [...tokens];
 }
@@ -59804,17 +59803,30 @@ var bundleTime = (root) => {
     return 0;
   }
 };
-var head = (path3) => {
+var BUILD_META = ".ao-build.json";
+function recordedOrdinal(root, fingerprint2) {
+  const meta3 = readJsonSync((0, import_node_path61.join)(root, BUILD_META));
+  return fingerprint2 && meta3?.fingerprint === fingerprint2 && Number(meta3.ordinal) > 0 ? Number(meta3.ordinal) : null;
+}
+function sourceOrdinal(root, fingerprint2, git3 = defaultGit) {
+  const commit2 = git3(["-C", root, "log", "-1", "--format=%ct"]);
+  const time3 = commit2.status === 0 && Number(commit2.stdout.trim());
+  if (time3 > 0) return time3;
+  const recorded = recordedOrdinal(root, fingerprint2);
+  if (recorded) return recorded;
+  let newest = 0;
   try {
-    return (0, import_node_fs12.readFileSync)(path3, "utf8").slice(0, 256);
+    for (const name of (0, import_node_fs12.readdirSync)((0, import_node_path61.join)(root, "dist"), { recursive: true })) newest = Math.max(newest, (0, import_node_fs12.statSync)((0, import_node_path61.join)(root, "dist", name)).mtimeMs);
   } catch {
-    return "";
   }
-};
-var buildOrdinal = (root) => Number(/\/\* ao-build-ordinal:(\d+) \*\//.exec(head((0, import_node_path61.join)(root, "dist", "cli.cjs")))?.[1]) || null;
-function keepBuild(copy, source) {
-  const [a, b] = [buildOrdinal(copy), buildOrdinal(source)];
-  if (a && b) return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+  return Math.floor(newest / 1e3) || null;
+}
+function keepBuild(copy, fingerprint2, source, ordinalOf) {
+  const a = recordedOrdinal(copy, fingerprint2);
+  if (a) {
+    const b = ordinalOf();
+    return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+  }
   return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
 }
 var looksLikeCopy = (dir) => (0, import_node_fs12.existsSync)((0, import_node_path61.join)(dir, "package.json")) && (0, import_node_fs12.existsSync)((0, import_node_path61.join)(dir, "dist"));
@@ -59895,12 +59907,14 @@ function missingDependencies(pkg, root) {
   }
   return missing2;
 }
-async function replaceCopy(source, dest) {
+async function replaceCopy(source, dest, meta3) {
   const staging = await (0, import_promises54.mkdtemp)((0, import_node_path61.join)((0, import_node_path61.dirname)(dest), `.${(0, import_node_path61.basename)(dest)}.ao-refresh-`));
   const retired = `${staging}-old`;
   let moved = false, swapped = false;
   try {
     await (0, import_promises54.cp)(source, staging, { recursive: true, force: true, preserveTimestamps: true, verbatimSymlinks: true, filter: (path3) => path3 === source || !EXCLUDED.has((0, import_node_path61.basename)(path3)) });
+    if (meta3) await (0, import_promises54.writeFile)((0, import_node_path61.join)(staging, BUILD_META), `${JSON.stringify(meta3)}
+`);
     await (0, import_promises54.rename)(dest, retired);
     swapped = true;
     if ((0, import_node_fs12.existsSync)((0, import_node_path61.join)(retired, "node_modules"))) {
@@ -59924,7 +59938,8 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
   const report = { source: pointer?.pluginRoot ?? null, version: pointer?.version ?? null, refreshed: [], current: [], skipped: [], failed: [] };
   if (!pointer?.pluginRoot || !isDir(pointer.pluginRoot)) return { ...report, skipped: copies.map((c) => ({ ...row(c), reason: "the services pointer names no plugin root" })) };
   const source = real(pointer.pluginRoot);
-  let dirty;
+  let dirty, ordinal;
+  const ordinalOf = () => ordinal ??= sourceOrdinal(pointer.pluginRoot, pointer.fingerprint, git3);
   for (const copy of copies) {
     const id = copyIdentity(copy.root);
     const base = { ...row(copy), version: id.version };
@@ -59942,7 +59957,7 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
         report.current.push({ ...base, reason: "same build" });
         continue;
       }
-      const keep = keepBuild(copy.root, pointer.pluginRoot);
+      const keep = keepBuild(copy.root, id.fingerprint, pointer.pluginRoot, ordinalOf);
       if (keep) {
         report.current.push({ ...base, reason: keep });
         continue;
@@ -59967,7 +59982,8 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
       continue;
     }
     try {
-      await replace(pointer.pluginRoot, copy.root);
+      const fingerprint2 = copyIdentity(pointer.pluginRoot).fingerprint;
+      await replace(pointer.pluginRoot, copy.root, fingerprint2 && { fingerprint: fingerprint2, ordinal: ordinalOf(), source: pointer.pluginRoot });
       report.refreshed.push({ ...base, from: id.version, version: copyIdentity(copy.root).version, ...order === 0 && { reason: "same version, different build" } });
     } catch (error51) {
       report.failed.push({ ...base, reason: `copy failed, left as it was: ${error51.message}` });
@@ -60022,10 +60038,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1a05c808444a6dcfc8ce0512e4c5314f1a3eefc848d0c0193b4cf84aeb994e0c";
+  return false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1a05c808444a6dcfc8ce0512e4c5314f1a3eefc848d0c0193b4cf84aeb994e0c";
+  const fingerprint2 = false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -60583,7 +60599,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1a05c808444a6dcfc8ce0512e4c5314f1a3eefc848d0c0193b4cf84aeb994e0c",
+  sourceFingerprint: false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

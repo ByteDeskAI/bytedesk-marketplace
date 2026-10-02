@@ -21,12 +21,12 @@
   sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
   was reported "same version, different build" and never refreshed. It now compares the build
   fingerprint `services ensure` uses and refreshes that copy, unless the copy is the newer build, so
-  a newer build is never downgraded. A fingerprint has no order, so the build now stamps a build
-  ordinal next to it (`/* ao-build-ordinal:<commit time> */` on line one of each bundle; the build
-  time when git is unavailable), and same-version copies are ordered by it. A copy without one (an
-  old install) falls back to bundle mtime, which refreshed copies preserve; an equal ordinal is left
-  alone. `build:check` masks the ordinal, since a dist built before its own commit carries the
-  parent's time.
+  a newer build is never downgraded. A fingerprint has no order, so each refresh writes
+  `.ao-build.json` (`{fingerprint, ordinal, source}`) into the copy, the ordinal being the source's
+  commit time read at sync time (the newest mtime under `dist/` outside git); same-version copies are
+  ordered by it. A copy without the file, or whose file names another build, falls back to bundle
+  mtime, which refreshed copies preserve; an equal ordinal is left alone. `dist/` carries no ordinal,
+  so builds stay byte-identical for the same source.
 
 - **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
   just after `AO_REVIEW <nonce> b64:` was printed (an empty or sub-4-character payload) now waits as

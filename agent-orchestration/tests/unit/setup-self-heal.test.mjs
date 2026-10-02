@@ -9,7 +9,7 @@ import os from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { buildOrdinal, copyIdentity, hostCopies, refreshHostCopies, replaceCopy, satisfies } from "../../src/services/host-copies.mjs";
+import { BUILD_META, copyIdentity, hostCopies, recordedOrdinal, refreshHostCopies, replaceCopy, satisfies, sourceOrdinal } from "../../src/services/host-copies.mjs";
 import { cleanupScopes, handOverLegacyHost, parseEtime, selfHeal, staleMcpServers, tmuxSocketCheck } from "../../src/services/self-heal.mjs";
 import { projectScopeWarning } from "../../src/services/project-scope.mjs";
 import { healLines, sessionStartWarning } from "../../src/services/cli.mjs";
@@ -27,11 +27,15 @@ async function scratch(t, prefix) {
   return root;
 }
 
-/** A plugin copy: package.json, a bundle carrying `fingerprint`, a marker file, and node_modules. */
-async function makeCopy(dir, { version, fingerprint = FP("a"), ordinal, marker = version, modules = { nats: "2.29.3", zod: "4.4.3", acpx: "0.12.0" }, extra } = {}) {
+/**
+ * A plugin copy: package.json, a bundle carrying `fingerprint`, a marker file, and node_modules.
+ * `ordinal` writes the build metadata a refresh leaves behind (`metaFingerprint` to make it stale).
+ */
+async function makeCopy(dir, { version, fingerprint = FP("a"), ordinal, metaFingerprint = fingerprint, marker = version, modules = { nats: "2.29.3", zod: "4.4.3", acpx: "0.12.0" }, extra } = {}) {
   await mkdir(join(dir, "dist"), { recursive: true });
   await writeFile(join(dir, "package.json"), JSON.stringify({ name: "@bytedesk/agent-orchestration", version, dependencies: DEPS }));
-  await writeFile(join(dir, "dist", "cli.cjs"), `${ordinal ? `/* ao-build-ordinal:${ordinal} */\n` : ""}const fp = false ? null : "${fingerprint}";\n`);
+  await writeFile(join(dir, "dist", "cli.cjs"), `const fp = false ? null : "${fingerprint}";\n`);
+  if (ordinal) await writeFile(join(dir, BUILD_META), JSON.stringify({ fingerprint: metaFingerprint, ordinal }));
   await writeFile(join(dir, "MARKER"), marker);
   if (extra) await writeFile(join(dir, extra), "only in the old copy");
   for (const [name, v] of Object.entries(modules)) {
@@ -137,11 +141,14 @@ test("TM-299: a same-version copy of a NEWER build is never downgraded; an unfin
   assert.equal(await readFile(join(codex, "MARKER"), "utf8"), "OLD-BUILD");
 });
 
-test("TM-299: same-version builds are ordered by build ordinal; mtime only for a copy without one", async (t) => {
+test("TM-299: same-version builds are ordered by the ordinal recorded at sync; mtime only for a copy without one", async (t) => {
   const root = await scratch(t, "ao-copies-ordinal-");
   const home = join(root, "home");
-  const source = await makeCopy(join(root, "src", "agent-orchestration"), { version: "0.14.0", fingerprint: FP("e"), ordinal: 2000, marker: "SOURCE" });
+  const source = await makeCopy(join(root, "src", "agent-orchestration"), { version: "0.14.0", fingerprint: FP("e"), marker: "SOURCE" });
   await builtAt(source, 1_500_000_000);
+  // The source's ordinal is its commit time, asked of git at sync time; nothing is a checkout.
+  const asked = [];
+  const git = (args) => { asked.push(args.slice(2).join(" ")); return args[2] === "log" ? { status: 0, stdout: "2000\n" } : { status: 128, stdout: "" }; };
   const at = (name) => join(root, "copies", name);
   // An older build installed later (its mtime is newer than the source's): refreshed.
   const olderLater = await makeCopy(at("older-installed-later"), { version: "0.14.0", ordinal: 1000 });
@@ -151,28 +158,51 @@ test("TM-299: same-version builds are ordered by build ordinal; mtime only for a
   await builtAt(newerEarlier, 1_000_000_000);
   // Equal ordinal, different fingerprint: cannot be ordered, so it is kept.
   const equal = await makeCopy(at("equal"), { version: "0.14.0", ordinal: 2000 });
-  // No ordinal (an old install): the mtime decides, both ways.
+  // No metadata (an old install): the mtime decides, both ways.
   const bareOld = await makeCopy(at("no-ordinal-old"), { version: "0.14.0" });
   await builtAt(bareOld, 1_000_000_000);
   const bareNew = await makeCopy(at("no-ordinal-new"), { version: "0.14.0" });
   await builtAt(bareNew, 1_900_000_000);
-  const copies = [olderLater, newerEarlier, equal, bareOld, bareNew].map((dir) => ({ host: basename(dir), root: dir, real: dir }));
+  // Metadata written for another build (the copy was replaced by other means): ignored, mtime decides.
+  const stale = await makeCopy(at("stale-meta"), { version: "0.14.0", ordinal: 9999, metaFingerprint: FP("f") });
+  await builtAt(stale, 1_000_000_000);
+  const copies = [olderLater, newerEarlier, equal, bareOld, bareNew, stale].map((dir) => ({ host: basename(dir), root: dir, real: dir }));
   const kept = { newerEarlier: await snapshot(newerEarlier), equal: await snapshot(equal), bareNew: await snapshot(bareNew) };
 
-  assert.equal(buildOrdinal(olderLater), 1000);
-  assert.equal(buildOrdinal(bareOld), null);
-  const report = await refreshHostCopies({ pointer: { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") }, home, env: {}, copies });
-  assert.deepEqual(report.refreshed.map((c) => [c.host, c.reason]), [["older-installed-later", "same version, different build"], ["no-ordinal-old", "same version, different build"]]);
+  assert.equal(recordedOrdinal(olderLater, FP("a")), 1000);
+  assert.equal(recordedOrdinal(bareOld, FP("a")), null);
+  assert.equal(recordedOrdinal(stale, FP("a")), null);
+  const pointer = { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") };
+  const report = await refreshHostCopies({ pointer, home, env: {}, copies, git });
+  assert.deepEqual(report.refreshed.map((c) => [c.host, c.reason]), [["older-installed-later", "same version, different build"], ["no-ordinal-old", "same version, different build"], ["stale-meta", "same version, different build"]]);
   assert.deepEqual(report.current.map((c) => [c.host, c.reason]), [
     ["newer-older-mtime", "same version, newer build than the services"],
     ["equal", "same version and build ordinal, different build; not overwritten"],
     ["no-ordinal-new", "same version, newer build than the services"],
   ]);
-  assert.equal(buildOrdinal(olderLater), 2000);
+  assert.equal(asked.filter((a) => a.startsWith("log")).length, 1, "the source's commit time is read once per sync");
+  // Every refreshed copy records the build it now holds and where from; the source tree gains nothing.
+  for (const dir of [olderLater, bareOld, stale]) assert.deepEqual(JSON.parse(await readFile(join(dir, BUILD_META), "utf8")), { fingerprint: FP("e"), ordinal: 2000, source });
+  await assert.rejects(stat(join(source, BUILD_META)), { code: "ENOENT" });
   assert.equal(await readFile(join(bareOld, "MARKER"), "utf8"), "SOURCE");
   assert.deepEqual(await snapshot(newerEarlier), kept.newerEarlier);
   assert.deepEqual(await snapshot(equal), kept.equal);
   assert.deepEqual(await snapshot(bareNew), kept.bareNew);
+});
+
+test("TM-299: outside git the source's ordinal is the newest mtime under dist/", async (t) => {
+  const root = await scratch(t, "ao-copies-ordinal-nogit-");
+  const source = await makeCopy(join(root, "src"), { version: "0.14.0", fingerprint: FP("e") });
+  await builtAt(source, 1_500_000_000);
+  await writeFile(join(source, "dist", "mcp.cjs"), "x");
+  await utimes(join(source, "dist", "mcp.cjs"), 1_600_000_000, 1_600_000_000);
+  const notGit = () => ({ status: 128, stdout: "" });
+  assert.equal(sourceOrdinal(source, FP("e"), notGit), 1_600_000_000);
+  // A source that is itself a refreshed copy reports what its refresh recorded.
+  await writeFile(join(source, BUILD_META), JSON.stringify({ fingerprint: FP("e"), ordinal: 1234 }));
+  assert.equal(sourceOrdinal(source, FP("e"), notGit), 1234);
+  // Git wins when it answers.
+  assert.equal(sourceOrdinal(source, FP("e"), () => ({ status: 0, stdout: "1790976723\n" })), 1790976723);
 });
 
 test("TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole", async (t) => {

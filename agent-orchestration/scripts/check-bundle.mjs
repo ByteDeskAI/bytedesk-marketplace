@@ -7,10 +7,7 @@ import { spawn } from "node:child_process";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const scratch = await mkdtemp(join(os.tmpdir(), "ao-build-check-"));
-// TM-299: the build ordinal is the commit time at build, so a dist built before its own commit
-// differs from a rebuild after it. Compare everything else.
-const ORDINAL = /\/\* ao-build-ordinal:\d+ \*\//;
-const hash = (value) => createHash("sha256").update(value.includes("ao-build-ordinal:") ? String(value).replace(ORDINAL, "") : value).digest("hex");
+const hash = (value) => createHash("sha256").update(value).digest("hex");
 
 try {
   await Promise.all([".deps.json", ".dll", ".exe", ".runtimeconfig.json"].map((suffix) =>

@@ -4,7 +4,7 @@
 // build the services pointer runs. Node built-ins only: install-host imports this unbundled.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { cp, mkdtemp, rename, rm } from "node:fs/promises";
+import { cp, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
 const NAME = "agent-orchestration";
@@ -15,18 +15,38 @@ const readJsonSync = (path) => { try { return JSON.parse(readFileSync(path, "utf
 const isDir = (path) => { try { return statSync(path).isDirectory(); } catch { return false; } };
 const real = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
 const bundleTime = (root) => { try { return statSync(join(root, "dist", "cli.cjs")).mtimeMs; } catch { return 0; } };
-const head = (path) => { try { return readFileSync(path, "utf8").slice(0, 256); } catch { return ""; } };
-/** The build ordinal build.mjs stamps on line one of the bundle (commit time); null on older builds. */
-export const buildOrdinal = (root) => Number(/\/\* ao-build-ordinal:(\d+) \*\//.exec(head(join(root, "dist", "cli.cjs")))?.[1]) || null;
+/** Per-copy build metadata, written by a refresh: {fingerprint, ordinal, source}. */
+export const BUILD_META = ".ao-build.json";
+/** The ordinal a refresh recorded in `root`, or null when absent or written for another build. */
+export function recordedOrdinal(root, fingerprint) {
+  const meta = readJsonSync(join(root, BUILD_META));
+  return fingerprint && meta?.fingerprint === fingerprint && Number(meta.ordinal) > 0 ? Number(meta.ordinal) : null;
+}
+/**
+ * TM-299: a fingerprint says WHICH build, not which is newer. The source's ordinal is its commit
+ * time, read at sync time so dist/ stays reproducible; else what a refresh recorded; else the
+ * newest mtime under dist/. Seconds.
+ */
+export function sourceOrdinal(root, fingerprint, git = defaultGit) {
+  const commit = git(["-C", root, "log", "-1", "--format=%ct"]);
+  const time = commit.status === 0 && Number(commit.stdout.trim());
+  if (time > 0) return time;
+  const recorded = recordedOrdinal(root, fingerprint);
+  if (recorded) return recorded;
+  let newest = 0;
+  try { for (const name of readdirSync(join(root, "dist"), { recursive: true })) newest = Math.max(newest, statSync(join(root, "dist", name)).mtimeMs); } catch { /* no dist */ }
+  return Math.floor(newest / 1000) || null;
+}
 
 /**
- * Why a same-version copy of a different build must be kept, or null to refresh it. Ordered by
- * build ordinal; by bundle mtime only when either side predates the ordinal. Equal ordinals cannot
- * be ordered, so the copy is kept: leaving it is recoverable, a downgrade is not.
+ * Why a same-version copy of a different build must be kept, or null to refresh it. Ordered by the
+ * ordinal a refresh recorded in the copy; by bundle mtime only for a copy without one (installed
+ * before TM-299 or by another tool). Equal ordinals cannot be ordered, so the copy is kept: leaving
+ * it is recoverable, a downgrade is not.
  */
-function keepBuild(copy, source) {
-  const [a, b] = [buildOrdinal(copy), buildOrdinal(source)];
-  if (a && b) return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+function keepBuild(copy, fingerprint, source, ordinalOf) {
+  const a = recordedOrdinal(copy, fingerprint);
+  if (a) { const b = ordinalOf(); return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null; }
   return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
 }
 const looksLikeCopy = (dir) => existsSync(join(dir, "package.json")) && existsSync(join(dir, "dist"));
@@ -128,14 +148,15 @@ export function missingDependencies(pkg, root) {
  * in by rename, so a failure at any step leaves the old copy as it was. Node's cp, not rsync:
  * native Windows has no rsync, and a fresh tree is `--delete` by construction.
  */
-export async function replaceCopy(source, dest) {
+export async function replaceCopy(source, dest, meta) {
   const staging = await mkdtemp(join(dirname(dest), `.${basename(dest)}.ao-refresh-`));
   const retired = `${staging}-old`;
   let moved = false, swapped = false;
   try {
     // preserveTimestamps: the copy's bundle mtime stays the build time, which the same-version check
-    // reads for a bundle with no build ordinal.
+    // reads for a copy with no recorded ordinal.
     await cp(source, staging, { recursive: true, force: true, preserveTimestamps: true, verbatimSymlinks: true, filter: (path) => path === source || !EXCLUDED.has(basename(path)) });
+    if (meta) await writeFile(join(staging, BUILD_META), `${JSON.stringify(meta)}\n`);
     await rename(dest, retired);
     swapped = true;
     if (existsSync(join(retired, "node_modules"))) { await rename(join(retired, "node_modules"), join(staging, "node_modules")); moved = true; }
@@ -160,7 +181,8 @@ export async function refreshHostCopies({ pointer, home, env = {}, copies = host
   const report = { source: pointer?.pluginRoot ?? null, version: pointer?.version ?? null, refreshed: [], current: [], skipped: [], failed: [] };
   if (!pointer?.pluginRoot || !isDir(pointer.pluginRoot)) return { ...report, skipped: copies.map((c) => ({ ...row(c), reason: "the services pointer names no plugin root" })) };
   const source = real(pointer.pluginRoot);
-  let dirty;
+  let dirty, ordinal;
+  const ordinalOf = () => (ordinal ??= sourceOrdinal(pointer.pluginRoot, pointer.fingerprint, git));
   for (const copy of copies) {
     const id = copyIdentity(copy.root);
     const base = { ...row(copy), version: id.version };
@@ -168,11 +190,11 @@ export async function refreshHostCopies({ pointer, home, env = {}, copies = host
     const order = compareVersions(id.version, pointer.version);
     if (order > 0) { report.current.push({ ...base, reason: `newer than the services (${pointer.version})` }); continue; }
     // TM-299: a version is not a build. At the same version a different fingerprint is refreshed,
-    // unless the copy is the newer build: a hash has no order, so the build ordinal decides, and a
-    // newer build is never overwritten. No fingerprint on either side: same build.
+    // unless the copy is the newer build: a hash has no order, so the ordinal recorded at the copy's
+    // last refresh decides, and a newer build is never overwritten. No fingerprint on either side: same build.
     if (order === 0) {
       if (!pointer.fingerprint || !id.fingerprint || id.fingerprint === pointer.fingerprint) { report.current.push({ ...base, reason: "same build" }); continue; }
-      const keep = keepBuild(copy.root, pointer.pluginRoot);
+      const keep = keepBuild(copy.root, id.fingerprint, pointer.pluginRoot, ordinalOf);
       if (keep) { report.current.push({ ...base, reason: keep }); continue; }
     }
     if (gitTop(copy.root, git)) { report.skipped.push({ ...base, reason: `${copy.root} is inside a git checkout; update it with git` }); continue; }
@@ -182,7 +204,8 @@ export async function refreshHostCopies({ pointer, home, env = {}, copies = host
     if (missing.length) { report.failed.push({ ...base, reason: `node_modules does not satisfy the new package.json: ${missing.join(", ")}; run npm ci in ${copy.root}`, missing }); continue; }
     if (dryRun) { report.refreshed.push({ ...base, from: id.version, version: pointer.version, dryRun: true, ...(order === 0 && { reason: "same version, different build" }) }); continue; }
     try {
-      await replace(pointer.pluginRoot, copy.root);
+      const fingerprint = copyIdentity(pointer.pluginRoot).fingerprint;
+      await replace(pointer.pluginRoot, copy.root, fingerprint && { fingerprint, ordinal: ordinalOf(), source: pointer.pluginRoot });
       report.refreshed.push({ ...base, from: id.version, version: copyIdentity(copy.root).version, ...(order === 0 && { reason: "same version, different build" }) });
     } catch (error) {
       report.failed.push({ ...base, reason: `copy failed, left as it was: ${error.message}` });

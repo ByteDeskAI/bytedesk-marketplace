@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* ao-build-ordinal:1790976723 */
 const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;
 var __create = Object.create;
 var __defProp = Object.defineProperty;
