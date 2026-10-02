@@ -31428,8 +31428,8 @@ var RunStore = class {
     return (0, import_node_path14.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile: writeFile10 } = await import("node:fs/promises");
-    await writeFile10(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile11 } = await import("node:fs/promises");
+    await writeFile11(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -31456,8 +31456,8 @@ var RunStore = class {
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile: writeFile10 } = await import("node:fs/promises");
-    await writeFile10((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile11 } = await import("node:fs/promises");
+    await writeFile11((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
@@ -59796,6 +59796,39 @@ var real = (path3) => {
     return (0, import_node_path61.resolve)(path3);
   }
 };
+var bundleTime = (root) => {
+  try {
+    return (0, import_node_fs12.statSync)((0, import_node_path61.join)(root, "dist", "cli.cjs")).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
+var BUILD_META = ".ao-build.json";
+function recordedOrdinal(root, fingerprint2) {
+  const meta3 = readJsonSync((0, import_node_path61.join)(root, BUILD_META));
+  return fingerprint2 && meta3?.fingerprint === fingerprint2 && Number(meta3.ordinal) > 0 ? Number(meta3.ordinal) : null;
+}
+function sourceOrdinal(root, fingerprint2, git3 = defaultGit) {
+  const commit2 = git3(["-C", root, "log", "-1", "--format=%ct"]);
+  const time3 = commit2.status === 0 && Number(commit2.stdout.trim());
+  if (time3 > 0) return time3;
+  const recorded = recordedOrdinal(root, fingerprint2);
+  if (recorded) return recorded;
+  let newest = 0;
+  try {
+    for (const name of (0, import_node_fs12.readdirSync)((0, import_node_path61.join)(root, "dist"), { recursive: true })) newest = Math.max(newest, (0, import_node_fs12.statSync)((0, import_node_path61.join)(root, "dist", name)).mtimeMs);
+  } catch {
+  }
+  return Math.floor(newest / 1e3) || null;
+}
+function keepBuild(copy, fingerprint2, source, ordinalOf) {
+  const a = recordedOrdinal(copy, fingerprint2);
+  if (a) {
+    const b = ordinalOf();
+    return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+  }
+  return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
+}
 var looksLikeCopy = (dir) => (0, import_node_fs12.existsSync)((0, import_node_path61.join)(dir, "package.json")) && (0, import_node_fs12.existsSync)((0, import_node_path61.join)(dir, "dist"));
 function compareVersions(a, b) {
   const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
@@ -59874,12 +59907,14 @@ function missingDependencies(pkg, root) {
   }
   return missing2;
 }
-async function replaceCopy(source, dest) {
+async function replaceCopy(source, dest, meta3) {
   const staging = await (0, import_promises54.mkdtemp)((0, import_node_path61.join)((0, import_node_path61.dirname)(dest), `.${(0, import_node_path61.basename)(dest)}.ao-refresh-`));
   const retired = `${staging}-old`;
   let moved = false, swapped = false;
   try {
-    await (0, import_promises54.cp)(source, staging, { recursive: true, force: true, verbatimSymlinks: true, filter: (path3) => path3 === source || !EXCLUDED.has((0, import_node_path61.basename)(path3)) });
+    await (0, import_promises54.cp)(source, staging, { recursive: true, force: true, preserveTimestamps: true, verbatimSymlinks: true, filter: (path3) => path3 === source || !EXCLUDED.has((0, import_node_path61.basename)(path3)) });
+    if (meta3) await (0, import_promises54.writeFile)((0, import_node_path61.join)(staging, BUILD_META), `${JSON.stringify(meta3)}
+`);
     await (0, import_promises54.rename)(dest, retired);
     swapped = true;
     if ((0, import_node_fs12.existsSync)((0, import_node_path61.join)(retired, "node_modules"))) {
@@ -59903,7 +59938,8 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
   const report = { source: pointer?.pluginRoot ?? null, version: pointer?.version ?? null, refreshed: [], current: [], skipped: [], failed: [] };
   if (!pointer?.pluginRoot || !isDir(pointer.pluginRoot)) return { ...report, skipped: copies.map((c) => ({ ...row(c), reason: "the services pointer names no plugin root" })) };
   const source = real(pointer.pluginRoot);
-  let dirty;
+  let dirty, ordinal;
+  const ordinalOf = () => ordinal ??= sourceOrdinal(pointer.pluginRoot, pointer.fingerprint, git3);
   for (const copy of copies) {
     const id = copyIdentity(copy.root);
     const base = { ...row(copy), version: id.version };
@@ -59917,8 +59953,15 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
       continue;
     }
     if (order === 0) {
-      report.current.push({ ...base, reason: pointer.fingerprint && id.fingerprint && id.fingerprint !== pointer.fingerprint ? "same version, different build" : "same build" });
-      continue;
+      if (!pointer.fingerprint || !id.fingerprint || id.fingerprint === pointer.fingerprint) {
+        report.current.push({ ...base, reason: "same build" });
+        continue;
+      }
+      const keep = keepBuild(copy.root, id.fingerprint, pointer.pluginRoot, ordinalOf);
+      if (keep) {
+        report.current.push({ ...base, reason: keep });
+        continue;
+      }
     }
     if (gitTop(copy.root, git3)) {
       report.skipped.push({ ...base, reason: `${copy.root} is inside a git checkout; update it with git` });
@@ -59935,12 +59978,13 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
       continue;
     }
     if (dryRun) {
-      report.refreshed.push({ ...base, from: id.version, version: pointer.version, dryRun: true });
+      report.refreshed.push({ ...base, from: id.version, version: pointer.version, dryRun: true, ...order === 0 && { reason: "same version, different build" } });
       continue;
     }
     try {
-      await replace(pointer.pluginRoot, copy.root);
-      report.refreshed.push({ ...base, from: id.version, version: copyIdentity(copy.root).version });
+      const fingerprint2 = copyIdentity(pointer.pluginRoot).fingerprint;
+      await replace(pointer.pluginRoot, copy.root, fingerprint2 && { fingerprint: fingerprint2, ordinal: ordinalOf(), source: pointer.pluginRoot });
+      report.refreshed.push({ ...base, from: id.version, version: copyIdentity(copy.root).version, ...order === 0 && { reason: "same version, different build" } });
     } catch (error51) {
       report.failed.push({ ...base, reason: `copy failed, left as it was: ${error51.message}` });
     }
@@ -59994,10 +60038,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "20467716ea6e7e3571176cffbd43784b8b5b8e1b840bb9c5b9b19b900e1da94c";
+  return false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "20467716ea6e7e3571176cffbd43784b8b5b8e1b840bb9c5b9b19b900e1da94c";
+  const fingerprint2 = false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -60555,7 +60599,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "20467716ea6e7e3571176cffbd43784b8b5b8e1b840bb9c5b9b19b900e1da94c",
+  sourceFingerprint: false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

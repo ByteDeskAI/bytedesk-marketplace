@@ -17,6 +17,17 @@
 
 ### Fixed
 
+- **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
+  sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
+  was reported "same version, different build" and never refreshed. It now compares the build
+  fingerprint `services ensure` uses and refreshes that copy, unless the copy is the newer build, so
+  a newer build is never downgraded. A fingerprint has no order, so each refresh writes
+  `.ao-build.json` (`{fingerprint, ordinal, source}`) into the copy, the ordinal being the source's
+  commit time read at sync time (the newest mtime under `dist/` outside git); same-version copies are
+  ordered by it. A copy without the file, or whose file names another build, falls back to bundle
+  mtime, which refreshed copies preserve; an equal ordinal is left alone. `dist/` carries no ordinal,
+  so builds stay byte-identical for the same source.
+
 - **Tests can no longer reach the managed services, and a run fails if it leaves tmux or processes
   behind (TM-298).** The contract suite never set `AGENT_ORCHESTRATION_SERVICES=0`, so `launch` in
   an enrolled temp repository registered it with process-compose, which re-ran `supervise` with a

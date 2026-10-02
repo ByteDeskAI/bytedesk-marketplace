@@ -1,0 +1,29 @@
+TM-299 evidence — round 4 (rebuild after #163) — 2026-10-02
+Revision measured: 323eed60e2398a8c4845b80157f96918399e8c4e (merge of origin/fix/ao-local-nats-autostart
+b43b06c1 into 99da8088; faro approved 99da8088). Tree clean before and after every check.
+
+Merge: one conflict, agent-orchestration/CHANGELOG.md [Unreleased] Fixed — both entries kept
+(TM-299 host-copy self-heal, TM-298 suite-leaks). No dist/ conflict; dist/ rebuilt anyway with
+npm ci && npm run build and showed no diff. No other conflicts. No new code.
+
+Checks (agent-orchestration/, foreground):
+  npm ci --no-audit --no-fund     exit 0
+  npm run build                   exit 0
+  npm run build:check             exit 0; `git status --short` empty afterwards (dist reproducible)
+  npm run test:unit               exit 1 — 1013 tests: 1005 pass / 4 fail / 4 skipped
+  TMUX= npm run test:contract     exit 0 — 19/19 pass
+  setup-self-heal.test.mjs alone  16/16 pass (host-copy fingerprint + .ao-build.json ordinal cases)
+
+The 4 unit failures are all in tests/unit/topology-management.test.mjs (TM-293, pre-existing):
+  17 record-landing records an operator landing that governed completion accepts, without merging
+  24 governed completion accepts a delegated integration record unchanged
+  48 TM-249 success: integrate merges the PR ... records the landing
+  64 TM-263 (a) the proven lead records a landing with no grant and no --authorized
+Control: the same file fails the same 4 tests (72 pass / 4 fail) on base b43b06c1 in a separate
+clean detached worktree with its own `npm ci` node_modules. Isolation removed: nothing shared with
+this tree except the machine (HOME, installed plugins), so a machine-dependent cause is not excluded.
+The failure text is task-management's governed-completion refusal ("workers finish at
+ready-for-review; only reviewed and authorized integration can close this task").
+
+Criterion 2 (live resync of the real grok/codex copies, sha256 of dist/cli.cjs) NOT done —
+the lead does it after merge.
