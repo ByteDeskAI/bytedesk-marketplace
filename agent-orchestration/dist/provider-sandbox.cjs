@@ -970,6 +970,7 @@ async function main() {
   const providerId = process.argv[2];
   const pluginRoot = await (0, import_promises3.realpath)((0, import_node_url.fileURLToPath)(new URL("..", __aoImportMetaUrl)));
   if (process.platform === "win32") return runWindowsSandbox({ providerId, pluginRoot });
+  invariant(process.platform === "linux", "AO_SANDBOX_UNAVAILABLE", `Provider isolation is not implemented on ${process.platform}; refusing to run ${providerId} unsandboxed.`);
   for (const entry of await (0, import_promises3.readdir)("/dev/shm", { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-broker-(\d+)-/.exec(entry.name);

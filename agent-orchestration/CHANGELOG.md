@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.1] — 2026-10-01
+
+### Fixed
+
+- **Runs can start on macOS (TM-273).** Every non-Windows host was given the `linux-native` backend, which launches workers through `systemd-run` and `prlimit`; neither exists on macOS. darwin now selects `darwin-native`: a detached Node watchdog starts each worker as the leader of its own process group, enforces the same limits as the Linux scopes (8 hours per worker, 30 seconds per provider probe; SIGTERM, then SIGKILL after 3 seconds), and caps core dumps and file size with `ulimit`. Liveness is the recorded pid plus its start identity, and cancel signals the whole group. macOS has no per-group memory or task-count limit, so none is applied. Logs and run state use the same layout as Linux.
+- On macOS, process start identity comes from `ps -o lstart=` in the C locale instead of `/proc`, and the session host is not started through a systemd scope.
+
+### Changed
+
+- **Provider isolation is unavailable on macOS, and runs are refused rather than run unsandboxed.** Bubblewrap is Linux-only. On darwin, `doctor` reports the sandbox as `unavailable` with the reason, and `spawn` refuses with `AO_SANDBOX_UNAVAILABLE` before any provider discovery. The provider-sandbox launcher also refuses on any platform other than Linux and Windows. A macOS sandbox is follow-up work.
+- Verified on Linux only: the darwin selection is tested by injected platform, and the process-group backend (launch, liveness, cancel of the whole group, runtime-limit escalation, ulimit caps) is exercised for real on Linux, where it uses the same POSIX calls. It has not run on a Mac.
+
 ## [0.12.0] — 2026-10-01
 
 ### Added
