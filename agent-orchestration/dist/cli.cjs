@@ -594,7 +594,7 @@ var init_session_names = __esm({
     init_repoid();
     init_util();
     SEPARATOR = "--";
-    PART_CAPS = Object.freeze({ team: 16, node: 24, repo: 32, role: 16, persona: 24 });
+    PART_CAPS = Object.freeze({ team: 16, node: 24, repo: 32, role: 48, persona: 24 });
     CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     SESSION_OPTIONS = Object.freeze({
       id: "@ao-id",
@@ -21229,7 +21229,7 @@ function assertSessionName(name) {
   invariant2(
     typeof name === "string" && ROLE_SESSION_NAME.test(name),
     "TOPOLOGY_SESSION_NAME_INVALID",
-    `${JSON.stringify(name)} cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 128 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`
+    `${JSON.stringify(name)} cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 160 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`
   );
   return name;
 }
@@ -21389,7 +21389,7 @@ var init_launch = __esm({
     init_spec();
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
     RUN_PERSONA_GRACE_MS = 12e4;
-    ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,128}$/;
+    ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,160}$/;
   }
 });
 
@@ -53924,7 +53924,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4603073b4eaab907168f92021fad792e75ee81c83caffb3dc593a7275ee0ebf7",
+  sourceFingerprint: false ? null : "e64ae6e2c4fb3a35a5a02329c7ffbf3616d761e6580d12fc9910db2f453d568d",
   version: false ? null : "0.13.0"
 };
 var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -54264,7 +54264,7 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4603073b4eaab907168f92021fad792e75ee81c83caffb3dc593a7275ee0ebf7";
+  return false ? null : "e64ae6e2c4fb3a35a5a02329c7ffbf3616d761e6580d12fc9910db2f453d568d";
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);

@@ -26,7 +26,7 @@ import { readJson, run } from "./util.mjs";
 
 export const SEPARATOR = "--";
 /** Per-segment caps, so a long folder or name cannot push the role out of sight. */
-export const PART_CAPS = Object.freeze({ team: 16, node: 24, repo: 32, role: 16, persona: 24 });
+export const PART_CAPS = Object.freeze({ team: 16, node: 24, repo: 32, role: 48, persona: 24 });
 
 /**
  * One segment in tmux-safe form: lowercase, every other run of characters becomes ONE `-` (so `--`

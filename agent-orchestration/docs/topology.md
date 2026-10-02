@@ -127,7 +127,7 @@ for example `core--agents1--bytedesk-marketplace--lead--ada` in a team, or
 | `persona` | the agent's generated first name, `first-last` when the first name is taken in the scope; for a team run, a first name allocated to that run |
 
 Each segment is lowercased, every other run of characters becomes one `-`, and it is capped (team
-16, node 24, repo 32, role 16, persona 24), so `--` only ever separates segments and
+16, node 24, repo 32, role 48, persona 24), so `--` only ever separates segments and
 `bytedesk-marketplace (copy)` becomes `bytedesk-marketplace-copy`.
 
 **There is no collision suffix.** Names are unique by design:

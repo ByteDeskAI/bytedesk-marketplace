@@ -5,7 +5,7 @@
 // and every command — kill-server included — scoped with -S <socket>.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -50,6 +50,15 @@ test("each segment is capped on its own, and an empty one falls back rather than
   assert.deepEqual(name.split("--").map((part) => part.length), caps);
   assert.equal(slugPart(`${"a".repeat(PART_CAPS.role - 1)} b`, PART_CAPS.role), "a".repeat(PART_CAPS.role - 1), "no trailing dash after a cap");
   assert.equal(composeSessionName({ team: "  ", node: "...", repo: "()", role: "", persona: null }), "host--repo--agent--agent");
+  // The longest possible name must still pass launch's session-name check (160) — planSession asserts it.
+  assert.ok(name.length <= 160 && /^[a-z0-9-]{1,160}$/.test(name), `worst-case name is ${name.length} chars`);
+});
+
+test("every bundled workflow name fits the role segment untruncated", async () => {
+  const dir = join(HERE, "../../workflows");
+  const names = (await readdir(dir)).filter((file) => file.endsWith(".json")).map((file) => file.replace(/\.json$/, ""));
+  assert.ok(names.length >= 2, `found ${names.length} workflows`);
+  for (const workflow of names) assert.equal(slugPart(workflow, PART_CAPS.role), workflow, `${workflow} is cut`);
 });
 
 test("there is no numeric collision suffix anywhere in the naming code", async () => {

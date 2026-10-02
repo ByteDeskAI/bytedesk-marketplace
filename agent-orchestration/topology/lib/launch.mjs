@@ -1246,8 +1246,8 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
 //     after the run that created it is gone, and running it twice reconstructs the same workspace.
 //     Anything that launches a role-session by a different command breaks gateway restore silently.
 
-// 128: four capped parts (24+32+16+24) and three dashes are 99, plus a collision suffix.
-const ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,128}$/;
+// 160: five capped parts (16+24+32+48+24 = 144) and four "--" separators are 152; the gateway accepts up to 256.
+const ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,160}$/;
 
 function assertAgentId(agentId) {
   // An empty id would give every agent the same record and legacy name — the one failure this exists
@@ -1263,7 +1263,7 @@ function assertSessionName(name) {
   invariant(
     typeof name === "string" && ROLE_SESSION_NAME.test(name),
     "TOPOLOGY_SESSION_NAME_INVALID",
-    `${JSON.stringify(name)} cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 128 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`,
+    `${JSON.stringify(name)} cannot be a tmux session name. Letters, digits, "-" and "_" only, at most 160 characters; "." and ":" are refused because tmux rewrites or mis-parses them and the session then cannot be found again.`,
   );
   return name;
 }

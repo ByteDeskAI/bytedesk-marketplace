@@ -439,7 +439,7 @@ export function materializeSpec(rawSpec, context) {
   // it has already probed against the live tmux server, which the template cannot do. TM-274: that
   // name is `<host>-<repo>-<role>-<name>`, longer than slug()'s 48, so it is kept whole when tmux-safe.
   const session = context.session
-    ? (/^[a-z0-9-]{1,128}$/.test(context.session) ? context.session : slug(context.session))
+    ? (/^[a-z0-9-]{1,160}$/.test(context.session) ? context.session : slug(context.session))
     : slug(renderDeep(spec.session, vars));
   vars.session = session;
   const requestedRunDir = absolutize(renderDeep(spec.run_dir, vars), context.consumer);
