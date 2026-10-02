@@ -3,7 +3,7 @@
   "hashAlgorithm": "sha256",
   "files": {
     "src/cli.mjs": {
-      "sha256": "347d59f3234d3e068df1222e6aa21a2cdbfec35503e1962503df1f510cdee31e",
+      "sha256": "46823dd5ba265245a3a3247214aed6d83ab55e38fd9d364c01fda35a2571e956",
       "lineCount": 92,
       "anchors": [
         "Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]"
@@ -18,7 +18,7 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "3ce68485d885aff056d9633578fcc53bbd34fc70ad5b234466093b07d793f891",
+      "sha256": "2eafaa5eaa7083a602c553f211b7e9dfe35da2434d16e38cde30692be59b71b7",
       "lineCount": 273,
       "anchors": [
         "\"orchestration_capabilities\"",
