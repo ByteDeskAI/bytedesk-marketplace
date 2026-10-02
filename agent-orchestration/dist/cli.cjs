@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* ao-build-ordinal:1790974700 */
 const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -28728,8 +28729,8 @@ function reconcile(record2, alive2, at = nowIso()) {
     queue = queue.filter((entry) => alive2(entry.binding) !== false);
   }
   if (!holder && queue.length) {
-    const head = queue[0];
-    holder = { ...head, granted_at: at, granted_binding: head.binding };
+    const head2 = queue[0];
+    holder = { ...head2, granted_at: at, granted_binding: head2.binding };
     queue = queue.slice(1);
     events.push({ type: "granted", at, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason });
   }
@@ -46303,12 +46304,12 @@ async function createOrchestrationWorktree(repository, { runId, taskId: taskId2 
   await git(repository.checkoutRoot, ["worktree", "add", "--detach", "--", worktreePath, baseSha], { timeoutMs: 12e4 });
   const actualPath = await (0, import_promises10.realpath)(worktreePath);
   invariant(isPathWithin(root, actualPath), "AO_WORKTREE_ESCAPE", "Git created a worktree outside the consumer-derived orchestration root.");
-  const [{ stdout: head }, { stdout: commonGitDir }, { stdout: gitDir }] = await Promise.all([
+  const [{ stdout: head2 }, { stdout: commonGitDir }, { stdout: gitDir }] = await Promise.all([
     git(actualPath, ["rev-parse", "HEAD"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"])
   ]);
-  invariant(head === baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Created worktree does not match the requested base SHA.");
+  invariant(head2 === baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Created worktree does not match the requested base SHA.");
   invariant(await (0, import_promises10.realpath)(commonGitDir) === repository.commonGitDir, "AO_WORKTREE_REPOSITORY_MISMATCH", "Created worktree belongs to a different repository.");
   const actualGitDir = await (0, import_promises10.realpath)(gitDir);
   const worktreeAdminRoot = await (0, import_promises10.realpath)((0, import_node_path15.join)(repository.commonGitDir, "worktrees"));
@@ -46383,14 +46384,14 @@ async function removeOrchestrationWorktree(repository, workspace) {
   const markerInfo = await (0, import_promises10.lstat)((0, import_node_path15.join)(actualPath, ".git"));
   invariant(markerInfo.isFile(), "AO_GIT_METADATA_CHANGED", "The worktree .git marker was replaced before cleanup.");
   invariant(sha256(await (0, import_promises10.readFile)((0, import_node_path15.join)(actualPath, ".git"))) === workspace.gitMarkerHash, "AO_GIT_METADATA_CHANGED", "The worktree .git marker changed before cleanup.");
-  const [{ stdout: commonGitDir }, { stdout: head }, { stdout: gitDir }, { stdout: worktreeList }] = await Promise.all([
+  const [{ stdout: commonGitDir }, { stdout: head2 }, { stdout: gitDir }, { stdout: worktreeList }] = await Promise.all([
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(actualPath, ["rev-parse", "HEAD"]),
     git(actualPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
     git(repository.checkoutRoot, ["worktree", "list", "--porcelain", "-z"])
   ]);
   invariant(await (0, import_promises10.realpath)(commonGitDir) === repository.commonGitDir, "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree registered to another repository.");
-  invariant(head === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
+  invariant(head2 === workspace.baseSha, "AO_WORKTREE_HEAD_MISMATCH", "Refusing to remove a worktree whose HEAD no longer matches its broker base SHA.");
   invariant(await (0, import_promises10.realpath)(gitDir) === workspace.gitAdminDir, "AO_WORKSPACE_OWNERSHIP_MISMATCH", "Refusing to remove a worktree with a different Git administration entry.");
   const registeredPaths = await Promise.all(registeredWorktreePaths(worktreeList).map((path3) => (0, import_promises10.realpath)(path3).catch(() => (0, import_node_path15.resolve)(path3))));
   invariant(registeredPaths.includes(actualPath), "AO_FOREIGN_WORKTREE", "Refusing to remove a worktree not registered at the exact broker path.");
@@ -51918,12 +51919,12 @@ function inferToolKind(params) {
   if (params.toolCall.kind) return params.toolCall.kind;
   const title = params.toolCall.title?.trim().toLowerCase();
   if (!title) return;
-  const head = title.split(":", 1)[0]?.trim();
-  if (!head) return;
-  return titleHeadToolKind(head) ?? "other";
+  const head2 = title.split(":", 1)[0]?.trim();
+  if (!head2) return;
+  return titleHeadToolKind(head2) ?? "other";
 }
-function titleHeadToolKind(head) {
-  return TOOL_KIND_TITLE_MATCHERS.find(({ needles }) => needles.some((needle) => head.includes(needle)))?.kind;
+function titleHeadToolKind(head2) {
+  return TOOL_KIND_TITLE_MATCHERS.find(({ needles }) => needles.some((needle) => head2.includes(needle)))?.kind;
 }
 function isAutoApprovedReadKind(kind) {
   return kind === "read" || kind === "search";
@@ -51950,8 +51951,8 @@ function readToolName(params) {
     "toolName"
   ]);
   if (rawInputName) return rawInputName;
-  const head = params.toolCall.title?.trim()?.split(/[:\s]/, 1)[0]?.trim();
-  return head && head.length > 0 ? head : void 0;
+  const head2 = params.toolCall.title?.trim()?.split(/[:\s]/, 1)[0]?.trim();
+  return head2 && head2.length > 0 ? head2 : void 0;
 }
 function normalizeMatcher(value) {
   return value.trim().toLowerCase();
@@ -51969,8 +51970,8 @@ function permissionMatchTokens(params) {
     toolName
   ]) if (typeof value === "string" && value.trim().length > 0) tokens.add(normalizeMatcher(value));
   if (title) {
-    const head = title.split(/[:\s]/, 1)[0]?.trim();
-    if (head) tokens.add(normalizeMatcher(head));
+    const head2 = title.split(/[:\s]/, 1)[0]?.trim();
+    if (head2) tokens.add(normalizeMatcher(head2));
   }
   return [...tokens];
 }
@@ -59758,6 +59759,19 @@ var bundleTime = (root) => {
     return 0;
   }
 };
+var head = (path3) => {
+  try {
+    return (0, import_node_fs12.readFileSync)(path3, "utf8").slice(0, 256);
+  } catch {
+    return "";
+  }
+};
+var buildOrdinal = (root) => Number(/\/\* ao-build-ordinal:(\d+) \*\//.exec(head((0, import_node_path61.join)(root, "dist", "cli.cjs")))?.[1]) || null;
+function keepBuild(copy, source) {
+  const [a, b] = [buildOrdinal(copy), buildOrdinal(source)];
+  if (a && b) return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+  return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
+}
 var looksLikeCopy = (dir) => (0, import_node_fs12.existsSync)((0, import_node_path61.join)(dir, "package.json")) && (0, import_node_fs12.existsSync)((0, import_node_path61.join)(dir, "dist"));
 function compareVersions(a, b) {
   const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
@@ -59883,8 +59897,9 @@ async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies(
         report.current.push({ ...base, reason: "same build" });
         continue;
       }
-      if (bundleTime(copy.root) > bundleTime(pointer.pluginRoot)) {
-        report.current.push({ ...base, reason: "same version, newer build than the services" });
+      const keep = keepBuild(copy.root, pointer.pluginRoot);
+      if (keep) {
+        report.current.push({ ...base, reason: keep });
         continue;
       }
     }
@@ -59962,10 +59977,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "69a7532c87306f3a1d0cf6d57ed6a25fb0e79007e7025349b9c203476d6156c4";
+  return false ? null : "d7c05e120b3fd381928892c72fc06f60bf80bae71773d0f9eb9018fb95480e16";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "69a7532c87306f3a1d0cf6d57ed6a25fb0e79007e7025349b9c203476d6156c4";
+  const fingerprint2 = false ? null : "d7c05e120b3fd381928892c72fc06f60bf80bae71773d0f9eb9018fb95480e16";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -60523,7 +60538,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "69a7532c87306f3a1d0cf6d57ed6a25fb0e79007e7025349b9c203476d6156c4",
+  sourceFingerprint: false ? null : "d7c05e120b3fd381928892c72fc06f60bf80bae71773d0f9eb9018fb95480e16",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

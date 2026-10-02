@@ -15,6 +15,20 @@ const readJsonSync = (path) => { try { return JSON.parse(readFileSync(path, "utf
 const isDir = (path) => { try { return statSync(path).isDirectory(); } catch { return false; } };
 const real = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
 const bundleTime = (root) => { try { return statSync(join(root, "dist", "cli.cjs")).mtimeMs; } catch { return 0; } };
+const head = (path) => { try { return readFileSync(path, "utf8").slice(0, 256); } catch { return ""; } };
+/** The build ordinal build.mjs stamps on line one of the bundle (commit time); null on older builds. */
+export const buildOrdinal = (root) => Number(/\/\* ao-build-ordinal:(\d+) \*\//.exec(head(join(root, "dist", "cli.cjs")))?.[1]) || null;
+
+/**
+ * Why a same-version copy of a different build must be kept, or null to refresh it. Ordered by
+ * build ordinal; by bundle mtime only when either side predates the ordinal. Equal ordinals cannot
+ * be ordered, so the copy is kept: leaving it is recoverable, a downgrade is not.
+ */
+function keepBuild(copy, source) {
+  const [a, b] = [buildOrdinal(copy), buildOrdinal(source)];
+  if (a && b) return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+  return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
+}
 const looksLikeCopy = (dir) => existsSync(join(dir, "package.json")) && existsSync(join(dir, "dist"));
 
 /** Numeric x.y.z comparison; a missing or unparsable version sorts lowest. */
@@ -119,7 +133,8 @@ export async function replaceCopy(source, dest) {
   const retired = `${staging}-old`;
   let moved = false, swapped = false;
   try {
-    // preserveTimestamps: the copy's bundle mtime stays the build time, which the same-version check reads.
+    // preserveTimestamps: the copy's bundle mtime stays the build time, which the same-version check
+    // reads for a bundle with no build ordinal.
     await cp(source, staging, { recursive: true, force: true, preserveTimestamps: true, verbatimSymlinks: true, filter: (path) => path === source || !EXCLUDED.has(basename(path)) });
     await rename(dest, retired);
     swapped = true;
@@ -153,11 +168,12 @@ export async function refreshHostCopies({ pointer, home, env = {}, copies = host
     const order = compareVersions(id.version, pointer.version);
     if (order > 0) { report.current.push({ ...base, reason: `newer than the services (${pointer.version})` }); continue; }
     // TM-299: a version is not a build. At the same version a different fingerprint is refreshed,
-    // unless the copy's bundle was built after the source's: a hash has no order, so the bundle's
-    // mtime decides, and a newer build is never overwritten. No fingerprint on either side: same build.
+    // unless the copy is the newer build: a hash has no order, so the build ordinal decides, and a
+    // newer build is never overwritten. No fingerprint on either side: same build.
     if (order === 0) {
       if (!pointer.fingerprint || !id.fingerprint || id.fingerprint === pointer.fingerprint) { report.current.push({ ...base, reason: "same build" }); continue; }
-      if (bundleTime(copy.root) > bundleTime(pointer.pluginRoot)) { report.current.push({ ...base, reason: "same version, newer build than the services" }); continue; }
+      const keep = keepBuild(copy.root, pointer.pluginRoot);
+      if (keep) { report.current.push({ ...base, reason: keep }); continue; }
     }
     if (gitTop(copy.root, git)) { report.skipped.push({ ...base, reason: `${copy.root} is inside a git checkout; update it with git` }); continue; }
     dirty ??= uncommitted(pointer.pluginRoot, git) ?? [];

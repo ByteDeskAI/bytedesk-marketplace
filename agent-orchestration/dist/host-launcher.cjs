@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* ao-build-ordinal:1790974700 */
 const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;
 
 // src/errors.mjs

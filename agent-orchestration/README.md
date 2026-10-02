@@ -99,9 +99,11 @@ supervisor. It is idempotent. It:
    (`~/.codex/plugins/cache/bytedesk/agent-orchestration/…`), Grok install
    (`~/.grok/installed-plugins/agent-orchestration-*`) and the root `~/.kimi-code/mcp.json` names,
    and replaces any copy with an OLDER version by the services' plugin root. A copy at the same
-   version but a different build fingerprint is replaced too (TM-299), unless its `dist/cli.cjs` is
-   newer than the source's: a newer version or a newer build is never overwritten, and the same build
-   is left alone. The copy is built beside the old one and swapped in by rename, keeping the old
+   version but a different build fingerprint is replaced too (TM-299), unless it is the newer build.
+   Builds are ordered by the build ordinal `npm run build` stamps on line one of `dist/cli.cjs` (the
+   source commit time, or the build time without git); a copy built before ordinals existed falls
+   back to its bundle mtime. A newer version or a newer build is never overwritten, an equal ordinal
+   is left alone, and so is the same build. The copy is built beside the old one and swapped in by rename, keeping the old
    copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
    inside a git checkout, or when the copy's `node_modules` does not satisfy the new
    `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
