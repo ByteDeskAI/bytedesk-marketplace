@@ -43,6 +43,7 @@ import { acknowledgePrompt, refreshPrompt } from "../../topology/lib/prompt-life
 import { sameIncarnation } from "../../topology/lib/incarnation.mjs";
 import { MIN_PANE_ROWS, windowSizeFor } from "../../topology/lib/tmux.mjs";
 import { execFile } from "node:child_process";
+import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
 import { promisify } from "node:util";
 import { BEGIN_CLAUSE, deliverPointer } from "../../topology/lib/launch.mjs";
 import {
@@ -555,11 +556,12 @@ test("the record lives beside the agent, not inside a run that will be torn down
 const haveTmux = await promisify(execFile)("tmux", ["-V"]).then(() => true, () => false);
 
 test("reattaching to a live role-session returns the same session rather than a second one", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   const root = await mkdtemp(join(tmpdir(), "ao-role-"));
   const agentId = "aatest01";
   let session = null;
   t.after(async () => {
-    if (session) await promisify(execFile)("tmux", ["kill-session", "-t", `=${session}`]).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
   const open = () =>
@@ -596,11 +598,14 @@ test("reattaching to a live role-session returns the same session rather than a 
   assert.ok(record.command.includes(record.launcher));
   assert.ok(!record.command.includes("/runs/"), "the restore command must not point into a run directory");
   assert.ok(record.restore_contract.length > 40, "the contract is stated in the record, for whoever reads it");
+  });
 });
 
-test("healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation", { skip: haveTmux ? false : "no tmux" }, async t => {
+test("healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   const root=await mkdtemp(join(tmpdir(),'ao-role-prompt-')),agentId='prompt01',consumer=join(root,'repo'),dir=join(root,agentId),session=await roleSessionFor({agentsDir:root,agentId,consumer,role:'observer',env:{AGENT_ORCHESTRATION_STATE_HOME:join(root,'state')},home:root});
-  t.after(async()=>{await tmux.killSession(session).catch(()=>{});await rm(root,{recursive:true,force:true});});
+  t.after(async()=>{await rm(root,{recursive:true,force:true});});
   const bindingless={id:agentId,role:'observer',full_name:'Prompt Observer',_dir:dir,instructions:'first'};
   const adapter={id:'fake',ready:{delay_ms:50},submit_keys:['Enter']};
   const env={AO_AGENT_ID:agentId,AO_AGENT_ROLE:'observer',AO_SESSION:session,AO_CONSUMER:consumer,AGENT_ORCHESTRATION_STATE_HOME:join(root,'state')};
@@ -620,6 +625,7 @@ test("healthy reattach preserves a queued prompt, while retained-dead restart pr
   const restarted=await open();assert.equal(restarted.restarted,true);assert.notEqual(restarted.binding.panePid,first.binding.panePid);
   state=JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8'));
   assert.equal(state.status,'awaiting-ack');assert.equal(sameIncarnation(state.desired_binding,restarted.binding),true);assert.match(await readFile(join(dir,'prompt.md'),'utf8'),/second/);
+  });
 });
 
 // -------------------------------------------------------------------------------------------
@@ -651,12 +657,11 @@ test("the window is sized so every agent's pane stays wider than a ready pattern
 });
 
 test("splitting for a large team re-equalizes, so the seventh agent still gets a pane", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   // split-window -t <window> splits the ACTIVE pane, so consecutive splits halve the same pane —
   // 60 rows becomes 30, 15, 7, 3 — and this used to fail outright with "no space for new pane".
   const session = `aosplit${Math.random().toString(36).slice(2, 8)}`;
-  t.after(async () => {
-    await promisify(execFile)("tmux", ["kill-session", "-t", `=${session}`]).catch(() => {});
-  });
   const size = windowSizeFor(10);
   const firstPane = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main", ...size });
   assert.match(firstPane, /^%\d+$/);
@@ -672,7 +677,7 @@ test("splitting for a large team re-equalizes, so the seventh agent still gets a
   // The geometry is ours, and it survives a client attaching — which is the failure this fixes: on
   // a shared tmux server the window otherwise takes the size of some unrelated session's terminal.
   const widthOf = async () =>
-    Number((await promisify(execFile)("tmux", ["display-message", "-p", "-t", `${session}:main`, "#{window_width}"])).stdout.trim());
+    Number((await iso.tmux(["display-message", "-p", "-t", `${session}:main`, "#{window_width}"])).stdout.trim());
   assert.equal(await widthOf(), size.width, "the requested width must actually be the window's width");
 
   const client = new tmux.ControlClient(session);
@@ -680,6 +685,7 @@ test("splitting for a large team re-equalizes, so the seventh agent still gets a
   if (await client.start()) {
     assert.equal(await widthOf(), size.width, "a control client must not reflow the agents");
   }
+  });
 });
 
 test("a blank anchor never truncates the screen away — the readiness flake", () => {
@@ -790,6 +796,8 @@ test("a screen only a human can clear is reported as that, not as a provider fau
 });
 
 test("a pane's liveness and exit status come from one answer", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   // The bug this pins produced `{"reason":"pane exited","exit_status":null}` — a death with no way
   // to tell a CLI that rejected its flags from one that was killed. Two causes, both measured on
   // tmux 3.4 rather than reasoned about:
@@ -798,14 +806,13 @@ test("a pane's liveness and exit status come from one answer", { skip: haveTmux 
   //   2. tmux answers an UNKNOWN pane id with exit 0 and an empty line, not an error, so
   //      `pane_dead != "1"` read a pane that no longer exists as alive.
   const session = `ao-panestate-${process.pid}`;
-  t.after(async () => { await tmux.killSession(session).catch(() => {}); });
   const pane = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main" });
   // remain-on-exit is what keeps a dead pane's body — and its status — readable at all.
   await tmux.setPaneOption(pane, "remain-on-exit", "on");
 
   assert.deepEqual(await tmux.paneState(pane), { gone: false, alive: true, dead: false, status: null, signal: null });
 
-  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", pane, "sh", "-c", "exit 42"]);
+  await iso.tmux(["respawn-pane", "-k", "-t", pane, "sh", "-c", "exit 42"]);
   await new Promise((resolve) => setTimeout(resolve, 800));
   const dead = await tmux.paneState(pane);
   assert.equal(dead.alive, false);
@@ -817,9 +824,12 @@ test("a pane's liveness and exit status come from one answer", { skip: haveTmux 
   assert.equal(missing.alive, false, "a pane that does not exist is not alive");
   assert.equal(missing.status, null, "and its status is unknown rather than zero");
   assert.equal(await tmux.paneAlive("%99999"), false);
+  });
 });
 
-test("a capture that could not be taken is not a blank screen", { skip: haveTmux ? false : "no tmux" }, async () => {
+test("a capture that could not be taken is not a blank screen", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   // The bug behind TM-120's intermittent contract failure. `captureAll` returned "" whenever the
   // tmux call failed — a timeout on a loaded machine included — and "" is exactly what a pane that
   // has drawn nothing yet returns. So readiness polled a screen it had never read, matched neither
@@ -834,9 +844,12 @@ test("a capture that could not be taken is not a blank screen", { skip: haveTmux
   const withPattern = adapter({ ready: { pattern: "READY" } });
   assert.equal(evaluateScreen(withPattern, ""), null, "a genuinely blank screen decides nothing");
   assert.deepEqual(evaluateScreen(withPattern, "READY"), { ready: true, failed: false, reason: "ready pattern" });
+  });
 });
 
 test("the submit key reaches the pane as a keystroke, not as the tail of a paste", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   // The mailbox doorbell. `sendText` used to batch the text and its Enter into one tmux invocation
   // to save a client round trip, and tmux then wrote both at once — so the pane's program read
   // `"…the message\r"` as a single chunk. A TUI reads one chunk containing a newline as a paste of
@@ -844,10 +857,9 @@ test("the submit key reaches the pane as a keystroke, not as the tail of a paste
   // the conductor's wait ran to its timeout, and nothing anywhere errored. Observed three times in
   // one showcase run, on the Claude adapter and the Codex adapter alike.
   const session = `ao-chunk-${process.pid}`;
-  t.after(async () => { await tmux.killSession(session).catch(() => {}); });
   const probe = join(here, "..", "fixtures", "chunk-probe.mjs");
   const pane = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main", width: 200, height: 20 });
-  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", pane, `${process.execPath} ${probe}`]);
+  await iso.tmux(["respawn-pane", "-k", "-t", pane, `${process.execPath} ${probe}`]);
   await new Promise((resolve) => setTimeout(resolve, 700));
 
   await tmux.sendText(pane, "ring the doorbell");
@@ -857,6 +869,7 @@ test("the submit key reaches the pane as a keystroke, not as the tail of a paste
   assert.equal(chunks.length, 2, `text and Enter must arrive as two reads, got: ${JSON.stringify(chunks)}`);
   assert.match(chunks[0], /"ring the doorbell"$/, "the text arrives without a newline glued to it");
   assert.match(chunks[1], /"\\r"$/, "and the carriage return arrives alone, which is what makes it the Enter key");
+  });
 });
 
 test("the conductor is told to begin, and only the conductor", async () => {
@@ -881,19 +894,20 @@ test("the conductor is told to begin, and only the conductor", async () => {
 });
 
 test("a pointer typed at a pane that is not listening is a failure, not a warning", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const iso = isolatedTmux(t);
+  await iso.within(async () => {
   // The launcher used to send the bootstrap into a not-ready pane and warn "sent anyway". On a real
   // client run that guess was wrong: two agents timed out on a startup banner, the pointer went into
   // panes whose TUI had not attached a key handler, and the keystrokes vanished. The composers were
   // EMPTY — which is what distinguishes this from the paste-and-settle bug, where the text is
   // sitting right there unsent.
   const session = `ao-deliver-${process.pid}`;
-  t.after(async () => { await tmux.killSession(session).catch(() => {}); });
   const adapter = { submit_keys: ["Enter"] };
   const pointer = "Read /run/agents/x/BOOTSTRAP.md and follow it exactly.";
 
   // `cat` echoes what it is given: the pointer reaches the pane and is visible on it.
   const listening = await tmux.newSession(session, { cwd: tmpdir(), windowName: "main" });
-  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", listening, "cat"]);
+  await iso.tmux(["respawn-pane", "-k", "-t", listening, "cat"]);
   await new Promise((resolve) => setTimeout(resolve, 500));
   const heard = await deliverPointer(listening, adapter, pointer, { attempts: 2, settleMs: 600 });
   assert.equal(heard.delivered, true, "a pane that echoes its input confirms delivery");
@@ -904,11 +918,12 @@ test("a pointer typed at a pane that is not listening is a failure, not a warnin
   // how the first version of this test passed against a bug. The fixture takes the terminal into raw
   // mode, which is what a CLI does as it starts, and is why a pointer typed mid-startup vanishes.
   const deaf = join(here, "..", "fixtures", "deaf-pane.mjs");
-  await promisify(execFile)("tmux", ["respawn-pane", "-k", "-t", listening, `${process.execPath} ${deaf}`]);
+  await iso.tmux(["respawn-pane", "-k", "-t", listening, `${process.execPath} ${deaf}`]);
   await new Promise((resolve) => setTimeout(resolve, 500));
   const lost = await deliverPointer(listening, adapter, pointer, { attempts: 2, settleMs: 600 });
   assert.equal(lost.delivered, false, "a pane that is not listening does NOT confirm delivery");
   assert.equal(lost.attempts, 2, "and it is retried before being called a failure");
+  });
 });
 
 test("TM-151: a composer holding only DIM suggestion text is ready, though no text pattern can say so", () => {

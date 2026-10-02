@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { reviewerPaths } from '../../topology/lib/reviewer.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
+import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import {
   ORCH_LAYOUT,
   closeLiveTransports,
@@ -195,17 +196,14 @@ async function inboxStat(path) {
 async function threeCases(brokerUrl, stateHome, label) {
   const runDir = await fakeRun();
   const repo = repoKey((await canonicalRepoId(runDir)).id);
-  const tmuxDir = await mkdtemp(join(os.tmpdir(), 'ao-orch-tmux-'));
-  const socket = join(tmuxDir, 'sock');
-  const env = {
-    ...process.env,
+  // No `t` here, so the teardown is called from the finally below rather than registered.
+  const iso = isolatedTmux(null, { extraEnv: {
     AO_TRANSPORT: 'nats',
     AO_NATS_URL: brokerUrl,
     AO_CONSUMER: runDir,
     AGENT_ORCHESTRATION_STATE_HOME: stateHome,
-    TMUX: '',
-    TMUX_TMPDIR: tmuxDir,
-  };
+  } });
+  const { socket, env } = iso;
   let listener = null;
   try {
     const sent = await runCli([
@@ -293,9 +291,8 @@ async function threeCases(brokerUrl, stateHome, label) {
     return { runDir, repo };
   } finally {
     await stopChild(listener);
-    await execFileAsync('tmux', ['-S', socket, 'kill-server'], { env }).catch(() => {});
+    await iso.teardown();
     await rm(runDir, { recursive: true, force: true });
-    await rm(tmuxDir, { recursive: true, force: true });
   }
 }
 

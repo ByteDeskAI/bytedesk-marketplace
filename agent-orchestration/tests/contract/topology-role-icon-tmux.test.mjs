@@ -10,6 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
+import { killOwnedServer } from "../helpers/isolated-tmux.mjs";
 import { NESTED_TEAM_ICON, ROLE_ICON_MAP, UNKNOWN_ROLE_ICON } from "../../topology/lib/identity.mjs";
 import { leadRegistryDir } from "../../topology/lib/lead.mjs";
 import { canonicalRepoId, repoKey } from "../../topology/lib/repoid.mjs";
@@ -48,8 +49,7 @@ async function stopSupervisors(consumer) {
 
 /** Kill only this test's server, by socket, after proving the socket is under this test's TMUX_TMPDIR. */
 async function killIsolatedServer(env, socket) {
-  assert.ok(env.TMUX === "" && socket.startsWith(`${env.TMUX_TMPDIR}/`), `refusing to kill a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
-  await execFile("tmux", ["-S", socket, "kill-server"], { env: { ...process.env, ...env } }).catch(() => {});
+  await killOwnedServer(env, socket);
 }
 
 /** Attach a real client in a pty for a moment and return everything tmux wrote to that terminal. */
