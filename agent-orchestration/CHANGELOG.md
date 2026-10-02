@@ -247,6 +247,13 @@
 
 ### Fixed
 
+- **Presence no longer publishes `kind: "spawn"` under a new-style session name (TM-287).** A
+  run.json agent with a seven-hex `spawn` token whose pane carries matching `@ao-agent` metadata was
+  published as `spawn` whatever its session was called, which the Presence v2 validator rejects.
+  Such a session is now published as `kind: "run"` with `spawn: null`, as session-names addendum §3.3
+  specifies; `spawn` stays reserved for a legacy `<agentId>-<7 hex>` name. `topology-presence` tests
+  now run every snapshot they publish through the v2 validator.
+
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
   The review range was pinned to the admission commit, so a branch that merged `main` to clear a
   conflict carried every task already landed there, and the reviewer judged them as part of this

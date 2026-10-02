@@ -265,6 +265,9 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
     // spawn only when it is named exactly `<agentId>-<spawn>`, until those sessions end.
     const observed=pane.identity?.agent ? sessionIdentity({name:pane.sessionName,meta:pane.identity}) : null;
     invariant(kind !== "spawn" || (observed ? observed.agentId === agentId : pane.sessionName === `${agentId}-${spawn}`),"TOPOLOGY_PRESENCE_SPAWN","Spawn metadata disagrees with the observed incarnation; refusing an invalid snapshot.");
+    // TM-287: kind "spawn" is reserved for a legacy `<agentId>-<spawn>` name (session-names addendum
+    // §3.3). A run of one agent under a new-style name publishes as "run", with no spawn token.
+    if(kind === "spawn" && pane.sessionName !== `${agentId}-${spawn}`) {kind="run";spawn=null;}
     const key=bindingKey(binding); let entry=agents.get(key);
     if(entry) {
       invariant(entry.agentId === agentId,"TOPOLOGY_PRESENCE_CONFLICT","Two identities claim one pane incarnation.");
