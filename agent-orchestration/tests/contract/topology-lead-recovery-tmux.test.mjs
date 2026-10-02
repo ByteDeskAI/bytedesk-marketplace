@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { killOwnedServer, refuseOperatorSocket } from '../helpers/isolated-tmux.mjs';
+import { killEnvServer, refuseOperatorSocket } from '../helpers/isolated-tmux.mjs';
 import { leadRecoveryStatus } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { lockOwner, processIdentity } from '../../topology/lib/lockfile.mjs';
@@ -140,12 +140,6 @@ function ownSocket(env, socket) {
   return refuseOperatorSocket(socket, env);
 }
 
-async function killIsolatedServer(env) {
-  const socket = await execFile('tmux', ['list-panes', '-a', '-F', '#{socket_path}'], { env })
-    .then((result) => result.stdout.split('\n')[0].trim()).catch(() => '');
-  await killOwnedServer(env, socket);
-}
-
 async function panes(env, socket) {
   const { stdout } = await execFile('tmux', ['-S', ownSocket(env, socket), 'list-panes', '-a', '-F', TUPLE.map((key) => `#{${key}}`).join('|')], { env });
   return stdout.split('\n').filter(Boolean).map((line) => Object.fromEntries(line.split('|').map((value, i) => [TUPLE[i], value])));
@@ -164,7 +158,7 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
   // One hook, in order: reap the supervisors, kill our own server, then remove the directory.
   t.after(async () => {
     const survivors = await stopSupervisors(base);
-    await killIsolatedServer(env);
+    await killEnvServer(env); // TM-298: the known socket, not a list-panes discovery that can return nothing
     // A supervisor that outlives its test ticks forever against a deleted directory, so a leak fails
     // the test, and the directory is kept for inspection instead of being removed from under it.
     assert.deepEqual(survivors, [], `supervisors outlived teardown; ${base} kept for inspection`);

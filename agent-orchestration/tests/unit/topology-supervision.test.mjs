@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {run,writeJson,readJson,sleep as sleepMs} from '../../topology/lib/util.mjs';
 import {listServerPanes} from '../../topology/lib/tmux.mjs';
-import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
+import { isolatedTmux, killEnvServer } from '../helpers/isolated-tmux.mjs';
 import { initTempRepo } from '../helpers/temp-repo.mjs';
 import {refreshPrompt} from '../../topology/lib/prompt-lifecycle.mjs';
 import {superviseRepository,nextRung,SLEEP_LADDER_MS,DEFAULT_START_TIMEOUT_MS} from '../../topology/lib/supervision.mjs';
@@ -30,8 +30,9 @@ const isolatedEnv = (root, home, extra = {}) => {
 };
 
 for(const durable of [false,true]) test(`supervision refreshes a live ${durable?'durable':'legacy'} workflow instance without applying an unacknowledged change`,async t=>{
- const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const root=await mkdtemp(join(tmpdir(),'ao-supervision-'));
  const repo=join(root,'repo'),home=join(root,'home'),env=isolatedEnv(root,home);
+ t.after(async()=>{await killEnvServer(env);await rm(root,{recursive:true,force:true});});
  await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
  const iso=isolatedTmux(t),server=iso.socket;
  await iso.tmux(['new-session','-d','-s','workflow','-c',repo,'sleep','60']);
@@ -70,9 +71,10 @@ async function reap(pid) {
 /** A repo with no tmux server and no agents: enough for the loop, cheap enough to run in a test. */
 async function quietRepo(t, label) {
   const root = await mkdtemp(join(tmpdir(), `ao-supervise-${label}-`));
-  t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
   const env = isolatedEnv(root, home);
+  // TM-298: a supervisor's lead session outlives the reaped supervisor; kill its server before rm.
+  t.after(async () => { await killEnvServer(env); await rm(root, { recursive: true, force: true }); });
   await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
   return { root, repo, home, env, options: { consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` } };
 }
@@ -275,9 +277,9 @@ test('a supervisor started with an absolute --consumer survives losing its worki
   let child;
   // ONE hook, reap before rm: hooks run in registration order, and removing the state dir under a
   // live daemon is the `hookFailed: ENOTEMPTY` measured in the restart test above.
-  t.after(async () => { if (child?.pid) await reap(child.pid); await rm(root, { recursive: true, force: true }); });
   const repo = join(root, 'repo'), home = join(root, 'home'), cwd = join(root, 'ephemeral');
   const env = isolatedEnv(root, home);
+  t.after(async () => { if (child?.pid) await reap(child.pid); await killEnvServer(env); await rm(root, { recursive: true, force: true }); });
   await initTempRepo(repo, { enrolled: true }); // TM-290: enrolled, no real lead
   await mkdir(cwd, { recursive: true });
 

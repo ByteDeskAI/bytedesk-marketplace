@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { killOwnedServer } from '../helpers/isolated-tmux.mjs';
+import { killEnvServer, killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { sleep, writeJson } from '../../topology/lib/util.mjs';
 import { NO_PROVIDER } from '../helpers/temp-repo.mjs';
 
@@ -51,6 +51,9 @@ async function fixture(t, label, { enrolled }) {
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
     await killOwnedServer(env, socket);
+    // TM-298: a supervisor started outside a pane leads on the default server inside TMUX_TMPDIR,
+    // not on `socket`; it outlived every run until this.
+    await killEnvServer(env);
     await rm(root, { recursive: true, force: true });
   });
 
