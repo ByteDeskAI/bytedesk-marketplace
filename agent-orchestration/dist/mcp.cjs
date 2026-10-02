@@ -7243,6 +7243,19 @@ var init_incarnation = __esm({
 });
 
 // topology/lib/config.mjs
+var config_exports = {};
+__export(config_exports, {
+  PRECEDENCE: () => PRECEDENCE,
+  defaultsConfigPath: () => defaultsConfigPath,
+  findTemplate: () => findTemplate,
+  globalConfigPath: () => globalConfigPath,
+  layerDirs: () => layerDirs,
+  loadConfig: () => loadConfig,
+  mergeConfig: () => mergeConfig,
+  repoConfigPath: () => repoConfigPath,
+  resolveConfigPath: () => resolveConfigPath,
+  validateConfigShape: () => validateConfigShape
+});
 function defaultsConfigPath(pluginRoot) {
   return (0, import_node_path10.join)(pluginRoot, "config.defaults.json");
 }
@@ -7313,6 +7326,9 @@ function validateConfigShape(raw, label) {
   if (raw.management !== void 0 && !isPlainObject3(raw.management)) errors.push(`${label}: "management" must be an object`);
   if (raw.node !== void 0 && (!isPlainObject3(raw.node) || raw.node.name !== void 0 && (typeof raw.node.name !== "string" || !raw.node.name.trim()))) {
     errors.push(`${label}: "node" must be an object whose "name" is a nonempty string`);
+  }
+  if (raw.nats !== void 0 && (!isPlainObject3(raw.nats) || raw.nats.domain !== void 0 && (typeof raw.nats.domain !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.nats.domain)))) {
+    errors.push(`${label}: "nats" must be an object whose "domain" is 1-64 letters, digits, hyphen or underscore`);
   }
   if (raw.enabled !== void 0 && typeof raw.enabled !== "boolean") errors.push(`${label}: "enabled" must be true or false`);
   return errors;
@@ -25047,12 +25063,14 @@ var require_nats2 = __commonJS({
 // topology/lib/orch-transport.mjs
 var orch_transport_exports = {};
 __export(orch_transport_exports, {
+  JS_DOMAIN_PATTERN: () => JS_DOMAIN_PATTERN,
   ORCH_LAYOUT: () => ORCH_LAYOUT,
   absorbTransportFailure: () => absorbTransportFailure,
   closeLiveTransports: () => closeLiveTransports,
   createFileTransport: () => createFileTransport,
   discardLiveTransports: () => discardLiveTransports,
   isTransportFailure: () => isTransportFailure,
+  jetStreamDomain: () => jetStreamDomain,
   openNatsTransport: () => openNatsTransport,
   orchName: () => orchName,
   orchSocketPath: () => orchSocketPath,
@@ -25095,7 +25113,7 @@ async function resolveTransport({ env = process.env, transport } = {}) {
   if (transport) return transport;
   const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
   if (transportMode(selected2) === "file") return createFileTransport();
-  const key = `${selected2.AO_NATS_URL || selected2.NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}`;
+  const key = `${selected2.AO_NATS_URL || selected2.NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}|${selected2.AO_NATS_JS_DOMAIN || ""}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
   const opened = await openTransport({ env: selected2 });
@@ -25129,6 +25147,18 @@ async function absorbTransportFailure(error51) {
 }
 async function selectLiveTransport(options = {}) {
   return resolveTransport(options);
+}
+async function jetStreamDomain(env = process.env, home = (0, import_node_os11.homedir)()) {
+  let domain2 = env.AO_NATS_JS_DOMAIN;
+  if (!domain2) {
+    const { globalConfigPath: globalConfigPath2 } = await Promise.resolve().then(() => (init_config(), config_exports));
+    domain2 = (await readJson3(globalConfigPath2(home, env)).catch(() => null))?.nats?.domain;
+  }
+  if (domain2 === void 0 || domain2 === null || domain2 === "") return null;
+  if (typeof domain2 !== "string" || !JS_DOMAIN_PATTERN.test(domain2)) {
+    fail2("TOPOLOGY_NATS_DOMAIN", `JetStream domain ${JSON.stringify(domain2)} is invalid: use 1-64 letters, digits, hyphen or underscore (AO_NATS_JS_DOMAIN or nats.domain).`);
+  }
+  return domain2;
 }
 function pruneAcked(queue) {
   const pending = queue.filter((entry) => !entry.acked);
@@ -25401,6 +25431,10 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
     }
   }
   const creds = credsFile || env.AO_ORCH_CREDS;
+  const domain2 = await jetStreamDomain(env).catch((error51) => {
+    bridge?.server.close();
+    throw error51;
+  });
   const dial = () => {
     const options = { servers: target, name, timeout: 4e3, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
     if (local) Object.assign(options, { user: local.user, pass: local.pass });
@@ -25421,14 +25455,16 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}; local fallback failed: ${second.message}`);
     }
   }
-  const js = nc.jetstream();
-  const jsm = await nc.jetstreamManager();
+  const jsOptions = domain2 ? { domain: domain2 } : {};
+  const js = nc.jetstream(jsOptions);
+  const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = /* @__PURE__ */ new Set();
   const subscriptions = /* @__PURE__ */ new Set();
   const timers = /* @__PURE__ */ new Set();
   const transport = {
     kind: "nats",
     nc,
+    domain: domain2,
     stats() {
       return { kind: "nats", closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
@@ -25616,6 +25652,10 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       if (!entry || entry.operation === "DEL") return null;
       return { via: "nats", bucket: ORCH_LAYOUT.agentsBucket, key, body: entry.string() };
     },
+    /** TM-279: the team persona bucket, on the same js context (and so the same domain) as the rest. */
+    async personaKv() {
+      return js.views.kv(ORCH_LAYOUT.personasBucket, { storage: StorageType.File, history: 1 });
+    },
     async putReview({ bytes }) {
       const data = typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes);
       const name2 = (0, import_node_crypto15.createHash)("sha256").update(data).digest("hex");
@@ -25753,7 +25793,7 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto15, import_node_fs9, import_node_net2, import_node_os11, import_node_path34, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, MAX_PENDING;
+var import_node_crypto15, import_node_fs9, import_node_net2, import_node_os11, import_node_path34, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto15 = require("node:crypto");
@@ -25770,6 +25810,7 @@ var init_orch_transport = __esm({
       presenceBucket: "ORCH_PRESENCE",
       agentsBucket: "ORCH_AGENTS",
       reviewsBucket: "ORCH_REVIEWS",
+      personasBucket: "ORCH_PERSONAS",
       presenceTtlMs: 45e3,
       duplicateWindowMs: 12e4,
       mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
@@ -25795,6 +25836,7 @@ var init_orch_transport = __esm({
       "CONNECTION_TIMEOUT",
       "DISCONNECT"
     ]);
+    JS_DOMAIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
     MAX_PENDING = 1e4;
   }
 });
@@ -26286,6 +26328,7 @@ function localPersonaRegistry({ env = process.env, home = (0, import_node_os12.h
     return withLock(`${file2(scope)}.lock`, fn);
   };
   return {
+    kind: "local",
     async allocate(scope, agent, { isStale = null } = {}) {
       invariant2(agent?.id, "TOPOLOGY_PERSONA_AGENT", "A persona is allocated to an agent with an id.");
       return locked(scope, async () => {
@@ -26328,7 +26371,129 @@ function localPersonaRegistry({ env = process.env, home = (0, import_node_os12.h
 function runHolder(runId) {
   return `run:${runId}`;
 }
-var import_node_crypto16, import_promises29, import_node_os12, import_node_path37;
+async function personaRegistryFor(scope, { env = process.env, home = (0, import_node_os12.homedir)(), transport = null } = {}) {
+  if (!String(scope).startsWith("team:")) return localPersonaRegistry({ env, home });
+  const { isTransportFailure: isTransportFailure2, resolveTransport: resolveTransport2, transportMode: transportMode2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
+  const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+  if (!transport && transportMode2(selected2) === "file") return localPersonaRegistry({ env, home });
+  try {
+    return natsPersonaRegistry({ transport: await resolveTransport2({ env, transport }) });
+  } catch (error51) {
+    if (!isTransportFailure2(error51)) throw error51;
+    return unavailable2(scope, error51);
+  }
+}
+function unavailable2(scope, error51) {
+  const team = String(scope).replace(/^team:/, "");
+  fail(
+    "TOPOLOGY_PERSONA_REGISTRY_UNAVAILABLE",
+    `Team "${team}" allocates personas through the NATS registry, and NATS is unreachable: ${error51.message}. A team persona is never taken from the local registry, because two nodes could then take the same one. Restore NATS (AO_NATS_URL, the gateway listener, or the local server), or run without --team.`,
+    { scope, team, cause: error51.code ?? null }
+  );
+}
+function personaKey(scope, persona) {
+  return `${kvScope(scope)}.${persona}`;
+}
+function presenceHolds(agent, holderId) {
+  const id = String(holderId);
+  if (!id.startsWith("run:")) return agent?.agentId === id;
+  const runId = id.slice(4);
+  return agent?.primaryRunId === runId || (agent?.memberships ?? []).some((member) => member?.runId === runId);
+}
+function natsPersonaRegistry({ transport, graceMs = RUN_PERSONA_GRACE_MS, now = Date.now } = {}) {
+  invariant2(typeof transport?.personaKv === "function", "TOPOLOGY_PERSONA_REGISTRY_UNAVAILABLE", "The NATS persona registry needs a NATS transport.");
+  const guarded = async (scope, fn) => {
+    invariant2(typeof scope === "string" && scope, "TOPOLOGY_PERSONA_SCOPE", "A persona scope is required.");
+    try {
+      return await fn(await transport.personaKv());
+    } catch (error51) {
+      const { absorbTransportFailure: absorbTransportFailure2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
+      if (await absorbTransportFailure2(error51)) unavailable2(scope, error51);
+      throw error51;
+    }
+  };
+  const current = async (kv, key) => {
+    const entry = await kv.get(key);
+    return entry?.operation === "PUT" ? { entry, record: entry.json() } : { entry, record: null };
+  };
+  const heldBy = async (kv, scope, holderId) => {
+    const keys = [];
+    for await (const key of await kv.keys(`${kvScope(scope)}.*`)) keys.push(key);
+    const held = [];
+    for (const key of keys) {
+      const { entry, record: record2 } = await current(kv, key);
+      if (record2?.holder === holderId) held.push({ key, persona: key.slice(kvScope(scope).length + 1), revision: entry.revision });
+    }
+    return held;
+  };
+  const live2 = async (record2) => {
+    if (now() - (Date.parse(record2.allocatedAt ?? "") || 0) < graceMs) return true;
+    if (!record2.presence) return true;
+    const published = await transport.getPresence({ repo: record2.presence });
+    if (!published) return false;
+    let snapshot;
+    try {
+      snapshot = JSON.parse(published.body);
+    } catch {
+      return true;
+    }
+    const age = now() - (Date.parse(snapshot.generatedAt ?? "") || 0);
+    if (age > (snapshot.staleAfterMs ?? 3e4) + (snapshot.clockSkewToleranceMs ?? 0)) return false;
+    return (snapshot.agents ?? []).some((agent) => presenceHolds(agent, record2.holder));
+  };
+  const attempt2 = async (write) => {
+    try {
+      await write();
+      return true;
+    } catch (error51) {
+      if (isConflict(error51)) return false;
+      throw error51;
+    }
+  };
+  return {
+    kind: "nats",
+    async allocate(scope, holder, { session = null } = {}) {
+      invariant2(holder?.id, "TOPOLOGY_PERSONA_AGENT", "A persona is allocated to an agent with an id.");
+      return guarded(scope, async (kv) => {
+        const held = await heldBy(kv, scope, holder.id);
+        if (held.length) return held[0].persona;
+        const value = JSON.stringify({
+          holder: holder.id,
+          sessionId: session?.id ?? null,
+          node: session?.node ?? null,
+          repo: session?.repo ?? null,
+          presence: session?.presence ?? null,
+          allocatedAt: new Date(now()).toISOString()
+        });
+        for (const persona of [...personaCandidates(holder), slugPart(holder.id, PART_CAPS.persona)].filter(Boolean)) {
+          const key = personaKey(scope, persona);
+          if (await attempt2(() => kv.create(key, value))) return persona;
+          const { entry, record: record2 } = await current(kv, key);
+          if (record2?.holder === holder.id) return persona;
+          const free = !record2 || !await live2(record2);
+          if (free && await attempt2(() => entry ? kv.update(key, value, entry.revision) : kv.create(key, value))) return persona;
+        }
+        return fail("TOPOLOGY_PERSONA_EXHAUSTED", `No free persona for agent ${holder.id} in ${scope}.`, { scope, agent_id: holder.id });
+      });
+    },
+    async release(scope, holder) {
+      return guarded(scope, async (kv) => {
+        let released = 0;
+        for (const { key, revision } of await heldBy(kv, scope, holder?.id)) {
+          if (await attempt2(() => kv.delete(key, { previousSeq: revision }))) released += 1;
+        }
+        return released > 0;
+      });
+    },
+    async holder(scope, persona) {
+      return guarded(scope, async (kv) => (await current(kv, personaKey(scope, persona))).record?.holder ?? null);
+    }
+  };
+}
+async function presenceKeyOf(consumer) {
+  return repoKey((await canonicalRepoId(consumer)).id);
+}
+var import_node_crypto16, import_promises29, import_node_os12, import_node_path37, RUN_PERSONA_GRACE_MS, KV_CONFLICT, isConflict, kvScope;
 var init_persona_registry = __esm({
   "topology/lib/persona-registry.mjs"() {
     import_node_crypto16 = require("node:crypto");
@@ -26336,9 +26501,13 @@ var init_persona_registry = __esm({
     import_node_os12 = require("node:os");
     import_node_path37 = require("node:path");
     init_lockfile();
-    init_repoid();
     init_session_names();
+    init_repoid();
     init_util();
+    RUN_PERSONA_GRACE_MS = 12e4;
+    KV_CONFLICT = 10071;
+    isConflict = (error51) => error51?.api_error?.err_code === KV_CONFLICT;
+    kvScope = (scope) => String(scope).replace(/[^-_=A-Za-z0-9]/g, "_");
   }
 });
 
@@ -28061,13 +28230,15 @@ function subscriptionFormat(adapter) {
     "#{pane_dead_status}"
   ].join("|");
 }
-async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = (0, import_node_os16.homedir)(), personas = localPersonaRegistry({ env, home }) }) {
+async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = (0, import_node_os16.homedir)(), personas = null }) {
   const teamRun = !agent;
   const kind = teamRun ? "run" : runId ? "spawn" : "role-session";
   const identity = await newIdentity({ consumer, role: teamRun ? "run" : role, agentId: agent?.id ?? null, team, runId, workflow, kind, env, home });
   const scope = personaScope({ team: identity.team, repo: identity.repo });
   invariant2(!teamRun || runId, "TOPOLOGY_RUN_ID_REQUIRED", "A team run session needs its run id to hold a persona.");
-  const persona = teamRun ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder }) : await personas.allocate(scope, agent);
+  personas ??= await personaRegistryFor(scope, { env, home });
+  const session = personas.kind === "nats" ? { ...identity, presence: await presenceKeyOf(consumer) } : identity;
+  const persona = teamRun ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder, session }) : await personas.allocate(scope, agent, { session });
   return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role: teamRun ? workflow : role, persona })), identity };
 }
 async function staleRunHolder(holderId, sinceMs) {
@@ -28245,7 +28416,7 @@ async function readDeaths(runDir) {
     return { pane, status: status === "" || status === void 0 ? null : Number(status) };
   });
 }
-var import_node_crypto19, import_promises33, import_node_os16, import_node_path41, import_node_url5, squash, RUN_PERSONA_GRACE_MS, ROLE_SESSION_NAME;
+var import_node_crypto19, import_promises33, import_node_os16, import_node_path41, import_node_url5, squash, ROLE_SESSION_NAME;
 var init_launch = __esm({
   "topology/lib/launch.mjs"() {
     import_node_crypto19 = require("node:crypto");
@@ -28271,7 +28442,6 @@ var init_launch = __esm({
     init_lockfile();
     init_spec();
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
-    RUN_PERSONA_GRACE_MS = 12e4;
     ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,160}$/;
   }
 });
@@ -70385,8 +70555,8 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "fc0a335fe5db9a5c0ca1acd3caf32062a2d579254392c7c5675bc8550697a62b",
-  version: false ? null : "0.13.1"
+  sourceFingerprint: false ? null : "a8ce29d363f7f8a01f670244f30979bb366ab765b4c1b15368dad69fa4eafbb4",
+  version: false ? null : "0.14.0"
 };
 var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises43.readFile)(path3).then((bytes) => (0, import_node_crypto27.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -70696,7 +70866,7 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "fc0a335fe5db9a5c0ca1acd3caf32062a2d579254392c7c5675bc8550697a62b";
+  return false ? null : "a8ce29d363f7f8a01f670244f30979bb366ab765b4c1b15368dad69fa4eafbb4";
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);
@@ -71794,7 +71964,7 @@ function register2(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.13.1" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.14.0" });
   register2(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });

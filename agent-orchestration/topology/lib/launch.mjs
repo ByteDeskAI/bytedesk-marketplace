@@ -15,7 +15,7 @@ import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineag
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
 import { displayName, firstNames, mintSpawn, roleVisual } from "./identity.mjs";
 import { composeSessionName, legacyRoleSessionName, nodeName, repoIdentity, sessionIdentity, slugPart, PART_CAPS, ulid } from "./session-names.mjs";
-import { localPersonaRegistry, personaScope, releaseRunPersona, runHolder } from "./persona-registry.mjs";
+import { personaRegistryFor, personaScope, presenceKeyOf, releaseRunPersona, runHolder, RUN_PERSONA_GRACE_MS } from "./persona-registry.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
 import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
@@ -536,15 +536,19 @@ export function decideFromSubscription(value, { promptLines = 1 } = {}) {
  *    runs of one workflow get two names. A run whose session vanished without a stop is reclaimed.
  * Readers resolve identity from `identity`, never from `name`.
  */
-export async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = homedir(), personas = localPersonaRegistry({ env, home }) }) {
+export async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = homedir(), personas = null }) {
   const teamRun = !agent;
   const kind = teamRun ? "run" : runId ? "spawn" : "role-session";
   const identity = await newIdentity({ consumer, role: teamRun ? "run" : role, agentId: agent?.id ?? null, team, runId, workflow, kind, env, home });
   const scope = personaScope({ team: identity.team, repo: identity.repo });
   invariant(!teamRun || runId, "TOPOLOGY_RUN_ID_REQUIRED", "A team run session needs its run id to hold a persona.");
+  // TM-279: a team scope allocates through NATS KV; a repo scope through the local file lock.
+  personas ??= await personaRegistryFor(scope, { env, home });
+  // The NATS record names the presence entry another node judges this holder's liveness by.
+  const session = personas.kind === "nats" ? { ...identity, presence: await presenceKeyOf(consumer) } : identity;
   const persona = teamRun
-    ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder })
-    : await personas.allocate(scope, agent);
+    ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder, session })
+    : await personas.allocate(scope, agent, { session });
   return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role: teamRun ? workflow : role, persona })), identity };
 }
 
@@ -552,9 +556,9 @@ export async function planSession({ consumer, role, agent = null, workflow = nul
  * A run holder is stale when it was allocated more than the grace period ago and no live tmux session
  * on this server carries its run id. The grace covers a run between allocation and `new-session`, so a
  * concurrent launch cannot take a persona from a run that simply has not created its session yet.
- * ponytail: time-based grace; a launch slower than this before `new-session` could lose its persona.
+ * The local registry only: the NATS registry judges liveness from presence, which spans nodes.
  */
-export const RUN_PERSONA_GRACE_MS = 120_000;
+export { RUN_PERSONA_GRACE_MS };
 async function staleRunHolder(holderId, sinceMs) {
   if (!String(holderId).startsWith("run:") || Date.now() - sinceMs < RUN_PERSONA_GRACE_MS) return false;
   const runId = String(holderId).slice(4);
