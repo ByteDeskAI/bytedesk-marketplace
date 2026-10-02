@@ -264,10 +264,12 @@ async function threeCases(brokerUrl, stateHome, label) {
     console.log(`CASE probe subject=${listening.subject} ready=${probe.ready}`);
 
     const nonce = `nonce-${label}`;
+    const sentVerdict = { verdict: 'changes_requested', findings: [{ severity: 'major', file: 'ci.sh', line: 3, claim: 'Unquoted.', evidence: 'rm -f "$GW_TMPDIR_LINK"  then ln', fix: 'Quote "$X".' }] };
     const waiter = spawnCli(['review', 'await', '--consumer', runDir, '--nonce', nonce, '--timeout', '8s'], env);
     await waitForText(waiter, /"waiting":true/);
     const published = await runCli([
-      'review', 'publish', '--consumer', runDir, '--nonce', nonce, '--verdict', 'approve',
+      // TM-195: the whole response, findings and shell quotes included, base64 as the pane carries it.
+      'review', 'publish', '--consumer', runDir, '--nonce', nonce, '--response', `b64:${Buffer.from(JSON.stringify(sentVerdict)).toString('base64')}`,
     ], env);
     assert.equal(published.code, 0, published.stderr || published.stdout);
     const publish = JSON.parse(published.stdout);
@@ -286,7 +288,7 @@ async function threeCases(brokerUrl, stateHome, label) {
     assert.equal(verdictExit, 0, waiter.output().stderr || waiter.output().stdout);
     assert.equal(publish.subject, ORCH_LAYOUT.verdictSubject(repo, nonce));
     assert.match(waiter.output().stdout, new RegExp(publish.subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(waiter.output().stdout, /approve/);
+    assert.deepEqual(JSON.parse(JSON.parse(waiter.output().stdout.trim().split('\n').slice(1).join('\n')).body), sentVerdict, 'findings arrive intact over NATS');
     console.log(`CASE verdict subject=${publish.subject}`);
     return { runDir, repo };
   } finally {

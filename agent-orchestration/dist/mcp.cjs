@@ -28015,6 +28015,7 @@ __export(reviewer_exports, {
   collectPendingReviews: () => collectPendingReviews,
   collectReview: () => collectReview,
   currentReviewStatus: () => currentReviewStatus,
+  decodeReviewPayload: () => decodeReviewPayload,
   detachReviewer: () => detachReviewer,
   effectiveBase: () => effectiveBase,
   ensureReviewer: () => ensureReviewer,
@@ -28049,7 +28050,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path45.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path45.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path45.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path45.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path45.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path45.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path45.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os17.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -28146,7 +28147,8 @@ async function listenForReviewer({ consumer, record: record2, env = process.env,
   reviewerListeners.add(key);
   return { listening: true, transport: "nats", subject: `orch.${repo}.probe.${agent}` };
 }
-async function publishReviewerVerdict({ consumer, repo, nonce, verdict, env = process.env, transport = null }) {
+async function publishReviewerVerdict({ consumer, repo, nonce, response, env = process.env, transport = null }) {
+  const verdict = decodeReviewPayload(typeof response === "string" ? response : JSON.stringify(response));
   const { resolveTransport: resolveTransport2, publishReviewVerdict: publishReviewVerdict2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
   const { repoKey: repoKey2 } = await Promise.resolve().then(() => (init_repoid(), repoid_exports));
   const active = transport ?? await resolveTransport2({ env });
@@ -28652,7 +28654,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
   const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
-  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
+  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
   invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   const record2 = {
     base_revision: range.base,
@@ -28867,6 +28869,37 @@ function lenientJson(text, glueAt = () => "") {
   }
   return { text: out, closed: false };
 }
+function decodeReviewPayload(text) {
+  const raw = String(text ?? "").trim();
+  let response;
+  if (raw.startsWith(B64_PREFIX)) {
+    const data = raw.slice(B64_PREFIX.length).replace(/\s+/g, "");
+    invariant2(/^[A-Za-z0-9+/]+={0,2}$/.test(data), "TOPOLOGY_REVIEWER_RESPONSE", "Review response base64 is empty or has characters outside the base64 alphabet.");
+    const bytes = Buffer.from(data, "base64");
+    invariant2(bytes.toString("base64").replace(/=+$/, "") === data.replace(/=+$/, ""), "TOPOLOGY_REVIEWER_RESPONSE", "Review response base64 does not decode cleanly; it was truncated or mistyped.");
+    try {
+      response = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    } catch {
+      fail("TOPOLOGY_REVIEWER_RESPONSE", "Review response base64 does not decode to UTF-8 JSON.");
+    }
+  } else {
+    try {
+      response = JSON.parse(raw);
+    } catch {
+      fail("TOPOLOGY_REVIEWER_RESPONSE", "Review response must be JSON.");
+    }
+  }
+  invariant2(response && typeof response === "object" && !Array.isArray(response), "TOPOLOGY_REVIEWER_RESPONSE", "Review response must be a JSON object.");
+  invariant2(VERDICTS.has(response.verdict), "TOPOLOGY_REVIEWER_VERDICT", `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(response.verdict)}.`);
+  invariant2(Array.isArray(response.findings), "TOPOLOGY_REVIEWER_FINDINGS", "Review response must carry a findings array, empty when there are none.");
+  return response;
+}
+function b64Closed(data) {
+  const base643 = data.slice(B64_PREFIX.length);
+  if (/=$/.test(base643)) return true;
+  const text = Buffer.from(base643, "base64").toString("utf8");
+  return !text.trimStart().startsWith("{") || lenientJson(text).closed;
+}
 function reviewResponsesOnScreen(screen, nonce) {
   const prefix = `AO_REVIEW ${nonce} `;
   const lines = String(screen ?? "").split(/\r?\n/);
@@ -28874,6 +28907,16 @@ function reviewResponsesOnScreen(screen, nonce) {
   for (let i = 0; i < lines.length; i++) {
     const line = protocolOutputLine(lines[i]);
     if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
+    const next = () => i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) ? protocolOutputLine(lines[i + 1]) : null;
+    let payload = line.slice(prefix.length).trim();
+    if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
+    if (payload.startsWith(B64_PREFIX)) {
+      while (/^[A-Za-z0-9+/=]+$/.test(next() ?? "")) payload += protocolOutputLine(lines[++i]);
+      const texts2 = [payload];
+      texts2.closed = b64Closed(payload);
+      responses.push(texts2);
+      continue;
+    }
     const raw = [lines[i]], parts = [line.slice(prefix.length)];
     while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
       raw.push(lines[++i]);
@@ -28901,13 +28944,15 @@ function parseReviewResponse(screen, nonce) {
   const candidates = reviewResponsesOnScreen(screen, nonce);
   invariant2(candidates.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
   const parsed2 = candidates.map((texts) => {
+    let refusal = null;
     for (const text of texts) {
       try {
-        return JSON.parse(text);
-      } catch {
+        return decodeReviewPayload(text);
+      } catch (error51) {
+        refusal ??= error51;
       }
     }
-    return fail("TOPOLOGY_REVIEWER_RESPONSE", "Review response must be JSON.");
+    throw refusal;
   });
   const last = parsed2[parsed2.length - 1];
   invariant2(parsed2.every((response) => JSON.stringify(response) === JSON.stringify(last)), "TOPOLOGY_REVIEWER_RESPONSE", "The pane shows different review responses for one nonce.");
@@ -28930,7 +28975,7 @@ async function ageOutIncompleteReview({ consumer, request, path: path3, screen, 
   await writeJson(path3, failed);
   return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason);
 }
-async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os17.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare, transport = null }) {
+async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os17.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare }) {
   const path3 = (0, import_node_path45.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
@@ -28945,17 +28990,8 @@ async function collectReview({ consumer, task, revision, env = process.env, home
       invariant2(prior?.revision === revision && prior.request_nonce === request.nonce && sameIncarnation(prior.binding, record2.binding), "TOPOLOGY_REVIEWER_RESPONSE", "Collected review evidence is missing or differs from this request.");
       return prior;
     }
+    invariant2(request.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request already failed (${request.failure?.reason ?? "no reason recorded"}); request the review again for a fresh nonce.`);
     invariant2((0, import_node_crypto20.createHash)("sha256").update(await (0, import_promises35.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
-    const { resolveTransport: resolveTransport2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
-    const activeTransport = transport ?? await resolveTransport2({ env });
-    if (activeTransport.kind === "nats") {
-      const wait = await awaitReviewerVerdict({ consumer, repo: repoKey(record2.repo_id), nonce: request.nonce, timeoutMs: 2e3, env, transport: activeTransport });
-      const received = await wait.received;
-      const response = JSON.parse(received.body);
-      const review2 = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare });
-      await writeJson(path3, { ...request, collected_at: nowIso(), verdict: review2.verdict, state: "collected" });
-      return review2;
-    }
     const screen = await output(record2);
     const shown = reviewResponsesOnScreen(screen, request.nonce);
     invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
@@ -29059,7 +29095,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process12, import_node_crypto20, import_promises35, import_node_os17, import_node_path45, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, COMMIT_SHA, ZERO_BLOB, STRICT_VALUE_KEYS, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process12, import_node_crypto20, import_promises35, import_node_os17, import_node_path45, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, COMMIT_SHA, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process12 = require("node:child_process");
@@ -29103,6 +29139,7 @@ var init_reviewer = __esm({
     COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
     ZERO_BLOB = /^0+$/;
     STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
+    B64_PREFIX = "b64:";
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
@@ -73926,10 +73963,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path58.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "8737331dd5334df77d6530316d3282d511dff427108e6933d9ee4856f2ec3de7";
+  return false ? null : "4849aeffc804610e240aba4ae4af7ec063506a731f86dce73c3e8b27d9c04aae";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "8737331dd5334df77d6530316d3282d511dff427108e6933d9ee4856f2ec3de7";
+  const fingerprint2 = false ? null : "4849aeffc804610e240aba4ae4af7ec063506a731f86dce73c3e8b27d9c04aae";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -74326,7 +74363,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "8737331dd5334df77d6530316d3282d511dff427108e6933d9ee4856f2ec3de7",
+  sourceFingerprint: false ? null : "4849aeffc804610e240aba4ae4af7ec063506a731f86dce73c3e8b27d9c04aae",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises50.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -130,7 +130,7 @@ Standing repository services
   enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
-  review listen|probe|publish|await [--agent <id> --nonce <nonce> --verdict <approve|changes_requested|blocked> --timeout 8s]
+  review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
@@ -542,12 +542,14 @@ const commands = {
     try {
       if (sub === 'publish') {
         const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
-        invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --verdict <approve|changes_requested|blocked>.');
-        const verdict = flags.verdict && flags.verdict !== true ? String(flags.verdict) : 'approve';
+        invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --response <b64:...|json>.');
+        // TM-195: the whole response, findings included. No default verdict: a missing one is refused.
+        const response = flags.response && flags.response !== true ? String(flags.response) : null;
+        invariant(response, 'TOPOLOGY_REVIEWER_RESPONSE', 'Pass review publish --response with the complete response: b64:<base64 of the JSON> or the JSON {"verdict":...,"findings":[...]}.');
         const published = await publishReviewerVerdict({
           consumer: ctx.consumer,
           nonce,
-          verdict: { verdict, findings: [] },
+          response,
           env: process.env,
           transport,
         });

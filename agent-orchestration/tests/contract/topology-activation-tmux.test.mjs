@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { sleep, writeJson } from '../../topology/lib/util.mjs';
+import { NO_PROVIDER } from '../helpers/temp-repo.mjs';
 
 const exec = promisify(execFile);
 const CLI = fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url));
@@ -44,7 +45,8 @@ async function fixture(t, label, { enrolled }) {
   await exec('git', ['-C', repo, ...GIT_ID, 'commit', '--allow-empty', '-q', '-m', 'init']);
   // Every Git repository is enrolled by default (CHANGELOG [Unreleased] "enrolled by default"), so the
   // unenrolled fixture opts out explicitly rather than by omission.
-  await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: enrolled });
+  // TM-290: an enrolled supervisor starts the lead, so its provider is one that does not exist.
+  await writeJson(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), { enabled: enrolled, lead: { provider: NO_PROVIDER } });
 
   t.after(async () => {
     for (const pid of await supervisorsFor(repo)) await reap(pid);
