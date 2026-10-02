@@ -1,8 +1,8 @@
 [
   {
     "name": "ao-supervise",
-    "description": "Repository supervisor: republishes the Presence v1 heartbeat, reconciles derived state and resumes held mail. For an enrolled repository only, it ensures a missing lead and restarts a confirmed-dead managed lead; it never kills, restarts or duplicates a live unresponsive lead and never replaces an externally owned one. A second supervisor for the same repository exits.",
-    "command": "${CLAUDE_PLUGIN_ROOT}/bin/ao-topology supervise",
+    "description": "Makes sure the agent-orchestration services are running, without becoming one: `services ensure` installs the pinned process-compose if needed, registers it with the OS (systemd user unit, LaunchAgent or scheduled task), and has it run the session host, the local NATS server and one repository supervisor per registered repository (this session's git repository is registered here), restarting any that die. Then it exits. `agent-orchestration services status` shows each process.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/agent-orchestration services ensure --consumer-cwd .",
     "when": "always"
   }
 ]

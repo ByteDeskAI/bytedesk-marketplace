@@ -1,0 +1,11 @@
+agent-orchestration
+Copyright ByteDesk AI. Licensed under the MIT License.
+
+This plugin downloads, at install time and never committed to this repository, a pinned release of
+the following third-party software. The version and the SHA-256 of every archive it may download
+are recorded in services/process-compose.lock.json, and a download that does not match is refused.
+
+process-compose (https://github.com/F1bonacc1/process-compose)
+Copyright Eugene Berger and contributors.
+Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at
+https://www.apache.org/licenses/LICENSE-2.0. Each release archive includes its LICENSE file.

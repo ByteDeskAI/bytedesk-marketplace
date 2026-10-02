@@ -1,17 +1,25 @@
 # Changelog
 
-## [Unreleased]
-
-### Changed
-
-- **Every Git repository is enrolled by default; enrollment is opt-out.** Put `{ "enabled": false }` in `.bytedesk/agent-orchestration/config.json` to opt a repository out. A message to a repository whose lead is down now recovers that lead without the repository having been switched on first. Paths that are not Git repositories are still not enrolled by default. Tests that relied on "unenrolled by omission" now opt out explicitly.
+## [0.12.0] — 2026-10-01
 
 ### Added
 
+- **Managed services (TM-272).** process-compose v1.122.0 (Apache-2.0, pinned with a SHA-256 per archive in `services/process-compose.lock.json`; a mismatched download is refused) now runs the session host, the local NATS server and one repository supervisor per registered repository, and restarts any that die. The OS keeps process-compose itself alive and starts it at login: a systemd user unit on Linux, a LaunchAgent on macOS, a scheduled task on Windows, or a detached process on Linux/WSL without a systemd user manager. No linger. New CLI: `agent-orchestration services install|ensure|status|probe|uninstall`. `ensure` is idempotent: a second run with nothing changed writes no file, reloads no service manager and restarts nothing. Processes run the plugin through `<data home>/bytedesk/agent-orchestration/launcher.cjs` and `current.json`, so a plugin update restarts processes instead of rewriting config.
+- A SessionStart hook runs `services ensure --detach`. It returns at once, logs to `<state root>/services/logs/ensure.log`, and never fails the session.
+- `NOTICE` attributes process-compose.
 - **`ao-topology git-hook install|uninstall|status`** installs a real git `pre-commit` hook, so commits made from a terminal or IDE are checked as well as commits made inside a Claude session. It runs the same project-install guard. It resolves the plugin from `~/.claude/plugins/installed_plugins.json` at commit time, so it survives plugin updates, and it fails open if the plugin is not found. It honours `core.hooksPath` and linked worktrees, refuses to overwrite a pre-commit hook it did not write, and removes only its own on uninstall. It does not chain onto an existing hook.
 - **Commit guard.** A `PreToolUse(Bash)` hook blocks `git commit` in a repository whose `.claude/settings.json` enables `agent-orchestration` or `task-management` at project scope, because both are user-scope installs and a project entry creates a per-project install record. It fails open on any internal error. The same check runs standalone as `scripts/check-no-project-plugin-installs.mjs` (repo mode, or `--installs` for `installed_plugins.json`; `--plugin <name>` adds plugins). Per-repo task-management data under `.bytedesk/task-management/` is not settings and is never checked. Not verified in a live Claude Code session: the hook's matching and its block message are covered by `scripts/guard-project-install.test.sh`, not by a real commit attempt.
 - **NATS starts itself when it is not reachable.** `openNatsTransport` (every caller: supervisor, mailbox, presence, reviewer) now falls back to a per-user JetStream `nats-server` when there is no `AO_NATS_URL`, no gateway `orch.sock`, or the ambient `NATS_URL` refuses the connection. The server is detached, loopback-only, and set up under `~/.bytedesk/agent-orchestration/nats` (`AO_NATS_HOME`): a generated password in a `0600` file, one account with no system account, and permissions limited to `orch.>` plus the JetStream and KV API. A second caller reuses the running server. An explicit `AO_NATS_URL` is never replaced; `AO_NATS_AUTOSTART=0` turns the fallback off. The binary comes from `AO_NATS_SERVER`, `~/.cache/ao-orch/nats-server`, or `PATH`; the snap shim does not count.
 - The repository supervisor monitor no longer exits 1 with `TOPOLOGY_NATS_UNAVAILABLE` on a machine with no NATS server running.
+
+### Changed
+
+- The `ao-supervise` monitor runs `services ensure --consumer-cwd .` and exits, instead of being the supervisor. It registers the session's Git repository, so that repository keeps its supervisor, enrolled or not.
+- `ensureSessionHost`, `startRepositorySupervision` and `ensureLocalNats` go through `services ensure`. Their previous launchers (the 24-hour `systemd-run` scope, the in-process host, the detached supervisor and the detached NATS server) remain behind `AGENT_ORCHESTRATION_SERVICES=0`, and are used with a message when the services cannot be installed.
+- The session host runs the interrupted-run recovery sweep (`autoRecover: true`), so a lost worker is found even when no MCP server is running. Concurrent sweepers were already safe: each run is recovered under its own cross-process lock and re-read inside it.
+- A hand-run `agent-orchestration session-host` exits 0 without starting a second host when a healthy one owns the state root.
+- `AO_SESSION_HOST_NOT_DURABLE` now tells you to run `agent-orchestration services ensure`.
+- **Every Git repository is enrolled by default; enrollment is opt-out.** Put `{ "enabled": false }` in `.bytedesk/agent-orchestration/config.json` to opt a repository out. A message to a repository whose lead is down now recovers that lead without the repository having been switched on first. Paths that are not Git repositories are still not enrolled by default. Tests that relied on "unenrolled by omission" now opt out explicitly.
 
 ### Fixed
 
@@ -19,6 +27,7 @@
 - The unbundled `ao-topology` in a plugin tree without `node_modules` now reports `TOPOLOGY_NATS_UNAVAILABLE` naming the missing nats package, instead of a raw `ERR_MODULE_NOT_FOUND` stack, when NATS is selected.
 - The activation, lead-convergence, and role-icon tmux contracts set `AO_TRANSPORT=file`. They test tmux supervision, not NATS, and failed with `TOPOLOGY_NATS_UNAVAILABLE` on a machine without a NATS server.
 - The `bind` unit test's implicit-server case clears `TMUX`, so it no longer fails when the suite runs inside the operator's tmux.
+- The clean-install contract test stops the session-host scope it starts, instead of leaving one running for 24 hours after every run (TM-272).
 
 ## [0.11.0] — 2026-09-27
 

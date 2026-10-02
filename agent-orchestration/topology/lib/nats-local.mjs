@@ -8,12 +8,13 @@
 // ponytail: one shared user for every agent; per-agent creds need the gateway's IssueOrch.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { openSync, readFileSync } from 'node:fs';
+import { existsSync, openSync, readFileSync } from 'node:fs';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { withLock } from './lockfile.mjs';
+import { runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
 export function localNatsHome(env = process.env) {
   return env.AO_NATS_HOME || join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
@@ -62,41 +63,116 @@ accounts {
 `;
 }
 
-/** Returns { servers, user, pass, port, started } or throws TOPOLOGY_NATS_UNAVAILABLE. Idempotent and safe under concurrency. */
-export async function ensureLocalNats({ env = process.env } = {}) {
+function unavailable(message) {
+  const error = new Error(message);
+  error.code = 'TOPOLOGY_NATS_UNAVAILABLE';
+  return error;
+}
+
+const NO_BINARY = 'No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.';
+
+function readState(home) {
+  try { return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')); } catch { return null; }
+}
+
+/** Writes the server config and returns its path. Credentials are generated once and kept, so a
+ * restart reuses the JetStream data they guard. */
+async function writeServerConfig(home, { port, user, pass }) {
+  const confPath = join(home, 'nats-server.conf');
+  await writeFile(confPath, serverConfig({ port, user, password: pass, storeDir: join(home, 'jetstream') }), { mode: 0o600 });
+  await chmod(confPath, 0o600);
+  return confPath;
+}
+
+async function writeState(home, state) {
+  const statePath = join(home, 'state.json');
+  await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
+  await chmod(statePath, 0o600);
+}
+
+/** A PATH name is useless to a service manager whose PATH is not ours, so resolve it once here. */
+function absoluteBinary(bin, env) {
+  if (isAbsolute(bin)) return bin;
+  for (const dir of String(env.PATH || '').split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, bin);
+    if (existsSync(candidate)) return candidate;
+  }
+  return bin;
+}
+
+/**
+ * TM-272: the config a process manager runs, without starting anything. Returns null when no
+ * working nats-server exists. The port is kept across calls so the generated process definition is
+ * stable; a pre-TM-272 detached server still holding the port and store is stopped first, because
+ * two servers on one JetStream store_dir corrupt it.
+ */
+export async function prepareLocalNats({ env = process.env } = {}) {
   const home = localNatsHome(env);
   await mkdir(home, { recursive: true, mode: 0o700 });
   return withLock(join(home, 'lock'), async () => {
-    const statePath = join(home, 'state.json');
-    let state = null;
-    try { state = JSON.parse(readFileSync(statePath, 'utf8')); } catch { /* first run */ }
+    const bin = await findNatsServer(env);
+    if (!bin) return null;
+    const state = readState(home);
+    if (state && !state.managed && state.pid && await canConnect(state.port) && namesNatsServer(state.pid)) {
+      try { process.kill(state.pid, 'SIGTERM'); } catch { /* already gone */ }
+      for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const user = state?.user || 'ao-orch';
+    const pass = state?.pass || randomBytes(24).toString('hex');
+    const port = state?.managed && state.port ? state.port : await freePort();
+    const confPath = await writeServerConfig(home, { port, user, pass });
+    const absolute = absoluteBinary(bin, env);
+    await writeState(home, { managed: true, pid: null, port, user, pass, bin: absolute });
+    return { bin: absolute, args: ['-c', confPath], confPath, port, user, pass, home, log: join(home, 'nats-server.log') };
+  });
+}
+
+// ponytail: cmdline is Linux-only; elsewhere a recorded pid is trusted only when its port answers.
+function namesNatsServer(pid) {
+  try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('nats-server'); }
+  catch { return process.platform !== 'linux'; }
+}
+
+async function waitForPort(port, attempts = 50) {
+  for (let i = 0; i < attempts && !(await canConnect(port)); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  return canConnect(port);
+}
+
+/** Returns { servers, user, pass, port, started } or throws TOPOLOGY_NATS_UNAVAILABLE. Idempotent and safe under concurrency. */
+export async function ensureLocalNats({ env = process.env } = {}) {
+  if (servicesEnabled(env)) {
+    // TM-272: the managed services own the server. A process the manager started must not ask the
+    // manager to start it again, so it only waits; anyone else runs `services ensure` once.
+    const home = localNatsHome(env);
+    let state = readState(home);
+    if (!(state?.managed && await canConnect(state.port)) && env.AGENT_ORCHESTRATION_SERVICES_MANAGED !== '1') {
+      await runServicesEnsure({ env });
+      state = readState(home);
+    }
+    if (state?.managed && await waitForPort(state.port)) {
+      return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, port: state.port, started: false, managed: true };
+    }
+    // Services could not bring it up (no binary, offline install, no service manager): fall
+    // through to the detached server below rather than failing the transport.
+  }
+  const home = localNatsHome(env);
+  await mkdir(home, { recursive: true, mode: 0o700 });
+  return withLock(join(home, 'lock'), async () => {
+    const state = readState(home);
     if (state && await canConnect(state.port)) {
       return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, port: state.port, started: false };
     }
     const bin = await findNatsServer(env);
-    if (!bin) {
-      const error = new Error('No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.');
-      error.code = 'TOPOLOGY_NATS_UNAVAILABLE';
-      throw error;
-    }
-    // Credentials are generated once and kept, so a restart reuses the JetStream data they guard.
+    if (!bin) throw unavailable(NO_BINARY);
     const user = state?.user || 'ao-orch';
     const pass = state?.pass || randomBytes(24).toString('hex');
     const port = await freePort();
-    const confPath = join(home, 'nats-server.conf');
-    await writeFile(confPath, serverConfig({ port, user, password: pass, storeDir: join(home, 'jetstream') }), { mode: 0o600 });
-    await chmod(confPath, 0o600);
+    const confPath = await writeServerConfig(home, { port, user, pass });
     const log = openSync(join(home, 'nats-server.log'), 'a', 0o600);
     const child = spawn(bin, ['-c', confPath], { detached: true, stdio: ['ignore', log, log] });
     child.unref();
-    for (let i = 0; i < 50 && !(await canConnect(port)); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-    if (!(await canConnect(port))) {
-      const error = new Error(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${join(home, 'nats-server.log')}`);
-      error.code = 'TOPOLOGY_NATS_UNAVAILABLE';
-      throw error;
-    }
-    await writeFile(statePath, JSON.stringify({ pid: child.pid, port, user, pass, bin }), { mode: 0o600 });
-    await chmod(statePath, 0o600);
+    if (!(await waitForPort(port))) throw unavailable(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${join(home, 'nats-server.log')}`);
+    await writeState(home, { pid: child.pid, port, user, pass, bin });
     return { servers: `nats://127.0.0.1:${port}`, user, pass, port, started: true };
   });
 }
