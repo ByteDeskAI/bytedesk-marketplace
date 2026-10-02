@@ -1,10 +1,11 @@
 import { open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentOrchestrationError, invariant } from "../errors.mjs";
-import { ensurePrivateDir, newId, processGroupExists, processStartIdentity, waitForProcessGroupExit } from "../util.mjs";
+import { ensurePrivateDir, newId, processStartIdentity } from "../util.mjs";
 import { runUserManagerFile, spawnUserManagerFile } from "../runtime/user-bus.mjs";
 import { LinuxExecutableResolver } from "./executable-resolvers.mjs";
-import { PlatformRuntime, PlatformRuntimeFactory, ProviderSandboxStrategy, WorkerSupervisorStrategy } from "./contracts.mjs";
+import { PlatformRuntime, PlatformRuntimeFactory, ProviderSandboxStrategy } from "./contracts.mjs";
+import { ProcessGroupSupervisorStrategy } from "./process-group-runtime.mjs";
 
 export class BubblewrapSandboxStrategy extends ProviderSandboxStrategy {
   get requiredExecutables() {
@@ -27,7 +28,8 @@ export class BubblewrapSandboxStrategy extends ProviderSandboxStrategy {
   }
 }
 
-export class SystemdWorkerSupervisorStrategy extends WorkerSupervisorStrategy {
+// Runs without a systemd unit are plain process groups; those branches are shared with darwin.
+export class SystemdWorkerSupervisorStrategy extends ProcessGroupSupervisorStrategy {
   get requiredExecutables() {
     return Object.freeze([
       Object.freeze({ id: "systemd-run", command: "systemd-run" }),
@@ -41,8 +43,7 @@ export class SystemdWorkerSupervisorStrategy extends WorkerSupervisorStrategy {
       const state = Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
       return state.LoadState === "loaded" && state.ActiveState === "active";
     }
-    const identity = worker?.pid ? await processStartIdentity(worker.pid) : null;
-    return Boolean(identity && identity === worker?.startIdentity);
+    return super.isAlive(worker);
   }
 
   async terminate(worker) {
@@ -59,14 +60,7 @@ export class SystemdWorkerSupervisorStrategy extends WorkerSupervisorStrategy {
       const after = await readState().catch(() => null);
       return Boolean(after && (after.LoadState === "not-found" || ["inactive", "failed"].includes(after.ActiveState)));
     }
-    if (!worker?.processGroup || !processGroupExists(worker.processGroup)) return true;
-    const identity = worker.pid ? await processStartIdentity(worker.pid) : null;
-    if (!identity || identity !== worker.startIdentity) return false;
-    try { process.kill(-worker.processGroup, "SIGTERM"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
-    if (!await waitForProcessGroupExit(worker.processGroup, 2_000)) {
-      try { process.kill(-worker.processGroup, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
-    }
-    return waitForProcessGroupExit(worker.processGroup, 2_000);
+    return super.terminate(worker);
   }
 
   async waitForRegistration({ runId, supervisorUnit, child, launchState, store, terminalStates, timeoutMs = 10_000 }) {
