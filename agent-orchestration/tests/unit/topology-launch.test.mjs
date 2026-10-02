@@ -2,10 +2,10 @@
 // readiness (the shell-prompt false positive, the reachable ready:false, the failure matcher), the
 // per-agent memory declaration each provider carries, and session naming for concurrent spawns.
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os, { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -17,14 +17,14 @@ import {
   mintAgentToken,
   openRoleSession,
   readDeaths,
-  roleSessionName,
+  recordedRoleSession,
+  roleSessionFor,
   roleSessionNeedsGovernance,
   roleSessionPath,
   screenSince,
   subscriptionFormat,
   tmuxFailureTrigger,
   tokenDigest,
-  uniqueSessionName,
 } from "../../topology/lib/launch.mjs";
 
 test("coordinates-only observer sessions do not require governed-work readiness", () => {
@@ -409,43 +409,6 @@ test("every shipped provider states a coordinator form, even when that form is '
   }
 });
 
-// ---------------------------------------------------------------- TM-101 session addressing
-
-test("a session name is the agent's stable id plus a per-spawn discriminator, unique among live sessions", async () => {
-  const live = new Set(["a1b2c3d4-0000001"]);
-  const minted = ["0000001", "0000001", "beef123"];
-  let i = 0;
-  const name = await uniqueSessionName("a1b2c3d4", {
-    has: async (session) => live.has(session),
-    mint: () => minted[i++],
-  });
-  assert.equal(name, "a1b2c3d4-beef123", "a taken discriminator is re-minted rather than reused");
-  assert.equal(i, 3, "each collision costs exactly one re-mint");
-});
-
-test("two concurrent spawns of one agent are two distinct, separately addressable sessions", async () => {
-  const live = new Set();
-  const has = async (session) => live.has(session);
-  const first = await uniqueSessionName("a1b2c3d4", { has });
-  live.add(first);
-  const second = await uniqueSessionName("a1b2c3d4", { has });
-  assert.notEqual(first, second);
-  for (const session of [first, second]) {
-    assert.match(session, /^a1b2c3d4-[0-9a-f]{7}$/, "the agent's address stays readable in the session name");
-  }
-});
-
-test("minting gives up loudly rather than handing back a name that is already taken", async () => {
-  await assert.rejects(
-    () => uniqueSessionName("a1b2c3d4", { has: async () => true, mint: () => "fixed12", attempts: 3 }),
-    (error) => {
-      assert.equal(error.code, "TOPOLOGY_SESSION_NAME_EXHAUSTED");
-      return true;
-    },
-  );
-});
-
-
 // ---------------------------------------------------------------- TM-099 push, not poll
 
 test("the subscription format asks the server for readiness, failure, death and the exit code", () => {
@@ -527,25 +490,58 @@ test("deaths recorded by the pane-died hook parse back with their exit codes", a
 
 // ---------------------------------------------------------------- TM-096 durable role-sessions
 
-test("a role-session is named from the agent's stable id and never from a run", () => {
-  assert.equal(roleSessionName("a1b2c3d4"), "ao-a1b2c3d4");
-  assert.equal(roleSessionName("a1b2c3d4", { prefix: "bytedesk" }), "bytedesk-a1b2c3d4");
-  // Same name every time: that is what "independent of any single run" means in practice.
-  assert.equal(roleSessionName("a1b2c3d4"), roleSessionName("a1b2c3d4"));
+test("a role-session is named node--repo--role--persona, then found again from its record (TM-274)", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao role (copy) "));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "cfg"), AO_NODE_NAME: "agents1.lan" };
+  const agentId = "a1b2c3d4";
+  await mkdir(join(root, agentId), { recursive: true });
+  await writeFile(join(root, agentId, "agent.json"), JSON.stringify({ id: agentId, role: "lead", first_name: "Ada", last_name: "Thorne", full_name: "Ada Thorne" }));
+  const live = new Set();
+  const has = async (name) => live.has(name);
+  const repo = basename(root).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const open = () => roleSessionFor({ agentsDir: root, agentId, has, env, home: root });
+
+  // No record and nothing live: a new name, persona from the registry. No remote, so the folder.
+  const fresh = await open();
+  assert.equal(fresh, `agents1-lan--${repo}--lead--ada`);
+  assert.match(fresh, /^[a-z0-9-]+$/, "spaces, parentheses and dots never reach tmux");
+  assert.equal(await open(), fresh, "the persona is stable for this agent");
+  // Readers never invent one: with no record they look for the legacy name.
+  assert.equal(await recordedRoleSession({ agentsDir: root, agentId }), `ao-${agentId}`);
+
+  // Recorded and live: that session, whatever it is called.
+  await writeFile(roleSessionPath(root, agentId), JSON.stringify({ agent_id: agentId, session: "anything-at-all" }));
+  live.add("anything-at-all");
+  assert.equal(await open(), "anything-at-all");
+  assert.equal(await recordedRoleSession({ agentsDir: root, agentId }), "anything-at-all");
+  live.delete("anything-at-all");
+  assert.equal(await open(), fresh, "a dead recorded session is replaced by the current name");
+
+  // A live legacy `ao-<id>` session is still reattached until it ends, and is not recreated after.
+  await writeFile(roleSessionPath(root, agentId), JSON.stringify({ agent_id: agentId, session: `ao-${agentId}` }));
+  live.add(`ao-${agentId}`);
+  assert.equal(await open(), `ao-${agentId}`);
+  live.delete(`ao-${agentId}`);
+  assert.equal(await open(), fresh, "the migration: a legacy session that ended reopens under the new name");
+
+  // A record that belongs to another agent is not this agent's session.
+  await writeFile(roleSessionPath(root, agentId), JSON.stringify({ agent_id: "bbbbbbbb", session: "theirs" }));
+  assert.equal(await recordedRoleSession({ agentsDir: root, agentId }), `ao-${agentId}`);
 });
 
-test("a role-session name refuses the two characters tmux silently mangles", () => {
+test("a role-session refuses an agent id or a name tmux would mangle", async () => {
   // Measured on tmux 3.4: new-session -s "a.b" creates "a_b", and has-session -t "a.b" then fails.
   // A dotted name would make the reattach probe miss and create a second session every call.
-  for (const bad of ["a.b", "a:b", "a b", "", "x".repeat(200)]) {
-    assert.throws(
-      () => roleSessionName(bad),
-      (error) => {
-        assert.equal(error.code, "TOPOLOGY_SESSION_NAME_INVALID");
-        return true;
-      },
-      `${JSON.stringify(bad)} must be refused`,
-    );
+  const bads = ["a.b", "a:b", "a b", ""];
+  assert.equal(bads.length, 4);
+  for (const bad of bads) {
+    await assert.rejects(() => recordedRoleSession({ agentsDir: null, agentId: bad }),
+      (error) => error.code === "TOPOLOGY_SESSION_NAME_INVALID", `${JSON.stringify(bad)} must be refused`);
+  }
+  for (const bad of ["a.b", "a:b", "x".repeat(200)]) {
+    await assert.rejects(() => openRoleSession({ agentsDir: "/nonexistent", agentId: "a1b2c3d4", session: bad, adapter: {}, argv: [] }),
+      (error) => error.code === "TOPOLOGY_SESSION_NAME_INVALID", `${JSON.stringify(bad)} must be refused`);
   }
 });
 
@@ -561,9 +557,9 @@ const haveTmux = await promisify(execFile)("tmux", ["-V"]).then(() => true, () =
 test("reattaching to a live role-session returns the same session rather than a second one", { skip: haveTmux ? false : "no tmux" }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "ao-role-"));
   const agentId = "aatest01";
-  const session = roleSessionName(agentId);
+  let session = null;
   t.after(async () => {
-    await promisify(execFile)("tmux", ["kill-session", "-t", `=${session}`]).catch(() => {});
+    if (session) await promisify(execFile)("tmux", ["kill-session", "-t", `=${session}`]).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
   const open = () =>
@@ -572,13 +568,20 @@ test("reattaching to a live role-session returns the same session rather than a 
       agentId,
       adapter: normalizeAdapter({ id: "fake", command: "sh" }, "x"),
       argv: ["sh", "-c", "sleep 60"],
-      env: { AO_AGENT_ID: agentId },
+      env: { AO_AGENT_ID: agentId, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") },
       role: "lead",
     });
 
   const first = await open();
+  session = first.session;
   assert.equal(first.created, true);
-  assert.equal(first.session, session);
+  assert.match(session, /--lead--aatest01$/, "TM-274: node--repo--lead--persona, the id standing in for a missing name");
+  const [listed] = (await tmux.listSessionIdentities()).filter((entry) => entry.name === session);
+  assert.equal(listed?.meta.agent, agentId, "the session carries its agent as metadata");
+  assert.equal(listed?.meta.role, "lead");
+  assert.match(listed?.meta.id ?? "", /^[0-9A-HJKMNP-TV-Z]{26}$/, "and a ULID");
+  const recordedIdentity = JSON.parse(await readFile(roleSessionPath(root, agentId), "utf8")).identity;
+  assert.equal(recordedIdentity?.id, listed?.meta.id, "mirrored into the durable record");
 
   const second = await open();
   assert.equal(second.created, false, "a second call must not create a second session");
@@ -596,13 +599,13 @@ test("reattaching to a live role-session returns the same session rather than a 
 });
 
 test("healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation", { skip: haveTmux ? false : "no tmux" }, async t => {
-  const root=await mkdtemp(join(tmpdir(),'ao-role-prompt-')),agentId='prompt01',consumer=join(root,'repo'),dir=join(root,agentId),session=roleSessionName(agentId);
+  const root=await mkdtemp(join(tmpdir(),'ao-role-prompt-')),agentId='prompt01',consumer=join(root,'repo'),dir=join(root,agentId),session=await roleSessionFor({agentsDir:root,agentId,consumer,role:'observer',env:{AGENT_ORCHESTRATION_STATE_HOME:join(root,'state')},home:root});
   t.after(async()=>{await tmux.killSession(session).catch(()=>{});await rm(root,{recursive:true,force:true});});
   const bindingless={id:agentId,role:'observer',full_name:'Prompt Observer',_dir:dir,instructions:'first'};
   const adapter={id:'fake',ready:{delay_ms:50},submit_keys:['Enter']};
-  const env={AO_AGENT_ID:agentId,AO_AGENT_ROLE:'observer',AO_SESSION:session,AO_CONSUMER:consumer};
+  const env={AO_AGENT_ID:agentId,AO_AGENT_ROLE:'observer',AO_SESSION:session,AO_CONSUMER:consumer,AGENT_ORCHESTRATION_STATE_HOME:join(root,'state')};
   await refreshPrompt({agent:bindingless,consumer,session,home:root,env:{XDG_CONFIG_HOME:join(root,'config')}});
-  const open=()=>openRoleSession({agentsDir:root,agentId,adapter,argv:['sh','-c','echo READY; cat'],env,role:'observer',coordinatesOnly:true});
+  const open=()=>openRoleSession({agentsDir:root,agentId,adapter,argv:['sh','-c','echo READY; cat'],env,session,role:'observer',coordinatesOnly:true});
   const first=await open();
   let state=JSON.parse(await readFile(join(dir,'prompt-state.json'),'utf8'));
   assert.equal(state.status,'awaiting-ack');assert.equal(sameIncarnation(state.desired_binding,first.binding),true);

@@ -3,7 +3,7 @@
 import { dirname, join } from 'node:path';
 import { requireAgent } from './agents.mjs';
 import { sameIncarnation } from './incarnation.mjs';
-import { deliverPointer, openRoleSession, roleSessionName, roleSessionPath } from './launch.mjs';
+import { deliverPointer, openRoleSession, roleSessionFor, roleSessionPath } from './launch.mjs';
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from './providers.mjs';
 import { refreshPrompt } from './prompt-lifecycle.mjs';
 import { readPromptState } from './prompts.mjs';
@@ -48,7 +48,7 @@ export async function prepareObserverSession({ consumer, observerId, agentDirs =
   const agent = await resolveAgent(observerId, agentDirs);
   invariant(agent.role === 'observer' && agent.coordinates_only === true,
     'TOPOLOGY_OBSERVER_AGENT', 'Observer start requires a coordinates-only observer identity in this repository library.');
-  const session = roleSessionName(agent.id);
+  const session = await roleSessionFor({ agentsDir: dirname(agent._dir), agentId: agent.id, consumer, role: agent.role, env, home, has: name => tmux.hasSession(name) });
   const recordPath = roleSessionPath(dirname(agent._dir), agent.id);
   const wasLive = await tmux.hasSession(session);
   const priorRecord = await readJson(recordPath).catch(() => null);
@@ -72,7 +72,7 @@ export async function prepareObserverSession({ consumer, observerId, agentDirs =
   const argv = (lifecycle.buildArgv ?? buildArgv)(adapter, { ...agent, add_dirs: [stateRoot(env, home)] }, vars);
   const opened = await (lifecycle.openRoleSession ?? openRoleSession)({ agentsDir: dirname(agent._dir), agentId: agent.id,
     adapter, argv, env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: consumer, ...agent.env },
-    role: agent.role, coordinatesOnly: true, controlledRestart: wasLive && !current, log });
+    session, role: agent.role, coordinatesOnly: true, controlledRestart: wasLive && !current, log });
   invariant(opened.binding, 'TOPOLOGY_OBSERVER_IDENTITY_CHANGED', 'Observer session started without an exact process binding.');
 
   const prompt = await waitForObserverPrompt({ agent, session, binding: opened.binding, timeoutMs,

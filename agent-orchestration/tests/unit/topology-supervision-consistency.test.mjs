@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { run, readJson, writeJson, sleep } from '../../topology/lib/util.mjs';
-import { roleSessionName } from '../../topology/lib/launch.mjs';
+import { legacyRoleSessionName } from '../../topology/lib/session-names.mjs';
 import { superviseRepository } from '../../topology/lib/supervision.mjs';
 
 const exec = promisify(execFile);
@@ -134,7 +134,8 @@ test('lead assign and role assign lead answer a failed supervisor identically', 
   assert.equal(minted.code, 0, minted.stderr);
   const agentId = JSON.parse(minted.stdout).id;
 
-  const session = roleSessionName(agentId);
+  // A hand-made legacy `ao-<id>` session with no record: still recognised (TM-274 migration path).
+  const session = legacyRoleSessionName(agentId);
   await run('tmux', ['new-session', '-d', '-s', session, '-c', repo, 'sleep', '120'], { env });
   const socket = (await run('tmux', ['display-message', '-p', '-t', session, '#{socket_path}'], { env })).stdout.trim();
   t.after(() => run('tmux', ['-S', socket, 'kill-server'], { env, allowFailure: true }));

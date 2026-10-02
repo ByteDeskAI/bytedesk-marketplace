@@ -9,15 +9,16 @@ import { fileURLToPath } from "node:url";
 
 import { doctor as runDoctor, tmuxInstallPlan } from "./lib/doctor.mjs";
 import { closeAllClients, isUndelivered, ringMessage, undeliveredReport } from "./lib/delivery.mjs";
-import { deliverPointer, failoverAgent, launchRun, materializeWorkflowSpec, messagePointer, openRoleSession, registeredLeadId, retryWorkflowSpec, roleSessionName, runAgentVisual, tmuxFailureTrigger, uniqueSessionName } from "./lib/launch.mjs";
+import { deliverPointer, failoverAgent, launchRun, materializeWorkflowSpec, messagePointer, openRoleSession, recordedRoleSession, registeredLeadId, retryWorkflowSpec, roleSessionFor, runAgentVisual, tmuxFailureTrigger } from "./lib/launch.mjs";
 import { agentDir, appendJournal, loadRun, pendingReplies, queueDepth, readJournal, recordReply, saveRun, sendMessage, waitForReplies } from "./lib/mailbox.mjs";
 import { adapterFor, adapterSummary, buildArgv, loadAdapters, providerDirs } from "./lib/providers.mjs";
 import { roleDirs, skillDirs } from "./lib/resolve.mjs";
-import { agentAddress, DEFAULT_SESSION, listWorkflows, loadSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
+import { listWorkflows, loadSpec, resolveInputs, specSchemaSummary, workflowDirs, validateSpec } from "./lib/spec.mjs";
 import * as tmux from "./lib/tmux.mjs";
 import { TopologyError, absolutize, exists, fail, invariant, newRunId, parseArgs, parseDuration, readJson, terminalText, writeJson, AO_HOME } from "./lib/util.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent } from "./lib/agents.mjs";
-import { displayName, parseSessionName, roleVisual } from "./lib/identity.mjs";
+import { displayName, roleVisual } from "./lib/identity.mjs";
+import { sessionIdentity } from "./lib/session-names.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 import { sameIncarnation } from "./lib/incarnation.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
@@ -49,7 +50,7 @@ Compose
 
 Launch and stop
   launch (--workflow <name> | --spec <file>) [--consumer <dir>] [--input k=v]... [--run-id <id>]
-         [--dry-run] [--json]
+         [--dry-run] [--json] [--team <name>]   --team prefixes the session name and scopes personas
          [--allow-outside]       permit a cwd or run_dir outside the invoking repository
          [--allow-auto-approve]  accepted, no effect: agents run without permission prompts by
                                  default (TM-214); set auto_approve: false on an agent to opt out
@@ -723,7 +724,7 @@ const commands = {
     const promptServer = recordedBinding?.serverKey ?? tmux.callerServer(process.env);
     const panes = promptServer ? await tmux.listServerPanes({ tmuxServer: promptServer }).catch(() => []) : [];
     const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
-    const expectedSession = promptSession || roleSessionName(agent.id);
+    const expectedSession = promptSession || await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
     if (positional[0] === 'watch') return api.watchPrompts({ ...ctx, agent }, { onChange: out });
     invariant(positional[0] === 'refresh', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use prompt preview|refresh|ack|watch.');
@@ -848,7 +849,7 @@ const commands = {
             invariant(saved, 'TOPOLOGY_WORKFLOW_NOT_FOUND', 'Child workflow must be saved in the project workflow catalog.');
             const child = await loadSpec({ specPath: saved.path, dirs: ctx.workflowDirs });
             const childSpec = await materializeWorkflowSpec(child.spec, { runId: newRunId(), consumer: materialized.consumer, home: ctx.home,
-              inputs: resolveInputs(child.spec, childInputs) }, { stateHome });
+              inputs: resolveInputs(child.spec, childInputs), ...(materialized.team ? { team: materialized.team } : {}) }, { stateHome });
             const result = await start(childSpec, childLineage, childToken);
             return { ...result, conductor: childSpec.agents.find(agent => agent.role === 'orchestrator')?.id || null };
           }, log: line => process.stderr.write(`${line}\n`) });
@@ -963,6 +964,7 @@ const commands = {
         consumer: ctx.consumer,
         home: ctx.home,
         inputs: resolveInputs(child.spec, childInputs),
+        ...(team ? { team } : {}),
         allowOutside: Boolean(flags["allow-outside"]),
         ...(flags["max-fanout"] && flags["max-fanout"] !== true ? { maxFanout: Number(flags["max-fanout"]) } : {}),
       });
@@ -985,14 +987,9 @@ const commands = {
     // A deliberate escape hatch, off unless the operator asks: `--allow-outside` lets a spec resolve
     // a cwd or run_dir outside the invoking repo. It is not inferable from the spec, because the spec
     // is the thing being trusted less. `--allow-auto-approve` is accepted and ignored (TM-214).
-    // Address the session by WHO when the run is a spawn of one known agent, and by what-and-when
-    // otherwise. Only when the spec did not name a session itself — a spec that states its own name
-    // is stating a requirement, and guessing over it would break whoever is reading that name.
-    // The discriminator's uniqueness scope is live sessions on this host, which is the scope tmux
-    // itself enforces, so `uniqueSessionName` probes rather than trusting the entropy.
-    const address = spec.session === DEFAULT_SESSION
-      ? agentAddress(spec, { consumer: ctx.consumer, home: ctx.home, agentDirs: ctx.agentDirs })
-      : null;
+    // TM-274 / ADR-0030: materializeWorkflowSpec names the session — after the agent for a spawn of one
+    // library agent, `run--<workflow>` otherwise — with `--team` (or the spec's `team`) as the prefix.
+    const team = flags.team && flags.team !== true ? String(flags.team) : undefined;
     const materialized = await materializeWorkflowSpec(spec, {
       runId,
       consumer: ctx.consumer,
@@ -1000,7 +997,7 @@ const commands = {
       inputs,
       allowOutside: Boolean(flags["allow-outside"]),
       ...(flags["max-fanout"] && flags["max-fanout"] !== true ? { maxFanout: Number(flags["max-fanout"]) } : {}),
-      session: address ? await uniqueSessionName(address) : undefined,
+      ...(team ? { team } : {}),
     });
     const adapters = await loadAdapters(ctx.providerDirs);
     const result = await launchRun({
@@ -1088,25 +1085,30 @@ const commands = {
       const roster = await listAgents(ctx.agentDirs);
       const visualOf = await libraryVisuals(ctx);
       // Two kinds of session, and the difference is the point. A role-session is the agent's one
-      // durable workspace, named `ao-<id>`, and opening it again reattaches. A spawn is one run of
-      // that agent, named `<id>-<spawn>`, and there may be several at once. Stable agent, distinct
-      // spawns: `who` is the id, `which run` is the discriminator.
-      const live = await tmux.listSessions();
+      // durable workspace, and opening it again reattaches. A spawn is one run of that agent, and
+      // there may be several at once. TM-274: who a session belongs to is read from the `@ao-*`
+      // options recorded on it (legacy `ao-<id>` / `<id>-<7 hex>` names until they end) — the
+      // `<host>-<repo>-<role>-<name>` name is only a label.
+      const live = await tmux.listSessionIdentities();
+      const liveNames = new Set(live.map((entry) => entry.name));
       const spawnsFor = new Map();
-      for (const name of live) {
-        const parsed = parseSessionName(name);
-        if (!parsed) continue;
-        if (!spawnsFor.has(parsed.agentId)) spawnsFor.set(parsed.agentId, []);
-        spawnsFor.get(parsed.agentId).push({ session: name, spawn: parsed.spawn });
+      for (const entry of live) {
+        const identity = sessionIdentity(entry);
+        if (identity?.kind !== "spawn") continue;
+        if (!spawnsFor.has(identity.agentId)) spawnsFor.set(identity.agentId, []);
+        spawnsFor.get(identity.agentId).push({ session: entry.name, spawn: identity.spawn });
       }
-      const rows = roster.map((agent) => ({
-        id: agent.id,
-        agent: displayName(agent),
-        role: agent.role,
-        ...visualOf(agent),
-        session: roleSessionName(agent.id),
-        live: live.includes(roleSessionName(agent.id)),
-        spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
+      const rows = await Promise.all(roster.map(async (agent) => {
+        const session = await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
+        return {
+          id: agent.id,
+          agent: displayName(agent),
+          role: agent.role,
+          ...visualOf(agent),
+          session,
+          live: liveNames.has(session),
+          spawns: (spawnsFor.get(agent.id) ?? []).sort((a, b) => a.spawn.localeCompare(b.spawn)),
+        };
       }));
       // A spawn whose agent is not in this repo's roster still belongs to someone; saying so beats
       // pretending it is not there, because it is holding a tmux session either way.
@@ -1128,7 +1130,7 @@ const commands = {
     const agent = await requireAgent(ref, ctx.agentDirs);
 
     if (sub === "close") {
-      const session = roleSessionName(agent.id);
+      const session = await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
       const live = await tmux.hasSession(session);
       if (live) await tmux.killSession(session);
       // The record and the agent directory are deliberately left behind: closing a session ends a
@@ -1141,7 +1143,7 @@ const commands = {
     invariant(agent.role !== "reviewer", "TOPOLOGY_REVIEWER_READ_ONLY", `${displayName(agent)} is the reviewer; it launches only read-only. Use: ao-topology reviewer ensure.`, { agent_id: agent.id });
     const adapters = await loadAdapters(ctx.providerDirs);
     const adapter = adapterFor(agent, adapters);
-    const session = roleSessionName(agent.id);
+    const session = await roleSessionFor({ agentsDir: dirname(agent._dir), agentId: agent.id, consumer: ctx.consumer, role: agent.role, home: ctx.home });
     // The session's cwd is the agent's own directory — that is what gives it memory of its own under
     // every shipped CLI. The repo is therefore granted explicitly, exactly as `launch` does it, and
     // a coordinator is granted nothing beyond its own directory.
@@ -1163,6 +1165,7 @@ const commands = {
       adapter,
       argv,
       env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: ctx.consumer, ...agent.env },
+      session,
       role: agent.role,
       coordinatesOnly: agent.coordinates_only === true,
       controlledRestart: flags.restart === true,

@@ -39,7 +39,7 @@ import { sendStandingMessage } from "./standing-mailbox.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
-import { openRoleSession, roleSessionName, tmuxFailureTrigger } from "./launch.mjs";
+import { openRoleSession, recordedRoleSession, roleSessionFor, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt, protocolOutputLine } from "./prompt-lifecycle.mjs";
@@ -139,7 +139,7 @@ function assertIndependent(agentId, { lead, notAgentIds }) {
 async function defaultOpen({ agent, consumer, home, pluginRoot, provider, model, log, env = process.env }) {
   const adapters = await loadAdapters(providerDirs({ pluginRoot, consumer, home }));
   const adapter = adapterFor({ ...agent, cli: provider, model }, adapters);
-  const session = roleSessionName(agent.id);
+  const session = await roleSessionFor({ agentsDir: dirname(agent._dir), agentId: agent.id, consumer, role: agent.role, env, home });
   const inboxRoot = await reviewerInboxRoot(consumer, env, home);
   await mkdir(join(inboxRoot, 'probes'), { recursive: true });
   await mkdir(join(inboxRoot, 'requests'), { recursive: true });
@@ -157,6 +157,7 @@ async function defaultOpen({ agent, consumer, home, pluginRoot, provider, model,
     adapter,
     argv,
     env: { AO_AGENT_ID: agent.id, AO_AGENT_ROLE: agent.role, AO_SESSION: session, AO_CONSUMER: consumer },
+    session,
     role: "reviewer",
     log,
   });
@@ -611,7 +612,7 @@ export async function assignReviewer({ consumer, agentRef, session: existingSess
     invariant(!previous || previous.agent_id === agent.id, "TOPOLOGY_REVIEWER_ALREADY_ASSIGNED", "Detach the existing reviewer before assigning a different identity.");
     const provider = agent.cli ?? null;
     assertApprovedProvider(provider, await loadConfig({ consumer, home, pluginRoot, env }));
-    const name = existingSession || roleSessionName(agent.id);
+    const name = existingSession || await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     const candidate = { session: name, pane: null, agent_id: agent.id, repo_id: identity.id, consumer, provider };
     // TM-167: the named session, not the whole implicit server — and, because a session is not a server,
     // the server this agent's own session record names when the record is for this session. Without one

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { addressOf, displayName, mintId, mintName, mintSpawn, parseSessionName, sessionName, titleForRole } from "../../topology/lib/identity.mjs";
+import { addressOf, displayName, mintId, mintName, mintSpawn, titleForRole } from "../../topology/lib/identity.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, resolveAgentRef } from "../../topology/lib/agents.mjs";
 import { hopExceeded, wouldLoop } from "../../topology/lib/routing.mjs";
 import { roleDirs } from "../../topology/lib/resolve.mjs";
@@ -34,14 +34,6 @@ test("every built-in role including lead has a title, and people never see an id
   assert.equal(shown, "Mira Thorne, Staff Reviewer");
   assert.ok(!shown.includes("deadbeef"), "a human-facing string must not carry the id");
   assert.equal(addressOf(agent), "deadbeef", "machines address by id");
-});
-
-test("a session is one agent's stable address plus a per-spawn discriminator", () => {
-  const id = mintId();
-  const one = sessionName(id, mintSpawn());
-  const two = sessionName(id, mintSpawn());
-  assert.notEqual(one, two, "two spawns of one agent must be separately addressable");
-  assert.ok(one.startsWith(`${id}-`) && two.startsWith(`${id}-`), "both must resolve to the same agent");
 });
 
 test("agents resolve through the same four-tier search path as the other resource types", () => {
@@ -119,22 +111,4 @@ test("loop and hop guards", () => {
   assert.equal(wouldLoop(["a"], "b"), false);
   assert.equal(hopExceeded(["a", "b", "c", "d"]), true);
   assert.equal(hopExceeded(["a"]), false);
-});
-
-test("a session name resolves back to the agent that owns it, and to one spawn of it", () => {
-  const id = mintId();
-  const spawn = mintSpawn();
-  const parsed = parseSessionName(sessionName(id, spawn));
-  assert.deepEqual(parsed, { agentId: id, spawn });
-
-  // Anchored on the discriminator, not the id: an id may contain "-", the discriminator never does.
-  assert.deepEqual(parseSessionName("my-long-agent-id-9f3e21a"), { agentId: "my-long-agent-id", spawn: "9f3e21a" });
-
-  // The two other session kinds must NOT parse as spawns, or `session list` would file a run under
-  // an agent that never ran and a role-session would show up as a spawn of itself.
-  assert.equal(parseSessionName(`ao-${id}`), null, "a durable role-session is not a spawn");
-  assert.equal(parseSessionName("p1-slow-20260905-061109-nxcp"), null, "a run session is not a spawn");
-  for (const bad of ["", null, undefined, "nodashes", "agent-zzzzzzz", "agent-9f3e21", "agent-9f3e21ab"]) {
-    assert.equal(parseSessionName(bad), null, `${JSON.stringify(bad)} must not parse as a spawn`);
-  }
 });

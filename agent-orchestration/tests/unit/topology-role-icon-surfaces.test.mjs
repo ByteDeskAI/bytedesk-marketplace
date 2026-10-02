@@ -118,7 +118,7 @@ test("run agents: declared role, custom role and nested team each get a computed
   assert.deepEqual(runAgentVisual({ role: "worker", workflow: { name: "team" } }), { roleIcon: NESTED_TEAM_ICON, roleLabel: "Nested team" });
 });
 
-/** An isolated consumer, and a CLI whose tmux is a script that only ever answers `list-sessions`. */
+/** An isolated consumer, and a CLI whose tmux is a script that only ever answers the session listing (TM-274: `list-panes -a`, one row per session here, no @ao-* options). */
 async function consumerFixture(t) {
   const home = await mkdtemp(join(tmpdir(), "ao-role-icon-cli-"));
   const consumer = join(home, "repo");
@@ -130,7 +130,7 @@ async function consumerFixture(t) {
   };
   t.after(() => rm(home, { recursive: true, force: true }));
   const sessions = async (names) => {
-    await writeFile(fakeTmux, `#!/bin/sh\ncase "$*" in\n  *list-sessions*) printf '%s\\n' ${names.map(shellQuote).join(" ")} ;;\n  *) exit 1 ;;\nesac\n`);
+    await writeFile(fakeTmux, `#!/bin/sh\ncase "$*" in\n  *list-sessions*|*list-panes*) printf '%s\\n' ${names.map(shellQuote).join(" ")} ;;\n  *) exit 1 ;;\nesac\n`);
     await chmod(fakeTmux, 0o755);
   };
   await sessions([]);
