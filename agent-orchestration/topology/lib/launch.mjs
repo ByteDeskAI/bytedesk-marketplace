@@ -1005,7 +1005,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     // own conductor gets its instructions from the child's spec.
     if (item.participant) continue;
     const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))) });
-    const promptAgent = { ...Object.fromEntries(['id','role','full_name','title','template','coordinates_only','instructions_file','_agent_dir','_prompt_vars'].map(key=>[key,item.agent[key]])), instructions: item.agent._inline_instructions ?? item.agent.instructions ?? "", _dir:item.dir };
+    const promptAgent = { ...Object.fromEntries(['id','role','full_name','title','template','coordinates_only','instructions_file','instructions_mode','_agent_dir','_prompt_vars'].map(key=>[key,item.agent[key]])), instructions: item.agent._inline_instructions ?? item.agent.instructions ?? "", _dir:item.dir };
     if (item.agent._instruction_source) {
       promptAgent.instructions_file = join(item.dir, 'instructions-source.md');
       await writeText(promptAgent.instructions_file, item.agent._instruction_source.text);

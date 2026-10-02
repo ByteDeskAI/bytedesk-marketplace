@@ -7,9 +7,10 @@
 // a memory layer. The real work tree is reached with --add-dir and explained in the prompt.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PROMPT_MODES } from "./config.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { consumerResourceDirs, exists, fail, invariant, nowIso, writeJson } from "./util.mjs";
 import { addressOf, agentDirName, displayName, mintId, mintName, titleForRole } from "./identity.mjs";
@@ -220,6 +221,33 @@ rather than doing it.
 `
       : ""
   }`;
+}
+
+/**
+ * TM-296. Set an agent's own instructions in its agent.json: `text` inline, or `file` (a Markdown
+ * path) as its instructions file. agent.json is tracked, so the file is stored RELATIVE to the agent
+ * directory and must sit inside the agent directory or `repo`; a path outside the repository would
+ * name a file other hosts and worktrees do not have. They REPLACE the agent's previous own instructions;
+ * `mode` says whether they compose after the template (append) or in place of it (replace). The
+ * stored shape stays a string plus `instructions_mode`, which every existing reader understands.
+ * The running agent picks the change up through the ordinary prompt refresh / restart-required flow.
+ */
+export async function setAgentInstructions(agent, { file = null, text = null, mode = "append", repo = null } = {}) {
+  invariant((file === null) !== (text === null), "TOPOLOGY_INSTRUCTIONS_SOURCE", "Pass exactly one of --file <md> or --text <s>.");
+  invariant(PROMPT_MODES.includes(mode), "TOPOLOGY_INSTRUCTIONS_MODE", 'Use --mode append or --mode replace.');
+  invariant(text === null || text.trim(), "TOPOLOGY_INSTRUCTIONS_SOURCE", "--text must not be empty.");
+  let storedFile = PROMPT;
+  if (file !== null) {
+    invariant(await exists(file), "TOPOLOGY_INSTRUCTIONS_FILE_NOT_FOUND", `No instructions file at ${file}.`);
+    const inside = (root) => { const rel = relative(resolve(root), resolve(file)); return rel && !rel.startsWith("..") && !isAbsolute(rel); };
+    invariant(inside(agent._dir) || (repo && inside(repo)), "TOPOLOGY_INSTRUCTIONS_FILE_OUTSIDE_REPO",
+      `${file} is outside the repository${repo ? ` (${repo})` : ""}; agent.json is tracked, so other hosts would not have it. Move the file into the repository, or pass --text.`);
+    storedFile = relative(agent._dir, resolve(file));
+  }
+  const stored = JSON.parse(await readFile(agent._file, "utf8"));
+  const next = { ...stored, instructions: text ?? "", instructions_file: storedFile, instructions_mode: mode };
+  await writeJson(agent._file, next);
+  return { ...next, _dir: agent._dir, _file: agent._file };
 }
 
 /** Load an agent by id, failing with a message a person can act on. */

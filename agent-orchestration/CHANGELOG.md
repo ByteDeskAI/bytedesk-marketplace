@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
+  one configuration layer's raw document with a sha256 revision; `set` validates before writing,
+  refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
+  `--role` and returns the composed text and its sources. A global-only `prompts.prefix` composes
+  before everything and joins the revision. Every prompt entry may be `{ file|text, mode }`, where
+  `replace` drops the same slot from wider layers; plain-string configs compose byte-identically.
+  `agent set-instructions <id> (--file|--text) [--mode append|replace]` sets an agent's own
+  instructions; `--file` is stored relative to the agent directory and refused outside the
+  repository. A `replace` keeps role protocol — the lead/reviewer template and the bundled
+  `common_by_role` variant — and reports the kept layer in `warnings`.
+
 ### Fixed
 
 - **Review verdict decoding and outage retirement tighten three edges (TM-295).** A pane captured
