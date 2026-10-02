@@ -24,7 +24,7 @@ function turn(ms) {
   timer = setTimeout(() => { busyUntil = 0; process.stdout.write("\r\x1b[K> "); log({ event: "turn-end" }); }, ms);
 }
 
-log({ event: "start", session: process.env.AO_SESSION ?? null });
+log({ event: "start", session: process.env.AO_SESSION ?? null, argv: process.argv.slice(2) });
 process.stdout.write("fake-turn ready\n> ");
 turn(Number(process.env.FAKE_TURN_START_BUSY_MS ?? 0));
 

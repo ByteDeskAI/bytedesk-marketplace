@@ -14,6 +14,10 @@
 
 ### Changed
 
+- **A re-spawn also waits out typed, unsent input (TM-297).** The turn-end wait treats a composer
+  that is not empty as busy, for any adapter that declares `composer.empty_pattern`, so neither
+  `agent restart` nor a `launch`/`session open` re-spawn types over text someone is writing.
+
 - **The NATS transport names itself, and an unreachable configured NATS is reported to the lead
   (TM-276, ADR-0031).** A dead ambient `NATS_URL` or stale gateway `orch.sock` still falls back to
   the managed local server, but the selection, its source (`AO_NATS_URL`, `NATS_URL`, `orch.sock`,
@@ -31,6 +35,16 @@
   lead gets one `NATS retired` message in place of the recovery message.
 
 ### Added
+
+- **`agent restart --mode handoff|resume` applies a changed prompt to a running agent (TM-297,
+  EP-003 C4).** One verb, for standing roles and library agents, that the gateway settings UI calls.
+  Both modes reuse the TM-280 re-spawn: the turn is waited out, the old session ends once, and the
+  successor starts under the same name on the promoted prompt. `handoff` passes the predecessor's
+  handoff to it; `resume` relaunches with the adapter's new `resume_args` (Claude:
+  `--resume <session-id>`, from the newest transcript in the agent's own directory) and, where that
+  is not possible, falls back to `handoff` with `"fallback": "handoff"` and the reason. The result
+  names the old and new session, incarnation, prompt revision and mode used. `agent list --json` now
+  reports `applied_revision`, `desired_revision`, `prompt_status` and `restart_required` per agent.
 
 - Durable NATS mailbox obligations, sender publication recovery and explicit recipient dispositions. Broker acknowledgment follows local durable acceptance; console inspection does not consume messages.
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.

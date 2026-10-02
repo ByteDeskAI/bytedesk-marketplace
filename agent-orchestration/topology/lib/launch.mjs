@@ -1341,7 +1341,10 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
 }
 
 export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, session: chosen = null, role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {},
-  respawn = true, respawnBounds = {}, requestedBy = null }) {
+  respawn = true, respawnBounds = {}, requestedBy = null, replace = null, home = homedir() }) {
+  // TM-297 `agent restart`: `replace` ("handoff" | "resume") replaces the agent's LIVE session — its own
+  // role-session included — through the TM-280 re-spawn rather than reattaching to it.
+  invariant(replace === null || replace === "handoff" || replace === "resume", "TOPOLOGY_RESTART_MODE", "Restart mode is handoff or resume.");
   // The caller's name when it already chose one (it put it in AO_SESSION); otherwise the same resolver.
   const session = assertSessionName(chosen || await roleSessionFor({ agentsDir, agentId, consumer: env.AO_CONSUMER, role, env: { ...process.env, ...env } }));
   const dir = join(agentsDir, String(agentId));
@@ -1367,7 +1370,9 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
     invariant(record?.agent_id === agentId, 'TOPOLOGY_SESSION_OWNERSHIP', 'A same-named session has no matching owned record; refusing adoption or restart.');
     const currentBinding=(await panesOn(record.binding?.serverKey)).find(p=>p.paneId===record.binding?.paneId);
     invariant(record.binding && currentBinding && sameIncarnation(currentBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Recorded session incarnation is absent or replaced; refusing reattachment.');
-    if (!panes.some(p => p.alive) || controlledRestart) {
+    if (replace) {
+      // Owned and the same incarnation (checked above): fall through, and the claim below replaces it.
+    } else if (!panes.some(p => p.alive) || controlledRestart) {
       invariant(record.binding, 'TOPOLOGY_SESSION_OWNERSHIP', 'Dead session has no recorded incarnation; preserve it for recovery.');
       const observed = (await panesOn(record.binding.serverKey)).find(p => p.paneId === record.binding.paneId);
       invariant(observed && sameIncarnation(observed, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Session incarnation changed; refusing restart.');
@@ -1389,17 +1394,22 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       record.binding = (await panesOn(observed.serverKey)).find(p => p.paneId === observed.paneId);
       await writeJson(recordPath, record);
       return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
+    } else {
+      log(`reattaching to ${session}`);
+      return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
     }
-    log(`reattaching to ${session}`);
-    return { session, pane: panes[0]?.id ?? null, binding: record.binding, created: false, reattached: true, record };
   }
 
   // ADR-0030 part 4 / TM-280: creating, not reattaching. An agent live in another session is re-spawned
   // (turn waited out, handoff collected, that session ended once) unless `respawn` is false; the lock
   // is held until this session exists, so a concurrent re-spawn joins rather than replaces it again.
-  const claim = await claimAgent({ agentId, agentsDir, except: session, adapter, respawn, requestedBy, env: { ...process.env, ...env }, bounds: respawnBounds });
+  const claim = await claimAgent({ agentId, agentsDir, except: replace ? null : session, adapter, respawn, requestedBy, mode: replace ?? "handoff",
+    env: { ...process.env, ...env }, home, bounds: respawnBounds });
   try {
-    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv, env, session, role, dir, recordPath, display, log, predecessor: claim.respawn?.predecessor.id ?? null });
+    invariant(!replace || claim.respawn, "TOPOLOGY_AGENT_NOT_LIVE", `Agent ${agentId} has no live session to restart; open it instead, and it starts on the current prompt.`, { agent_id: agentId });
+    const resumeId = claim.respawn?.resume?.provider_session_id;
+    const startArgv = resumeId ? [...argv, ...adapter.resume_args.map((item) => render(item, { provider_session_id: resumeId }))] : argv;
+    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv: startArgv, env, session, role, dir, recordPath, display, log, predecessor: claim.respawn?.predecessor.id ?? null });
     return claim.respawn ? { ...opened, respawn: claim.respawn } : opened;
   } finally {
     await claim.release();

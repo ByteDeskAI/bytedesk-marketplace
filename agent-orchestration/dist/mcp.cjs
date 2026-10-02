@@ -26959,7 +26959,7 @@ function normalizeAdapter(raw, source) {
   invariant2(raw && typeof raw === "object", "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} must be a JSON object.`);
   invariant2(typeof raw.id === "string" && raw.id, "TOPOLOGY_ADAPTER_INVALID", `Adapter ${source} needs an "id".`);
   const adapter = { ...GENERIC_ADAPTER, ...raw, source };
-  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "coordinator_args", "add_dir_args", "submit_keys", "failure_patterns"]) {
+  for (const key of ["args", "model_args", "system_prompt_args", "auto_approve_args", "coordinator_args", "add_dir_args", "resume_args", "submit_keys", "failure_patterns"]) {
     invariant2(Array.isArray(adapter[key]), "TOPOLOGY_ADAPTER_INVALID", `Adapter ${adapter.id}: "${key}" must be an array.`);
     adapter[key] = adapter[key].map(String);
   }
@@ -27153,6 +27153,10 @@ var init_providers = __esm({
       // own per-agent cwd (that is what gives it its own memory), so the repo it works on has to be
       // granted explicitly. `{{dir}}` is the directory. Empty means the CLI cannot do this.
       add_dir_args: [],
+      // TM-297: appended to a relaunch that continues the predecessor's provider conversation
+      // (`agent restart --mode resume`); `{{provider_session_id}}` is its id. Empty means the CLI cannot
+      // resume, and the restart falls back to a handoff and says so.
+      resume_args: [],
       // Where this CLI keeps the state that makes an agent remember: `scope` is the key it files that
       // state under, `path` a renderable location ({{home}}, {{cwd}}, {{cwd_slug}}) or null when the
       // CLI keys internally rather than by path. Declared, not inferred, so adding a CLI stays a JSON
@@ -27487,7 +27491,7 @@ async function sessionPanes(session) {
     return { paneId: paneId2, dead: dead2 === "1", title, command, cwd, meta: meta3, identity: sessionIdentity({ name: session, meta: meta3 }) };
   });
 }
-async function waitForTurnEnd({ session, pane, timeoutMs, pollMs = 2e3, idleLooks = 2, onLook = () => {
+async function waitForTurnEnd({ session, pane, adapter = null, timeoutMs, pollMs = 2e3, idleLooks = 2, onLook = () => {
 } }) {
   const started = Date.now();
   let idle = 0;
@@ -27495,8 +27499,8 @@ async function waitForTurnEnd({ session, pane, timeoutMs, pollMs = 2e3, idleLook
     const current = (await sessionPanes(session)).find((entry) => entry.paneId === pane);
     if (!current || current.dead) return { ended: true, waited_ms: Date.now() - started, reason: current ? "pane exited" : "pane gone" };
     const tail = await tmux(["capture-pane", "-p", "-t", pane, "-S", "-20"], { allowFailure: true });
-    const busy = tail.code === 0 ? busyEvidence(`${current.title}
-${tail.stdout}`) : "capture failed";
+    const busy = tail.code !== 0 ? "capture failed" : busyEvidence(`${current.title}
+${tail.stdout}`) || (composerEmptyOnScreen(adapter, tail.stdout) === false ? "composer not empty" : null);
     idle = busy ? 0 : idle + 1;
     onLook({ busy, idle });
     if (idle >= idleLooks) return { ended: true, waited_ms: Date.now() - started, reason: "no busy evidence" };
@@ -27613,6 +27617,7 @@ async function claimAgent({
   adapter = null,
   respawn = true,
   requestedBy = null,
+  mode = "handoff",
   env = process.env,
   home = (0, import_node_os14.homedir)(),
   bounds: overrides = {},
@@ -27646,30 +27651,34 @@ async function claimAgent({
     const events = [];
     const note = (step, extra = {}) => events.push({ step, at: nowIso(), ...extra });
     note("turn-wait");
-    const turn = pane ? await waitForTurnEnd({ session: holder, pane, timeoutMs: bounds2.turnTimeoutMs, pollMs: bounds2.pollMs, idleLooks: bounds2.idleLooks }) : { ended: true, waited_ms: 0, reason: "no pane" };
+    const turn = pane ? await waitForTurnEnd({ session: holder, pane, adapter, timeoutMs: bounds2.turnTimeoutMs, pollMs: bounds2.pollMs, idleLooks: bounds2.idleLooks }) : { ended: true, waited_ms: 0, reason: "no pane" };
     invariant2(turn.ended, "TOPOLOGY_AGENT_BUSY", `Agent ${agentId} is mid-turn in "${holder}" and did not finish within ${bounds2.turnTimeoutMs}ms; it was not interrupted and its session is untouched. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: holder, reason: turn.reason });
     note("turn-ended", { waited_ms: turn.waited_ms, reason: turn.reason });
+    const resume = mode === "resume" ? await resumableSession({ adapter, agentId, agentsDir, cwd: (panes.find((entry) => entry.paneId === pane) ?? {}).cwd, home }) : null;
+    if (resume) note("resume", resume);
     const path3 = handoffPath(agentId, predecessor.id, { env, home });
-    await (0, import_promises32.mkdir)((0, import_node_path41.dirname)(path3), { recursive: true });
-    const paneAlive2 = (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead);
-    let handoff;
-    if (paneAlive2) {
-      note("handoff-requested", { path: path3 });
-      await sendText(pane, handoffRequest(path3), adapter?.submit_keys);
+    let handoff = null;
+    if (!resume?.provider_session_id) {
+      await (0, import_promises32.mkdir)((0, import_node_path41.dirname)(path3), { recursive: true });
+      const paneAlive2 = (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead);
+      if (paneAlive2) {
+        note("handoff-requested", { path: path3 });
+        await sendText(pane, handoffRequest(path3), adapter?.submit_keys);
+      }
+      const answered = paneAlive2 && await waitForFile(path3, { timeoutMs: bounds2.handoffTimeoutMs, pollMs: Math.min(bounds2.pollMs, 1e3) });
+      if (answered) {
+        handoff = { path: path3, source: "agent" };
+      } else {
+        const cwd = (panes.find((entry) => entry.paneId === pane) ?? {}).cwd;
+        const transcript = await findTranscript({ adapterId: adapter?.id, cwd, home });
+        const turns = transcript ? transcriptTurns(await readTail(transcript)) : [];
+        const paneTail = transcript ? null : (await tmux(["capture-pane", "-p", "-t", pane ?? holder, "-S", "-80"], { allowFailure: true })).stdout;
+        await writeText(`${path3}.fallback`, fallbackHandoff({ agentId, waitedMs: bounds2.handoffTimeoutMs, transcript, turns, paneTail }));
+        await (0, import_promises32.rename)(`${path3}.fallback`, path3);
+        handoff = { path: path3, source: transcript ? "transcript-fallback" : "pane-capture-fallback", transcript };
+      }
+      note("handoff-ready", { source: handoff.source });
     }
-    const answered = paneAlive2 && await waitForFile(path3, { timeoutMs: bounds2.handoffTimeoutMs, pollMs: Math.min(bounds2.pollMs, 1e3) });
-    if (answered) {
-      handoff = { path: path3, source: "agent" };
-    } else {
-      const cwd = (panes.find((entry) => entry.paneId === pane) ?? {}).cwd;
-      const transcript = await findTranscript({ adapterId: adapter?.id, cwd, home });
-      const turns = transcript ? transcriptTurns(await readTail(transcript)) : [];
-      const paneTail = transcript ? null : (await tmux(["capture-pane", "-p", "-t", pane ?? holder, "-S", "-80"], { allowFailure: true })).stdout;
-      await writeText(`${path3}.fallback`, fallbackHandoff({ agentId, waitedMs: bounds2.handoffTimeoutMs, transcript, turns, paneTail }));
-      await (0, import_promises32.rename)(`${path3}.fallback`, path3);
-      handoff = { path: path3, source: transcript ? "transcript-fallback" : "pane-capture-fallback", transcript };
-    }
-    note("handoff-ready", { source: handoff.source });
     if (pane && adapter?.exit_command && (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead)) {
       await sendText(pane, adapter.exit_command, adapter.submit_keys);
       const deadline = Date.now() + bounds2.exitTimeoutMs;
@@ -27678,13 +27687,22 @@ async function claimAgent({
     await kill(holder);
     invariant2(!await hasSession(holder), "TOPOLOGY_RESPAWN_END_FAILED", `Session "${holder}" is still live after kill-session.`, { agent_id: agentId, session: holder });
     note("session-ended");
-    const record2 = { agent: agentId, at: nowIso(), requested_by: requestedBy, predecessor, handoff, turn: { waited_ms: turn.waited_ms, reason: turn.reason }, events };
+    const record2 = { agent: agentId, at: nowIso(), requested_by: requestedBy, predecessor, handoff, ...resume ? { resume } : {}, turn: { waited_ms: turn.waited_ms, reason: turn.reason }, events };
     await writeJson(lastPath, record2);
     return { release, respawn: record2 };
   } catch (error51) {
     await release();
     throw error51;
   }
+}
+async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, import_node_os14.homedir)() }) {
+  const no = (reason) => ({ provider_session_id: null, reason });
+  if (!(adapter?.resume_args ?? []).length) return no(`provider ${adapter?.id ?? "unknown"} declares no resume_args`);
+  const own = agentsDir ? (0, import_node_path41.join)(agentsDir, String(agentId)) : null;
+  if (!own || cwd !== own) return no(`the live session runs in ${cwd ?? "an unknown directory"}, not the agent's own directory ${own ?? "(unknown)"}`);
+  const transcript = await findTranscript({ adapterId: adapter.id, cwd, home });
+  if (!transcript) return no(`no ${adapter.id} session transcript was found for ${cwd}`);
+  return { provider_session_id: (0, import_node_path41.basename)(transcript, ".jsonl"), transcript };
 }
 var import_promises32, import_node_os14, import_node_path41, envMs, clip;
 var init_respawn = __esm({
@@ -27693,6 +27711,7 @@ var init_respawn = __esm({
     import_node_os14 = require("node:os");
     import_node_path41 = require("node:path");
     init_census();
+    init_delivery();
     init_providers();
     init_repoid();
     init_session_names();
@@ -33623,8 +33642,11 @@ async function openRoleSession({
   },
   respawn = true,
   respawnBounds: respawnBounds2 = {},
-  requestedBy = null
+  requestedBy = null,
+  replace = null,
+  home = (0, import_node_os25.homedir)()
 }) {
+  invariant2(replace === null || replace === "handoff" || replace === "resume", "TOPOLOGY_RESTART_MODE", "Restart mode is handoff or resume.");
   const session = assertSessionName(chosen || await roleSessionFor({ agentsDir, agentId, consumer: env.AO_CONSUMER, role, env: { ...process.env, ...env } }));
   const dir = (0, import_node_path53.join)(agentsDir, String(agentId));
   const recordPath2 = roleSessionPath(agentsDir, agentId);
@@ -33643,7 +33665,8 @@ async function openRoleSession({
     invariant2(record2?.agent_id === agentId, "TOPOLOGY_SESSION_OWNERSHIP", "A same-named session has no matching owned record; refusing adoption or restart.");
     const currentBinding = (await panesOn(record2.binding?.serverKey)).find((p) => p.paneId === record2.binding?.paneId);
     invariant2(record2.binding && currentBinding && sameIncarnation(currentBinding, record2.binding), "TOPOLOGY_SESSION_OWNERSHIP", "Recorded session incarnation is absent or replaced; refusing reattachment.");
-    if (!panes.some((p) => p.alive) || controlledRestart) {
+    if (replace) {
+    } else if (!panes.some((p) => p.alive) || controlledRestart) {
       invariant2(record2.binding, "TOPOLOGY_SESSION_OWNERSHIP", "Dead session has no recorded incarnation; preserve it for recovery.");
       const observed = (await panesOn(record2.binding.serverKey)).find((p) => p.paneId === record2.binding.paneId);
       invariant2(observed && sameIncarnation(observed, record2.binding), "TOPOLOGY_SESSION_OWNERSHIP", "Session incarnation changed; refusing restart.");
@@ -33665,13 +33688,28 @@ async function openRoleSession({
       record2.binding = (await panesOn(observed.serverKey)).find((p) => p.paneId === observed.paneId);
       await writeJson(recordPath2, record2);
       return { session, pane: observed.paneId, binding: record2.binding, created: false, reattached: false, restarted: true, record: record2 };
+    } else {
+      log(`reattaching to ${session}`);
+      return { session, pane: panes[0]?.id ?? null, binding: record2.binding, created: false, reattached: true, record: record2 };
     }
-    log(`reattaching to ${session}`);
-    return { session, pane: panes[0]?.id ?? null, binding: record2.binding, created: false, reattached: true, record: record2 };
   }
-  const claim = await claimAgent({ agentId, agentsDir, except: session, adapter, respawn, requestedBy, env: { ...process.env, ...env }, bounds: respawnBounds2 });
+  const claim = await claimAgent({
+    agentId,
+    agentsDir,
+    except: replace ? null : session,
+    adapter,
+    respawn,
+    requestedBy,
+    mode: replace ?? "handoff",
+    env: { ...process.env, ...env },
+    home,
+    bounds: respawnBounds2
+  });
   try {
-    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv, env, session, role, dir, recordPath: recordPath2, display, log, predecessor: claim.respawn?.predecessor.id ?? null });
+    invariant2(!replace || claim.respawn, "TOPOLOGY_AGENT_NOT_LIVE", `Agent ${agentId} has no live session to restart; open it instead, and it starts on the current prompt.`, { agent_id: agentId });
+    const resumeId = claim.respawn?.resume?.provider_session_id;
+    const startArgv = resumeId ? [...argv, ...adapter.resume_args.map((item) => render(item, { provider_session_id: resumeId }))] : argv;
+    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv: startArgv, env, session, role, dir, recordPath: recordPath2, display, log, predecessor: claim.respawn?.predecessor.id ?? null });
     return claim.respawn ? { ...opened, respawn: claim.respawn } : opened;
   } finally {
     await claim.release();
@@ -34874,6 +34912,11 @@ function decideBell(value, { bindingOk = true } = {}) {
   if (Number(failLine) > 0) return { safe: false, check: "failure", reason: "the pane shows an attention or failure line" };
   if (Number(composerLine) > 0) return { safe: true, reason: "composer empty (server-side)" };
   return { safe: false, reason: "the composer is not empty" };
+}
+function composerEmptyOnScreen(adapter, screen) {
+  if (!adapter?.composer?.empty_pattern) return null;
+  if (screen === null || screen === void 0) return null;
+  return new RegExp(adapter.composer.empty_pattern, "m").test(String(screen));
 }
 async function lookAtPane(pane, format, tmux2) {
   const result2 = await tmux2.tmux(["display-message", "-p", "-t", pane, format], { allowFailure: true });
@@ -76128,10 +76171,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "73bb09dab99bc6dd594e17d924178f826eb88ec2a4cbf72c0c8ac8d31ec51143";
+  return false ? null : "c6175f4a98d5dc7da4eb352bd60402e5bceac79039cc1958cc35fb2f0d4c2872";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "73bb09dab99bc6dd594e17d924178f826eb88ec2a4cbf72c0c8ac8d31ec51143";
+  const fingerprint2 = false ? null : "c6175f4a98d5dc7da4eb352bd60402e5bceac79039cc1958cc35fb2f0d4c2872";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -76528,7 +76571,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "73bb09dab99bc6dd594e17d924178f826eb88ec2a4cbf72c0c8ac8d31ec51143",
+  sourceFingerprint: false ? null : "c6175f4a98d5dc7da4eb352bd60402e5bceac79039cc1958cc35fb2f0d4c2872",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises55.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
