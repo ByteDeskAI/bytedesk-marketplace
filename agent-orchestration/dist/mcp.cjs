@@ -2994,7 +2994,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve16.call(this, root, ref);
+      let _sch = resolve17.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3021,7 +3021,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve16(root, ref) {
+    function resolve17(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3652,7 +3652,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve16(baseURI, relativeURI, options) {
+    function resolve17(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
       const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
@@ -3936,7 +3936,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve16,
+      resolve: resolve17,
       resolveComponent,
       equal,
       serialize,
@@ -7613,7 +7613,7 @@ async function setPaneTitle(pane, title) {
 }
 async function sendText(pane, text, submitKeys = ["Enter"]) {
   await tmux(["send-keys", "-t", pane, "-l", "--", text]);
-  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve16) => setTimeout(resolve16, SUBMIT_SETTLE_MS));
+  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve17) => setTimeout(resolve17, SUBMIT_SETTLE_MS));
   for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 async function preparePane(pane, { title, log, display = null }) {
@@ -7676,14 +7676,14 @@ async function capture(pane, lines = 60, { escapes = false } = {}) {
 async function waitForChannel(channel, timeoutMs, { tmuxServer = null } = {}) {
   tmuxServer ||= selectedServer.getStore();
   if (!(timeoutMs > 0)) return false;
-  return new Promise((resolve16) => {
+  return new Promise((resolve17) => {
     let settled = false;
     const child = (0, import_node_child_process3.spawn)(TMUX, [...serverArgs(tmuxServer), "wait-for", channel], { stdio: "ignore", shell: false });
     const finish = (value) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve16(value);
+        resolve17(value);
       }
     };
     const timer = setTimeout(() => {
@@ -8630,7 +8630,7 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
 }
 function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
   const cli = (0, import_node_url4.fileURLToPath)(new URL("../../dist/cli.cjs", __aoImportMetaUrl));
-  return new Promise((resolve16) => {
+  return new Promise((resolve17) => {
     const child = (0, import_node_child_process10.spawn)(process.execPath, [cli, "services", "ensure", "--json"], {
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -8646,7 +8646,7 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.once("error", (error51) => {
       clearTimeout(timer);
-      resolve16({ ok: false, error: error51.message });
+      resolve17({ ok: false, error: error51.message });
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
@@ -8655,7 +8655,7 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
         report = JSON.parse(stdout);
       } catch {
       }
-      resolve16(code === 0 && report?.ok ? report : { ok: false, code, error: report?.message ?? stderr.trim().slice(-2e3) });
+      resolve17(code === 0 && report?.ok ? report : { ok: false, code, error: report?.message ?? stderr.trim().slice(-2e3) });
     });
   });
 }
@@ -8677,34 +8677,34 @@ function localNatsHome(env = process.env) {
   return env.AO_NATS_HOME || (0, import_node_path33.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
-  const { execFile: execFile4 } = await import("node:child_process");
+  const { execFile: execFile5 } = await import("node:child_process");
   const candidates = [env.AO_NATS_SERVER, (0, import_node_path33.join)((0, import_node_os10.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
   for (const bin of candidates) {
-    const ok = await new Promise((resolve16) => execFile4(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve16(!error51)));
+    const ok = await new Promise((resolve17) => execFile5(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve17(!error51)));
     if (ok) return bin;
   }
   return null;
 }
 function canConnect(port) {
-  return new Promise((resolve16) => {
+  return new Promise((resolve17) => {
     const socket = import_node_net.default.connect({ host: "127.0.0.1", port }, () => {
       socket.destroy();
-      resolve16(true);
+      resolve17(true);
     });
-    socket.once("error", () => resolve16(false));
+    socket.once("error", () => resolve17(false));
     socket.setTimeout(1e3, () => {
       socket.destroy();
-      resolve16(false);
+      resolve17(false);
     });
   });
 }
 function freePort() {
-  return new Promise((resolve16, reject) => {
+  return new Promise((resolve17, reject) => {
     const probe = import_node_net.default.createServer();
     probe.once("error", reject);
     probe.listen(0, "127.0.0.1", () => {
       const { port } = probe.address();
-      probe.close(() => resolve16(port));
+      probe.close(() => resolve17(port));
     });
   });
 }
@@ -8766,7 +8766,7 @@ async function prepareLocalNats({ env = process.env } = {}) {
         process.kill(state.pid, "SIGTERM");
       } catch {
       }
-      for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve16) => setTimeout(resolve16, 100));
+      for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve17) => setTimeout(resolve17, 100));
     }
     const user = state?.user || "ao-orch";
     const pass = state?.pass || (0, import_node_crypto14.randomBytes)(24).toString("hex");
@@ -8785,7 +8785,7 @@ function namesNatsServer(pid) {
   }
 }
 async function waitForPort(port, attempts = 50) {
-  for (let i = 0; i < attempts && !await canConnect(port); i += 1) await new Promise((resolve16) => setTimeout(resolve16, 100));
+  for (let i = 0; i < attempts && !await canConnect(port); i += 1) await new Promise((resolve17) => setTimeout(resolve17, 100));
   return canConnect(port);
 }
 async function ensureLocalNats({ env = process.env } = {}) {
@@ -8995,11 +8995,11 @@ var require_core3 = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -9015,7 +9015,7 @@ var require_core3 = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -9226,11 +9226,11 @@ var require_util2 = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -9246,7 +9246,7 @@ var require_util2 = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -9259,14 +9259,14 @@ var require_util2 = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -9325,9 +9325,9 @@ var require_util2 = __commonJS({
     }
     function delay6(ms = 0) {
       let methods2;
-      const p = new Promise((resolve16) => {
+      const p = new Promise((resolve17) => {
         const timer = setTimeout(() => {
-          resolve16();
+          resolve17();
         }, ms);
         const cancel = () => {
           if (timer) {
@@ -9346,18 +9346,18 @@ var require_util2 = __commonJS({
     }
     function deferred() {
       let methods2 = {};
-      const p = new Promise((resolve16, reject) => {
-        methods2 = { resolve: resolve16, reject };
+      const p = new Promise((resolve17, reject) => {
+        methods2 = { resolve: resolve17, reject };
       });
       return Object.assign(p, methods2);
     }
     function debugDeferred() {
       let methods2 = {};
-      const p = new Promise((resolve16, reject) => {
+      const p = new Promise((resolve17, reject) => {
         methods2 = {
           resolve: (v) => {
             console.trace("resolve", v);
-            resolve16(v);
+            resolve17(v);
           },
           reject: (err) => {
             console.trace("reject");
@@ -9854,11 +9854,11 @@ var require_servers = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -9874,7 +9874,7 @@ var require_servers = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -15295,11 +15295,11 @@ var require_protocol = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -15315,7 +15315,7 @@ var require_protocol = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -15328,14 +15328,14 @@ var require_protocol = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -15741,12 +15741,12 @@ var require_protocol = __commonJS({
       }
       _doDial(srv) {
         return __awaiter(this, void 0, void 0, function* () {
-          const { resolve: resolve16 } = this.options;
+          const { resolve: resolve17 } = this.options;
           const alts = yield srv.resolve({
             fn: (0, transport_1.getResolveFn)(),
             debug: this.options.debug,
             randomize: !this.options.noRandomize,
-            resolve: resolve16
+            resolve: resolve17
           });
           let lastErr = null;
           for (const a of alts) {
@@ -16504,11 +16504,11 @@ var require_jsbaseclient_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -16524,7 +16524,7 @@ var require_jsbaseclient_api = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -16634,11 +16634,11 @@ var require_jslister = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -16654,7 +16654,7 @@ var require_jslister = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17135,11 +17135,11 @@ var require_jsmconsumer_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17155,7 +17155,7 @@ var require_jsmconsumer_api = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17409,11 +17409,11 @@ var require_jsmsg = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17429,7 +17429,7 @@ var require_jsmsg = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17606,11 +17606,11 @@ var require_typedsub = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17626,7 +17626,7 @@ var require_typedsub = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -18358,11 +18358,11 @@ var require_objectstore = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -18378,7 +18378,7 @@ var require_objectstore = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -18391,14 +18391,14 @@ var require_objectstore = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -19189,11 +19189,11 @@ var require_jsclient = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -19209,7 +19209,7 @@ var require_jsclient = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -19945,11 +19945,11 @@ var require_kv = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -19965,7 +19965,7 @@ var require_kv = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -19978,14 +19978,14 @@ var require_kv = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -20919,11 +20919,11 @@ var require_consumer = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -20939,7 +20939,7 @@ var require_consumer = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -20952,14 +20952,14 @@ var require_consumer = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -21812,11 +21812,11 @@ var require_jsmstream_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -21832,7 +21832,7 @@ var require_jsmstream_api = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -22283,11 +22283,11 @@ var require_jsm = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -22303,7 +22303,7 @@ var require_jsm = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -22316,14 +22316,14 @@ var require_jsm = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -22511,11 +22511,11 @@ var require_service = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -22531,7 +22531,7 @@ var require_service = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23004,11 +23004,11 @@ var require_serviceclient = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -23024,7 +23024,7 @@ var require_serviceclient = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23037,14 +23037,14 @@ var require_serviceclient = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -23125,11 +23125,11 @@ var require_nats = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -23145,7 +23145,7 @@ var require_nats = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23158,14 +23158,14 @@ var require_nats = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -23192,7 +23192,7 @@ var require_nats = __commonJS({
         this.listeners = [];
       }
       static connect(opts = {}) {
-        return new Promise((resolve16, reject) => {
+        return new Promise((resolve17, reject) => {
           const nc = new _NatsConnectionImpl(opts);
           protocol_1.ProtocolHandler.connect(nc.options, nc).then((ph) => {
             nc.protocol = ph;
@@ -23219,7 +23219,7 @@ var require_nats = __commonJS({
                 }
               });
             })();
-            resolve16(nc);
+            resolve17(nc);
           }).catch((err) => {
             reject(err);
           });
@@ -23623,11 +23623,11 @@ var require_bench = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve16) {
-          resolve16(value);
+        return value instanceof P ? value : new P(function(resolve17) {
+          resolve17(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve16, reject) {
+      return new (P || (P = Promise))(function(resolve17, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -23643,7 +23643,7 @@ var require_bench = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve16(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23656,14 +23656,14 @@ var require_bench = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve16, reject) {
-            v = o[n](v), settle(resolve16, reject, v.done, v.value);
+          return new Promise(function(resolve17, reject) {
+            v = o[n](v), settle(resolve17, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve16, reject, d, v) {
+      function settle(resolve17, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve16({ value: v2, done: d });
+          resolve17({ value: v2, done: d });
         }, reject);
       }
     };
@@ -24412,11 +24412,11 @@ var require_node_transport = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve18) {
+          resolve18(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve18, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -24432,7 +24432,7 @@ var require_node_transport = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve17(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve18(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -24488,8 +24488,8 @@ var require_node_transport = __commonJS({
     var net_1 = require("net");
     var util_1 = require_util2();
     var tls_1 = require("tls");
-    var { resolve: resolve16 } = require("path");
-    var { readFile: readFile24, existsSync: existsSync5 } = require("fs");
+    var { resolve: resolve17 } = require("path");
+    var { readFile: readFile24, existsSync: existsSync7 } = require("fs");
     var dns = require("dns");
     var VERSION = "2.29.3";
     var LANG = "nats.js";
@@ -24603,8 +24603,8 @@ var require_node_transport = __commonJS({
         }
         const d = (0, nats_base_client_1.deferred)();
         try {
-          fn = resolve16(fn);
-          if (!existsSync5(fn)) {
+          fn = resolve17(fn);
+          if (!existsSync7(fn)) {
             d.reject(new Error(`${fn} doesn't exist`));
           }
           readFile24(fn, (err, data) => {
@@ -25201,7 +25201,7 @@ function createFileTransport() {
           };
         }
         if (Date.now() >= deadline) return null;
-        await new Promise((resolve16) => setTimeout(resolve16, 20));
+        await new Promise((resolve17) => setTimeout(resolve17, 20));
       }
     },
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {
@@ -25321,7 +25321,7 @@ function createFileTransport() {
 }
 function beginFileVerdict(subject, timeoutMs, verdictWaiters, timers) {
   let deliver;
-  const received = new Promise((resolve16, reject) => {
+  const received = new Promise((resolve17, reject) => {
     const timer = setTimeout(() => {
       timers.delete(timer);
       const list2 = verdictWaiters.get(subject) ?? [];
@@ -25335,7 +25335,7 @@ function beginFileVerdict(subject, timeoutMs, verdictWaiters, timers) {
     deliver = (body) => {
       clearTimeout(timer);
       timers.delete(timer);
-      resolve16({ via: "file", subject, body });
+      resolve17({ via: "file", subject, body });
     };
   });
   const list = verdictWaiters.get(subject) ?? [];
@@ -25357,9 +25357,9 @@ async function bridgeUnixSocket(socketPath) {
     client2.pipe(upstream);
     upstream.pipe(client2);
   });
-  await new Promise((resolve16, reject) => {
+  await new Promise((resolve17, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve16);
+    server.listen(0, "127.0.0.1", resolve17);
   });
   const { port } = server.address();
   return { server, servers: `nats://127.0.0.1:${port}` };
@@ -25681,7 +25681,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       const sub = nc.subscribe(subject, { max: 1 });
       subscriptions.add(sub);
       await nc.flush();
-      const received = new Promise((resolve16, reject) => {
+      const received = new Promise((resolve17, reject) => {
         const timer = setTimeout(() => {
           timers.delete(timer);
           sub.unsubscribe();
@@ -25696,7 +25696,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
             clearTimeout(timer);
             timers.delete(timer);
             subscriptions.delete(sub);
-            resolve16({ via: "nats", subject: msg.subject || subject, body: sc.decode(msg.data) });
+            resolve17({ via: "nats", subject: msg.subject || subject, body: sc.decode(msg.data) });
             break;
           }
         })().catch((error51) => {
@@ -25729,7 +25729,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       subscriptions.clear();
       await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {
       });
-      if (bridge) await new Promise((resolve16) => bridge.server.close(resolve16));
+      if (bridge) await new Promise((resolve17) => bridge.server.close(resolve17));
     }
   };
   return transport;
@@ -26938,7 +26938,7 @@ async function blobSize(consumer, sha2, path3) {
 }
 function blobSha256(consumer, sha2, path3, size) {
   if (ZERO_BLOB.test(sha2)) return Promise.resolve(null);
-  return new Promise((resolve16, reject) => {
+  return new Promise((resolve17, reject) => {
     const hash2 = (0, import_node_crypto17.createHash)("sha256");
     let stderr = "";
     const child = (0, import_node_child_process12.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
@@ -26947,7 +26947,7 @@ function blobSha256(consumer, sha2, path3, size) {
       stderr += chunk;
     });
     child.on("error", (error51) => reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes): ${error51.message}.`)));
-    child.on("close", (code) => code === 0 ? resolve16(hash2.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
+    child.on("close", (code) => code === 0 ? resolve17(hash2.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
   });
 }
 function renderBinaryManifest(binaryFiles) {
@@ -31261,8 +31261,8 @@ async function startRepositorySupervision(options) {
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
       const child = (0, import_node_child_process13.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
-      await new Promise((resolve16, reject) => {
-        child.once("spawn", resolve16);
+      await new Promise((resolve17, reject) => {
+        child.once("spawn", resolve17);
         child.once("error", reject);
       });
       await log.write(`
@@ -53289,7 +53289,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve16) => setTimeout(resolve16, pollInterval));
+        await new Promise((resolve17) => setTimeout(resolve17, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error51) {
@@ -53306,7 +53306,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve16, reject) => {
+    return new Promise((resolve17, reject) => {
       const earlyReject = (error51) => {
         reject(error51);
       };
@@ -53384,7 +53384,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve16(parseResult.data);
+            resolve17(parseResult.data);
           }
         } catch (error51) {
           reject(error51);
@@ -53645,12 +53645,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve16, reject) => {
+    return new Promise((resolve17, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve16, interval);
+      const timeoutId = setTimeout(resolve17, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -54741,7 +54741,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve16) => setTimeout(resolve16, pollInterval));
+      await new Promise((resolve17) => setTimeout(resolve17, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -55405,25 +55405,25 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve16) => {
+    return new Promise((resolve17) => {
       const json5 = serializeMessage(message);
       if (this._stdout.write(json5)) {
-        resolve16();
+        resolve17();
       } else {
-        this._stdout.once("drain", resolve16);
+        this._stdout.once("drain", resolve17);
       }
     });
   }
 };
 
 // src/mcp.mjs
-var import_node_path55 = require("node:path");
+var import_node_path57 = require("node:path");
 var import_node_url7 = require("node:url");
 
 // src/service.mjs
 var import_promises47 = require("node:fs/promises");
 var import_node_os29 = require("node:os");
-var import_node_path54 = require("node:path");
+var import_node_path56 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -56538,7 +56538,7 @@ function processGroupExists(processGroup) {
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve16) => setTimeout(resolve16, pollMs));
+    await new Promise((resolve17) => setTimeout(resolve17, pollMs));
   }
   return !processGroupExists(processGroup);
 }
@@ -56872,7 +56872,7 @@ var RunStore = class {
         }
         if (error51?.code !== "EEXIST") throw error51;
         await this.tryBreakStaleLock(path3);
-        await new Promise((resolve16) => setTimeout(resolve16, 10));
+        await new Promise((resolve17) => setTimeout(resolve17, 10));
       }
     }
     invariant(handle, "AO_LOCK_TIMEOUT", `Timed out acquiring run lock for ${runId}.`);
@@ -59441,11 +59441,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve16, reject) => {
+    const response = new Promise((resolve17, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve16(mapResponse ? mapResponse(value) : value);
+            resolve17(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -59502,8 +59502,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve16) => {
-      this.abortController.signal.addEventListener("abort", () => resolve16());
+    this.closedPromise = new Promise((resolve17) => {
+      this.abortController.signal.addEventListener("abort", () => resolve17());
     });
     void this.receive();
   }
@@ -60240,8 +60240,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve16, reject) => {
-      this.waiters.push({ resolve: resolve16, reject });
+    return new Promise((resolve17, reject) => {
+      this.waiters.push({ resolve: resolve17, reject });
     });
   }
 };
@@ -61757,13 +61757,13 @@ function defaultResolveNpmCliPath(execPath) {
 function resolveInstalledBuiltInAgentLaunch(agentCommand, options = {}) {
   const spec = findBuiltInAgentPackage(agentCommand);
   if (!spec) return;
-  const readFileSync6 = options.readFileSync ?? import_node_fs2.default.readFileSync;
-  const existsSync5 = options.existsSync ?? import_node_fs2.default.existsSync;
+  const readFileSync8 = options.readFileSync ?? import_node_fs2.default.readFileSync;
+  const existsSync7 = options.existsSync ?? import_node_fs2.default.existsSync;
   const resolvePackageRoot = options.resolvePackageRoot ?? defaultResolvePackageRoot;
   try {
     const resolved = resolveInstalledBuiltInAgentPackage(spec, {
-      readFileSync: readFileSync6,
-      existsSync: existsSync5,
+      readFileSync: readFileSync8,
+      existsSync: existsSync7,
       resolvePackageRoot
     });
     if (!resolved) return;
@@ -61795,12 +61795,12 @@ function resolveInstalledBuiltInAgentPackage(spec, options) {
 function resolvePackageExecBuiltInAgentLaunch(agentCommand, options = {}) {
   const spec = findBuiltInAgentPackage(agentCommand);
   if (!spec) return;
-  const existsSync5 = options.existsSync ?? import_node_fs2.default.existsSync;
+  const existsSync7 = options.existsSync ?? import_node_fs2.default.existsSync;
   const execPath = options.execPath ?? process.execPath;
   const resolveNpmCliPath = options.resolveNpmCliPath ?? defaultResolveNpmCliPath;
   try {
     const npmCliPath = resolveNpmCliPath(execPath);
-    if (!existsSync5(npmCliPath)) return;
+    if (!existsSync7(npmCliPath)) return;
     return {
       source: "package-exec",
       command: execPath,
@@ -61853,7 +61853,7 @@ async function withTimeout(promise2, timeoutMs) {
   }
 }
 async function withInterrupt(run2, onInterrupt) {
-  return await new Promise((resolve16, reject) => {
+  return await new Promise((resolve17, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -61880,7 +61880,7 @@ async function withInterrupt(run2, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run2().then((result2) => finish(() => resolve16(result2)), (error51) => finish(() => reject(error51)));
+    run2().then((result2) => finish(() => resolve17(result2)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -63095,10 +63095,10 @@ function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve16, reject) => {
+  return new Promise((resolve17, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve16();
+      resolve17();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -63117,7 +63117,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve16) => {
+  return new Promise((resolve17) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -63128,7 +63128,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve16(value);
+      resolve17(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -63382,7 +63382,7 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve16) => {
+  return await new Promise((resolve17) => {
     const child = (0, import_node_child_process4.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
@@ -63401,7 +63401,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve16(value);
+      resolve17(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -63755,10 +63755,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start2);
 }
 function waitForSpawn(process4) {
-  return new Promise((resolve16, reject) => {
+  return new Promise((resolve17, reject) => {
     const onSpawn = () => {
       process4.off("error", onError);
-      resolve16();
+      resolve17();
     };
     const onError = (error51) => {
       process4.off("spawn", onSpawn);
@@ -63776,8 +63776,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve16) => {
-    setTimeout(resolve16, Math.max(0, ms));
+  return new Promise((resolve17) => {
+    setTimeout(resolve17, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -63817,8 +63817,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve16) => {
-        resolveExit = resolve16;
+      const exitPromise = new Promise((resolve17) => {
+        resolveExit = resolve17;
       });
       const terminal = {
         process: proc,
@@ -64142,7 +64142,7 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve16, reject) => {
+  return await new Promise((resolve17, reject) => {
     const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
@@ -64161,7 +64161,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve16(stdout);
+        resolve17(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -64195,7 +64195,7 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve16, reject) => {
+  return await new Promise((resolve17, reject) => {
     const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
@@ -64214,7 +64214,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve16(stdout);
+        resolve17(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -64222,7 +64222,7 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve16, reject) => {
+  return await new Promise((resolve17, reject) => {
     const child = (0, import_node_child_process4.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -64249,7 +64249,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve16(stdout);
+        resolve17(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -64263,7 +64263,7 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve16) => {
+  await new Promise((resolve17) => {
     const child = (0, import_node_child_process4.spawn)("taskkill", args, {
       stdio: [
         "ignore",
@@ -64272,8 +64272,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve16());
-    child.once("close", () => resolve16());
+    child.once("error", () => resolve17());
+    child.once("close", () => resolve17());
   });
 }
 function sendSignal(pid, signal) {
@@ -65008,8 +65008,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve16) => {
-      timer = setTimeout(resolve16, waitMs2);
+    const timeoutPromise = new Promise((resolve17) => {
+      timer = setTimeout(resolve17, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -65310,7 +65310,7 @@ var AcpClient = class {
     return error51;
   }
   async runConnectionRequest(run2) {
-    return await new Promise((resolve16, reject) => {
+    return await new Promise((resolve17, reject) => {
       const pending = {
         settled: false,
         reject
@@ -65322,7 +65322,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run2).then((value) => finish(() => resolve16(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run2).then((value) => finish(() => resolve17(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -65437,8 +65437,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve16) => {
-        setTimeout(resolve16, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve17) => {
+        setTimeout(resolve17, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -67198,14 +67198,14 @@ function shouldReuseExistingRecord(record2, params) {
   return true;
 }
 function createDeferred() {
-  let resolve16;
+  let resolve17;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve16 = res;
+      resolve17 = res;
       reject = rej;
     }),
-    resolve: resolve16,
+    resolve: resolve17,
     reject
   };
 }
@@ -69229,7 +69229,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker registered its process group.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker watchdog exited before the worker registered.", launchState.exited);
-      await new Promise((resolve16) => setTimeout(resolve16, 25));
+      await new Promise((resolve17) => setTimeout(resolve17, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register its process group.", { launcherPid: child.pid });
   }
@@ -69291,7 +69291,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.launcherPid && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve16) => setTimeout(resolve16, 25));
+      await new Promise((resolve17) => setTimeout(resolve17, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -69410,7 +69410,7 @@ var SystemdWorkerSupervisorStrategy = class extends ProcessGroupSupervisorStrate
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      await new Promise((resolve16) => setTimeout(resolve16, 25));
+      await new Promise((resolve17) => setTimeout(resolve17, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -69485,7 +69485,7 @@ var SystemdWorkerSupervisorStrategy = class extends ProcessGroupSupervisorStrate
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve16) => setTimeout(resolve16, 25));
+      await new Promise((resolve17) => setTimeout(resolve17, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -69623,7 +69623,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
-      await new Promise((resolve16) => setTimeout(resolve16, 25));
+      await new Promise((resolve17) => setTimeout(resolve17, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -69683,7 +69683,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve16) => setTimeout(resolve16, 25));
+      await new Promise((resolve17) => setTimeout(resolve17, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -70172,9 +70172,9 @@ async function startSessionHost({ stateRoot: stateRoot3, uiRoot, port: requested
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve16, reject) => {
+    close: () => new Promise((resolve17, reject) => {
       server.closeAllConnections?.();
-      server.close((error51) => error51 ? reject(error51) : resolve16());
+      server.close((error51) => error51 ? reject(error51) : resolve17());
     })
   };
 }
@@ -70203,7 +70203,7 @@ async function listenLoopback(preferred) {
   invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
 }
 function bindPort(port) {
-  return new Promise((resolve16, reject) => {
+  return new Promise((resolve17, reject) => {
     const server = (0, import_node_http.createServer)();
     const onError = (error51) => {
       server.off("listening", onListening);
@@ -70211,7 +70211,7 @@ function bindPort(port) {
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve16(server);
+      resolve17(server);
     };
     server.once("error", onError);
     server.once("listening", onListening);
@@ -70371,10 +70371,10 @@ async function defaultOpenLog(stateRoot3) {
 }
 
 // src/diagnostics.mjs
-var import_node_crypto27 = require("node:crypto");
-var import_promises43 = require("node:fs/promises");
-var import_node_path51 = require("node:path");
-var import_node_os26 = require("node:os");
+var import_node_crypto28 = require("node:crypto");
+var import_promises46 = require("node:fs/promises");
+var import_node_path55 = require("node:path");
+var import_node_os28 = require("node:os");
 init_repoid();
 init_supervision();
 init_incarnation();
@@ -70383,115 +70383,24 @@ init_reviewer();
 init_agents();
 init_config();
 init_prompts();
-var loadedBuild = {
-  mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "367f4e17c9d96a5c581e355575e5905e3a3342051b0c0f43ee21c093aaced8bd",
-  version: false ? null : "0.13.2"
-};
-var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
-var fingerprint = (path3) => (0, import_promises43.readFile)(path3).then((bytes) => (0, import_node_crypto27.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
-async function rolePromptEvidence(options, record2, role, repositoryId) {
-  const result2 = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
-  if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result2;
-  const consumer = record2.consumer || options.consumer;
-  if ((await canonicalRepoId(consumer)).id !== repositoryId) return { ...result2, state: "repository-mismatch" };
-  const scoped = { ...options, consumer };
-  const agent = await resolveAgentRef(record2.agent_id, agentDirs(scoped));
-  if (!agent || agent.id !== record2.agent_id || agent.role !== role) return { ...result2, state: "agent-mismatch" };
-  const [loaded, state] = await Promise.all([loadConfig(scoped), readPromptState(agent._dir)]);
-  const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName: agent.template });
-  Object.assign(result2, { state: state?.status || "missing", desiredRevision: composed.revision, appliedRevision: state?.applied_revision || null });
-  if (!composed.ok) return { ...result2, state: "invalid-config" };
-  const acknowledgedAt = Date.parse(state?.acknowledged_at);
-  result2.current = state?.status === "current" && state.repo_id === repositoryId && state.desired_session === record2.session && state.desired_revision === composed.revision && state.applied_revision === composed.revision && !state.nonce && sameIncarnation(state.desired_binding, record2.binding) && sameIncarnation(state.applied_binding, record2.binding) && Number.isFinite(acknowledgedAt) && acknowledgedAt <= Date.now() + 5e3;
-  if (result2.state === "current" && !result2.current) result2.state = "stale";
-  return result2;
-}
-async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os26.homedir)() }) {
-  let consumer = null, admission = { provided: Boolean(consumerCwd2), admitted: null };
-  if (consumerCwd2) {
-    try {
-      consumer = await resolveConsumerRepository({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3 });
-      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
-    } catch (error51) {
-      admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
-    }
-  }
-  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path51.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path51.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json3((0, import_node_path51.join)(pluginRoot, "package.json"))]);
-  const effectiveTopologyRoot = stateRoot2(env, home);
-  const diagnostics = {
-    consumerAdmission: admission,
-    loadedBuild: { ...loadedBuild, diskVersion: pkg?.version ?? null, disk: { mcp, cli } },
-    runtimeModes: ["acp", "topology"],
-    stateRoots: { acp: stateRoot3, topology: effectiveTopologyRoot, aligned: stateRoot3 === effectiveTopologyRoot },
-    sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
-    repositorySupervision: null,
-    roles: []
-  };
-  if (!consumer) return diagnostics;
-  const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
-  diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
-  const key = repoKey(consumer.commonGitDir);
-  const census = await json3((0, import_node_path51.join)(stateRoot3, "census", `${key}.json`));
-  const at = Date.parse(census?.at);
-  const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
-  for (const role of ["lead", "reviewer"]) {
-    const record2 = await json3((0, import_node_path51.join)(stateRoot3, `${role}s`, `${key}.json`));
-    const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
-    const reasons = [];
-    let responsive2 = false, prompt = { current: false, state: "missing", desiredRevision: null, appliedRevision: null }, roleState = "unknown";
-    const exact = record2?.repo_id === consumer.commonGitDir && Boolean(incarnationOf(record2?.binding));
-    if (!exact) reasons.push("registered repository and exact role incarnation are unavailable");
-    if (!fresh || !observed) reasons.push("fresh census evidence for this incarnation is unavailable");
-    else if (observed.dispatchable !== true) reasons.push("the observed process is not dispatchable");
-    if (exact) {
-      try {
-        const standing = role === "lead" ? await leadState({ ...opts, readOnly: true }) : await reviewerStanding({ ...opts, readOnly: true });
-        roleState = role === "lead" ? standing.status : !standing.registered ? "none" : !standing.alive ? "registered" : standing.responsive ? "responsive" : "unresponsive";
-        responsive2 = roleState === "responsive" && standing.record?.agent_id === record2.agent_id && sameIncarnation(standing.record.binding, record2.binding);
-        prompt = await rolePromptEvidence(opts, record2, role, consumer.commonGitDir);
-      } catch (error51) {
-        reasons.push(`role readiness observation failed: ${error51.code ?? "AO_ROLE_READINESS_UNKNOWN"}`);
-      }
-    }
-    if (!responsive2) reasons.push("no current readiness acknowledgement for this exact role incarnation");
-    if (!prompt.current) reasons.push(`current prompt acknowledgement is unavailable (${prompt.state})`);
-    diagnostics.roles.push({
-      role,
-      registered: Boolean(record2),
-      agentId: record2?.agent_id ?? null,
-      provider: record2?.provider ?? null,
-      incarnationRecorded: Boolean(incarnationOf(record2?.binding)),
-      censusFresh: fresh,
-      state: fresh && observed ? observed.state : "unknown",
-      roleState,
-      responsive: responsive2,
-      prompt,
-      ready: reasons.length === 0,
-      readinessReasons: reasons,
-      readinessScope: "current prompt and existing role nonce acknowledgements for the exact incarnation; ACP provider readiness is separate"
-    });
-  }
-  return diagnostics;
-}
 
 // src/services/services.mjs
-var import_node_crypto28 = require("node:crypto");
-var import_node_fs11 = require("node:fs");
-var import_promises45 = require("node:fs/promises");
+var import_node_crypto27 = require("node:crypto");
+var import_node_fs12 = require("node:fs");
+var import_promises44 = require("node:fs/promises");
 var import_node_net3 = __toESM(require("node:net"), 1);
-var import_node_os28 = __toESM(require("node:os"), 1);
+var import_node_os27 = __toESM(require("node:os"), 1);
 var import_node_path53 = require("node:path");
-var import_promises46 = require("node:timers/promises");
+var import_promises45 = require("node:timers/promises");
 init_lockfile();
 init_nats_local();
 
 // src/services/os-registration.mjs
 var import_node_child_process14 = require("node:child_process");
 var import_node_fs10 = require("node:fs");
-var import_promises44 = require("node:fs/promises");
-var import_node_os27 = __toESM(require("node:os"), 1);
-var import_node_path52 = require("node:path");
+var import_promises43 = require("node:fs/promises");
+var import_node_os26 = __toESM(require("node:os"), 1);
+var import_node_path51 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
 var TASK_NAME = "ByteDesk\\agent-orchestration";
@@ -70503,11 +70412,11 @@ function windowsQuote2(value) {
   const text = String(value);
   return /[\s"]/.test(text) || text === "" ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
-async function registrationMode({ platform = process.platform, home = import_node_os27.default.homedir(), env = process.env } = {}) {
+async function registrationMode({ platform = process.platform, home = import_node_os26.default.homedir(), env = process.env } = {}) {
   if (platform === "darwin") return "launchd";
   if (platform === "win32") return "schtasks";
   if (platform !== "linux") return "detached";
-  if (home !== import_node_os27.default.userInfo().homedir) return "detached";
+  if (home !== import_node_os26.default.userInfo().homedir) return "detached";
   try {
     await canonicalUserBusEnvironment(env);
     return "systemd";
@@ -70515,14 +70424,14 @@ async function registrationMode({ platform = process.platform, home = import_nod
     return "detached";
   }
 }
-function registrationPath({ mode, home = import_node_os27.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
+function registrationPath({ mode, home = import_node_os26.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
-      return (0, import_node_path52.join)(env.XDG_CONFIG_HOME || (0, import_node_path52.join)(home, ".config"), "systemd", "user", UNIT_NAME);
+      return (0, import_node_path51.join)(env.XDG_CONFIG_HOME || (0, import_node_path51.join)(home, ".config"), "systemd", "user", UNIT_NAME);
     case "launchd":
-      return (0, import_node_path52.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
+      return (0, import_node_path51.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
     case "schtasks":
-      return (0, import_node_path52.join)(servicesDir2, "agent-orchestration.task.xml");
+      return (0, import_node_path51.join)(servicesDir2, "agent-orchestration.task.xml");
     default:
       return null;
   }
@@ -70599,7 +70508,7 @@ function renderRegistration({ mode, argv, logPath, path: path3 = "" }) {
 async function defaultRun(mode, args) {
   if (mode === "systemd") return runUserManagerFile("/usr/bin/systemctl", args, { timeoutMs: 3e4 });
   if (mode === "launchd") return runFile("/bin/launchctl", args, { timeoutMs: 3e4 });
-  if (mode === "schtasks") return runFile((0, import_node_path52.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
+  if (mode === "schtasks") return runFile((0, import_node_path51.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
   throw new Error(`No service manager command for mode ${mode}.`);
 }
 var quiet = (promise2) => promise2.then(() => true, () => false);
@@ -70607,11 +70516,11 @@ async function register({ mode, argv, logPath, path: path3, home, env, servicesD
   const file2 = registrationPath({ mode, home, env, servicesDir: servicesDir2 });
   if (!file2) return { changed: false, path: null };
   const text = renderRegistration({ mode, argv, logPath, path: path3 });
-  const current = await (0, import_promises44.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
+  const current = await (0, import_promises43.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
   const normalized = current?.replace(/^\ufeff/, "") ?? null;
   if (normalized === text) return { changed: false, path: file2 };
-  await (0, import_promises44.mkdir)((0, import_node_path52.dirname)(file2), { recursive: true });
-  await (0, import_promises44.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
+  await (0, import_promises43.mkdir)((0, import_node_path51.dirname)(file2), { recursive: true });
+  await (0, import_promises43.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
   switch (mode) {
     case "systemd":
       await run2(mode, ["--user", "daemon-reload"]);
@@ -70651,11 +70560,41 @@ function defaultSpawnDetached(argv, logPath) {
   }
 }
 
+// src/services/host-copies.mjs
+var import_node_fs11 = require("node:fs");
+var import_node_path52 = require("node:path");
+var readJsonSync = (path3) => {
+  try {
+    return JSON.parse((0, import_node_fs11.readFileSync)(path3, "utf8"));
+  } catch {
+    return null;
+  }
+};
+function compareVersions(a, b) {
+  const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+}
+function copyIdentity(root) {
+  const version2 = readJsonSync((0, import_node_path52.join)(root, "package.json"))?.version ?? null;
+  return {
+    version: version2,
+    get fingerprint() {
+      try {
+        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs11.readFileSync)((0, import_node_path52.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
+      } catch {
+        return null;
+      }
+    }
+  };
+}
+
 // src/services/services.mjs
 function readLock(pluginRoot = PLUGIN_ROOT) {
-  return JSON.parse((0, import_node_fs11.readFileSync)((0, import_node_path53.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
+  return JSON.parse((0, import_node_fs12.readFileSync)((0, import_node_path53.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
-function dataHome({ platform = process.platform, env = process.env, home = import_node_os28.default.homedir() } = {}) {
+function dataHome({ platform = process.platform, env = process.env, home = import_node_os27.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
   if (platform === "win32") return import_node_path53.win32.join(env.LOCALAPPDATA || import_node_path53.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
   if (platform === "darwin") return import_node_path53.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
@@ -70696,27 +70635,21 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "367f4e17c9d96a5c581e355575e5905e3a3342051b0c0f43ee21c093aaced8bd";
+  return false ? null : "ed0083e538b05b69ef3326262c5f854220c1686d1142d8fec593334305c2fde2";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "367f4e17c9d96a5c581e355575e5905e3a3342051b0c0f43ee21c093aaced8bd";
-  let version2 = false ? null : "0.13.2";
+  const fingerprint2 = false ? null : "ed0083e538b05b69ef3326262c5f854220c1686d1142d8fec593334305c2fde2";
+  let version2 = false ? null : "0.14.0";
   if (!version2) {
     try {
-      version2 = JSON.parse((0, import_node_fs11.readFileSync)((0, import_node_path53.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
+      version2 = JSON.parse((0, import_node_fs12.readFileSync)((0, import_node_path53.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
     } catch {
       version2 = null;
     }
   }
   return { fingerprint: fingerprint2, version: version2 };
 }
-function compareVersions(a, b) {
-  const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
-  const [x, y] = [parts(a), parts(b)];
-  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
-  return 0;
-}
-function choosePointer(previous, candidate, { exists: exists2 = import_node_fs11.existsSync } = {}) {
+function choosePointer(previous, candidate, { exists: exists2 = import_node_fs12.existsSync } = {}) {
   if (!previous?.pluginRoot || !exists2(previous.pluginRoot)) return candidate;
   if (previous.node !== candidate.node) return candidate;
   if (previous.fingerprint && previous.fingerprint === candidate.fingerprint) return previous;
@@ -70730,22 +70663,22 @@ function pointerMoved(previous, pointer) {
   return previous.pluginRoot !== pointer.pluginRoot || previous.sha !== pointer.sha;
 }
 async function writeIfChanged(path3, text, mode = 384) {
-  const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);
+  const current = await (0, import_promises44.readFile)(path3, "utf8").catch(() => null);
   if (current === text) return false;
-  await (0, import_promises45.mkdir)((0, import_node_path53.dirname)(path3), { recursive: true });
+  await (0, import_promises44.mkdir)((0, import_node_path53.dirname)(path3), { recursive: true });
   const temp = `${path3}.${process.pid}.tmp`;
-  await (0, import_promises45.writeFile)(temp, text, { mode });
-  await (0, import_promises45.rename)(temp, path3);
+  await (0, import_promises44.writeFile)(temp, text, { mode });
+  await (0, import_promises44.rename)(temp, path3);
   return true;
 }
-var json4 = (value) => `${JSON.stringify(value, null, 2)}
+var json3 = (value) => `${JSON.stringify(value, null, 2)}
 `;
 async function installProcessCompose({ data, platform = process.platform, arch = process.arch, lock = readLock(), fetchImpl = fetch, extract = extractArchive }) {
   const asset = lock.assets[`${platform}-${arch}`];
   invariant(asset, "AO_SERVICES_UNSUPPORTED_PLATFORM", `No pinned process-compose build for ${platform}-${arch}.`);
   const binDir = (0, import_node_path53.join)(data, "bin", `process-compose-${lock.version}`);
   const binary = (0, import_node_path53.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
-  if ((0, import_node_fs11.existsSync)(binary)) return { binary, installed: false };
+  if ((0, import_node_fs12.existsSync)(binary)) return { binary, installed: false };
   const url2 = `${lock.url}${asset.file}`;
   let bytes;
   try {
@@ -70763,19 +70696,19 @@ async function installProcessCompose({ data, platform = process.platform, arch =
     `Refusing ${asset.file}: its SHA-256 does not match the pinned lock.`,
     { expected: asset.sha256, actual, url: url2 }
   );
-  await (0, import_promises45.mkdir)((0, import_node_path53.join)(data, "bin"), { recursive: true });
-  const staging = await (0, import_promises45.mkdtemp)((0, import_node_path53.join)(data, "bin", ".staging-"));
+  await (0, import_promises44.mkdir)((0, import_node_path53.join)(data, "bin"), { recursive: true });
+  const staging = await (0, import_promises44.mkdtemp)((0, import_node_path53.join)(data, "bin", ".staging-"));
   try {
     const archive = (0, import_node_path53.join)(staging, asset.file);
-    await (0, import_promises45.writeFile)(archive, bytes);
+    await (0, import_promises44.writeFile)(archive, bytes);
     await extract(archive, staging, platform);
     const extracted = (0, import_node_path53.join)(staging, (0, import_node_path53.basename)(binary));
-    invariant((0, import_node_fs11.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path53.basename)(binary)}.`);
-    await (0, import_promises45.mkdir)(binDir, { recursive: true });
-    await (0, import_promises45.rename)(extracted, binary);
-    await (0, import_promises45.chmod)(binary, 493);
+    invariant((0, import_node_fs12.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path53.basename)(binary)}.`);
+    await (0, import_promises44.mkdir)(binDir, { recursive: true });
+    await (0, import_promises44.rename)(extracted, binary);
+    await (0, import_promises44.chmod)(binary, 493);
   } finally {
-    await (0, import_promises45.rm)(staging, { recursive: true, force: true });
+    await (0, import_promises44.rm)(staging, { recursive: true, force: true });
   }
   return { binary, installed: true };
 }
@@ -70785,10 +70718,10 @@ async function extractArchive(archive, into, platform) {
 }
 async function pickPort() {
   for (let port = 45100; port < 45200; port += 1) {
-    const free = await new Promise((resolve16) => {
+    const free = await new Promise((resolve17) => {
       const probe = import_node_net3.default.createServer();
-      probe.once("error", () => resolve16(false));
-      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve16(true)));
+      probe.once("error", () => resolve17(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve17(true)));
     });
     if (free) return port;
   }
@@ -70893,6 +70826,7 @@ function apiClient({ port, token }, fetchImpl = fetch) {
     processes: async () => (await call("GET", "/processes"))?.data ?? [],
     reload: () => call("POST", "/project/configuration", 15e3),
     restart: (name) => call("POST", `/process/restart/${encodeURIComponent(name)}`, 15e3),
+    stopProcess: (name) => call("PATCH", `/process/stop/${encodeURIComponent(name)}`, 15e3),
     stop: () => call("POST", "/project/stop", 15e3)
   };
 }
@@ -70900,7 +70834,7 @@ async function waitFor(check2, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check2()) return true;
-    await (0, import_promises46.setTimeout)(200);
+    await (0, import_promises45.setTimeout)(200);
   }
   return check2();
 }
@@ -70915,7 +70849,7 @@ async function context({ pluginRoot, stateRoot: stateRoot3, env, platform, home,
   const lock = deps.lock ?? readLock(pluginRoot);
   return { data, paths: paths2, mode, lock, node };
 }
-async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os27.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const ctx = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
@@ -70925,26 +70859,26 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths2.pointer, null).catch(() => null);
     const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...deps.identity ?? pluginIdentity(pluginRoot) };
-    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs11.existsSync });
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs12.existsSync });
     const changed = {
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
-      pointer: await writeIfChanged(paths2.pointer, json4(pointer), 420)
+      pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
     };
-    if (!(0, import_node_fs11.existsSync)(paths2.token)) await (0, import_promises45.writeFile)(paths2.token, (0, import_node_crypto28.randomBytes)(24).toString("hex"), { mode: 384 });
-    const token = (await (0, import_promises45.readFile)(paths2.token, "utf8")).trim();
+    if (!(0, import_node_fs12.existsSync)(paths2.token)) await (0, import_promises44.writeFile)(paths2.token, (0, import_node_crypto27.randomBytes)(24).toString("hex"), { mode: 384 });
+    const token = (await (0, import_promises44.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
     const nats = localNatsEnabled(env) ? await (deps.prepareNats ?? prepareLocalNats)({ env }).catch(() => null) : null;
-    const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs11.existsSync)(repo.consumer));
+    const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs12.existsSync)(repo.consumer));
     const path3 = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths2.launcher, stateRoot: stateRoot3, logs: paths2.logs, nats, repos, path: path3, env });
-    changed.project = await writeIfChanged(paths2.project, json4(project));
+    changed.project = await writeIfChanged(paths2.project, json3(project));
     const log = (0, import_node_path53.join)(paths2.logs, "process-compose.log");
     const argv = processComposeArgv({ binary, project: paths2.project, port, token: paths2.token, log });
     const registration = await register({ mode, argv, logPath: log, path: path3, home, env, servicesDir: paths2.dir, run: deps.run });
     changed.registration = registration.changed;
     const manager = { mode, port, argv, registration: registration.path, project: paths2.project, version: lock.version };
-    changed.manager = await writeIfChanged(paths2.manager, json4(manager));
+    changed.manager = await writeIfChanged(paths2.manager, json3(manager));
     const client2 = apiClient({ port, token }, deps.fetchImpl);
     const startArgs = { mode, argv, logPath: log, run: deps.run, spawnDetached: deps.spawnDetached };
     const argvChanged = JSON.stringify(previous?.argv ?? null) !== JSON.stringify(argv);
@@ -70976,8 +70910,228 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       }
     }
     invariant(alive2, "AO_SERVICES_UNAVAILABLE", `process-compose did not answer on 127.0.0.1:${port}; see ${log}.`, { mode });
-    return { ok: true, mode, port, version: lock.version, binary, actions, changed, processes: Object.keys(project.processes), unsupported };
+    return {
+      ok: true,
+      mode,
+      port,
+      version: lock.version,
+      binary,
+      actions,
+      changed,
+      processes: Object.keys(project.processes),
+      unsupported,
+      pointer: { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null, fingerprint: pointer.fingerprint ?? null }
+    };
   }, { timeoutMs: 3e5 });
+}
+
+// src/services/self-heal.mjs
+var import_node_child_process15 = require("node:child_process");
+var import_node_fs13 = require("node:fs");
+var import_node_path54 = require("node:path");
+var import_node_util5 = require("node:util");
+var execFileP = (0, import_node_util5.promisify)(import_node_child_process15.execFile);
+function parseEtime(text) {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(String(text).trim());
+  if (!m) return null;
+  const [, d = 0, h = 0, min, s] = m;
+  return (((Number(d) * 24 + Number(h)) * 60 + Number(min)) * 60 + Number(s)) * 1e3;
+}
+var procArgv = (pid) => {
+  try {
+    return (0, import_node_fs13.readFileSync)(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+  } catch {
+    return null;
+  }
+};
+var procParent = (pid) => {
+  try {
+    return Number(/\)\s+\S+\s+(\d+)/.exec((0, import_node_fs13.readFileSync)(`/proc/${pid}/stat`, "utf8"))[1]);
+  } catch {
+    return null;
+  }
+};
+var procComm = (pid) => {
+  try {
+    return (0, import_node_fs13.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
+  } catch {
+    return null;
+  }
+};
+async function listMcpServers({ platform = process.platform, now = Date.now() } = {}) {
+  if (platform === "win32") return null;
+  const { stdout } = await execFileP("ps", ["-A", "-ww", "-o", "pid=,etime=,args="], { maxBuffer: 32 * 1024 * 1024, timeout: 1e4 });
+  const servers = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.includes("dist/mcp.cjs")) continue;
+    const m = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const argv = platform === "linux" ? procArgv(pid) : null;
+    const script = argv ? argv.find((arg) => arg.endsWith("/dist/mcp.cjs")) : /\s(\/.*?\/dist\/mcp\.cjs)(?:\s|$)/.exec(` ${m[3]}`)?.[1];
+    if (!script || !/agent-orchestration/.test(script)) continue;
+    const parent = platform === "linux" ? procParent(pid) : null;
+    const grandparent = parent ? procParent(parent) : null;
+    servers.push({ pid, startedAt: now - (parseEtime(m[2]) ?? 0), root: (0, import_node_path54.dirname)((0, import_node_path54.dirname)(script)), launchedBy: grandparent ? procComm(grandparent) : null });
+  }
+  return servers;
+}
+function hostOf(root) {
+  if (/[\\/]\.codex[\\/]/.test(root)) return "codex";
+  if (/[\\/]\.grok[\\/]/.test(root)) return "grok";
+  if (/[\\/]\.claude[\\/]/.test(root)) return "claude";
+  return "source checkout";
+}
+async function staleMcpServers({ pointer, platform = process.platform, list = listMcpServers, exists: exists2 = import_node_fs13.existsSync, mtime = (path3) => (0, import_node_fs13.statSync)(path3).mtimeMs } = {}) {
+  const servers = await list({ platform }).catch((error51) => ({ error: error51.message }));
+  if (servers === null) return { supported: false, note: "process listing is not implemented on native Windows; restart long-lived host sessions after an update", servers: [] };
+  if (servers.error) return { supported: false, note: `could not list processes: ${servers.error}`, servers: [] };
+  const stale = [];
+  for (const server of servers) {
+    const reasons = [];
+    const host = hostOf(server.root);
+    let version2 = null;
+    if (!exists2((0, import_node_path54.join)(server.root, "dist", "mcp.cjs"))) reasons.push("its plugin root is gone");
+    else {
+      version2 = copyIdentity(server.root).version;
+      if (pointer?.version && compareVersions(version2, pointer.version) < 0) reasons.push(`runs ${version2 ?? "an unknown version"}, the services run ${pointer.version}`);
+      try {
+        if (mtime((0, import_node_path54.join)(server.root, "dist", "mcp.cjs")) > server.startedAt + 2e3) reasons.push("its bundle was replaced on disk after it started");
+      } catch {
+      }
+    }
+    if (reasons.length) stale.push({
+      host,
+      pid: server.pid,
+      root: server.root,
+      version: version2,
+      launchedBy: server.launchedBy ?? null,
+      reasons,
+      advice: `Restart that ${host === "source checkout" ? server.launchedBy ?? "host" : host} session (exit it and start a new one) so it loads ao ${pointer?.version ?? "current"}; ao never stops it for you.`
+    });
+  }
+  return { supported: true, scanned: servers.length, servers: stale };
+}
+function tmuxSocketCheck({ env = process.env, platform = process.platform, uid = process.getuid?.() } = {}) {
+  if (platform === "win32") return { ok: true, note: "no tmux on native Windows" };
+  const limit = platform === "linux" ? 108 : 104;
+  const dir = env.TMUX_TMPDIR || "/tmp";
+  const path3 = `${dir.replace(/\/+$/, "")}/tmux-${uid}/default`;
+  const bytes = Buffer.byteLength(path3) + 1;
+  if (bytes <= limit) return { ok: true, path: path3, bytes, limit };
+  return {
+    ok: false,
+    path: path3,
+    bytes,
+    limit,
+    problem: `TMUX_TMPDIR makes tmux's socket path ${bytes} bytes (limit ${limit}); every tmux call fails with "File name too long".`,
+    fix: "unset TMUX_TMPDIR, or point it at a short directory (for example /tmp), in your shell profile and in every session's environment"
+  };
+}
+
+// src/diagnostics.mjs
+var loadedBuild = {
+  mode: false ? "source" : "bundle",
+  sourceFingerprint: false ? null : "ed0083e538b05b69ef3326262c5f854220c1686d1142d8fec593334305c2fde2",
+  version: false ? null : "0.14.0"
+};
+var json4 = (path3) => (0, import_promises46.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
+var fingerprint = (path3) => (0, import_promises46.readFile)(path3).then((bytes) => (0, import_node_crypto28.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
+async function rolePromptEvidence(options, record2, role, repositoryId) {
+  const result2 = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
+  if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result2;
+  const consumer = record2.consumer || options.consumer;
+  if ((await canonicalRepoId(consumer)).id !== repositoryId) return { ...result2, state: "repository-mismatch" };
+  const scoped = { ...options, consumer };
+  const agent = await resolveAgentRef(record2.agent_id, agentDirs(scoped));
+  if (!agent || agent.id !== record2.agent_id || agent.role !== role) return { ...result2, state: "agent-mismatch" };
+  const [loaded, state] = await Promise.all([loadConfig(scoped), readPromptState(agent._dir)]);
+  const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName: agent.template });
+  Object.assign(result2, { state: state?.status || "missing", desiredRevision: composed.revision, appliedRevision: state?.applied_revision || null });
+  if (!composed.ok) return { ...result2, state: "invalid-config" };
+  const acknowledgedAt = Date.parse(state?.acknowledged_at);
+  result2.current = state?.status === "current" && state.repo_id === repositoryId && state.desired_session === record2.session && state.desired_revision === composed.revision && state.applied_revision === composed.revision && !state.nonce && sameIncarnation(state.desired_binding, record2.binding) && sameIncarnation(state.applied_binding, record2.binding) && Number.isFinite(acknowledgedAt) && acknowledgedAt <= Date.now() + 5e3;
+  if (result2.state === "current" && !result2.current) result2.state = "stale";
+  return result2;
+}
+async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os28.homedir)(), platform = process.platform, deps = {} }) {
+  const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
+  const pointer = await json4(paths2.pointer);
+  const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path55.join)(paths2.dir, "self-heal.json"))]);
+  const tmuxSocket = tmuxSocketCheck({ env, platform });
+  const problems = [
+    ...stale.servers.map((server) => `stale ao MCP server: ${server.host} pid ${server.pid} (${server.reasons.join("; ")}). ${server.advice}`),
+    ...tmuxSocket.ok ? [] : [`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`]
+  ];
+  return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, lastSelfHeal, problems };
+}
+async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os28.homedir)() }) {
+  let consumer = null, admission = { provided: Boolean(consumerCwd2), admitted: null };
+  if (consumerCwd2) {
+    try {
+      consumer = await resolveConsumerRepository({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3 });
+      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
+    } catch (error51) {
+      admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
+    }
+  }
+  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path55.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path55.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json4((0, import_node_path55.join)(pluginRoot, "package.json"))]);
+  const effectiveTopologyRoot = stateRoot2(env, home);
+  const diagnostics = {
+    consumerAdmission: admission,
+    loadedBuild: { ...loadedBuild, diskVersion: pkg?.version ?? null, disk: { mcp, cli } },
+    runtimeModes: ["acp", "topology"],
+    stateRoots: { acp: stateRoot3, topology: effectiveTopologyRoot, aligned: stateRoot3 === effectiveTopologyRoot },
+    sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
+    repositorySupervision: null,
+    roles: [],
+    setup: await setupDiagnostics({ stateRoot: stateRoot3, env, home })
+  };
+  if (!consumer) return diagnostics;
+  const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
+  diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
+  const key = repoKey(consumer.commonGitDir);
+  const census = await json4((0, import_node_path55.join)(stateRoot3, "census", `${key}.json`));
+  const at = Date.parse(census?.at);
+  const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
+  for (const role of ["lead", "reviewer"]) {
+    const record2 = await json4((0, import_node_path55.join)(stateRoot3, `${role}s`, `${key}.json`));
+    const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
+    const reasons = [];
+    let responsive2 = false, prompt = { current: false, state: "missing", desiredRevision: null, appliedRevision: null }, roleState = "unknown";
+    const exact = record2?.repo_id === consumer.commonGitDir && Boolean(incarnationOf(record2?.binding));
+    if (!exact) reasons.push("registered repository and exact role incarnation are unavailable");
+    if (!fresh || !observed) reasons.push("fresh census evidence for this incarnation is unavailable");
+    else if (observed.dispatchable !== true) reasons.push("the observed process is not dispatchable");
+    if (exact) {
+      try {
+        const standing = role === "lead" ? await leadState({ ...opts, readOnly: true }) : await reviewerStanding({ ...opts, readOnly: true });
+        roleState = role === "lead" ? standing.status : !standing.registered ? "none" : !standing.alive ? "registered" : standing.responsive ? "responsive" : "unresponsive";
+        responsive2 = roleState === "responsive" && standing.record?.agent_id === record2.agent_id && sameIncarnation(standing.record.binding, record2.binding);
+        prompt = await rolePromptEvidence(opts, record2, role, consumer.commonGitDir);
+      } catch (error51) {
+        reasons.push(`role readiness observation failed: ${error51.code ?? "AO_ROLE_READINESS_UNKNOWN"}`);
+      }
+    }
+    if (!responsive2) reasons.push("no current readiness acknowledgement for this exact role incarnation");
+    if (!prompt.current) reasons.push(`current prompt acknowledgement is unavailable (${prompt.state})`);
+    diagnostics.roles.push({
+      role,
+      registered: Boolean(record2),
+      agentId: record2?.agent_id ?? null,
+      provider: record2?.provider ?? null,
+      incarnationRecorded: Boolean(incarnationOf(record2?.binding)),
+      censusFresh: fresh,
+      state: fresh && observed ? observed.state : "unknown",
+      roleState,
+      responsive: responsive2,
+      prompt,
+      ready: reasons.length === 0,
+      readinessReasons: reasons,
+      readinessScope: "current prompt and existing role nonce acknowledgements for the exact incarnation; ACP provider readiness is separate"
+    });
+  }
+  return diagnostics;
 }
 
 // src/service.mjs
@@ -70998,10 +71152,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths2 = [];
-  const canonicalPluginRoot = await (0, import_promises47.realpath)(pluginRoot).catch(() => (0, import_node_path54.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises47.realpath)(root).catch(() => (0, import_node_path54.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises47.realpath)(pluginRoot).catch(() => (0, import_node_path56.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises47.realpath)(root).catch(() => (0, import_node_path56.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises47.realpath)(candidate).catch(() => (0, import_node_path54.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises47.realpath)(candidate).catch(() => (0, import_node_path56.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths2.includes(resolvedCandidate)) paths2.push(resolvedCandidate);
@@ -71011,7 +71165,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path54.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path56.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -71021,7 +71175,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path54.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path54.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path56.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path56.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot3;
     this.workerEntrypoint = workerEntrypoint;
@@ -71364,7 +71518,7 @@ var OrchestrationService = class {
     while (true) {
       const run2 = await this.getRun(input);
       if (TERMINAL_STATES.has(run2.state) || run2.state === "waiting_for_decision" || Date.now() >= deadline) return run2;
-      await new Promise((resolve16) => setTimeout(resolve16, Math.min(input.pollIntervalMs ?? 250, 2e3)));
+      await new Promise((resolve17) => setTimeout(resolve17, Math.min(input.pollIntervalMs ?? 250, 2e3)));
     }
   }
   async cancel(input) {
@@ -71377,7 +71531,7 @@ var OrchestrationService = class {
     if (run2.worker?.pid && WORKER_STATES.has(run2.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
       while (Date.now() < cooperativeDeadline && processGroupExists(run2.worker.processGroup)) {
-        await new Promise((resolve16) => setTimeout(resolve16, 100));
+        await new Promise((resolve17) => setTimeout(resolve17, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run2.worker);
       run2 = await this.store.get(runId);
@@ -71825,7 +71979,7 @@ function register2(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.13.2" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.14.0" });
   register2(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });
@@ -71853,7 +72007,7 @@ process.stdout.on("error", (error51) => {
   if (error51?.code === "EPIPE") process.exit(0);
   throw error51;
 });
-if (process.argv[1] && (0, import_node_path55.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path55.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path57.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path57.resolve)(process.argv[1])) {
   main().catch((error51) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error51))}
 `);

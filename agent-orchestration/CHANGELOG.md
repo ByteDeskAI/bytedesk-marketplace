@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0] — 2026-10-02
+
+### Added
+
+- **`services restart <name>` and `services stop <name>` (TM-286).** They act on exactly one managed process through the process-compose API, by its process-compose name; an unknown name is refused before any request is sent, and `restart` reports the old and new pid. `services status --json` rows are now `{ name, pid, state, restarts, ready, exitCode }` (`status` is renamed `state`). README and the setup skill tell agents to use these verbs and never `pkill`/`pgrep` a managed process: dev machines run unrelated `nats-server` processes (microk8s), and a pattern match killed the wrong one by luck only.
+- **Every host runs the same ao build (TM-284).** `services ensure` and `install-orchestration-host` find this plugin's Codex copy, Grok install and the root Kimi's `mcp.json` names, and replace any OLDER copy with the services' plugin root; an equal or newer copy is left alone. The new copy is built beside the old one and swapped in by rename, keeping the copy's `node_modules`, so a failure leaves the old copy whole. It is refused when the source has uncommitted changes, when the copy lies inside a git checkout, and when the copy's `node_modules` does not satisfy the new `package.json`. Node's `cp`, not rsync, so native Windows works too. With everything current it is an identity compare only.
+- **Setup cleans up after earlier installs and reports stale sessions (TM-285).** `services ensure` stops leaked `agent-orchestration-session-*.scope` units whose state root is gone, hands the managed state root over from a pre-services session host (its 24-hour scope, or a hand-run host verified through `/proc`), and never touches a scope whose state root exists and is not the managed one. It lists ao MCP servers still running an older build (lower version, a replaced bundle, or a deleted plugin root) by host and pid with the advice to restart that session, and never signals them. The result is printed, kept in `<state root>/services/self-heal.json` and shown by `services status --json`; `orchestration_doctor` reports stale servers and a `TMUX_TMPDIR` whose tmux socket path exceeds the unix-socket limit under `diagnostics.setup`. The SessionStart hook warns, with the exact fix, when the repository enables `agent-orchestration` or `task-management` at project scope — the commit guard's own predicate, now shared from `src/services/project-scope.mjs`.
+
 ## [0.13.2] — 2026-10-02
 
 ### Fixed
