@@ -13,9 +13,9 @@ import { appendJournal, agentDir, loadRun, pendingReplies, saveRun } from "./mai
 import { composerEmptyStyled } from "./delivery.mjs";
 import { childEnv, childrenFile, lineageFromEnv, lineageRefusal } from "./lineage.mjs";
 import { adapterFor, attentionOnScreen, buildArgv, commandExists, failureOnScreen, grantsDirs, memoryLocation } from "./providers.mjs";
-import { displayName, mintSpawn, roleVisual } from "./identity.mjs";
+import { displayName, firstNames, mintSpawn, roleVisual } from "./identity.mjs";
 import { composeSessionName, legacyRoleSessionName, nodeName, repoIdentity, sessionIdentity, slugPart, PART_CAPS, ulid } from "./session-names.mjs";
-import { localPersonaRegistry, personaScope } from "./persona-registry.mjs";
+import { localPersonaRegistry, personaScope, releaseRunPersona, runHolder } from "./persona-registry.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
 import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
@@ -527,21 +527,45 @@ export function decideFromSubscription(value, { promptLines = 1 } = {}) {
 }
 
 /**
- * TM-274 / ADR-0030: plan one new session — its name `[team--]node--repo--role--persona` and the
- * identity it will carry as `@ao-*` options and in its durable record. An agent's persona comes from
- * the persona registry (unique per team, else per repo); a team run session is role `run` with the
- * workflow as its persona. Readers resolve identity from `identity`, never from `name`.
+ * TM-274 / ADR-0030: plan one new session — its name and the identity it will carry as `@ao-*`
+ * options and in its durable record. Personas come from the registry, unique per team, else per repo:
+ *  - an agent (role-session or spawn): `[team--]node--repo--<role>--<persona>`, the agent's own
+ *    persona, stable for as long as the agent exists;
+ *  - a team run (`agent` null, `workflow` set): `[team--]node--repo--<workflow>--<persona>`, a persona
+ *    drawn from the first-name pool and held by the RUN, released when it ends — so two concurrent
+ *    runs of one workflow get two names. A run whose session vanished without a stop is reclaimed.
+ * Readers resolve identity from `identity`, never from `name`.
  */
 export async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = homedir(), personas = localPersonaRegistry({ env, home }) }) {
-  const identity = await newIdentity({ consumer, role, agentId: agent?.id ?? null, team, runId, env, home });
-  const persona = agent ? await personas.allocate(personaScope({ team: identity.team, repo: identity.repo }), agent) : workflow;
-  return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role, persona })), identity };
+  const teamRun = !agent;
+  const kind = teamRun ? "run" : runId ? "spawn" : "role-session";
+  const identity = await newIdentity({ consumer, role: teamRun ? "run" : role, agentId: agent?.id ?? null, team, runId, workflow, kind, env, home });
+  const scope = personaScope({ team: identity.team, repo: identity.repo });
+  invariant(!teamRun || runId, "TOPOLOGY_RUN_ID_REQUIRED", "A team run session needs its run id to hold a persona.");
+  const persona = teamRun
+    ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder })
+    : await personas.allocate(scope, agent);
+  return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role: teamRun ? workflow : role, persona })), identity };
 }
 
-/** A new session's identity: a fresh ULID plus agent, role, repo, node, team and run. */
-export async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, env = process.env, home = homedir() }) {
+/**
+ * A run holder is stale when it was allocated more than the grace period ago and no live tmux session
+ * on this server carries its run id. The grace covers a run between allocation and `new-session`, so a
+ * concurrent launch cannot take a persona from a run that simply has not created its session yet.
+ * ponytail: time-based grace; a launch slower than this before `new-session` could lose its persona.
+ */
+export const RUN_PERSONA_GRACE_MS = 120_000;
+async function staleRunHolder(holderId, sinceMs) {
+  if (!String(holderId).startsWith("run:") || Date.now() - sinceMs < RUN_PERSONA_GRACE_MS) return false;
+  const runId = String(holderId).slice(4);
+  return !(await tmux.listSessionIdentities()).some((entry) => entry.meta.run === runId);
+}
+
+/** A new session's identity: a fresh ULID plus agent, role, repo, node, team, run, workflow and kind. */
+export async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, workflow = null, kind = "role-session", env = process.env, home = homedir() }) {
   const [node, repo] = await Promise.all([nodeName({ env, home }), repoIdentity(consumer)]);
-  return { id: ulid(), agent: agentId, role: slugPart(role, PART_CAPS.role) || null, repo: repo.slug, repoOrigin: repo.origin, node, team: slugPart(team, PART_CAPS.team) || null, run: runId };
+  return { id: ulid(), agent: agentId, role: slugPart(role, PART_CAPS.role) || null, repo: repo.slug, repoOrigin: repo.origin, node,
+    team: slugPart(team, PART_CAPS.team) || null, run: runId, workflow: workflow ?? null, kind };
 }
 
 /**
@@ -769,12 +793,13 @@ async function recordChild(lineage, child) {
 export async function materializeWorkflowSpec(rawSpec, context, { stateHome } = {}) {
   const location = await topologyRunLocation({ consumer: context.consumer, nativeRunId: context.runId, stateHome });
   // TM-274 / ADR-0030: a run of one library agent is a spawn of that agent and is named after it
-  // (`[team--]node--repo--<role>--<persona>`); anything else is `[team--]node--repo--run--<workflow>`.
+  // (`[team--]node--repo--<role>--<persona>`); anything else is `[team--]node--repo--<workflow>--<persona>`
+  // with a persona the run holds until it ends.
   // A re-render of an admitted attempt passes the name and identity it already has.
   const team = context.team ?? rawSpec.team ?? null;
   const solo = context.session ? null : soloAgent(rawSpec, context);
   const planned = context.session ? { name: context.session, identity: context.sessionIdentity ?? null }
-    : await planSession({ consumer: context.consumer, role: solo ? solo.role : "run", agent: solo ? { ...solo, id: solo._agent } : null,
+    : await planSession({ consumer: context.consumer, role: solo ? solo.role : null, agent: solo ? { ...solo, id: solo._agent } : null,
       workflow: rawSpec.name, team, runId: context.runId, home: context.home ?? homedir(), personas: context.personas });
   const spec = materializeSpec(rawSpec, { ...context, team, session: planned.name, runDir: location.runDir });
   spec.session_identity = planned.identity;
@@ -834,9 +859,14 @@ export async function launchRun(options) {
       return await withLock(join(spec.state_home, 'workflow-writers', spec.repository.key, createHash('sha256').update(resolve(writer)).digest('hex')), start,
         { timeoutCode: 'TOPOLOGY_WORKTREE_WRITER_BUSY' });
     }
-    return await start();
+    const result = await start();
+    // A dry run creates no session, so the run persona materialize allocated goes straight back.
+    if (options.dryRun) await releaseRunPersona(spec.session_identity);
+    return result;
   }
   catch (error) {
+    // A launch that left no session behind gives its run persona back; one that did keeps it until stop.
+    if (options.dryRun || !(await tmux.hasSession(spec.session).catch(() => false))) await releaseRunPersona(spec.session_identity).catch(() => {});
     if (!options.dryRun && error.code !== 'TOPOLOGY_RUN_EXISTS') {
       await mkdir(spec.run_dir, { recursive: true, mode: 0o700 });
       const run = await readJson(join(spec.run_dir, 'run.json')).catch(() => ({ version: 1, run_id: spec.run_id, name: spec.name,
@@ -885,9 +915,8 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
       await assertNotLive(agent._agent, { agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null });
     }
   }
-  if (!dryRun && (await tmux.hasSession(spec.session))) {
-    fail("TOPOLOGY_SESSION_EXISTS", `tmux session "${spec.session}" already exists. Stop it first: ao-topology stop --session ${spec.session}`);
-  }
+  // TM-274: no session-exists refusal. Every name is planned unique — a run holds its own persona, an
+  // agent one live session — so a second run of one workflow coexists with the first.
 
   const prepared = [];
   // A participant is a team, not a process: it gets a mailbox so the conductor can address it, and

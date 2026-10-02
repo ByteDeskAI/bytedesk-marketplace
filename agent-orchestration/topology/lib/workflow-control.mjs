@@ -1,5 +1,6 @@
 // Native workflow operations. Gateway calls these through the CLI; it never writes runtime state.
 import { createHash } from 'node:crypto';
+import { releaseRunPersona } from './persona-registry.mjs';
 import { mkdir, readdir, readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { appendJournal, loadRun, readJournal, saveRun, sendMessage } from './mailbox.mjs';
@@ -184,6 +185,8 @@ export async function stopNativeRun({ runDir, actor = { id: 'local-operator' }, 
   current.state = result.ok ? 'stopped' : 'stop_failed';
   current.stop_result = result;
   await saveRun(path, current);
+  // TM-274: a stopped team run gives its persona back; a failed stop keeps it, the session may live on.
+  if (result.ok) await releaseRunPersona(current.session_identity).catch(() => {});
   await appendJournal(path, { type: result.ok ? 'run.stopped' : 'run.stop_failed', actor, failures, children_stopped: childrenStopped.length });
   return result;
 }

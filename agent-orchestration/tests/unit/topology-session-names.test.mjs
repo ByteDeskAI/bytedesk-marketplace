@@ -16,7 +16,7 @@ import {
   PART_CAPS, ULID_PATTERN, composeSessionName, legacyRoleSessionName, nodeName, originPath,
   personaCandidates, repoIdentity, sessionIdentity, shortHost, slugPart, ulid,
 } from "../../topology/lib/session-names.mjs";
-import { localPersonaRegistry, personaScope } from "../../topology/lib/persona-registry.mjs";
+import { localPersonaRegistry, personaScope, releaseRunPersona } from "../../topology/lib/persona-registry.mjs";
 import { liveSessionOf, planSession } from "../../topology/lib/launch.mjs";
 import * as tmux from "../../topology/lib/tmux.mjs";
 
@@ -126,6 +126,16 @@ test("persona: first name, then first-last when the first name is taken in the s
   assert.equal(await registry.release(scope, ada1), true);
   assert.equal(await registry.holder(scope, "ada"), null);
   assert.equal(await registry.release(scope, ada1), false);
+
+  // A holder the caller declares stale (a run that ended without a stop) gives its persona back; the
+  // caller is told when the persona was allocated, so a run inside its grace period is not reclaimed.
+  const seen = [];
+  assert.equal(await registry.allocate("repo:runs", { id: "run:A", candidates: ["ada", "bell"] }), "ada");
+  assert.equal(await registry.allocate("repo:runs", { id: "run:B", candidates: ["ada", "bell"] }, { isStale: async () => false }), "bell");
+  assert.equal(await registry.allocate("repo:runs", { id: "run:C", candidates: ["ada", "bell"] },
+    { isStale: async (id, since) => { seen.push([id, since > 0]); return id === "run:A"; } }), "ada");
+  assert.deepEqual(seen.sort(), [["run:A", true], ["run:B", true]]);
+  assert.equal(await registry.holder("repo:runs", "ada"), "run:C");
 });
 
 test("parallel allocators never hand one persona to two agents (in-process and across processes)", async (t) => {
@@ -170,24 +180,50 @@ test("two repos with the same folder name on one node never share a session name
   assert.notEqual(plans[0].identity.id, plans[1].identity.id);
   for (const [i, plan] of plans.entries()) {
     assert.match(plan.identity.id, ULID_PATTERN);
-    assert.deepEqual({ ...plan.identity, id: "x" }, { id: "x", agent: agents[i].id, role: "worker", repo: "app", repoOrigin: repos[i], node: "agents1", team: null, run: null });
+    assert.deepEqual({ ...plan.identity, id: "x" }, { id: "x", agent: agents[i].id, role: "worker", repo: "app", repoOrigin: repos[i], node: "agents1", team: null, run: null, workflow: null, kind: "role-session" });
   }
-  const team = await planSession({ consumer: repos[0], role: "run", workflow: "Design Studio", team: "Core", runId: "r1", env, home: root });
-  assert.equal(team.name, "core--agents1--app--run--design-studio");
-  assert.equal(team.identity.team, "core");
+  const team = await planSession({ consumer: repos[0], workflow: "Design Studio", team: "Core", runId: "r1", env, home: root });
+  assert.equal(team.name, "core--agents1--app--design-studio--ada", "a team run: the workflow is the role, the persona is the run's");
+  assert.deepEqual([team.identity.team, team.identity.kind, team.identity.workflow, team.identity.role, team.identity.run], ["core", "run", "Design Studio", "run", "r1"]);
+});
+
+test("concurrent runs of one workflow hold distinct personas; release and a vanished run free them", async (t) => {
+  const root = await scratch(t);
+  await git(root, "init", "-q");
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "cfg"), AO_NODE_NAME: "agents1" };
+  const registry = localPersonaRegistry({ env, home: root });
+  const runs = Array.from({ length: 8 }, (_, i) => `r${i}`);
+  const plans = await Promise.all(runs.map((runId) => planSession({ consumer: root, workflow: "parallel-review", runId, env, home: root, personas: registry })));
+  assert.equal(plans.length, 8);
+  const names = plans.map((plan) => plan.name);
+  assert.equal(new Set(names).size, 8, `two runs share a name: ${names.join(", ")}`);
+  const repo = slugPart((await realpath(root)).split("/").pop(), PART_CAPS.repo);
+  assert.ok(names.every((name) => name.startsWith(`agents1--${repo}--parallel-review--`)), names.join(", "));
+  assert.ok(plans.every((plan) => plan.identity.kind === "run" && plan.identity.workflow === "parallel-review"));
+
+  // Releasing one run frees exactly its persona; the next run picks it up.
+  const scope = personaScope({ repo });
+  const freed = names[3].split("--").pop();
+  assert.equal(await registry.holder(scope, freed), "run:r3");
+  assert.equal(await releaseRunPersona(plans[3].identity, { personas: registry }), true);
+  assert.equal(await registry.holder(scope, freed), null);
+  assert.equal(await releaseRunPersona({ ...plans[3].identity, kind: "spawn" }, { personas: registry }), false, "an agent keeps its persona");
+  const next = await planSession({ consumer: root, workflow: "parallel-review", runId: "r8", env, home: root, personas: registry });
+  assert.equal(next.name, names[3]);
 });
 
 test("identity is read from metadata; legacy shapes are recognised; an ao-looking name alone is not", () => {
   const cases = [
     [{ name: "anything at all", meta: { id: "01J9", agent: "e1f2a3b4", role: "lead" } }, { agentId: "e1f2a3b4", sessionId: "01J9", kind: "role-session", source: "metadata" }],
     [{ name: "agents1--repo--worker--ada", meta: { id: "01JA", agent: "e1f2a3b4", role: "worker", run: "r1" } }, { agentId: "e1f2a3b4", kind: "spawn", source: "metadata" }],
-    [{ name: "core--agents1--repo--run--design", meta: { agent: "worker", role: "run", run: "r1", team: "core" } }, { agentId: "worker", kind: "run", team: "core" }],
+    [{ name: "core--agents1--repo--run--design", meta: { agent: "worker", role: "designer", run: "r1", team: "core", workflow: "design", kind: "run" } }, { agentId: "worker", kind: "run", team: "core", workflow: "design" }],
+    [{ name: "x", meta: { agent: "w", run: "r1" } }, { agentId: "w", kind: "spawn" }],
     [{ name: "a1b2c3d4-1f4c9de", meta: { agent: "e1f2a3b4" } }, { agentId: "e1f2a3b4", source: "metadata" }],
     [{ name: legacyRoleSessionName("fd2b831f") }, { agentId: "fd2b831f", kind: "role-session", source: "legacy" }],
     [{ name: "a1b2c3d4-1f4c9de" }, { agentId: "a1b2c3d4", spawn: "1f4c9de", kind: "spawn", source: "legacy" }],
     [{ name: "my-long-agent-id-9f3e21a" }, { agentId: "my-long-agent-id", spawn: "9f3e21a", kind: "spawn", source: "legacy" }],
   ];
-  assert.equal(cases.length, 7);
+  assert.equal(cases.length, 8);
   for (const [input, expected] of cases) {
     const got = sessionIdentity(input);
     for (const [key, value] of Object.entries(expected)) assert.equal(got?.[key], value, `${input.name}: ${key}`);
@@ -245,4 +281,51 @@ test("readers resolve real tmux sessions from their @ao-* options, and one agent
   const labelled = panes.find((p) => p.sessionName === "arbitrary-label");
   assert.equal(sessionIdentity({ name: labelled.sessionName, meta: labelled.identity })?.agentId, "e1f2a3b4");
   assert.equal(typeof labelled.title, "string");
+});
+
+test("two concurrent runs of one workflow in one repo get distinct sessions; stop frees the run's persona", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const consumer = await scratch(t, "ao-runs-");
+  await git(consumer, "init", "-q");
+  const tmuxDir = await mkdtemp("/tmp/aot-"); // short: the unix socket path limit is 108 characters
+  const env = { ...process.env, TMUX: "", TMUX_PANE: "", TMUX_TMPDIR: tmuxDir, AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file",
+    AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(consumer, ".state"), XDG_CONFIG_HOME: join(consumer, ".cfg"), AO_NODE_NAME: "agents1", AO_CONSUMER: consumer };
+  assert.equal(env.TMUX, "", "never inherit an operator tmux server");
+  const socket = join(tmuxDir, `tmux-${process.getuid()}`, "default");
+  t.after(async () => {
+    assert.ok(socket.startsWith(`${tmuxDir}/`), `refusing to kill a tmux server outside this test's TMUX_TMPDIR: ${socket}`);
+    await exec("tmux", ["-S", socket, "kill-server"], { env }).catch(() => {});
+    await rm(tmuxDir, { recursive: true, force: true });
+  });
+  const cli = join(HERE, "../../topology/cli.mjs");
+  const fakeAgent = join(HERE, "../fixtures/fake-agent.mjs");
+  const ao = async (...args) => JSON.parse((await exec(process.execPath, [cli, ...args, "--consumer", consumer, "--json"], { env, timeout: 120_000 })).stdout);
+  const specPath = join(consumer, "spec.json");
+  await writeFile(specPath, JSON.stringify({ version: 1, name: "parallel-review", layout: "grid", agents: [
+    { id: "conductor", role: "orchestrator", cli: "fake-agent", model: "fable", args: [fakeAgent] },
+    { id: "worker-a", role: "worker", cli: "fake-agent", model: "w1", args: [fakeAgent] },
+  ] }));
+  const launch = (runId) => ao("launch", "--spec", specPath, "--providers-dir", join(HERE, "../fixtures"), "--run-id", runId);
+  const launched = await Promise.all([launch("run-one"), launch("run-two")]);
+  assert.equal(launched.length, 2);
+  const sessions = launched.map((run) => run.session);
+  assert.notEqual(sessions[0], sessions[1], "the second run of the workflow coexists under its own name");
+  const repo = slugPart(consumer.split("/").pop(), PART_CAPS.repo);
+  for (const session of sessions) assert.match(session, new RegExp(`^agents1--${repo}--parallel-review--[a-z0-9-]+$`));
+
+  // Both live on the isolated server, each carrying its run and workflow as metadata.
+  const live = await tmux.withServer(socket, () => tmux.listSessionIdentities());
+  const runOf = Object.fromEntries(live.filter((entry) => sessions.includes(entry.name)).map((entry) => [entry.name, entry.meta]));
+  assert.equal(Object.keys(runOf).length, 2);
+  assert.deepEqual(sessions.map((session) => [runOf[session].run, runOf[session].workflow, runOf[session].kind]),
+    [["run-one", "parallel-review", "run"], ["run-two", "parallel-review", "run"]]);
+
+  // Stop the first: its persona is released, the second still holds its own.
+  const registry = localPersonaRegistry({ env, home: consumer });
+  const scope = personaScope({ repo });
+  const personas = sessions.map((session) => session.split("--").pop());
+  assert.equal(await registry.holder(scope, personas[0]), "run:run-one");
+  const stopped = await ao("stop", "--run", launched[0].runDir);
+  assert.equal(stopped.ok, true, JSON.stringify(stopped.failures));
+  assert.equal(await registry.holder(scope, personas[0]), null, "stop released the run's persona");
+  assert.equal(await registry.holder(scope, personas[1]), "run:run-two");
 });

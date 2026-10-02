@@ -4,8 +4,13 @@
 // `core--agents1--bytedesk-marketplace--lead--ada` or `agents1--bytedesk-marketplace--reviewer--linus`.
 // Segments are slugged to [a-z0-9-] with no `--` inside, so `--` is only ever the separator.
 //
+// A session that holds a team run is `[team--]node--repo--<workflow>--<persona>`: the workflow is the
+// role segment, and the persona is allocated per run from the same registry, so two concurrent runs of
+// one workflow get two names.
+//
 // The name is a LABEL, never a key. Every session gets a ULID and records who it is — `@ao-id`,
-// `@ao-agent`, `@ao-role`, `@ao-repo`, `@ao-repo-origin`, `@ao-node`, `@ao-team`, `@ao-run` — as tmux
+// `@ao-agent`, `@ao-role`, `@ao-repo`, `@ao-repo-origin`, `@ao-node`, `@ao-team`, `@ao-run`,
+// `@ao-workflow`, `@ao-kind` — as tmux
 // session user options, mirrored into the durable records, and every reader resolves identity from
 // that. There is no numeric collision suffix: one live session per agent, distinct agents for
 // parallel work, and personas unique per scope (persona-registry.mjs) make names unique by design.
@@ -81,8 +86,12 @@ export function composeSessionName({ team = null, node, repo, role, persona }) {
   return (parts[0] ? parts : parts.slice(1)).join(SEPARATOR);
 }
 
-/** The persona candidates for an agent, in order: first name, then first-last (ADR-0030). */
+/**
+ * The persona candidates for a holder, in order: its own `candidates` when it brings them (a run
+ * draws from the first-name pool), else first name, then first-last (ADR-0030).
+ */
 export function personaCandidates(agent) {
+  if (Array.isArray(agent?.candidates)) return [...new Set(agent.candidates.map((value) => slugPart(value, PART_CAPS.persona)).filter(Boolean))];
   const words = String(agent?.full_name ?? "").trim().split(/\s+/).filter(Boolean);
   const first = agent?.first_name || words[0] || "";
   const last = agent?.last_name || words.slice(1).join(" ");
@@ -118,6 +127,8 @@ export const SESSION_OPTIONS = Object.freeze({
   node: "@ao-node",
   team: "@ao-team",
   run: "@ao-run",
+  workflow: "@ao-workflow",
+  kind: "@ao-kind",
 });
 const KEYS = Object.keys(SESSION_OPTIONS);
 
@@ -143,11 +154,11 @@ const LEGACY_SPAWN = /^(.+)-([0-9a-f]{7})$/;
  */
 export function sessionIdentity({ name, meta = {} } = {}) {
   if (meta.agent) {
-    const kind = !meta.run ? "role-session" : meta.role === "run" ? "run" : "spawn";
+    const kind = ["role-session", "spawn", "run"].includes(meta.kind) ? meta.kind : meta.run ? "spawn" : "role-session";
     return { agentId: meta.agent, sessionId: meta.id ?? null, role: meta.role ?? null, repo: meta.repo ?? null, repoOrigin: meta.repoOrigin ?? null,
-      node: meta.node ?? null, team: meta.team ?? null, runId: meta.run ?? null, spawn: kind === "spawn" ? meta.id ?? null : null, kind, source: "metadata" };
+      node: meta.node ?? null, team: meta.team ?? null, runId: meta.run ?? null, workflow: meta.workflow ?? null, spawn: kind === "spawn" ? meta.id ?? null : null, kind, source: "metadata" };
   }
-  const base = { sessionId: null, role: null, repo: null, repoOrigin: null, node: null, team: null, runId: null, source: "legacy" };
+  const base = { sessionId: null, role: null, repo: null, repoOrigin: null, node: null, team: null, runId: null, workflow: null, source: "legacy" };
   let match = LEGACY_ROLE.exec(String(name ?? ""));
   if (match) return { ...base, agentId: match[1], spawn: null, kind: "role-session" };
   match = LEGACY_SPAWN.exec(String(name ?? ""));

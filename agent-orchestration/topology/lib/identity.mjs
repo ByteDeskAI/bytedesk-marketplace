@@ -25,6 +25,11 @@ const LAST = [
   "Yarrow", "Zabala", "Ashcroft", "Bellweather", "Corriveau", "Dunmore",
 ];
 
+/** The generated first-name pool, in order. Run personas are drawn from it (TM-274). */
+export function firstNames() {
+  return [...FIRST];
+}
+
 /** Title per role. Every built-in role plus `lead` has one; anything else falls back. */
 const TITLES = {
   lead: "Engineering Lead",

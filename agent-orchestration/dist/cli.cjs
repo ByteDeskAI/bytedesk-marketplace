@@ -534,6 +534,7 @@ function composeSessionName({ team = null, node, repo, role, persona }) {
   return (parts[0] ? parts : parts.slice(1)).join(SEPARATOR);
 }
 function personaCandidates(agent) {
+  if (Array.isArray(agent?.candidates)) return [...new Set(agent.candidates.map((value) => slugPart(value, PART_CAPS.persona)).filter(Boolean))];
   const words = String(agent?.full_name ?? "").trim().split(/\s+/).filter(Boolean);
   const first = agent?.first_name || words[0] || "";
   const last = agent?.last_name || words.slice(1).join(" ");
@@ -557,7 +558,7 @@ function parseIdentityFields(fields) {
 }
 function sessionIdentity({ name, meta: meta3 = {} } = {}) {
   if (meta3.agent) {
-    const kind = !meta3.run ? "role-session" : meta3.role === "run" ? "run" : "spawn";
+    const kind = ["role-session", "spawn", "run"].includes(meta3.kind) ? meta3.kind : meta3.run ? "spawn" : "role-session";
     return {
       agentId: meta3.agent,
       sessionId: meta3.id ?? null,
@@ -567,12 +568,13 @@ function sessionIdentity({ name, meta: meta3 = {} } = {}) {
       node: meta3.node ?? null,
       team: meta3.team ?? null,
       runId: meta3.run ?? null,
+      workflow: meta3.workflow ?? null,
       spawn: kind === "spawn" ? meta3.id ?? null : null,
       kind,
       source: "metadata"
     };
   }
-  const base = { sessionId: null, role: null, repo: null, repoOrigin: null, node: null, team: null, runId: null, source: "legacy" };
+  const base = { sessionId: null, role: null, repo: null, repoOrigin: null, node: null, team: null, runId: null, workflow: null, source: "legacy" };
   let match = LEGACY_ROLE.exec(String(name ?? ""));
   if (match) return { ...base, agentId: match[1], spawn: null, kind: "role-session" };
   match = LEGACY_SPAWN.exec(String(name ?? ""));
@@ -602,7 +604,9 @@ var init_session_names = __esm({
       repoOrigin: "@ao-repo-origin",
       node: "@ao-node",
       team: "@ao-team",
-      run: "@ao-run"
+      run: "@ao-run",
+      workflow: "@ao-workflow",
+      kind: "@ao-kind"
     });
     KEYS = Object.keys(SESSION_OPTIONS);
     IDENTITY_FORMAT = KEYS.map((key) => `#{${SESSION_OPTIONS[key]}}`).join("	");
@@ -1117,6 +1121,9 @@ var init_discovery = __esm({
 });
 
 // topology/lib/identity.mjs
+function firstNames() {
+  return [...FIRST];
+}
 function titleForRole(role) {
   return TITLES[role] || "Engineer";
 }
@@ -19389,22 +19396,31 @@ function personaScope({ team = null, repo }) {
 function localPersonaRegistry({ env = process.env, home = (0, import_node_os12.homedir)() } = {}) {
   const dir = (0, import_node_path37.join)(stateRoot2(env, home), "personas");
   const file2 = (scope) => (0, import_node_path37.join)(dir, `${(0, import_node_crypto16.createHash)("sha256").update(String(scope)).digest("hex").slice(0, 16)}.json`);
-  const read2 = async (scope) => await readJson3(file2(scope)).catch(() => null) ?? { scope, holders: {} };
+  const read2 = async (scope) => ({ since: {}, ...await readJson3(file2(scope)).catch(() => null) ?? { scope, holders: {} } });
   const locked = async (scope, fn) => {
     invariant2(typeof scope === "string" && scope, "TOPOLOGY_PERSONA_SCOPE", "A persona scope is required.");
     await (0, import_promises29.mkdir)(dir, { recursive: true });
     return withLock(`${file2(scope)}.lock`, fn);
   };
   return {
-    async allocate(scope, agent) {
+    async allocate(scope, agent, { isStale = null } = {}) {
       invariant2(agent?.id, "TOPOLOGY_PERSONA_AGENT", "A persona is allocated to an agent with an id.");
       return locked(scope, async () => {
         const doc = await read2(scope);
         const held = Object.entries(doc.holders).find(([, id]) => id === agent.id)?.[0];
         if (held) return held;
+        if (isStale) {
+          for (const [name, id] of Object.entries(doc.holders)) {
+            if (await isStale(id, Date.parse(doc.since[name] ?? "") || 0)) {
+              delete doc.holders[name];
+              delete doc.since[name];
+            }
+          }
+        }
         const persona = [...personaCandidates(agent), slugPart(agent.id, PART_CAPS.persona)].find((name) => name && !doc.holders[name]);
         if (!persona) fail("TOPOLOGY_PERSONA_EXHAUSTED", `No free persona for agent ${agent.id} in ${scope}.`, { scope, agent_id: agent.id });
         doc.holders[persona] = agent.id;
+        doc.since[persona] = (/* @__PURE__ */ new Date()).toISOString();
         await writeJson(file2(scope), doc);
         return persona;
       });
@@ -19413,7 +19429,10 @@ function localPersonaRegistry({ env = process.env, home = (0, import_node_os12.h
       return locked(scope, async () => {
         const doc = await read2(scope);
         const held = Object.entries(doc.holders).filter(([, id]) => id === agent?.id).map(([name]) => name);
-        for (const name of held) delete doc.holders[name];
+        for (const name of held) {
+          delete doc.holders[name];
+          delete doc.since[name];
+        }
         if (held.length) await writeJson(file2(scope), doc);
         return held.length > 0;
       });
@@ -19422,6 +19441,9 @@ function localPersonaRegistry({ env = process.env, home = (0, import_node_os12.h
       return (await read2(scope)).holders[persona] ?? null;
     }
   };
+}
+function runHolder(runId) {
+  return `run:${runId}`;
 }
 var import_node_crypto16, import_promises29, import_node_os12, import_node_path37;
 var init_persona_registry = __esm({
@@ -21157,13 +21179,33 @@ function subscriptionFormat(adapter) {
   ].join("|");
 }
 async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = (0, import_node_os16.homedir)(), personas = localPersonaRegistry({ env, home }) }) {
-  const identity = await newIdentity({ consumer, role, agentId: agent?.id ?? null, team, runId, env, home });
-  const persona = agent ? await personas.allocate(personaScope({ team: identity.team, repo: identity.repo }), agent) : workflow;
-  return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role, persona })), identity };
+  const teamRun = !agent;
+  const kind = teamRun ? "run" : runId ? "spawn" : "role-session";
+  const identity = await newIdentity({ consumer, role: teamRun ? "run" : role, agentId: agent?.id ?? null, team, runId, workflow, kind, env, home });
+  const scope = personaScope({ team: identity.team, repo: identity.repo });
+  invariant2(!teamRun || runId, "TOPOLOGY_RUN_ID_REQUIRED", "A team run session needs its run id to hold a persona.");
+  const persona = teamRun ? await personas.allocate(scope, { id: runHolder(runId), candidates: firstNames() }, { isStale: staleRunHolder }) : await personas.allocate(scope, agent);
+  return { name: assertSessionName(composeSessionName({ team: identity.team, node: identity.node, repo: identity.repo, role: teamRun ? workflow : role, persona })), identity };
 }
-async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, env = process.env, home = (0, import_node_os16.homedir)() }) {
+async function staleRunHolder(holderId, sinceMs) {
+  if (!String(holderId).startsWith("run:") || Date.now() - sinceMs < RUN_PERSONA_GRACE_MS) return false;
+  const runId = String(holderId).slice(4);
+  return !(await listSessionIdentities()).some((entry) => entry.meta.run === runId);
+}
+async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, workflow = null, kind = "role-session", env = process.env, home = (0, import_node_os16.homedir)() }) {
   const [node, repo] = await Promise.all([nodeName({ env, home }), repoIdentity(consumer)]);
-  return { id: ulid(), agent: agentId, role: slugPart(role, PART_CAPS.role) || null, repo: repo.slug, repoOrigin: repo.origin, node, team: slugPart(team, PART_CAPS.team) || null, run: runId };
+  return {
+    id: ulid(),
+    agent: agentId,
+    role: slugPart(role, PART_CAPS.role) || null,
+    repo: repo.slug,
+    repoOrigin: repo.origin,
+    node,
+    team: slugPart(team, PART_CAPS.team) || null,
+    run: runId,
+    workflow: workflow ?? null,
+    kind
+  };
 }
 async function liveSessionOf(agentId, { agentsDir = null, except = null } = {}) {
   for (const entry of await listSessionIdentities()) {
@@ -21320,7 +21362,7 @@ async function readDeaths(runDir) {
     return { pane, status: status === "" || status === void 0 ? null : Number(status) };
   });
 }
-var import_node_crypto19, import_promises33, import_node_os16, import_node_path41, import_node_url5, squash, ROLE_SESSION_NAME;
+var import_node_crypto19, import_promises33, import_node_os16, import_node_path41, import_node_url5, squash, RUN_PERSONA_GRACE_MS, ROLE_SESSION_NAME;
 var init_launch = __esm({
   "topology/lib/launch.mjs"() {
     import_node_crypto19 = require("node:crypto");
@@ -21346,6 +21388,7 @@ var init_launch = __esm({
     init_lockfile();
     init_spec();
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
+    RUN_PERSONA_GRACE_MS = 12e4;
     ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,128}$/;
   }
 });
@@ -53881,7 +53924,7 @@ init_config();
 init_prompts();
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "29beb92a3640296e30a6f7b601b9c907e0e15f5596c4205592e0f5724a74f04e",
+  sourceFingerprint: false ? null : "4603073b4eaab907168f92021fad792e75ee81c83caffb3dc593a7275ee0ebf7",
   version: false ? null : "0.13.0"
 };
 var json3 = (path3) => (0, import_promises43.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -54221,7 +54264,7 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path53.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "29beb92a3640296e30a6f7b601b9c907e0e15f5596c4205592e0f5724a74f04e";
+  return false ? null : "4603073b4eaab907168f92021fad792e75ee81c83caffb3dc593a7275ee0ebf7";
 }
 async function writeIfChanged(path3, text, mode = 384) {
   const current = await (0, import_promises45.readFile)(path3, "utf8").catch(() => null);

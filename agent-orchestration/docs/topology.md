@@ -123,8 +123,8 @@ for example `core--agents1--bytedesk-marketplace--lead--ada` in a team, or
 | `team` | the run's team (`--team`, or `team` in the spec); left out when there is none |
 | `node` | `AO_NODE_NAME`, else `node.name` in the ao user config (`$XDG_CONFIG_HOME/agent-orchestration/config.json`), else the short hostname. It is also the node's NATS leaf-node name. |
 | `repo` | the `origin` remote's repository name, owner stripped; the main checkout's folder name only when there is no remote. A linked worktree resolves to the same repo. |
-| `role` | `lead`, `reviewer`, the workflow role, or `run` for a session that holds a team |
-| `persona` | the agent's generated first name; `first-last` when the first name is taken in the scope; for a `run` session, the workflow name |
+| `role` | the agent's role (`lead`, `reviewer`, `worker`, …); for a session that holds a team run, the **workflow name** |
+| `persona` | the agent's generated first name, `first-last` when the first name is taken in the scope; for a team run, a first name allocated to that run |
 
 Each segment is lowercased, every other run of characters becomes one `-`, and it is capped (team
 16, node 24, repo 32, role 16, persona 24), so `--` only ever separates segments and
@@ -137,11 +137,15 @@ Each segment is lowercased, every other run of characters becomes one `-`, and i
 - **Parallel work gets distinct agents.**
 - **Personas are unique per scope** — the team when there is one, else the repo segment — through a
   persona registry (`allocate`, `release`, `holder`). The local registry is a lock-guarded file
-  under the topology state root (`personas/`); a persona, once held, stays with its agent.
+  under the topology state root (`personas/`). An agent's persona stays with the agent. A team run
+  holds its persona only while it runs: `stop` releases it, as do a dry run and a launch that left no
+  session; a run whose session vanished without a stop is reclaimed by the next allocation once it is
+  more than two minutes old.
 
 **The name is a label, not a key.** Every session gets a ULID and records `@ao-id`, `@ao-agent`,
 `@ao-role`, `@ao-repo`, `@ao-repo-origin` (`owner/repo`, or the path when there is no remote),
-`@ao-node`, `@ao-team` and `@ao-run` as tmux session options; a team session also tags each pane with
+`@ao-node`, `@ao-team`, `@ao-run`, `@ao-workflow` and `@ao-kind` (`role-session`, `spawn` or `run`)
+as tmux session options; a team session also tags each pane with
 its agent. The same identity is mirrored into the durable records (`identity` in an agent's
 `session.json`, `session_identity` in `run.json`). Every reader resolves identity from that
 metadata, never by parsing the name. Sessions named before TM-274 — `ao-<id>` role-sessions and
@@ -149,10 +153,10 @@ metadata, never by parsing the name. Sessions named before TM-274 — `ao-<id>` 
 ended reopens under the new name.
 
 A **run** is spawned, worked and torn down. `launch` builds a team from a spec, gives every agent a
-pane, and `stop` ends it. Its session is `[team--]node--repo--run--<workflow>`. A spec's `session`
-template no longer names the tmux session; `{{session}}` renders the name ao chose. Because there is
-no suffix, a second live run of the same workflow in the same repo and team is refused with
-`TOPOLOGY_SESSION_EXISTS`; give it a team.
+pane, and `stop` ends it. Its session is `[team--]node--repo--<workflow>--<persona>`, for example
+`agents1--bytedesk-marketplace--parallel-review--ada`; a second concurrent run of the same workflow
+gets its own persona (`…--parallel-review--bell`) and runs alongside the first. A spec's `session`
+template no longer names the tmux session; `{{session}}` renders the name ao chose.
 
 A **spawn** is a run of exactly one agent drawn from the repo's library — which is what `tm dispatch`
 produces, and the common "send this agent to do that" shape. Its session is named for *who* is

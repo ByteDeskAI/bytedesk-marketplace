@@ -20,7 +20,7 @@ export function specSchemaSummary() {
       name: "slug; becomes the template name",
       description: "one sentence shown by `ao-topology workflows`",
       inputs: "map of input name -> { description, required, default, options?: [value | {value, description}], multi?: bool }; referenced as {{inputs.<name>}}; options make the launcher show a menu",
-      session: "legacy tmux session name template (default '{{name}}-{{run_id}}'); since TM-274 a launched run is named [team--]node--repo--run--<workflow name> (or after its one library agent) regardless, and {{session}} renders that name",
+      session: "legacy tmux session name template (default '{{name}}-{{run_id}}'); since TM-274 a launched run is named [team--]node--repo--<workflow name>--<run persona> (or after its one library agent) regardless, and {{session}} renders that name",
       team: "optional team name: prefixes every session name in the run and scopes persona allocation (ADR-0030)",
       cwd: "default working directory for every agent (default '{{consumer}}')",
       run_dir: "legacy requested storage hint; launch assigns durable <stateRoot>/repositories/<canonical-repo-key>/topology/runs/<run_id> and preserves workload cwd separately",
