@@ -1437,6 +1437,9 @@ const VERBS = {
    * `ensure` spawns nothing, `start` refuses. TM_ENFORCE=off disables the tick.
    */
   async pool(action, ...rest) {
+    // `ensure` is the per-session monitor trigger: in an uninitialized project it has nothing to
+    // ensure, and must say nothing rather than fail every session.
+    if ((action === "ensure" || (action === "run" && rest.includes("--auto"))) && P.root && !isInitialized(P)) return;
     requireInit();
     if (!action || action.startsWith("--")) {
       rest = [action, ...rest].filter(Boolean);
