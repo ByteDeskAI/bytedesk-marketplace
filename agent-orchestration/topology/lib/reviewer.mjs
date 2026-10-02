@@ -87,7 +87,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, and JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 
 /**
@@ -250,8 +250,14 @@ export async function listenForReviewer({ consumer, record, env = process.env, t
   return { listening: true, transport: 'nats', subject: `orch.${repo}.probe.${agent}` };
 }
 
-/** Publish one reviewer verdict on its orch subject. The collector reads that subject. */
-export async function publishReviewerVerdict({ consumer, repo, nonce, verdict, env = process.env, transport = null }) {
+/**
+ * Publish one complete reviewer response on its orch subject. TM-195: it used to publish
+ * `{verdict, findings: []}` with approve as the default, so the subject could carry a verdict but
+ * never a finding. Now the response is the same text the pane carries (`b64:<base64>` or JSON),
+ * decoded and checked by the same decoder, and published whole; a malformed one is refused here.
+ */
+export async function publishReviewerVerdict({ consumer, repo, nonce, response, env = process.env, transport = null }) {
+  const verdict = decodeReviewPayload(typeof response === 'string' ? response : JSON.stringify(response));
   const { resolveTransport, publishReviewVerdict } = await import('./orch-transport.mjs');
   const { repoKey } = await import('./repoid.mjs');
   const active = transport ?? await resolveTransport({ env });
@@ -259,7 +265,8 @@ export async function publishReviewerVerdict({ consumer, repo, nonce, verdict, e
   return publishReviewVerdict({ repo: name, nonce, verdict, transport: active, env });
 }
 
-/** Wait for the verdict the reviewer published. collectReview uses this on the NATS path. */
+/** Wait for a verdict published with publishReviewerVerdict (`review await`). Collection does not:
+ * the write-free reviewer cannot publish, so its pane is its one channel on every transport. */
 export async function awaitReviewerVerdict({ consumer, repo, nonce, timeoutMs = 2000, env = process.env, transport = null }) {
   const { resolveTransport } = await import('./orch-transport.mjs');
   const { repoKey } = await import('./repoid.mjs');
@@ -925,7 +932,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
   const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
-  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor or nit findings.");
+  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
   invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   const record = {
     base_revision: range.base,
@@ -1148,6 +1155,51 @@ function lenientJson(text, glueAt = () => "") {
   return { text: out, closed: false };
 }
 
+const B64_PREFIX = 'b64:';
+
+/**
+ * TM-195. The one decoder for a reviewer response, whichever path carried it.
+ *
+ * `b64:<base64 of the JSON>` is the envelope. Bare JSON on a pane breaks two ways that no rejoin
+ * can repair: a quote the reviewer left unescaped is invalid JSON at the source, and a space that
+ * fell on the TUI's wrap column is indistinguishable from padding. Base64 has no quote and no
+ * space, so the pane cannot corrupt it, and anything that does not decode is refused.
+ *
+ * Bare JSON is still read, so a reviewer launched under the old instruction keeps working until it
+ * is relaunched with the new one. Either way the result must be {verdict, findings: [...]}: a
+ * response without a findings array used to record as an approval with no findings.
+ */
+export function decodeReviewPayload(text) {
+  const raw = String(text ?? '').trim();
+  let response;
+  if (raw.startsWith(B64_PREFIX)) {
+    const data = raw.slice(B64_PREFIX.length).replace(/\s+/g, '');
+    invariant(/^[A-Za-z0-9+/]+={0,2}$/.test(data), 'TOPOLOGY_REVIEWER_RESPONSE', 'Review response base64 is empty or has characters outside the base64 alphabet.');
+    const bytes = Buffer.from(data, 'base64');
+    invariant(bytes.toString('base64').replace(/=+$/, '') === data.replace(/=+$/, ''), 'TOPOLOGY_REVIEWER_RESPONSE', 'Review response base64 does not decode cleanly; it was truncated or mistyped.');
+    try { response = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+    catch { fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response base64 does not decode to UTF-8 JSON.'); }
+  } else {
+    try { response = JSON.parse(raw); } catch { fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.'); }
+  }
+  invariant(response && typeof response === 'object' && !Array.isArray(response), 'TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be a JSON object.');
+  invariant(VERDICTS.has(response.verdict), 'TOPOLOGY_REVIEWER_VERDICT', `Verdict must be one of ${[...VERDICTS].join(', ')}; got ${JSON.stringify(response.verdict)}.`);
+  invariant(Array.isArray(response.findings), 'TOPOLOGY_REVIEWER_FINDINGS', 'Review response must carry a findings array, empty when there are none.');
+  return response;
+}
+
+/**
+ * A `b64:` response is complete once its decoded JSON closes. A capture taken mid-print decodes to
+ * an unclosed prefix and is retried; one that decodes to something that is not JSON at all, or that
+ * ends in padding, is complete and goes to the decoder to be refused.
+ */
+function b64Closed(data) {
+  const base64 = data.slice(B64_PREFIX.length);
+  if (/=$/.test(base64)) return true;
+  const text = Buffer.from(base64, 'base64').toString('utf8');
+  return !text.trimStart().startsWith('{') || lenientJson(text).closed;
+}
+
 /**
  * Every AO_REVIEW response for `nonce` on the pane, as candidate JSON texts, oldest first.
  *
@@ -1168,6 +1220,18 @@ export function reviewResponsesOnScreen(screen, nonce) {
   for (let i = 0; i < lines.length; i++) {
     const line = protocolOutputLine(lines[i]);
     if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
+    // TM-195: a b64: payload rejoins with nothing between rows. It has no space to lose, and its
+    // alphabet tells a continuation row from anything printed after it.
+    const next = () => i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) ? protocolOutputLine(lines[i + 1]) : null;
+    let payload = line.slice(prefix.length).trim();
+    if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
+    if (payload.startsWith(B64_PREFIX)) {
+      while (/^[A-Za-z0-9+/=]+$/.test(next() ?? '')) payload += protocolOutputLine(lines[++i]);
+      const texts = [payload];
+      texts.closed = b64Closed(payload);
+      responses.push(texts);
+      continue;
+    }
     const raw = [lines[i]], parts = [line.slice(prefix.length)];
     while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
       raw.push(lines[++i]); parts.push(protocolOutputLine(lines[i]));
@@ -1196,8 +1260,9 @@ export function parseReviewResponse(screen, nonce) {
   const candidates = reviewResponsesOnScreen(screen, nonce);
   invariant(candidates.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
   const parsed = candidates.map(texts => {
-    for (const text of texts) { try { return JSON.parse(text); } catch { /* next candidate */ } }
-    return fail('TOPOLOGY_REVIEWER_RESPONSE', 'Review response must be JSON.');
+    let refusal = null;
+    for (const text of texts) { try { return decodeReviewPayload(text); } catch (error) { refusal ??= error; } }
+    throw refusal;
   });
   const last = parsed[parsed.length - 1];
   invariant(parsed.every(response => JSON.stringify(response) === JSON.stringify(last)), 'TOPOLOGY_REVIEWER_RESPONSE', 'The pane shows different review responses for one nonce.');
@@ -1243,7 +1308,7 @@ async function ageOutIncompleteReview({ consumer, request, path, screen, env, ho
   return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason);
 }
 
-export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare, transport = null }) {
+export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare }) {
   const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
@@ -1258,17 +1323,13 @@ export async function collectReview({ consumer, task, revision, env = process.en
     invariant(prior?.revision===revision && prior.request_nonce===request.nonce && sameIncarnation(prior.binding,record.binding), 'TOPOLOGY_REVIEWER_RESPONSE', 'Collected review evidence is missing or differs from this request.');
     return prior;
   }
+  // TM-220: a failed request is final. Collecting it again would escalate a second time or, once
+  // the refused copy scrolls out, record a verdict under a nonce the lead was told had failed.
+  invariant(request.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request already failed (${request.failure?.reason ?? 'no reason recorded'}); request the review again for a fresh nonce.`);
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
-  const { resolveTransport } = await import('./orch-transport.mjs');
-  const activeTransport = transport ?? await resolveTransport({ env });
-  if (activeTransport.kind === 'nats') {
-    const wait = await awaitReviewerVerdict({ consumer, repo: repoKey(record.repo_id), nonce: request.nonce, timeoutMs: 2000, env, transport: activeTransport });
-    const received = await wait.received;
-    const response = JSON.parse(received.body);
-    const review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare });
-    await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict, state: 'collected' });
-    return review;
-  }
+  // TM-195: one channel on every transport. The reviewer has no shell, so it cannot publish on NATS;
+  // under NATS this used to wait two seconds for a verdict nothing could send. Its pane is the
+  // channel it has, whichever transport carries the rest of the topology.
   const screen = await output(record);
   const shown = reviewResponsesOnScreen(screen, request.nonce);
   invariant(shown.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');

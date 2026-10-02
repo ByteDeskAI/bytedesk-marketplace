@@ -170,6 +170,17 @@
 
 ## [Unreleased]
 
+### Tests
+
+- **No test can start a real provider CLI (TM-290).** A temp `git init` repository is enrolled by
+  default, so tests that reached supervise, launch or startup were starting a real `claude` lead.
+  The test preflight now puts a recording shim for every catalog provider (`claude`, `codex`,
+  `grok`, `kimi`, `gemini`, `copilot`) first on PATH. A shim refuses with 127, and the test file
+  that ran it fails, named. `tests/helpers/temp-repo.mjs` creates temp repositories opted out of
+  enrollment by default, or enrolled with a lead provider that does not exist. The guard found
+  six spawns, in `topology-repo-enrollment`, `topology-respawn`, `topology-session-names` and
+  `topology-supervision`. Those four files and the `topology-activation-tmux` contract are fixed.
+
 ### Added
 
 - **The repository lead records landings without a grant, and a server-side lead-autonomy policy
@@ -253,7 +264,17 @@
   Such a session is now published as `kind: "run"` with `spawn: null`, as session-names addendum §3.3
   specifies; `spawn` stays reserved for a legacy `<agentId>-<7 hex>` name. `topology-presence` tests
   now run every snapshot they publish through the v2 validator.
-
+- **Reviewer verdicts carry their findings intact on every transport (TM-195, TM-220).** The
+  write-free reviewer now emits `AO_REVIEW <nonce> b64:<base64 of the JSON>`: base64 has no quote
+  to leave unescaped and no space a pane wrap can lose, so a verdict quoting shell code survives.
+  Bare JSON is still read, so a reviewer running the old instruction keeps working until it is
+  relaunched. Its pane is its one channel on both transports: under NATS, collection used to wait
+  for a verdict the reviewer had no shell to publish. Pane and `review publish` share one decoder,
+  and a response that does not decode to `{verdict, findings: [...]}` is refused, including one with
+  no findings array, which used to record as an approval. `review publish` needs `--response` with
+  the whole response; it no longer publishes `findings: []` or defaults to approve. A failed
+  request is refused on collect without escalating again (`TOPOLOGY_REVIEWER_REQUEST_FAILED`), and
+  the approve refusal names minor, nit and note.
 - **A task branch that merges the default branch is reviewed over its own changes only (TM-257).**
   The review range was pinned to the admission commit, so a branch that merged `main` to clear a
   conflict carried every task already landed there, and the reviewer judged them as part of this

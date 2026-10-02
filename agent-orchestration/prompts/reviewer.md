@@ -48,11 +48,23 @@ Every finding is an object with these six fields:
 - `evidence` — what in the patch or request shows it.
 - `fix` — what would resolve it.
 
-Emit the verdict on one line:
+Write the verdict as JSON, for example:
 
 ```
-AO_REVIEW <nonce> {"verdict":"changes_requested","findings":[{"severity":"major","file":"src/a.js","line":12,"claim":"…","evidence":"…","fix":"…"}]}
+{"verdict":"changes_requested","findings":[{"severity":"major","file":"src/a.js","line":12,"claim":"…","evidence":"…","fix":"…"}]}
 ```
+
+Then emit it on one line as `AO_REVIEW`, the nonce, and `b64:` followed by the standard base64 of
+that JSON's UTF-8 bytes, with no spaces or line breaks inside the base64:
+
+```
+AO_REVIEW <nonce> b64:eyJ2ZXJkaWN0IjoiYXBwcm92ZSIsImZpbmRpbmdzIjpbXX0=
+```
+
+(That example is `{"verdict":"approve","findings":[]}`.) Base64 is required because your pane
+wraps long lines before the host can read them: bare JSON loses spaces at the wrap and breaks on
+any double quote you quote from the code. Use an empty `findings` array when there are none. A
+response that does not decode to that JSON is refused, and the review has to be requested again.
 
 Your verdict is input to the merge gate, not a merge: you have no merge, deploy, or publish
 authority, and approving a review does not confer any.

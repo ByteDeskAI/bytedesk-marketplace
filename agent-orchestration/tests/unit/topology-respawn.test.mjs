@@ -17,6 +17,7 @@ import { sanitizeCwd } from "../../topology/lib/providers.mjs";
 import { ulid } from "../../topology/lib/session-names.mjs";
 import * as tmux from "../../topology/lib/tmux.mjs";
 import { isolatedTmux } from "../helpers/isolated-tmux.mjs";
+import { optOutOfEnrollment } from "../helpers/temp-repo.mjs";
 
 const exec = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -222,6 +223,7 @@ test("launch of a live library agent re-spawns it under the SAME name and return
   const consumer = join(root, "app");
   await mkdir(consumer);
   await exec("git", ["-C", consumer, "init", "-q"]);
+  await optOutOfEnrollment(consumer); // TM-290: launch self-starts a supervisor, whose lead would be real
   const log = join(root, "agent.log");
   const iso = isolatedTmux(t, { extraEnv: { AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file", AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"),
     XDG_CONFIG_HOME: join(root, ".cfg"), AO_NODE_NAME: "agents1", FAKE_TURN_LOG: log, FAKE_TURN_BUSY_MS: "3000", FAKE_TURN_HANDOFF: "1" } });
