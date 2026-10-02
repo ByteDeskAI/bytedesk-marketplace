@@ -49,6 +49,13 @@ git -C "$TM_ROOT" config commit.gpgsign false
 printf '# app\n' > "$TM_ROOT/README.md"
 git -C "$TM_ROOT" add . && git -C "$TM_ROOT" commit -qm init
 
+# ── an uninitialized project: the per-session monitors stay silent and create nothing ──
+ENSURE_OUT="$(tm pool ensure 2>&1)"; ENSURE_RC=$?
+[[ $ENSURE_RC -eq 0 && -z "$ENSURE_OUT" ]] && ok "pool ensure is a silent no-op before tm init" || no "pool ensure is a silent no-op before tm init" "rc=$ENSURE_RC out=$ENSURE_OUT"
+"$NODE" "$PLUGIN_ROOT/bin/tm-dashboard" --no-browser >/dev/null 2>&1; DASH_RC=$?
+[[ $DASH_RC -eq 0 ]] && ok "tm-dashboard exits 0 before tm init" || no "tm-dashboard exits 0 before tm init" "rc=$DASH_RC"
+[[ ! -e "$TM_ROOT/.bytedesk" ]] && ok "no store is created before tm init" || no "no store is created before tm init" "$(find "$TM_ROOT/.bytedesk" | head -5)"
+
 tm init >/dev/null
 tm epic new "Pool" >/dev/null
 T1="$(tm task new "Poolable work" --body "context" --ac "it dispatches" | cut -d' ' -f1)"

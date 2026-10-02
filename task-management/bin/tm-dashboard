@@ -22,7 +22,7 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync, watch, openSync, readSync, closeSync } from "node:fs";
 import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureDirs, paths } from "../lib/paths.mjs";
+import { ensureDirs, isInitialized, paths } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
 import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
 import { boardPayload, handleAsync } from "../lib/dashboard-api.mjs";
@@ -82,6 +82,16 @@ const resolved = paths();
 if (!resolved.root) {
   process.stderr.write(`${resolved.unavailable}\n`);
   process.exit(1);
+}
+// The monitor runs in every session with the plugin enabled. A project nobody ran `tm init` in
+// has no board to serve, and must not get a store created for it: exit quietly. An explicit
+// --status or --restart still gets an answer.
+if (!isInitialized(resolved)) {
+  if (args.has("--status") || args.has("--restart")) {
+    process.stderr.write("tm-dashboard: no task store here — run: tm init\n");
+    process.exit(1);
+  }
+  process.exit(0);
 }
 const P = ensureDirs(resolved);
 const HERE = dirname(fileURLToPath(import.meta.url));

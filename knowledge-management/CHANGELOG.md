@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Hooks no longer create `.bytedesk/knowledge/` in a project nobody ran `km init` in. `logEvent`
+  created the bundle's directories before writing, and SessionStart and PreCompact log an event in
+  every session. It now writes only to an initialized bundle.
+
 ## [0.1.0] — 2026-07-31
 
 ### Added

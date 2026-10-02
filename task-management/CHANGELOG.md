@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The per-session monitors no longer create a store in a project nobody initialized.**
+  `tm-dashboard` ran `ensureDirs` before any check, so opening a session in any directory built
+  `.bytedesk/task-management/` there, which then made the pool start too. It now exits quietly
+  when the project has no store (`--status`/`--restart` still answer, with exit 1). `tm pool
+  ensure` (and `pool run --auto`) exited 1 in such a project, failing the monitor every session;
+  it is now a silent no-op there.
+
 - Admitted goals retain the original objective, stable acceptance IDs and immutable scope history on their existing epic. Typed findings and independent deployed assessments retain hashed evidence; stale proof, blocking findings and unresolved child tasks prevent completion. Six `tm goal` operations have matching MCP tools.
 
 - **A repository with a standing reviewer now gates dispatch on admission by default (TM-240).**
