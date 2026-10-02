@@ -12,6 +12,8 @@ import { reviewerStanding } from '../topology/lib/reviewer.mjs';
 import { agentDirs, resolveAgentRef } from '../topology/lib/agents.mjs';
 import { loadConfig } from '../topology/lib/config.mjs';
 import { composePrompt, readPromptState } from '../topology/lib/prompts.mjs';
+import { dataHome, servicePaths } from './services/services.mjs';
+import { staleMcpServers, tmuxSocketCheck } from './services/self-heal.mjs';
 
 // These values describe the loaded executable even if its installed files have
 // since been refreshed. Disk fingerprints are reported separately.
@@ -44,6 +46,22 @@ async function rolePromptEvidence(options, record, role, repositoryId) {
   return result;
 }
 
+/**
+ * TM-285: machine setup problems the doctor flags. Read-only: the stale-server scan reports and
+ * never signals; the last ensure's self-heal report is read, not re-run.
+ */
+export async function setupDiagnostics({stateRoot,env=process.env,home=homedir(),platform=process.platform,deps={}}) {
+  const paths=servicePaths({stateRoot,data:dataHome({platform,env,home})});
+  const pointer=await json(paths.pointer);
+  const [stale,lastSelfHeal]=await Promise.all([(deps.staleMcpServers??staleMcpServers)({pointer,platform}).catch(error=>({supported:false,note:error.message,servers:[]})),json(join(paths.dir,'self-heal.json'))]);
+  const tmuxSocket=tmuxSocketCheck({env,platform});
+  const problems=[
+    ...stale.servers.map(server=>`stale ao MCP server: ${server.host} pid ${server.pid} (${server.reasons.join('; ')}). ${server.advice}`),
+    ...(tmuxSocket.ok?[]:[`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`]),
+  ];
+  return {servicesPointer:pointer?{pluginRoot:pointer.pluginRoot,version:pointer.version??null}:null,staleMcpServers:stale,tmuxSocket,lastSelfHeal,problems};
+}
+
 export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=process.env,home=homedir()}) {
   let consumer=null,admission={provided:Boolean(consumerCwd),admitted:null};
   if(consumerCwd) {
@@ -54,7 +72,8 @@ export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=p
   const effectiveTopologyRoot=topologyStateRoot(env,home);
   const diagnostics={consumerAdmission:admission,loadedBuild:{...loadedBuild,diskVersion:pkg?.version??null,disk:{mcp,cli}},
     runtimeModes:['acp','topology'],stateRoots:{acp:stateRoot,topology:effectiveTopologyRoot,aligned:stateRoot===effectiveTopologyRoot},
-    sessionHost:{healthy:Boolean(host),port:host?.port??null,pid:host?.pid??null},repositorySupervision:null,roles:[]};
+    sessionHost:{healthy:Boolean(host),port:host?.port??null,pid:host?.pid??null},repositorySupervision:null,roles:[],
+    setup:await setupDiagnostics({stateRoot,env,home})};
   if(!consumer) return diagnostics;
   // The ACP caller's selected state root is explicit. Report any topology
   // mismatch without reading a different repository's role records.

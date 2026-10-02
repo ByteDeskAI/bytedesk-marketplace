@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import { renderRegistration, register, start, unregister, UNIT_NAME, LAUNCHD_LABEL, TASK_NAME } from "../../src/services/os-registration.mjs";
-import { ensureServices, installProcessCompose, readLock, renderProject, servicePaths, apiClient } from "../../src/services/services.mjs";
+import { controlProcess, ensureServices, installProcessCompose, readLock, renderProject, servicePaths, servicesStatus, apiClient } from "../../src/services/services.mjs";
 import { startSessionHost, leasePath } from "../../src/session/host.mjs";
 
 const run = promisify(execFile);
@@ -358,4 +358,70 @@ test("integration: the real process-compose restarts a killed child within 5s", 
   assert.ok(await until(async () => !(await client.alive()), 10_000), "process-compose stopped through its API");
   const exited = await until(() => pc.exitCode !== null || pc.signalCode !== null, 5_000);
   assert.ok(exited, "process-compose exited");
+});
+
+/** TM-286: a process-compose API whose processes have pids; restart gives a new pid, stop stops. */
+function liveApi() {
+  const calls = [];
+  const procs = [
+    { name: "session-host", pid: 101, status: "Running", restarts: 0, is_ready: "Ready", exit_code: 0 },
+    { name: "nats", pid: 202, status: "Running", restarts: 1, is_ready: "Ready", exit_code: 0 },
+    { name: "supervise-abc123", pid: 303, status: "Running", restarts: 0, is_ready: "-", exit_code: 0 },
+  ];
+  let nextPid = 900;
+  const fetchImpl = async (url, init = {}) => {
+    const { pathname } = new URL(url);
+    const method = init.method ?? "GET";
+    calls.push(`${method} ${pathname}`);
+    const named = decodeURIComponent(pathname.split("/").pop());
+    if (method === "POST" && pathname.startsWith("/process/restart/")) { const p = procs.find((x) => x.name === named); p.pid = nextPid++; p.restarts += 1; p.status = "Running"; }
+    if (method === "PATCH" && pathname.startsWith("/process/stop/")) { const p = procs.find((x) => x.name === named); p.pid = 0; p.status = "Completed"; }
+    return { ok: true, status: 200, json: async () => (pathname === "/processes" ? { data: procs.map((p) => ({ ...p })) } : {}) };
+  };
+  return { calls, procs, fetchImpl };
+}
+
+async function installedServices(t) {
+  const root = await scratch(t, "ao-services-control-");
+  const stateRoot = join(root, "state"), data = join(root, "data");
+  const paths = servicePaths({ stateRoot, data });
+  await mkdir(paths.dir, { recursive: true });
+  await writeFile(paths.manager, JSON.stringify({ mode: "detached", port: 45199, version: "1.122.0" }));
+  await writeFile(paths.token, "tok");
+  return { root, stateRoot, env: { AGENT_ORCHESTRATION_DATA_HOME: data } };
+}
+
+test("TM-286: services restart <name> restarts exactly that process under a new pid; stop stops only it; unknown names are refused", async (t) => {
+  const { stateRoot, env, root } = await installedServices(t);
+  const api = liveApi();
+  const opts = { pluginRoot, stateRoot, env, home: root, platform: "linux", deps: { fetchImpl: api.fetchImpl, restartTimeoutMs: 2_000 } };
+  const restarted = await controlProcess("restart", "nats", opts);
+  assert.deepEqual({ ok: restarted.ok, name: restarted.name, previousPid: restarted.previousPid }, { ok: true, name: "nats", previousPid: 202 });
+  assert.notEqual(restarted.pid, 202, "a restart ends with a new pid");
+  assert.equal(api.procs.find((p) => p.name === "session-host").pid, 101, "other processes keep their pid");
+  assert.deepEqual(api.calls.filter((c) => !c.startsWith("GET")), ["POST /process/restart/nats"], "one restart call, for that name only");
+
+  const stopped = await controlProcess("stop", "supervise-abc123", opts);
+  assert.equal(stopped.ok, true);
+  assert.equal(stopped.state, "Completed");
+  assert.deepEqual(api.calls.filter((c) => !c.startsWith("GET")), ["POST /process/restart/nats", "PATCH /process/stop/supervise-abc123"]);
+
+  const mutating = api.calls.filter((c) => !c.startsWith("GET")).length;
+  for (const bad of ["nats-server", "", undefined, "../project/stop"]) {
+    await assert.rejects(controlProcess("restart", bad, opts), (error) => error.code === "AO_SERVICES_UNKNOWN_PROCESS", String(bad));
+  }
+  await assert.rejects(controlProcess("stop", "nats-server", opts), { code: "AO_SERVICES_UNKNOWN_PROCESS" });
+  assert.equal(api.calls.filter((c) => !c.startsWith("GET")).length, mutating, "a refused name sends nothing");
+});
+
+test("TM-286: services status --json lists name, pid, state, restarts and readiness for every managed process", async (t) => {
+  const { stateRoot, env, root } = await installedServices(t);
+  const api = liveApi();
+  const report = await servicesStatus({ pluginRoot, stateRoot, env, home: root, platform: "linux", deps: { fetchImpl: api.fetchImpl, mode: "detached" } });
+  assert.equal(report.processes.length, api.procs.length, "every managed process is listed");
+  assert.ok(report.processes.length >= 3);
+  for (const row of report.processes) {
+    for (const key of ["name", "pid", "state", "restarts", "ready"]) assert.ok(Object.hasOwn(row, key), `${row.name} has ${key}`);
+  }
+  assert.deepEqual(report.processes.map((p) => [p.name, p.pid, p.state, p.restarts]), api.procs.map((p) => [p.name, p.pid, p.status, p.restarts]));
 });

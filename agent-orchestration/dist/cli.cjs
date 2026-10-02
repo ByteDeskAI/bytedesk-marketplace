@@ -218,11 +218,11 @@ async function canonicalRepoId(consumer) {
   if (git2.code === 0 && git2.stdout.trim()) {
     const reported = git2.stdout.trim().split("\n")[0];
     const common = (0, import_node_path8.isAbsolute)(reported) ? (0, import_node_path8.resolve)(reported) : (0, import_node_path8.resolve)(abs, reported);
-    const real2 = await (0, import_promises5.realpath)(common).catch(() => common);
-    return { id: real2, kind: "git-common-dir", git_common_dir: real2 };
+    const real3 = await (0, import_promises5.realpath)(common).catch(() => common);
+    return { id: real3, kind: "git-common-dir", git_common_dir: real3 };
   }
-  const real = await (0, import_promises5.realpath)(abs).catch(() => abs);
-  return { id: real, kind: "path", git_common_dir: null };
+  const real2 = await (0, import_promises5.realpath)(abs).catch(() => abs);
+  return { id: real2, kind: "path", git_common_dir: null };
 }
 async function repositoryConsumer(consumer) {
   const identity = await canonicalRepoId(consumer);
@@ -774,7 +774,7 @@ async function setPaneTitle(pane, title) {
 }
 async function sendText(pane, text, submitKeys = ["Enter"]) {
   await tmux(["send-keys", "-t", pane, "-l", "--", text]);
-  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve17) => setTimeout(resolve17, SUBMIT_SETTLE_MS));
+  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve19) => setTimeout(resolve19, SUBMIT_SETTLE_MS));
   for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 async function preparePane(pane, { title, log, display = null }) {
@@ -837,14 +837,14 @@ async function capture(pane, lines = 60, { escapes = false } = {}) {
 async function waitForChannel(channel, timeoutMs, { tmuxServer = null } = {}) {
   tmuxServer ||= selectedServer.getStore();
   if (!(timeoutMs > 0)) return false;
-  return new Promise((resolve17) => {
+  return new Promise((resolve19) => {
     let settled = false;
     const child = (0, import_node_child_process3.spawn)(TMUX, [...serverArgs(tmuxServer), "wait-for", channel], { stdio: "ignore", shell: false });
     const finish = (value) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve17(value);
+        resolve19(value);
       }
     };
     const timer = setTimeout(() => {
@@ -1305,8 +1305,8 @@ async function reconcileWorkflows({ consumer, ...options }) {
   for (const location of locations) {
     for (const path3 of await nativeFiles(location)) {
       try {
-        const real = await (0, import_promises7.realpath)(path3);
-        invariant2(isInside(await (0, import_promises7.realpath)(location), real), "TOPOLOGY_DISCOVERY_BOUNDARY", "Native record escapes its repository state directory.");
+        const real2 = await (0, import_promises7.realpath)(path3);
+        invariant2(isInside(await (0, import_promises7.realpath)(location), real2), "TOPOLOGY_DISCOVERY_BOUNDARY", "Native record escapes its repository state directory.");
         const run2 = await cachedJson(path3);
         await belongs(run2, path3, repository);
         const duplicate = seen.get(run2.run_id);
@@ -2020,7 +2020,7 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
 }
 function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
   const cli = (0, import_node_url4.fileURLToPath)(new URL("../../dist/cli.cjs", __aoImportMetaUrl));
-  return new Promise((resolve17) => {
+  return new Promise((resolve19) => {
     const child = (0, import_node_child_process10.spawn)(process.execPath, [cli, "services", "ensure", "--json"], {
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -2036,7 +2036,7 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.once("error", (error51) => {
       clearTimeout(timer);
-      resolve17({ ok: false, error: error51.message });
+      resolve19({ ok: false, error: error51.message });
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
@@ -2045,7 +2045,7 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
         report = JSON.parse(stdout);
       } catch {
       }
-      resolve17(code === 0 && report?.ok ? report : { ok: false, code, error: report?.message ?? stderr.trim().slice(-2e3) });
+      resolve19(code === 0 && report?.ok ? report : { ok: false, code, error: report?.message ?? stderr.trim().slice(-2e3) });
     });
   });
 }
@@ -2067,34 +2067,34 @@ function localNatsHome(env = process.env) {
   return env.AO_NATS_HOME || (0, import_node_path33.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
-  const { execFile: execFile4 } = await import("node:child_process");
+  const { execFile: execFile5 } = await import("node:child_process");
   const candidates = [env.AO_NATS_SERVER, (0, import_node_path33.join)((0, import_node_os10.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
   for (const bin of candidates) {
-    const ok = await new Promise((resolve17) => execFile4(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve17(!error51)));
+    const ok = await new Promise((resolve19) => execFile5(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve19(!error51)));
     if (ok) return bin;
   }
   return null;
 }
 function canConnect(port) {
-  return new Promise((resolve17) => {
+  return new Promise((resolve19) => {
     const socket = import_node_net.default.connect({ host: "127.0.0.1", port }, () => {
       socket.destroy();
-      resolve17(true);
+      resolve19(true);
     });
-    socket.once("error", () => resolve17(false));
+    socket.once("error", () => resolve19(false));
     socket.setTimeout(1e3, () => {
       socket.destroy();
-      resolve17(false);
+      resolve19(false);
     });
   });
 }
 function freePort() {
-  return new Promise((resolve17, reject) => {
+  return new Promise((resolve19, reject) => {
     const probe = import_node_net.default.createServer();
     probe.once("error", reject);
     probe.listen(0, "127.0.0.1", () => {
       const { port } = probe.address();
-      probe.close(() => resolve17(port));
+      probe.close(() => resolve19(port));
     });
   });
 }
@@ -2156,7 +2156,7 @@ async function prepareLocalNats({ env = process.env } = {}) {
         process.kill(state.pid, "SIGTERM");
       } catch {
       }
-      for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve17) => setTimeout(resolve17, 100));
+      for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve19) => setTimeout(resolve19, 100));
     }
     const user = state?.user || "ao-orch";
     const pass = state?.pass || (0, import_node_crypto15.randomBytes)(24).toString("hex");
@@ -2175,7 +2175,7 @@ function namesNatsServer(pid) {
   }
 }
 async function waitForPort(port, attempts = 50) {
-  for (let i = 0; i < attempts && !await canConnect(port); i += 1) await new Promise((resolve17) => setTimeout(resolve17, 100));
+  for (let i = 0; i < attempts && !await canConnect(port); i += 1) await new Promise((resolve19) => setTimeout(resolve19, 100));
   return canConnect(port);
 }
 async function ensureLocalNats({ env = process.env } = {}) {
@@ -2385,11 +2385,11 @@ var require_core = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -2405,7 +2405,7 @@ var require_core = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -2616,11 +2616,11 @@ var require_util = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -2636,7 +2636,7 @@ var require_util = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -2649,14 +2649,14 @@ var require_util = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -2715,9 +2715,9 @@ var require_util = __commonJS({
     }
     function delay6(ms = 0) {
       let methods2;
-      const p = new Promise((resolve17) => {
+      const p = new Promise((resolve19) => {
         const timer = setTimeout(() => {
-          resolve17();
+          resolve19();
         }, ms);
         const cancel = () => {
           if (timer) {
@@ -2736,18 +2736,18 @@ var require_util = __commonJS({
     }
     function deferred() {
       let methods2 = {};
-      const p = new Promise((resolve17, reject) => {
-        methods2 = { resolve: resolve17, reject };
+      const p = new Promise((resolve19, reject) => {
+        methods2 = { resolve: resolve19, reject };
       });
       return Object.assign(p, methods2);
     }
     function debugDeferred() {
       let methods2 = {};
-      const p = new Promise((resolve17, reject) => {
+      const p = new Promise((resolve19, reject) => {
         methods2 = {
           resolve: (v) => {
             console.trace("resolve", v);
-            resolve17(v);
+            resolve19(v);
           },
           reject: (err) => {
             console.trace("reject");
@@ -3244,11 +3244,11 @@ var require_servers = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -3264,7 +3264,7 @@ var require_servers = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -8685,11 +8685,11 @@ var require_protocol = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -8705,7 +8705,7 @@ var require_protocol = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -8718,14 +8718,14 @@ var require_protocol = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -9079,8 +9079,8 @@ var require_protocol = __commonJS({
           let timer;
           try {
             timer = (0, util_1.timeout)(this.options.timeout || 2e4);
-            const cp2 = this.transport.connect(srv, this.options);
-            yield Promise.race([cp2, timer]);
+            const cp3 = this.transport.connect(srv, this.options);
+            yield Promise.race([cp3, timer]);
             (() => __awaiter(this, void 0, void 0, function* () {
               var _a3, e_1, _b, _c;
               try {
@@ -9131,12 +9131,12 @@ var require_protocol = __commonJS({
       }
       _doDial(srv) {
         return __awaiter(this, void 0, void 0, function* () {
-          const { resolve: resolve17 } = this.options;
+          const { resolve: resolve19 } = this.options;
           const alts = yield srv.resolve({
             fn: (0, transport_1.getResolveFn)(),
             debug: this.options.debug,
             randomize: !this.options.noRandomize,
-            resolve: resolve17
+            resolve: resolve19
           });
           let lastErr = null;
           for (const a of alts) {
@@ -9894,11 +9894,11 @@ var require_jsbaseclient_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -9914,7 +9914,7 @@ var require_jsbaseclient_api = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -10024,11 +10024,11 @@ var require_jslister = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -10044,7 +10044,7 @@ var require_jslister = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -10525,11 +10525,11 @@ var require_jsmconsumer_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -10545,7 +10545,7 @@ var require_jsmconsumer_api = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -10799,11 +10799,11 @@ var require_jsmsg = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -10819,7 +10819,7 @@ var require_jsmsg = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -10996,11 +10996,11 @@ var require_typedsub = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -11016,7 +11016,7 @@ var require_typedsub = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -11748,11 +11748,11 @@ var require_objectstore = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -11768,7 +11768,7 @@ var require_objectstore = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -11781,14 +11781,14 @@ var require_objectstore = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -12198,8 +12198,8 @@ var require_objectstore = __commonJS({
             if (ln === "") {
               throw new Error("link is a bucket");
             }
-            const os7 = info.options.link.bucket !== this.name ? yield _ObjectStoreImpl.create(this.js, info.options.link.bucket) : this;
-            return os7.get(ln);
+            const os8 = info.options.link.bucket !== this.name ? yield _ObjectStoreImpl.create(this.js, info.options.link.bucket) : this;
+            return os8.get(ln);
           }
           if (!info.digest.startsWith(exports2.digestType)) {
             return Promise.reject(new Error(`unknown digest type: ${info.digest}`));
@@ -12470,9 +12470,9 @@ var require_objectstore = __commonJS({
       static create(js_1, name_1) {
         return __awaiter(this, arguments, void 0, function* (js, name, opts = {}) {
           const jsm = yield js.jetstreamManager();
-          const os7 = new _ObjectStoreImpl(name, jsm, js);
-          yield os7.init(opts);
-          return Promise.resolve(os7);
+          const os8 = new _ObjectStoreImpl(name, jsm, js);
+          yield os8.init(opts);
+          return Promise.resolve(os8);
         });
       }
     };
@@ -12579,11 +12579,11 @@ var require_jsclient = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -12599,7 +12599,7 @@ var require_jsclient = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -13173,10 +13173,10 @@ var require_jsclient = __commonJS({
         this.monitor = new idleheartbeat_monitor_1.IdleHeartbeatMonitor(millis, handler, opts);
       }
       _checkHbOrderConsumer(msg) {
-        const rm14 = msg.headers.get(types_2.JsHeaders.ConsumerStalledHdr);
-        if (rm14 !== "") {
+        const rm15 = msg.headers.get(types_2.JsHeaders.ConsumerStalledHdr);
+        if (rm15 !== "") {
           const nci = this.js.nc;
-          nci.publish(rm14);
+          nci.publish(rm15);
         }
         const lastDelivered = parseInt(msg.headers.get(types_2.JsHeaders.LastConsumerSeqHdr), 10);
         const ordered = this.info.ordered_consumer_sequence;
@@ -13335,11 +13335,11 @@ var require_kv = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -13355,7 +13355,7 @@ var require_kv = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -13368,14 +13368,14 @@ var require_kv = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -14309,11 +14309,11 @@ var require_consumer = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -14329,7 +14329,7 @@ var require_consumer = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -14342,14 +14342,14 @@ var require_consumer = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -15202,11 +15202,11 @@ var require_jsmstream_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -15222,7 +15222,7 @@ var require_jsmstream_api = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -15673,11 +15673,11 @@ var require_jsm = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -15693,7 +15693,7 @@ var require_jsm = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -15706,14 +15706,14 @@ var require_jsm = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -15901,11 +15901,11 @@ var require_service = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -15921,7 +15921,7 @@ var require_service = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -16394,11 +16394,11 @@ var require_serviceclient = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -16414,7 +16414,7 @@ var require_serviceclient = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -16427,14 +16427,14 @@ var require_serviceclient = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -16515,11 +16515,11 @@ var require_nats = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -16535,7 +16535,7 @@ var require_nats = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -16548,14 +16548,14 @@ var require_nats = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -16582,7 +16582,7 @@ var require_nats = __commonJS({
         this.listeners = [];
       }
       static connect(opts = {}) {
-        return new Promise((resolve17, reject) => {
+        return new Promise((resolve19, reject) => {
           const nc = new _NatsConnectionImpl(opts);
           protocol_1.ProtocolHandler.connect(nc.options, nc).then((ph) => {
             nc.protocol = ph;
@@ -16609,7 +16609,7 @@ var require_nats = __commonJS({
                 }
               });
             })();
-            resolve17(nc);
+            resolve19(nc);
           }).catch((err) => {
             reject(err);
           });
@@ -17013,11 +17013,11 @@ var require_bench = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve17) {
-          resolve17(value);
+        return value instanceof P ? value : new P(function(resolve19) {
+          resolve19(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve17, reject) {
+      return new (P || (P = Promise))(function(resolve19, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17033,7 +17033,7 @@ var require_bench = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve17(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve19(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17046,14 +17046,14 @@ var require_bench = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve17, reject) {
-            v = o[n](v), settle(resolve17, reject, v.done, v.value);
+          return new Promise(function(resolve19, reject) {
+            v = o[n](v), settle(resolve19, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve17, reject, d, v) {
+      function settle(resolve19, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve17({ value: v2, done: d });
+          resolve19({ value: v2, done: d });
         }, reject);
       }
     };
@@ -17802,11 +17802,11 @@ var require_node_transport = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve18) {
-          resolve18(value);
+        return value instanceof P ? value : new P(function(resolve20) {
+          resolve20(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve18, reject) {
+      return new (P || (P = Promise))(function(resolve20, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17822,7 +17822,7 @@ var require_node_transport = __commonJS({
           }
         }
         function step(result) {
-          result.done ? resolve18(result.value) : adopt(result.value).then(fulfilled, rejected);
+          result.done ? resolve20(result.value) : adopt(result.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17878,8 +17878,8 @@ var require_node_transport = __commonJS({
     var net_1 = require("net");
     var util_1 = require_util();
     var tls_1 = require("tls");
-    var { resolve: resolve17 } = require("path");
-    var { readFile: readFile26, existsSync: existsSync5 } = require("fs");
+    var { resolve: resolve19 } = require("path");
+    var { readFile: readFile26, existsSync: existsSync8 } = require("fs");
     var dns = require("dns");
     var VERSION = "2.29.3";
     var LANG = "nats.js";
@@ -17993,8 +17993,8 @@ var require_node_transport = __commonJS({
         }
         const d = (0, nats_base_client_1.deferred)();
         try {
-          fn = resolve17(fn);
-          if (!existsSync5(fn)) {
+          fn = resolve19(fn);
+          if (!existsSync8(fn)) {
             d.reject(new Error(`${fn} doesn't exist`));
           }
           readFile26(fn, (err, data) => {
@@ -18605,7 +18605,7 @@ function createFileTransport() {
           };
         }
         if (Date.now() >= deadline) return null;
-        await new Promise((resolve17) => setTimeout(resolve17, 20));
+        await new Promise((resolve19) => setTimeout(resolve19, 20));
       }
     },
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {
@@ -18725,7 +18725,7 @@ function createFileTransport() {
 }
 function beginFileVerdict(subject, timeoutMs, verdictWaiters, timers) {
   let deliver;
-  const received = new Promise((resolve17, reject) => {
+  const received = new Promise((resolve19, reject) => {
     const timer = setTimeout(() => {
       timers.delete(timer);
       const list2 = verdictWaiters.get(subject) ?? [];
@@ -18739,7 +18739,7 @@ function beginFileVerdict(subject, timeoutMs, verdictWaiters, timers) {
     deliver = (body) => {
       clearTimeout(timer);
       timers.delete(timer);
-      resolve17({ via: "file", subject, body });
+      resolve19({ via: "file", subject, body });
     };
   });
   const list = verdictWaiters.get(subject) ?? [];
@@ -18761,9 +18761,9 @@ async function bridgeUnixSocket(socketPath) {
     client2.pipe(upstream);
     upstream.pipe(client2);
   });
-  await new Promise((resolve17, reject) => {
+  await new Promise((resolve19, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve17);
+    server.listen(0, "127.0.0.1", resolve19);
   });
   const { port } = server.address();
   return { server, servers: `nats://127.0.0.1:${port}` };
@@ -19095,7 +19095,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       const sub = nc.subscribe(subject, { max: 1 });
       subscriptions.add(sub);
       await nc.flush();
-      const received = new Promise((resolve17, reject) => {
+      const received = new Promise((resolve19, reject) => {
         const timer = setTimeout(() => {
           timers.delete(timer);
           sub.unsubscribe();
@@ -19110,7 +19110,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
             clearTimeout(timer);
             timers.delete(timer);
             subscriptions.delete(sub);
-            resolve17({ via: "nats", subject: msg.subject || subject, body: sc.decode(msg.data) });
+            resolve19({ via: "nats", subject: msg.subject || subject, body: sc.decode(msg.data) });
             break;
           }
         })().catch((error51) => {
@@ -19143,7 +19143,7 @@ async function openNatsTransport({ env = process.env, servers, credsFile, name =
       subscriptions.clear();
       await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {
       });
-      if (bridge) await new Promise((resolve17) => bridge.server.close(resolve17));
+      if (bridge) await new Promise((resolve19) => bridge.server.close(resolve19));
     }
   };
   return transport;
@@ -20124,8 +20124,8 @@ function fallbackHandoff({ agentId, waitedMs, transcript = null, turns = [], pan
 }
 async function holdLock(path3, options) {
   let release;
-  const released = new Promise((resolve17) => {
-    release = resolve17;
+  const released = new Promise((resolve19) => {
+    release = resolve19;
   });
   let done;
   await new Promise((entered, refused) => {
@@ -21640,7 +21640,7 @@ async function blobSize(consumer, sha2, path3) {
 }
 function blobSha256(consumer, sha2, path3, size) {
   if (ZERO_BLOB.test(sha2)) return Promise.resolve(null);
-  return new Promise((resolve17, reject) => {
+  return new Promise((resolve19, reject) => {
     const hash3 = (0, import_node_crypto20.createHash)("sha256");
     let stderr = "";
     const child = (0, import_node_child_process12.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
@@ -21649,7 +21649,7 @@ function blobSha256(consumer, sha2, path3, size) {
       stderr += chunk;
     });
     child.on("error", (error51) => reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes): ${error51.message}.`)));
-    child.on("close", (code) => code === 0 ? resolve17(hash3.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
+    child.on("close", (code) => code === 0 ? resolve19(hash3.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
   });
 }
 function renderBinaryManifest(binaryFiles) {
@@ -23355,7 +23355,7 @@ async function quotaTick(options = {}, input = {}) {
     unwatched,
     consent,
     consentError,
-    pending: [...watch2.pending.values()].map((row) => ({ agent: row.agentId, pattern: row.pattern, since_ms: now - row.firstMatchAt })),
+    pending: [...watch2.pending.values()].map((row2) => ({ agent: row2.agentId, pattern: row2.pattern, since_ms: now - row2.firstMatchAt })),
     incidents,
     dismissed
   };
@@ -26434,7 +26434,7 @@ async function resolveBinding({ env = process.env, listPanesFn = listServerPanes
     "A slot request must come from inside a tmux pane: liveness is the tmux six-tuple, and a request with no incarnation could never be reclaimed, so it would starve the queue forever."
   );
   const panes = await listPanesFn({ tmuxServer: match[1], env });
-  const pane = panes.find((row) => row.paneId === env.TMUX_PANE && row.serverKey === match[1] && row.serverPid === Number(match[2]));
+  const pane = panes.find((row2) => row2.paneId === env.TMUX_PANE && row2.serverKey === match[1] && row2.serverPid === Number(match[2]));
   invariant2(pane && pane.alive !== false, "TOPOLOGY_SLOT_BINDING_REQUIRED", `Pane ${env.TMUX_PANE} is not on server ${match[1]}; this incarnation cannot be identified.`);
   return Object.fromEntries(PRESENCE_BINDING_FIELDS.map((field) => [field, pane[field]]));
 }
@@ -26896,12 +26896,12 @@ async function readMailboxDepths(runDirs) {
   const byAgent = /* @__PURE__ */ new Map();
   for (const runDir of runDirs ?? []) {
     const rows = await queueDepth(runDir, null).catch(() => null);
-    for (const row of rows ?? []) {
-      if (!row?.agent) continue;
-      const prior = byAgent.get(row.agent) ?? { depth: 0, oldestAgeMs: 0 };
-      byAgent.set(row.agent, {
-        depth: prior.depth + (Number(row.depth) || 0),
-        oldestAgeMs: Math.max(prior.oldestAgeMs, Number(row.oldest_age_ms ?? row.oldestAgeMs) || 0)
+    for (const row2 of rows ?? []) {
+      if (!row2?.agent) continue;
+      const prior = byAgent.get(row2.agent) ?? { depth: 0, oldestAgeMs: 0 };
+      byAgent.set(row2.agent, {
+        depth: prior.depth + (Number(row2.depth) || 0),
+        oldestAgeMs: Math.max(prior.oldestAgeMs, Number(row2.oldest_age_ms ?? row2.oldestAgeMs) || 0)
       });
     }
   }
@@ -27522,8 +27522,8 @@ async function startRepositorySupervision(options) {
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
       const child = (0, import_node_child_process13.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
-      await new Promise((resolve17, reject) => {
-        child.once("spawn", resolve17);
+      await new Promise((resolve19, reject) => {
+        child.once("spawn", resolve19);
         child.once("error", reject);
       });
       await log.write(`
@@ -27586,13 +27586,13 @@ var init_supervision = __esm({
 });
 
 // src/cli.mjs
-var import_node_util5 = require("node:util");
-var import_node_path61 = require("node:path");
+var import_node_util6 = require("node:util");
+var import_node_path64 = require("node:path");
 
 // src/service.mjs
-var import_promises51 = require("node:fs/promises");
+var import_promises52 = require("node:fs/promises");
 var import_node_os30 = require("node:os");
-var import_node_path59 = require("node:path");
+var import_node_path61 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -28707,7 +28707,7 @@ function processGroupExists(processGroup) {
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve17) => setTimeout(resolve17, pollMs));
+    await new Promise((resolve19) => setTimeout(resolve19, pollMs));
   }
   return !processGroupExists(processGroup);
 }
@@ -28934,8 +28934,8 @@ var RunStore = class {
     return (0, import_node_path14.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile: writeFile8 } = await import("node:fs/promises");
-    await writeFile8(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile9 } = await import("node:fs/promises");
+    await writeFile9(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -28962,8 +28962,8 @@ var RunStore = class {
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile: writeFile8 } = await import("node:fs/promises");
-    await writeFile8((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile9 } = await import("node:fs/promises");
+    await writeFile9((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
@@ -29041,7 +29041,7 @@ var RunStore = class {
         }
         if (error51?.code !== "EEXIST") throw error51;
         await this.tryBreakStaleLock(path3);
-        await new Promise((resolve17) => setTimeout(resolve17, 10));
+        await new Promise((resolve19) => setTimeout(resolve19, 10));
       }
     }
     invariant(handle, "AO_LOCK_TIMEOUT", `Timed out acquiring run lock for ${runId}.`);
@@ -46124,11 +46124,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve17, reject) => {
+    const response = new Promise((resolve19, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve17(mapResponse ? mapResponse(value) : value);
+            resolve19(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -46185,8 +46185,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve17) => {
-      this.abortController.signal.addEventListener("abort", () => resolve17());
+    this.closedPromise = new Promise((resolve19) => {
+      this.abortController.signal.addEventListener("abort", () => resolve19());
     });
     void this.receive();
   }
@@ -46923,8 +46923,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve17, reject) => {
-      this.waiters.push({ resolve: resolve17, reject });
+    return new Promise((resolve19, reject) => {
+      this.waiters.push({ resolve: resolve19, reject });
     });
   }
 };
@@ -48440,13 +48440,13 @@ function defaultResolveNpmCliPath(execPath) {
 function resolveInstalledBuiltInAgentLaunch(agentCommand, options = {}) {
   const spec = findBuiltInAgentPackage(agentCommand);
   if (!spec) return;
-  const readFileSync7 = options.readFileSync ?? import_node_fs2.default.readFileSync;
-  const existsSync5 = options.existsSync ?? import_node_fs2.default.existsSync;
+  const readFileSync10 = options.readFileSync ?? import_node_fs2.default.readFileSync;
+  const existsSync8 = options.existsSync ?? import_node_fs2.default.existsSync;
   const resolvePackageRoot = options.resolvePackageRoot ?? defaultResolvePackageRoot;
   try {
     const resolved = resolveInstalledBuiltInAgentPackage(spec, {
-      readFileSync: readFileSync7,
-      existsSync: existsSync5,
+      readFileSync: readFileSync10,
+      existsSync: existsSync8,
       resolvePackageRoot
     });
     if (!resolved) return;
@@ -48478,12 +48478,12 @@ function resolveInstalledBuiltInAgentPackage(spec, options) {
 function resolvePackageExecBuiltInAgentLaunch(agentCommand, options = {}) {
   const spec = findBuiltInAgentPackage(agentCommand);
   if (!spec) return;
-  const existsSync5 = options.existsSync ?? import_node_fs2.default.existsSync;
+  const existsSync8 = options.existsSync ?? import_node_fs2.default.existsSync;
   const execPath = options.execPath ?? process.execPath;
   const resolveNpmCliPath = options.resolveNpmCliPath ?? defaultResolveNpmCliPath;
   try {
     const npmCliPath = resolveNpmCliPath(execPath);
-    if (!existsSync5(npmCliPath)) return;
+    if (!existsSync8(npmCliPath)) return;
     return {
       source: "package-exec",
       command: execPath,
@@ -48536,7 +48536,7 @@ async function withTimeout(promise2, timeoutMs) {
   }
 }
 async function withInterrupt(run2, onInterrupt) {
-  return await new Promise((resolve17, reject) => {
+  return await new Promise((resolve19, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -48563,7 +48563,7 @@ async function withInterrupt(run2, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run2().then((result) => finish(() => resolve17(result)), (error51) => finish(() => reject(error51)));
+    run2().then((result) => finish(() => resolve19(result)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -49778,10 +49778,10 @@ function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve17, reject) => {
+  return new Promise((resolve19, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve17();
+      resolve19();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -49800,7 +49800,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve17) => {
+  return new Promise((resolve19) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -49811,7 +49811,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve17(value);
+      resolve19(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -50065,7 +50065,7 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve17) => {
+  return await new Promise((resolve19) => {
     const child = (0, import_node_child_process4.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
@@ -50084,7 +50084,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve17(value);
+      resolve19(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -50438,10 +50438,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start2);
 }
 function waitForSpawn(process3) {
-  return new Promise((resolve17, reject) => {
+  return new Promise((resolve19, reject) => {
     const onSpawn = () => {
       process3.off("error", onError);
-      resolve17();
+      resolve19();
     };
     const onError = (error51) => {
       process3.off("spawn", onSpawn);
@@ -50459,8 +50459,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve17) => {
-    setTimeout(resolve17, Math.max(0, ms));
+  return new Promise((resolve19) => {
+    setTimeout(resolve19, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -50500,8 +50500,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve17) => {
-        resolveExit = resolve17;
+      const exitPromise = new Promise((resolve19) => {
+        resolveExit = resolve19;
       });
       const terminal = {
         process: proc,
@@ -50825,7 +50825,7 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve17, reject) => {
+  return await new Promise((resolve19, reject) => {
     const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
@@ -50844,7 +50844,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve17(stdout);
+        resolve19(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -50878,7 +50878,7 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve17, reject) => {
+  return await new Promise((resolve19, reject) => {
     const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
@@ -50897,7 +50897,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve17(stdout);
+        resolve19(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -50905,7 +50905,7 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve17, reject) => {
+  return await new Promise((resolve19, reject) => {
     const child = (0, import_node_child_process4.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -50932,7 +50932,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve17(stdout);
+        resolve19(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -50946,7 +50946,7 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve17) => {
+  await new Promise((resolve19) => {
     const child = (0, import_node_child_process4.spawn)("taskkill", args, {
       stdio: [
         "ignore",
@@ -50955,8 +50955,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve17());
-    child.once("close", () => resolve17());
+    child.once("error", () => resolve19());
+    child.once("close", () => resolve19());
   });
 }
 function sendSignal(pid, signal) {
@@ -51691,8 +51691,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve17) => {
-      timer = setTimeout(resolve17, waitMs2);
+    const timeoutPromise = new Promise((resolve19) => {
+      timer = setTimeout(resolve19, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -51993,7 +51993,7 @@ var AcpClient = class {
     return error51;
   }
   async runConnectionRequest(run2) {
-    return await new Promise((resolve17, reject) => {
+    return await new Promise((resolve19, reject) => {
       const pending = {
         settled: false,
         reject
@@ -52005,7 +52005,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run2).then((value) => finish(() => resolve17(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run2).then((value) => finish(() => resolve19(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -52120,8 +52120,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve17) => {
-        setTimeout(resolve17, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve19) => {
+        setTimeout(resolve19, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -53881,14 +53881,14 @@ function shouldReuseExistingRecord(record2, params) {
   return true;
 }
 function createDeferred() {
-  let resolve17;
+  let resolve19;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve17 = res;
+      resolve19 = res;
       reject = rej;
     }),
-    resolve: resolve17,
+    resolve: resolve19,
     reject
   };
 }
@@ -55547,8 +55547,8 @@ async function executeRun({ store, runId, pluginRoot, stateRoot: stateRoot3 }) {
     for (const stage of plannedStages) {
       invariant(["route", "reuse_stage_session", "persistent_session", "deterministic_gate"].includes(stage.selectionKind), "AO_PROTOCOL_EXECUTOR_MISSING", `No stage executor is registered for selection kind '${stage.selectionKind}'.`);
       const completedStageIds = new Set(outputs.map((output) => output.stageId));
-      const missingDependencies = stage.dependsOn.filter((dependency) => !completedStageIds.has(dependency));
-      invariant(missingDependencies.length === 0, "AO_PROTOCOL_DEPENDENCY_INCOMPLETE", `Stage ${stage.id} cannot execute before its dependencies complete.`, { missingDependencies });
+      const missingDependencies2 = stage.dependsOn.filter((dependency) => !completedStageIds.has(dependency));
+      invariant(missingDependencies2.length === 0, "AO_PROTOCOL_DEPENDENCY_INCOMPLETE", `Stage ${stage.id} cannot execute before its dependencies complete.`, { missingDependencies: missingDependencies2 });
       const latest = await store.get(runId);
       if (latest.cancelRequestedAt) {
         await store.transition(runId, ["running"], "cancelling", { outputs, sessions }, "cancellation_observed_between_stages");
@@ -55912,7 +55912,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker registered its process group.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker watchdog exited before the worker registered.", launchState.exited);
-      await new Promise((resolve17) => setTimeout(resolve17, 25));
+      await new Promise((resolve19) => setTimeout(resolve19, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register its process group.", { launcherPid: child.pid });
   }
@@ -55974,7 +55974,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.launcherPid && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve17) => setTimeout(resolve17, 25));
+      await new Promise((resolve19) => setTimeout(resolve19, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -56093,7 +56093,7 @@ var SystemdWorkerSupervisorStrategy = class extends ProcessGroupSupervisorStrate
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      await new Promise((resolve17) => setTimeout(resolve17, 25));
+      await new Promise((resolve19) => setTimeout(resolve19, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -56168,7 +56168,7 @@ var SystemdWorkerSupervisorStrategy = class extends ProcessGroupSupervisorStrate
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve17) => setTimeout(resolve17, 25));
+      await new Promise((resolve19) => setTimeout(resolve19, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -56306,7 +56306,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
-      await new Promise((resolve17) => setTimeout(resolve17, 25));
+      await new Promise((resolve19) => setTimeout(resolve19, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -56366,7 +56366,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve17) => setTimeout(resolve17, 25));
+      await new Promise((resolve19) => setTimeout(resolve19, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -56855,9 +56855,9 @@ async function startSessionHost({ stateRoot: stateRoot3, uiRoot, port: requested
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve17, reject) => {
+    close: () => new Promise((resolve19, reject) => {
       server.closeAllConnections?.();
-      server.close((error51) => error51 ? reject(error51) : resolve17());
+      server.close((error51) => error51 ? reject(error51) : resolve19());
     })
   };
 }
@@ -56886,7 +56886,7 @@ async function listenLoopback(preferred) {
   invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
 }
 function bindPort(port) {
-  return new Promise((resolve17, reject) => {
+  return new Promise((resolve19, reject) => {
     const server = (0, import_node_http.createServer)();
     const onError = (error51) => {
       server.off("listening", onListening);
@@ -56894,7 +56894,7 @@ function bindPort(port) {
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve17(server);
+      resolve19(server);
     };
     server.once("error", onError);
     server.once("listening", onListening);
@@ -57054,10 +57054,10 @@ async function defaultOpenLog(stateRoot3) {
 }
 
 // src/diagnostics.mjs
-var import_node_crypto30 = require("node:crypto");
-var import_promises47 = require("node:fs/promises");
-var import_node_path56 = require("node:path");
-var import_node_os27 = require("node:os");
+var import_node_crypto31 = require("node:crypto");
+var import_promises51 = require("node:fs/promises");
+var import_node_path60 = require("node:path");
+var import_node_os29 = require("node:os");
 init_repoid();
 init_supervision();
 init_incarnation();
@@ -57066,104 +57066,13 @@ init_reviewer();
 init_agents();
 init_config();
 init_prompts();
-var loadedBuild = {
-  mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "de475668d1c7947aec61d186731371fad4a3e75d36b99d6b7a5b1a3bf5131591",
-  version: false ? null : "0.14.0"
-};
-var json3 = (path3) => (0, import_promises47.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
-var fingerprint = (path3) => (0, import_promises47.readFile)(path3).then((bytes) => (0, import_node_crypto30.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
-async function rolePromptEvidence(options, record2, role, repositoryId) {
-  const result = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
-  if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result;
-  const consumer = record2.consumer || options.consumer;
-  if ((await canonicalRepoId(consumer)).id !== repositoryId) return { ...result, state: "repository-mismatch" };
-  const scoped = { ...options, consumer };
-  const agent = await resolveAgentRef(record2.agent_id, agentDirs(scoped));
-  if (!agent || agent.id !== record2.agent_id || agent.role !== role) return { ...result, state: "agent-mismatch" };
-  const [loaded, state] = await Promise.all([loadConfig(scoped), readPromptState(agent._dir)]);
-  const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName: agent.template });
-  Object.assign(result, { state: state?.status || "missing", desiredRevision: composed.revision, appliedRevision: state?.applied_revision || null });
-  if (!composed.ok) return { ...result, state: "invalid-config" };
-  const acknowledgedAt = Date.parse(state?.acknowledged_at);
-  result.current = state?.status === "current" && state.repo_id === repositoryId && state.desired_session === record2.session && state.desired_revision === composed.revision && state.applied_revision === composed.revision && !state.nonce && sameIncarnation(state.desired_binding, record2.binding) && sameIncarnation(state.applied_binding, record2.binding) && Number.isFinite(acknowledgedAt) && acknowledgedAt <= Date.now() + 5e3;
-  if (result.state === "current" && !result.current) result.state = "stale";
-  return result;
-}
-async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os27.homedir)() }) {
-  let consumer = null, admission = { provided: Boolean(consumerCwd), admitted: null };
-  if (consumerCwd) {
-    try {
-      consumer = await resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot3 });
-      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
-    } catch (error51) {
-      admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
-    }
-  }
-  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path56.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path56.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json3((0, import_node_path56.join)(pluginRoot, "package.json"))]);
-  const effectiveTopologyRoot = stateRoot2(env, home);
-  const diagnostics = {
-    consumerAdmission: admission,
-    loadedBuild: { ...loadedBuild, diskVersion: pkg?.version ?? null, disk: { mcp, cli } },
-    runtimeModes: ["acp", "topology"],
-    stateRoots: { acp: stateRoot3, topology: effectiveTopologyRoot, aligned: stateRoot3 === effectiveTopologyRoot },
-    sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
-    repositorySupervision: null,
-    roles: []
-  };
-  if (!consumer) return diagnostics;
-  const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
-  diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
-  const key = repoKey(consumer.commonGitDir);
-  const census = await json3((0, import_node_path56.join)(stateRoot3, "census", `${key}.json`));
-  const at = Date.parse(census?.at);
-  const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
-  for (const role of ["lead", "reviewer"]) {
-    const record2 = await json3((0, import_node_path56.join)(stateRoot3, `${role}s`, `${key}.json`));
-    const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
-    const reasons = [];
-    let responsive2 = false, prompt = { current: false, state: "missing", desiredRevision: null, appliedRevision: null }, roleState = "unknown";
-    const exact = record2?.repo_id === consumer.commonGitDir && Boolean(incarnationOf(record2?.binding));
-    if (!exact) reasons.push("registered repository and exact role incarnation are unavailable");
-    if (!fresh || !observed) reasons.push("fresh census evidence for this incarnation is unavailable");
-    else if (observed.dispatchable !== true) reasons.push("the observed process is not dispatchable");
-    if (exact) {
-      try {
-        const standing = role === "lead" ? await leadState({ ...opts, readOnly: true }) : await reviewerStanding({ ...opts, readOnly: true });
-        roleState = role === "lead" ? standing.status : !standing.registered ? "none" : !standing.alive ? "registered" : standing.responsive ? "responsive" : "unresponsive";
-        responsive2 = roleState === "responsive" && standing.record?.agent_id === record2.agent_id && sameIncarnation(standing.record.binding, record2.binding);
-        prompt = await rolePromptEvidence(opts, record2, role, consumer.commonGitDir);
-      } catch (error51) {
-        reasons.push(`role readiness observation failed: ${error51.code ?? "AO_ROLE_READINESS_UNKNOWN"}`);
-      }
-    }
-    if (!responsive2) reasons.push("no current readiness acknowledgement for this exact role incarnation");
-    if (!prompt.current) reasons.push(`current prompt acknowledgement is unavailable (${prompt.state})`);
-    diagnostics.roles.push({
-      role,
-      registered: Boolean(record2),
-      agentId: record2?.agent_id ?? null,
-      provider: record2?.provider ?? null,
-      incarnationRecorded: Boolean(incarnationOf(record2?.binding)),
-      censusFresh: fresh,
-      state: fresh && observed ? observed.state : "unknown",
-      roleState,
-      responsive: responsive2,
-      prompt,
-      ready: reasons.length === 0,
-      readinessReasons: reasons,
-      readinessScope: "current prompt and existing role nonce acknowledgements for the exact incarnation; ACP provider readiness is separate"
-    });
-  }
-  return diagnostics;
-}
 
 // src/services/services.mjs
-var import_node_crypto31 = require("node:crypto");
-var import_node_fs12 = require("node:fs");
+var import_node_crypto30 = require("node:crypto");
+var import_node_fs13 = require("node:fs");
 var import_promises49 = require("node:fs/promises");
 var import_node_net3 = __toESM(require("node:net"), 1);
-var import_node_os29 = __toESM(require("node:os"), 1);
+var import_node_os28 = __toESM(require("node:os"), 1);
 var import_node_path58 = require("node:path");
 var import_promises50 = require("node:timers/promises");
 init_lockfile();
@@ -57172,9 +57081,9 @@ init_nats_local();
 // src/services/os-registration.mjs
 var import_node_child_process14 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
-var import_promises48 = require("node:fs/promises");
-var import_node_os28 = __toESM(require("node:os"), 1);
-var import_node_path57 = require("node:path");
+var import_promises47 = require("node:fs/promises");
+var import_node_os27 = __toESM(require("node:os"), 1);
+var import_node_path56 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
 var TASK_NAME = "ByteDesk\\agent-orchestration";
@@ -57186,11 +57095,11 @@ function windowsQuote2(value) {
   const text = String(value);
   return /[\s"]/.test(text) || text === "" ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
-async function registrationMode({ platform = process.platform, home = import_node_os28.default.homedir(), env = process.env } = {}) {
+async function registrationMode({ platform = process.platform, home = import_node_os27.default.homedir(), env = process.env } = {}) {
   if (platform === "darwin") return "launchd";
   if (platform === "win32") return "schtasks";
   if (platform !== "linux") return "detached";
-  if (home !== import_node_os28.default.userInfo().homedir) return "detached";
+  if (home !== import_node_os27.default.userInfo().homedir) return "detached";
   try {
     await canonicalUserBusEnvironment(env);
     return "systemd";
@@ -57198,14 +57107,14 @@ async function registrationMode({ platform = process.platform, home = import_nod
     return "detached";
   }
 }
-function registrationPath({ mode, home = import_node_os28.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
+function registrationPath({ mode, home = import_node_os27.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
-      return (0, import_node_path57.join)(env.XDG_CONFIG_HOME || (0, import_node_path57.join)(home, ".config"), "systemd", "user", UNIT_NAME);
+      return (0, import_node_path56.join)(env.XDG_CONFIG_HOME || (0, import_node_path56.join)(home, ".config"), "systemd", "user", UNIT_NAME);
     case "launchd":
-      return (0, import_node_path57.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
+      return (0, import_node_path56.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
     case "schtasks":
-      return (0, import_node_path57.join)(servicesDir2, "agent-orchestration.task.xml");
+      return (0, import_node_path56.join)(servicesDir2, "agent-orchestration.task.xml");
     default:
       return null;
   }
@@ -57282,7 +57191,7 @@ function renderRegistration({ mode, argv, logPath, path: path3 = "" }) {
 async function defaultRun(mode, args) {
   if (mode === "systemd") return runUserManagerFile("/usr/bin/systemctl", args, { timeoutMs: 3e4 });
   if (mode === "launchd") return runFile("/bin/launchctl", args, { timeoutMs: 3e4 });
-  if (mode === "schtasks") return runFile((0, import_node_path57.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
+  if (mode === "schtasks") return runFile((0, import_node_path56.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
   throw new Error(`No service manager command for mode ${mode}.`);
 }
 var quiet = (promise2) => promise2.then(() => true, () => false);
@@ -57290,11 +57199,11 @@ async function register({ mode, argv, logPath, path: path3, home, env, servicesD
   const file2 = registrationPath({ mode, home, env, servicesDir: servicesDir2 });
   if (!file2) return { changed: false, path: null };
   const text = renderRegistration({ mode, argv, logPath, path: path3 });
-  const current = await (0, import_promises48.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
+  const current = await (0, import_promises47.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
   const normalized = current?.replace(/^\ufeff/, "") ?? null;
   if (normalized === text) return { changed: false, path: file2 };
-  await (0, import_promises48.mkdir)((0, import_node_path57.dirname)(file2), { recursive: true });
-  await (0, import_promises48.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
+  await (0, import_promises47.mkdir)((0, import_node_path56.dirname)(file2), { recursive: true });
+  await (0, import_promises47.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
   switch (mode) {
     case "systemd":
       await run2(mode, ["--user", "daemon-reload"]);
@@ -57338,24 +57247,24 @@ async function unregister({ mode, home, env, servicesDir: servicesDir2, run: run
   switch (mode) {
     case "systemd":
       await quiet(run2(mode, ["--user", "disable", "--now", UNIT_NAME]));
-      if (file2) await (0, import_promises48.rm)(file2, { force: true });
+      if (file2) await (0, import_promises47.rm)(file2, { force: true });
       await quiet(run2(mode, ["--user", "daemon-reload"]));
       break;
     case "launchd":
       await quiet(run2(mode, ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`]));
-      if (file2) await (0, import_promises48.rm)(file2, { force: true });
+      if (file2) await (0, import_promises47.rm)(file2, { force: true });
       break;
     case "schtasks":
       await quiet(run2(mode, ["/End", "/TN", TASK_NAME]));
       await quiet(run2(mode, ["/Delete", "/TN", TASK_NAME, "/F"]));
-      if (file2) await (0, import_promises48.rm)(file2, { force: true });
+      if (file2) await (0, import_promises47.rm)(file2, { force: true });
       break;
   }
   return { removed: file2 };
 }
 async function registrationState({ mode, home, env, servicesDir: servicesDir2, run: run2 = defaultRun, uid = process.getuid?.() }) {
   const file2 = registrationPath({ mode, home, env, servicesDir: servicesDir2 });
-  const installed = file2 ? await (0, import_promises48.readFile)(file2).then(() => true, () => false) : false;
+  const installed = file2 ? await (0, import_promises47.readFile)(file2).then(() => true, () => false) : false;
   let active = null;
   if (mode === "systemd") active = await run2(mode, ["--user", "is-active", UNIT_NAME]).then((r) => r.stdout.trim(), (e) => String(e.stdout ?? "inactive").trim() || "inactive");
   if (mode === "launchd") active = await quiet(run2(mode, ["print", `gui/${uid}/${LAUNCHD_LABEL}`])) ? "loaded" : "not-loaded";
@@ -57363,11 +57272,192 @@ async function registrationState({ mode, home, env, servicesDir: servicesDir2, r
   return { mode, path: file2, installed, active };
 }
 
+// src/services/host-copies.mjs
+var import_node_child_process15 = require("node:child_process");
+var import_node_fs12 = require("node:fs");
+var import_promises48 = require("node:fs/promises");
+var import_node_path57 = require("node:path");
+var NAME = "agent-orchestration";
+var EXCLUDED = /* @__PURE__ */ new Set(["node_modules", ".git"]);
+var readJsonSync = (path3) => {
+  try {
+    return JSON.parse((0, import_node_fs12.readFileSync)(path3, "utf8"));
+  } catch {
+    return null;
+  }
+};
+var isDir = (path3) => {
+  try {
+    return (0, import_node_fs12.statSync)(path3).isDirectory();
+  } catch {
+    return false;
+  }
+};
+var real = (path3) => {
+  try {
+    return (0, import_node_fs12.realpathSync)(path3);
+  } catch {
+    return (0, import_node_path57.resolve)(path3);
+  }
+};
+var looksLikeCopy = (dir) => (0, import_node_fs12.existsSync)((0, import_node_path57.join)(dir, "package.json")) && (0, import_node_fs12.existsSync)((0, import_node_path57.join)(dir, "dist"));
+function compareVersions(a, b) {
+  const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+}
+function copyIdentity(root) {
+  const version2 = readJsonSync((0, import_node_path57.join)(root, "package.json"))?.version ?? null;
+  return {
+    version: version2,
+    get fingerprint() {
+      try {
+        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs12.readFileSync)((0, import_node_path57.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
+      } catch {
+        return null;
+      }
+    }
+  };
+}
+function hostCopies({ home, env = {} }) {
+  const found = [];
+  const add = (host, dir) => {
+    if (dir && isDir(dir) && looksLikeCopy(dir) && !found.some((c) => c.real === real(dir))) found.push({ host, root: (0, import_node_path57.resolve)(dir), real: real(dir) });
+  };
+  const codex = (0, import_node_path57.join)(env.CODEX_HOME || (0, import_node_path57.join)(home, ".codex"), "plugins", "cache", "bytedesk", NAME);
+  if (looksLikeCopy(codex)) add("codex", codex);
+  else if (isDir(codex)) {
+    for (const entry of (0, import_node_fs12.readdirSync)(codex)) if (!entry.startsWith(".")) add("codex", (0, import_node_path57.join)(codex, entry));
+  }
+  const registry2 = readJsonSync((0, import_node_path57.join)(home, ".grok", "installed-plugins", "registry.json"));
+  for (const entry of Object.values(registry2?.repos ?? {})) {
+    const meta3 = entry?.plugins?.[NAME];
+    if (!entry?.path || !meta3) continue;
+    add("grok", meta3.subdir ? (0, import_node_path57.join)(entry.path, meta3.subdir) : entry.path);
+  }
+  const kimi = readJsonSync((0, import_node_path57.join)(env.KIMI_CODE_HOME || (0, import_node_path57.join)(home, ".kimi-code"), "mcp.json"))?.mcpServers?.[NAME]?.command;
+  if (typeof kimi === "string" && /[\\/]bin[\\/]agent-orchestration-mcp$/.test(kimi)) add("kimi", (0, import_node_path57.dirname)((0, import_node_path57.dirname)(kimi)));
+  return found;
+}
+function gitTop(dir, git2) {
+  const result = git2(["-C", dir, "rev-parse", "--show-toplevel"]);
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+function uncommitted(dir, git2 = defaultGit) {
+  if (!gitTop(dir, git2)) return null;
+  const result = git2(["-C", dir, "status", "--porcelain", "--", "."]);
+  if (result.status !== 0) return ["(git status failed)"];
+  return result.stdout.split("\n").filter(Boolean);
+}
+function defaultGit(args) {
+  const result = (0, import_node_child_process15.spawnSync)("git", args, { encoding: "utf8", windowsHide: true, timeout: 1e4 });
+  return { status: result.error ? 1 : result.status, stdout: result.stdout ?? "" };
+}
+function satisfies(range, version2) {
+  if (!version2) return false;
+  const m = /^(\^|~|>=)?\s*(\d+)\.(\d+)\.(\d+)/.exec(String(range).trim());
+  if (!m) return true;
+  const [, op = "", ...want] = m;
+  const [a, b, c] = want.map(Number);
+  const have = String(version2).split(/[.-]/).slice(0, 3).map(Number);
+  const cmp = compareVersions(version2, `${a}.${b}.${c}`);
+  if (op === "") return cmp === 0;
+  if (op === ">=") return cmp >= 0;
+  if (cmp < 0) return false;
+  if (op === "~") return have[0] === a && have[1] === b;
+  if (a > 0) return have[0] === a;
+  if (b > 0) return have[0] === 0 && have[1] === b;
+  return have[0] === 0 && have[1] === 0 && have[2] === c;
+}
+function missingDependencies(pkg, root) {
+  const missing = [];
+  for (const [name, range] of Object.entries(pkg?.dependencies ?? {})) {
+    const installed = readJsonSync((0, import_node_path57.join)(root, "node_modules", ...name.split("/"), "package.json"))?.version ?? null;
+    if (!satisfies(range, installed)) missing.push(`${name}@${range} (have ${installed ?? "none"})`);
+  }
+  return missing;
+}
+async function replaceCopy(source, dest) {
+  const staging = await (0, import_promises48.mkdtemp)((0, import_node_path57.join)((0, import_node_path57.dirname)(dest), `.${(0, import_node_path57.basename)(dest)}.ao-refresh-`));
+  const retired = `${staging}-old`;
+  let moved = false, swapped = false;
+  try {
+    await (0, import_promises48.cp)(source, staging, { recursive: true, force: true, verbatimSymlinks: true, filter: (path3) => path3 === source || !EXCLUDED.has((0, import_node_path57.basename)(path3)) });
+    await (0, import_promises48.rename)(dest, retired);
+    swapped = true;
+    if ((0, import_node_fs12.existsSync)((0, import_node_path57.join)(retired, "node_modules"))) {
+      await (0, import_promises48.rename)((0, import_node_path57.join)(retired, "node_modules"), (0, import_node_path57.join)(staging, "node_modules"));
+      moved = true;
+    }
+    await (0, import_promises48.rename)(staging, dest);
+  } catch (error51) {
+    if (moved) await (0, import_promises48.rename)((0, import_node_path57.join)(staging, "node_modules"), (0, import_node_path57.join)(retired, "node_modules")).catch(() => {
+    });
+    if (swapped && !(0, import_node_fs12.existsSync)(dest)) await (0, import_promises48.rename)(retired, dest).catch(() => {
+    });
+    await (0, import_promises48.rm)(staging, { recursive: true, force: true }).catch(() => {
+    });
+    throw error51;
+  }
+  await (0, import_promises48.rm)(retired, { recursive: true, force: true }).catch(() => {
+  });
+}
+async function refreshHostCopies({ pointer, home, env = {}, copies = hostCopies({ home, env }), git: git2 = defaultGit, replace = replaceCopy, dryRun = false }) {
+  const report = { source: pointer?.pluginRoot ?? null, version: pointer?.version ?? null, refreshed: [], current: [], skipped: [], failed: [] };
+  if (!pointer?.pluginRoot || !isDir(pointer.pluginRoot)) return { ...report, skipped: copies.map((c) => ({ ...row(c), reason: "the services pointer names no plugin root" })) };
+  const source = real(pointer.pluginRoot);
+  let dirty;
+  for (const copy of copies) {
+    const id = copyIdentity(copy.root);
+    const base = { ...row(copy), version: id.version };
+    if (copy.real === source) {
+      report.current.push({ ...base, reason: "is the services plugin root" });
+      continue;
+    }
+    const order = compareVersions(id.version, pointer.version);
+    if (order > 0) {
+      report.current.push({ ...base, reason: `newer than the services (${pointer.version})` });
+      continue;
+    }
+    if (order === 0) {
+      report.current.push({ ...base, reason: pointer.fingerprint && id.fingerprint && id.fingerprint !== pointer.fingerprint ? "same version, different build" : "same build" });
+      continue;
+    }
+    if (gitTop(copy.root, git2)) {
+      report.skipped.push({ ...base, reason: `${copy.root} is inside a git checkout; update it with git` });
+      continue;
+    }
+    dirty ??= uncommitted(pointer.pluginRoot, git2) ?? [];
+    if (dirty.length) {
+      report.skipped.push({ ...base, reason: `source ${pointer.pluginRoot} has ${dirty.length} uncommitted change(s); refusing to copy a working tree` });
+      continue;
+    }
+    const missing = missingDependencies(readJsonSync((0, import_node_path57.join)(pointer.pluginRoot, "package.json")), copy.root);
+    if (missing.length) {
+      report.failed.push({ ...base, reason: `node_modules does not satisfy the new package.json: ${missing.join(", ")}; run npm ci in ${copy.root}`, missing });
+      continue;
+    }
+    if (dryRun) {
+      report.refreshed.push({ ...base, from: id.version, version: pointer.version, dryRun: true });
+      continue;
+    }
+    try {
+      await replace(pointer.pluginRoot, copy.root);
+      report.refreshed.push({ ...base, from: id.version, version: copyIdentity(copy.root).version });
+    } catch (error51) {
+      report.failed.push({ ...base, reason: `copy failed, left as it was: ${error51.message}` });
+    }
+  }
+  return report;
+}
+var row = (copy) => ({ host: copy.host, root: copy.root });
+
 // src/services/services.mjs
 function readLock(pluginRoot = PLUGIN_ROOT) {
-  return JSON.parse((0, import_node_fs12.readFileSync)((0, import_node_path58.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
+  return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path58.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
-function dataHome({ platform = process.platform, env = process.env, home = import_node_os29.default.homedir() } = {}) {
+function dataHome({ platform = process.platform, env = process.env, home = import_node_os28.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
   if (platform === "win32") return import_node_path58.win32.join(env.LOCALAPPDATA || import_node_path58.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
   if (platform === "darwin") return import_node_path58.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
@@ -57408,27 +57498,21 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path58.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "de475668d1c7947aec61d186731371fad4a3e75d36b99d6b7a5b1a3bf5131591";
+  return false ? null : "5daba18664182591bd04f48051eaa630ececb9858a25cf0bf6f717c974388955";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "de475668d1c7947aec61d186731371fad4a3e75d36b99d6b7a5b1a3bf5131591";
-  let version2 = false ? null : "0.14.0";
+  const fingerprint2 = false ? null : "5daba18664182591bd04f48051eaa630ececb9858a25cf0bf6f717c974388955";
+  let version2 = false ? null : "0.15.0";
   if (!version2) {
     try {
-      version2 = JSON.parse((0, import_node_fs12.readFileSync)((0, import_node_path58.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
+      version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path58.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
     } catch {
       version2 = null;
     }
   }
   return { fingerprint: fingerprint2, version: version2 };
 }
-function compareVersions(a, b) {
-  const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
-  const [x, y] = [parts(a), parts(b)];
-  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
-  return 0;
-}
-function choosePointer(previous, candidate, { exists: exists2 = import_node_fs12.existsSync } = {}) {
+function choosePointer(previous, candidate, { exists: exists2 = import_node_fs13.existsSync } = {}) {
   if (!previous?.pluginRoot || !exists2(previous.pluginRoot)) return candidate;
   if (previous.node !== candidate.node) return candidate;
   if (previous.fingerprint && previous.fingerprint === candidate.fingerprint) return previous;
@@ -57450,14 +57534,14 @@ async function writeIfChanged(path3, text, mode = 384) {
   await (0, import_promises49.rename)(temp, path3);
   return true;
 }
-var json4 = (value) => `${JSON.stringify(value, null, 2)}
+var json3 = (value) => `${JSON.stringify(value, null, 2)}
 `;
 async function installProcessCompose({ data, platform = process.platform, arch = process.arch, lock = readLock(), fetchImpl = fetch, extract = extractArchive }) {
   const asset = lock.assets[`${platform}-${arch}`];
   invariant(asset, "AO_SERVICES_UNSUPPORTED_PLATFORM", `No pinned process-compose build for ${platform}-${arch}.`);
   const binDir = (0, import_node_path58.join)(data, "bin", `process-compose-${lock.version}`);
   const binary = (0, import_node_path58.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
-  if ((0, import_node_fs12.existsSync)(binary)) return { binary, installed: false };
+  if ((0, import_node_fs13.existsSync)(binary)) return { binary, installed: false };
   const url2 = `${lock.url}${asset.file}`;
   let bytes;
   try {
@@ -57482,7 +57566,7 @@ async function installProcessCompose({ data, platform = process.platform, arch =
     await (0, import_promises49.writeFile)(archive, bytes);
     await extract(archive, staging, platform);
     const extracted = (0, import_node_path58.join)(staging, (0, import_node_path58.basename)(binary));
-    invariant((0, import_node_fs12.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path58.basename)(binary)}.`);
+    invariant((0, import_node_fs13.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path58.basename)(binary)}.`);
     await (0, import_promises49.mkdir)(binDir, { recursive: true });
     await (0, import_promises49.rename)(extracted, binary);
     await (0, import_promises49.chmod)(binary, 493);
@@ -57497,10 +57581,10 @@ async function extractArchive(archive, into, platform) {
 }
 async function pickPort() {
   for (let port = 45100; port < 45200; port += 1) {
-    const free = await new Promise((resolve17) => {
+    const free = await new Promise((resolve19) => {
       const probe = import_node_net3.default.createServer();
-      probe.once("error", () => resolve17(false));
-      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve17(true)));
+      probe.once("error", () => resolve19(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve19(true)));
     });
     if (free) return port;
   }
@@ -57605,6 +57689,7 @@ function apiClient({ port, token }, fetchImpl = fetch) {
     processes: async () => (await call("GET", "/processes"))?.data ?? [],
     reload: () => call("POST", "/project/configuration", 15e3),
     restart: (name) => call("POST", `/process/restart/${encodeURIComponent(name)}`, 15e3),
+    stopProcess: (name) => call("PATCH", `/process/stop/${encodeURIComponent(name)}`, 15e3),
     stop: () => call("POST", "/project/stop", 15e3)
   };
 }
@@ -57627,7 +57712,7 @@ async function context({ pluginRoot, stateRoot: stateRoot3, env, platform, home,
   const lock = deps.lock ?? readLock(pluginRoot);
   return { data, paths: paths2, mode, lock, node };
 }
-async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const ctx = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
@@ -57637,26 +57722,26 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths2.pointer, null).catch(() => null);
     const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...deps.identity ?? pluginIdentity(pluginRoot) };
-    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs12.existsSync });
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs13.existsSync });
     const changed = {
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
-      pointer: await writeIfChanged(paths2.pointer, json4(pointer), 420)
+      pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
     };
-    if (!(0, import_node_fs12.existsSync)(paths2.token)) await (0, import_promises49.writeFile)(paths2.token, (0, import_node_crypto31.randomBytes)(24).toString("hex"), { mode: 384 });
+    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises49.writeFile)(paths2.token, (0, import_node_crypto30.randomBytes)(24).toString("hex"), { mode: 384 });
     const token = (await (0, import_promises49.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
     const nats = localNatsEnabled(env) ? await (deps.prepareNats ?? prepareLocalNats)({ env }).catch(() => null) : null;
-    const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs12.existsSync)(repo.consumer));
+    const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs13.existsSync)(repo.consumer));
     const path3 = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths2.launcher, stateRoot: stateRoot3, logs: paths2.logs, nats, repos, path: path3, env });
-    changed.project = await writeIfChanged(paths2.project, json4(project));
+    changed.project = await writeIfChanged(paths2.project, json3(project));
     const log = (0, import_node_path58.join)(paths2.logs, "process-compose.log");
     const argv = processComposeArgv({ binary, project: paths2.project, port, token: paths2.token, log });
     const registration = await register({ mode, argv, logPath: log, path: path3, home, env, servicesDir: paths2.dir, run: deps.run });
     changed.registration = registration.changed;
     const manager = { mode, port, argv, registration: registration.path, project: paths2.project, version: lock.version };
-    changed.manager = await writeIfChanged(paths2.manager, json4(manager));
+    changed.manager = await writeIfChanged(paths2.manager, json3(manager));
     const client2 = apiClient({ port, token }, deps.fetchImpl);
     const startArgs = { mode, argv, logPath: log, run: deps.run, spawnDetached: deps.spawnDetached };
     const argvChanged = JSON.stringify(previous?.argv ?? null) !== JSON.stringify(argv);
@@ -57688,48 +57773,78 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       }
     }
     invariant(alive2, "AO_SERVICES_UNAVAILABLE", `process-compose did not answer on 127.0.0.1:${port}; see ${log}.`, { mode });
-    return { ok: true, mode, port, version: lock.version, binary, actions, changed, processes: Object.keys(project.processes), unsupported };
+    return {
+      ok: true,
+      mode,
+      port,
+      version: lock.version,
+      binary,
+      actions,
+      changed,
+      processes: Object.keys(project.processes),
+      unsupported,
+      pointer: { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null, fingerprint: pointer.fingerprint ?? null }
+    };
   }, { timeoutMs: 3e5 });
 }
-async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const { paths: paths2, mode } = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const manager = await readJson(paths2.manager, null).catch(() => null);
   const registration = await registrationState({ mode: manager?.mode ?? mode, home, env, servicesDir: paths2.dir, run: deps.run });
   const token = await (0, import_promises49.readFile)(paths2.token, "utf8").then((text) => text.trim(), () => null);
   const client2 = manager?.port && token ? apiClient({ port: manager.port, token }, deps.fetchImpl) : null;
   const alive2 = client2 ? await client2.alive() : false;
-  const processes = alive2 ? (await client2.processes()).map((p) => ({
-    name: p.name,
-    status: p.status,
-    pid: p.pid,
-    restarts: p.restarts,
-    ready: p.is_ready,
-    exitCode: p.exit_code
-  })) : [];
+  const processes = alive2 ? (await client2.processes()).map(processRow) : [];
   const repos = await readRepos(paths2.repos);
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
-  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) } };
+  const selfHeal2 = await readJson((0, import_node_path58.join)(paths2.dir, "self-heal.json"), null).catch(() => null);
+  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) }, selfHeal: selfHeal2 };
+}
+var processRow = (p) => ({ name: p.name, pid: p.pid, state: p.status, restarts: p.restarts, ready: p.is_ready, exitCode: p.exit_code });
+async function controlProcess(action, name, { pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
+  invariant(action === "restart" || action === "stop", "AO_SERVICES_USAGE", `Unknown action ${action}. Use restart or stop.`);
+  const { paths: paths2 } = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps: { mode: "detached", lock: {}, ...deps } });
+  const manager = await readJson(paths2.manager, null).catch(() => null);
+  const token = await (0, import_promises49.readFile)(paths2.token, "utf8").then((text) => text.trim(), () => null);
+  invariant(manager?.port && token, "AO_SERVICES_UNAVAILABLE", "The services are not installed here; run `agent-orchestration services ensure` first.");
+  const client2 = apiClient({ port: manager.port, token }, deps.fetchImpl);
+  invariant(await client2.alive(), "AO_SERVICES_UNAVAILABLE", `process-compose is not answering on 127.0.0.1:${manager.port}.`);
+  const list = await client2.processes();
+  const before = list.find((p) => p.name === name);
+  invariant(before, "AO_SERVICES_UNKNOWN_PROCESS", `No managed process named ${JSON.stringify(name ?? "")}. Managed processes: ${list.map((p) => p.name).join(", ") || "none"}.`);
+  if (action === "stop") {
+    await client2.stopProcess(name);
+    return { ok: true, action, name, pid: before.pid, state: (await client2.processes()).find((p) => p.name === name)?.status ?? null };
+  }
+  await client2.restart(name);
+  let after = null;
+  await waitFor(async () => {
+    after = (await client2.processes()).find((p) => p.name === name);
+    return Boolean(after?.pid && after.pid !== before.pid);
+  }, deps.restartTimeoutMs ?? 15e3);
+  const restarted = Boolean(after?.pid && after.pid !== before.pid);
+  return { ok: restarted, action, name, previousPid: before.pid, pid: after?.pid ?? null, state: after?.status ?? null, ...restarted ? {} : { message: `${name} did not come back under a new pid; see services status.` } };
 }
 async function probeService(name, { stateRoot: stateRoot3, env = process.env } = {}) {
   if (name === "session-host") return Boolean(await probeSessionHost(stateRoot3));
   if (name === "nats") {
     const state = await readJson((0, import_node_path58.join)(localNatsHome(env), "state.json"), null).catch(() => null);
     if (!state?.port) return false;
-    return new Promise((resolve17) => {
+    return new Promise((resolve19) => {
       const socket = import_node_net3.default.connect({ host: "127.0.0.1", port: state.port }, () => {
         socket.destroy();
-        resolve17(true);
+        resolve19(true);
       });
-      socket.once("error", () => resolve17(false));
+      socket.once("error", () => resolve19(false));
       socket.setTimeout(2e3, () => {
         socket.destroy();
-        resolve17(false);
+        resolve19(false);
       });
     });
   }
   invariant(false, "AO_SERVICES_UNKNOWN_PROBE", `No probe named ${name}. Use session-host or nats.`);
 }
-async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os29.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os28.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const { paths: paths2, mode } = await context({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const manager = await readJson(paths2.manager, null).catch(() => null);
   const token = await (0, import_promises49.readFile)(paths2.token, "utf8").then((text) => text.trim(), () => null);
@@ -57744,6 +57859,303 @@ async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoo
     } else stopped = true;
   }
   return { ok: true, ...removed, stopped };
+}
+
+// src/services/self-heal.mjs
+var import_node_child_process16 = require("node:child_process");
+var import_node_fs14 = require("node:fs");
+var import_node_path59 = require("node:path");
+var import_node_util5 = require("node:util");
+var execFileP = (0, import_node_util5.promisify)(import_node_child_process16.execFile);
+function parseEtime(text) {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(String(text).trim());
+  if (!m) return null;
+  const [, d = 0, h = 0, min, s] = m;
+  return (((Number(d) * 24 + Number(h)) * 60 + Number(min)) * 60 + Number(s)) * 1e3;
+}
+var procArgv = (pid) => {
+  try {
+    return (0, import_node_fs14.readFileSync)(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+  } catch {
+    return null;
+  }
+};
+var procEnviron = (pid) => {
+  try {
+    return (0, import_node_fs14.readFileSync)(`/proc/${pid}/environ`, "utf8").split("\0");
+  } catch {
+    return null;
+  }
+};
+var procParent = (pid) => {
+  try {
+    return Number(/\)\s+\S+\s+(\d+)/.exec((0, import_node_fs14.readFileSync)(`/proc/${pid}/stat`, "utf8"))[1]);
+  } catch {
+    return null;
+  }
+};
+var procComm = (pid) => {
+  try {
+    return (0, import_node_fs14.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
+  } catch {
+    return null;
+  }
+};
+async function listMcpServers({ platform = process.platform, now = Date.now() } = {}) {
+  if (platform === "win32") return null;
+  const { stdout } = await execFileP("ps", ["-A", "-ww", "-o", "pid=,etime=,args="], { maxBuffer: 32 * 1024 * 1024, timeout: 1e4 });
+  const servers = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.includes("dist/mcp.cjs")) continue;
+    const m = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const argv = platform === "linux" ? procArgv(pid) : null;
+    const script = argv ? argv.find((arg) => arg.endsWith("/dist/mcp.cjs")) : /\s(\/.*?\/dist\/mcp\.cjs)(?:\s|$)/.exec(` ${m[3]}`)?.[1];
+    if (!script || !/agent-orchestration/.test(script)) continue;
+    const parent = platform === "linux" ? procParent(pid) : null;
+    const grandparent = parent ? procParent(parent) : null;
+    servers.push({ pid, startedAt: now - (parseEtime(m[2]) ?? 0), root: (0, import_node_path59.dirname)((0, import_node_path59.dirname)(script)), launchedBy: grandparent ? procComm(grandparent) : null });
+  }
+  return servers;
+}
+function hostOf(root) {
+  if (/[\\/]\.codex[\\/]/.test(root)) return "codex";
+  if (/[\\/]\.grok[\\/]/.test(root)) return "grok";
+  if (/[\\/]\.claude[\\/]/.test(root)) return "claude";
+  return "source checkout";
+}
+async function staleMcpServers({ pointer, platform = process.platform, list = listMcpServers, exists: exists2 = import_node_fs14.existsSync, mtime = (path3) => (0, import_node_fs14.statSync)(path3).mtimeMs } = {}) {
+  const servers = await list({ platform }).catch((error51) => ({ error: error51.message }));
+  if (servers === null) return { supported: false, note: "process listing is not implemented on native Windows; restart long-lived host sessions after an update", servers: [] };
+  if (servers.error) return { supported: false, note: `could not list processes: ${servers.error}`, servers: [] };
+  const stale = [];
+  for (const server of servers) {
+    const reasons = [];
+    const host = hostOf(server.root);
+    let version2 = null;
+    if (!exists2((0, import_node_path59.join)(server.root, "dist", "mcp.cjs"))) reasons.push("its plugin root is gone");
+    else {
+      version2 = copyIdentity(server.root).version;
+      if (pointer?.version && compareVersions(version2, pointer.version) < 0) reasons.push(`runs ${version2 ?? "an unknown version"}, the services run ${pointer.version}`);
+      try {
+        if (mtime((0, import_node_path59.join)(server.root, "dist", "mcp.cjs")) > server.startedAt + 2e3) reasons.push("its bundle was replaced on disk after it started");
+      } catch {
+      }
+    }
+    if (reasons.length) stale.push({
+      host,
+      pid: server.pid,
+      root: server.root,
+      version: version2,
+      launchedBy: server.launchedBy ?? null,
+      reasons,
+      advice: `Restart that ${host === "source checkout" ? server.launchedBy ?? "host" : host} session (exit it and start a new one) so it loads ao ${pointer?.version ?? "current"}; ao never stops it for you.`
+    });
+  }
+  return { supported: true, scanned: servers.length, servers: stale };
+}
+async function scopeStateRoot(unit, run2) {
+  const { stdout } = await run2("systemd", ["--user", "show", unit, "--property=ControlGroup", "--value"]);
+  const group = stdout.trim();
+  if (!group) return null;
+  let pids = [];
+  try {
+    pids = (0, import_node_fs14.readFileSync)((0, import_node_path59.join)("/sys/fs/cgroup", group, "cgroup.procs"), "utf8").split("\n").filter(Boolean);
+  } catch {
+    return null;
+  }
+  for (const pid of pids) {
+    const argv = procArgv(pid) ?? [];
+    const at = argv.indexOf("--state-root");
+    if (at >= 0 && argv.includes("session-host") && argv[at + 1]) return argv[at + 1];
+  }
+  return null;
+}
+async function cleanupScopes({ stateRoot: stateRoot3, platform = process.platform, env = process.env, run: run2 = defaultRun, readStateRoot = (unit) => scopeStateRoot(unit, run2), exists: exists2 = import_node_fs14.existsSync } = {}) {
+  const report = { stopped: [], kept: [] };
+  if (platform !== "linux") return { ...report, note: "session-host scopes exist only on Linux" };
+  let listed;
+  try {
+    listed = (await run2("systemd", ["--user", "list-units", "--type=scope", "--all", "--plain", "--no-legend", "agent-orchestration-session-*"])).stdout;
+  } catch (error51) {
+    return { ...report, note: `systemctl unavailable: ${error51.message}` };
+  }
+  const managed = sessionSupervisorUnit(stateRoot3);
+  for (const unit of listed.split("\n").map((line) => line.trim().split(/\s+/)[0]).filter((u) => SESSION_SUPERVISOR_UNIT_PATTERN.test(u))) {
+    let reason = null;
+    if (unit === managed) {
+      if (env.AGENT_ORCHESTRATION_SERVICES === "0") {
+        report.kept.push({ unit, stateRoot: stateRoot3, reason: "AGENT_ORCHESTRATION_SERVICES=0: this scope is the session host" });
+        continue;
+      }
+      reason = "a pre-services session host on the managed state root; the managed session-host takes over";
+    } else {
+      const root = await readStateRoot(unit).catch(() => null);
+      if (!root) {
+        report.kept.push({ unit, reason: "its state root could not be read" });
+        continue;
+      }
+      if (sessionSupervisorUnit(root) !== unit) {
+        report.kept.push({ unit, stateRoot: root, reason: "its argv names a state root that does not hash to this unit" });
+        continue;
+      }
+      if (exists2(root)) {
+        report.kept.push({ unit, stateRoot: root, reason: "its state root exists and is not the managed one" });
+        continue;
+      }
+      reason = `its state root ${root} no longer exists`;
+    }
+    try {
+      await run2("systemd", ["--user", "stop", unit]);
+      report.stopped.push({ unit, reason });
+    } catch (error51) {
+      report.kept.push({ unit, reason: `stop failed: ${error51.message}` });
+    }
+  }
+  return report;
+}
+async function handOverLegacyHost({ stateRoot: stateRoot3, platform = process.platform, env = process.env, probe = probeSessionHost, argvOf = procArgv, environOf = procEnviron, kill = process.kill.bind(process) } = {}) {
+  if (env.AGENT_ORCHESTRATION_SERVICES === "0") return { action: "none", reason: "AGENT_ORCHESTRATION_SERVICES=0" };
+  const lease = await probe(stateRoot3).catch(() => null);
+  if (!lease?.pid) return { action: "none" };
+  if (platform !== "linux") return { action: "none", pid: lease.pid, reason: "cannot inspect the lease holder on this platform" };
+  const argv = argvOf(lease.pid), environ = environOf(lease.pid);
+  if (!argv || !environ) return { action: "none", pid: lease.pid, reason: "lease holder not inspectable" };
+  if (environ.includes("AGENT_ORCHESTRATION_SERVICES_MANAGED=1")) return { action: "none", pid: lease.pid, reason: "managed" };
+  const at = argv.indexOf("--state-root");
+  if (!argv.includes("session-host") || at < 0 || argv[at + 1] !== stateRoot3) return { action: "none", pid: lease.pid, reason: "lease holder is not a session host for this state root" };
+  kill(lease.pid, "SIGTERM");
+  return { action: "stopped", pid: lease.pid, reason: "a session host not run by the services held the managed state root" };
+}
+function tmuxSocketCheck({ env = process.env, platform = process.platform, uid = process.getuid?.() } = {}) {
+  if (platform === "win32") return { ok: true, note: "no tmux on native Windows" };
+  const limit = platform === "linux" ? 108 : 104;
+  const dir = env.TMUX_TMPDIR || "/tmp";
+  const path3 = `${dir.replace(/\/+$/, "")}/tmux-${uid}/default`;
+  const bytes = Buffer.byteLength(path3) + 1;
+  if (bytes <= limit) return { ok: true, path: path3, bytes, limit };
+  return {
+    ok: false,
+    path: path3,
+    bytes,
+    limit,
+    problem: `TMUX_TMPDIR makes tmux's socket path ${bytes} bytes (limit ${limit}); every tmux call fails with "File name too long".`,
+    fix: "unset TMUX_TMPDIR, or point it at a short directory (for example /tmp), in your shell profile and in every session's environment"
+  };
+}
+async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.env, platform = process.platform, deps = {} } = {}) {
+  const part = (promise2) => Promise.resolve(promise2).catch((error51) => ({ error: error51.message }));
+  const hostCopies2 = await part((deps.refreshHostCopies ?? refreshHostCopies)({ pointer, home, env }));
+  const scopes = await part((deps.cleanupScopes ?? cleanupScopes)({ stateRoot: stateRoot3, platform, env, run: deps.run }));
+  const legacyHost = await part((deps.handOverLegacyHost ?? handOverLegacyHost)({ stateRoot: stateRoot3, platform, env }));
+  const staleMcp = await part((deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }));
+  return { at: (/* @__PURE__ */ new Date()).toISOString(), hostCopies: hostCopies2, scopes, legacyHost, staleMcpServers: staleMcp, tmuxSocket: tmuxSocketCheck({ env, platform }) };
+}
+
+// src/diagnostics.mjs
+var loadedBuild = {
+  mode: false ? "source" : "bundle",
+  sourceFingerprint: false ? null : "5daba18664182591bd04f48051eaa630ececb9858a25cf0bf6f717c974388955",
+  version: false ? null : "0.15.0"
+};
+var json4 = (path3) => (0, import_promises51.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
+var fingerprint = (path3) => (0, import_promises51.readFile)(path3).then((bytes) => (0, import_node_crypto31.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
+async function rolePromptEvidence(options, record2, role, repositoryId) {
+  const result = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
+  if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result;
+  const consumer = record2.consumer || options.consumer;
+  if ((await canonicalRepoId(consumer)).id !== repositoryId) return { ...result, state: "repository-mismatch" };
+  const scoped = { ...options, consumer };
+  const agent = await resolveAgentRef(record2.agent_id, agentDirs(scoped));
+  if (!agent || agent.id !== record2.agent_id || agent.role !== role) return { ...result, state: "agent-mismatch" };
+  const [loaded, state] = await Promise.all([loadConfig(scoped), readPromptState(agent._dir)]);
+  const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName: agent.template });
+  Object.assign(result, { state: state?.status || "missing", desiredRevision: composed.revision, appliedRevision: state?.applied_revision || null });
+  if (!composed.ok) return { ...result, state: "invalid-config" };
+  const acknowledgedAt = Date.parse(state?.acknowledged_at);
+  result.current = state?.status === "current" && state.repo_id === repositoryId && state.desired_session === record2.session && state.desired_revision === composed.revision && state.applied_revision === composed.revision && !state.nonce && sameIncarnation(state.desired_binding, record2.binding) && sameIncarnation(state.applied_binding, record2.binding) && Number.isFinite(acknowledgedAt) && acknowledgedAt <= Date.now() + 5e3;
+  if (result.state === "current" && !result.current) result.state = "stale";
+  return result;
+}
+async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os29.homedir)(), platform = process.platform, deps = {} }) {
+  const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
+  const pointer = await json4(paths2.pointer);
+  const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path60.join)(paths2.dir, "self-heal.json"))]);
+  const tmuxSocket = tmuxSocketCheck({ env, platform });
+  const problems = [
+    ...stale.servers.map((server) => `stale ao MCP server: ${server.host} pid ${server.pid} (${server.reasons.join("; ")}). ${server.advice}`),
+    ...tmuxSocket.ok ? [] : [`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`]
+  ];
+  return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, lastSelfHeal, problems };
+}
+async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os29.homedir)() }) {
+  let consumer = null, admission = { provided: Boolean(consumerCwd), admitted: null };
+  if (consumerCwd) {
+    try {
+      consumer = await resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot3 });
+      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
+    } catch (error51) {
+      admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
+    }
+  }
+  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path60.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path60.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json4((0, import_node_path60.join)(pluginRoot, "package.json"))]);
+  const effectiveTopologyRoot = stateRoot2(env, home);
+  const diagnostics = {
+    consumerAdmission: admission,
+    loadedBuild: { ...loadedBuild, diskVersion: pkg?.version ?? null, disk: { mcp, cli } },
+    runtimeModes: ["acp", "topology"],
+    stateRoots: { acp: stateRoot3, topology: effectiveTopologyRoot, aligned: stateRoot3 === effectiveTopologyRoot },
+    sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
+    repositorySupervision: null,
+    roles: [],
+    setup: await setupDiagnostics({ stateRoot: stateRoot3, env, home })
+  };
+  if (!consumer) return diagnostics;
+  const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
+  diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
+  const key = repoKey(consumer.commonGitDir);
+  const census = await json4((0, import_node_path60.join)(stateRoot3, "census", `${key}.json`));
+  const at = Date.parse(census?.at);
+  const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
+  for (const role of ["lead", "reviewer"]) {
+    const record2 = await json4((0, import_node_path60.join)(stateRoot3, `${role}s`, `${key}.json`));
+    const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
+    const reasons = [];
+    let responsive2 = false, prompt = { current: false, state: "missing", desiredRevision: null, appliedRevision: null }, roleState = "unknown";
+    const exact = record2?.repo_id === consumer.commonGitDir && Boolean(incarnationOf(record2?.binding));
+    if (!exact) reasons.push("registered repository and exact role incarnation are unavailable");
+    if (!fresh || !observed) reasons.push("fresh census evidence for this incarnation is unavailable");
+    else if (observed.dispatchable !== true) reasons.push("the observed process is not dispatchable");
+    if (exact) {
+      try {
+        const standing = role === "lead" ? await leadState({ ...opts, readOnly: true }) : await reviewerStanding({ ...opts, readOnly: true });
+        roleState = role === "lead" ? standing.status : !standing.registered ? "none" : !standing.alive ? "registered" : standing.responsive ? "responsive" : "unresponsive";
+        responsive2 = roleState === "responsive" && standing.record?.agent_id === record2.agent_id && sameIncarnation(standing.record.binding, record2.binding);
+        prompt = await rolePromptEvidence(opts, record2, role, consumer.commonGitDir);
+      } catch (error51) {
+        reasons.push(`role readiness observation failed: ${error51.code ?? "AO_ROLE_READINESS_UNKNOWN"}`);
+      }
+    }
+    if (!responsive2) reasons.push("no current readiness acknowledgement for this exact role incarnation");
+    if (!prompt.current) reasons.push(`current prompt acknowledgement is unavailable (${prompt.state})`);
+    diagnostics.roles.push({
+      role,
+      registered: Boolean(record2),
+      agentId: record2?.agent_id ?? null,
+      provider: record2?.provider ?? null,
+      incarnationRecorded: Boolean(incarnationOf(record2?.binding)),
+      censusFresh: fresh,
+      state: fresh && observed ? observed.state : "unknown",
+      roleState,
+      responsive: responsive2,
+      prompt,
+      ready: reasons.length === 0,
+      readinessReasons: reasons,
+      readinessScope: "current prompt and existing role nonce acknowledgements for the exact incarnation; ACP provider readiness is separate"
+    });
+  }
+  return diagnostics;
 }
 
 // src/service.mjs
@@ -57764,10 +58176,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths2 = [];
-  const canonicalPluginRoot = await (0, import_promises51.realpath)(pluginRoot).catch(() => (0, import_node_path59.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises51.realpath)(root).catch(() => (0, import_node_path59.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises52.realpath)(pluginRoot).catch(() => (0, import_node_path61.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises52.realpath)(root).catch(() => (0, import_node_path61.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises51.realpath)(candidate).catch(() => (0, import_node_path59.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises52.realpath)(candidate).catch(() => (0, import_node_path61.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths2.includes(resolvedCandidate)) paths2.push(resolvedCandidate);
@@ -57777,7 +58189,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path59.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path61.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -57787,7 +58199,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path59.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path59.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path61.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path61.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot3;
     this.workerEntrypoint = workerEntrypoint;
@@ -58130,7 +58542,7 @@ var OrchestrationService = class {
     while (true) {
       const run2 = await this.getRun(input);
       if (TERMINAL_STATES.has(run2.state) || run2.state === "waiting_for_decision" || Date.now() >= deadline) return run2;
-      await new Promise((resolve17) => setTimeout(resolve17, Math.min(input.pollIntervalMs ?? 250, 2e3)));
+      await new Promise((resolve19) => setTimeout(resolve19, Math.min(input.pollIntervalMs ?? 250, 2e3)));
     }
   }
   async cancel(input) {
@@ -58143,7 +58555,7 @@ var OrchestrationService = class {
     if (run2.worker?.pid && WORKER_STATES.has(run2.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
       while (Date.now() < cooperativeDeadline && processGroupExists(run2.worker.processGroup)) {
-        await new Promise((resolve17) => setTimeout(resolve17, 100));
+        await new Promise((resolve19) => setTimeout(resolve19, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run2.worker);
       run2 = await this.store.get(runId);
@@ -58303,8 +58715,8 @@ var OrchestrationService = class {
     for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os30.homedir)()]) {
       if (!candidate) continue;
       try {
-        const stats = await (0, import_promises51.stat)(candidate);
-        if (stats.isDirectory()) return await (0, import_promises51.realpath)(candidate).catch(() => candidate);
+        const stats = await (0, import_promises52.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises52.realpath)(candidate).catch(() => candidate);
       } catch {
       }
     }
@@ -58394,32 +58806,85 @@ var OrchestrationService = class {
 };
 
 // src/services/cli.mjs
-var import_node_child_process15 = require("node:child_process");
-var import_node_fs13 = require("node:fs");
-var import_node_path60 = require("node:path");
+var import_node_child_process17 = require("node:child_process");
+var import_node_fs16 = require("node:fs");
+var import_promises53 = require("node:fs/promises");
+var import_node_os31 = __toESM(require("node:os"), 1);
+var import_node_path63 = require("node:path");
 init_services_client();
 init_repoid();
-var USAGE = "Usage: agent-orchestration services install|ensure|status|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
+
+// src/services/project-scope.mjs
+var import_node_fs15 = require("node:fs");
+var import_node_path62 = require("node:path");
+var DEFAULT_PLUGINS = Object.freeze(["agent-orchestration", "task-management"]);
+function isGuardedPlugin(id, names2 = DEFAULT_PLUGINS) {
+  return id.endsWith("@bytedesk") && (names2.includes("all") || names2.includes(id.slice(0, -"@bytedesk".length)));
+}
+function projectPluginViolations(repoDir, names2 = DEFAULT_PLUGINS) {
+  const file2 = (0, import_node_path62.join)((0, import_node_path62.resolve)(repoDir), ".claude", "settings.json");
+  if (!(0, import_node_fs15.existsSync)(file2)) return [];
+  const settings = JSON.parse((0, import_node_fs15.readFileSync)(file2, "utf8"));
+  return Object.entries(settings.enabledPlugins ?? {}).filter(([id, on]) => isGuardedPlugin(id, names2) && on !== false).map(([id]) => ({ file: file2, id }));
+}
+function projectScopeWarning(repoDir) {
+  let found;
+  try {
+    found = projectPluginViolations(repoDir);
+  } catch {
+    return null;
+  }
+  if (!found.length) return null;
+  const { file: file2 } = found[0];
+  return [
+    `agent-orchestration: ${file2} enables ${found.map((v) => v.id).join(", ")} at project scope.`,
+    `Every \`git commit\` in this repository will be blocked until it is removed. Fix: delete ${found.map((v) => `"${v.id}": true`).join(" and ")} from "enabledPlugins" in ${file2}`,
+    "(keep it in ~/.claude/settings.json, where these plugins are enabled for every project)."
+  ].join("\n");
+}
+
+// src/services/cli.mjs
+init_lockfile();
+var USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
 function summary(report) {
   if (report.processCompose) {
-    const rows = report.processes.map((p) => `${p.name}=${p.status}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
+    const rows = report.processes.map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
     return `services: process-compose ${report.processCompose.alive ? "answering" : "not answering"} (${report.registration.mode}, ${report.registration.active ?? "n/a"})${rows.length ? `; ${rows.join("; ")}` : ""}${report.unsupported.length ? `; unsupported: ${report.unsupported.map((u) => u.process).join(", ")}` : ""}`;
   }
-  return `services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`;
+  return [
+    `services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`,
+    ...healLines(report.selfHeal)
+  ].join("\n");
+}
+function healLines(heal) {
+  if (!heal) return [];
+  const lines = [];
+  for (const c of heal.hostCopies?.refreshed ?? []) lines.push(`  refreshed ${c.host} copy ${c.root}: ${c.from ?? "?"} -> ${c.version}`);
+  for (const c of [...heal.hostCopies?.skipped ?? [], ...heal.hostCopies?.failed ?? []]) lines.push(`  not refreshed ${c.host} copy ${c.root} (${c.version ?? "?"}): ${c.reason}`);
+  for (const u of heal.scopes?.stopped ?? []) lines.push(`  stopped leaked ${u.unit}: ${u.reason}`);
+  if (heal.legacyHost?.action === "stopped") lines.push(`  handed over from legacy session host pid ${heal.legacyHost.pid}`);
+  for (const m of heal.staleMcpServers?.servers ?? []) lines.push(`  stale ao MCP server: ${m.host} pid ${m.pid} (${m.reasons.join("; ")}). ${m.advice}`);
+  if (heal.tmuxSocket && !heal.tmuxSocket.ok) lines.push(`  ${heal.tmuxSocket.problem} Fix: ${heal.tmuxSocket.fix}.`);
+  for (const [name, part] of Object.entries(heal)) if (part?.error) lines.push(`  self-heal ${name} failed: ${part.error}`);
+  return lines;
+}
+function sessionStartWarning(cwd) {
+  const top = (0, import_node_child_process17.spawnSync)("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
+  return projectScopeWarning(top.status === 0 ? top.stdout.trim() : cwd);
 }
 function detach(stateRoot3, consumerCwd) {
   try {
-    const logs = (0, import_node_path60.join)(stateRoot3, "services", "logs");
-    (0, import_node_fs13.mkdirSync)(logs, { recursive: true, mode: 448 });
-    const log = (0, import_node_fs13.openSync)((0, import_node_path60.join)(logs, "ensure.log"), "a", 384);
+    const logs = (0, import_node_path63.join)(stateRoot3, "services", "logs");
+    (0, import_node_fs16.mkdirSync)(logs, { recursive: true, mode: 448 });
+    const log = (0, import_node_fs16.openSync)((0, import_node_path63.join)(logs, "ensure.log"), "a", 384);
     try {
-      (0, import_node_child_process15.spawn)(process.execPath, [process.argv[1], "services", "ensure", "--state-root", stateRoot3, ...consumerCwd ? ["--consumer-cwd", consumerCwd] : []], {
+      (0, import_node_child_process17.spawn)(process.execPath, [process.argv[1], "services", "ensure", "--state-root", stateRoot3, ...consumerCwd ? ["--consumer-cwd", consumerCwd] : []], {
         detached: true,
         stdio: ["ignore", log, log],
         windowsHide: true
       }).unref();
     } finally {
-      (0, import_node_fs13.closeSync)(log);
+      (0, import_node_fs16.closeSync)(log);
     }
   } catch (error51) {
     process.stderr.write(`agent-orchestration services ensure --detach: ${error51.message}
@@ -58451,11 +58916,22 @@ async function runServicesCommand(sub, values, positionals) {
       return 0;
     }
     case "ensure": {
-      const consumerCwd = values["consumer-cwd"] ? (0, import_node_path60.resolve)(values["consumer-cwd"]) : null;
-      if (values.detach) return detach(stateRoot3, consumerCwd);
+      const consumerCwd = values["consumer-cwd"] ? (0, import_node_path63.resolve)(values["consumer-cwd"]) : null;
+      if (values.detach) {
+        const warning = consumerCwd ? sessionStartWarning(consumerCwd) : null;
+        if (warning) process.stdout.write(`${warning}
+`);
+        return detach(stateRoot3, consumerCwd);
+      }
       try {
         if (consumerCwd) await registerRepository(consumerCwd, stateRoot3);
-        print(await ensureServices({ stateRoot: stateRoot3 }));
+        const report = await ensureServices({ stateRoot: stateRoot3 });
+        const dir = servicePaths({ stateRoot: stateRoot3, data: dataHome() }).dir;
+        report.selfHeal = await withLock((0, import_node_path63.join)(dir, "self-heal.lock"), () => selfHeal({ pointer: report.pointer, stateRoot: stateRoot3, home: import_node_os31.default.homedir() }), { timeoutMs: 12e4 }).catch((error51) => ({ error: error51.message }));
+        await (0, import_promises53.writeFile)((0, import_node_path63.join)(dir, "self-heal.json"), `${JSON.stringify(report.selfHeal, null, 2)}
+`, { mode: 384 }).catch(() => {
+        });
+        print(report);
         return 0;
       } catch (error51) {
         process.stdout.write(`${JSON.stringify({ ok: false, ...serializeError(error51) }, null, values.json ? 2 : 0)}
@@ -58467,6 +58943,19 @@ async function runServicesCommand(sub, values, positionals) {
       const report = await servicesStatus({ stateRoot: stateRoot3 });
       print(report);
       return report.ok ? 0 : 1;
+    }
+    case "restart":
+    case "stop": {
+      try {
+        const result = await controlProcess(sub, positionals[0], { stateRoot: stateRoot3 });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}
+`);
+        return result.ok ? 0 : 1;
+      } catch (error51) {
+        process.stderr.write(`${JSON.stringify({ ok: false, ...serializeError(error51) })}
+`);
+        return 1;
+      }
     }
     case "probe":
       return await probeService(positionals[0], { stateRoot: stateRoot3 }) ? 0 : 1;
@@ -58482,7 +58971,7 @@ async function runServicesCommand(sub, values, positionals) {
 // src/cli.mjs
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const { values, positionals } = (0, import_node_util5.parseArgs)({
+  const { values, positionals } = (0, import_node_util6.parseArgs)({
     args: rest,
     options: {
       "state-root": { type: "string" },
@@ -58506,7 +58995,7 @@ async function main() {
       process.stderr.write(`Waiting: a session host not run by the services owns ${stateRoot3} (pid ${live2.pid}).
 `);
       while (live2) {
-        await new Promise((resolve17) => setTimeout(resolve17, 5e3));
+        await new Promise((resolve19) => setTimeout(resolve19, 5e3));
         live2 = await probeSessionHost(stateRoot3);
       }
     }
@@ -58521,7 +59010,7 @@ async function main() {
     }).initialize();
     const host = await startSessionHost({
       stateRoot: stateRoot3,
-      uiRoot: (0, import_node_path61.join)(PLUGIN_ROOT, "dist", "session-ui"),
+      uiRoot: (0, import_node_path64.join)(PLUGIN_ROOT, "dist", "session-ui"),
       controls: service2.sessionControls()
     });
     host.server.ref();
@@ -58556,7 +59045,7 @@ async function main() {
 `);
     return;
   }
-  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|probe|uninstall");
+  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe|uninstall");
 }
 main().catch((error51) => {
   process.stderr.write(`${JSON.stringify(serializeError(error51))}
