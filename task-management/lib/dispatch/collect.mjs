@@ -42,14 +42,16 @@ export const PR_LOOKUP_TIMEOUT_MS = 5_000;
 const OUTCOMES = new Set(["done", "ready-for-review", "blocked", "failed"]);
 
 /**
- * The result already recorded for the task's CURRENT dispatch run, or null (TM-238, TM-303).
+ * The result last recorded for the task's CURRENT dispatch, or null (TM-238, TM-303).
  * The ready-for-review path changes no state, so without this the pool re-collected the same
- * exited worker every tick: 575 identical comments and events on TM-290. The stamp lives on the
- * dispatch record, which a re-dispatch replaces wholesale, so a new run is collected again.
+ * exited worker every tick: 575 identical comments and events on TM-290. The stamp is keyed on
+ * `dispatched.at` (every record has it) plus `run` when present, so a dispatch with no run handle
+ * is de-duplicated too, and a re-dispatch — a new record — is collected again.
  */
-function alreadyCollected(task) {
+function priorCollection(task) {
   const d = task?.dispatched;
-  return d?.run && d.collected?.run === d.run ? d.collected : null;
+  const c = d?.collected;
+  return c && c.dispatchedAt === (d.at ?? null) && c.run === (d.run ?? null) ? c : null;
 }
 
 /** Orchestration's TERMINAL_STATES (agent-orchestration/src/state/store.mjs). */
@@ -106,14 +108,11 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     const { run = null, outcome, summary = "" } = result ?? {};
     const task = read(id, p);
     if (!task) return { ok: false, reason: `not found: ${id}` };
-    if (!task.dispatched?.run) {
+    if (!task.dispatched) {
       return { ok: false, reason: `${id} was never dispatched — there is no worker result to record` };
     }
     if (!OUTCOMES.has(outcome)) return { ok: false, reason: `unknown outcome: ${outcome}` };
     if (run && run !== task.dispatched.run) return { ok: false, reason: "worker result belongs to an earlier or different dispatch", failureScope: "task" };
-    const prior = alreadyCollected(task);
-    if (prior) return { ok: true, id, outcome: prior.outcome, duplicate: true, downgraded: false, parked: false };
-
     let final = outcome;
     let note = String(summary || "").trim();
     const reviewReady = task.governance?.state === "ready-for-review";
@@ -131,6 +130,10 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
       note = note ? `${note}\n\n${why}` : why;
     }
 
+    // Only a TRUE repeat is a no-op: same dispatch, same outcome. A different outcome for the same
+    // run (blocked after ready-for-review) is news and is recorded like any other result.
+    if (priorCollection(task)?.outcome === final) return { ok: true, id, outcome: final, duplicate: true, downgraded: false, parked: false };
+
     let parked = false;
     if ((final === "blocked" || final === "failed") && task.status === "in_progress" && !reviewReady) {
       update(id, { status: "parked", parkedReason: note || `worker ${final}` }, p);
@@ -143,8 +146,8 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     const pr = ["done", "ready-for-review"].includes(final) ? recordPullRequest(task, p, exec) : null;
 
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
-    mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, collected: { run: task.dispatched.run, outcome: final, at: now() } } }), p);
-    logEvent("task_result", { id, run: task.dispatched.run, outcome: final }, p);
+    mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, collected: { dispatchedAt: task.dispatched.at ?? null, run: task.dispatched.run ?? null, outcome: final, at: now() } } }), p);
+    logEvent("task_result", { id, run: task.dispatched.run ?? null, outcome: final }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
     return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: failureScope({ ...result, summary: note }), ...(pr ? { pr } : {}) };
   } catch (err) {
@@ -438,9 +441,11 @@ export async function collect(id, p = paths(), impls = {}) {
     if (!task) return { ok: false, reason: `not found: ${id}` };
     const backend = task.dispatched?.backend;
     if (!backend) return { ok: false, reason: `${id} was never dispatched — there is no worker result to collect` };
-    // Collected once per run: no backend probe, no release, no comment, no event on a repeat.
-    const prior = alreadyCollected(task);
-    if (prior) return { ok: true, pending: false, duplicate: true, outcome: prior.outcome, skipped: `${task.dispatched.run} was already collected (${prior.outcome}); nothing to collect` };
+    // A blocked/parked/done task whose dispatch was already collected has nothing left to hear:
+    // no backend probe, no release, no comment, no event. An in-progress one is still probed, and
+    // recordResult drops a repeat of the same outcome while recording a changed one.
+    const prior = priorCollection(task);
+    if (prior && task.status !== "in_progress") return { ok: true, pending: false, duplicate: true, outcome: prior.outcome, skipped: `${task.dispatched.run ?? backend} was already collected (${prior.outcome}); nothing to collect` };
     const routes = { topology: collectTopology, orchestration: collectOrchestration, tmux: collectTmux, idle: collectIdle, ...impls };
     const route = routes[backend];
     if (!route) return { ok: false, reason: `no collector for backend "${backend}"` };

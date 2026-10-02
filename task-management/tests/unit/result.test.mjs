@@ -631,7 +631,7 @@ describe("collect — one result per dispatch run (TM-238, TM-303)", () => {
     assert.deepEqual(ticks.slice(1).map((t) => t.collected[0].duplicate), [true, true, true, true]);
     assert.equal(results(p).length, 1, "exactly one task_result event");
     assert.equal(workerComments(p, id).length, 1, "exactly one worker comment");
-    assert.equal(probe.calls.length, 1, "a collected run is not probed again");
+    assert.equal(probe.calls.length, 5, "an in-progress task is still probed, so a changed outcome can be heard");
   });
 
   // A review-ready worker later blocked or parked; an ungoverned worker that closed through the gates.
@@ -653,6 +653,32 @@ describe("collect — one result per dispatch run (TM-238, TM-303)", () => {
       assert.equal(workerComments(p, id).length, 1);
     });
   }
+
+  it("a different outcome for the same run is recorded; a true repeat is not", () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux" });
+    mutate(id, () => ({ governance: { state: "ready-for-review" } }), p);
+    assert.equal(recordResult(id, { outcome: "ready-for-review", summary: "submitted" }, p).duplicate, undefined);
+    assert.equal(recordResult(id, { outcome: "ready-for-review", summary: "submitted" }, p).duplicate, true);
+    const blocked = recordResult(id, { outcome: "blocked", summary: "push rejected" }, p);
+    assert.equal(blocked.duplicate, undefined, "blocked after ready-for-review is news");
+    assert.equal(blocked.outcome, "blocked");
+    assert.equal(recordResult(id, { outcome: "blocked", summary: "push rejected" }, p).duplicate, true);
+    assert.deepEqual(results(p).map((e) => e.outcome), ["ready-for-review", "blocked"]);
+    assert.deepEqual(workerComments(p, id).map((c) => c.text), ["submitted", "push rejected"]);
+    assert.equal(read(id, p).dispatched.collected.outcome, "blocked", "the stamp follows the latest outcome");
+  });
+
+  it("a dispatch with no run handle is keyed on dispatched.at and de-duplicated", () => {
+    const p = store();
+    const id = dispatched(p, { backend: "topology" });
+    mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, run: null } }), p);
+    assert.equal(recordResult(id, { outcome: "failed", summary: "native worker ended" }, p).ok, true);
+    assert.equal(recordResult(id, { outcome: "failed", summary: "native worker ended" }, p).duplicate, true);
+    assert.equal(results(p).length, 1);
+    assert.equal(workerComments(p, id).length, 1);
+    assert.equal(read(id, p).dispatched.collected.dispatchedAt, read(id, p).dispatched.at);
+  });
 
   it("a re-dispatch is a new run and is collected once more", async () => {
     const p = store();
