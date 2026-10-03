@@ -18868,6 +18868,7 @@ __export(orch_transport_exports, {
   transportMode: () => transportMode,
   transportStatePath: () => transportStatePath,
   useTransportOpener: () => useTransportOpener,
+  withoutForeignSources: () => withoutForeignSources,
   writeTransportState: () => writeTransportState
 });
 function orchName(value) {
@@ -19213,11 +19214,22 @@ function retireStaleOutage(state, { now = Date.now(), retireAfterMs = OUTAGE_RET
     note: `retired: no open has fallen back from ${outage.url} (${outage.source}) since ${last}; it was not proven reachable`
   } };
 }
+function withoutForeignSources(state) {
+  if (!state || !(foreign(state) || foreign(state.fallback) || foreign(state.outage))) return state;
+  return {
+    ...state,
+    ...foreign(state) ? { source: null, url: null } : {},
+    fallback: foreign(state.fallback) ? null : state.fallback ?? null,
+    outage: foreign(state.outage) ? null : state.outage ?? null,
+    foreign_dropped: true
+  };
+}
 async function readTransportState(env = process.env, home = (0, import_node_os11.homedir)(), { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
-  return retireStaleOutage(await readJson3(transportStatePath(env, home)).catch(() => null), { now, retireAfterMs });
+  return retireStaleOutage(withoutForeignSources(await readJson3(transportStatePath(env, home)).catch(() => null)), { now, retireAfterMs });
 }
 async function writeTransportState(env, home, state) {
-  await writeJson(transportStatePath(env, home), state);
+  const { foreign_dropped: _dropped, ...clean } = state ?? {};
+  await writeJson(transportStatePath(env, home), clean);
 }
 async function touchFallback(env, home, { source, url: url2 }, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
   const state = await readTransportState(env, home, { retireAfterMs: Infinity });
@@ -19233,7 +19245,15 @@ function holdsFallbackFrom({ source, url: url2 }) {
 async function describeTransport(env = process.env, home = (0, import_node_os11.homedir)()) {
   if (transportMode(env) === "file") return { kind: "file", source: "AO_TRANSPORT", url: null, fallback: null, outage: null };
   const state = await readTransportState(env, home);
-  return state ? { kind: state.kind, source: state.source, url: state.url, fallback: state.fallback ?? null, outage: state.outage ?? null, at: state.at } : { kind: "nats", source: null, url: null, fallback: null, outage: null, note: "no NATS connection recorded on this host yet" };
+  return state ? {
+    kind: state.kind,
+    source: state.source,
+    url: state.url,
+    fallback: state.fallback ?? null,
+    outage: state.outage ?? null,
+    at: state.at,
+    ...state.foreign_dropped ? { note: "ignored a NATS_URL entry written by an older ao; NATS_URL is not an ao source (ADR-0032)" } : {}
+  } : { kind: "nats", source: null, url: null, fallback: null, outage: null, note: "no NATS connection recorded on this host yet" };
 }
 async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
   const previous = await readTransportState(env, home);
@@ -19251,7 +19271,7 @@ async function recordTransportSelection(env, selection, home = (0, import_node_o
   else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
     outage = { ...outage, recovered_at: (/* @__PURE__ */ new Date()).toISOString() };
   }
-  const same = previous && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
+  const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
   if (same) return;
   await writeJson(transportStatePath(env, home), {
     kind: selection.kind,
@@ -19739,7 +19759,7 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto17, import_node_fs9, import_node_net2, import_node_os11, import_node_path34, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS;
+var import_node_crypto17, import_node_fs9, import_node_net2, import_node_os11, import_node_path34, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto17 = require("node:crypto");
@@ -19787,6 +19807,8 @@ var init_orch_transport = __esm({
     MAX_PENDING = 1e4;
     transportStatePath = (env = process.env, home = (0, import_node_os11.homedir)()) => (0, import_node_path34.join)(stateRoot2(env, home), "transport.json");
     OUTAGE_RETIRE_MS = 60 * 6e4;
+    AO_SOURCES = /* @__PURE__ */ new Set(["AO_NATS_URL", "orch.sock", "managed-local"]);
+    foreign = (entry) => Boolean(entry?.source) && !AO_SOURCES.has(entry.source);
   }
 });
 
@@ -29902,6 +29924,8 @@ async function natsOutageTick({
   holds = holdsFallbackFrom
 }) {
   let state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  if (state?.foreign_dropped) await writeTransportState(env, home, state).catch(() => {
+  });
   if (!state?.outage?.since) return null;
   if (!state.outage.recovered_at && holds(state.outage) && await touchFallback(env, home, state.outage, { now: now(), retireAfterMs })) {
     state = await readTransportState(env, home, { retireAfterMs: Infinity });
@@ -60393,11 +60417,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "6b497e20104faa890a4405ca2aeff7db98402566d09d58549df08fb14118ecf1";
+  return false ? null : "7aad58553927bd0d9206c5874cb499e7dd1f5413b5ba556b4f37cb099a37a5f0";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "6b497e20104faa890a4405ca2aeff7db98402566d09d58549df08fb14118ecf1";
-  let version2 = false ? null : "0.15.3";
+  const fingerprint2 = false ? null : "7aad58553927bd0d9206c5874cb499e7dd1f5413b5ba556b4f37cb099a37a5f0";
+  let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -60987,8 +61011,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "6b497e20104faa890a4405ca2aeff7db98402566d09d58549df08fb14118ecf1",
-  version: false ? null : "0.15.3"
+  sourceFingerprint: false ? null : "7aad58553927bd0d9206c5874cb499e7dd1f5413b5ba556b4f37cb099a37a5f0",
+  version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto36.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
