@@ -4,7 +4,7 @@
 // durable, reply durable, inbox prefix and presence/agent keys. The server config holds public keys
 // only. The seed lives in memory of a small holder process; the agent's `ao-topology` commands ask
 // that holder over a unix socket. The holder identifies the asker from the KERNEL (the socket's peer
-// inode, mapped to owning pids through /proc) and answers only a descendant of the agent's pane, so
+// inode, mapped to owning pids through peer-process.mjs) and answers only a descendant of the agent's pane, so
 // a sibling agent of the same OS user who finds the socket path gets a refusal, not the seed.
 //
 // Gateway path: the same holder can serve the text of an AO_ORCH_CREDS file instead of a seed, so
@@ -13,11 +13,11 @@
 // Residual, stated plainly: the local ADMIN user's password (state.json, 0600) and anything else a
 // same-uid process can read is still readable by a sibling. This module closes the per-agent
 // secret; the admin secret needs the provider sandbox (TM-282) or the gateway's separate issuer.
-// ponytail: Linux only (/proc + ss); macOS needs LOCAL_PEERPID. Expiry is enforced by the holder and
+// ponytail: peer discovery is platform-split in peer-process.mjs (Linux /proc+ss; darwin lsof+ps, unverified on a real Mac). Expiry is enforced by the holder and
 // by registry pruning on the next apply, since nkey users carry no expiry; JWT users would.
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLock } from './lockfile.mjs';
+import { argvOf, isAlive, listArgv, parentOf, peerPids } from './peer-process.mjs';
 import { ORCH_LAYOUT, orchName } from './orch-transport.mjs';
 
 /** nkeys ships inside the nats client; the installed plugin has only the bundle. */
@@ -128,22 +129,15 @@ async function writeRegistry(home, registry) {
   await rename(`${path}.tmp`, path);
 }
 
-/** Linux: the nats-server whose command line names this config. Used when the server was started by a service manager. */
+/** The nats-server whose command line names this config. Used when the server was started by a service manager. */
 export function findServerPid(confPath) {
-  for (const dir of readdirSync('/proc')) {
-    if (!/^\d+$/.test(dir)) continue;
-    try {
-      const argv = readFileSync(`/proc/${dir}/cmdline`, 'utf8').split('\0');
-      if (argv[0].includes('nats-server') && argv.includes(confPath)) return Number(dir);
-    } catch { /* gone or not ours */ }
-  }
-  return null;
+  return listArgv().find(({ argv }) => argv[0]?.includes('nats-server') && argv.includes(confPath))?.pid ?? null;
 }
 
 /** A recorded server pid is trusted only if that pid is still a nats-server; a reused pid would otherwise receive our SIGHUP. */
 export function serverPidFor(recorded, confPath) {
   if (recorded) {
-    try { if (readFileSync(`/proc/${recorded}/cmdline`, 'utf8').includes('nats-server')) return recorded; } catch { /* gone */ }
+    if (argvOf(recorded)?.join(' ').includes('nats-server')) return recorded;
   }
   return findServerPid(confPath);
 }
@@ -231,44 +225,25 @@ export class CredStore {
 
 // ---- holder (the only place a seed lives) ---------------------------------------------------------
 
-function ppidOf(pid) {
-  try { return Number(readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) \S+ /, '').split(' ')[0]); } catch { return 0; }
-}
-
-export function isDescendant(pid, root) {
-  for (let hops = 0, p = pid; p > 1 && hops < 64; hops += 1, p = ppidOf(p)) if (p === root) return true;
+export function isDescendant(pid, root, opts) {
+  for (let hops = 0, p = pid; p > 1 && hops < 64; hops += 1, p = parentOf(p, opts)) if (p === root) return true;
   return false;
 }
 
-/** Pids holding the other end of this accepted unix socket, from the kernel's own pairing. Empty when it cannot be proven. */
-export function peerPids(socket, sockPath) {
-  try {
-    const inode = readlinkSync(`/proc/self/fd/${socket._handle.fd}`).slice('socket:['.length, -1);
-    const rows = execFileSync('ss', ['-xnH', 'src', sockPath], { encoding: 'utf8', maxBuffer: 1 << 26 }).split('\n');
-    const row = rows.map((line) => line.trim().split(/\s+/)).find((fields) => fields.includes(inode));
-    if (!row) return [];
-    const peer = row[row.indexOf(inode) + 2];
-    const found = [];
-    for (const dir of readdirSync('/proc')) {
-      if (!/^\d+$/.test(dir)) continue;
-      try { for (const fd of readdirSync(`/proc/${dir}/fd`)) if (readlinkSync(`/proc/${dir}/fd/${fd}`) === `socket:[${peer}]`) found.push(Number(dir)); } catch { /* not ours */ }
-    }
-    return found;
-  } catch { return []; }
-}
+export { peerPids };
 
 // Pids that root an agent's tree, written by each agent holder when it is attached. Not secret; read by
 // every holder to tell "an agent's process" from "the operator's process".
 const rootsFile = (home) => join(home, 'roots.json');
 export function agentRoots(home) {
   if (!home) return [];
-  try { return Object.values(JSON.parse(readFileSync(rootsFile(home), 'utf8'))).filter((pid) => existsSync(`/proc/${pid}`)); } catch { return []; }
+  try { return Object.values(JSON.parse(readFileSync(rootsFile(home), 'utf8'))).filter((pid) => isAlive(pid)); } catch { return []; }
 }
 async function registerRoot(home, sock, pid) {
   await withLock(join(home, 'roots.lock'), async () => {
     let roots = {};
     try { roots = JSON.parse(readFileSync(rootsFile(home), 'utf8')); } catch { /* first */ }
-    for (const [key, value] of Object.entries(roots)) if (!existsSync(`/proc/${value}`)) delete roots[key];
+    for (const [key, value] of Object.entries(roots)) if (!isAlive(value)) delete roots[key];
     roots[sock] = pid;
     await writeFile(`${rootsFile(home)}.tmp`, JSON.stringify(roots), { mode: 0o600 });
     await rename(`${rootsFile(home)}.tmp`, rootsFile(home));
@@ -359,8 +334,8 @@ export function holderMain() {
     // Nothing left to serve: its socket was removed, or the home it belongs to is gone (a deleted test directory, an uninstall).
     if (sockPath && (!existsSync(sockPath) || (home && !existsSync(home)))) return stop();
     // Its spawner is gone and it was never attached to a pane: nothing will attach it now.
-    if (!root && !admin && spawnerPid && !existsSync(`/proc/${spawnerPid}`) && Date.now() - startedAt > Math.min(5000, graceMs)) return stop();
-    if (!root || existsSync(`/proc/${root}`)) { rootGoneSince = null; return; }
+    if (!root && !admin && spawnerPid && !isAlive(spawnerPid) && Date.now() - startedAt > Math.min(5000, graceMs)) return stop();
+    if (!root || isAlive(root)) { rootGoneSince = null; return; }
     rootGoneSince ??= Date.now();
     if (Date.now() - rootGoneSince > graceMs) stop();
   }, 1000);

@@ -1,0 +1,25 @@
+# SYNTHESIZED from lsof's documented -F format; NOT captured on a Mac. Lines starting with # are stripped by the test.
+p501
+f3
+tunix
+d0xaaaa000000000001
+n/var/folders/zz/T/ao-creds/holder.sock
+f4
+tunix
+d0xaaaa000000000002
+n->0xbbbb000000000009
+p612
+f5
+tunix
+d0xbbbb000000000009
+n->0xaaaa000000000002
+p700
+f7
+tunix
+d0xcccc000000000007
+n->0xdddd000000000008
+p701
+f1
+tIPv4
+d0x1
+nlocalhost:4222
