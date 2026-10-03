@@ -12,6 +12,10 @@
   backend; plans (`tm/plan`) and event history migrate re-runnably; leaf-node domain support;
   a refused credential fails loudly instead of queueing; a path-based repo-key alias; and
   `tm cutover [--dry-run]`, which switches `storage.backend` only if the copy compares equal.
+  Leaf-side replication: the leaf's JetStream mirrors the hub's KV buckets and event stream and caches
+  evidence on demand, so a machine with the hub down still reads the board (`info().tier`: hub, leaf
+  or cache). Events are read in bounded pages with a cursor. An expired creds file is reported with
+  its expiry time before connecting.
   Fixed in the same work: the event reader ignored its subject filter, so one board could read
   another's events.
 

@@ -58,6 +58,9 @@ const DEFAULT_CONFIG = {
   },
 };
 
+/** Rows per event-stream round trip on the NATS backend. */
+export const EVENT_PAGE = 500;
+
 const NESTED_CONFIG = ["board", "ntfy", "plugin", "labels", "dispatch", "storage"];
 
 export const now = () => new Date().toISOString();
@@ -596,12 +599,21 @@ export function rotateEvents(p = paths()) {
 }
 
 /** Every event, oldest first, across the rotation boundary. Bad lines are skipped. */
-export function readEvents(p = paths()) {
+export function readEvents(p = paths(), { limit = Infinity, after = 0 } = {}) {
   const rb = remote(p);
   if (rb) {
-    // Symmetric with logEvent: the shared stream is the record. Offline, fall back to this machine's log.
+    // Symmetric with logEvent: the shared stream is the record, read a bounded page at a time
+    // (EVENT_PAGE rows per round trip) — never the whole stream in one fetch. `limit`/`after` give
+    // callers that only want a window a way to ask for one. Offline with no mirror: this machine's log.
     try {
-      return rb.call("events").sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+      const rows = [];
+      let cursor = after;
+      do {
+        const page = rb.call("eventsPage", { limit: Math.min(EVENT_PAGE, limit - rows.length), after: cursor, batch: EVENT_PAGE });
+        rows.push(...page.rows);
+        cursor = page.next;
+      } while (cursor !== null && rows.length < limit);
+      return rows.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
     } catch (err) {
       if (!(err instanceof OfflineError)) throw err;
     }

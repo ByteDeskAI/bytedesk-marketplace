@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { startServer } from "./nats-helpers.mjs";
 import { NatsBackend } from "../../lib/storage/nats-backend.mjs";
-import { repoAliases, repoKey, storageInfo } from "../../lib/storage/index.mjs";
+import { remote, repoAliases, repoKey, storageInfo } from "../../lib/storage/index.mjs";
 import { attachEvidence, listEvidence } from "../../lib/evidence.mjs";
 import { capturePlan, listPlans } from "../../lib/plans.mjs";
 import { diagnose } from "../../lib/doctor.mjs";
@@ -82,11 +82,25 @@ describe("modules routed through the backend", () => {
     assert.ok(names.includes("remote_probe"), "and the stream, not the local file, is what is read");
   });
 
+  it("readEvents on a long history pages the stream: 1,200 events, no server fetch above 500", async () => {
+    const seen = readEvents(p).length;
+    for (let i = 0; i < 1200; i += 200) await Promise.all(Array.from({ length: 200 }, (_, k) => direct.appendEvent({ event: "long_history", n: i + k })));
+    const rows = readEvents(p);
+    const st = remote(p).call("getStats");
+    const windowed = readEvents(p, { limit: 50 });
+    console.log(`readEvents: before ${seen}, after ${rows.length} | bridge max batch ${st.maxBatch} fetches ${st.fetches} | limit 50 ->`, windowed.length);
+    assert.equal(rows.length - seen, 1200);
+    assert.ok(st.maxBatch <= 500);
+    assert.equal(windowed.length, 50);
+  });
+
   it("doctor: reports the backend and server, has no file-store findings, and flags an unreachable server", async () => {
     const info = storageInfo(p);
     console.log("storageInfo:", JSON.stringify(info));
     assert.equal(info.kind, "nats");
     assert.equal(info.server, srv.url);
+    assert.ok(info.events >= 1200, `doctor's event count is metadata: ${info.events}`);
+    assert.equal(info.tier, "hub");
     const codes = diagnose(p).map((f) => f.code);
     assert.ok(!codes.includes("index-drift") && !codes.includes("duplicate-id"), `file-store findings leaked: ${codes}`);
     await srv.stop();

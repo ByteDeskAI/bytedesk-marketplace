@@ -53,17 +53,37 @@ optional field to a core type is done the same way by the owner of that type, wi
 ## Leaf node
 
 Point `TM_NATS_URL` at the machine's leaf node and set `TM_NATS_DOMAIN` to the hub's JetStream
-domain. The leaf forwards the JetStream API to the hub, so a write on the leaf is a write on the hub.
-If the hub is unreachable the connection to the leaf stays up but the API stops answering; the
-backend probes it (at most once a second), goes offline, and behaves as described under "Offline".
+domain. Writes go to the hub through the leaf. On first contact the backend also creates, in the
+leaf's own JetStream, mirrors of `TM_ENTITIES`, `TM_PROPOSALS`, `TM_STATE` (KV) and `TM_EVENTS`
+(stream), and a local object store `TM_EVIDENCE` that `blobGet` fills on demand.
+
+Reads are served by the first tier that answers; `info()` reports `tier` and `lastReadTier`:
+
+| tier | when | what it is |
+|---|---|---|
+| `hub` | hub reachable | authoritative, read-your-writes |
+| `leaf` | hub down, leaf up | the leaf's JetStream mirror (revisions match the hub's; may lag by the mirror's catch-up) |
+| `cache` | leaf unreachable too | local files under `~/.cache/task-management/<repo>/`, last resort |
+
+Writes while the hub is down are queued as proposals on this machine and replayed on reconnect
+under their original proposal id (see Offline). A leaf that has never been online with the hub has
+no copy yet; it falls through to `cache`.
+
+## Events are paged
+
+`events()`/`eventsPage()` never fetch the stream in one go: at most 500 rows per server fetch,
+`limit` and a stream-sequence cursor (`after` → `next`). `readEvents(p, {limit, after})` pages the
+same way. `tm doctor` shows the event count from stream metadata and fetches no messages.
 
 ## Credentials
 
 `TM_NATS_CREDS` is a standard `.creds` file (user JWT + seed). A server that answers
 "Authorization Violation" — wrong operator, expired, or no credential — is **not** treated as
 offline: the command fails with "nats refused the credentials", and nothing is queued against a
-credential that cannot work. (The server gives the same text for expired and wrong; they are only
-told apart by which file you passed.)
+credential that cannot work. The server answers "Authorization Violation" to everything, so the
+client decodes the creds file first: an expired one fails before connecting with
+`credentials expired at <time>`; one that is valid but not accepted says it is not expired, so the
+cause is the wrong operator/account or a revoked user.
 
 ## Cutting a board over
 

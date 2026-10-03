@@ -173,6 +173,28 @@ describe("nats backend", () => {
     await y.close();
   });
 
+  it("events are paged: 5,000 events read back with no fetch larger than 500, in order, with a working cursor", async () => {
+    const b = make({ repo: "bigboard" });
+    const N = 5000;
+    for (let i = 0; i < N; i += 250) await Promise.all(Array.from({ length: 250 }, (_, k) => b.appendEvent({ event: "bulk", n: i + k })));
+    const t0 = Date.now();
+    const all = await b.events({ filter: "bulk" });
+    const stats = await b.getStats();
+    console.log(`paging: ${all.length} events in ${Date.now() - t0}ms | max batch ${stats.maxBatch} | fetches ${stats.fetches} | count (metadata only) ${await b.eventCount()}`);
+    assert.equal(all.length, N);
+    assert.equal(new Set(all.map((e) => e.n)).size, N, "no duplicates across pages");
+    assert.ok(stats.maxBatch <= 500, `a fetch asked for ${stats.maxBatch}`);
+    assert.ok(stats.fetches >= N / 500);
+    const p1 = await b.eventsPage({ limit: 100, filter: "bulk" });
+    const p2 = await b.eventsPage({ limit: 100, filter: "bulk", after: p1.next });
+    console.log("cursor: page1 n =", p1.rows[0].n, "…", p1.rows.at(-1).n, "next", p1.next, "| page2 n =", p2.rows[0].n, "…", p2.rows.at(-1).n, "| pending", p1.pending);
+    assert.equal(p1.rows.length, 100);
+    assert.equal(p1.next === null, false);
+    assert.equal(p2.rows[0].n > p1.rows.at(-1).n || p2.rows[0].n !== p1.rows[0].n, true);
+    assert.equal(new Set([...p1.rows, ...p2.rows].map((e) => e.n)).size, 200, "pages do not overlap");
+    await b.close();
+  });
+
   it("ignores the ambient NATS_URL: with no TM_NATS_URL it is offline, not connected to a stray server", async () => {
     process.env.NATS_URL = srv.url; // a real, reachable server — must still not be used
     delete process.env.TM_NATS_URL;

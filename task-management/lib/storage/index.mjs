@@ -82,5 +82,10 @@ export function remote(p) {
 export function storageInfo(p) {
   const kind = storageKind(p);
   if (kind === "file") return { kind, server: p.base, offline: false };
-  return remote(p).call("info");
+  const rb = remote(p);
+  const info = rb.call("info");
+  try {
+    info.events = rb.call("eventCount"); // metadata only: doctor never pages the stream
+  } catch { /* unreachable and no mirror */ }
+  return info;
 }

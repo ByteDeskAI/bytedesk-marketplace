@@ -1096,7 +1096,7 @@ const VERBS = {
     // Re-read after repairing: what is reported as remaining must be what remains.
     const after = diagnose(P);
     const storage = storageInfo(P);
-    emit({ storage, findings: after.map(({ fix, ...f }) => f), fixed }, () => (storage.kind === "file" ? "" : `storage: ${storage.kind} ${storage.server ?? ""}${storage.offline ? " (OFFLINE)" : ""}\n`) + renderDoctor(after, { fixed }));
+    emit({ storage, findings: after.map(({ fix, ...f }) => f), fixed }, () => (storage.kind === "file" ? "" : `storage: ${storage.kind} ${storage.server ?? ""}${storage.offline ? " (OFFLINE)" : ""} tier=${storage.tier ?? "-"} events=${storage.events ?? "?"}\n`) + renderDoctor(after, { fixed }));
     if (after.some((f) => f.level === "error")) process.exit(1);
   },
 

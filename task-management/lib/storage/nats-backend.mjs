@@ -26,6 +26,30 @@ import { assertWritable, decode } from "./registry.mjs";
 /** Stable id of an event row: same row → same id, so a re-run of a migration can tell what is already there. */
 export const eventRow = (e) => ({ ts: e.ts ?? new Date().toISOString(), ...e });
 export const eventId = (row) => createHash("sha256").update(JSON.stringify(row)).digest("hex").slice(0, 32);
+/**
+ * What a creds file says about itself, decoded client-side (no signature check — the server does
+ * that): the user key, issuer, and the exp/nbf claims. Lets us say "expired at <time>" before
+ * connecting, which the server never does (it answers "Authorization Violation" to everything).
+ */
+export function credsStatus(file, now = Date.now()) {
+  const text = readFileSync(file, "utf8");
+  const jwt = /-----BEGIN NATS USER JWT-----\s+([A-Za-z0-9._-]+)\s+-+END NATS USER JWT/.exec(text)?.[1];
+  if (!jwt) return { ok: false, problem: "no user JWT in the creds file" };
+  const claims = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8"));
+  const exp = claims.exp ? claims.exp * 1000 : null;
+  const nbf = claims.nbf ? claims.nbf * 1000 : null;
+  return {
+    ok: true,
+    user: claims.sub,
+    issuer: claims.iss,
+    issuerAccount: claims.nats?.issuer_account ?? null,
+    expiresAt: exp ? new Date(exp).toISOString() : null,
+    expired: exp !== null && exp < now,
+    notBefore: nbf ? new Date(nbf).toISOString() : null,
+    notYetValid: nbf !== null && nbf > now,
+  };
+}
+
 export const OFFLINE_MESSAGE = "offline: read-only, writes queued";
 const DAY_NS = 24 * 3600 * 1e9;
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -47,7 +71,10 @@ export class NatsBackend extends Backend {
     this.offline = false;
     this.told = false;
     this.nc = null;
-    this.h = null;
+    this.h = null; // hub handles (read/write)
+    this.lh = null; // leaf-side mirror handles (read-only)
+    this.stats = { maxBatch: 0, fetches: 0 };
+    this.lastReadTier = null;
   }
   get kind() {
     return "nats";
@@ -62,8 +89,7 @@ export class NatsBackend extends Backend {
         await this.h.jsm.getAccountInfo();
         this.probed = Date.now();
       } catch (err) {
-        await this.h.nc.close().catch(() => {});
-        this.h = null;
+        this.h = null; // keep this.nc: the leaf itself is still there and serves reads from its mirrors
         this.#goOffline(`hub unreachable: ${err.message}`);
         return null;
       }
@@ -79,13 +105,28 @@ export class NatsBackend extends Backend {
     try {
       const { connect, credsAuthenticator } = await import("nats");
       const credsFile = this.o.creds ?? process.env.TM_NATS_CREDS;
-      const nc = await connect({
-        servers: url,
-        timeout: this.o.connectTimeoutMs ?? 1500,
-        reconnect: this.o.reconnect ?? false,
-        maxReconnectAttempts: 0,
-        ...(credsFile ? { authenticator: credsAuthenticator(readFileSync(credsFile)) } : {}),
-      });
+      if (credsFile && !this.credsChecked) {
+        // Say what we can say locally, before the server gives its one-size-fits-all refusal.
+        const st = credsStatus(credsFile);
+        this.creds = st;
+        if (st.ok && st.expired) {
+          this.authRefused = `credentials expired at ${st.expiresAt} (user ${st.user}) — renew TM_NATS_CREDS`;
+          throw new Error(this.authRefused);
+        }
+        if (st.ok && st.notYetValid) {
+          this.authRefused = `credentials not valid until ${st.notBefore} (user ${st.user})`;
+          throw new Error(this.authRefused);
+        }
+      }
+      const nc = this.nc && !this.nc.isClosed()
+        ? this.nc
+        : (this.nc = await connect({
+            servers: url,
+            timeout: this.o.connectTimeoutMs ?? 1500,
+            reconnect: this.o.reconnect ?? false,
+            maxReconnectAttempts: 0,
+            ...(credsFile ? { authenticator: credsAuthenticator(readFileSync(credsFile)) } : {}),
+          }));
       // Leaf mode: connect to the machine's leaf node, address the hub's JetStream by domain.
       const domain = this.o.domain ?? process.env.TM_NATS_DOMAIN;
       const jsOpts = { ...(domain ? { domain } : {}), timeout: this.o.apiTimeoutMs ?? 2000 };
@@ -106,7 +147,8 @@ export class NatsBackend extends Backend {
         await jsm.streams.add({ name: "TM_EVENTS", subjects: ["tm.*.events.>"], retention: "limits", storage: "file", max_age: 3650 * DAY_NS });
       }
       this.domain = domain;
-      await this.#resolveRepo();
+      await this.#resolveRepo(this.h);
+      if (domain) await this.#mirrors(domain);
       this.offline = false;
       this.told = false;
       await this.#replay();
@@ -115,8 +157,11 @@ export class NatsBackend extends Backend {
       if (err instanceof OfflineError) throw err;
       // A server that answered and said no is not "offline": queueing writes against credentials that
       // will never work would only hide the problem. Say it, and refuse.
+      if (this.authRefused && /^credentials (expired|not valid)/.test(this.authRefused)) throw new Error(this.authRefused);
       if (/authorization|authentication|permissions? violation/i.test(String(err.message))) {
-        this.authRefused = `nats refused the credentials (${String(err.message).replace(/^'|'$/g, "")}) — check TM_NATS_CREDS`;
+        const c = this.creds;
+        const valid = c?.ok ? ` The credential is not expired${c.expiresAt ? ` (valid until ${c.expiresAt})` : " (no expiry)"}, so the server does not accept this user: wrong operator or account, or the user was revoked.` : "";
+        this.authRefused = `nats refused the credentials (${String(err.message).replace(/^'|'$/g, "")}) — check TM_NATS_CREDS.${valid}`;
         throw new Error(this.authRefused);
       }
       this.#goOffline(err.message);
@@ -127,10 +172,10 @@ export class NatsBackend extends Backend {
    * Which key prefix holds this board. The primary (origin-based) wins; a board created under an
    * older alias (path-based) keeps resolving to it so nothing is orphaned by the key change.
    */
-  async #resolveRepo() {
+  async #resolveRepo(hh) {
     if (this.resolved) return;
     const has = async (repo) => {
-      const it = await this.h.entities.keys(`${repo}.>`);
+      const it = await hh.entities.keys(`${repo}.>`);
       for await (const _ of it) { it.stop?.(); return true; }
       return false;
     };
@@ -144,6 +189,65 @@ export class NatsBackend extends Backend {
       }
     }
   }
+  /**
+   * Leaf-side copies of the hub's buckets, so a machine with the hub down still has the board in its
+   * own JetStream. KV buckets and the event stream are mirrors (the hub stays the only writer);
+   * evidence is a local object store filled on demand by blobGet.
+   */
+  async #mirrors(domain) {
+    const nc = this.nc;
+    const api = `$JS.${domain}.API`;
+    const jsOpts = { timeout: this.o.apiTimeoutMs ?? 2000 }; // no domain: the server we are connected to
+    const js = nc.jetstream(jsOpts);
+    const jsm = await nc.jetstreamManager(jsOpts);
+    const mirror = (name) => ({ name, external: { api, deliver: "" } });
+    const kv = (name, history) => js.views.kv(name, { history, mirror: mirror(name) });
+    const lh = {
+      nc, js, jsm,
+      entities: await kv("TM_ENTITIES", 64),
+      proposals: await kv("TM_PROPOSALS", 8),
+      state: await kv("TM_STATE", 8),
+      evidence: await js.views.os("TM_EVIDENCE"),
+    };
+    try {
+      await jsm.streams.info("TM_EVENTS");
+    } catch {
+      await jsm.streams.add({ name: "TM_EVENTS", mirror: { name: "TM_EVENTS", external: { api, deliver: "" } }, storage: "file" });
+    }
+    this.lh = lh;
+    return lh;
+  }
+  /** Bind to mirrors that already exist on the leaf (hub down, fresh process): never create anything. */
+  async #leaf() {
+    if (this.lh && !this.nc?.isClosed()) return this.lh;
+    if (!this.nc || this.nc.isClosed() || !(this.o.domain ?? process.env.TM_NATS_DOMAIN)) return null;
+    try {
+      const jsOpts = { timeout: this.o.apiTimeoutMs ?? 2000 };
+      const js = this.nc.jetstream(jsOpts);
+      const jsm = await this.nc.jetstreamManager(jsOpts);
+      await jsm.getAccountInfo();
+      const kv = (name) => js.views.kv(name, { bindOnly: true });
+      const lh = { nc: this.nc, js, jsm, entities: await kv("TM_ENTITIES"), proposals: await kv("TM_PROPOSALS"), state: await kv("TM_STATE"), evidence: await js.views.os("TM_EVIDENCE", { bindOnly: true }) };
+      await jsm.streams.info("TM_EVENTS");
+      await this.#resolveRepo(lh);
+      this.lh = lh;
+      return lh;
+    } catch {
+      return null; // the leaf has no copy yet (never been online with the hub), or is gone
+    }
+  }
+  /**
+   * Who answers a read: the hub when it is reachable, else the leaf's own mirror, else null (the
+   * caller falls back to the file cache). The tier is recorded so info() can say which one it was.
+   */
+  async #reader() {
+    const h = await this.#ready();
+    if (h) return (this.lastReadTier = "hub"), h;
+    const lh = await this.#leaf();
+    if (lh) return (this.lastReadTier = "leaf"), lh;
+    this.lastReadTier = "cache";
+    return null;
+  }
   #goOffline(why) {
     this.offline = true;
     this.why = why;
@@ -154,8 +258,9 @@ export class NatsBackend extends Backend {
     }
   }
   async close() {
-    if (this.h) await this.h.nc.drain().catch(() => {});
+    if (this.nc && !this.nc.isClosed()) await this.nc.drain().catch(() => {});
     this.h = null;
+    this.lh = null;
   }
   async info() {
     let h;
@@ -165,7 +270,8 @@ export class NatsBackend extends Backend {
       if (!this.authRefused) throw err;
       return { kind: "nats", server: this.o.url ?? process.env.TM_NATS_URL ?? null, offline: true, why: this.authRefused, authRefused: true, queued: this.queue().length };
     }
-    return { kind: "nats", server: h?.url ?? this.o.url ?? process.env.TM_NATS_URL ?? null, offline: !h, why: h ? undefined : this.why, queued: this.queue().length };
+    const tier = h ? "hub" : (await this.#leaf()) ? "leaf" : "cache";
+    return { kind: "nats", server: h?.url ?? this.o.url ?? process.env.TM_NATS_URL ?? null, offline: !h, why: h ? undefined : this.why, tier, lastReadTier: this.lastReadTier, queued: this.queue().length };
   }
 
   // ── keys & meta ────────────────────────────────────────────────────────────
@@ -256,14 +362,15 @@ export class NatsBackend extends Backend {
     return e && e.operation === "PUT" ? this.#entry(type, e) : null;
   }
   async get(type, id) {
-    const h = await this.#ready();
-    if (!h) return this.#cacheGet(type, id);
-    const hit = await this.#stored(type, id);
+    const r = await this.#reader();
+    if (!r) return this.#cacheGet(type, id);
+    const e = await r.entities.get(this.key(type, id));
+    const hit = e && e.operation === "PUT" ? this.#entry(type, e) : null;
     if (hit) this.#cacheSet(type, id, hit);
     return hit;
   }
   async list(type, { prefix = "" } = {}) {
-    const h = await this.#ready();
+    const h = await this.#reader();
     if (!h) return this.#cacheList(type).filter((e) => e.envelope.id.startsWith(prefix));
     const out = [];
     const keys = await h.entities.keys(`${this.repo}.${type}.>`);
@@ -332,7 +439,7 @@ export class NatsBackend extends Backend {
   }
 
   async history(type, id, { limit = 64 } = {}) {
-    const h = await this.#ready();
+    const h = await this.#reader();
     if (!h) throw new OfflineError(`${OFFLINE_MESSAGE} — history needs the server`);
     const it = await h.entities.history({ key: this.key(type, id) });
     const rows = [];
@@ -370,17 +477,20 @@ export class NatsBackend extends Backend {
     if (!(await h.evidence.info(name))) await h.evidence.putBlob({ name }, new Uint8Array(buf));
     return digest;
   }
+  /** Online: fetched from the hub on demand and cached in the leaf's own object store. Offline: from that cache, then the file cache. */
   async blobGet(digest) {
-    const h = await this.#ready();
-    if (!h) {
+    const r = await this.#reader();
+    const name = `${this.repo}/${digest}`;
+    if (!r) {
       const f = this.cacheDir && join(this.cacheDir, "blobs", digest);
       return f && existsSync(f) ? readFileSync(f) : null;
     }
-    const u8 = await h.evidence.getBlob(`${this.repo}/${digest}`);
+    const u8 = await r.evidence.getBlob(name);
+    if (u8 && r === this.h && this.lh) await this.lh.evidence.putBlob({ name }, u8).catch(() => {});
     return u8 ? Buffer.from(u8) : null;
   }
   async blobList() {
-    const h = await this.#ready();
+    const h = await this.#reader();
     if (!h) return [];
     return (await h.evidence.list()).filter((i) => i.name.startsWith(`${this.repo}/`) && !i.deleted).map((i) => i.name.slice(this.repo.length + 1)).sort();
   }
@@ -396,21 +506,64 @@ export class NatsBackend extends Backend {
     await h.js.publish(`tm.${this.repo}.events.${kind}`, enc(row), { msgID: `${this.repo}:${msgID}` });
     return { id: msgID };
   }
-  async events({ since, filter } = {}) {
-    const h = await this.#ready();
-    if (!h) throw new OfflineError(`${OFFLINE_MESSAGE} — event history needs the server`);
+  /**
+   * One bounded page of events: at most `limit` rows (and never more than `batch` per server fetch),
+   * from stream sequence `after`. `next` is the cursor for the following page, or null at the end.
+   * Never reads the whole stream in one go; `events()` below walks the pages.
+   */
+  async eventsPage({ since, filter, limit = 1000, after = 0, batch = 500 } = {}) {
+    const r = await this.#reader();
+    if (!r) throw new OfflineError(`${OFFLINE_MESSAGE} — event history needs the server`);
     const subject = `tm.${this.repo}.events.${filter ? safe(filter) : ">"}`;
-    const info = await h.jsm.streams.info("TM_EVENTS", { subjects_filter: subject });
-    const total = Object.values(info.state.subjects ?? {}).reduce((a, b) => a + b, 0);
-    if (!total) return [];
-    const c = await h.js.consumers.get("TM_EVENTS", { filterSubjects: [subject], ...(since ? { opt_start_time: new Date(since).toISOString() } : {}) });
+    const start = since
+      ? { deliver_policy: "by_start_time", opt_start_time: new Date(since).toISOString() }
+      : after
+        ? { deliver_policy: "by_start_sequence", opt_start_seq: after + 1 }
+        : { deliver_policy: "all" };
+    const ci = await r.jsm.consumers.add("TM_EVENTS", { ack_policy: "none", filter_subjects: [subject], inactive_threshold: 30e9, ...start });
     const rows = [];
-    const it = await c.fetch({ max_messages: total, expires: 3000 });
-    for await (const m of it) {
-      rows.push(dec(m.data));
-      if (rows.length >= total) break;
+    let last = after;
+    try {
+      const pending = ci.num_pending;
+      const want = Math.min(limit, pending);
+      const c = await r.js.consumers.get("TM_EVENTS", ci.name);
+      while (rows.length < want) {
+        const n = Math.min(batch, want - rows.length);
+        this.stats.maxBatch = Math.max(this.stats.maxBatch, n);
+        this.stats.fetches += 1;
+        let got = 0;
+        for await (const m of await c.fetch({ max_messages: n, expires: 5000 })) {
+          rows.push(dec(m.data));
+          last = m.seq;
+          if (++got >= n) break;
+        }
+        if (!got) break;
+      }
+      return { rows, next: rows.length < pending ? last : null, pending };
+    } finally {
+      await r.jsm.consumers.delete("TM_EVENTS", ci.name).catch(() => {});
     }
-    return rows;
+  }
+  async events({ since, filter, limit = Infinity, batch = 500 } = {}) {
+    const out = [];
+    let after = 0;
+    for (;;) {
+      const page = await this.eventsPage({ since: after ? undefined : since, filter, limit: Math.min(batch, limit - out.length), after, batch });
+      out.push(...page.rows);
+      if (page.next === null || out.length >= limit || !page.rows.length) return out;
+      after = page.next;
+      since = undefined;
+    }
+  }
+  /** How many events this board has, from stream metadata — no messages are fetched. */
+  async eventCount() {
+    const r = await this.#reader();
+    if (!r) return null;
+    const info = await r.jsm.streams.info("TM_EVENTS", { subjects_filter: `tm.${this.repo}.events.>` });
+    return Object.values(info.state.subjects ?? {}).reduce((a, b) => a + b, 0);
+  }
+  async getStats() {
+    return { ...this.stats };
   }
 
   // ── TM_STATE: claims, sessions, lease (CAS) ────────────────────────────────
@@ -420,7 +573,7 @@ export class NatsBackend extends Backend {
     return h.state;
   }
   async stateGet(key) {
-    const kv = await this.#state();
+    const kv = (await this.#reader())?.state ?? (await this.#state());
     const e = await kv.get(`${this.repo}.${key}`);
     return e && e.operation === "PUT" ? { value: dec(e.value), rev: e.revision } : null;
   }
@@ -452,7 +605,7 @@ export class NatsBackend extends Backend {
     }
   }
   async stateList(prefix = "") {
-    const kv = await this.#state();
+    const kv = (await this.#reader())?.state ?? (await this.#state());
     const out = [];
     for await (const k of await kv.keys(`${this.repo}.${prefix ? `${prefix}.` : ""}>`)) {
       const e = await kv.get(k);
