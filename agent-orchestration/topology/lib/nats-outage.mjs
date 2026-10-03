@@ -57,7 +57,9 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   const redialKey = `${outage.since}|${outage.url}`;
   const redial = redials.get(redialKey);
   if (outage.recovered_at) redials.delete(redialKey);
-  else if ((!redial || now() >= redial.at) && await reachable(outage.url)) {
+  // TM-308: a port conflict answers TCP by definition (something else holds it); the next managed
+  // open that succeeds on that port is what closes it, so there is nothing to probe.
+  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url)) {
     // The configured NATS answers TCP again. Drop the cached local connection so the next open dials
     // the configured one through the real connect path, which is what closes the outage.
     await discard();
@@ -74,7 +76,12 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { kind, status: 'skipped', reason: 'no lead is registered for this repository' };
   const where = `${outage.url} (${outage.source})`;
-  const body = kind === 'outage' ? [
+  const body = kind === 'outage' && outage.conflict ? [
+    `NATS PORT CONFLICT on ${hostname()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
+    `Error: ${outage.error}`,
+    `Since: ${outage.since}`,
+    `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`,
+  ] : kind === 'outage' ? [
     `NATS OUTAGE on ${hostname()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
@@ -87,7 +94,7 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
     `NATS RECOVERED on ${hostname()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? 'back on it' : `now on ${state.url} (${state.source})`}.`,
     `The outage began ${outage.since}: ${outage.error}`,
   ];
-  return deliver({ id, consumer, to: leadId, subject: `NATS ${kind}: ${outage.url}`,
+  return deliver({ id, consumer, to: leadId, subject: `NATS ${kind === 'outage' && outage.conflict ? 'port conflict' : kind}: ${outage.url}`,
     body: body.join('\n'), provenance: { source: 'ao-topology supervise' } }, { env, home })
     .then(record => ({ kind, status: record?.status ?? 'sent', to: leadId, message_id: id }))
     .catch(error => ({ kind, status: 'failed', to: leadId, reason: error?.code ?? String(error) }));
