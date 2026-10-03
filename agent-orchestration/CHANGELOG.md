@@ -2,7 +2,20 @@
 
 ## [Unreleased]
 
+_Version markers (`package.json`, `src/mcp.mjs`) are 0.16.0 for TM-310._
+
 ### Added
+
+- **Per-agent NATS credentials on the local server (TM-310, EP-026).** Each agent is its own nkey
+  user with permissions narrowed to its own mail and reply durables, `_INBOX.<agent>_<random>`
+  prefix, presence and agent keys, plus mail only to its lead (workers write no claims, and no agent
+  may create, delete or purge a stream or reach `$SYS`). The server config holds public keys only.
+  New `topology/lib/agent-creds.mjs`: `CredStore` issues, rotates and revokes (a reload drops the
+  live connection), and a per-agent holder process keeps the seed and reply token in memory. The
+  launcher script and agent environment carry only `AO_CREDS_SOCK`; the holder answers only a
+  descendant of that agent's pane, identified by the kernel's socket peer. `AO_AGENT_CREDS=env`
+  keeps the previous launcher-token behaviour. The transport uses the held seed, binds rather than
+  creates buckets, and never runs layout. The same holder can serve a gateway creds file's text.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

@@ -5,7 +5,8 @@
 // file, no system account (so no $SYS access), permissions limited to the orch subject space plus
 // the JetStream/KV API the transport needs. It is a single-user dev fallback, not the gateway's
 // per-agent credential model (docs/contracts/orch-listener.md).
-// ponytail: one shared user for every agent; per-agent creds need the gateway's IssueOrch.
+// TM-310: that shared user is now the HOST user only (supervisor, router). Agents are nkey users added
+// through agent-creds.mjs (public keys in agent-users.json, narrowed permissions per agent).
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, openSync, readFileSync } from 'node:fs';
@@ -13,6 +14,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
+import { loadAgentUsers, renderAgentUser } from './agent-creds.mjs';
 import { withLock } from './lockfile.mjs';
 import { runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
@@ -47,7 +49,7 @@ function freePort() {
   });
 }
 
-export function serverConfig({ port, user, password, storeDir }) {
+export function serverConfig({ port, user, password, storeDir, agentUsers = [] }) {
   const allow = ['orch.>', '_INBOX.>', '$JS.API.>', '$JS.ACK.>', '$JS.FC.>', '$KV.>', '$O.>'];
   const list = allow.map((subject) => JSON.stringify(subject)).join(', ');
   return `listen: 127.0.0.1:${port}
@@ -57,7 +59,7 @@ accounts {
   ORCH {
     jetstream: enabled
     users = [ { user: ${JSON.stringify(user)}, password: ${JSON.stringify(password)},
-      permissions: { publish: { allow: [${list}] }, subscribe: { allow: [${list}] } } } ]
+      permissions: { publish: { allow: [${list}] }, subscribe: { allow: [${list}] } } }${agentUsers.map((entry) => `,\n      ${renderAgentUser(entry)}`).join('')} ]
   }
 }
 `;
@@ -79,9 +81,16 @@ function readState(home) {
  * restart reuses the JetStream data they guard. */
 async function writeServerConfig(home, { port, user, pass }) {
   const confPath = join(home, 'nats-server.conf');
-  await writeFile(confPath, serverConfig({ port, user, password: pass, storeDir: join(home, 'jetstream') }), { mode: 0o600 });
+  await writeFile(confPath, serverConfig({ port, user, password: pass, storeDir: join(home, 'jetstream'), agentUsers: loadAgentUsers(home) }), { mode: 0o600 });
   await chmod(confPath, 0o600);
   return confPath;
+}
+
+/** TM-310: re-render the config from state.json plus the current agent registry; the caller reloads the server. */
+export async function rewriteServerConfig(home) {
+  const state = readState(home);
+  if (!state) throw unavailable(`No local NATS state in ${home}; nothing to rewrite.`);
+  return writeServerConfig(home, { port: state.port, user: state.user, pass: state.pass });
 }
 
 async function writeState(home, state) {

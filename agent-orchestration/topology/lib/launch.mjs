@@ -23,6 +23,8 @@ import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
+import { provisionForLaunch } from './agent-creds.mjs';
+import { canonicalRepoId } from './repoid.mjs';
 import { claimAgent } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
 
@@ -648,7 +650,7 @@ export function assertAutomaticFallbackPolicy(config, candidates) {
   }
 }
 
-function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage = null, replyToken = null }) {
+function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, holder = null, lineage = null, replyToken = null }) {
   // A coordinator is granted nothing. It delegates rather than implements, and it is the only
   // address an outsider may reach directly in cross-repo routing — the most exposed agent in the
   // system should be the least capable one. Its cwd is its own agent directory, so withholding the
@@ -694,8 +696,11 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
       : {};
     const env = { ...agent.env, ...descend, ...upward, AO_RUN_DIR: spec.run_dir, AO_AGENT_ROLE: agent.role, AO_SESSION: spec.session, AO_PROVIDER: candidateLabel(candidate),
       ...(workerGuard ? { TM_DISPATCH_WORKER: '1', TM_DISPATCH_TASK: workerGuard.task_id, TM_DISPATCH_BRANCH: workerGuard.branch } : {}),
-      AO_CONSUMER: spec.consumer || spec.cwd, AO_AGENT_ID: agent.id, AO_AGENT_TOKEN: token };
-    return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, vars, guard, workerGuard, runtime_dirs: coordinator ? [] : runtimeDirs,
+      AO_CONSUMER: spec.consumer || spec.cwd, AO_AGENT_ID: agent.id,
+      // TM-310: with a holder the launcher carries only the socket path, which is not a secret. The token
+      // and the NATS credential are asked for at use and live in the holder's memory.
+      ...(holder ? { AO_CREDS_SOCK: holder.sock } : { AO_AGENT_TOKEN: token }) };
+    return { index, candidate, label: candidateLabel(candidate), adapter, argv, env, holder, vars, guard, workerGuard, runtime_dirs: coordinator ? [] : runtimeDirs,
       add_dirs: addDirs, memory: memoryLocation(adapter, { cwd: agent.cwd, home: spec.home ?? process.env.HOME ?? "" }), launcher: join(dir, `launch-${index}.sh`) };
   });
 }
@@ -735,6 +740,8 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
     // and a CLI that exited 42 on startup is indistinguishable from one that is merely slow. Exec'd,
     // the pane's process IS the agent: its exit is the pane's exit, `remain-on-exit` keeps the body,
     // and `#{pane_dead_status}` is the agent's own status. Failover respawns the pane either way.
+    // TM-310: only this pane's process tree may ask the holder for the agent's secrets.
+    if (item.holder) await item.holder.attach(await tmux.panePid(pane));
     await tmux.sendText(pane, `exec bash ${shellQuote(item.launcher)}`);
     const timeoutMs = item.adapter.ready.timeout_ms ?? 45_000;
     const readiness = client && item.adapter.ready.tmux_pattern
@@ -969,7 +976,10 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     const bootstrapFile = join(dir, "BOOTSTRAP.md");
     // One token per agent, not per candidate: a failover changes the provider, not who the agent is.
     const token = mintAgentToken();
-    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, lineage, replyToken });
+    const holder = await provisionForLaunch({ repo: (await canonicalRepoId(spec.consumer || spec.cwd)).id, agent: agent.id, role: agent.role === 'orchestrator' ? 'lead' : 'worker',
+      mailTo: spec.agents.filter((other) => other.id !== agent.id && (agent.role === 'orchestrator' || other.role === 'orchestrator')).map((other) => other.id), token })
+      .catch((error) => { warnings.push(`agent ${agent.id}: credential holder unavailable (${error.message}); the token stays in its launcher`); return null; });
+    const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, holder, lineage, replyToken });
     prepared.push({ agent, skills, role, dir, bootstrapFile, candidates, token });
   }
 
