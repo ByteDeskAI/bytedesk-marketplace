@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Backend, ConflictError, OfflineError, UnsupportedError } from "./backend.mjs";
-import { assertWritable, decode } from "./registry.mjs";
+import { assertWritable, decode, hydrate, isBlobRef } from "./registry.mjs";
 
 /** Stable id of an event row: same row → same id, so a re-run of a migration can tell what is already there. */
 export const eventRow = (e) => ({ ts: e.ts ?? new Date().toISOString(), ...e });
@@ -50,6 +50,10 @@ export function credsStatus(file, now = Date.now()) {
   };
 }
 
+/** Default size above which a field leaves the envelope for the object store. NATS max_payload is 1 MB by default. */
+export const DEFAULT_SPILL_BYTES = 256 * 1024;
+const WIRE_LIMIT = 900 * 1024; // an envelope still bigger than this after field spilling has its largest fields spilled until it fits
+
 export const OFFLINE_MESSAGE = "offline: read-only, writes queued";
 const DAY_NS = 24 * 3600 * 1e9;
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -74,6 +78,8 @@ export class NatsBackend extends Backend {
     this.h = null; // hub handles (read/write)
     this.lh = null; // leaf-side mirror handles (read-only)
     this.stats = { maxBatch: 0, fetches: 0 };
+    // 0 (or negative) turns spilling off: a value past max_payload then fails with MAX_PAYLOAD_EXCEEDED.
+    this.spillBytes = Number(o.spillBytes ?? process.env.TM_SPILL_BYTES ?? DEFAULT_SPILL_BYTES);
     this.lastReadTier = null;
   }
   get kind() {
@@ -326,6 +332,13 @@ export class NatsBackend extends Backend {
     return { rev: null, queued: true, proposalId: id };
   }
 
+  /** Push a blob that was written to the local cache while offline. */
+  async #upload(digest) {
+    const f = this.cacheDir && join(this.cacheDir, "blobs", digest);
+    const name = `${this.repo}/${digest}`;
+    if (f && existsSync(f) && !(await this.h.evidence.info(name))) await this.h.evidence.putBlob({ name }, new Uint8Array(readFileSync(f)));
+  }
+
   /** Replay queued proposals. Idempotent: the proposal key is the dedupe, and an applied one is skipped. */
   async #replay() {
     const q = this.queue();
@@ -341,7 +354,9 @@ export class NatsBackend extends Backend {
         if (prior?.value?.length && dec(prior.value).status !== "pending") { done.push({ ...rec, status: dec(prior.value).status, replayed: false }); continue; }
       }
       try {
-        if (rec.op === "event") await this.h.js.publish(`tm.${this.repo}.events.${safe(rec.payload.event || rec.payload.kind || "event")}`, enc(rec.payload), { msgID: `${this.repo}:${rec.proposalId}` });
+        for (const d of [rec.op === "blob" ? rec.id : null, ...Object.values(rec.payload?.data ?? rec.payload ?? {}).map((v) => (isBlobRef(v) ? v.$blob.digest : null))].filter(Boolean)) await this.#upload(d);
+        if (rec.op === "blob") { /* uploaded above */ }
+        else if (rec.op === "event") await this.h.js.publish(`tm.${this.repo}.events.${safe(rec.payload.event || rec.payload.kind || "event")}`, enc(rec.payload), { msgID: `${this.repo}:${rec.proposalId}` });
         else if (rec.op === "put" || rec.op === "create") await this.#putOnline(rec.type, rec.id, rec.payload, { ifRev: rec.ifRev ?? undefined, reason: rec.reason }, rec.op === "create");
         else if (rec.op === "delete") await this.#deleteOnline(rec.type, rec.id, { ifRev: rec.ifRev ?? undefined, reason: rec.reason });
       } catch (err) {
@@ -356,6 +371,44 @@ export class NatsBackend extends Backend {
     return done;
   }
 
+  // ── large values ───────────────────────────────────────────────────────────
+  /**
+   * Move oversized top-level fields of `envelope.data` into the object store and leave a
+   * {"$blob": {digest,size,encoding}} reference. Blobs are keyed by content hash, so an unchanged
+   * field is never uploaded twice. Offline the blob lands in the local cache and uploads on replay.
+   */
+  async #spill(envelope) {
+    if (!(this.spillBytes > 0) || !envelope?.data || typeof envelope.data !== "object") return envelope;
+    const sized = Object.entries(envelope.data).map(([k, v]) => [k, v === undefined || isBlobRef(v) ? 0 : Buffer.byteLength(JSON.stringify(v))]);
+    const pick = new Set(sized.filter(([, n]) => n > this.spillBytes).map(([k]) => k));
+    let total = Buffer.byteLength(JSON.stringify(envelope)) - sized.filter(([k]) => pick.has(k)).reduce((a, [, n]) => a + n, 0);
+    for (const [k, n] of [...sized].sort((a, b) => b[1] - a[1])) {
+      if (total <= WIRE_LIMIT) break;
+      if (!pick.has(k) && n > 1024) (pick.add(k), (total -= n));
+    }
+    if (!pick.size) return envelope;
+    const data = { ...envelope.data };
+    for (const k of pick) {
+      const buf = Buffer.from(JSON.stringify(data[k]));
+      const digest = await this.blobPut(buf);
+      data[k] = { $blob: { digest, size: buf.length, encoding: "json" } };
+    }
+    return { ...envelope, data };
+  }
+  async #fetch(digest) {
+    const f = this.cacheDir && join(this.cacheDir, "blobs", digest);
+    if (f && existsSync(f)) return readFileSync(f);
+    const buf = await this.blobGet(digest);
+    if (buf && f) {
+      try { mkdirSync(join(f, ".."), { recursive: true }); writeFileSync(f, buf); } catch { /* cache only */ }
+    }
+    return buf;
+  }
+  /** A stored entry with its $blob fields resolved. The stored (small) form stays what the cache and KV hold. */
+  async #full(hit) {
+    return hit && { ...hit, envelope: await hydrate(hit.envelope, (d) => this.#fetch(d)) };
+  }
+
   // ── entities ───────────────────────────────────────────────────────────────
   async #stored(type, id) {
     const e = await this.h.entities.get(this.key(type, id));
@@ -363,15 +416,15 @@ export class NatsBackend extends Backend {
   }
   async get(type, id) {
     const r = await this.#reader();
-    if (!r) return this.#cacheGet(type, id);
+    if (!r) return this.#full(this.#cacheGet(type, id));
     const e = await r.entities.get(this.key(type, id));
     const hit = e && e.operation === "PUT" ? this.#entry(type, e) : null;
     if (hit) this.#cacheSet(type, id, hit);
-    return hit;
+    return this.#full(hit);
   }
   async list(type, { prefix = "" } = {}) {
     const h = await this.#reader();
-    if (!h) return this.#cacheList(type).filter((e) => e.envelope.id.startsWith(prefix));
+    if (!h) return Promise.all(this.#cacheList(type).filter((e) => e.envelope.id.startsWith(prefix)).map((e) => this.#full(e)));
     const out = [];
     const keys = await h.entities.keys(`${this.repo}.${type}.>`);
     const names = [];
@@ -382,7 +435,7 @@ export class NatsBackend extends Backend {
       const hit = this.#entry(type, e);
       if (!hit.envelope.id.startsWith(prefix)) continue;
       this.#cacheSet(type, hit.envelope.id, hit);
-      out.push(hit);
+      out.push(await this.#full(hit));
     }
     return out.sort((a, b) => String(a.envelope.id).localeCompare(String(b.envelope.id)));
   }
@@ -414,10 +467,12 @@ export class NatsBackend extends Backend {
   async put(type, id, envelope, opts = {}) {
     // Offline, the write is a proposal against the revision we last saw, so a change made elsewhere
     // meanwhile shows up as a conflict on replay instead of being silently overwritten.
+    envelope = await this.#spill(envelope);
     if (!(await this.#ready())) return this.#enqueue({ op: "put", type, id, ifRev: opts.ifRev ?? this.#cacheGet(type, id)?.rev, reason: opts.reason, payload: envelope });
     return this.#putOnline(type, id, envelope, opts);
   }
   async create(type, id, envelope) {
+    envelope = await this.#spill(envelope);
     if (!(await this.#ready())) return this.#enqueue({ op: "create", type, id, payload: envelope });
     return this.#putOnline(type, id, envelope, {}, true);
   }
@@ -444,7 +499,9 @@ export class NatsBackend extends Backend {
     const it = await h.entities.history({ key: this.key(type, id) });
     const rows = [];
     for await (const e of it) rows.push({ rev: e.revision, op: e.operation, ts: e.created, envelope: e.operation === "PUT" ? dec(e.value) : null });
-    return rows.slice(-limit);
+    const out = rows.slice(-limit);
+    for (const r of out) if (r.envelope) r.envelope = await hydrate(r.envelope, (d) => this.#fetch(d));
+    return out;
   }
 
   async *watch(type, { since } = {}) {
@@ -454,7 +511,7 @@ export class NatsBackend extends Backend {
     try {
       for await (const e of w) {
         const id = e.key.split(".").slice(2).join(".");
-        yield { type, id, op: e.operation, rev: e.revision, envelope: e.operation === "PUT" ? this.#entry(type, e).envelope : null };
+        yield { type, id, op: e.operation, rev: e.revision, envelope: e.operation === "PUT" ? (await this.#full(this.#entry(type, e))).envelope : null };
       }
     } finally {
       w.stop();
@@ -501,10 +558,18 @@ export class NatsBackend extends Backend {
     const kind = safe(event.event || event.kind || "event");
     const row = eventRow(event);
     const msgID = eventId(row);
-    if (!h) return this.#enqueue({ op: "event", type: "tm/event", id: kind, payload: row });
+    const wire = await this.#spillRow(row);
+    if (!h) return this.#enqueue({ op: "event", type: "tm/event", id: kind, payload: wire });
     // Msg-Id dedupe is stream-wide, so two boards that log an identical row in the same ms must not collide.
-    await h.js.publish(`tm.${this.repo}.events.${kind}`, enc(row), { msgID: `${this.repo}:${msgID}` });
+    await h.js.publish(`tm.${this.repo}.events.${kind}`, enc(wire), { msgID: `${this.repo}:${msgID}` });
     return { id: msgID };
+  }
+  async #rowFull(row) {
+    return (await hydrate({ data: row }, (d) => this.#fetch(d))).data;
+  }
+  /** Event rows are flat objects: same rule as an envelope's data (the id was taken from the full row, before this). */
+  async #spillRow(row) {
+    return (await this.#spill({ data: row })).data;
   }
   /**
    * One bounded page of events: at most `limit` rows (and never more than `batch` per server fetch),
@@ -533,7 +598,7 @@ export class NatsBackend extends Backend {
         this.stats.fetches += 1;
         let got = 0;
         for await (const m of await c.fetch({ max_messages: n, expires: 5000 })) {
-          rows.push(dec(m.data));
+          rows.push(await this.#rowFull(dec(m.data)));
           last = m.seq;
           if (++got >= n) break;
         }

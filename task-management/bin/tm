@@ -127,7 +127,10 @@ const tryEnsurePool = () => {
   }
 };
 /** Read verbs print human text by default and structured JSON with --json. */
-const emit = (data, human) => out(JSON_OUT ? JSON.stringify(data, null, 2) : human());
+const emit = (data, human) => {
+  const text = JSON_OUT ? JSON.stringify(data, null, 2) : human();
+  if (text !== undefined) out(text); // a renderer that prints its own lines returns nothing: do not print "undefined"
+};
 const die = (s, code = 1) => {
   process.stderr.write(`${s}\n`);
   process.exit(code);
@@ -1051,12 +1054,12 @@ const VERBS = {
   async migrate(...args) {
     const { NatsBackend } = await import("../lib/storage/nats-backend.mjs");
     const { migrate: run } = await import("../lib/storage/migrate.mjs");
-    const { repoKey, repoAliases } = await import("../lib/storage/index.mjs");
+    const { repoKey, repoAliases, spillBytes } = await import("../lib/storage/index.mjs");
     const dryRun = args.includes("--dry-run");
     const si = args.indexOf("--snapshot");
-    const backend = new NatsBackend({ repo: repoKey(P), aliases: repoAliases(P), root: P.root, url: process.env.TM_NATS_URL, creds: process.env.TM_NATS_CREDS });
+    const backend = new NatsBackend({ repo: repoKey(P), aliases: repoAliases(P), root: P.root, url: process.env.TM_NATS_URL, creds: process.env.TM_NATS_CREDS, spillBytes: process.env.TM_SPILL_BYTES ? undefined : spillBytes(P) });
     if ((await backend.info()).offline) die("migrate needs a reachable NATS server: set TM_NATS_URL (and TM_NATS_CREDS)");
-    const report = await run({ backend, p: P, dryRun, snapshotPath: si >= 0 ? args[si + 1] : undefined, log: out });
+    const report = await run({ backend, p: P, dryRun, snapshotPath: si >= 0 ? args[si + 1] : undefined, log: JSON_OUT ? () => {} : out });
     await backend.close();
     emit(report, () => {
       for (const [t, r] of Object.entries(report.types)) out(`${t.padEnd(14)} source ${r.source}  planned ${r.planned}  dest-before ${r.destBefore}${dryRun ? "" : `  written ${r.written}  skipped ${r.skipped}  dest ${r.dest}  ${r.equal ? "equal" : "MISMATCH"}`}`);
@@ -1071,19 +1074,20 @@ const VERBS = {
   async cutover(...args) {
     const { NatsBackend } = await import("../lib/storage/nats-backend.mjs");
     const { cutover: run } = await import("../lib/storage/cutover.mjs");
-    const { repoKey, repoAliases } = await import("../lib/storage/index.mjs");
+    const { repoKey, repoAliases, spillBytes } = await import("../lib/storage/index.mjs");
     const dryRun = args.includes("--dry-run");
     const si = args.indexOf("--snapshot");
-    const backend = new NatsBackend({ repo: repoKey(P), aliases: repoAliases(P), root: P.root, url: process.env.TM_NATS_URL, creds: process.env.TM_NATS_CREDS });
+    const backend = new NatsBackend({ repo: repoKey(P), aliases: repoAliases(P), root: P.root, url: process.env.TM_NATS_URL, creds: process.env.TM_NATS_CREDS, spillBytes: process.env.TM_SPILL_BYTES ? undefined : spillBytes(P) });
     if ((await backend.info()).offline) die("cutover needs a reachable NATS server: set TM_NATS_URL (and TM_NATS_CREDS)");
-    const v = await run({ backend, p: P, dryRun, snapshotPath: si >= 0 ? args[si + 1] : undefined, log: out });
+    const v = await run({ backend, p: P, dryRun, snapshotPath: si >= 0 ? args[si + 1] : undefined, log: JSON_OUT ? () => {} : out });
     await backend.close();
     emit(v, () => {
+      if (v.alreadySwitched) return void out("already cut over (storage.backend = nats): nothing migrated, nothing written");
       for (const [t, r] of Object.entries(v.types)) out(`${t.padEnd(14)} source ${r.source}  planned ${r.planned}${dryRun ? "" : `  dest ${r.dest}  ${r.equal ? "equal" : "MISMATCH"}`}`);
       out(`events         source ${v.events.source}${dryRun ? "" : `  dest ${v.events.dest}  ${v.events.equal ? "equal" : "MISMATCH"}`}`);
       out(v.switched ? "cut over: storage.backend = nats" : dryRun ? `dry run: ${v.wouldSwitch ? "would switch" : "would REFUSE"} — nothing changed` : `REFUSED: ${v.refused}`);
     });
-    if (!dryRun && !v.switched) process.exitCode = 1;
+    if (!dryRun && !v.switched && !v.alreadySwitched) process.exitCode = 1;
   },
 
   /**

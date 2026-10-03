@@ -50,12 +50,20 @@ export async function migrate({ backend, p, dryRun = false, snapshotPath, log = 
   for (const type of [...ENTITY_TYPES, "tm/plan"]) {
     const rows = await src.list(type);
     const planned = rows.map((r) => encode(type, r.envelope.data, { src: "import" })); // throws before any write
-    const t = (report.types[type] = { source: rows.length, planned: planned.length, destBefore: (await backend.list(type)).length, written: 0, skipped: 0, dest: null, equal: null });
+    const t = (report.types[type] = { source: rows.length, planned: planned.length, destBefore: (await backend.list(type)).length, written: 0, skipped: 0, diverged: 0, dest: null, equal: null });
     if (dryRun) continue;
+    const diverged = new Set();
     for (const env of planned) {
       const cur = await backend.get(type, env.id);
       if (cur && same(decode(cur.envelope).data, env.data)) {
         t.skipped += 1;
+        continue;
+      }
+      // The destination was written by tm after the import (meta.src is not "import"): it is newer than
+      // the markdown source, which stopped being written at cutover. Overwriting it would revert real work.
+      if (cur && cur.envelope.meta?.src !== "import") {
+        t.diverged += 1;
+        diverged.add(env.id);
         continue;
       }
       await backend.put(type, env.id, env, { reason: "tm migrate", ...(cur ? { ifRev: cur.rev } : {}) });
@@ -63,7 +71,7 @@ export async function migrate({ backend, p, dryRun = false, snapshotPath, log = 
     }
     const after = await backend.list(type);
     const byId = new Map(after.map((e) => [e.envelope.id, decode(e.envelope).data]));
-    const mismatched = planned.filter((e) => !byId.has(e.id) || !same(byId.get(e.id), e.data)).map((e) => e.id);
+    const mismatched = planned.filter((e) => !diverged.has(e.id) && (!byId.has(e.id) || !same(byId.get(e.id), e.data))).map((e) => e.id);
     t.dest = after.length;
     t.equal = after.length === rows.length && mismatched.length === 0;
     if (mismatched.length) t.mismatched = mismatched.slice(0, 10);

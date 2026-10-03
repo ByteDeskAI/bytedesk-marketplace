@@ -20,6 +20,10 @@ Rules:
 - Plugins extend with new `type`s and new optional `data` fields via the registry; they do not fork the core types.
 - Registry API (each plugin has its own copy of this shape): `register(type, { current, validate(data), upcasters: { [fromSchema]: (data) => data } })`, `decode(envelope) -> { current:boolean, data, readOnly:boolean }`, `encode(type, data, meta) -> envelope`.
 
+### Large values
+
+No stored message may exceed the server's `max_payload` (1 MB default); the schema, not the server limit, absorbs bigger values. A top-level `data` field whose serialized size exceeds the spill threshold (default 256 KB; config `storage.spillBytes`, env `TM_SPILL_BYTES`, `0` = off) is stored in the object store by content hash and replaced in `data` by `{"$blob": {"digest": "<sha256>", "size": <bytes>, "encoding": "json"}}`. `encoding: "json"` means the blob holds the JSON text of the original field value. Readers that know the convention fetch the blob and substitute it (a missing blob is an error, never a short value); readers that do not know it see the reference. Writers preserve an unrecognised `$blob` field as they would any unknown field. Applies to KV entities, stream events and offline proposals; blobs are cached on the leaf on first read. An additive change: schema integers do not change.
+
 ## 2. Storage backend interface (TM)
 
 `Backend` methods (all async): `get(type,id) -> {envelope, rev}|null`, `put(type,id,envelope,{ifRev})` (CAS; throws `ConflictError` with current rev), `create(type,id,envelope)` (fails if exists), `delete(type,id,{ifRev,reason})`, `list(type,{prefix})`, `history(type,id,{limit})`, `watch(type,{since})` (async iterator of changes), `blobPut(digest|stream) -> digest`, `blobGet(digest)`, `blobList`, `appendEvent(event)`, `events({since,filter})`, `info() -> {kind, server, offline:boolean}`.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Large values spill to the object store (TM-312).** A `data` field over `storage.spillBytes`
+  (default 256 KB, `TM_SPILL_BYTES`, 0 = off) is stored by content hash and replaced by
+  `{"$blob": {digest,size,encoding}}`; reads rehydrate it, old readers see the reference. Fixes
+  `tm cutover` failing with `MAX_PAYLOAD_EXCEEDED` on real task bodies of 1-3 MB. Re-running a
+  migration no longer overwrites tasks `tm` edited in NATS (`diverged`), a cutover on a board already
+  on `nats` is a no-op, and `tm cutover --dry-run` no longer prints a stray `undefined`.
+
 - **Pluggable storage with a schema registry and an opt-in NATS backend (TM-312, EP-026).**
   `lib/storage/` adds the `Backend` interface, a versioned envelope with upcasters (legacy markdown
   = schema 0), a `file` backend wrapping the current store, and a `nats` backend (JetStream KV with
