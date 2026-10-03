@@ -1,0 +1,28 @@
+{
+  "id": "creds-agent",
+  "display": "Creds agent (tests)",
+  "command": "node",
+  "args": [],
+  "model_args": [
+    "--model",
+    "{{model}}"
+  ],
+  "system_prompt_args": [],
+  "auto_approve_args": [],
+  "ready": {
+    "pattern": "^>",
+    "tmux_pattern": "^>",
+    "delay_ms": 500,
+    "timeout_ms": 30000
+  },
+  "composer": {
+    "empty_tmux_pattern": "^>[^a-zA-Z0-9]*$",
+    "empty_pattern": "(^|\\n)>[^a-zA-Z0-9\\n]*$",
+    "note": "Measured 2026-09-09 against tmux 3.4 by running this fixture in a real pane and asking `tmux display-message -p -t <pane> '#{C/r:^>[^a-zA-Z0-9]*$}'`: idle answered 2, the same pane with `[ao] Message 001-ping from conductor` typed and NOT submitted answered 0, and after Enter it answered 4. That negative is what makes the send contract meaningful \u2014 without a composer block this fixture reports `ring_capability: unsupported`, the bell correctly refuses to ring, and the inverted assertion in tests/contract/topology-tmux.test.mjs would pass while proving nothing. Two facts this pattern depends on: `#{C/r:}` searches the pane's VISIBLE content only (a marker in scrollback at history_size 26 answered 0, an on-screen string 14), so an old `> ` line that has scrolled away cannot answer for the live one; and tmux trims trailing whitespace off a rendered line, which is why the pattern does not end in `\\s` \u2014 `assertTmuxPattern` refuses one that does."
+  },
+  "submit_keys": [
+    "Enter"
+  ],
+  "detect": null,
+  "notes": "Test-only adapter. The spec passes the fake-agent script path through the agent's args. Both ready patterns are single-line and identical on purpose: tmux evaluates tmux_pattern per rendered line, so a pattern spanning a newline can never match there, and declaring tmux_pattern is what makes this fixture exercise the subscription path every real adapter takes. The 10s ready timeout was raised to 30s because node --test runs the contract files concurrently and the clean-install contract packs and installs the plugin next door; under that load a local node process took longer than 10s to draw its prompt and the run failed as 'ready pattern not seen'. The timeout is here to bound a hang, not to measure startup speed."
+}

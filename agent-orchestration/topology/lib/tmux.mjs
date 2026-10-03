@@ -130,6 +130,12 @@ export async function paneId(target) {
   return result.stdout.trim();
 }
 
+/** The pid of the process a pane runs (the shell until `exec` replaces it, then the agent). */
+export async function panePid(target) {
+  const result = await tmux(["display-message", "-p", "-t", target, "#{pane_pid}"]);
+  return Number(result.stdout.trim());
+}
+
 export async function setPaneTitle(pane, title) {
   await tmux(["select-pane", "-t", pane, "-T", title], { allowFailure: true });
 }

@@ -24,6 +24,7 @@ import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readJson, writeJson, writeText } from './util.mjs';
+import { fetchAdminSecrets, fetchAgentSecrets } from './agent-creds.mjs';
 import { ensureLocalNats } from './nats-local.mjs';
 import { stateRoot } from './repoid.mjs';
 
@@ -39,6 +40,9 @@ export const ORCH_LAYOUT = Object.freeze({
   agentsBucket: 'ORCH_AGENTS',
   reviewsBucket: 'ORCH_REVIEWS',
   personasBucket: 'ORCH_PERSONAS',
+  handoffsBucket: 'ORCH_HANDOFFS',
+  eventsStream: 'ORCH_EVENTS',
+  eventsMaxAgeMs: 90 * 24 * 60 * 60 * 1000,
   presenceTtlMs: 45_000,
   duplicateWindowMs: 120_000,
   mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
@@ -46,6 +50,12 @@ export const ORCH_LAYOUT = Object.freeze({
   tasksSubject: (repo) => `orch.${repo}.tasks.ready`,
   probeSubject: (repo, agent) => `orch.${repo}.probe.${agent}`,
   verdictSubject: (repo, nonce) => `orch.${repo}.review.${nonce}`,
+  eventsSubject: (repo, kind) => `orch.${repo}.events.${kind}`,
+  eventsFilter: (repo) => `orch.${repo}.events.>`,
+  // TM-310: an agent-mode transport keys its records under its own identity so the grant can name them.
+  handoffKey: (repo, messageId, agent = null) => (agent ? `${repo}.${agent}.${messageId}` : `${repo}.${messageId}`),
+  // TM-315: written by the RECIPIENT when it consumes a mail message, under its own identity so its grant covers it.
+  deliveredKey: (repo, agent, messageId) => `${repo}.${agent}.delivered.${orchName(messageId)}`,
   claimKey: (repo, task) => `${repo}.${task}`,
   agentKey: (repo, agent) => `${repo}.${agent}`,
   mailDurable: (repo, agent) => `mail_${repo}_${agent}`,
@@ -107,6 +117,12 @@ export async function resolveTransport({ env = process.env, transport, home } = 
     await originalClose(options);
   };
   return opened;
+}
+
+/** An already-open transport, or null. Journal mirroring uses it so a write never dials NATS by itself.
+ * ponytail: first open one; a process holds one per env key and in practice uses one. */
+export function peekLiveTransport() {
+  return [...liveTransports.values()].find((t) => t.stats?.().closed === false) ?? null;
 }
 
 export async function closeLiveTransports() {
@@ -192,6 +208,11 @@ export function createFileTransport() {
   const tasks = new Map();
   const probes = new Map();
   const verdictWaiters = new Map();
+  const handoffs = new Map();
+  const delivered = new Set();
+  const events = new Map();
+  const eventWatchers = new Set();
+  let eventSeq = 0;
   const timers = new Set();
   const takeQueue = (map, subject) => {
     const queue = map.get(subject) ?? [];
@@ -241,7 +262,7 @@ export function createFileTransport() {
             subject,
             messageId: item.messageId,
             body: item.body,
-            ack: async () => { item.acked = true; pruneAcked(queue); },
+            ack: async () => { if (item.messageId) delivered.add(ORCH_LAYOUT.deliveredKey(orchName(repo), orchName(agent), item.messageId)); item.acked = true; pruneAcked(queue); },
           };
         }
         if (Date.now() >= deadline) return null;
@@ -258,6 +279,63 @@ export function createFileTransport() {
       const next = revision + 1;
       claims.set(key, { body, revision: next });
       return { via: 'file', bucket: ORCH_LAYOUT.claimsBucket, key, revision: next };
+    },
+    async hasMailMessage({ repo, agent, messageId }) {
+      const subject = ORCH_LAYOUT.mailSubject(orchName(repo), orchName(agent));
+      if (delivered.has(ORCH_LAYOUT.deliveredKey(orchName(repo), orchName(agent), messageId))) return true;
+      return (mail.get(subject) ?? []).some((entry) => entry.messageId === messageId);
+    },
+    async getClaimEntry({ repo, task }) {
+      const entry = claims.get(ORCH_LAYOUT.claimKey(orchName(repo), orchName(task)));
+      return entry ? { body: entry.body, revision: entry.revision } : null;
+    },
+    async createHandoff({ repo, messageId, agent, body }) {
+      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId), agent ? orchName(agent) : null);
+      const current = handoffs.get(key);
+      if (current) return { created: false, body: current.body, revision: current.revision, key };
+      handoffs.set(key, { body, revision: 1 });
+      return { created: true, body, revision: 1, key };
+    },
+    async updateHandoff({ repo, messageId, agent, body, expectedRevision }) {
+      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId), agent ? orchName(agent) : null);
+      const current = handoffs.get(key);
+      if (!current || current.revision !== expectedRevision) fail('TOPOLOGY_CLAIM_CONFLICT', `Stale handoff revision ${expectedRevision} for ${key}.`);
+      handoffs.set(key, { body, revision: current.revision + 1 });
+      return { revision: current.revision + 1, key };
+    },
+    async getHandoff({ repo, messageId, agent }) {
+      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId), agent ? orchName(agent) : null);
+      const current = handoffs.get(key);
+      return current ? { body: current.body, revision: current.revision, key } : null;
+    },
+    async publishEvent({ repo, kind, body }) {
+      const name = orchName(repo);
+      const list = events.get(name) ?? [];
+      eventSeq += 1;
+      list.push({ seq: eventSeq, subject: ORCH_LAYOUT.eventsSubject(name, kind), body });
+      events.set(name, list);
+      for (const wake of eventWatchers) wake(name);
+      return { via: 'file', seq: eventSeq };
+    },
+    async readEvents({ repo, limit = 1000 }) {
+      return (events.get(orchName(repo)) ?? []).slice(-limit);
+    },
+    async watch({ repo }) {
+      const name = orchName(repo);
+      let flag = false;
+      let wake = null;
+      const listener = (changed) => { if (changed !== name) return; flag = true; wake?.(); };
+      eventWatchers.add(listener);
+      return {
+        changed(ms) {
+          if (flag) { flag = false; return Promise.resolve(true); }
+          return new Promise((resolve) => {
+            const timer = setTimeout(() => { wake = null; resolve(false); }, ms);
+            wake = () => { clearTimeout(timer); wake = null; flag = false; resolve(true); };
+          });
+        },
+        stop() { eventWatchers.delete(listener); },
+      };
     },
     async getClaim({ repo, task, storeDir }) {
       const key = ORCH_LAYOUT.claimKey(orchName(repo), orchName(task));
@@ -308,13 +386,18 @@ export function createFileTransport() {
     async pullReady({ repo, timeoutMs = 200 }) {
       const subject = ORCH_LAYOUT.tasksSubject(orchName(repo));
       const queue = tasks.get(subject) ?? [];
-      const item = queue.find((entry) => !entry.acked);
+      const now = Date.now();
+      // Like a JetStream pull consumer: a pulled item is in flight until it is acked or nak'd.
+      const item = queue.find((entry) => !entry.acked && !entry.inflight && (entry.holdUntil ?? 0) <= now);
       if (!item) return null;
+      item.inflight = true;
       return {
         via: 'file',
         subject,
+        messageId: item.messageId,
         body: item.body,
         ack: async () => { item.acked = true; pruneAcked(queue); },
+        nak: async (delayMs = 0) => { item.inflight = false; item.holdUntil = Date.now() + delayMs; },
       };
     },
     async serveProbe({ repo, agent, handler }) {
@@ -551,6 +634,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     StringCodec,
     connect,
     credsAuthenticator,
+    nkeyAuthenticator,
     nanos,
   } = await import('nats').catch(async (error) => {
     // Installed topology remains ESM and has no node_modules. Ship the same
@@ -599,10 +683,22 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   }
   const creds = credsFile || env.AO_ORCH_CREDS;
   const domain = await jetStreamDomain(env).catch((error) => { bridge?.server.close(); throw error; });
-  const dial = () => {
+  // TM-310: an agent process holds only its own identity. The seed (or gateway creds text) comes from
+  // the holder over AO_CREDS_SOCK, stays in this process's memory, and never touches env or disk. Such a
+  // process may not create streams or consumers, so ensure() leaves layout to the host.
+  const held = await fetchAgentSecrets(env).catch((error) => { bridge?.server.close(); throw error; });
+  const agentMode = Boolean(held?.seed || held?.creds || env.AO_ORCH_AGENT_MODE === '1');
+  // The local host identity: the admin holder gives the seed to this process only if it is outside every agent's tree.
+  const dial = async () => {
+    const admin = !held && local?.adminSock ? await fetchAdminSecrets(local.adminSock) : null;
     const options = { servers: target, name, timeout: 4000, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
-    if (local) Object.assign(options, { user: local.user, pass: local.pass });
+    if (held?.seed) Object.assign(options, { authenticator: nkeyAuthenticator(new TextEncoder().encode(held.seed)) });
+    else if (held?.creds) options.authenticator = credsAuthenticator(new TextEncoder().encode(held.creds));
+    else if (admin?.seed) options.authenticator = nkeyAuthenticator(new TextEncoder().encode(admin.seed));
+    else if (local) Object.assign(options, { user: local.user, pass: local.pass });
     else if (creds) options.authenticator = credsAuthenticator(readFileSync(creds));
+    const inboxPrefix = held?.inboxPrefix || env.AO_ORCH_INBOX_PREFIX;
+    if (inboxPrefix) options.inboxPrefix = inboxPrefix;
     return connect(options);
   };
   let nc;
@@ -634,6 +730,11 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   }
   const jsOptions = domain ? { domain } : {};
   const js = nc.jetstream(jsOptions);
+  // An agent binds to buckets the host created; passing creation options would be a stream-create it is not allowed.
+  // The identity this process was issued: its handoff records live under it unless a caller names another agent.
+  const heldAgent = held?.agent ? orchName(held.agent) : null;
+  const ownerOf = (agent) => (agent ? orchName(agent) : heldAgent);
+  const views = agentMode ? { kv: (bucket) => js.views.kv(bucket, { bindOnly: true, allow_direct: true }), os: (bucket) => js.views.os(bucket, { bindOnly: true }) } : js.views;
   const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = new Set();
   const subscriptions = new Set();
@@ -647,6 +748,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       return { kind: 'nats', closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
     async ensure({ repo, agents = [], replies = [] }) {
+      if (agentMode) return;
       const nameRepo = orchName(repo);
       if (!ensured.has('layout')) {
       await ensureStream(jsm, {
@@ -656,7 +758,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         storage: StorageType.File,
         max_age: nanos(7 * 24 * 60 * 60 * 1000),
         max_bytes: 256 * 1024 * 1024,
-        duplicate_window: nanos(ORCH_LAYOUT.duplicateWindowMs),
+        duplicate_window: nanos(Number(env.AO_ORCH_DUPLICATE_WINDOW_MS) || ORCH_LAYOUT.duplicateWindowMs),
       });
       await ensureStream(jsm, {
         name: ORCH_LAYOUT.tasksStream,
@@ -667,10 +769,26 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         max_bytes: 64 * 1024 * 1024,
         duplicate_window: nanos(ORCH_LAYOUT.duplicateWindowMs),
       });
-      await js.views.kv(ORCH_LAYOUT.agentsBucket, { storage: StorageType.File });
-      await js.views.kv(ORCH_LAYOUT.claimsBucket, { storage: StorageType.File, history: 16 });
-      await js.views.kv(ORCH_LAYOUT.presenceBucket, { storage: StorageType.File, ttl: ORCH_LAYOUT.presenceTtlMs });
-      await js.views.os(ORCH_LAYOUT.reviewsBucket, { storage: StorageType.File });
+      await ensureStream(jsm, {
+        name: ORCH_LAYOUT.eventsStream,
+        subjects: ['orch.*.events.>'],
+        retention: RetentionPolicy.Limits,
+        storage: StorageType.File,
+        max_age: nanos(ORCH_LAYOUT.eventsMaxAgeMs),
+        max_bytes: 512 * 1024 * 1024,
+      });
+      await views.kv(ORCH_LAYOUT.handoffsBucket, { storage: StorageType.File, history: 8 });
+      await views.kv(ORCH_LAYOUT.agentsBucket, { storage: StorageType.File });
+      await views.kv(ORCH_LAYOUT.claimsBucket, { storage: StorageType.File, history: 16 });
+      await views.kv(ORCH_LAYOUT.presenceBucket, { storage: StorageType.File, ttl: ORCH_LAYOUT.presenceTtlMs });
+      await views.os(ORCH_LAYOUT.reviewsBucket, { storage: StorageType.File });
+      // TM-310: per-agent grants can name a KV key only through a direct get (the subject carries the key); a
+      // bucket without allow_direct falls back to STREAM.MSG.GET, which cannot be narrowed. Turn it on, also for
+      // buckets created before this release.
+      for (const bucket of [ORCH_LAYOUT.handoffsBucket, ORCH_LAYOUT.agentsBucket, ORCH_LAYOUT.claimsBucket, ORCH_LAYOUT.presenceBucket]) {
+        const info = await jsm.streams.info(`KV_${bucket}`).catch(() => null);
+        if (info && !info.config.allow_direct) await jsm.streams.update(`KV_${bucket}`, { ...info.config, allow_direct: true });
+      }
       ensured.add('layout');
       }
       const tasksKey = `tasks:${nameRepo}`;
@@ -729,7 +847,19 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
         body: sc.decode(msg.data),
-        ack: async () => { msg.ack(); await nc.flush(); },
+        ack: async () => {
+          // TM-315: record the consumption BEFORE the ack removes the message from the work queue. A crash in
+          // between redelivers the message and the create below is then a no-op. Not a recording failure
+          // swallowed: a retry that cannot see this record would send the successor twice.
+          const wire = msg.headers?.get?.('Nats-Msg-Id') ?? null;
+          const prefix = `${nameRepo}.${nameAgent}.`;
+          if (wire?.startsWith(prefix)) {
+            const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+            await kv.create(ORCH_LAYOUT.deliveredKey(nameRepo, nameAgent, wire.slice(prefix.length)), JSON.stringify({ at: new Date().toISOString() }))
+              .catch(async (error) => { const entry = await kv.get(ORCH_LAYOUT.deliveredKey(nameRepo, nameAgent, wire.slice(prefix.length))).catch(() => null); if (!entry || entry.operation !== 'PUT') throw error; });
+          }
+          msg.ack(); await nc.flush();
+        },
         nak: async () => { msg.nak(); },
       };
     },
@@ -771,7 +901,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.claimsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.claimsBucket);
       const key = ORCH_LAYOUT.claimKey(nameRepo, orchName(task));
       const payload = JSON.stringify(body);
       try {
@@ -783,10 +913,110 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         fail('TOPOLOGY_CLAIM_CONFLICT', `Claim compare-and-set failed for ${key}: ${error.message}`);
       }
     },
+    /** True if an unconsumed mail message carries Nats-Msg-Id `<repo>.<agent>.<messageId>` (needs $JS.API.STREAM.MSG.GET.ORCH_MAIL). */
+    async hasMailMessage({ repo, agent, messageId }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const subject = ORCH_LAYOUT.mailSubject(nameRepo, orchName(agent));
+      // TM-315: a successor the recipient already consumed is gone from the work queue; its record says it was delivered.
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const consumed = await kv.get(ORCH_LAYOUT.deliveredKey(nameRepo, orchName(agent), messageId)).catch(() => null);
+      if (consumed && consumed.operation === 'PUT') return true;
+      const wanted = `${nameRepo}.${orchName(agent)}.${messageId}`;
+      const info = await jsm.streams.info(ORCH_LAYOUT.mailStream);
+      for (let seq = info.state.first_seq; seq <= info.state.last_seq;) {
+        const msg = await jsm.streams.getMessage(ORCH_LAYOUT.mailStream, { seq, next_by_subj: subject }).catch(() => null);
+        if (!msg) return false;
+        if (msg.header?.get?.('Nats-Msg-Id') === wanted) return true;
+        seq = msg.seq + 1;
+      }
+      return false;
+    },
+    async getClaimEntry({ repo, task }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const kv = await views.kv(ORCH_LAYOUT.claimsBucket);
+      const entry = await kv.get(ORCH_LAYOUT.claimKey(nameRepo, orchName(String(task)))).catch(() => null);
+      if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') return null;
+      return { body: entry.json(), revision: entry.revision };
+    },
+    async createHandoff({ repo, messageId, agent, body }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId), ownerOf(agent));
+      try {
+        return { created: true, body, revision: await kv.create(key, body), key };
+      } catch (error) {
+        const entry = await kv.get(key).catch(() => null);
+        if (!entry || entry.operation !== 'PUT') throw error;
+        return { created: false, body: entry.string(), revision: entry.revision, key };
+      }
+    },
+    async updateHandoff({ repo, messageId, agent, body, expectedRevision }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId), ownerOf(agent));
+      try {
+        return { revision: await kv.update(key, body, expectedRevision), key };
+      } catch (error) {
+        fail('TOPOLOGY_CLAIM_CONFLICT', `Handoff update failed for ${key}: ${error.message}`);
+      }
+    },
+    async getHandoff({ repo, messageId, agent }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId), ownerOf(agent));
+      const entry = await kv.get(key).catch(() => null);
+      return !entry || entry.operation !== 'PUT' ? null : { body: entry.string(), revision: entry.revision, key };
+    },
+    async publishEvent({ repo, kind, body }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const ack = await js.publish(ORCH_LAYOUT.eventsSubject(nameRepo, kind), sc.encode(body));
+      return { via: 'nats', seq: ack.seq };
+    },
+    /** Reads the newest `limit` events for the repo by stream sequence; needs $JS.API.STREAM.MSG.GET.ORCH_EVENTS. */
+    async readEvents({ repo, limit = 1000 }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const filter = ORCH_LAYOUT.eventsFilter(nameRepo);
+      const info = await jsm.streams.info(ORCH_LAYOUT.eventsStream);
+      let seq = Math.max(info.state.first_seq, info.state.last_seq - limit * 4);
+      const found = [];
+      while (seq <= info.state.last_seq) {
+        const msg = await jsm.streams.getMessage(ORCH_LAYOUT.eventsStream, { seq, next_by_subj: filter }).catch(() => null);
+        if (!msg) break;
+        found.push({ seq: msg.seq, subject: msg.subject, body: sc.decode(msg.data) });
+        seq = msg.seq + 1;
+      }
+      return found.slice(-limit);
+    },
+    /** A wake-up, not a source of truth: core subscription to the repo's events. Callers still re-check state. */
+    async watch({ repo }) {
+      const sub = nc.subscribe(ORCH_LAYOUT.eventsFilter(orchName(repo)));
+      subscriptions.add(sub);
+      await nc.flush();
+      let flag = false;
+      let wake = null;
+      (async () => { for await (const _ of sub) { flag = true; wake?.(); } })().catch(() => {});
+      return {
+        changed(ms) {
+          if (flag) { flag = false; return Promise.resolve(true); }
+          return new Promise((resolve) => {
+            const timer = setTimeout(() => { wake = null; resolve(false); }, ms);
+            wake = () => { clearTimeout(timer); wake = null; flag = false; resolve(true); };
+          });
+        },
+        stop() { try { sub.unsubscribe(); } catch { /* closed */ } subscriptions.delete(sub); },
+      };
+    },
     async getClaim({ repo, task, storeDir }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.claimsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.claimsBucket);
       const key = ORCH_LAYOUT.claimKey(nameRepo, orchName(String(task)));
       const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') {
@@ -799,7 +1029,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async putPresence({ repo, body }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket, { ttl: ORCH_LAYOUT.presenceTtlMs });
+      const kv = await views.kv(ORCH_LAYOUT.presenceBucket, { ttl: ORCH_LAYOUT.presenceTtlMs });
       const payload = typeof body === 'string' ? body : JSON.stringify(body);
       await kv.put(nameRepo, payload);
       return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo };
@@ -807,7 +1037,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async getPresence({ repo }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket);
+      const kv = await views.kv(ORCH_LAYOUT.presenceBucket);
       const entry = await kv.get(nameRepo).catch(() => null);
       if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') return null;
       return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo, body: entry.string() };
@@ -816,7 +1046,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       const nameRepo = orchName(repo);
       const key = ORCH_LAYOUT.agentKey(nameRepo, orchName(agent));
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.agentsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.agentsBucket);
       await kv.put(key, typeof body === 'string' ? body : JSON.stringify(body));
       return { via: 'nats', bucket: ORCH_LAYOUT.agentsBucket, key };
     },
@@ -824,24 +1054,24 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       const nameRepo = orchName(repo);
       const key = ORCH_LAYOUT.agentKey(nameRepo, orchName(agent));
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.agentsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.agentsBucket);
       const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === 'DEL') return null;
       return { via: 'nats', bucket: ORCH_LAYOUT.agentsBucket, key, body: entry.string() };
     },
     /** TM-279: the team persona bucket, on the same js context (and so the same domain) as the rest. */
     async personaKv() {
-      return js.views.kv(ORCH_LAYOUT.personasBucket, { storage: StorageType.File, history: 1 });
+      return views.kv(ORCH_LAYOUT.personasBucket, { storage: StorageType.File, history: 1 });
     },
     async putReview({ bytes }) {
       const data = typeof bytes === 'string' ? Buffer.from(bytes) : Buffer.from(bytes);
       const name = createHash('sha256').update(data).digest('hex');
-      const store = await js.views.os(ORCH_LAYOUT.reviewsBucket);
+      const store = await views.os(ORCH_LAYOUT.reviewsBucket);
       await store.putBlob({ name }, data);
       return { via: 'nats', bucket: ORCH_LAYOUT.reviewsBucket, name };
     },
     async getReview({ name }) {
-      const store = await js.views.os(ORCH_LAYOUT.reviewsBucket);
+      const store = await views.os(ORCH_LAYOUT.reviewsBucket);
       const bytes = await store.getBlob(name).catch(() => null);
       return bytes ? { via: 'nats', bucket: ORCH_LAYOUT.reviewsBucket, name, bytes: Buffer.from(bytes) } : null;
     },
@@ -859,7 +1089,8 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       const consumer = await js.consumers.get(ORCH_LAYOUT.tasksStream, ORCH_LAYOUT.tasksDurable(nameRepo));
       const msg = await consumer.next({ expires: Math.max(1000, timeoutMs) }).catch(() => null);
       if (!msg) return null;
-      return { via: 'nats', subject: msg.subject || subject, body: sc.decode(msg.data), ack: async () => { msg.ack(); } };
+      return { via: 'nats', subject: msg.subject || subject, messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null, body: sc.decode(msg.data),
+        ack: async () => { msg.ack(); await nc.flush(); }, nak: async (delayMs = 0) => { msg.nak(delayMs || undefined); await nc.flush(); } };
     },
     async serveProbe({ repo, agent, handler }) {
       const subject = ORCH_LAYOUT.probeSubject(orchName(repo), orchName(agent));

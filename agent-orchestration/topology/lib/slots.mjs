@@ -31,6 +31,7 @@ import { withLock } from "./lockfile.mjs";
 import { PRESENCE_BINDING_FIELDS } from "./presence.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 import { listServerPanes } from "./tmux.mjs";
+import { fetchAgentSecrets } from "./agent-creds.mjs";
 import { invariant, nowIso, readJson, writeJson } from "./util.mjs";
 
 export const SLOT_RECORD_VERSION = 1;
@@ -242,8 +243,9 @@ export async function requestSlot({ consumer, name, agentId = process.env.AO_AGE
  * reviewer has none. Neither proof → TOPOLOGY_SLOT_NOT_HOLDER with the record UNCHANGED: this
  * function does not reconcile, so a refused release cannot move a single byte.
  */
-export async function releaseSlot({ consumer, name, agentId = process.env.AO_AGENT_ID, runDir = null, token = process.env.AO_AGENT_TOKEN,
+export async function releaseSlot({ consumer, name, agentId = process.env.AO_AGENT_ID, runDir = null, token,
   env = process.env, home = homedir(), listPanesFn = listServerPanes } = {}) {
+  token ??= process.env.AO_AGENT_TOKEN ?? (await fetchAgentSecrets().catch(() => null))?.token;
   assertSlotName(name);
   const identity = await canonicalRepoId(consumer);
   const paths = slotPaths(identity, name, env, home);

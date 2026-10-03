@@ -1,8 +1,79 @@
 # Changelog
 
-## [Unreleased]
+## [0.16.1] — 2026-10-03
+
+_EP-026 follow-ups TM-315, TM-327, TM-328, TM-329 and TM-330._
+
+### Fixed
+
+- **`wait` on nothing pending no longer succeeds (TM-327).** A barrier that finds no obligation at all — an unknown or not-yet-sent `--message` id, or a run with none — returned `ok: true` with empty replies and journalled `wait.satisfied`. It now returns `ok: false`, code `TOPOLOGY_NOTHING_PENDING`, journals `wait.nothing_pending` and exits 2. Real pending and already-answered waits are unchanged. `ao-topology wait` is the only caller of `waitForReplies`.
+- **A spec-launched worker can acknowledge its prompt (TM-328).** `launch` wrote `prompt-state.json` without `desired_session`, `desired_binding` or `repo_id`, so `ao-topology prompt ack` always failed with `TOPOLOGY_PROMPT_ACK_INVALID`. `startAgentInPane` (used by launch and failover) now stages them with the same `promotePromptForIncarnation` the library-agent path uses, once the agent process is running and before its brief is delivered. `acknowledgePrompt` is unchanged and still strict.
+- **A handoff retry no longer re-sends a successor the recipient already consumed (TM-315).** The retry probe saw only unconsumed stream messages. A recipient now writes `<repo>.<agent>.delivered.<id>` in `ORCH_HANDOFFS` (create, permanent) when it acknowledges a mail message, and `hasMailMessage` checks it. Agents may read other agents' `delivered` records (ids only), nothing else of theirs.
+- **Supervision-transport test teardown (TM-329).** `node:test` runs `t.after` hooks in registration order, so the directory was removed while the supervisor was still rewriting its presence directory (`ENOTEMPTY`). The supervisor, broker and reader now stop first.
 
 ### Added
+
+- **Suite-end check for leaked service managers (TM-330).** A `process-compose` started from a `/tmp/ao-*` home during a run, and still alive at its end, now fails the run and is named. Scrubbed-environment processes carry no `AO_TEST_RUN`, so the check matches on the binary path. The role-icon contract fixture pins `AGENT_ORCHESTRATION_SERVICES=0` and reaps processes holding its private HOME.
+
+## [0.16.0] — 2026-10-03
+
+_TM-310, TM-311 and TM-312, on top of the 0.15.3 line below (TM-308 fixed `nats.port`, TM-309 outage notices), which this version includes._
+
+### Fixed
+
+- **TM-308 and TM-310 reconciled in `nats-local.mjs`.** The port comes from TM-308's `managedNatsPort` (config `nats.port`, else the recorded port while free or ours, else the first free one in range) and `checkNatsPort` refuses a port held by something else. TM-310's rules sit on top: a managed server is never shadowed by a detached start, `managed` is kept, the admin identity is an nkey held by a holder process, `state.json` is stamped `schema: 2`, socket paths fit the 107-byte limit, and the holder has its own bundle entry. Covered by one test running a configured `nats.port`, a manager process, two CLI processes and a per-agent credential for 30 s.
+- **The committed bundles carry the credential code (TM-310 round 6).** `dist/cli.cjs` and `dist/mcp.cjs`, which the services path runs (`runServicesEnsure` spawns `dist/cli.cjs`), still held the previous nats-local and rewrote `state.json` in the password format beside the topology code. Rebuilt, with a bundle-safe holder: a bundle's `import.meta.url` names the bundle, so the holder now has its own entry (`topology/lib/credential-holder.mjs`, built to `dist/credential-holder.cjs`) instead of re-running a bundle with `--holder`. A unit test fails when either bundle lacks the credential code, and another runs a bundled writer and topology source against one home.
+- **The local nats-server is no longer replaced on a new port every few seconds (TM-310 round 5).** A CLI that found the managed server briefly down started its own detached server on a fresh random port and wrote `state.json` without the `managed` flag; the manager's next tick then treated it as a stray, stopped it and started another on yet another port. Now a process whose services are enabled never starts a detached server beside a managed one, a process with services disabled first waits for a manager that is mid-start, a detached start keeps the `managed` flag, and every start (manager restart, detached start, handover) reuses the port in `state.json` while nothing holds it.  TM-308's fixed `nats.port` is the stricter form of the same rule and wins when set; the recorded port is the fallback.
+- **Holders no longer pin their launcher, and state.json is versioned (TM-310 round 5).** A credential holder's IPC channel carries only the start handshake and is closed once the holder is ready; attach, install and revoke go over its unix socket, authorised by a per-holder control key held in the spawner's memory or, from another process, by being outside every agent's tree. A launcher can therefore exit while its holders keep serving. `state.json` is stamped `schema: 2`; a newer schema is refused untouched, and a password-format file found next to a live nkey holder prints a loud warning naming the older version that rewrote it. Versions before this one never check the stamp, so they can still overwrite the file: upgrade every installation that shares a home.
+- **Admin socket path over 107 bytes (TM-310 round 4).** Node silently truncates a longer unix socket path and binds the truncated name, so a deep `AO_NATS_HOME` (a sandbox) bound a stray socket in a parent directory and every later start failed with `EADDRINUSE` while no `admin.sock` existed. Sockets now live at a short per-user path (`/tmp/ao-sock-<uid>/<hash>-admin.sock`) when `<home>/admin.sock` would not fit, and an over-long path is refused with a clear error. A state left by the password version is migrated to the nkey identity with a printed note; processes it started need a restart. Holders exit when their socket or home is gone, a launch that fails (or a dry run) no longer leaves holders, and the test suite fails if one survives.
+- **A second process no longer collides with the admin holder (TM-310 round 3).** `ensureAdminIdentity` asks the socket itself whether a live holder answers (a new `pub` op) and reuses it; only a socket nobody answers is unlinked and replaced, and a running server is reloaded to trust the replacement. A holder that finds its socket taken probes it before giving up. Re-provisioning an agent retires its previous holder. A recorded server pid is trusted only while it is still a `nats-server`.
+
+### Added
+
+- **Per-agent grants for the EP-026 features; no admin password anywhere (TM-310 round 2).**
+  Grants now cover handoff records (`$KV.ORCH_HANDOFFS.<repo>.<agent>.>`, an agent-mode transport keys its
+  records under its own identity), the events mirror (every agent publishes; only the lead and reviewer read,
+  diagnose and watch), the work queue (the lead publishes `tasks.ready`; a worker issued with `takesWork`
+  pulls it and writes fenced claims) and replies to the agents it may mail. Agent-mode views bind with
+  `allow_direct`, and host `ensure` turns `allow_direct` on for existing KV buckets so a read is a narrowable
+  direct get. The local host identity is an nkey whose seed lives only in an admin holder process
+  (`state.json` keeps the public key and socket path; a legacy password is migrated away) and is given only to
+  a process outside every agent tree, using the roots each agent holder registers. A holder survives its root
+  for a grace window and accepts `attach` over its socket from the operator tree, so a respawn from another
+  process re-attaches; `run.json` records `creds_sock`, and a dead holder fails with a message saying to
+  relaunch the agent. `launch` brings the local server up and makes the agent's durables first.
+
+- **NATS features for handoff, events, waiting, claims and work (TM-311, EP-026).**
+  `ao-topology handoff` closes a message with a reason (`handed_off_to`, `blocked_on`, `denied`,
+  `canceled`, `no-follow-on`, `escalation`; the first three need `--to`). The successor is created
+  first through `sendMessage`, so delegation, hop limit, routing and the lead-readiness gate apply,
+  then the source is closed. A retry never makes a second successor: the id is claimed with a KV
+  create on `ORCH_HANDOFFS` (`<repo>.<messageId>`), which outlives the 120 s `Nats-Msg-Id` window.
+  A successor held by the readiness gate leaves the source open and the retry resumes it.
+  Journal events are mirrored to the `ORCH_EVENTS` stream (`orch.<repo>.events.>`, limits, 90 d);
+  the journal file stays. `ao-topology diagnose` computes PARKED and DONE-UNSEEN from those events
+  and the census on read, and stores nothing. `waitForReplies` wakes on the events subject and keeps
+  its poll as the fallback. Claims have fenced writes (`claims-fenced.mjs`): the KV revision is the
+  token and a stale one is refused with `TOPOLOGY_CLAIM_FENCED`. `ao-topology work publish|take`
+  runs the `ORCH_TASKS` queue: idle agents take an item with a fenced claim, and a lost race is
+  nak'd with a delay and retried. New envelope module (`ao/handoff`, `ao/event`, schema 1) follows
+  the shared contract: unknown fields are preserved and a newer schema is read-only. The file
+  transport mirrors every new method. `pullReady` now returns `messageId` and `nak`, and the file
+  double keeps pulled items in flight until acked or nak'd. Test-only
+  `AO_ORCH_DUPLICATE_WINDOW_MS` shortens the mail stream's duplicate window.
+  Gateway grants these need: publish and subscribe `orch.<repo>.events.>`, `$JS.API.STREAM.MSG.GET.ORCH_EVENTS`
+  for `diagnose`, and `$KV.ORCH_HANDOFFS.<repo>.>` read/write.
+
+- **Per-agent NATS credentials on the local server (TM-310, EP-026).** Each agent is its own nkey
+  user with permissions narrowed to its own mail and reply durables, `_INBOX.<agent>_<random>`
+  prefix, presence and agent keys, plus mail only to its lead (workers write no claims, and no agent
+  may create, delete or purge a stream or reach `$SYS`). The server config holds public keys only.
+  New `topology/lib/agent-creds.mjs`: `CredStore` issues, rotates and revokes (a reload drops the
+  live connection), and a per-agent holder process keeps the seed and reply token in memory. The
+  launcher script and agent environment carry only `AO_CREDS_SOCK`; the holder answers only a
+  descendant of that agent's pane, identified by the kernel's socket peer. `AO_AGENT_CREDS=env`
+  keeps the previous launcher-token behaviour. The transport uses the held seed, binds rather than
+  creates buckets, and never runs layout. The same holder can serve a gateway creds file's text.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

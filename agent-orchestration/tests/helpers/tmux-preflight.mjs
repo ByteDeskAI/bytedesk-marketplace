@@ -19,6 +19,8 @@ import "./suite-leaks.mjs"; // TM-298: no test may leave a tmux server or proces
 // provider lead). Forced, not defaulted: an operator shell exporting it must not re-open that path.
 // A test that drives the services passes its own value in its child's env.
 process.env.AGENT_ORCHESTRATION_SERVICES = "0";
+// TM-310: a credential holder outlives its pane by this long so a respawn can re-attach; a test run must not wait 20s for the suite-end leak check.
+process.env.AO_CREDS_GRACE_MS = process.env.AO_CREDS_GRACE_MS || "500";
 
 const live = /^(.*),[0-9]+,[^,]*$/.exec(process.env.TMUX ?? "")?.[1];
 if (live && !process.env.AO_TEST_OPERATOR_TMUX_SOCKET) process.env.AO_TEST_OPERATOR_TMUX_SOCKET = live;

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **A read interrupted by the server dying degrades instead of failing (TM-312).** The bridge worker
+  re-asks a read once when the connection is seen closed, so the backend answers from its offline path
+  rather than surfacing `TIMEOUT`. Reproduced at 2/20 under CPU load; 60/60 after.
+
+- **Tests no longer leave nats-server processes behind (TM-326).** `tests/unit/nats-helpers.mjs`
+  registers every server and temp dir and reaps them on exit, SIGTERM and SIGINT; `stop()` no longer
+  hangs on an already-signalled process. `run-tests.sh` keeps stores under a per-run `/tmp/tm-run-*`
+  dir and fails with `nats-server-leak` if any server for that dir is still alive.
+
+- **Large values spill to the object store (TM-312).** A `data` field over `storage.spillBytes`
+  (default 256 KB, `TM_SPILL_BYTES`, 0 = off) is stored by content hash and replaced by
+  `{"$blob": {digest,size,encoding}}`; reads rehydrate it, old readers see the reference. Fixes
+  `tm cutover` failing with `MAX_PAYLOAD_EXCEEDED` on real task bodies of 1-3 MB. Re-running a
+  migration no longer overwrites tasks `tm` edited in NATS (`diverged`), a cutover on a board already
+  on `nats` is a no-op, and `tm cutover --dry-run` no longer prints a stray `undefined`.
+
+- **Pluggable storage with a schema registry and an opt-in NATS backend (TM-312, EP-026).**
+  `lib/storage/` adds the `Backend` interface, a versioned envelope with upcasters (legacy markdown
+  = schema 0), a `file` backend wrapping the current store, and a `nats` backend (JetStream KV with
+  CAS, event stream, content-addressed evidence, leaf-node offline queue). Selected by
+  `storage.backend` or `TM_STORAGE`; `file` stays the default, so nothing changes until cutover.
+  `tm migrate [--dry-run]` copies a board and compares both sides. See `docs/storage.md`.
+  Cutover work: evidence, plans, goal-import rollback, doctor and `readEvents` go through the
+  backend; plans (`tm/plan`) and event history migrate re-runnably; leaf-node domain support;
+  a refused credential fails loudly instead of queueing; a path-based repo-key alias; and
+  `tm cutover [--dry-run]`, which switches `storage.backend` only if the copy compares equal.
+  Leaf-side replication: the leaf's JetStream mirrors the hub's KV buckets and event stream and caches
+  evidence on demand, so a machine with the hub down still reads the board (`info().tier`: hub, leaf
+  or cache). Events are read in bounded pages with a cursor. An expired creds file is reported with
+  its expiry time before connecting.
+  Fixed in the same work: the event reader ignored its subject filter, so one board could read
+  another's events.
+
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool
   collected it again on every tick: 575 identical comments and `task_result` events on TM-290. The

@@ -5,25 +5,30 @@
 // free on this machine and never moved silently. A port held by something else is a refusal naming
 // the holder, not a reason to pick another.
 //
-// Security posture: loopback only, one generated user whose password lives in a 0600
-// file, no system account (so no $SYS access), permissions limited to the orch subject space plus
-// the JetStream/KV API the transport needs. It is a single-user dev fallback, not the gateway's
-// per-agent credential model (docs/contracts/orch-listener.md).
-// ponytail: one shared user for every agent; per-agent creds need the gateway's IssueOrch.
+// Security posture: loopback only, no system account (so no $SYS access), permissions
+// limited to the orch subject space plus the JetStream/KV API the transport needs.
+// TM-310: no password exists anywhere. The host identity is an nkey whose seed lives only in an admin
+// holder process (agent-creds.mjs) and is handed only to processes outside every agent's tree; agents
+// are separate nkey users with narrowed permissions (public keys in agent-users.json).
+// A pre-TM-310 state.json that still carries a password is migrated away on the next ensure.
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { existsSync, openSync, readFileSync, readdirSync, readlinkSync } from 'node:fs';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
+import { holderIdentity, serverPidFor, socketPath, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
 import { globalConfigPath, mergeConfig, readConfigLayer, writeConfigLayer } from './config.mjs';
 import { withLock } from './lockfile.mjs';
 import { fail } from './util.mjs';
 import { runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
 export function localNatsHome(env = process.env) {
-  return env.AO_NATS_HOME || join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
+  if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
+  // A test run (the helper that loads suite-leaks sets AO_TEST_RUN) that reaches here has lost AO_NATS_HOME, for example
+  // through a scrubbed child env. Falling back would provision test users into the operator's live server.
+  if (env.AO_TEST_RUN) throw Object.assign(new Error('AO_NATS_HOME is not set in a test run: refusing to use the operator\'s real local NATS home.'), { code: 'TOPOLOGY_TEST_REAL_NATS_HOME' });
+  return join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
 }
 
 /** AO_NATS_SERVER, then the ao-orch cache, then PATH. A snap shim with no snap behind it is skipped by running --version. */
@@ -156,7 +161,7 @@ export async function managedNatsPort({ env = process.env, natsHome = localNatsH
   }
 }
 
-export function serverConfig({ port, user, password, storeDir }) {
+export function serverConfig({ port, user, password, adminNkey = null, storeDir, agentUsers = [] }) {
   const allow = ['orch.>', '_INBOX.>', '$JS.API.>', '$JS.ACK.>', '$JS.FC.>', '$KV.>', '$O.>'];
   const list = allow.map((subject) => JSON.stringify(subject)).join(', ');
   return `listen: 127.0.0.1:${port}
@@ -165,8 +170,8 @@ jetstream { store_dir: ${JSON.stringify(storeDir)} }
 accounts {
   ORCH {
     jetstream: enabled
-    users = [ { user: ${JSON.stringify(user)}, password: ${JSON.stringify(password)},
-      permissions: { publish: { allow: [${list}] }, subscribe: { allow: [${list}] } } } ]
+    users = [ { ${adminNkey ? `nkey: ${adminNkey}` : `user: ${JSON.stringify(user)}, password: ${JSON.stringify(password)}`},
+      permissions: { publish: { allow: [${list}] }, subscribe: { allow: [${list}] } } }${agentUsers.map((entry) => `,\n      ${renderAgentUser(entry)}`).join('')} ]
   }
 }
 `;
@@ -180,22 +185,85 @@ function unavailable(message) {
 
 const NO_BINARY = 'No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.';
 
+/** state.json layout version. 1 = the password format (no stamp); 2 = nkey admin identity (TM-310). */
+export const STATE_SCHEMA = 2;
+
 function readState(home) {
-  try { return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')); } catch { return null; }
+  let state = null;
+  try { state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')); } catch { return null; }
+  if (state?.schema > STATE_SCHEMA) throw unavailable(`${join(home, 'state.json')} is schema ${state.schema}; this agent-orchestration understands up to ${STATE_SCHEMA}. Upgrade this installation instead of letting it rewrite the file.`);
+  return state;
 }
 
 /** Writes the server config and returns its path. Credentials are generated once and kept, so a
  * restart reuses the JetStream data they guard. */
-async function writeServerConfig(home, { port, user, pass }) {
+async function writeServerConfig(home, { port, user, pass, adminPub = null }) {
   const confPath = join(home, 'nats-server.conf');
-  await writeFile(confPath, serverConfig({ port, user, password: pass, storeDir: join(home, 'jetstream') }), { mode: 0o600 });
+  await writeFile(confPath, serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: join(home, 'jetstream'), agentUsers: loadAgentUsers(home) }), { mode: 0o600 });
   await chmod(confPath, 0o600);
   return confPath;
 }
 
+/** TM-310: re-render the config from state.json plus the current agent registry; the caller reloads the server. */
+export async function rewriteServerConfig(home) {
+  const state = readState(home);
+  if (!state) throw unavailable(`No local NATS state in ${home}; nothing to rewrite.`);
+  return writeServerConfig(home, { port: state.port, user: state.user, pass: state.pass, adminPub: state.adminPub });
+}
+
+/**
+ * TM-310: the host identity is an nkey whose seed exists only in a holder process's memory. The seed is
+ * never on disk (state.json carries the PUBLIC key and the holder's socket path), and the holder gives it
+ * only to a process outside every agent's tree. A legacy state with a password is migrated away.
+ * Returns state with adminPub/adminSock; the caller rewrites the config when `changed`.
+ */
+export async function ensureAdminIdentity(home, state) {
+  const sock = socketPath(home, 'admin.sock');
+  // Ask the socket itself, not state.json: another process may own a live holder that this state does not name.
+  const live = await holderIdentity(sock);
+  if (live?.admin) {
+    const same = state?.adminPub === live.publicKey && state?.adminSock === sock;
+    const next = { ...state, adminPub: live.publicKey, adminSock: sock, adminPid: live.pid };
+    delete next.user; delete next.pass;
+    return { state: next, changed: !same, reused: true };
+  }
+  // Nothing answers: any file at the path is a stale leftover.
+  try { await unlink(sock); } catch { /* none */ }
+  const holder = await startHolder({}, { home, sock, admin: true });
+  const next = { ...state, adminPub: holder.publicKey, adminSock: sock, adminPid: holder.pid };
+  delete next.user; delete next.pass;
+  return { state: next, changed: true };
+}
+
+/**
+ * Under the lock, make sure the admin holder the server trusts is the one that is alive. If it changed (the holder died
+ * and was replaced), rewrite the config and reload the running server so the new key is accepted.
+ */
+async function revalidateAdminLocked(home) {
+  {
+    const state = readState(home);
+    if (!state) return state;
+    const legacy = Boolean(state.user || state.pass);
+    const { state: admin, changed, reused } = await ensureAdminIdentity(home, state);
+    if (!changed) return state;
+    // A live admin holder next to a password-format state.json means an older ao-topology rewrote the file after this version
+    // had migrated it. It will do so again each time it runs; the older version has no schema check to stop it.
+    if (legacy && reused) process.stderr.write(`[ao] WARNING: ${join(home, 'state.json')} was rewritten in the old password format by an older agent-orchestration (no schema stamp) sharing this home. Upgrade or stop it: it also restarts the NATS server. Repaired for now.\n`);
+    // Upgrade from a version that stored a password: retire it. Processes it started still hold the password connection,
+    // which the reload below drops; they need a restart to pick up the new identity.
+    if (legacy) process.stderr.write(`[ao] local NATS: replaced the stored admin password with an nkey identity held in memory. Processes started by an earlier version lose their NATS connection until restarted.\n`);
+    await writeState(home, admin);
+    const confPath = await writeServerConfig(home, { port: admin.port, adminPub: admin.adminPub });
+    const pid = serverPidFor(admin.pid, confPath);
+    if (pid) { try { process.kill(pid, 'SIGHUP'); } catch { /* gone */ } await new Promise((resolve) => setTimeout(resolve, 300)); }
+    return admin;
+  }
+}
+const revalidateAdmin = (home) => withLock(join(home, 'lock'), () => revalidateAdminLocked(home));
+
 async function writeState(home, state) {
   const statePath = join(home, 'state.json');
-  await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
+  await writeFile(statePath, JSON.stringify({ ...state, schema: STATE_SCHEMA }), { mode: 0o600 });
   await chmod(statePath, 0o600);
 }
 
@@ -234,12 +302,13 @@ export async function prepareLocalNats({ env = process.env } = {}) {
     await stopDetached(state);
     const port = await managedNatsPort({ env, natsHome: home });
     await checkNatsPort(port, env);
-    const user = state?.user || 'ao-orch';
-    const pass = state?.pass || randomBytes(24).toString('hex');
-    const confPath = await writeServerConfig(home, { port, user, pass });
+    const { state: admin, changed } = await ensureAdminIdentity(home, { adminPub: state?.adminPub, adminSock: state?.adminSock });
+    const confPath = await writeServerConfig(home, { port, adminPub: admin.adminPub });
     const absolute = absoluteBinary(bin, env);
-    await writeState(home, { managed: true, pid: null, port, user, pass, bin: absolute });
-    return { bin: absolute, args: ['-c', confPath], confPath, port, user, pass, home, log: join(home, 'nats-server.log') };
+    await writeState(home, { managed: true, pid: null, port, bin: absolute, adminPub: admin.adminPub, adminSock: admin.adminSock, adminPid: admin.adminPid });
+    // A new admin key means the running server still trusts the old one: reload it.
+    if (changed && await canConnect(port)) { const pid = serverPidFor(null, confPath); if (pid) process.kill(pid, 'SIGHUP'); }
+    return { bin: absolute, args: ['-c', confPath], confPath, port, adminSock: admin.adminSock, home, log: join(home, 'nats-server.log') };
   });
 }
 
@@ -269,7 +338,8 @@ export async function ensureLocalNats({ env = process.env } = {}) {
       state = readState(home);
     }
     if (state?.managed && state.port === port && await waitForPort(port) && await up()) {
-      return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, port, started: false, managed: true };
+      state = await revalidateAdmin(home) ?? state;
+      return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, adminSock: state.adminSock, port, started: false, managed: true };
     }
     // TM-277: a managed process that finds the managed server down is watching the manager restart
     // it. Starting a detached server here would put a second server on the same JetStream store and
@@ -280,23 +350,31 @@ export async function ensureLocalNats({ env = process.env } = {}) {
   }
   return withLock(join(home, 'lock'), async () => {
     const port = await managedNatsPort({ env, natsHome: home });
-    const state = readState(home);
+    let state = readState(home);
     await stopDetached(state, port);
     if (await checkNatsPort(port, env)) {
-      if (state?.port === port && state.user) return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, port, started: false };
+      if (state?.port === port && (state.adminSock || state.user)) {
+        state = (await revalidateAdminLocked(home)) ?? state;
+        return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, adminSock: state.adminSock, port, started: false };
+      }
       throw unavailable(`An ao nats-server answers on 127.0.0.1:${port} but ${join(home, 'state.json')} holds no credentials for it.`);
     }
+    // A manager owns this server (state.managed): a CLI that finds it down is watching the manager restart it. Starting a detached
+    // one beside it is what produced a new server on a new port every few seconds, each stopped by the manager's next tick.
+    if (state?.managed && servicesEnabled(env)) throw unavailable(`The managed nats-server on port ${port} is not answering; the service manager is expected to restart it.`);
+    // Services are off in this process's view but state says a manager ran here: give a manager that is mid-start a moment before starting a second server.
+    if (state?.managed && await waitForPort(port, 30)) return { servers: `nats://127.0.0.1:${port}`, adminSock: state.adminSock, port, started: false, managed: true };
     const bin = await findNatsServer(env);
     if (!bin) throw unavailable(NO_BINARY);
-    const user = state?.user || 'ao-orch';
-    const pass = state?.pass || randomBytes(24).toString('hex');
-    const confPath = await writeServerConfig(home, { port, user, pass });
+    const { state: admin } = await ensureAdminIdentity(home, { adminPub: state?.adminPub, adminSock: state?.adminSock });
+    const confPath = await writeServerConfig(home, { port, adminPub: admin.adminPub });
     const log = openSync(join(home, 'nats-server.log'), 'a', 0o600);
     const child = spawn(bin, ['-c', confPath], { detached: true, stdio: ['ignore', log, log] });
     child.unref();
     if (!(await waitForPort(port))) throw unavailable(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${join(home, 'nats-server.log')}`);
-    await writeState(home, { pid: child.pid, port, user, pass, bin });
-    return { servers: `nats://127.0.0.1:${port}`, user, pass, port, started: true };
+    // `managed` is kept as found: dropping it made the manager's next tick treat this server as a stray and stop it.
+    await writeState(home, { ...(state?.managed ? { managed: true } : {}), pid: child.pid, port, bin, adminPub: admin.adminPub, adminSock: admin.adminSock, adminPid: admin.adminPid });
+    return { servers: `nats://127.0.0.1:${port}`, adminSock: admin.adminSock, port, started: true };
   });
 }
 
