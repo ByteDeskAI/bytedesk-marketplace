@@ -1724,6 +1724,7 @@ const commands = {
     } finally { await closeLiveTransports(); }
     if (!result.ok) process.exitCode = 2;
     if (flags.json) return out(result);
+    if (result.code) { out(`${result.code}: ${result.message}`); return; }
     if (!result.ok) {
       out(`TIMEOUT after ${Math.round(result.elapsed_ms / 1000)}s. Still pending:`);
       for (const item of result.pending) out(`  - ${item.agent}: ${item.id} (expected ${item.outbox})`);
