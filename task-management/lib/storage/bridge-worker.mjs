@@ -4,6 +4,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import "./types.mjs";
 import { NatsBackend } from "./nats-backend.mjs";
+import { runWithReadRetry } from "./retry-read.mjs";
 
 const { sab, port, opts } = workerData;
 const sig = new Int32Array(sab);
@@ -25,25 +26,12 @@ const methods = {
   queue: async () => backend.queue(),
 };
 
-// A read the server's death interrupts (TIMEOUT / CONNECTION_CLOSED while the socket is closing) is
-// not an answer: once the connection is seen closed, ask again so the backend takes its offline path
-// (cache / OFFLINE) instead of surfacing a transport error. Reads only; a repeated write could apply twice.
-const READS = new Set(["get", "list", "history", "blobGet", "blobList", "eventsPage", "events", "eventCount", "stateGet", "stateList", "info"]);
-async function run(method, fn, args) {
-  try {
-    return await fn(...args);
-  } catch (e) {
-    if (!READS.has(method) || !backend.nc?.isClosed()) throw e;
-    return await fn(...args);
-  }
-}
-
 parentPort.on("message", async ({ method, args }) => {
   let reply;
   try {
     const fn = methods[method] ?? backend[method]?.bind(backend);
     if (!fn) throw new Error(`no such storage method: ${method}`);
-    reply = { ok: true, value: await run(method, fn, args) };
+    reply = { ok: true, value: await runWithReadRetry(method, fn, args, () => backend.nc?.isClosed()) };
   } catch (e) {
     reply = { ok: false, error: { name: e.name, code: e.code, message: e.message, currentRev: e.currentRev } };
   }
