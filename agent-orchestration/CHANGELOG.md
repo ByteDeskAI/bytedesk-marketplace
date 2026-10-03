@@ -17,6 +17,14 @@
 
 ### Fixed
 
+- **An operator shell carrying `CODEX_BIN` is no longer an agent session (TM-304).** The
+  managed-session test matched every `CODEX_*` name, so `CODEX_BIN=codex` — exported by the
+  remote gateway's `cli run-gateway` and inherited into tmux's global environment by the server it
+  starts — refused `record-landing --authorized` and `delegate grant` from every plain pane with
+  `TOPOLOGY_MANAGEMENT_SELF_ASSERT`. Prefixed names ending `_BIN`, `_HOME` or `_PATH` now count as
+  configuration; session ids (`CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`, …), the explicit markers
+  and the agent-ancestor check still refuse.
+
 - **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
   sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
   was reported "same version, different build" and never refreshed. It now compares the build
