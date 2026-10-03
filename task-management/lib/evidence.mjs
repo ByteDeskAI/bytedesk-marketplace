@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { mutate } from "./store.mjs";
+import { pullEvidence, pushBlob } from "./storage/working-copy.mjs";
 
 /**
  * Same scheme test doctor uses: two-or-more characters before the colon, so a
@@ -176,6 +177,7 @@ export function attachEvidence(id, source, p) {
    * is the thing that cannot change under us between the write and the read.
    */
   const record = { source: origin, sha256: hashFile(dest), bytes: sizeOf(dest), at: new Date().toISOString() };
+  pushBlob(p, readFileSync(dest)); // NATS backend: the bytes live in TM_EVIDENCE; the file is a working copy
   mutate(id, (doc) => ({
     // TM-166: a ref appears ONCE. Re-attaching the same artifact — to refresh a drifted hash, which
     // is the documented remedy `doctor` itself suggests — used to append a second identical entry.
@@ -279,6 +281,7 @@ export function describeEvidence(ref, p) {
 
 export function listEvidence(task, p) {
   return (task.evidence || []).map((ref) => {
+    if (evidenceKind(ref) === "file") pullEvidence(task, ref, PROVENANCE, p);
     const { state, source, at } = evidenceSync(task, ref, p);
     return { ...describeEvidence(ref, p), sync: state, source, attachedAt: at ?? null };
   });
@@ -293,6 +296,7 @@ export function servableEvidencePath(task, ref, p) {
   if (!task || typeof ref !== "string" || !ref) return null;
   if (!(task.evidence || []).includes(ref)) return null;
   if (isEvidenceUri(ref)) return null;
+  pullEvidence(task, ref, PROVENANCE, p);
   const target = isAbsolute(ref) ? ref : join(p.root, ref);
   let file;
   let dir;

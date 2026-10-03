@@ -23,7 +23,9 @@ import { LINK_TYPES } from "./issue.mjs";
 import { governanceMode } from "./governance-check.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
-import { evidenceSync } from "./evidence.mjs";
+import { PROVENANCE, evidenceSync } from "./evidence.mjs";
+import { pullEvidence } from "./storage/working-copy.mjs";
+import { remote, storageInfo } from "./storage/index.mjs";
 import {
   launcherStatus,
   legacyCodexHooks,
@@ -293,6 +295,7 @@ export function diagnose(p = paths()) {
 
     for (const ref of t.evidence || []) {
       if (!checkable(ref)) continue;
+      pullEvidence(t, ref, PROVENANCE, p); // NATS backend: restore the working copy from the blob first
       if (!existsSync(evidenceTarget(ref, p))) {
         out.push(
           finding("warning", "missing-evidence", t.id, `evidence ${ref} is recorded but the file is gone`, () => {
@@ -591,12 +594,19 @@ export function diagnose(p = paths()) {
   // and `tm done` can never reach it. Worse, this used to be invisible here — the only
   // symptom doctor saw was index-drift, which `--fix` reindexed away, leaving the
   // duplicate on disk and reporting "no problems found" over the top of it.
-  out.push(...duplicateIds(p));
+  // Entity files do not exist on the NATS backend: duplicate ids are impossible there (CAS create),
+  // and there are no temp files or index.json to drift. These three checks are the file store's.
+  const onFiles = !remote(p);
+  if (onFiles) out.push(...duplicateIds(p));
+  else {
+    const info = storageInfo(p);
+    if (info.offline) out.push(finding("warning", "storage-offline", null, `nats backend unreachable (${info.why || "no connection"}) — reads come from the local cache and ${info.queued || 0} write(s) are queued`));
+  }
 
   // The residue of a write that died between writeFileSync and renameSync. Harmless now
   // that fileFor requires .md — but before that it was a phantom entity, and its presence
   // still means a process was killed mid-write, which is worth saying out loud.
-  out.push(...strayTemps(p));
+  if (onFiles) out.push(...strayTemps(p));
 
   // An epic marked done with live children, and a closed date on open work. Both are what a
   // reopen used to leave behind, and both survive a hand edit or a merge, so they are checked
@@ -682,7 +692,7 @@ export function diagnose(p = paths()) {
   out.push(...planFindings(p, finding));
 
   // The cache is disposable, but a stale one makes the dashboard and the CLI disagree.
-  const drift = indexDrift(p, live);
+  const drift = onFiles ? indexDrift(p, live) : null;
   if (drift) {
     out.push(
       finding("warning", "index-drift", null, drift, () => {

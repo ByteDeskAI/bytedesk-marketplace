@@ -19,6 +19,7 @@ import {
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { parseManifest } from "./goals.mjs";
+import { pullPlans, pushPlan } from "./storage/working-copy.mjs";
 import { create, list, logEvent, now, slug, state, update, writeState } from "./store.mjs";
 
 const URI = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
@@ -114,6 +115,7 @@ export function capturePlan(input, p, { stamp = {}, claudePlans, exists = exists
   const title = planTitle(src, text);
   const dest = join(p.plans, destLeaf(src, title, now().slice(0, 10)));
   if (!existsSync(dest)) copyFileSync(src, dest);
+  pushPlan(p, basename(dest), text);
   const rel = relativeToRoot(dest, p);
 
   let epicId = state(p).activeEpic;
@@ -156,6 +158,7 @@ function isInboxFile(name, dir) {
  * Empty / missing dir → []. Unlinked files stay visible.
  */
 export function listPlans(p) {
+  pullPlans(p);
   if (!p.plans || !existsSync(p.plans)) return [];
   const names = readdirSync(p.plans).filter((f) => isInboxFile(f, p.plans)).sort();
   if (!names.length) return [];
@@ -181,6 +184,7 @@ export function listPlans(p) {
  * that realpath is exactly a referenced epic.plan file.
  */
 export function servablePlanPath(ref, p) {
+  pullPlans(p);
   if (typeof ref !== "string" || !ref) return null;
   if (URI.test(ref)) return null;
   const target = resolvePlanTarget(ref, p);
@@ -225,6 +229,7 @@ export function readPlanFile(ref, p) {
 
 /** Report-only: dangling epic.plan and unreferenced files in p.plans. */
 export function planFindings(p, finding) {
+  pullPlans(p);
   const out = [];
   const onDisk = [];
   if (p.plans && existsSync(p.plans)) {

@@ -15,7 +15,7 @@ import { gateTaskCreate } from "./enforce.mjs";
 import { dependencies } from "./issue.mjs";
 import { goalBody, manifestGoalTitle, parseGoalDoc, parseManifest, refusal } from "./goals.mjs";
 import { paths } from "./paths.mjs";
-import { create, fileFor, logEvent, read, reindex, state, withLock, writeState } from "./store.mjs";
+import { create, fileFor, removeEntity, logEvent, read, reindex, state, withLock, writeState } from "./store.mjs";
 
 const err = (message, status) => Object.assign(new Error(message), { status });
 
@@ -215,8 +215,7 @@ export function applyManifestPlan(plan, { stamp = {} } = {}, p = paths()) {
     const rollback = (cause) => {
       for (const id of createdIds.reverse()) {
         try {
-          const file = fileFor(id, p);
-          if (file) unlinkSync(file);
+          removeEntity(id, p);
         } catch {
           /* best effort: a file we cannot remove is reported below, not a reason to stop undoing */
         }
