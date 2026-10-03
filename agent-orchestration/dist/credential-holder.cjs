@@ -16614,7 +16614,7 @@ function holderMain() {
       return { ok: true };
     }
     if (request.op === "attach") {
-      if (!controller || admin) return { ok: false, error: "attach is for the spawner or the operator process tree only" };
+      if (!controller || admin) return { ok: false, error: `attach is for the spawner or the operator process tree only (peers=${JSON.stringify(peers)} roots=${JSON.stringify(roots)} home=${Boolean(home)} ctl=${Boolean(ctl)} admin=${admin} operator=${operator})` };
       root = Number(request.pid);
       if (home) registerRoot(home, sockPath, root).catch(() => {
       });
