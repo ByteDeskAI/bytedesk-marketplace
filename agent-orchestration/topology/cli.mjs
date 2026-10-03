@@ -411,16 +411,18 @@ const commands = {
     // Exceptions still speak: retirement and a degraded heartbeat are invisible in any other place.
     const notable = report => report?.stopped || report?.presence_beats_degraded || report?.transport_failures || report?.error;
     // TM-276 / ADR-0031: the transport and its source are logged at start and again whenever they
-    // change, a fallback from an unreachable configured NATS as a named warning.
+    // change, a fallback from an unreachable configured NATS as a named warning, and a blocking
+    // AO_NATS_URL outage (ADR-0035) as a named error.
     let loggedTransport = null;
     const logTransport = (transport, at) => {
       const key = JSON.stringify([transport?.source, transport?.url, transport?.outage?.since, transport?.outage?.recovered_at]);
       if (!transport || key === loggedTransport) return;
       loggedTransport = key;
       const outage = transport.outage && !transport.outage.recovered_at ? transport.outage : null;
-      out({ event: outage ? 'transport-fallback' : 'transport-selected', at: at ?? new Date().toISOString(), consumer: ctx.consumer,
+      out({ event: outage?.blocking ? 'transport-unavailable' : outage ? 'transport-fallback' : 'transport-selected', at: at ?? new Date().toISOString(), consumer: ctx.consumer,
         transport: transport.kind, source: transport.source, url: transport.url,
-        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}) });
+        ...(outage?.blocking ? { error: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; ao does not fall back from an explicit AO_NATS_URL (ADR-0035), nothing here continues until it answers` }
+          : outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}) });
     };
     const onTick = report => { logTransport(report?.transport, report?.at); if (flags.json || notable(report)) out(report); };
     const controller = new AbortController();

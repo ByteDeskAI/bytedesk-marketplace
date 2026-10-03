@@ -121,6 +121,25 @@
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
 
+## [0.15.5] — 2026-10-03
+
+### Changed
+
+- **An unreachable `AO_NATS_URL` is a hard failure, not a fallback (TM-324, ADR-0035).** TM-308 had an
+  unreachable explicit `AO_NATS_URL` fall back to the managed local NATS and report the outage, which
+  lets agents on different machines quietly end up on different buses. Now `openNatsTransport` records
+  the outage (`source: AO_NATS_URL`, `blocking: true`, no fallback) and fails with
+  `TOPOLOGY_NATS_UNAVAILABLE`; no managed local server is started for it and every open fails until the
+  server answers. The first open that reaches it closes the outage. Repository supervisors tick
+  degraded (`transport-unavailable`), and the degraded tick now runs the outage tick and reports the
+  transport, so the start and tick logs name it as an error, `doctor` raises
+  `NATS_CONFIGURED_UNREACHABLE` saying nothing on the host continues until the server answers, and
+  `services status` shows the outage. The lead's outage mail is written durably at once and lands when
+  NATS answers again (or over whatever replaces `AO_NATS_URL`), followed by one recovery mail. A stale
+  gateway `orch.sock` still falls back and is reported per ADR-0031; the managed-port conflict report
+  (ADR-0032) is unchanged. Decided by the operator on 2026-10-03 after the three-reviewer review of
+  PR #154 split on whether `AO_NATS_URL` belongs in the fallback path.
+
 ## [0.15.4] — 2026-10-02
 
 ### Fixed
