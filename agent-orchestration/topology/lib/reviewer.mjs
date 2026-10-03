@@ -46,7 +46,6 @@ import { refreshPrompt, protocolOutputLine } from "./prompt-lifecycle.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from "./repoid.mjs";
-import { readStoreTask } from "./routing.mjs";
 import * as tmux from "./tmux.mjs";
 import { AO_HOME, exists, fail, invariant, TopologyError, nowIso, readJson, run, sleep, writeJson, writeText } from "./util.mjs";
 
@@ -837,6 +836,15 @@ export async function githubCompare(repoDir, from, to) {
   return JSON.parse(found.stdout);
 }
 
+/** TM-325: the base branch of every PR (any state) whose head is `head`, from the pinned repository. */
+export async function githubPullBase(repoDir, head) {
+  const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 10_000 };
+  const { repo } = await pinnedGithubRepo(repoDir, args => run('gh', args, opts));
+  const found = await run('gh', ['pr', 'list', '--repo', repo, '--head', head, '--state', 'all', '--json', 'baseRefName', '--jq', '[.[].baseRefName]'], opts);
+  if (found.code !== 0) throw new Error(`gh pr list failed: ${(found.stderr || found.stdout || `exit ${found.code}`).trim().split('\n')[0]}`);
+  return JSON.parse(found.stdout);
+}
+
 /**
  * TM-257: the base a task's review range and integration scope start from, as { base, note }. It is
  * always DERIVED, never taken from a caller, and anchored on the server's copy of the task's
@@ -866,7 +874,13 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
   };
   const admitted = reason => ({ base: admittedBase, note: `The ${target} could not be read from the server (${reason}), so the range ${admittedBase}..revision starts at the task admission commit.` });
   let server;
-  try { server = await ask(branch, revision); } catch (error) { return admitted(error.message); }
+  try { server = await ask(branch, revision); } catch (error) {
+    // TM-325: an integration branch merged and deleted after landing: the base the host recorded on
+    // this revision's review request (server-derived at request time), still only between admission and revision.
+    if (branch !== null && recorded && recorded !== admittedBase && COMMIT_SHA.test(String(recorded)) && recorded !== revision && await ancestor(admittedBase, recorded) && await ancestor(recorded, revision))
+      return { base: recorded, note: `The ${target} could not be read from the server (${error.message}), so the range starts at the effective base recorded on the review request.` };
+    return admitted(error.message);
+  }
   const mb = server.merge_base;
   if (mb !== revision) {
     if (mb === admittedBase) return { base: admittedBase, note: null };
@@ -894,12 +908,17 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
 const INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
 
 /** Admitted and effective base for a task's range: every range and scope caller goes through here. */
-export async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, env = process.env, home = homedir() }) {
+export async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = homedir() }) {
   const taskKey = segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task'), revisionKey = segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision');
-  // TM-325: the PR base tm dispatch recorded on the task; "HEAD" (tm's unconfigured value) or none = the default branch.
-  // Same-uid limit as githubCompare: the task file is editable by this user; a branch the server lacks only widens the range.
-  const recordedBranch = String((await readStoreTask(consumer, taskKey).catch(() => null))?.integrationBranch ?? '').trim();
-  const branch = recordedBranch && recordedBranch !== 'HEAD' ? recordedBranch : null;
+  // TM-325: the integration branch is read from the producer-owned admission record, never the mutable task
+  // file; none recorded = the default branch. The task PR's base, when the server can name it, must agree.
+  const management = await readJson(join(stateRoot(env, home), 'management', repoKey((await canonicalRepoId(consumer)).id), `${taskKey}.json`)).catch(() => null);
+  const branch = typeof management?.integration_branch === 'string' && management.integration_branch ? management.integration_branch : null;
+  if (branch && typeof management.branch === 'string' && management.branch) {
+    const bases = await serverPullBase(consumer, management.branch).catch(() => []); // ponytail: unanswerable = unconfirmed, not refused
+    const other = Array.isArray(bases) ? bases.find(base => base !== branch) : undefined;
+    invariant(other === undefined, 'TOPOLOGY_REVIEWER_RANGE', `The task PR targets ${other}, but the task was admitted against the integration branch ${branch}; refusing the range.`);
+  }
   const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson(join(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
   const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
@@ -907,7 +926,7 @@ export async function reviewRangeBase({ consumer, task, revision, admittedBase, 
 }
 
 /** Admission owns the base; caller-supplied narrower ranges never establish review scope. */
-async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, env = process.env, home = homedir() }) {
+async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = homedir() }) {
   const identity = await canonicalRepoId(consumer);
   const path = join(stateRoot(env, home), 'management', repoKey(identity.id), `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}.json`);
   const management = await readJson(path).catch(() => null);
@@ -920,7 +939,7 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   }
   const ancestor = await run('git', ['-C', consumer, 'merge-base', '--is-ancestor', admitted, revision], { allowFailure: true });
   invariant(ancestor.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Task admission base must be an ancestor of the finished revision.');
-  const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, env, home });
+  const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, serverPullBase, env, home });
   // No --binary: git renders a binary change as a one-line "Binary files ... differ" marker instead
   // of embedding its bytes, so a range with large binary files (screenshots, etc.) never inflates
   // this buffer. The manifest below adds path + blob sha256 + size for those files. No --full-index
@@ -1028,7 +1047,7 @@ export function approvable(findings) {
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
  */
-export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, serverCompare = githubCompare }) {
+export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant(!expectedBinding || sameIncarnation(expectedBinding,registered.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed before recording the verdict.');
@@ -1049,7 +1068,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
     "TOPOLOGY_REVIEWER_VERDICT",
     `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}. A blocked review is not an approval.`,
   );
-  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
+  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
   const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
   invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
@@ -1119,13 +1138,13 @@ export async function currentReviewStatus(consumer, task, currentRevision, env =
  * revision. Fails closed: an unavailable reviewer blocks eligibility and the reason says so,
  * because "we think someone reviewed it" is how unreviewed code merges.
  */
-export async function reviewEligibility({ consumer, task, revision, env = process.env, home = homedir(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null, serverCompare = githubCompare }) {
+export async function reviewEligibility({ consumer, task, revision, env = process.env, home = homedir(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const availability = await reviewerAvailability({ consumer, env, home, probes });
   const status = await currentReviewStatus(consumer, task, revision, env, home);
   const reasons = [];
   if (status.review) {
     try {
-      const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
+      const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
       if (status.review.base_revision !== range.base || status.review.patch_sha256 !== range.patch_sha256) reasons.push('review does not cover the complete admitted task range');
     } catch (error) { reasons.push(error.message); }
     const lead = await findLead(agentDirs({ consumer: availability.record?.consumer || consumer, home, pluginRoot }));
@@ -1140,14 +1159,14 @@ export async function reviewEligibility({ consumer, task, revision, env = proces
   else if (status.state === "stale") reasons.push(`the latest review covers revision ${status.review.revision}, not the current revision ${revision} — a re-review is required`);
   else if (status.state !== "satisfied") reasons.push(`review of revision ${revision} is "${status.state}", not satisfied`);
   if (status.state === 'satisfied') {
-    const collected = await independentReviewStatus({ consumer, task, env, home, pluginRoot, serverCompare });
+    const collected = await independentReviewStatus({ consumer, task, env, home, pluginRoot, serverCompare, serverPullBase });
     if (collected.status !== 'approved' || collected.sourceRevision !== revision) reasons.push(`independent review is not collected for this revision: ${collected.reason ?? collected.status}`);
   }
   return { eligible: reasons.length === 0, reasons, availability, status };
 }
 
 /** Historical review projection. It validates evidence without waking or probing a provider. */
-export async function independentReviewStatus({ consumer, task, env = process.env, home = homedir(), pluginRoot = null, serverCompare = githubCompare }) {
+export async function independentReviewStatus({ consumer, task, env = process.env, home = homedir(), pluginRoot = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const result={status:'not-requested',taskId:task??null,sourceRevision:null,reviewerId:null,verdict:null,requestedAt:null,collectedAt:null,reason:null};
   if(!task) return result;
   try {
@@ -1167,7 +1186,7 @@ export async function independentReviewStatus({ consumer, task, env = process.en
       'TOPOLOGY_REVIEWER_IDENTITY','Collected review does not match the request, repository and submitted revision.');
     invariant(reviewer?.agent_id===review.reviewer_id && review.reviewer_id===request.reviewer_id && sameIncarnation(review.binding,request.binding) && sameIncarnation(review.binding,reviewer.binding),
       'TOPOLOGY_REVIEWER_IDENTITY','Reviewer identity or incarnation changed; a new independent review is required.');
-    const range=await trustedReviewRange({consumer,task,revision:result.sourceRevision,serverCompare,env,home});
+    const range=await trustedReviewRange({consumer,task,revision:result.sourceRevision,serverCompare,serverPullBase,env,home});
     invariant(review.base_revision===range.base && review.patch_sha256===range.patch_sha256 && request.patch_sha256===range.patch_sha256 && request.base_revision===range.base,
       'TOPOLOGY_REVIEWER_RANGE','The review does not cover the complete admitted source change.');
     const lead=await findLead(agentDirs({consumer:reviewer.consumer||consumer,home,pluginRoot}));
@@ -1180,12 +1199,12 @@ export async function independentReviewStatus({ consumer, task, env = process.en
 }
 
 /** Queue an independent exact-revision review without requiring an idle input composer. */
-export async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, serverCompare = githubCompare, env = process.env, home = homedir(), wake = wakeReviewRequest }) {
+export async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = homedir(), wake = wakeReviewRequest }) {
   const record = await readReviewerRecord(consumer, env, home);
   invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer; preserve the finished task until one is available.');
   invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(revision)), 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'Review request requires a full commit SHA.');
   invariant(Array.isArray(authorAgentIds) && authorAgentIds.length && !authorAgentIds.includes(record.agent_id), 'TOPOLOGY_REVIEWER_CONFLICT', 'Review request must identify independent authors.');
-  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, env, home });
+  const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant(authorAgentIds.includes(range.owner), 'TOPOLOGY_REVIEWER_AUTHORS', 'Review authors must include the admitted task owner.');
   const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
   const key = `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${revision}`;
@@ -1446,13 +1465,13 @@ async function ageOutIncompleteReview({ consumer, request, path, screen, env, ho
   return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason);
 }
 
-export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare }) {
+export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
   invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer.');
   const request = await readJson(path);
-  const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, serverCompare, env, home });
+  const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, serverCompare, serverPullBase, env, home });
   invariant(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
   invariant(sameIncarnation(request.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
@@ -1482,7 +1501,7 @@ export async function collectReview({ consumer, task, revision, env = process.en
   const response = parseReviewResponse(screen, request.nonce);
   const current = await readReviewerRecord(consumer,env,home);
   invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
-  review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare });
+  review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
   } catch (error) {
     // TM-215 review 1: a refused answer used to leave the request pending forever — retried under
     // the same nonce, and a corrected answer then disagreed with the refused copy still on screen.

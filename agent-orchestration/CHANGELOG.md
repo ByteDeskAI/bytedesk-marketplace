@@ -22,11 +22,17 @@
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
   kept the admission base: the review range carried every other task merged there, and
   `manage eligible` refused with "implementation changed files outside the approved task scope".
-  The base is now resolved against the `integrationBranch` tm dispatch recorded on the task,
-  falling back to the default branch only when none (or `HEAD`) is recorded, for both the review
-  range and the scope check. The merge-base must still lie between the admitted base and the
-  revision; an integration branch the server cannot answer for, or that is not a plain branch
-  name, keeps the wider admitted range with a note.
+  The base is now resolved against the task's integration branch, for both the review range and
+  the scope check. `manage` admission freezes tm's `integrationBranch` into the producer-owned
+  admission record (`integration_branch`), and the range reads it from there, never from the
+  mutable task file, so a later task-file edit cannot move the range. When the server names the
+  task PR's base, it must agree with the recorded branch or the range is refused. With none
+  recorded (or `HEAD`), the default branch is used as before. The merge-base must still lie
+  between the admitted base and the revision; an integration branch that is not a plain branch
+  name keeps the wider admitted range with a note. Once a landed task's integration branch has
+  been merged and deleted, the range falls back to the effective base recorded on the review
+  request (still checked to lie between admission and revision), not to the admitted base, so
+  re-checking a landed task is not refused for scope.
 - **An operator shell carrying `CODEX_BIN` is no longer an agent session (TM-304).** The
   managed-session test matched every `CODEX_*` name, so `CODEX_BIN=codex` — exported by the
   remote gateway's `cli run-gateway` and inherited into tmux's global environment by the server it

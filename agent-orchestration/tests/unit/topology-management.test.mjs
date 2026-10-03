@@ -824,17 +824,20 @@ function fakeServer(main) {
 
 // worktree: [stray.txt] -> merge main (sibling.txt) -> code.txt; returns the merge commit and revision.
 // TM-325: with `integration`, the sibling lands on that branch (not main), tm records it as the task's
-// integrationBranch, and the worktree merges it; the server's main never moves past the admission.
+// integrationBranch before admission, and the worktree merges it; the server's main never moves past the
+// admission. The task file is then edited to name `main`: the range must still come from the admission record.
 async function mergedTask(t, { stray, integration = null }) {
-  const { opts, git } = await fixture(t);
+  const { opts, git, doc } = await fixture(t);
+  if (integration) doc.integrationBranch = integration;
   await admitTask(opts);
+  if (integration) doc.integrationBranch = 'main';
   const worktree = (await opts.store.show()).worktree, id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
   const admitted = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
   if (stray) { await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']); }
   if (integration) {
     await git(opts.consumer, ['checkout', '-q', '-b', integration]);
     await mkdir(join(opts.consumer, '.bytedesk/task-management/tasks'), { recursive: true });
-    await writeFile(join(opts.consumer, '.bytedesk/task-management/tasks/TM-1-fixture.md'), `---\nid: "TM-1"\nintegrationBranch: ${JSON.stringify(integration)}\n---\n`);
+    await writeFile(join(opts.consumer, '.bytedesk/task-management/tasks/TM-1-fixture.md'), '---\nid: "TM-1"\nintegrationBranch: "main"\n---\n');
   }
   await writeFile(join(opts.consumer, 'sibling.txt'), 'landed sibling'); await git(opts.consumer, ['add', 'sibling.txt']); await git(opts.consumer, [...id, 'commit', '-m', 'sibling task']);
   const sibling = (await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
@@ -846,7 +849,7 @@ async function mergedTask(t, { stray, integration = null }) {
   const server = fakeServer(integration ? admitted : sibling);
   // Coverage: from the admitted base the sibling IS in the diff, so the old check would refuse.
   assert.match((await git(worktree, ['diff', '--name-only', admitted, revision])).stdout, /sibling\.txt/);
-  return { opts: { ...opts, serverCompare: server.compare }, git, merged, revision, server };
+  return { opts: { ...opts, serverCompare: server.compare, serverPullBase: async () => integration ? [integration] : [] }, git, merged, revision, server };
 }
 
 test('TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope', async t => {
@@ -860,6 +863,14 @@ test('TM-325 integration scope excludes what the task merged from its integratio
   const asked = []; const compare = async (dir, from, to) => { asked.push(from); return server.compare(dir, from, to); };
   assert.deepEqual((await integrationEligibility({ ...opts, serverCompare: compare })).reasons, []);
   assert.ok(asked.includes('fix/integration'), `the scope check asked the server about the integration branch: ${JSON.stringify(asked)}`);
+  assert.ok(!asked.includes('main'), `the edited task file was not consulted: ${JSON.stringify(asked)}`);
+  assert.equal((await managementStatus(opts)).management.integration_branch, 'fix/integration', 'admission recorded the integration branch');
+});
+
+test('TM-325 the scope check refuses when the task PR base disagrees with the admitted integration branch', async t => {
+  const { opts } = await mergedTask(t, { stray: false, integration: 'fix/integration' });
+  const { reasons } = await integrationEligibility({ ...opts, serverPullBase: async () => ['main'] });
+  assert.ok(reasons.some(r => /task PR targets main, but the task was admitted against the integration branch fix\/integration/.test(r)), reasons.join('\n'));
 });
 
 test('TM-325 an out-of-scope file is still refused when the task merged its integration branch', async t => {
