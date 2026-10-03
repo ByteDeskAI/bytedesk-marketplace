@@ -4,6 +4,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import "./types.mjs";
 import { NatsBackend } from "./nats-backend.mjs";
+import { runWithReadRetry } from "./retry-read.mjs";
 
 const { sab, port, opts } = workerData;
 const sig = new Int32Array(sab);
@@ -30,7 +31,7 @@ parentPort.on("message", async ({ method, args }) => {
   try {
     const fn = methods[method] ?? backend[method]?.bind(backend);
     if (!fn) throw new Error(`no such storage method: ${method}`);
-    reply = { ok: true, value: await fn(...args) };
+    reply = { ok: true, value: await runWithReadRetry(method, fn, args, () => backend.nc?.isClosed()) };
   } catch (e) {
     reply = { ok: false, error: { name: e.name, code: e.code, message: e.message, currentRev: e.currentRev } };
   }
