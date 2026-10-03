@@ -54,6 +54,8 @@ export const ORCH_LAYOUT = Object.freeze({
   eventsFilter: (repo) => `orch.${repo}.events.>`,
   // TM-310: an agent-mode transport keys its records under its own identity so the grant can name them.
   handoffKey: (repo, messageId, agent = null) => (agent ? `${repo}.${agent}.${messageId}` : `${repo}.${messageId}`),
+  // TM-315: written by the RECIPIENT when it consumes a mail message, under its own identity so its grant covers it.
+  deliveredKey: (repo, agent, messageId) => `${repo}.${agent}.delivered.${orchName(messageId)}`,
   claimKey: (repo, task) => `${repo}.${task}`,
   agentKey: (repo, agent) => `${repo}.${agent}`,
   mailDurable: (repo, agent) => `mail_${repo}_${agent}`,
@@ -207,6 +209,7 @@ export function createFileTransport() {
   const probes = new Map();
   const verdictWaiters = new Map();
   const handoffs = new Map();
+  const delivered = new Set();
   const events = new Map();
   const eventWatchers = new Set();
   let eventSeq = 0;
@@ -259,7 +262,7 @@ export function createFileTransport() {
             subject,
             messageId: item.messageId,
             body: item.body,
-            ack: async () => { item.acked = true; pruneAcked(queue); },
+            ack: async () => { if (item.messageId) delivered.add(ORCH_LAYOUT.deliveredKey(orchName(repo), orchName(agent), item.messageId)); item.acked = true; pruneAcked(queue); },
           };
         }
         if (Date.now() >= deadline) return null;
@@ -279,6 +282,7 @@ export function createFileTransport() {
     },
     async hasMailMessage({ repo, agent, messageId }) {
       const subject = ORCH_LAYOUT.mailSubject(orchName(repo), orchName(agent));
+      if (delivered.has(ORCH_LAYOUT.deliveredKey(orchName(repo), orchName(agent), messageId))) return true;
       return (mail.get(subject) ?? []).some((entry) => entry.messageId === messageId);
     },
     async getClaimEntry({ repo, task }) {
@@ -827,7 +831,19 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
         body: sc.decode(msg.data),
-        ack: async () => { msg.ack(); await nc.flush(); },
+        ack: async () => {
+          // TM-315: record the consumption BEFORE the ack removes the message from the work queue. A crash in
+          // between redelivers the message and the create below is then a no-op. Not a recording failure
+          // swallowed: a retry that cannot see this record would send the successor twice.
+          const wire = msg.headers?.get?.('Nats-Msg-Id') ?? null;
+          const prefix = `${nameRepo}.${nameAgent}.`;
+          if (wire?.startsWith(prefix)) {
+            const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+            await kv.create(ORCH_LAYOUT.deliveredKey(nameRepo, nameAgent, wire.slice(prefix.length)), JSON.stringify({ at: new Date().toISOString() }))
+              .catch(async (error) => { const entry = await kv.get(ORCH_LAYOUT.deliveredKey(nameRepo, nameAgent, wire.slice(prefix.length))).catch(() => null); if (!entry || entry.operation !== 'PUT') throw error; });
+          }
+          msg.ack(); await nc.flush();
+        },
         nak: async () => { msg.nak(); },
       };
     },
@@ -886,6 +902,10 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, orchName(agent));
+      // TM-315: a successor the recipient already consumed is gone from the work queue; its record says it was delivered.
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const consumed = await kv.get(ORCH_LAYOUT.deliveredKey(nameRepo, orchName(agent), messageId)).catch(() => null);
+      if (consumed && consumed.operation === 'PUT') return true;
       const wanted = `${nameRepo}.${orchName(agent)}.${messageId}`;
       const info = await jsm.streams.info(ORCH_LAYOUT.mailStream);
       for (let seq = info.state.first_seq; seq <= info.state.last_seq;) {

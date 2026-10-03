@@ -84,6 +84,8 @@ export function agentPermissions({ repo, agent, role = 'worker', mailTo = [], in
   // Handoff records: an agent writes and reads only keys under its own identity; the lead reads any.
   publish.push(`$KV.${handoffs}.${r}.${a}.>`);
   if (role !== 'lead') publish.push(`$JS.API.DIRECT.GET.KV_${handoffs}.$KV.${handoffs}.${r}.${a}.>`);
+  // TM-315: a retrying sender reads the recipient's delivered record (ids only), and nothing else of the recipient's.
+  if (role !== 'lead') publish.push(`$JS.API.DIRECT.GET.KV_${handoffs}.$KV.${handoffs}.${r}.*.delivered.>`);
   // Work queue: the lead publishes ready items; a worker that takes work pulls them and writes fenced claims.
   if (role === 'lead') publish.push(ORCH_LAYOUT.tasksSubject(r), `$KV.${ORCH_LAYOUT.claimsBucket}.${r}.>`, `$JS.API.STREAM.MSG.GET.${ORCH_LAYOUT.mailStream}`, `orch.${r}.probe.*`);
   if (role === 'lead' || takesWork) publish.push(`$JS.API.CONSUMER.INFO.${ORCH_LAYOUT.tasksStream}.${tasks}`, `$JS.API.CONSUMER.MSG.NEXT.${ORCH_LAYOUT.tasksStream}.${tasks}`, `$JS.ACK.${ORCH_LAYOUT.tasksStream}.${tasks}.>`, `$JS.API.STREAM.INFO.${ORCH_LAYOUT.tasksStream}`);
