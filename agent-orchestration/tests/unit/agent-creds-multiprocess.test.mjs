@@ -198,3 +198,50 @@ test('a process manager and CLI processes sharing one home never replace the ser
   assert.equal(servers.length, 1);
   for (const pid of [state().pid, ...servers.map((l) => Number(l.trim().split(/\s+/)[0]))]) if (pid) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
 });
+
+test('the services path (a BUNDLED nats-local, as dist/cli.cjs runs it) and topology source share one home: one server, schema 2', { timeout: 180000 }, async (t) => {
+  const { home, env, state } = await fixture(t);
+  const esbuild = await import('esbuild');
+  const { build } = esbuild;
+  const out = await mkdtemp(join(os.tmpdir(), 'ao-bundle-'));
+  t.after(() => rm(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const topologyLib = new URL('../../topology/lib/', import.meta.url).pathname;
+  await writeFile(join(out, 'writer.mjs'), `import { prepareLocalNats, ensureLocalNats } from ${JSON.stringify(topologyLib + 'nats-local.mjs')};
+    import { spawn } from 'node:child_process'; import net from 'node:net';
+    const until = Date.now() + 30000;
+    const up = (port) => new Promise((r) => { const s = net.connect(port, '127.0.0.1', () => { s.destroy(); r(true); }); s.once('error', () => r(false)); });
+    (async () => {
+    while (Date.now() < until) {
+      const p = await prepareLocalNats({ env: process.env });          // what \`services ensure\` calls
+      if (!(await up(p.port))) { spawn(p.bin, p.args, { detached: true, stdio: 'ignore' }).unref(); await new Promise((r) => setTimeout(r, 800)); }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    process.exit(0);
+    })();`);
+  const common = { bundle: true, platform: 'node', target: 'node22', format: 'cjs', logLevel: 'error', preserveSymlinks: true, absWorkingDir: new URL('../../', import.meta.url).pathname,
+    define: { 'import.meta.url': '__aoImportMetaUrl' }, banner: { js: "const __aoImportMetaUrl = require('node:url').pathToFileURL(__filename).href;" } };
+  // Same shape as scripts/build.mjs: the application bundle and the holder's own entry beside it.
+  await build({ ...common, entryPoints: [join(out, 'writer.mjs')], outfile: join(out, 'writer.cjs') });
+  await build({ ...common, entryPoints: [join(topologyLib, 'credential-holder.mjs')], outfile: join(out, 'credential-holder.cjs') });
+  await esbuild.stop(); // its service process would otherwise outlive the test
+  const bundleRun = exec(process.execPath, [join(out, 'writer.cjs')], { env, timeout: 90_000 });
+  const topologyRun = exec(process.execPath, ['--input-type=module', '-e', `
+    import { ensureLocalNats } from ${lib('nats-local.mjs')};
+    const until = Date.now() + 30000; const ports = new Set();
+    while (Date.now() < until) { try { ports.add((await ensureLocalNats({ env: process.env })).port); } catch { /* manager mid-start */ } await new Promise((r) => setTimeout(r, 500)); }
+    console.log('RESULT ' + JSON.stringify([...ports])); process.exit(0);`], { env, timeout: 90_000 });
+  const livePids = async () => (await exec('ps', ['-eo', 'pid,args', '-ww'])).stdout.split('\n').filter((l) => l.includes('nats-server') && l.includes(home)).map((l) => Number(l.trim().split(/\s+/)[0]));
+  const settled = new Promise((resolve) => setTimeout(async () => resolve(await livePids()), 8_000));
+  const [, topo] = await Promise.all([bundleRun, topologyRun]);
+  const pidsAt8s = await settled;
+  const ports = JSON.parse(topo.stdout.split('\n').find((l) => l.startsWith('RESULT ')).slice(7));
+  const finalState = state();
+  const holders = (await exec('ps', ['-eo', 'args', '-ww'])).stdout.split('\n').filter((l) => /credential-holder\.(cjs|mjs)/.test(l) && !l.includes('grep'));
+  console.log(`bundled writer + topology: ports=${JSON.stringify(ports)} server pids at 8s=${JSON.stringify(pidsAt8s)} end=${JSON.stringify(await livePids())} state.schema=${finalState.schema} keys=${Object.keys(finalState).join(',')} holder cmdlines=${holders.map((l) => l.split('/').slice(-1)[0]).join(',')}`);
+  assert.equal(ports.length, 1, 'the port moved');
+  assert.equal(pidsAt8s.length, 1);
+  assert.deepEqual(await livePids(), pidsAt8s, 'the server was replaced after it settled');
+  assert.equal(finalState.schema, 2);
+  assert.ok(!('pass' in finalState) && finalState.adminPub);
+  for (const pid of [...pidsAt8s, finalState.adminPid]) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+});

@@ -23,8 +23,8 @@ import { chmod, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { withLock } from './lockfile.mjs';
 import { ORCH_LAYOUT, orchName } from './orch-transport.mjs';
 
@@ -286,6 +286,16 @@ export function remoteHolder(sock) {
 }
 
 /**
+ * The file that runs a holder. From source it is credential-holder.mjs next to this file; from a bundle (dist/*.cjs, where
+ * import.meta.url names the bundle, not this module) it is dist/credential-holder.cjs. Spawning the bundle itself would run
+ * that bundle's own main, so the holder has an entry point of its own.
+ */
+function holderScript() {
+  const here = fileURLToPath(import.meta.url);
+  return join(dirname(here), here.endsWith('.mjs') ? 'credential-holder.mjs' : 'credential-holder.cjs');
+}
+
+/**
  * Spawn a holder. Secrets cross an IPC channel (a socketpair) during the handshake only, never argv, env or disk.
  * admin: the holder GENERATES an nkey, never reveals the seed to its spawner, and hands it only to
  * a process outside every agent tree. home: where roots.json lives (needed for admin and cross-process attach).
@@ -300,7 +310,7 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
     sock = join(dir, 'c.sock');
   }
   if (Buffer.byteLength(sock) > 107) throw Object.assign(new Error(`credential holder socket path is ${Buffer.byteLength(sock)} bytes; the limit is 107 (${sock})`), { code: 'HOLDER_SOCKET_PATH_TOO_LONG' });
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--holder'], {
+  const child = spawn(process.execPath, [holderScript()], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH ?? '', ...(process.env.AO_TEST_RUN ? { AO_TEST_RUN: process.env.AO_TEST_RUN } : {}) },
   });
   // The IPC channel carries only the init handshake. Once the holder reports ready it is closed: a Node parent with an open
@@ -328,7 +338,7 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
   };
 }
 
-function holderMain() {
+export function holderMain() {
   let secrets = null;
   let root = null;
   let server = null;
@@ -482,5 +492,3 @@ export async function holderAlive(sock) {
     probe.once('error', () => resolve(false));
   });
 }
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] === '--holder') holderMain();
