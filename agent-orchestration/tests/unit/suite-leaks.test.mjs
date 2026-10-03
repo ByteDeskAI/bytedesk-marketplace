@@ -35,14 +35,14 @@ test("escapedSessions reports only new operator sessions started under the temp 
 function fakeServiceManager(dir) {
   const bin = join(dir, "bin", "process-compose-v0.0.0");
   // exec -a gives the process the fake binary's name in argv[0], which is what /proc/<pid>/cmdline reports.
-  return spawn("sh", ["-c", `exec -a ${bin} sleep 30`], { stdio: "ignore", detached: true });
+  return spawn("bash", ["-c", `exec -a ${bin} sleep 30`], { stdio: "ignore", detached: true });
 }
 
 test("serviceManagersUnder finds a process-compose under /tmp/ao-*, skips ignored pids and other paths", { skip: process.platform !== "linux" && "reads /proc" }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "ao-leakprobe-"));
   const elsewhere = mkdtempSync(join(tmpdir(), "zz-leakprobe-"));
   const mine = fakeServiceManager(dir);
-  const other = spawn("sh", ["-c", `exec -a ${join(elsewhere, "process-compose")} sleep 30`], { stdio: "ignore", detached: true });
+  const other = spawn("bash", ["-c", `exec -a ${join(elsewhere, "process-compose")} sleep 30`], { stdio: "ignore", detached: true });
   t.after(() => { mine.kill("SIGKILL"); other.kill("SIGKILL"); rmSync(dir, { recursive: true, force: true }); rmSync(elsewhere, { recursive: true, force: true }); });
   await Promise.all([mine, other].map((child) => new Promise((resolve) => child.once("spawn", resolve))));
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -58,7 +58,7 @@ test("the suite-end check fails a run that leaves a service manager behind, and 
   const guard = fileURLToPath(new URL("../helpers/suite-leaks.mjs", import.meta.url));
   const script = (leak) => `import ${JSON.stringify(guard)};
 import { spawn } from "node:child_process";
-${leak ? `const c = spawn("sh", ["-c", "exec -a ${join(dir, "bin", "process-compose")} sleep 30"], { stdio: "ignore", detached: true, env: { PATH: process.env.PATH } }); /* scrubbed env, as the managed services run: no AO_TEST_RUN marker */ c.unref(); console.log("LEAKED_PID=" + c.pid); await new Promise(r => c.once("spawn", r)); await new Promise(r => setTimeout(r, 200));` : ""}
+${leak ? `const c = spawn("bash", ["-c", "exec -a ${join(dir, "bin", "process-compose")} sleep 30"], { stdio: "ignore", detached: true, env: { PATH: process.env.PATH } }); /* scrubbed env, as the managed services run: no AO_TEST_RUN marker */ c.unref(); console.log("LEAKED_PID=" + c.pid); await new Promise(r => c.once("spawn", r)); await new Promise(r => setTimeout(r, 200));` : ""}
 `;
   const leaked = [];
   t.after(() => { for (const pid of leaked) { try { process.kill(pid, "SIGKILL"); } catch {} } rmSync(dir, { recursive: true, force: true }); });
