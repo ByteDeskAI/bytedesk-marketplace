@@ -6,6 +6,7 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { addWorktree, cleanup, tempRepo } from "./helpers.mjs";
 import { currentCheckout, legacyStore, pluginInstallRoot, resolveRoot } from "../../lib/paths.mjs";
@@ -48,11 +49,20 @@ describe("resolveRoot", () => {
     assert.equal(resolve(got), resolve(a));
   });
 
-  it("prefers the executing project over the terminal's cwd", () => {
+  it("prefers the executing project over a cwd that is not a repository at all", () => {
+    const project = repo();
+    const got = withEnv({ TM_ROOT: undefined, CLAUDE_PROJECT_DIR: project, __cwd: tmpdir() }, resolveRoot);
+    assert.equal(resolve(got), resolve(project), "CLAUDE_PROJECT_DIR must win — the store follows the project, not the shell");
+  });
+
+  it("refuses, rather than guesses, when the executing project and the cwd are different repositories", () => {
+    // Was "prefers the executing project over the terminal's cwd". An inherited variable that
+    // disagrees with where the shell stands is the stale-environment case, not a tie to break.
+    // The refusal is covered in repo-resolution.test.mjs; this pins the changed contract.
     const project = repo();
     const elsewhere = repo();
     const got = withEnv({ TM_ROOT: undefined, CLAUDE_PROJECT_DIR: project, __cwd: elsewhere }, resolveRoot);
-    assert.equal(resolve(got), resolve(project), "CLAUDE_PROJECT_DIR must win — the store follows the project, not the shell");
+    assert.equal(got, null);
   });
 
   it("falls back to the cwd's repo when no project is declared", () => {

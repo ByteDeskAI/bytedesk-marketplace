@@ -22,7 +22,7 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync, watch, openSync, readSync, closeSync } from "node:fs";
 import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureDirs, isInitialized, paths } from "../lib/paths.mjs";
+import { ensureDirs, isInitialized, paths, takeRepoFlag } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
 import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
 import { boardPayload, handleAsync } from "../lib/dashboard-api.mjs";
@@ -51,7 +51,16 @@ import { subscribe as subscribePlanner } from "../lib/planner-run.mjs";
  * port what it was serving.
  */
 const FLAGS = new Set(["--status", "--restart", "--browser", "--no-browser", "--help", "-h"]);
-const args = new Set(process.argv.slice(2));
+// --repo <dir> is global to every entry point (lib/paths.mjs takeRepoFlag); it is taken out before
+// the allowlist below so its value is not mistaken for an unknown option.
+let argv;
+try {
+  argv = takeRepoFlag(process.argv.slice(2));
+} catch (err) {
+  process.stderr.write(`tm-dashboard: ${err.message}\n`);
+  process.exit(2);
+}
+const args = new Set(argv);
 
 const USAGE = [
   "task-management board — one dashboard per project, first-wins.",
@@ -60,6 +69,7 @@ const USAGE = [
   "  tm-dashboard --status    print url/pid/port; exit 1 if nothing is running",
   "  tm-dashboard --restart   evict the incumbent and take over",
   "  tm-dashboard --help      this, and exit",
+  "  --repo <dir>             the repository to serve (needed outside one)",
   "",
   "  --browser / --no-browser   override board.launchBrowser for this run",
   "",
@@ -80,6 +90,10 @@ if (unknown.length) {
 
 const resolved = paths();
 if (!resolved.root) {
+  // The monitor runs in every session, including ones started outside any repository, where there
+  // is no board to serve and nothing to complain about. A person asking for status or a restart
+  // gets the reason (which names --repo).
+  if (!args.has("--status") && !args.has("--restart")) process.exit(0);
   process.stderr.write(`${resolved.unavailable}\n`);
   process.exit(1);
 }

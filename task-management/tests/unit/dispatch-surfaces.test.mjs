@@ -43,7 +43,7 @@ const FIXTURE = fileURLToPath(new URL("./fixtures/fake-dispatch-registry.mjs", i
 function repoStore(cfg = {}) {
   const root = tempRepo();
   const p = paths(root);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
   seedGitContract(p);
   writeConfig({ requireEpic: false, wipLimit: 99, ...cfg }, p);
   trash.push(root);

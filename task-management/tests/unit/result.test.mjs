@@ -347,7 +347,7 @@ describe("collectTopology — exact native workflow observation", () => {
   });
 
   function legacyFixture() {
-    const p = paths(tempRepo()); stores.push(p.root); ensureDirs(p); seedGitContract(p);
+    const p = paths(tempRepo()); stores.push(p.root); ensureDirs(p, { init: true }); seedGitContract(p);
     const worktree = addWorktree(p.root); stores.push(worktree);
     const id = dispatched(p, { backend: "topology", worktree });
     const runDir = join(worktree, ".bytedesk", "agent-orchestration", "runs", "native-old-1");

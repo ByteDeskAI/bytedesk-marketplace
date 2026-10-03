@@ -39,6 +39,9 @@ printf 'TOKEN=main\n' > "$TM_ROOT/.env"
 git init -q --bare "$REMOTE/origin.git"
 git -C "$TM_ROOT" remote add origin "$REMOTE/origin.git"
 git -C "$TM_ROOT" push -q origin HEAD
+# An initialized store, as `tm init` leaves it: the lib refuses to create a store from nothing.
+mkdir -p "$TM_ROOT/.bytedesk/task-management"
+printf '{}\n' > "$TM_ROOT/.bytedesk/task-management/config.json"
 
 # ── create ───────────────────────────────────────────────────────────────────
 OUT="$(run <<'JS'

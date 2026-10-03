@@ -20,7 +20,7 @@ after(() => cleanup(...trash));
 function repoStore(cfg = {}) {
   const root = tempRepo();
   const p = paths(root);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
   seedGitContract(p);
   const { dispatch: dcfg, ...rest } = cfg;
   writeConfig({ ...rest, dispatch: { backends: ["fake"], ...(dcfg || {}) } }, p);
