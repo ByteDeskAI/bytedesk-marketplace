@@ -65,6 +65,10 @@ const REVIEW_PATCH_MAX_BYTES = 64 * 1024 * 1024;
 const FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
 /** Wake attempts after publication before an undeliverable request is marked failed (TM-215 f). */
 const MAX_REVIEW_WAKES = 5;
+/** TM-302: how long a reviewer record's `restarting` mark holds requests off before it is presumed crashed. */
+const RESTART_MARK_STALE_MS = 15 * 60_000;
+// ponytail: the mark covers only kill + relaunch; one older than the bound is a crashed restart, not a live one.
+const restartMarked = record => Boolean(record?.restarting) && Date.now() - Date.parse(record.restarting.at) <= RESTART_MARK_STALE_MS;
 /** An unclosed verdict this old is stuck rather than pending (TM-217). */
 export const REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 120_000);
 /**
@@ -504,7 +508,8 @@ export async function ensureReviewer({ consumer, home = homedir(), pluginRoot = 
       const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
       invariant(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
       const opened = await session.open({ agent, consumer, home, pluginRoot, env, provider: record.provider, model: agent.model ?? null, log, existing: record });
-      const updated = { ...record, session: opened.session ?? record.session, pane: opened.pane ?? record.pane ?? null, binding: opened.binding ?? null, updated_at: nowIso() };
+      const { restarting: _restarting, ...unmarked } = record;
+      const updated = { ...unmarked, session: opened.session ?? record.session, pane: opened.pane ?? record.pane ?? null, binding: opened.binding ?? null, updated_at: nowIso() };
       await writeJson(recordPath, updated);
       log(`restarted reviewer ${record.agent_id} in ${updated.session}`);
       return { record: updated, agent, created: false, reattached: false, restarted: true };
@@ -688,6 +693,110 @@ export async function detachReviewer({ consumer, env = process.env, home = homed
     log(`detached reviewer ${record.agent_id}${killed ? " and killed its managed session" : ""}`);
     return { action: "detached", detached: true, record, killed };
   });
+}
+
+/**
+ * Review requests to THIS reviewer incarnation that are still in flight: no collected verdict, not
+ * failed, and no terminal collection outcome. A recorded collection code is an outcome — the
+ * request was withdrawn (TOPOLOGY_REVIEWER_RANGE: the range moved), or its reviewer changed — except
+ * TOPOLOGY_REVIEWER_RESPONSE ("no answer on the pane yet") and TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE
+ * (verdict still printing, not yet aged out to failed), which are both still pending.
+ * A request bound to an earlier incarnation can never be collected (collectReview refuses it), so it
+ * cannot be orphaned by a restart either.
+ */
+const PENDING_COLLECTION_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE']);
+
+async function uncollectedReviewRequests(consumer, record, env, home) {
+  const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
+  const names = (await readdir(dir).catch(() => [])).filter(name => name.endsWith('.json'));
+  const requests = await Promise.all(names.map(name => readJson(join(dir, name)).catch(() => null)));
+  return requests.filter(request => request && request.reviewer_id === record.agent_id && !request.collected_at && request.state !== 'failed'
+    && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code))
+    && sameIncarnation(request.binding, record.binding));
+}
+
+async function assertNoReviewInFlight(consumer, record, env, home) {
+  const agentId = record.agent_id;
+  const pending = await uncollectedReviewRequests(consumer, record, env, home);
+  invariant(!pending.length, 'TOPOLOGY_AGENT_BUSY',
+    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map(r => `${r.task} nonce ${r.nonce}`).join(', ')}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>.`,
+    { agent_id: agentId, pending: pending.map(r => ({ task: r.task, revision: r.revision, nonce: r.nonce, state: r.state ?? null })) });
+}
+
+/**
+ * TM-302: `agent restart` for the reviewer, so a staged prompt can be applied to a live, healthy one.
+ * Never mid-review: refused with TOPOLOGY_AGENT_BUSY while any request to this reviewer is uncollected
+ * (checked again after the turn wait, because one can publish meanwhile), or while its turn has not
+ * ended. Then the exact managed pane incarnation is ended and ensureReviewer's own dead-reviewer path
+ * relaunches the SAME identity — read-only argv, freshly composed prompt promoted to the new
+ * incarnation. There is no handoff and no resume: a reviewer cannot write a handoff file and keeps no
+ * state between reviews, so either requested mode is a fresh read-only launch, and the result says so.
+ */
+export async function restartReviewer({ consumer, agentId, mode = 'handoff', home = homedir(), pluginRoot = null, env = process.env, log = () => {}, turnTimeoutMs = 600_000, probes = null }) {
+  const session = {
+    ...defaultProbes(),
+    turnEnd: async (record) => {
+      const { waitForTurnEnd } = await import('./respawn.mjs');
+      const adapter = adapterFor({ cli: record.provider, model: null, args: [], skills: [] }, await loadAdapters(providerDirs({ consumer, home, env })));
+      return waitForTurnEnd({ session: record.session, pane: record.binding.paneId, adapter, timeoutMs: turnTimeoutMs });
+    },
+    kill: async (record) => {
+      invariant(await bindingAlive(record), 'TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN', 'Exact managed pane incarnation is absent or changed; refusing termination.');
+      await tmux.tmux(['kill-pane', '-t', record.binding.paneId], { tmuxServer: record.binding.serverKey });
+    },
+    ...probes,
+  };
+  const { lockPath, recordPath } = await reviewerPaths(consumer, env, home);
+  const current = async () => {
+    const record = await readReviewerRecord(consumer, env, home);
+    invariant(record?.agent_id === agentId, 'TOPOLOGY_REVIEWER_NOT_REGISTERED', `${agentId} is not this repository's registered reviewer; nothing was restarted. Use: ao-topology reviewer ensure.`, { agent_id: agentId });
+    invariant(record.managed !== false && record.externally_owned !== true, 'TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN', `Reviewer ${agentId} runs in a session this host did not launch (assigned); restart it where it is owned.`, { agent_id: agentId });
+    invariant(!restartMarked(record), 'TOPOLOGY_AGENT_BUSY', `Reviewer ${agentId} is already being restarted (since ${record.restarting?.at}).`, { agent_id: agentId, restarting: record.restarting });
+    return record;
+  };
+  // The turn wait runs outside the lock (it can take minutes, and requestReview takes this lock).
+  const first = await withLock(lockPath, async () => {
+    const record = await current();
+    await assertNoReviewInFlight(consumer, record, env, home);
+    return { record, alive: await session.alive(record.session, record) };
+  });
+  if (first.alive) {
+    const turn = await session.turnEnd(first.record);
+    invariant(turn.ended, 'TOPOLOGY_AGENT_BUSY', `Reviewer ${agentId} is mid-turn in "${first.record.session}" and did not finish within ${turnTimeoutMs}ms; it was not interrupted. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: first.record.session, reason: turn.reason });
+  }
+  // Mark the record `restarting` BEFORE the last in-flight check, under the lock requestReview writes
+  // its request under: a request either landed already (and refuses the restart here) or sees the
+  // mark and is refused until ensureReviewer relaunches and clears it. The kill then runs unlocked.
+  const before = await withLock(lockPath, async () => {
+    const record = await current();
+    invariant(sameIncarnation(record.binding, first.record.binding), 'TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN', `Reviewer ${agentId} changed incarnation while its turn was waited out; nothing was restarted. Retry.`, { agent_id: agentId });
+    await assertNoReviewInFlight(consumer, record, env, home);
+    await writeJson(recordPath, { ...record, restarting: { at: nowIso(), pid: process.pid } });
+    return { record, ended: first.alive };
+  });
+  const unmark = () => withLock(lockPath, async () => { const { restarting: _, ...rest } = await readReviewerRecord(consumer, env, home); await writeJson(recordPath, rest); }).catch(() => {});
+  if (first.alive) await session.kill(before.record).catch(async error => { await unmark(); throw error; });
+  let ensured;
+  try {
+    ensured = await ensureReviewer({ consumer, home, pluginRoot, env, log, probes: { alive: session.alive, open: session.open } });
+  } catch (error) {
+    // The old incarnation is gone either way; leave no mark that would hold requests off a dead reviewer.
+    await unmark();
+    throw error;
+  }
+  const { readPromptState } = await import('./prompts.mjs');
+  log(`restarted reviewer ${agentId} read-only in ${ensured.record.session}`);
+  return {
+    mode: 'fresh',
+    requested_mode: mode,
+    fallback: 'fresh',
+    fallback_reason: `a reviewer keeps no conversation state and cannot write a handoff, so ${mode} is a fresh read-only launch`,
+    read_only: true,
+    old_session: { session: before.record.session, incarnation: incarnationOf(before.record.binding), ended: before.ended },
+    new_session: { session: ensured.record.session, incarnation: incarnationOf(ensured.record.binding) },
+    relaunched: ensured.restarted,
+    prompt_revision: (await readPromptState(ensured.agent._dir))?.desired_revision ?? null,
+  };
 }
 
 // ── Review records ───────────────────────────────────────────────────────────
@@ -1069,16 +1178,29 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
   invariant(authorAgentIds.includes(range.owner), 'TOPOLOGY_REVIEWER_AUTHORS', 'Review authors must include the admitted task owner.');
   const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
   const key = `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${revision}`;
+  const { lockPath: reviewerLock } = await reviewerPaths(consumer, env, home);
   return withLock(join(dir, `${key}.lock`), async () => {
     const path = join(dir, `${key}.json`);
+    // TM-302: the record is re-read and the request written under the reviewer lock, so restartReviewer
+    // either sees this request (and refuses) or this request sees its `restarting` mark (and is refused).
+    const written = await withLock(reviewerLock, async () => {
+    const record = await readReviewerRecord(consumer, env, home);
+    invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer; preserve the finished task until one is available.');
+    invariant(!restartMarked(record), 'TOPOLOGY_REVIEWER_RESTARTING',
+      `Reviewer ${record.agent_id} is being restarted (since ${record.restarting?.at}); the request was not published. Request the review again once it is back: ao-topology reviewer status.`, { agent_id: record.agent_id, restarting: record.restarting ?? null });
+    invariant(!authorAgentIds.includes(record.agent_id), 'TOPOLOGY_REVIEWER_CONFLICT', 'Review request must identify independent authors.');
     const prior = await readJson(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     invariant(incarnationOf(record.binding), 'TOPOLOGY_REVIEWER_BINDING_REQUIRED', 'Review requires the exact designated reviewer incarnation.');
-    if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path };
+    if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path } };
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
     const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
     await writeJson(path, request);
-    const delivery=await wake({consumer,record,request,path,env,home}).catch(error=>({rang:false,reason:error.code??error.message}));
+    return { record, request };
+    });
+    if (written.prior) return written.prior;
+    const { request } = written;
+    const delivery=await wake({consumer,record:written.record,request,path,env,home}).catch(error=>({rang:false,reason:error.code??error.message}));
     const published={...request,delivery:{...delivery,at:nowIso()},state:'published'};
     await writeJson(path,published);
     return { ...published, path };

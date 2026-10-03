@@ -17,6 +17,19 @@
 
 ### Fixed
 
+- **`agent restart` applies a staged prompt to the reviewer (TM-302).** It refused every reviewer
+  with `TOPOLOGY_REVIEWER_READ_ONLY`, and `reviewer ensure` leaves a live reviewer alone, so a
+  reviewer's staged prompt could never be applied and `agent list` showed it `restart_required`
+  forever. A reviewer restart now refuses `TOPOLOGY_AGENT_BUSY` (naming each pending nonce) while a
+  review request to its current incarnation is in flight — not collected, not failed, and with no
+  terminal collection outcome (a verdict still printing, `TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE`,
+  still blocks; a request withdrawn as `TOPOLOGY_REVIEWER_RANGE`, or bound to an
+  earlier incarnation, does not block) — waits out its turn, marks the reviewer record `restarting`
+  (so `reviewer request` is refused `TOPOLOGY_REVIEWER_RESTARTING` until the relaunch clears it), ends
+  the exact managed pane and relaunches the same identity through the existing read-only launch on the current prompt.
+  `--mode resume` and `--mode handoff` are both a fresh read-only launch for a reviewer — it keeps no
+  state and cannot write a handoff — and the result says so (`fallback: "fresh"`). The read-only
+  launch itself is unchanged.
 - **A task worktree can no longer capture the services pointer (TM-305).** `services ensure` from a
   linked git worktree (under `.bytedesk/worktrees`, `.claude/worktrees`, or any checkout whose `.git`
   file names `…/worktrees/<name>`) keeps the current root even for an identical or newer build, and

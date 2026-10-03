@@ -360,7 +360,9 @@ tmux attach -t brand-vault-<run_id>
   --json` applies a changed prompt to one running agent at a safe turn boundary (never mid-turn,
   never over typed input): `handoff` replaces the session and passes the predecessor's handoff,
   `resume` continues the same provider conversation where the provider supports it (Claude
-  `--resume`) and otherwise falls back to `handoff` and says why. `agent list --json` flags
+  `--resume`) and otherwise falls back to `handoff` and says why. The reviewer is never restarted
+  mid-review (`TOPOLOGY_AGENT_BUSY` while a review request is uncollected) and is relaunched fresh and
+  read-only in either mode. `agent list --json` flags
   `restart_required` per agent. See [`docs/topology.md`](docs/topology.md#applying-a-changed-prompt-to-a-running-agent-agent-restart-tm-297).
 - **Mailbox** — messages are files in `<run>/agents/<id>/inbox`, replies in `outbox`; tmux only
   types a one-line pointer. Every event lands in `journal.jsonl`.
