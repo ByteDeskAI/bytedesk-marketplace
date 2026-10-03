@@ -76275,10 +76275,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
+  return false ? null : "223f11a918ac4bd6309e941ca69a52aefa78f9a83862cf4aa19542b98945bd9c";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855";
+  const fingerprint2 = false ? null : "223f11a918ac4bd6309e941ca69a52aefa78f9a83862cf4aa19542b98945bd9c";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -76289,12 +76289,35 @@ function pluginIdentity(pluginRoot) {
   }
   return { fingerprint: fingerprint2, version: version2 };
 }
-function choosePointer(previous, candidate, { exists: exists2 = import_node_fs13.existsSync } = {}) {
-  if (!previous?.pluginRoot || !exists2(previous.pluginRoot)) return candidate;
+function choosePointer(previous, candidate, { exists: exists2 = import_node_fs13.existsSync, worktree = linkedWorktree } = {}) {
+  const usable = previous?.pluginRoot && exists2(previous.pluginRoot);
+  if (worktree(candidate.pluginRoot)) {
+    invariant(
+      usable && !worktree(previous.pluginRoot),
+      "AO_SERVICES_WORKTREE_ROOT",
+      `Refusing to point the managed services at ${candidate.pluginRoot}: it is a linked git worktree. Run services ensure from the installed plugin or the marketplace source checkout.`
+    );
+    return previous;
+  }
+  if (!usable || worktree(previous.pluginRoot)) return candidate;
   if (previous.node !== candidate.node) return candidate;
   if (previous.fingerprint && previous.fingerprint === candidate.fingerprint) return previous;
   if (previous.version && compareVersions(candidate.version, previous.version) < 0) return previous;
   return candidate;
+}
+function linkedWorktree(root, { read: read3 = (path3) => (0, import_node_fs13.readFileSync)(path3, "utf8") } = {}) {
+  if (!root) return false;
+  if (/[\\/]\.(bytedesk|claude)[\\/]worktrees[\\/]/.test(`${root}/`)) return true;
+  for (let dir = root; ; dir = (0, import_node_path62.dirname)(dir)) {
+    let text = null;
+    try {
+      text = read3((0, import_node_path62.join)(dir, ".git"));
+    } catch (error51) {
+      if (error51.code === "EISDIR") return false;
+    }
+    if (text !== null) return /^gitdir:.*[\\/]worktrees[\\/][^\\/]+\s*$/m.test(text);
+    if ((0, import_node_path62.dirname)(dir) === dir) return false;
+  }
 }
 function pointerMoved(previous, pointer) {
   if (!previous) return false;
@@ -76502,7 +76525,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths2.pointer, null).catch(() => null);
     const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...deps.identity ?? pluginIdentity(pluginRoot) };
-    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs13.existsSync });
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs13.existsSync, worktree: deps.worktree ?? linkedWorktree });
     const changed = {
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
       pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
@@ -76675,7 +76698,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2623e451197c52023d45fbf0c778c1d25b718b62f062964e50ec8b9ea1702855",
+  sourceFingerprint: false ? null : "223f11a918ac4bd6309e941ca69a52aefa78f9a83862cf4aa19542b98945bd9c",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
