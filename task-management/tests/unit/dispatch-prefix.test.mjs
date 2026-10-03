@@ -90,7 +90,7 @@ describe("dispatch prepends the prefix for tmux and manual only", () => {
     const root = tempRepo();
     trash.push(root);
     const p = paths(root);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
     seedGitContract(p);
     return p;
   }

@@ -439,7 +439,7 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
     const root = tempRepo();
     trash.push(root);
     const p = paths(root);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
     seedGitContract(p);
     const task = create("task", { title: "the work" }, "body", p);
     if (status) update(task.id, { status }, p);
@@ -482,7 +482,7 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
     const root = tempRepo();
     trash.push(root);
     const p = paths(root);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
     seedGitContract(p);
     const task = create("task", { title: "finished elsewhere" }, "body", p);
     const branch = `tm/${task.id}-finished-elsewhere`;
@@ -506,13 +506,13 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
     const ours = tempRepo();
     trash.push(theirs, ours);
     const tp = paths(theirs);
-    ensureDirs(tp);
+    ensureDirs(tp, { init: true });
     seedGitContract(tp);
     const done = create("task", { title: "theirs, finished" }, "body", tp);
     update(done.id, { status: "done" }, tp);
 
     const op = paths(ours);
-    ensureDirs(op);
+    ensureDirs(op, { init: true });
     seedGitContract(op);
     const mine = create("task", { title: "mine, open" }, "body", op);
     assert.equal(mine.id, done.id, "precondition: the two stores minted the same id");

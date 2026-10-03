@@ -13,7 +13,7 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo } from "./helpers.mjs";
@@ -77,7 +77,7 @@ function poolProcs(p) {
 function repoStore(dcfg = {}, t) {
   const root = tempRepo();
   const p = paths(root);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
   seedGitContract(p);
   writeConfig({ dispatch: { backends: ["fake"], pollSeconds: 0.3, ...dcfg } }, p);
   trash.push(root);
@@ -218,7 +218,8 @@ describe("TM-235 — the detached pool sheds a worker's pinned PR base", () => {
     const root = tempRepo();
     trash.push(root);
     const p = paths(root);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
+    writeFileSync(p.config, "{}\n"); // initialized, as `tm init` leaves it
     const seen = [];
     const spawnImpl = (_cmd, _args, options) => {
       seen.push(options.env);

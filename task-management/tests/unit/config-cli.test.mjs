@@ -83,7 +83,8 @@ describe("read-only identity keys", () => {
     const root = tempRepo();
     roots.push(root);
     const p = paths(root);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
+    writeFileSync(p.config, "{}\n"); // what `tm init` leaves, and what makes the store initialized
     git(root, "config", "user.name", "Test");
     const read = tm(p, "owner");
     assert.equal(read.status, 0, read.stderr);

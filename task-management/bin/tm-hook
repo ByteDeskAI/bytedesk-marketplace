@@ -62,8 +62,13 @@ if (event === "pre-bash") {
     const pinnedBranch = process.env.TM_DISPATCH_BRANCH;
     if (!storeRoot && !pinnedBranch) return false;
     try {
-      const [{ RESOLVED, read }, { paths }] = await Promise.all([import("../lib/store.mjs"), import("../lib/paths.mjs")]);
-      const task = read(pinned, paths(storeRoot || cwd));
+      const [{ RESOLVED, read }, { paths, resolveRoot }] = await Promise.all([import("../lib/store.mjs"), import("../lib/paths.mjs")]);
+      // Through resolveRoot, like every other reader: it canonicalizes a worktree payload cwd to
+      // the main checkout (the worktree has no .bytedesk of its own), refuses a path inside an
+      // installed copy of the plugin, and honors TM_ROOT. No resolvable store is no release.
+      const store = paths(resolveRoot(cwd));
+      if (!store.root) return false;
+      const task = read(pinned, store);
       if (!task || !RESOLVED.has(task.status)) return false;
       return Boolean(storeRoot) || task.branch === pinnedBranch;
     } catch {

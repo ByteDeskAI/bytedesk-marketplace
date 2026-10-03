@@ -1118,7 +1118,7 @@ describe("worktrees (BDM-74)", () => {
   function gitStore() {
     const root = tempRepo();
     const p = paths(root);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
     seedGitContract(p);
     writeConfig({ requireEpic: false, requireAcceptance: true, wipLimit: 99 }, p);
     stores.push(root);

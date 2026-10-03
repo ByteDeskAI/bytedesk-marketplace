@@ -120,6 +120,7 @@ describe("shared state survives a clone", () => {
     assert.deepEqual(local.override, { reason: "mine" }, "an override is one person's bypass, not the project's");
     assert.equal(local.lastStopBlock, "x");
     // and a purely local write does not touch the committed file at all
-    assert.equal(existsSync(p.config), false, "a claim or an override is nobody else's business");
+    // (tempStore seeds an empty config.json, as `tm init` does — so "untouched" is its content.)
+    assert.equal(readFileSync(p.config, "utf8").trim(), "{}", "a claim or an override is nobody else's business");
   });
 });

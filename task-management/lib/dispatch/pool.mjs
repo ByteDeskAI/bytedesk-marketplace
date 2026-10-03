@@ -61,7 +61,7 @@ import { listAgents, retireAgent } from "../agents.mjs";
 import { batches } from "../parallel.mjs";
 import { config, list, logEvent, nextTasks, now, queueOrder, read, withLock } from "../store.mjs";
 import { agentReadiness } from "../completeness.mjs";
-import { paths } from "../paths.mjs";
+import { isInitialized, paths } from "../paths.mjs";
 import { dispatch } from "./index.mjs";
 import { collect } from "./collect.mjs";
 import { resolveBackend } from "./backend.mjs";
@@ -111,6 +111,9 @@ function poolEnv(env, p) {
  * append its one-line refusal.
  */
 export function ensurePool(p = paths(), { spawnImpl = spawn, env = process.env } = {}) {
+  // Nothing to ensure in a repo nobody ran `tm init` in — and writing pool.log below would create
+  // the store directory, which is how a monitor opts a repo in just by running there.
+  if (!isInitialized(p)) return { action: "uninitialized", pid: null };
   if (!poolEnabled(config(p))) return { action: "off", pid: null };
   const inst = livePool(p);
   if (inst) return { action: "running", pid: inst.pid };

@@ -101,7 +101,9 @@ export function tempStore() {
   const dir = mkdtempSync(join(tmpdir(), "tm-store-"));
   TEMP_DIRS.add(dir);
   const p = paths(dir);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
+  // `tm init` writes config.json, and that file is what makes a store initialized.
+  writeFileSync(p.config, "{}\n");
   seedGitContract(p);
   writeLaunchers(p.root);
   return p;
