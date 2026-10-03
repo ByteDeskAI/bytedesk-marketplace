@@ -22,13 +22,21 @@
   reviewer's staged prompt could never be applied and `agent list` showed it `restart_required`
   forever. A reviewer restart now refuses `TOPOLOGY_AGENT_BUSY` (naming each pending nonce) while a
   review request to its current incarnation is in flight — not collected, not failed, and with no
-  terminal collection outcome (a request withdrawn as `TOPOLOGY_REVIEWER_RANGE`, or bound to an
+  terminal collection outcome (a verdict still printing, `TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE`,
+  still blocks; a request withdrawn as `TOPOLOGY_REVIEWER_RANGE`, or bound to an
   earlier incarnation, does not block) — waits out its turn, marks the reviewer record `restarting`
   (so `reviewer request` is refused `TOPOLOGY_REVIEWER_RESTARTING` until the relaunch clears it), ends
   the exact managed pane and relaunches the same identity through the existing read-only launch on the current prompt.
   `--mode resume` and `--mode handoff` are both a fresh read-only launch for a reviewer — it keeps no
   state and cannot write a handoff — and the result says so (`fallback: "fresh"`). The read-only
   launch itself is unchanged.
+- **A task worktree can no longer capture the services pointer (TM-305).** `services ensure` from a
+  linked git worktree (under `.bytedesk/worktrees`, `.claude/worktrees`, or any checkout whose `.git`
+  file names `…/worktrees/<name>`) keeps the current root even for an identical or newer build, and
+  refuses with `AO_SERVICES_WORKTREE_ROOT` when there is none; a pointer already naming a worktree
+  moves back at the next ensure from the installed plugin or source checkout. `services ensure`,
+  `restart` and `stop` refuse inside a dispatched worker (`TM_DISPATCH_WORKER`); the SessionStart
+  `ensure --detach` is a silent no-op there.
 
 - **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
   sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
