@@ -948,6 +948,14 @@ test('TM-248 managed session passing --authorized is refused by the verb itself;
   assert.equal(recorded.merge.authorization.actor, 'ryan'); assert.equal(recorded.merge.authorization.explicit, true);
 });
 
+test('TM-304 an operator shell carrying only CODEX_BIN / CLAUDE_BIN records a landing; a session id is still refused', async t => {
+  const { opts, landing } = await landedTask(t);
+  const config = { ...opts.env, CODEX_BIN: 'codex', CLAUDE_BIN: '/home/u/.local/bin/claude' };
+  await assert.rejects(recordLanding({ ...opts, env: { ...config, CODEX_THREAD_ID: 'x' }, ...landing, authorized: true, actor: 'ryan' }), { code: 'TOPOLOGY_MANAGEMENT_SELF_ASSERT', message: /CODEX_THREAD_ID/ });
+  const recorded = await recordLanding({ ...opts, env: config, ...landing, authorized: true, actor: 'ryan' });
+  assert.equal(recorded.merge.authorization.actor, 'ryan');
+});
+
 // TM-248 fix: management.auto_merge speaks only for an operator shell. A managed session always needs
 // a live plan grant covering caller, repository and task, and the recorded actor comes from it.
 test('TM-248 auto_merge: a managed session with no grant is refused on integrate and record-landing', async t => {
