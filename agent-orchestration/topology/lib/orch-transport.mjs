@@ -24,6 +24,7 @@ import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readJson, writeJson, writeText } from './util.mjs';
+import { fetchAgentSecrets } from './agent-creds.mjs';
 import { ensureLocalNats } from './nats-local.mjs';
 import { stateRoot } from './repoid.mjs';
 
@@ -503,6 +504,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     StringCodec,
     connect,
     credsAuthenticator,
+    nkeyAuthenticator,
     nanos,
   } = await import('nats').catch(async (error) => {
     // Installed topology remains ESM and has no node_modules. Ship the same
@@ -546,10 +548,19 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   }
   const creds = credsFile || env.AO_ORCH_CREDS;
   const domain = await jetStreamDomain(env).catch((error) => { bridge?.server.close(); throw error; });
+  // TM-310: an agent process holds only its own identity. The seed (or gateway creds text) comes from
+  // the holder over AO_CREDS_SOCK, stays in this process's memory, and never touches env or disk. Such a
+  // process may not create streams or consumers, so ensure() leaves layout to the host.
+  const held = await fetchAgentSecrets(env).catch((error) => { bridge?.server.close(); throw error; });
+  const agentMode = Boolean(held?.seed || held?.creds || env.AO_ORCH_AGENT_MODE === '1');
   const dial = () => {
     const options = { servers: target, name, timeout: 4000, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
-    if (local) Object.assign(options, { user: local.user, pass: local.pass });
+    if (held?.seed) Object.assign(options, { authenticator: nkeyAuthenticator(new TextEncoder().encode(held.seed)) });
+    else if (held?.creds) options.authenticator = credsAuthenticator(new TextEncoder().encode(held.creds));
+    else if (local) Object.assign(options, { user: local.user, pass: local.pass });
     else if (creds) options.authenticator = credsAuthenticator(readFileSync(creds));
+    const inboxPrefix = held?.inboxPrefix || env.AO_ORCH_INBOX_PREFIX;
+    if (inboxPrefix) options.inboxPrefix = inboxPrefix;
     return connect(options);
   };
   let nc;
@@ -580,6 +591,8 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   }
   const jsOptions = domain ? { domain } : {};
   const js = nc.jetstream(jsOptions);
+  // An agent binds to buckets the host created; passing creation options would be a stream-create it is not allowed.
+  const views = agentMode ? { kv: (bucket) => js.views.kv(bucket, { bindOnly: true }), os: (bucket) => js.views.os(bucket, { bindOnly: true }) } : js.views;
   const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = new Set();
   const subscriptions = new Set();
@@ -593,6 +606,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       return { kind: 'nats', closed: nc.isClosed(), subscriptions: subscriptions.size, ensured: ensured.size, timers: timers.size };
     },
     async ensure({ repo, agents = [], replies = [] }) {
+      if (agentMode) return;
       const nameRepo = orchName(repo);
       if (!ensured.has('layout')) {
       await ensureStream(jsm, {
@@ -613,10 +627,10 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         max_bytes: 64 * 1024 * 1024,
         duplicate_window: nanos(ORCH_LAYOUT.duplicateWindowMs),
       });
-      await js.views.kv(ORCH_LAYOUT.agentsBucket, { storage: StorageType.File });
-      await js.views.kv(ORCH_LAYOUT.claimsBucket, { storage: StorageType.File, history: 16 });
-      await js.views.kv(ORCH_LAYOUT.presenceBucket, { storage: StorageType.File, ttl: ORCH_LAYOUT.presenceTtlMs });
-      await js.views.os(ORCH_LAYOUT.reviewsBucket, { storage: StorageType.File });
+      await views.kv(ORCH_LAYOUT.agentsBucket, { storage: StorageType.File });
+      await views.kv(ORCH_LAYOUT.claimsBucket, { storage: StorageType.File, history: 16 });
+      await views.kv(ORCH_LAYOUT.presenceBucket, { storage: StorageType.File, ttl: ORCH_LAYOUT.presenceTtlMs });
+      await views.os(ORCH_LAYOUT.reviewsBucket, { storage: StorageType.File });
       ensured.add('layout');
       }
       const tasksKey = `tasks:${nameRepo}`;
@@ -717,7 +731,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.claimsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.claimsBucket);
       const key = ORCH_LAYOUT.claimKey(nameRepo, orchName(task));
       const payload = JSON.stringify(body);
       try {
@@ -732,7 +746,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async getClaim({ repo, task, storeDir }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.claimsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.claimsBucket);
       const key = ORCH_LAYOUT.claimKey(nameRepo, orchName(String(task)));
       const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') {
@@ -745,7 +759,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async putPresence({ repo, body }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket, { ttl: ORCH_LAYOUT.presenceTtlMs });
+      const kv = await views.kv(ORCH_LAYOUT.presenceBucket, { ttl: ORCH_LAYOUT.presenceTtlMs });
       const payload = typeof body === 'string' ? body : JSON.stringify(body);
       await kv.put(nameRepo, payload);
       return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo };
@@ -753,7 +767,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async getPresence({ repo }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket);
+      const kv = await views.kv(ORCH_LAYOUT.presenceBucket);
       const entry = await kv.get(nameRepo).catch(() => null);
       if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') return null;
       return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo, body: entry.string() };
@@ -762,7 +776,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       const nameRepo = orchName(repo);
       const key = ORCH_LAYOUT.agentKey(nameRepo, orchName(agent));
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.agentsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.agentsBucket);
       await kv.put(key, typeof body === 'string' ? body : JSON.stringify(body));
       return { via: 'nats', bucket: ORCH_LAYOUT.agentsBucket, key };
     },
@@ -770,24 +784,24 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       const nameRepo = orchName(repo);
       const key = ORCH_LAYOUT.agentKey(nameRepo, orchName(agent));
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.agentsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.agentsBucket);
       const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === 'DEL') return null;
       return { via: 'nats', bucket: ORCH_LAYOUT.agentsBucket, key, body: entry.string() };
     },
     /** TM-279: the team persona bucket, on the same js context (and so the same domain) as the rest. */
     async personaKv() {
-      return js.views.kv(ORCH_LAYOUT.personasBucket, { storage: StorageType.File, history: 1 });
+      return views.kv(ORCH_LAYOUT.personasBucket, { storage: StorageType.File, history: 1 });
     },
     async putReview({ bytes }) {
       const data = typeof bytes === 'string' ? Buffer.from(bytes) : Buffer.from(bytes);
       const name = createHash('sha256').update(data).digest('hex');
-      const store = await js.views.os(ORCH_LAYOUT.reviewsBucket);
+      const store = await views.os(ORCH_LAYOUT.reviewsBucket);
       await store.putBlob({ name }, data);
       return { via: 'nats', bucket: ORCH_LAYOUT.reviewsBucket, name };
     },
     async getReview({ name }) {
-      const store = await js.views.os(ORCH_LAYOUT.reviewsBucket);
+      const store = await views.os(ORCH_LAYOUT.reviewsBucket);
       const bytes = await store.getBlob(name).catch(() => null);
       return bytes ? { via: 'nats', bucket: ORCH_LAYOUT.reviewsBucket, name, bytes: Buffer.from(bytes) } : null;
     },

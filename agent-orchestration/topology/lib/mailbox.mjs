@@ -11,6 +11,7 @@ import { withLock } from "./lockfile.mjs";
 import { publishTopologyWorkflow } from './discovery.mjs';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
 import { ORCH_LAYOUT, orchName, resolveTransport } from './orch-transport.mjs';
+import { fetchAgentSecrets } from './agent-creds.mjs';
 import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts } from './mailbox-receipts.mjs';
 
 export const RUN_FILE = "run.json";
@@ -680,7 +681,8 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
  * agent can no longer satisfy another's barrier. And an empty body is refused, because a zero-byte
  * file used to satisfy a wait exactly as well as a real answer did.
  */
-export async function recordReply({ runDir, agentId, messageId, body, token = process.env.AO_AGENT_TOKEN }) {
+export async function recordReply({ runDir, agentId, messageId, body, token }) {
+  token ??= process.env.AO_AGENT_TOKEN ?? (await fetchAgentSecrets().catch(() => null))?.token;
   const [seq, ...stageParts] = messageId.split("-");
   const stage = stageParts.join("-");
   invariant(seq && stage, "TOPOLOGY_MESSAGE_ID_INVALID", `Message id must look like 003-brief (got "${messageId}").`);
