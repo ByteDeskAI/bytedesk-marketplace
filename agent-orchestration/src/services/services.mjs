@@ -93,12 +93,36 @@ export { compareVersions };
  * and let an old session downgrade the services. Keep the current pointer when it runs the same
  * build, never move to an older version while the current root still exists, otherwise move.
  */
-export function choosePointer(previous, candidate, { exists = existsSync } = {}) {
-  if (!previous?.pluginRoot || !exists(previous.pluginRoot)) return candidate;
+export function choosePointer(previous, candidate, { exists = existsSync, worktree = linkedWorktree } = {}) {
+  const usable = previous?.pluginRoot && exists(previous.pluginRoot);
+  // TM-305: a task worktree is disposable and belongs to one worker, so it never becomes the
+  // services' root: keep what runs now, or refuse; and a pointer already captured by one moves off.
+  if (worktree(candidate.pluginRoot)) {
+    invariant(usable && !worktree(previous.pluginRoot), "AO_SERVICES_WORKTREE_ROOT",
+      `Refusing to point the managed services at ${candidate.pluginRoot}: it is a linked git worktree. Run services ensure from the installed plugin or the marketplace source checkout.`);
+    return previous;
+  }
+  if (!usable || worktree(previous.pluginRoot)) return candidate;
   if (previous.node !== candidate.node) return candidate;
   if (previous.fingerprint && previous.fingerprint === candidate.fingerprint) return previous;
   if (previous.version && compareVersions(candidate.version, previous.version) < 0) return previous;
   return candidate;
+}
+
+/**
+ * Is `root` inside a linked git worktree (TM-305)? A path under .bytedesk/worktrees or
+ * .claude/worktrees, or the nearest `.git` above it is a file naming …/worktrees/<name>.
+ * A submodule's `.git` file names …/modules/<name>, so it is not one.
+ */
+export function linkedWorktree(root, { read = (path) => readFileSync(path, "utf8") } = {}) {
+  if (!root) return false;
+  if (/[\\/]\.(bytedesk|claude)[\\/]worktrees[\\/]/.test(`${root}/`)) return true;
+  for (let dir = root; ; dir = dirname(dir)) {
+    let text = null;
+    try { text = read(join(dir, ".git")); } catch (error) { if (error.code === "EISDIR") return false; }
+    if (text !== null) return /^gitdir:.*[\\/]worktrees[\\/][^\\/]+\s*$/m.test(text);
+    if (dirname(dir) === dir) return false;
+  }
 }
 
 /** Did the code the services run change? Fingerprint when both have one, else the path. */
@@ -315,7 +339,7 @@ export async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths.pointer, null).catch(() => null);
     const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...(deps.identity ?? pluginIdentity(pluginRoot)) };
-    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? existsSync });
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? existsSync, worktree: deps.worktree ?? linkedWorktree });
     const changed = {
       launcher: await writeIfChanged(paths.launcher, LAUNCHER_SOURCE, 0o644),
       pointer: await writeIfChanged(paths.pointer, json(pointer), 0o644),

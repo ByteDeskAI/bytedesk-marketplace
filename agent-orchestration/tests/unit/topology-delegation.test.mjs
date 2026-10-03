@@ -119,6 +119,16 @@ test('grant refuses every agent-session marker, not only AO_AGENT_ID', async t =
   }
 });
 
+test('TM-304 grant: CODEX_BIN / CLAUDE_BIN / CODEX_HOME / CODEX_PATH are configuration, not session markers', async t => {
+  const { consumer, home, operatorEnv } = await fixture(t);
+  const config = { CODEX_BIN: 'codex', CLAUDE_BIN: '/home/u/.local/bin/claude', CODEX_HOME: '/home/u/.codex', CODEX_PATH: '/usr/bin/codex' };
+  const grant = await grantDelegation({ consumer, home, env: { ...operatorEnv, ...config }, to: 'lead-1', scopes: ['integrate'] });
+  assert.ok(grant.id);
+  for (const marker of ['CODEX_THREAD_ID', 'CODEX_SESSION_ID', 'CLAUDE_CODE_SESSION_ID'])
+    await assert.rejects(grantDelegation({ consumer, home, env: { ...operatorEnv, ...config, [marker]: 'x' }, to: 'lead-1', scopes: ['integrate'] }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', message: new RegExp(marker) });
+  await assert.rejects(grantDelegation({ consumer, home, env: { ...operatorEnv, ...config }, io: { ...operatorIo, ancestors: async () => ['zsh', 'codex'] }, to: 'lead-1', scopes: ['integrate'] }), { code: 'TOPOLOGY_DELEGATION_OPERATOR_ONLY', message: /agent process is an ancestor/ });
+});
+
 test('grant refuses a caller sitting in a tmux pane the census binds to an agent', async t => {
   const { consumer, home, operatorEnv } = await fixture(t);
   const censusDir = join(home, '.local', 'state', 'bytedesk', 'agent-orchestration', 'census');

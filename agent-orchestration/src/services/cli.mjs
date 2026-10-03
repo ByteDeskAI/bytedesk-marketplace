@@ -75,7 +75,16 @@ async function registerRepository(cwd, stateRoot) {
   return addServiceRepo(await repositoryConsumer(cwd), { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot } });
 }
 
-export async function runServicesCommand(sub, values, positionals) {
+/** TM-305: the services are the operator's; a dispatched worker neither repoints nor bounces them. */
+const WORKER_REFUSED = new Set(["ensure", "restart", "stop"]);
+
+export async function runServicesCommand(sub, values, positionals, env = process.env) {
+  if (WORKER_REFUSED.has(sub) && env.TM_DISPATCH_WORKER) {
+    // The SessionStart hook's ensure --detach runs in every session; in a worker it is a quiet no-op.
+    if (values.detach) return 0;
+    process.stderr.write(`agent-orchestration services ${sub}: refused inside a dispatched worker session (TM_DISPATCH_WORKER is set). The managed services belong to the operator; ask the lead or operator to run it from the installed plugin or the source checkout.\n`);
+    return 1;
+  }
   let stateRoot;
   try { stateRoot = validateStateRoot(values["state-root"] || resolveStateRoot(), PLUGIN_ROOT); }
   catch (error) { if (values.detach) return 0; throw error; }
