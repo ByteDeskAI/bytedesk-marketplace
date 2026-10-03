@@ -25,12 +25,25 @@ const methods = {
   queue: async () => backend.queue(),
 };
 
+// A read the server's death interrupts (TIMEOUT / CONNECTION_CLOSED while the socket is closing) is
+// not an answer: once the connection is seen closed, ask again so the backend takes its offline path
+// (cache / OFFLINE) instead of surfacing a transport error. Reads only; a repeated write could apply twice.
+const READS = new Set(["get", "list", "history", "blobGet", "blobList", "eventsPage", "events", "eventCount", "stateGet", "stateList", "info"]);
+async function run(method, fn, args) {
+  try {
+    return await fn(...args);
+  } catch (e) {
+    if (!READS.has(method) || !backend.nc?.isClosed()) throw e;
+    return await fn(...args);
+  }
+}
+
 parentPort.on("message", async ({ method, args }) => {
   let reply;
   try {
     const fn = methods[method] ?? backend[method]?.bind(backend);
     if (!fn) throw new Error(`no such storage method: ${method}`);
-    reply = { ok: true, value: await fn(...args) };
+    reply = { ok: true, value: await run(method, fn, args) };
   } catch (e) {
     reply = { ok: false, error: { name: e.name, code: e.code, message: e.message, currentRev: e.currentRev } };
   }

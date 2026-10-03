@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A read interrupted by the server dying degrades instead of failing (TM-312).** The bridge worker
+  re-asks a read once when the connection is seen closed, so the backend answers from its offline path
+  rather than surfacing `TIMEOUT`. Reproduced at 2/20 under CPU load; 60/60 after.
+
 - **Tests no longer leave nats-server processes behind (TM-326).** `tests/unit/nats-helpers.mjs`
   registers every server and temp dir and reaps them on exit, SIGTERM and SIGINT; `stop()` no longer
   hangs on an already-signalled process. `run-tests.sh` keeps stores under a per-run `/tmp/tm-run-*`
