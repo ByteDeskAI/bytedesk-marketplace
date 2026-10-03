@@ -18,7 +18,7 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "8c1561fdf219c39fe32f852cc48bce0ea3fa93e2b25a4b380935981f2f8c928a",
+      "sha256": "0b277c91875105372010f5b98abb1213cf3334974118f26c3b3de68d62df5a3b",
       "lineCount": 307,
       "anchors": [
         "\"orchestration_capabilities\"",

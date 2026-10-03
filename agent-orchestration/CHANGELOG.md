@@ -121,7 +121,7 @@
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
 
-## [0.15.2] — 2026-10-02
+## [0.15.3] — 2026-10-02
 
 ### Changed
 
@@ -174,6 +174,32 @@
   with no fallback and no outage; migration adopts a free `state.json` port and skips a held or
   sub-1024 one; validation rejects 80, 70000 and `"abc"`. `nats-outage.test.mjs` now drives the
   ADR-0031 path with `AO_NATS_URL`.
+
+## [0.15.2] — 2026-10-02
+
+### Fixed
+
+- **A process killed mid-acquire can no longer wedge a lock (TM-307).** Outage 2026-10-02
+  16:12–21:40: a `kill -9` of process-compose took every supervisor down between `withLock`'s
+  `mkdir(lockPath)` and its `owner.json` write, leaving `presence/.publish.lock` as an empty
+  directory. Unknown ownership fails closed, so nobody reclaimed it and each repository supervisor
+  hit `TOPOLOGY_LOCK_TIMEOUT` and was restarted about 606 times. Admission now writes the owner
+  record into a private `<lock>.pending-*` sibling and renames it onto the lock path, so a lock only
+  ever appears already owned. A legacy empty lock directory is replaced by that rename (POSIX); on
+  win32, which cannot rename onto an existing directory, an empty lock is removed with `rmdir`,
+  which refuses a populated one. Stale `.pending-*` and `.retired-*` siblings are swept on
+  contention.
+- **A remover killed mid-release can no longer wedge a lock (TM-307).** The `.remove` gate inside a
+  generation was a bare `mkdir`; a SIGKILL after it blocked every later reclaim of that generation.
+  Gates are now admitted the same way as locks, and a gate whose holder is dead is never deleted:
+  the next remover takes the gate named after the dead holder's token. A holder whose release meets
+  a reclaimer's transient gate retries instead of leaking its lock for the life of the process.
+
+### Tests
+
+- Step hooks (`hooks.step`) stop an acquirer at every admission step; real child processes are
+  SIGKILLed at each step and at random points of a tight acquire loop; four processes contend for
+  one lock across 300 critical sections with an exclusive-create overlap detector.
 
 ## [0.15.1] — 2026-10-02
 
