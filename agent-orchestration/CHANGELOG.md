@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.2] — 2026-10-03
+
+_TM-316: the same-uid gap in the local NATS server._
+
+### Added
+
+- **Config tamper detection and repair (TM-316).** The admin holder keeps the expected `nats-server.conf` in memory (announced by `writeServerConfig`, the one writer, before each write) and re-reads the file every `AO_TAMPER_INTERVAL_MS` (default 5000). A different file is rewritten atomically from the holder's copy, the server is reloaded, and a `nats.tamper` event (digests before and after, public keys added or removed, changed lines with secrets redacted) is appended to `<nats home>/tamper.jsonl`. A change found at issue or revoke time is journaled as `conf-changed-before-update`. A new server pid or executable is journaled (`server-pid-changed` is a notice; `server-exe-changed` is a tamper).
+- **`ao-topology doctor` finding `NATS_CONFIG_TAMPERED`** for tamper events in the last 24 h (`AO_TAMPER_REPORT_MS`), and a "NATS config watch" line.
+- **ADR-0003** states what per-agent credentials do and do not stop against a same-uid process, how to run panes under the provider sandbox, and the follow-ups.
+- Tests: `nats-tamper.test.mjs` (a real child edits the config and sends SIGHUP; mutation run with the watcher off) and `agent-pane-hardening.test.mjs` (modes, and a scan of every pane process's environ and cmdline).
+
+### Changed
+
+- The NATS home is `chmod 0700` on every config write and the fallback socket directory is re-chmodded `0700`.
+
 ## [0.16.1] — 2026-10-03
 
 _EP-026 follow-ups TM-315, TM-327, TM-328, TM-329 and TM-330._

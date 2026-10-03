@@ -292,6 +292,44 @@ var init_orch_transport = __esm({
   }
 });
 
+// topology/lib/nats-tamper.mjs
+function summarizeChange(expected, actual) {
+  const before = new Set(String(expected).split("\n"));
+  const after = new Set(String(actual ?? "").split("\n"));
+  const was = keysOf(expected);
+  const now = keysOf(actual ?? "");
+  return {
+    before: { sha256: sha256(expected), bytes: Buffer.byteLength(expected) },
+    after: actual == null ? null : { sha256: sha256(actual), bytes: Buffer.byteLength(actual) },
+    usersAdded: [...now].filter((k) => !was.has(k)),
+    usersRemoved: [...was].filter((k) => !now.has(k)),
+    linesAdded: [...after].filter((l) => !before.has(l)).slice(0, 8).map(redact),
+    linesRemoved: [...before].filter((l) => !after.has(l)).slice(0, 8).map(redact)
+  };
+}
+function journalTamper(home, event) {
+  const line = JSON.stringify({ type: "nats.tamper", ts: (/* @__PURE__ */ new Date()).toISOString(), ...event });
+  try {
+    (0, import_node_fs.appendFileSync)((0, import_node_path3.join)(home, "tamper.jsonl"), `${line}
+`, { mode: 384 });
+  } catch {
+  }
+  return line;
+}
+var import_node_crypto2, import_node_fs, import_node_path3, TAMPER_INTERVAL_MS, sha256, NKEY, keysOf, redact;
+var init_nats_tamper = __esm({
+  "topology/lib/nats-tamper.mjs"() {
+    import_node_crypto2 = require("node:crypto");
+    import_node_fs = require("node:fs");
+    import_node_path3 = require("node:path");
+    TAMPER_INTERVAL_MS = 5e3;
+    sha256 = (text) => (0, import_node_crypto2.createHash)("sha256").update(text).digest("hex");
+    NKEY = /nkey:\s*([A-Z0-9]{56})/g;
+    keysOf = (text) => new Set([...String(text).matchAll(NKEY)].map((m) => m[1]));
+    redact = (line) => /pass(word)?\s*[:=]/i.test(line) ? "<redacted>" : line.trim();
+  }
+});
+
 // node_modules/nats/lib/nats-base-client/encoders.js
 var require_encoders = __commonJS({
   "node_modules/nats/lib/nats-base-client/encoders.js"(exports2) {
@@ -16507,9 +16545,29 @@ async function natsClient() {
     return client.default || client;
   }
 }
+function findServerPid(confPath) {
+  for (const dir of (0, import_node_fs2.readdirSync)("/proc")) {
+    if (!/^\d+$/.test(dir)) continue;
+    try {
+      const argv = (0, import_node_fs2.readFileSync)(`/proc/${dir}/cmdline`, "utf8").split("\0");
+      if (argv[0].includes("nats-server") && argv.includes(confPath)) return Number(dir);
+    } catch {
+    }
+  }
+  return null;
+}
+function serverPidFor(recorded, confPath) {
+  if (recorded) {
+    try {
+      if ((0, import_node_fs2.readFileSync)(`/proc/${recorded}/cmdline`, "utf8").includes("nats-server")) return recorded;
+    } catch {
+    }
+  }
+  return findServerPid(confPath);
+}
 function ppidOf(pid) {
   try {
-    return Number((0, import_node_fs.readFileSync)(`/proc/${pid}/stat`, "utf8").replace(/^.*\) \S+ /, "").split(" ")[0]);
+    return Number((0, import_node_fs2.readFileSync)(`/proc/${pid}/stat`, "utf8").replace(/^.*\) \S+ /, "").split(" ")[0]);
   } catch {
     return 0;
   }
@@ -16520,16 +16578,16 @@ function isDescendant(pid, root) {
 }
 function peerPids(socket, sockPath) {
   try {
-    const inode = (0, import_node_fs.readlinkSync)(`/proc/self/fd/${socket._handle.fd}`).slice("socket:[".length, -1);
+    const inode = (0, import_node_fs2.readlinkSync)(`/proc/self/fd/${socket._handle.fd}`).slice("socket:[".length, -1);
     const rows = (0, import_node_child_process2.execFileSync)("ss", ["-xnH", "src", sockPath], { encoding: "utf8", maxBuffer: 1 << 26 }).split("\n");
     const row = rows.map((line) => line.trim().split(/\s+/)).find((fields) => fields.includes(inode));
     if (!row) return [];
     const peer = row[row.indexOf(inode) + 2];
     const found = [];
-    for (const dir of (0, import_node_fs.readdirSync)("/proc")) {
+    for (const dir of (0, import_node_fs2.readdirSync)("/proc")) {
       if (!/^\d+$/.test(dir)) continue;
       try {
-        for (const fd of (0, import_node_fs.readdirSync)(`/proc/${dir}/fd`)) if ((0, import_node_fs.readlinkSync)(`/proc/${dir}/fd/${fd}`) === `socket:[${peer}]`) found.push(Number(dir));
+        for (const fd of (0, import_node_fs2.readdirSync)(`/proc/${dir}/fd`)) if ((0, import_node_fs2.readlinkSync)(`/proc/${dir}/fd/${fd}`) === `socket:[${peer}]`) found.push(Number(dir));
       } catch {
       }
     }
@@ -16541,19 +16599,19 @@ function peerPids(socket, sockPath) {
 function agentRoots(home) {
   if (!home) return [];
   try {
-    return Object.values(JSON.parse((0, import_node_fs.readFileSync)(rootsFile(home), "utf8"))).filter((pid) => (0, import_node_fs.existsSync)(`/proc/${pid}`));
+    return Object.values(JSON.parse((0, import_node_fs2.readFileSync)(rootsFile(home), "utf8"))).filter((pid) => (0, import_node_fs2.existsSync)(`/proc/${pid}`));
   } catch {
     return [];
   }
 }
 async function registerRoot(home, sock, pid) {
-  await withLock((0, import_node_path3.join)(home, "roots.lock"), async () => {
+  await withLock((0, import_node_path4.join)(home, "roots.lock"), async () => {
     let roots = {};
     try {
-      roots = JSON.parse((0, import_node_fs.readFileSync)(rootsFile(home), "utf8"));
+      roots = JSON.parse((0, import_node_fs2.readFileSync)(rootsFile(home), "utf8"));
     } catch {
     }
-    for (const [key, value] of Object.entries(roots)) if (!(0, import_node_fs.existsSync)(`/proc/${value}`)) delete roots[key];
+    for (const [key, value] of Object.entries(roots)) if (!(0, import_node_fs2.existsSync)(`/proc/${value}`)) delete roots[key];
     roots[sock] = pid;
     await (0, import_promises2.writeFile)(`${rootsFile(home)}.tmp`, JSON.stringify(roots), { mode: 384 });
     await (0, import_promises2.rename)(`${rootsFile(home)}.tmp`, rootsFile(home));
@@ -16570,11 +16628,71 @@ function holderMain() {
   let ctl = null;
   let spawnerPid = null;
   const startedAt = Date.now();
+  let expected = null;
+  let tamperMs = TAMPER_INTERVAL_MS;
+  let seen = { pid: void 0, exe: null };
+  let repairs = 0;
+  const tamperTick = () => {
+    if (!admin || !expected || !home) return { watching: false };
+    const { conf, confPath } = expected;
+    if (Date.now() - expected.at < Math.min(1500, 2 * tamperMs)) return { watching: true, skipped: "announce-grace" };
+    let actual = null;
+    try {
+      actual = (0, import_node_fs2.readFileSync)(confPath, "utf8");
+    } catch {
+    }
+    const out = { watching: true, inSync: actual === conf };
+    if (actual !== conf) {
+      let repaired = false;
+      let error = null;
+      let reloaded = null;
+      try {
+        (0, import_node_fs2.writeFileSync)(`${confPath}.repair`, conf, { mode: 384 });
+        (0, import_node_fs2.renameSync)(`${confPath}.repair`, confPath);
+        repaired = true;
+      } catch (e) {
+        error = e.message;
+      }
+      const pid2 = serverPidFor(null, confPath);
+      if (repaired && pid2) {
+        try {
+          process.kill(pid2, "SIGHUP");
+          reloaded = pid2;
+        } catch {
+        }
+      }
+      repairs += 1;
+      journalTamper(home, { kind: "conf-changed", severity: "tamper", confPath, ...summarizeChange(conf, actual), repaired, reloaded, ...error ? { error } : {} });
+      out.repaired = repaired;
+    } else {
+      try {
+        if (((0, import_node_fs2.statSync)(confPath).mode & 63) !== 0) {
+          (0, import_node_fs2.chmodSync)(confPath, 384);
+          journalTamper(home, { kind: "conf-mode", severity: "tamper", confPath, repaired: true });
+        }
+      } catch {
+      }
+    }
+    const pid = serverPidFor(null, confPath);
+    let exe = null;
+    if (pid) {
+      try {
+        exe = (0, import_node_fs2.readlinkSync)(`/proc/${pid}/exe`);
+      } catch {
+      }
+    }
+    if (seen.pid !== void 0 && (pid !== seen.pid || exe && seen.exe && exe !== seen.exe)) {
+      journalTamper(home, { kind: pid === seen.pid ? "server-exe-changed" : "server-pid-changed", severity: pid === seen.pid ? "tamper" : "notice", before: { pid: seen.pid, exe: seen.exe }, after: { pid, exe } });
+    }
+    seen = { pid, exe };
+    return out;
+  };
+  const tamperTimer = { current: null };
   const stop = () => {
     secrets = null;
     server?.close();
     try {
-      if (sockPath) (0, import_node_fs.unlinkSync)(sockPath);
+      if (sockPath) (0, import_node_fs2.unlinkSync)(sockPath);
     } catch {
     }
     setTimeout(() => process.exit(0), 50);
@@ -16582,9 +16700,9 @@ function holderMain() {
   let rootGoneSince = null;
   let graceMs = 2e4;
   const watch = setInterval(() => {
-    if (sockPath && (!(0, import_node_fs.existsSync)(sockPath) || home && !(0, import_node_fs.existsSync)(home))) return stop();
-    if (!root && !admin && spawnerPid && !(0, import_node_fs.existsSync)(`/proc/${spawnerPid}`) && Date.now() - startedAt > Math.min(5e3, graceMs)) return stop();
-    if (!root || (0, import_node_fs.existsSync)(`/proc/${root}`)) {
+    if (sockPath && (!(0, import_node_fs2.existsSync)(sockPath) || home && !(0, import_node_fs2.existsSync)(home))) return stop();
+    if (!root && !admin && spawnerPid && !(0, import_node_fs2.existsSync)(`/proc/${spawnerPid}`) && Date.now() - startedAt > Math.min(5e3, graceMs)) return stop();
+    if (!root || (0, import_node_fs2.existsSync)(`/proc/${root}`)) {
       rootGoneSince = null;
       return;
     }
@@ -16602,11 +16720,40 @@ function holderMain() {
     const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     if (request.op === "pub") return { publicKey, pid: process.pid, admin };
+    if (request.op === "tamper") {
+      let current = null;
+      try {
+        current = sha256((0, import_node_fs2.readFileSync)(expected.confPath, "utf8"));
+      } catch {
+      }
+      return { admin, watching: Boolean(expected), intervalMs: tamperMs, repairs, expectedSha: expected ? sha256(expected.conf) : null, currentSha: current };
+    }
     const controller = Boolean(ctl) && request.ctl === ctl || Boolean(home) && operator;
     if (request.op === "install") {
       if (!controller) return { ok: false, error: "install is for the spawner or the operator process tree only" };
       secrets = { ...secrets, ...request.secrets };
       return { ok: true };
+    }
+    if (request.op === "expect" || request.op === "check") {
+      if (!controller || !admin) return { ok: false, error: `${request.op} is for the operator process tree, on the admin holder only` };
+      if (request.op === "check") {
+        expected && (expected.at = 0);
+        return { ok: true, ...tamperTick() };
+      }
+      let pre = null;
+      if (expected) {
+        try {
+          pre = (0, import_node_fs2.readFileSync)(expected.confPath, "utf8");
+        } catch {
+        }
+      }
+      const tampered = Boolean(expected) && expected.confPath === request.confPath && pre !== expected.conf && pre !== request.conf;
+      if (tampered) {
+        journalTamper(home, { kind: "conf-changed-before-update", severity: "tamper", confPath: request.confPath, ...summarizeChange(expected.conf, pre), repaired: true, reloaded: null });
+        repairs += 1;
+      }
+      expected = { conf: String(request.conf), confPath: String(request.confPath), at: Date.now() };
+      return { ok: true, tampered };
     }
     if (request.op === "revoke") {
       if (!controller) return { ok: false, error: "revoke is for the spawner or the operator process tree only" };
@@ -16634,6 +16781,14 @@ function holderMain() {
       ctl = message.ctl;
       spawnerPid = message.spawnerPid;
       if (admin) {
+        tamperMs = message.tamperMs ?? tamperMs;
+        tamperTimer.current = setInterval(() => {
+          try {
+            tamperTick();
+          } catch {
+          }
+        }, tamperMs);
+        tamperTimer.current.unref?.();
         const user = (await natsClient()).nkeys.createUser();
         publicKey = user.getPublicKey();
         secrets = { seed: new TextDecoder().decode(user.getSeed()) };
@@ -16655,14 +16810,14 @@ function holderMain() {
           if (error.code !== "EADDRINUSE" || !retry) return reply({ ok: false, error: error.message });
           if (await holderAlive(sockPath)) return reply({ ok: false, code: "HOLDER_LIVE", error: `a live holder already owns ${sockPath}` });
           try {
-            (0, import_node_fs.unlinkSync)(sockPath);
+            (0, import_node_fs2.unlinkSync)(sockPath);
           } catch {
           }
           listen(false);
         });
         server.listen(sockPath, () => {
           try {
-            (0, import_node_fs.chmodSync)(sockPath, 384);
+            (0, import_node_fs2.chmodSync)(sockPath, 384);
           } catch {
           }
           reply({ ok: true, publicKey });
@@ -16681,18 +16836,19 @@ async function holderAlive(sock) {
     probe.once("error", () => resolve2(false));
   });
 }
-var import_node_child_process2, import_node_fs, import_promises2, import_node_net, import_node_path3, DEFAULT_TTL_MS, rootsFile;
+var import_node_child_process2, import_node_fs2, import_promises2, import_node_net, import_node_path4, DEFAULT_TTL_MS, rootsFile;
 var init_agent_creds = __esm({
   "topology/lib/agent-creds.mjs"() {
     import_node_child_process2 = require("node:child_process");
-    import_node_fs = require("node:fs");
+    import_node_fs2 = require("node:fs");
     import_promises2 = require("node:fs/promises");
     import_node_net = __toESM(require("node:net"), 1);
-    import_node_path3 = require("node:path");
+    import_node_path4 = require("node:path");
     init_lockfile();
     init_orch_transport();
+    init_nats_tamper();
     DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
-    rootsFile = (home) => (0, import_node_path3.join)(home, "roots.json");
+    rootsFile = (home) => (0, import_node_path4.join)(home, "roots.json");
   }
 });
 

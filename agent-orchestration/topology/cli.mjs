@@ -953,6 +953,7 @@ const commands = {
     }
     const t = report.transport;
     if (t && !t.error) out(`Transport: ${t.kind}${t.source ? ` via ${t.source}` : ""}${t.url ? ` ${t.url}` : ""}${t.note ? ` (${t.note})` : ""}`);
+    if (report.tamper?.holder) out(`NATS config watch: ${report.tamper.holder.watching ? `armed every ${report.tamper.holder.intervalMs} ms, ${report.tamper.holder.repairs} repair(s) this holder run` : "admin holder up, nothing announced yet"}`);
     out("Providers:");
     for (const provider of report.providers) {
       out(`  ${provider.ready ? "✓" : "✗"} ${provider.id} — ${provider.ready ? `${provider.path}${provider.version ? ` (${provider.version})` : ""}` : `not found; ${provider.install_hint}`}`);

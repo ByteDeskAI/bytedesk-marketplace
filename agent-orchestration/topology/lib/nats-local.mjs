@@ -17,7 +17,7 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
-import { holderIdentity, serverPidFor, socketPath, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
+import { holderIdentity, requestSocket, serverPidFor, socketPath, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
 import { globalConfigPath, mergeConfig, readConfigLayer, writeConfigLayer } from './config.mjs';
 import { withLock } from './lockfile.mjs';
 import { fail } from './util.mjs';
@@ -199,7 +199,15 @@ function readState(home) {
  * restart reuses the JetStream data they guard. */
 async function writeServerConfig(home, { port, user, pass, adminPub = null }) {
   const confPath = join(home, 'nats-server.conf');
-  await writeFile(confPath, serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: join(home, 'jetstream'), agentUsers: loadAgentUsers(home) }), { mode: 0o600 });
+  const text = serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: join(home, 'jetstream'), agentUsers: loadAgentUsers(home) });
+  // TM-316: every config write in this module goes through here, so this is the one place the admin holder is told what
+  // the file should say. Announced BEFORE the write: the watcher must never see a new file it was not told about.
+  if (adminPub) {
+    const pre = await requestSocket(socketPath(home, 'admin.sock'), { op: 'expect', conf: text, confPath }, 2000).catch(() => null);
+    if (pre?.tampered) process.stderr.write(`[ao] WARNING: ${confPath} was changed by something other than ao; it is being rewritten (see ${join(home, 'tamper.jsonl')}).\n`);
+  }
+  await chmod(home, 0o700).catch(() => {}); // mode only keeps other users out; a same-uid process is what the watcher is for
+  await writeFile(confPath, text, { mode: 0o600 });
   await chmod(confPath, 0o600);
   return confPath;
 }
