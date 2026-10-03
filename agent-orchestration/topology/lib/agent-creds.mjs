@@ -123,6 +123,14 @@ export function findServerPid(confPath) {
   return null;
 }
 
+/** A recorded server pid is trusted only if that pid is still a nats-server; a reused pid would otherwise receive our SIGHUP. */
+export function serverPidFor(recorded, confPath) {
+  if (recorded) {
+    try { if (readFileSync(`/proc/${recorded}/cmdline`, 'utf8').includes('nats-server')) return recorded; } catch { /* gone */ }
+  }
+  return findServerPid(confPath);
+}
+
 // ---- issuing -----------------------------------------------------------------------------------
 
 export class CredStore {
@@ -145,9 +153,18 @@ export class CredStore {
       await writeRegistry(this.home, registry);
       const { rewriteServerConfig } = await import('./nats-local.mjs');
       const confPath = await rewriteServerConfig(this.home);
-      const pid = this.serverPid ?? (() => { try { return JSON.parse(readFileSync(join(this.home, 'state.json'), 'utf8')).pid; } catch { return null; } })() ?? findServerPid(confPath);
+      const pid = this.serverPid ?? serverPidFor((() => { try { return JSON.parse(readFileSync(join(this.home, 'state.json'), 'utf8')).pid; } catch { return null; } })(), confPath);
       if (pid) process.kill(pid, 'SIGHUP');
       return result;
+    });
+  }
+
+  // Where this agent's holder listens (not a secret), so a later provision can retire it. Config is untouched: no reload.
+  async #noteHolder(issued, sock) {
+    await withLock(join(this.home, 'users.lock'), async () => {
+      const registry = await readRegistry(this.home);
+      const entry = registry.users[`${issued.repo}/${issued.agent}`];
+      if (entry) { entry.holderSock = sock; await writeRegistry(this.home, registry); }
     });
   }
 
@@ -184,9 +201,13 @@ export class CredStore {
 
   /** issue + a holder for the secrets. `extra` rides along (the reply token). */
   async provision({ repo, agent, role, mailTo, takesWork, ttlMs, extra = {} }) {
+    // A relaunch of the same agent supersedes its previous holder; retire it so holders do not accumulate.
+    const previous = (await readRegistry(this.home)).users[`${orchName(repo)}/${orchName(agent)}`]?.holderSock;
+    if (previous && await holderAlive(previous)) await requestSocket(previous, { op: 'revoke' }, 2000).catch(() => {});
     const issued = await this.issue({ repo, agent, role, mailTo, takesWork, ttlMs });
     const holder = await startHolder({ seed: issued.seed, inboxPrefix: issued.inboxPrefix, expiresAt: issued.expiresAt, agent: issued.agent, ...extra }, { home: this.home, graceMs: this.graceMs });
     this.holders.set(`${issued.repo}/${issued.agent}`, holder);
+    await this.#noteHolder(issued, holder.sock);
     return { issued, holder };
   }
 }
@@ -264,14 +285,17 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--holder'], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH ?? '' },
   });
+  // The channel is unref'd between calls so a launcher can exit; it is ref'd while a reply is awaited so the wait itself keeps the loop alive.
   const send = (message) => new Promise((resolve, reject) => {
-    const onMessage = (reply) => { child.off('exit', onExit); resolve(reply); };
-    const onExit = () => reject(new Error('credential holder exited'));
+    child.channel?.ref();
+    const done = () => child.channel?.unref();
+    const onMessage = (reply) => { child.off('exit', onExit); done(); resolve(reply); };
+    const onExit = () => { done(); reject(new Error('credential holder exited')); };
     child.once('message', onMessage); child.once('exit', onExit);
-    child.send(message, (error) => { if (error) reject(error); });
+    child.send(message, (error) => { if (error) { done(); reject(error); } });
   });
   const ready = await send({ type: 'init', sock, secrets, home, admin, graceMs });
-  if (!ready.ok) throw new Error(`credential holder failed: ${ready.error}`);
+  if (!ready.ok) { child.kill('SIGKILL'); throw Object.assign(new Error(`credential holder failed: ${ready.error}`), { code: ready.code ?? 'HOLDER_FAILED' }); }
   child.unref();
   child.channel?.unref();
   return {
@@ -289,6 +313,7 @@ function holderMain() {
   let sockPath = null;
   let home = null;
   let admin = false;
+  let publicKey = null;
   const stop = () => { secrets = null; server?.close(); try { if (sockPath) unlinkSync(sockPath); } catch { /* gone */ } setTimeout(() => process.exit(0), 50); };
   // The root dying is not the end: a failover or restart re-attaches within the grace window.
   let rootGoneSince = null;
@@ -308,6 +333,13 @@ function holderMain() {
     const operator = peers.length > 0 && !peers.some((pid) => roots.some((rootPid) => isDescendant(pid, rootPid)));
     const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
+    // The public key is not a secret: anyone who can reach the socket may learn whose holder this is.
+    if (request.op === 'pub') return { publicKey, pid: process.pid, admin };
+    if (request.op === 'revoke') {
+      if (!home || !operator) return { ok: false, error: 'revoke is for the operator process tree only' };
+      setTimeout(stop, 20);
+      return { ok: true };
+    }
     if (request.op === 'attach') {
       if (!home || !operator || admin) return { ok: false, error: 'attach is for the operator process tree only' };
       root = Number(request.pid);
@@ -321,7 +353,6 @@ function holderMain() {
     const reply = (body) => process.send(body);
     if (message.type === 'init') {
       secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs;
-      let publicKey = null;
       if (admin) {
         const user = (await natsClient()).nkeys.createUser();
         publicKey = user.getPublicKey();
@@ -335,8 +366,17 @@ function holderMain() {
         });
         socket.on('error', () => {});
       });
-      server.listen(sockPath, () => { try { chmodSync(sockPath, 0o600); } catch { /* best effort */ } reply({ ok: true, publicKey }); });
-      server.on('error', (error) => reply({ ok: false, error: error.message }));
+      const listen = (retry) => {
+        server.once('error', async (error) => {
+          if (error.code !== 'EADDRINUSE' || !retry) return reply({ ok: false, error: error.message });
+          // Someone's socket is already there: a live holder keeps it (we are the duplicate); a dead one's file is removed.
+          if (await holderAlive(sockPath)) return reply({ ok: false, code: 'HOLDER_LIVE', error: `a live holder already owns ${sockPath}` });
+          try { unlinkSync(sockPath); } catch { /* raced */ }
+          listen(false);
+        });
+        server.listen(sockPath, () => { try { chmodSync(sockPath, 0o600); } catch { /* best effort */ } reply({ ok: true, publicKey }); });
+      };
+      listen(true);
     } else if (message.type === 'attach') {
       root = Number(message.rootPid);
       if (home) registerRoot(home, sockPath, root).catch(() => {});
@@ -396,6 +436,14 @@ export async function fetchAgentSecrets(env = process.env) {
 /** The local admin identity's seed, from the admin holder; refused to any process inside an agent's tree. */
 export async function fetchAdminSecrets(sock) {
   return secretsOrRefusal(await requestSocket(sock, { op: 'get' }), sock);
+}
+
+/** Who owns this socket right now: { publicKey, pid, admin }, or null when nothing answers (absent or stale file). */
+export async function holderIdentity(sock) {
+  try {
+    const reply = await requestSocket(sock, { op: 'pub' }, 2000);
+    return reply?.pid ? reply : null;
+  } catch { return null; }
 }
 
 export async function holderAlive(sock) {

@@ -13,7 +13,7 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
-import { findServerPid, holderAlive, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
+import { holderIdentity, serverPidFor, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
 import { withLock } from './lockfile.mjs';
 import { runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
@@ -98,15 +98,42 @@ export async function rewriteServerConfig(home) {
  * only to a process outside every agent's tree. A legacy state with a password is migrated away.
  * Returns state with adminPub/adminSock; the caller rewrites the config when `changed`.
  */
-async function ensureAdminIdentity(home, state) {
-  if (state?.adminPub && state.adminSock && await holderAlive(state.adminSock)) return { state, changed: false };
+export async function ensureAdminIdentity(home, state) {
   const sock = join(home, 'admin.sock');
+  // Ask the socket itself, not state.json: another process may own a live holder that this state does not name.
+  const live = await holderIdentity(sock);
+  if (live?.admin) {
+    const same = state?.adminPub === live.publicKey && state?.adminSock === sock;
+    const next = { ...state, adminPub: live.publicKey, adminSock: sock, adminPid: live.pid };
+    delete next.user; delete next.pass;
+    return { state: next, changed: !same };
+  }
+  // Nothing answers: any file at the path is a stale leftover.
   try { await unlink(sock); } catch { /* none */ }
   const holder = await startHolder({}, { home, sock, admin: true });
   const next = { ...state, adminPub: holder.publicKey, adminSock: sock, adminPid: holder.pid };
   delete next.user; delete next.pass;
   return { state: next, changed: true };
 }
+
+/**
+ * Under the lock, make sure the admin holder the server trusts is the one that is alive. If it changed (the holder died
+ * and was replaced), rewrite the config and reload the running server so the new key is accepted.
+ */
+async function revalidateAdminLocked(home) {
+  {
+    const state = readState(home);
+    if (!state || state.user) return state; // no state yet, or a legacy password state the start path migrates
+    const { state: admin, changed } = await ensureAdminIdentity(home, state);
+    if (!changed) return state;
+    await writeState(home, admin);
+    const confPath = await writeServerConfig(home, { port: admin.port, adminPub: admin.adminPub });
+    const pid = serverPidFor(admin.pid, confPath);
+    if (pid) { try { process.kill(pid, 'SIGHUP'); } catch { /* gone */ } await new Promise((resolve) => setTimeout(resolve, 300)); }
+    return admin;
+  }
+}
+const revalidateAdmin = (home) => withLock(join(home, 'lock'), () => revalidateAdminLocked(home));
 
 async function writeState(home, state) {
   const statePath = join(home, 'state.json');
@@ -147,7 +174,7 @@ export async function prepareLocalNats({ env = process.env } = {}) {
     const absolute = absoluteBinary(bin, env);
     await writeState(home, { managed: true, pid: null, port, bin: absolute, adminPub: admin.adminPub, adminSock: admin.adminSock, adminPid: admin.adminPid });
     // A new admin key means the running server still trusts the old one: reload it.
-    if (changed && await canConnect(port)) { const pid = findServerPid(confPath); if (pid) process.kill(pid, 'SIGHUP'); }
+    if (changed && await canConnect(port)) { const pid = serverPidFor(null, confPath); if (pid) process.kill(pid, 'SIGHUP'); }
     return { bin: absolute, args: ['-c', confPath], confPath, port, adminSock: admin.adminSock, home, log: join(home, 'nats-server.log') };
   });
 }
@@ -175,6 +202,7 @@ export async function ensureLocalNats({ env = process.env } = {}) {
       state = readState(home);
     }
     if (state?.managed && await waitForPort(state.port)) {
+      state = await revalidateAdmin(home) ?? state;
       return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, adminSock: state.adminSock, port: state.port, started: false, managed: true };
     }
     // TM-277: a managed process that finds the managed server down is watching the manager restart
@@ -187,8 +215,9 @@ export async function ensureLocalNats({ env = process.env } = {}) {
   const home = localNatsHome(env);
   await mkdir(home, { recursive: true, mode: 0o700 });
   return withLock(join(home, 'lock'), async () => {
-    const state = readState(home);
+    let state = readState(home);
     if (state && await canConnect(state.port)) {
+      state = (await revalidateAdminLocked(home)) ?? state;
       return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, adminSock: state.adminSock, port: state.port, started: false };
     }
     const bin = await findNatsServer(env);

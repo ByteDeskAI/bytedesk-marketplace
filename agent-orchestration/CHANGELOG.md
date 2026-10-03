@@ -4,6 +4,10 @@
 
 _Version markers (`package.json`, `src/mcp.mjs`) are 0.16.0 for TM-310 and TM-311._
 
+### Fixed
+
+- **A second process no longer collides with the admin holder (TM-310 round 3).** `ensureAdminIdentity` asks the socket itself whether a live holder answers (a new `pub` op) and reuses it; only a socket nobody answers is unlinked and replaced, and a running server is reloaded to trust the replacement. A holder that finds its socket taken probes it before giving up. Re-provisioning an agent retires its previous holder. A recorded server pid is trusted only while it is still a `nats-server`.
+
 ### Added
 
 - **Per-agent grants for the EP-026 features; no admin password anywhere (TM-310 round 2).**
