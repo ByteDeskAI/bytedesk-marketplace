@@ -72,8 +72,14 @@ function unavailable(message) {
 
 const NO_BINARY = 'No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.';
 
+/** state.json layout version. 1 = the password format (no stamp); 2 = nkey admin identity (TM-310). */
+export const STATE_SCHEMA = 2;
+
 function readState(home) {
-  try { return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')); } catch { return null; }
+  let state = null;
+  try { state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')); } catch { return null; }
+  if (state?.schema > STATE_SCHEMA) throw unavailable(`${join(home, 'state.json')} is schema ${state.schema}; this agent-orchestration understands up to ${STATE_SCHEMA}. Upgrade this installation instead of letting it rewrite the file.`);
+  return state;
 }
 
 /** Writes the server config and returns its path. Credentials are generated once and kept, so a
@@ -106,7 +112,7 @@ export async function ensureAdminIdentity(home, state) {
     const same = state?.adminPub === live.publicKey && state?.adminSock === sock;
     const next = { ...state, adminPub: live.publicKey, adminSock: sock, adminPid: live.pid };
     delete next.user; delete next.pass;
-    return { state: next, changed: !same };
+    return { state: next, changed: !same, reused: true };
   }
   // Nothing answers: any file at the path is a stale leftover.
   try { await unlink(sock); } catch { /* none */ }
@@ -125,8 +131,11 @@ async function revalidateAdminLocked(home) {
     const state = readState(home);
     if (!state) return state;
     const legacy = Boolean(state.user || state.pass);
-    const { state: admin, changed } = await ensureAdminIdentity(home, state);
+    const { state: admin, changed, reused } = await ensureAdminIdentity(home, state);
     if (!changed) return state;
+    // A live admin holder next to a password-format state.json means an older ao-topology rewrote the file after this version
+    // had migrated it. It will do so again each time it runs; the older version has no schema check to stop it.
+    if (legacy && reused) process.stderr.write(`[ao] WARNING: ${join(home, 'state.json')} was rewritten in the old password format by an older agent-orchestration (no schema stamp) sharing this home. Upgrade or stop it: it also restarts the NATS server. Repaired for now.\n`);
     // Upgrade from a version that stored a password: retire it. Processes it started still hold the password connection,
     // which the reload below drops; they need a restart to pick up the new identity.
     if (legacy) process.stderr.write(`[ao] local NATS: replaced the stored admin password with an nkey identity held in memory. Processes started by an earlier version lose their NATS connection until restarted.\n`);
@@ -141,7 +150,7 @@ const revalidateAdmin = (home) => withLock(join(home, 'lock'), () => revalidateA
 
 async function writeState(home, state) {
   const statePath = join(home, 'state.json');
-  await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
+  await writeFile(statePath, JSON.stringify({ ...state, schema: STATE_SCHEMA }), { mode: 0o600 });
   await chmod(statePath, 0o600);
 }
 

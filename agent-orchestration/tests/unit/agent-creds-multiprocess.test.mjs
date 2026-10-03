@@ -24,7 +24,7 @@ async function fixture(t, { deep = false } = {}) {
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'));
   t.after(async () => {
     try { const s = state(); for (const pid of [s.pid, s.adminPid]) if (pid) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } catch { /* none */ }
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   /** One real process: bring local NATS up (the path every `ao` command takes), connect as the host, report. */
   const proc = (extra = '') => exec(process.execPath, ['--input-type=module', '-e', `
@@ -36,7 +36,7 @@ async function fixture(t, { deep = false } = {}) {
     console.log('RESULT ' + JSON.stringify({ pid: process.pid, sock: local.adminSock, started: local.started, kind: t.kind }));
     await t.close(); process.exit(0);${extra}`], { env, timeout: 60_000 })
     .then(({ stdout, stderr }) => ({ ...JSON.parse(stdout.split('\n').find((l) => l.startsWith('RESULT ')).slice(7)), stderr }),
-      (error) => { throw new Error(`process failed: ${String(error.stderr).split('\n').filter((l) => /Error|EADDR/.test(l)).slice(0, 2).join(' | ')}`); });
+      (error) => { throw new Error(`process failed: ${String(error.stderr).split('\n').filter((l) => /Error|EADDR/.test(l)).slice(0, 3).join(' | ')}`); });
   return { home, env, state, proc };
 }
 
@@ -132,4 +132,27 @@ test('upgrade: a state written by the password version is migrated, with a print
   assert.ok(!('pass' in s) && !('user' in s), 'the password is gone from state.json');
   assert.ok(s.adminPub && await holderAlive(s.adminSock));
   assert.match(after.stderr, /replaced the stored admin password/);
+});
+
+test('state.json is stamped schema 2; a newer schema is refused; an old version rewriting it is detected loudly', { timeout: 180000 }, async (t) => {
+  const { home, state, proc } = await fixture(t);
+  await proc();
+  const modern = state();
+  assert.equal(modern.schema, 2, 'the new version stamps what it writes');
+  // An older ao-topology rewrote the file in the password format while the nkey holder is still alive.
+  const { serverConfig } = await import('../../topology/lib/nats-local.mjs');
+  await writeFile(join(home, 'nats-server.conf'), serverConfig({ port: modern.port, user: 'ao-orch', password: 'old-version-password', storeDir: join(home, 'jetstream') }), { mode: 0o600 });
+  process.kill(modern.pid, 'SIGHUP');
+  await writeFile(join(home, 'state.json'), JSON.stringify({ pid: modern.pid, port: modern.port, bin: modern.bin, user: 'ao-orch', pass: 'old-version-password' }), { mode: 0o600 });
+  await new Promise((r) => setTimeout(r, 400));
+  const repaired = await proc();
+  console.log(`old-format rewrite found: ${JSON.stringify(repaired.stderr.trim().slice(0, 260))}; schema now ${state().schema}`);
+  assert.match(repaired.stderr, /WARNING.*old password format.*older agent-orchestration/);
+  assert.equal(state().schema, 2);
+  assert.ok(!('pass' in state()));
+  // A state from the future is refused, not rewritten.
+  await writeFile(join(home, 'state.json'), JSON.stringify({ ...state(), schema: 3 }), { mode: 0o600 });
+  const before = readFileSync(join(home, 'state.json'), 'utf8');
+  await assert.rejects(proc(), /schema 3.*Upgrade this installation/);
+  assert.equal(readFileSync(join(home, 'state.json'), 'utf8'), before, 'a newer state file is left untouched');
 });

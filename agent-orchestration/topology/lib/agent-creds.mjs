@@ -286,7 +286,7 @@ export function remoteHolder(sock) {
 }
 
 /**
- * Spawn a holder. Secrets cross an IPC channel (a socketpair), never argv, env or disk.
+ * Spawn a holder. Secrets cross an IPC channel (a socketpair) during the handshake only, never argv, env or disk.
  * admin: the holder GENERATES an nkey, never reveals the seed to its spawner, and hands it only to
  * a process outside every agent tree. home: where roots.json lives (needed for admin and cross-process attach).
  */
@@ -303,24 +303,28 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--holder'], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH ?? '', ...(process.env.AO_TEST_RUN ? { AO_TEST_RUN: process.env.AO_TEST_RUN } : {}) },
   });
-  // The channel is unref'd between calls so a launcher can exit; it is ref'd while a reply is awaited so the wait itself keeps the loop alive.
-  const send = (message) => new Promise((resolve, reject) => {
-    child.channel?.ref();
-    const done = () => child.channel?.unref();
-    const onMessage = (reply) => { child.off('exit', onExit); done(); resolve(reply); };
-    const onExit = () => { done(); reject(new Error('credential holder exited')); };
-    child.once('message', onMessage); child.once('exit', onExit);
-    child.send(message, (error) => { if (error) { done(); reject(error); } });
+  // The IPC channel carries only the init handshake. Once the holder reports ready it is closed: a Node parent with an open
+  // IPC child cannot exit, and a launcher must. From then on the unix socket is the only channel, authorised by `ctl` (held
+  // in this process's memory) or, from another process, by being outside every agent's tree.
+  const ctl = randomBytes(16).toString('hex');
+  const ready = await new Promise((resolve, reject) => {
+    child.once('message', resolve);
+    child.once('exit', () => reject(new Error('credential holder exited')));
+    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid }, (error) => { if (error) reject(error); });
   });
-  const ready = await send({ type: 'init', sock, secrets, home, admin, graceMs });
   if (!ready.ok) { child.kill('SIGKILL'); throw Object.assign(new Error(`credential holder failed: ${ready.error}`), { code: ready.code ?? 'HOLDER_FAILED' }); }
+  child.disconnect();
   child.unref();
-  child.channel?.unref();
+  const control = async (request) => {
+    const reply = await requestSocket(sock, { ...request, ctl }, 5000);
+    if (reply?.ok === false) throw Object.assign(new Error(`credential holder refused ${request.op}: ${reply.error}`), { code: 'TOPOLOGY_CREDS_REFUSED' });
+    return reply;
+  };
   return {
     sock, pid: child.pid, publicKey: ready.publicKey ?? null,
-    attach: (rootPid) => send({ type: 'attach', rootPid }),
-    install: (next) => send({ type: 'install', secrets: next }),
-    revoke: () => send({ type: 'revoke' }),
+    attach: (rootPid) => control({ op: 'attach', pid: rootPid }),
+    install: (next) => control({ op: 'install', secrets: next }),
+    revoke: () => control({ op: 'revoke' }),
   };
 }
 
@@ -332,6 +336,9 @@ function holderMain() {
   let home = null;
   let admin = false;
   let publicKey = null;
+  let ctl = null;
+  let spawnerPid = null;
+  const startedAt = Date.now();
   const stop = () => { secrets = null; server?.close(); try { if (sockPath) unlinkSync(sockPath); } catch { /* gone */ } setTimeout(() => process.exit(0), 50); };
   // The root dying is not the end: a failover or restart re-attaches within the grace window.
   let rootGoneSince = null;
@@ -339,6 +346,8 @@ function holderMain() {
   const watch = setInterval(() => {
     // Nothing left to serve: its socket was removed, or the home it belongs to is gone (a deleted test directory, an uninstall).
     if (sockPath && (!existsSync(sockPath) || (home && !existsSync(home)))) return stop();
+    // Its spawner is gone and it was never attached to a pane: nothing will attach it now.
+    if (!root && !admin && spawnerPid && !existsSync(`/proc/${spawnerPid}`) && Date.now() - startedAt > Math.min(5000, graceMs)) return stop();
     if (!root || existsSync(`/proc/${root}`)) { rootGoneSince = null; return; }
     rootGoneSince ??= Date.now();
     if (Date.now() - rootGoneSince > graceMs) stop();
@@ -355,15 +364,22 @@ function holderMain() {
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     // The public key is not a secret: anyone who can reach the socket may learn whose holder this is.
     if (request.op === 'pub') return { publicKey, pid: process.pid, admin };
+    // Control is the spawner's (it holds `ctl`) or, from another process, the operator tree's (outside every agent tree, with a registry to judge by).
+    const controller = (Boolean(ctl) && request.ctl === ctl) || (Boolean(home) && operator);
+    if (request.op === 'install') {
+      if (!controller) return { ok: false, error: 'install is for the spawner or the operator process tree only' };
+      secrets = { ...secrets, ...request.secrets };
+      return { ok: true };
+    }
     if (request.op === 'revoke') {
-      if (!home || !operator) return { ok: false, error: 'revoke is for the operator process tree only' };
+      if (!controller) return { ok: false, error: 'revoke is for the spawner or the operator process tree only' };
       setTimeout(stop, 20);
       return { ok: true };
     }
     if (request.op === 'attach') {
-      if (!home || !operator || admin) return { ok: false, error: 'attach is for the operator process tree only' };
+      if (!controller || admin) return { ok: false, error: 'attach is for the spawner or the operator process tree only' };
       root = Number(request.pid);
-      registerRoot(home, sockPath, root).catch(() => {});
+      if (home) registerRoot(home, sockPath, root).catch(() => {});
       return { ok: true };
     }
     if (!live) return { error: 'credential expired or revoked' };
@@ -372,7 +388,7 @@ function holderMain() {
   process.on('message', async (message) => {
     const reply = (body) => process.send(body);
     if (message.type === 'init') {
-      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs;
+      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs; ctl = message.ctl; spawnerPid = message.spawnerPid;
       if (admin) {
         const user = (await natsClient()).nkeys.createUser();
         publicKey = user.getPublicKey();
@@ -397,15 +413,8 @@ function holderMain() {
         server.listen(sockPath, () => { try { chmodSync(sockPath, 0o600); } catch { /* best effort */ } reply({ ok: true, publicKey }); });
       };
       listen(true);
-    } else if (message.type === 'attach') {
-      root = Number(message.rootPid);
-      if (home) registerRoot(home, sockPath, root).catch(() => {});
-      reply({ ok: true });
-    } else if (message.type === 'install') { secrets = { ...secrets, ...message.secrets }; reply({ ok: true }); }
-    else if (message.type === 'revoke') { reply({ ok: true }); stop(); }
+    }
   });
-  // The process that spawned this holder is gone. If it never attached the holder to a pane, nothing will: retire it (an attached holder outlives its launcher by design).
-  process.on('disconnect', () => { if (!admin) setTimeout(() => { if (!root) stop(); }, Math.min(5000, graceMs)).unref?.(); });
 }
 
 /**

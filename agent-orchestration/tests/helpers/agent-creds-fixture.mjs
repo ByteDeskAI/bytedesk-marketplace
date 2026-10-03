@@ -42,7 +42,7 @@ export async function startServer({ agents = ['agentA', 'agentB', 'boss'] } = {}
       await transport.close().catch(() => {});
       child.kill('SIGKILL');
       try { process.kill(state.adminPid, 'SIGKILL'); } catch { /* gone */ }
-      await rm(home, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     } };
 }
 
