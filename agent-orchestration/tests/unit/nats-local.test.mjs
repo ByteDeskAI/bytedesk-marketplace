@@ -4,6 +4,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ensureLocalNats, findNatsServer, serverConfig } from '../../topology/lib/nats-local.mjs';
+import { fetchAdminSecrets } from '../../topology/lib/agent-creds.mjs';
 
 test('serverConfig exposes no system account and no anonymous user', () => {
   const conf = serverConfig({ port: 1, user: 'u', password: 'p', storeDir: '/x' });
@@ -19,6 +20,7 @@ test('ensureLocalNats starts once, reuses, and refuses bad credentials', async (
   let pid;
   t.after(async () => {
     if (pid) try { process.kill(pid); } catch { /* already gone */ }
+    try { process.kill(JSON.parse(await readFile(join(home, 'state.json'), 'utf8')).adminPid); } catch { /* none */ }
     await rm(home, { recursive: true, force: true });
   });
   const first = await ensureLocalNats({ env });
@@ -28,11 +30,16 @@ test('ensureLocalNats starts once, reuses, and refuses bad credentials', async (
   assert.equal(second.started, false);
   assert.equal(second.port, first.port);
   assert.equal((await stat(join(home, 'state.json'))).mode & 0o077, 0, 'state file is owner-only');
-  const { connect } = await import('nats');
-  const good = await connect({ servers: first.servers, user: first.user, pass: first.pass });
+  const { connect, nkeyAuthenticator } = await import('nats');
+  // TM-310: no password is stored; the host identity is an nkey the admin holder hands to a non-agent process.
+  const stateText = await readFile(join(home, 'state.json'), 'utf8');
+  assert.doesNotMatch(stateText, /"pass"|"user"/, 'no password is persisted');
+  const { seed } = await fetchAdminSecrets(first.adminSock);
+  assert.doesNotMatch(stateText + await readFile(join(home, 'nats-server.conf'), 'utf8'), new RegExp(seed), 'the seed is on no disk');
+  const good = await connect({ servers: first.servers, authenticator: nkeyAuthenticator(new TextEncoder().encode(seed)) });
   await good.close();
   await assert.rejects(connect({ servers: first.servers, reconnect: false, timeout: 2000 }), /authorization violation/i);
-  await assert.rejects(connect({ servers: first.servers, user: first.user, pass: 'bad', reconnect: false, timeout: 2000 }), /authorization violation/i);
+  await assert.rejects(connect({ servers: first.servers, user: 'ao-orch', pass: 'bad', reconnect: false, timeout: 2000 }), /authorization violation/i);
 });
 
 test('a managed process never starts a detached server beside the managed one (TM-277)', async (t) => {

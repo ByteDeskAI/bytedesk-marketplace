@@ -4,78 +4,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { natsServerBin } from '../helpers/nats-server.mjs';
+import { REPO, attempt, connectAgent, enc, startServer } from '../helpers/agent-creds-fixture.mjs';
 import { CredStore, agentPermissions, isDescendant, loadAgentUsers } from '../../topology/lib/agent-creds.mjs';
 import { launcherScript } from '../../topology/lib/launch.mjs';
-import { rewriteServerConfig, serverConfig } from '../../topology/lib/nats-local.mjs';
+import { serverConfig } from '../../topology/lib/nats-local.mjs';
 import { ORCH_LAYOUT } from '../../topology/lib/orch-transport.mjs';
-
-// Ambient server selection must never reach these tests.
-delete process.env.AO_NATS_URL;
-delete process.env.NATS_URL;
-delete process.env.AO_CREDS_SOCK;
-const nats = await import('nats');
-const REPO = 'repoK';
-const enc = new TextEncoder();
-
-const freePort = () => new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.once('error', reject);
-  probe.listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
-});
-
-async function startServer() {
-  const home = await mkdtemp(join(os.tmpdir(), 'ao-creds-home-'));
-  const port = await freePort();
-  await writeFile(join(home, 'state.json'), JSON.stringify({ managed: true, pid: null, port, user: 'host', pass: 'host-pass-not-an-agent-secret' }));
-  const conf = await rewriteServerConfig(home);
-  const child = spawn(await natsServerBin(), ['-c', conf], { stdio: ['ignore', 'ignore', 'ignore'] });
-  const url = `nats://127.0.0.1:${port}`;
-  for (let i = 0; i < 100; i += 1) {
-    try { (await nats.connect({ servers: url, user: 'host', pass: 'host-pass-not-an-agent-secret', timeout: 500 })).close(); break; } catch { await new Promise((r) => setTimeout(r, 50)); }
-  }
-  const store = new CredStore({ home, serverPid: child.pid });
-  const admin = await nats.connect({ servers: url, user: 'host', pass: 'host-pass-not-an-agent-secret' });
-  const jsm = await admin.jetstreamManager();
-  const js = admin.jetstream();
-  await jsm.streams.add({ name: ORCH_LAYOUT.mailStream, subjects: ['orch.*.mail.>'], retention: nats.RetentionPolicy.Workqueue });
-  for (const bucket of [ORCH_LAYOUT.agentsBucket, ORCH_LAYOUT.claimsBucket, ORCH_LAYOUT.presenceBucket]) await js.views.kv(bucket);
-  for (const agent of ['agentA', 'agentB', 'boss']) {
-    await jsm.consumers.add(ORCH_LAYOUT.mailStream, { durable_name: ORCH_LAYOUT.mailDurable(REPO, agent), filter_subject: ORCH_LAYOUT.mailSubject(REPO, agent), ack_policy: nats.AckPolicy.Explicit });
-  }
-  return { home, port, url, child, store, admin, jsm, js, conf,
-    async stop() { await admin.close().catch(() => {}); child.kill('SIGKILL'); await rm(home, { recursive: true, force: true }); } };
-}
-
-/** An agent connection that records every server -ERR (a publish violation is only ever reported there). */
-async function connectAgent(server, issued, { retries = 0 } = {}) {
-  const refusals = [];
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      const nc = await nats.connect({ servers: server.url, authenticator: nats.nkeyAuthenticator(enc.encode(issued.seed)), inboxPrefix: issued.inboxPrefix,
-        maxReconnectAttempts: 0, timeout: 3000, name: issued.agent });
-      (async () => { for await (const status of nc.status()) if (status.type === 'error') refusals.push(String(status.error?.message ?? status.data)); })();
-      return { nc, refusals };
-    } catch (error) {
-      // SIGHUP is asynchronous: a key issued a moment ago may not be loaded yet. Only fixture setup retries; a revoked-key probe must not.
-      if (attempt >= retries) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-  }
-}
-
-/** Run an operation; report whether it succeeded and every refusal text the server produced. */
-async function attempt({ nc, refusals }, operation) {
-  const before = refusals.length;
-  try { await operation(nc); } catch (error) { refusals.push(`thrown: ${error.message}`); }
-  await new Promise((r) => setTimeout(r, 150));
-  const text = refusals.slice(before);
-  return { ok: text.length === 0, refusal: text.join(' | ') };
-}
 
 const OPS = {
   'publish to A\'s mail subject': (nc) => nc.jetstream({ timeout: 1000 }).publish(ORCH_LAYOUT.mailSubject(REPO, 'agentA'), enc.encode('forged')),
@@ -122,7 +58,7 @@ test('(5a) mutation: with agent permissions opened up the same attempts succeed,
     // Re-render the config with B's key given everything (and B's narrowed entry removed). This is "the protection removed".
     const open = `{ nkey: ${b.publicKey}, permissions: { publish: { allow: [">"] }, subscribe: { allow: [">"] } } }`;
     const state = JSON.parse(readFileSync(join(server.home, 'state.json'), 'utf8'));
-    const base = serverConfig({ port: state.port, user: state.user, password: state.pass, storeDir: join(server.home, 'jetstream'),
+    const base = serverConfig({ port: state.port, adminNkey: state.adminPub, storeDir: join(server.home, 'jetstream'),
       agentUsers: loadAgentUsers(server.home).filter((entry) => entry.agent !== 'agentB') });
     assert.ok(base.includes('users = [ '), 'sanity: the config shape the mutation relies on');
     await writeFile(server.conf, base.replace('users = [ ', `users = [ ${open}, `));

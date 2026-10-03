@@ -24,7 +24,7 @@ import net from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readJson, writeJson, writeText } from './util.mjs';
-import { fetchAgentSecrets } from './agent-creds.mjs';
+import { fetchAdminSecrets, fetchAgentSecrets } from './agent-creds.mjs';
 import { ensureLocalNats } from './nats-local.mjs';
 import { stateRoot } from './repoid.mjs';
 
@@ -52,7 +52,8 @@ export const ORCH_LAYOUT = Object.freeze({
   verdictSubject: (repo, nonce) => `orch.${repo}.review.${nonce}`,
   eventsSubject: (repo, kind) => `orch.${repo}.events.${kind}`,
   eventsFilter: (repo) => `orch.${repo}.events.>`,
-  handoffKey: (repo, messageId) => `${repo}.${messageId}`,
+  // TM-310: an agent-mode transport keys its records under its own identity so the grant can name them.
+  handoffKey: (repo, messageId, agent = null) => (agent ? `${repo}.${agent}.${messageId}` : `${repo}.${messageId}`),
   claimKey: (repo, task) => `${repo}.${task}`,
   agentKey: (repo, agent) => `${repo}.${agent}`,
   mailDurable: (repo, agent) => `mail_${repo}_${agent}`,
@@ -284,22 +285,22 @@ export function createFileTransport() {
       const entry = claims.get(ORCH_LAYOUT.claimKey(orchName(repo), orchName(task)));
       return entry ? { body: entry.body, revision: entry.revision } : null;
     },
-    async createHandoff({ repo, messageId, body }) {
-      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId));
+    async createHandoff({ repo, messageId, agent, body }) {
+      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId), agent ? orchName(agent) : null);
       const current = handoffs.get(key);
       if (current) return { created: false, body: current.body, revision: current.revision, key };
       handoffs.set(key, { body, revision: 1 });
       return { created: true, body, revision: 1, key };
     },
-    async updateHandoff({ repo, messageId, body, expectedRevision }) {
-      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId));
+    async updateHandoff({ repo, messageId, agent, body, expectedRevision }) {
+      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId), agent ? orchName(agent) : null);
       const current = handoffs.get(key);
       if (!current || current.revision !== expectedRevision) fail('TOPOLOGY_CLAIM_CONFLICT', `Stale handoff revision ${expectedRevision} for ${key}.`);
       handoffs.set(key, { body, revision: current.revision + 1 });
       return { revision: current.revision + 1, key };
     },
-    async getHandoff({ repo, messageId }) {
-      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId));
+    async getHandoff({ repo, messageId, agent }) {
+      const key = ORCH_LAYOUT.handoffKey(orchName(repo), orchName(messageId), agent ? orchName(agent) : null);
       const current = handoffs.get(key);
       return current ? { body: current.body, revision: current.revision, key } : null;
     },
@@ -630,10 +631,13 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   // process may not create streams or consumers, so ensure() leaves layout to the host.
   const held = await fetchAgentSecrets(env).catch((error) => { bridge?.server.close(); throw error; });
   const agentMode = Boolean(held?.seed || held?.creds || env.AO_ORCH_AGENT_MODE === '1');
-  const dial = () => {
+  // The local host identity: the admin holder gives the seed to this process only if it is outside every agent's tree.
+  const dial = async () => {
+    const admin = !held && local?.adminSock ? await fetchAdminSecrets(local.adminSock) : null;
     const options = { servers: target, name, timeout: 4000, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
     if (held?.seed) Object.assign(options, { authenticator: nkeyAuthenticator(new TextEncoder().encode(held.seed)) });
     else if (held?.creds) options.authenticator = credsAuthenticator(new TextEncoder().encode(held.creds));
+    else if (admin?.seed) options.authenticator = nkeyAuthenticator(new TextEncoder().encode(admin.seed));
     else if (local) Object.assign(options, { user: local.user, pass: local.pass });
     else if (creds) options.authenticator = credsAuthenticator(readFileSync(creds));
     const inboxPrefix = held?.inboxPrefix || env.AO_ORCH_INBOX_PREFIX;
@@ -669,7 +673,10 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   const jsOptions = domain ? { domain } : {};
   const js = nc.jetstream(jsOptions);
   // An agent binds to buckets the host created; passing creation options would be a stream-create it is not allowed.
-  const views = agentMode ? { kv: (bucket) => js.views.kv(bucket, { bindOnly: true }), os: (bucket) => js.views.os(bucket, { bindOnly: true }) } : js.views;
+  // The identity this process was issued: its handoff records live under it unless a caller names another agent.
+  const heldAgent = held?.agent ? orchName(held.agent) : null;
+  const ownerOf = (agent) => (agent ? orchName(agent) : heldAgent);
+  const views = agentMode ? { kv: (bucket) => js.views.kv(bucket, { bindOnly: true, allow_direct: true }), os: (bucket) => js.views.os(bucket, { bindOnly: true }) } : js.views;
   const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = new Set();
   const subscriptions = new Set();
@@ -717,6 +724,13 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       await views.kv(ORCH_LAYOUT.claimsBucket, { storage: StorageType.File, history: 16 });
       await views.kv(ORCH_LAYOUT.presenceBucket, { storage: StorageType.File, ttl: ORCH_LAYOUT.presenceTtlMs });
       await views.os(ORCH_LAYOUT.reviewsBucket, { storage: StorageType.File });
+      // TM-310: per-agent grants can name a KV key only through a direct get (the subject carries the key); a
+      // bucket without allow_direct falls back to STREAM.MSG.GET, which cannot be narrowed. Turn it on, also for
+      // buckets created before this release.
+      for (const bucket of [ORCH_LAYOUT.handoffsBucket, ORCH_LAYOUT.agentsBucket, ORCH_LAYOUT.claimsBucket, ORCH_LAYOUT.presenceBucket]) {
+        const info = await jsm.streams.info(`KV_${bucket}`).catch(() => null);
+        if (info && !info.config.allow_direct) await jsm.streams.update(`KV_${bucket}`, { ...info.config, allow_direct: true });
+      }
       ensured.add('layout');
       }
       const tasksKey = `tasks:${nameRepo}`;
@@ -847,16 +861,16 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     async getClaimEntry({ repo, task }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.claimsBucket);
+      const kv = await views.kv(ORCH_LAYOUT.claimsBucket);
       const entry = await kv.get(ORCH_LAYOUT.claimKey(nameRepo, orchName(String(task)))).catch(() => null);
       if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') return null;
       return { body: entry.json(), revision: entry.revision };
     },
-    async createHandoff({ repo, messageId, body }) {
+    async createHandoff({ repo, messageId, agent, body }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.handoffsBucket);
-      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId));
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId), ownerOf(agent));
       try {
         return { created: true, body, revision: await kv.create(key, body), key };
       } catch (error) {
@@ -865,22 +879,22 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         return { created: false, body: entry.string(), revision: entry.revision, key };
       }
     },
-    async updateHandoff({ repo, messageId, body, expectedRevision }) {
+    async updateHandoff({ repo, messageId, agent, body, expectedRevision }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.handoffsBucket);
-      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId));
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId), ownerOf(agent));
       try {
         return { revision: await kv.update(key, body, expectedRevision), key };
       } catch (error) {
         fail('TOPOLOGY_CLAIM_CONFLICT', `Handoff update failed for ${key}: ${error.message}`);
       }
     },
-    async getHandoff({ repo, messageId }) {
+    async getHandoff({ repo, messageId, agent }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
-      const kv = await js.views.kv(ORCH_LAYOUT.handoffsBucket);
-      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId));
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const key = ORCH_LAYOUT.handoffKey(nameRepo, orchName(messageId), ownerOf(agent));
       const entry = await kv.get(key).catch(() => null);
       return !entry || entry.operation !== 'PUT' ? null : { body: entry.string(), revision: entry.revision, key };
     },

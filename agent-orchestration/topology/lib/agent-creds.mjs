@@ -42,29 +42,43 @@ const REGISTRY = 'agent-users.json';
 
 /** What one agent may do on the wire. Role `lead` additionally writes claims; no agent role may create,
  * delete or purge a stream, touch another agent's durable, or reach $SYS. */
-export function agentPermissions({ repo, agent, role = 'worker', mailTo = [], inboxPrefix }) {
+export function agentPermissions({ repo, agent, role = 'worker', mailTo = [], inboxPrefix, takesWork = false }) {
   const r = orchName(repo);
   const a = orchName(agent);
   const mail = ORCH_LAYOUT.mailDurable(r, a);
   const reply = ORCH_LAYOUT.replyDurable(r, a);
-  const buckets = [ORCH_LAYOUT.agentsBucket, ORCH_LAYOUT.claimsBucket, ORCH_LAYOUT.presenceBucket, ORCH_LAYOUT.personasBucket];
+  const buckets = [ORCH_LAYOUT.agentsBucket, ORCH_LAYOUT.claimsBucket, ORCH_LAYOUT.presenceBucket, ORCH_LAYOUT.personasBucket, ORCH_LAYOUT.handoffsBucket];
+  const overseer = role === 'lead' || role === 'reviewer';
   const publish = [
     '$JS.API.INFO',
     `$JS.API.STREAM.INFO.${ORCH_LAYOUT.mailStream}`,
-    ...buckets.flatMap((b) => [`$JS.API.STREAM.INFO.KV_${b}`, `$JS.API.DIRECT.GET.KV_${b}.>`]),
+    ...buckets.flatMap((b) => [`$JS.API.STREAM.INFO.KV_${b}`, ...(b === ORCH_LAYOUT.handoffsBucket && role !== 'lead' ? [] : [`$JS.API.DIRECT.GET.KV_${b}.>`])]),
     `$JS.API.STREAM.INFO.OBJ_${ORCH_LAYOUT.reviewsBucket}`,
     ...[mail, reply].flatMap((d) => [`$JS.API.CONSUMER.INFO.${ORCH_LAYOUT.mailStream}.${d}`, `$JS.API.CONSUMER.MSG.NEXT.${ORCH_LAYOUT.mailStream}.${d}`, `$JS.ACK.${ORCH_LAYOUT.mailStream}.${d}.>`]),
     `$KV.${ORCH_LAYOUT.agentsBucket}.${r}.${a}`,
     `$KV.${ORCH_LAYOUT.presenceBucket}.${r}`,
-    ...mailTo.map((target) => ORCH_LAYOUT.mailSubject(r, orchName(target))),
+    // A reply goes to the sender's reply subject; the same peers that may be mailed may be replied to.
+    ...mailTo.flatMap((target) => [ORCH_LAYOUT.mailSubject(r, orchName(target)), ORCH_LAYOUT.replySubject(r, orchName(target))]),
   ];
-  if (role === 'lead') publish.push(`$KV.${ORCH_LAYOUT.claimsBucket}.${r}.>`, ORCH_LAYOUT.tasksSubject(r));
-  if (role === 'reviewer' || role === 'lead') publish.push(`orch.${r}.review.>`);
+  const E = ORCH_LAYOUT.eventsStream;
+  const tasks = ORCH_LAYOUT.tasksDurable(r);
+  const handoffs = ORCH_LAYOUT.handoffsBucket;
+  // Events: every agent journals; only an overseer reads them back (diagnose) or watches them.
+  publish.push(`orch.${r}.events.>`);
+  if (overseer) publish.push(`$JS.API.STREAM.INFO.${E}`, `$JS.API.STREAM.MSG.GET.${E}`);
+  // Handoff records: an agent writes and reads only keys under its own identity; the lead reads any.
+  publish.push(`$KV.${handoffs}.${r}.${a}.>`);
+  if (role !== 'lead') publish.push(`$JS.API.DIRECT.GET.KV_${handoffs}.$KV.${handoffs}.${r}.${a}.>`);
+  // Work queue: the lead publishes ready items; a worker that takes work pulls them and writes fenced claims.
+  if (role === 'lead') publish.push(ORCH_LAYOUT.tasksSubject(r), `$KV.${ORCH_LAYOUT.claimsBucket}.${r}.>`, `$JS.API.STREAM.MSG.GET.${ORCH_LAYOUT.mailStream}`, `orch.${r}.probe.*`);
+  if (role === 'lead' || takesWork) publish.push(`$JS.API.CONSUMER.INFO.${ORCH_LAYOUT.tasksStream}.${tasks}`, `$JS.API.CONSUMER.MSG.NEXT.${ORCH_LAYOUT.tasksStream}.${tasks}`, `$JS.ACK.${ORCH_LAYOUT.tasksStream}.${tasks}.>`, `$JS.API.STREAM.INFO.${ORCH_LAYOUT.tasksStream}`);
+  if (takesWork) publish.push(`$KV.${ORCH_LAYOUT.claimsBucket}.${r}.>`);
+  if (overseer) publish.push(`orch.${r}.review.>`);
   return {
     publish: { allow: publish, deny: ['$SYS.>', '$JS.API.STREAM.CREATE.>', '$JS.API.STREAM.UPDATE.>', '$JS.API.STREAM.DELETE.>', '$JS.API.STREAM.PURGE.>',
       '$JS.API.STREAM.MSG.DELETE.>', '$JS.API.STREAM.SNAPSHOT.>', '$JS.API.STREAM.RESTORE.>', '$JS.API.CONSUMER.CREATE.>',
       '$JS.API.CONSUMER.DURABLE.CREATE.>', '$JS.API.CONSUMER.DELETE.>'] },
-    subscribe: { allow: [`${inboxPrefix}.>`, `orch.${r}.probe.${a}`], deny: ['$SYS.>'] },
+    subscribe: { allow: [`${inboxPrefix}.>`, `orch.${r}.probe.${a}`, ...(overseer ? [`orch.${r}.events.>`] : [])], deny: ['$SYS.>'] },
     allow_responses: true,
   };
 }
@@ -113,8 +127,9 @@ export function findServerPid(confPath) {
 
 export class CredStore {
   /** home: the local NATS home (state.json, registry). serverPid: optional, else looked up from the config. */
-  constructor({ home, serverPid = null, ttlMs = DEFAULT_TTL_MS, now = () => Date.now() } = {}) {
+  constructor({ home, serverPid = null, ttlMs = DEFAULT_TTL_MS, graceMs, now = () => Date.now() } = {}) {
     this.home = home;
+    this.graceMs = graceMs;
     this.serverPid = serverPid;
     this.ttlMs = ttlMs;
     this.now = now;
@@ -137,13 +152,13 @@ export class CredStore {
   }
 
   /** Mint a new identity for (repo, agent). Returns the seed ONCE, in memory; only the public key is stored. */
-  async issue({ repo, agent, role = 'worker', mailTo = [], ttlMs = this.ttlMs }) {
+  async issue({ repo, agent, role = 'worker', mailTo = [], takesWork = false, ttlMs = this.ttlMs }) {
     const key = `${orchName(repo)}/${orchName(agent)}`;
     const user = (await natsClient()).nkeys.createUser();
     const publicKey = user.getPublicKey();
     const seed = new TextDecoder().decode(user.getSeed());
     const previous = (await readRegistry(this.home)).users[key];
-    const entry = { repo: orchName(repo), agent: orchName(agent), role, mailTo, publicKey, expiresAt: this.now() + ttlMs,
+    const entry = { repo: orchName(repo), agent: orchName(agent), role, mailTo, takesWork, publicKey, expiresAt: this.now() + ttlMs,
       inboxPrefix: previous?.inboxPrefix ?? `_INBOX.${orchName(agent)}_${randomBytes(6).toString('hex')}` };
     await this.#mutate((registry) => { registry.users[key] = entry; });
     return { ...entry, seed };
@@ -154,7 +169,7 @@ export class CredStore {
     const key = `${orchName(repo)}/${orchName(agent)}`;
     const current = (await readRegistry(this.home)).users[key];
     if (!current) throw new Error(`No credential issued for ${key}; nothing to rotate.`);
-    const next = await this.issue({ repo, agent, role: current.role, mailTo: current.mailTo });
+    const next = await this.issue({ repo, agent, role: current.role, mailTo: current.mailTo, takesWork: current.takesWork });
     await this.holders.get(key)?.install({ seed: next.seed, inboxPrefix: next.inboxPrefix, expiresAt: next.expiresAt });
     return next;
   }
@@ -168,9 +183,9 @@ export class CredStore {
   }
 
   /** issue + a holder for the secrets. `extra` rides along (the reply token). */
-  async provision({ repo, agent, role, mailTo, ttlMs, extra = {} }) {
-    const issued = await this.issue({ repo, agent, role, mailTo, ttlMs });
-    const holder = await startHolder({ seed: issued.seed, inboxPrefix: issued.inboxPrefix, expiresAt: issued.expiresAt, ...extra });
+  async provision({ repo, agent, role, mailTo, takesWork, ttlMs, extra = {} }) {
+    const issued = await this.issue({ repo, agent, role, mailTo, takesWork, ttlMs });
+    const holder = await startHolder({ seed: issued.seed, inboxPrefix: issued.inboxPrefix, expiresAt: issued.expiresAt, agent: issued.agent, ...extra }, { home: this.home, graceMs: this.graceMs });
     this.holders.set(`${issued.repo}/${issued.agent}`, holder);
     return { issued, holder };
   }
@@ -204,11 +219,48 @@ export function peerPids(socket, sockPath) {
   } catch { return []; }
 }
 
-/** Spawn the holder. Secrets cross an IPC channel (a socketpair), never argv, env or disk. */
-export async function startHolder(secrets) {
-  const dir = await mkdtemp(join(tmpdir(), 'ao-creds-'));
-  await chmod(dir, 0o700);
-  const sock = join(dir, 'c.sock');
+// Pids that root an agent's tree, written by each agent holder when it is attached. Not secret; read by
+// every holder to tell "an agent's process" from "the operator's process".
+const rootsFile = (home) => join(home, 'roots.json');
+export function agentRoots(home) {
+  if (!home) return [];
+  try { return Object.values(JSON.parse(readFileSync(rootsFile(home), 'utf8'))).filter((pid) => existsSync(`/proc/${pid}`)); } catch { return []; }
+}
+async function registerRoot(home, sock, pid) {
+  await withLock(join(home, 'roots.lock'), async () => {
+    let roots = {};
+    try { roots = JSON.parse(readFileSync(rootsFile(home), 'utf8')); } catch { /* first */ }
+    for (const [key, value] of Object.entries(roots)) if (!existsSync(`/proc/${value}`)) delete roots[key];
+    roots[sock] = pid;
+    await writeFile(`${rootsFile(home)}.tmp`, JSON.stringify(roots), { mode: 0o600 });
+    await rename(`${rootsFile(home)}.tmp`, rootsFile(home));
+  });
+}
+
+/** Ask a holder to re-attach to a new pane root, from any process of the operator's (not an agent's) tree. */
+export async function attachViaSocket(sock, rootPid) {
+  const reply = await requestSocket(sock, { op: 'attach', pid: rootPid });
+  if (!reply.ok) throw Object.assign(new Error(`credential holder at ${sock} refused attach: ${reply.error}`), { code: 'TOPOLOGY_CREDS_REFUSED' });
+  return reply;
+}
+
+/** A handle on an existing holder from another process: attach only, over its socket (operator tree only). */
+export function remoteHolder(sock) {
+  return sock ? { sock, attach: (rootPid) => attachViaSocket(sock, rootPid) } : null;
+}
+
+/**
+ * Spawn a holder. Secrets cross an IPC channel (a socketpair), never argv, env or disk.
+ * admin: the holder GENERATES an nkey, never reveals the seed to its spawner, and hands it only to
+ * a process outside every agent tree. home: where roots.json lives (needed for admin and cross-process attach).
+ */
+export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = 20_000 } = {}) {
+  let sock = fixedSock;
+  if (!sock) {
+    const dir = await mkdtemp(join(tmpdir(), 'ao-creds-'));
+    await chmod(dir, 0o700);
+    sock = join(dir, 'c.sock');
+  }
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--holder'], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH ?? '' },
   });
@@ -218,12 +270,12 @@ export async function startHolder(secrets) {
     child.once('message', onMessage); child.once('exit', onExit);
     child.send(message, (error) => { if (error) reject(error); });
   });
-  const ready = await send({ type: 'init', sock, secrets });
+  const ready = await send({ type: 'init', sock, secrets, home, admin, graceMs });
   if (!ready.ok) throw new Error(`credential holder failed: ${ready.error}`);
   child.unref();
   child.channel?.unref();
   return {
-    sock, pid: child.pid,
+    sock, pid: child.pid, publicKey: ready.publicKey ?? null,
     attach: (rootPid) => send({ type: 'attach', rootPid }),
     install: (next) => send({ type: 'install', secrets: next }),
     revoke: () => send({ type: 'revoke' }),
@@ -235,25 +287,61 @@ function holderMain() {
   let root = null;
   let server = null;
   let sockPath = null;
+  let home = null;
+  let admin = false;
   const stop = () => { secrets = null; server?.close(); try { if (sockPath) unlinkSync(sockPath); } catch { /* gone */ } setTimeout(() => process.exit(0), 50); };
-  const watch = setInterval(() => { if (root && !existsSync(`/proc/${root}`)) stop(); }, 2000);
+  // The root dying is not the end: a failover or restart re-attaches within the grace window.
+  let rootGoneSince = null;
+  let graceMs = 20_000;
+  const watch = setInterval(() => {
+    if (!root || existsSync(`/proc/${root}`)) { rootGoneSince = null; return; }
+    rootGoneSince ??= Date.now();
+    if (Date.now() - rootGoneSince > graceMs) stop();
+  }, 1000);
   watch.unref?.();
-  process.on('message', (message) => {
+  // A holder nobody attached (launch failed, test aborted) must not outlive its purpose. The admin holder is long-lived by design.
+  setTimeout(() => { if (!root && !admin) stop(); }, 120_000).unref?.();
+  const serve = (socket, request) => {
+    const peers = peerPids(socket, sockPath);
+    const roots = agentRoots(home);
+    // Outside every agent tree. Fails closed when the kernel cannot name the peer.
+    const operator = peers.length > 0 && !peers.some((pid) => roots.some((rootPid) => isDescendant(pid, rootPid)));
+    const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
+    const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
+    if (request.op === 'attach') {
+      if (!home || !operator || admin) return { ok: false, error: 'attach is for the operator process tree only' };
+      root = Number(request.pid);
+      registerRoot(home, sockPath, root).catch(() => {});
+      return { ok: true };
+    }
+    if (!live) return { error: 'credential expired or revoked' };
+    return (admin ? operator : owner) ? secrets : { error: admin ? 'not an operator process' : 'not the owner of this credential' };
+  };
+  process.on('message', async (message) => {
     const reply = (body) => process.send(body);
     if (message.type === 'init') {
-      secrets = message.secrets; sockPath = message.sock;
+      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs;
+      let publicKey = null;
+      if (admin) {
+        const user = (await natsClient()).nkeys.createUser();
+        publicKey = user.getPublicKey();
+        secrets = { seed: new TextDecoder().decode(user.getSeed()) };
+      }
       server = net.createServer((socket) => {
-        socket.once('data', () => {
-          const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
-          const allowed = live && root && peerPids(socket, sockPath).some((pid) => isDescendant(pid, root));
-          socket.end(JSON.stringify(allowed ? secrets : { error: 'not the owner of this credential' }));
+        socket.once('data', (data) => {
+          let request = { op: 'get' };
+          try { request = JSON.parse(String(data)); } catch { /* legacy "get" */ }
+          socket.end(JSON.stringify(serve(socket, request)));
         });
         socket.on('error', () => {});
       });
-      server.listen(sockPath, () => { try { chmodSync(sockPath, 0o600); } catch { /* best effort */ } reply({ ok: true }); });
+      server.listen(sockPath, () => { try { chmodSync(sockPath, 0o600); } catch { /* best effort */ } reply({ ok: true, publicKey }); });
       server.on('error', (error) => reply({ ok: false, error: error.message }));
-    } else if (message.type === 'attach') { root = Number(message.rootPid); reply({ ok: true }); }
-    else if (message.type === 'install') { secrets = message.secrets; reply({ ok: true }); }
+    } else if (message.type === 'attach') {
+      root = Number(message.rootPid);
+      if (home) registerRoot(home, sockPath, root).catch(() => {});
+      reply({ ok: true });
+    } else if (message.type === 'install') { secrets = { ...secrets, ...message.secrets }; reply({ ok: true }); }
     else if (message.type === 'revoke') { reply({ ok: true }); stop(); }
   });
   process.on('disconnect', () => {});
@@ -266,33 +354,54 @@ function holderMain() {
  */
 export async function provisionForLaunch({ env = process.env, repo, agent, role, mailTo, token }) {
   if (env.AO_AGENT_CREDS === 'env') return null;
-  const { localNatsHome } = await import('./nats-local.mjs');
+  const { localNatsHome, localNatsEnabled, ensureLocalNats } = await import('./nats-local.mjs');
+  const { transportMode } = await import('./orch-transport.mjs');
   const home = localNatsHome(env);
+  // The NATS transport is the default, so the identity must exist before the pane starts; bring the local server up if this machine uses one.
+  if (transportMode(env) !== 'file' && localNatsEnabled(env)) await ensureLocalNats({ env }).catch(() => null);
   if (!env.AO_NATS_URL && existsSync(join(home, 'state.json'))) {
     const { holder } = await new CredStore({ home }).provision({ repo, agent, role, mailTo, extra: { token } });
+    // An agent may not create streams or consumers, so the host makes the agent's durables before its pane starts.
+    const { resolveTransport } = await import('./orch-transport.mjs');
+    const host = await resolveTransport({ env }).catch(() => null);
+    await host?.ensure?.({ repo, agents: [agent], replies: [agent] }).catch(() => {});
     return holder;
   }
   return startHolder({ token });
 }
 
-/** Client side: the secrets for this process, or null when it was not launched with a holder (compat path). */
-export async function fetchAgentSecrets(env = process.env) {
-  const sock = env.AO_CREDS_SOCK;
-  if (!sock) return null;
+/** One request to a holder socket; resolves the parsed reply. */
+export function requestSocket(sock, request, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const socket = net.connect(sock);
     let body = '';
-    socket.setTimeout(5000, () => { socket.destroy(); reject(new Error('credential holder did not answer')); });
+    socket.setTimeout(timeoutMs, () => { socket.destroy(); reject(new Error('credential holder did not answer')); });
     socket.on('data', (chunk) => { body += chunk; });
     socket.on('error', reject);
-    socket.on('end', () => {
-      try {
-        const parsed = JSON.parse(body);
-        if (parsed.error) reject(Object.assign(new Error(`credential holder refused: ${parsed.error}`), { code: 'TOPOLOGY_CREDS_REFUSED' }));
-        else resolve(parsed);
-      } catch (error) { reject(error); }
-    });
-    socket.write('get\n');
+    socket.on('end', () => { try { resolve(JSON.parse(body)); } catch (error) { reject(error); } });
+    socket.write(`${JSON.stringify(request)}\n`);
+  });
+}
+
+function secretsOrRefusal(reply, sock) {
+  if (reply.error) throw Object.assign(new Error(`credential holder refused: ${reply.error}`), { code: 'TOPOLOGY_CREDS_REFUSED', sock });
+  return reply;
+}
+
+/** Client side: the secrets for this process, or null when it was not launched with a holder (compat path). */
+export async function fetchAgentSecrets(env = process.env) {
+  return env.AO_CREDS_SOCK ? secretsOrRefusal(await requestSocket(env.AO_CREDS_SOCK, { op: 'get' }), env.AO_CREDS_SOCK) : null;
+}
+
+/** The local admin identity's seed, from the admin holder; refused to any process inside an agent's tree. */
+export async function fetchAdminSecrets(sock) {
+  return secretsOrRefusal(await requestSocket(sock, { op: 'get' }), sock);
+}
+
+export async function holderAlive(sock) {
+  return new Promise((resolve) => {
+    const probe = net.connect(sock, () => { probe.destroy(); resolve(true); });
+    probe.once('error', () => resolve(false));
   });
 }
 

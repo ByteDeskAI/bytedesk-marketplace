@@ -6,6 +6,19 @@ _Version markers (`package.json`, `src/mcp.mjs`) are 0.16.0 for TM-310 and TM-31
 
 ### Added
 
+- **Per-agent grants for the EP-026 features; no admin password anywhere (TM-310 round 2).**
+  Grants now cover handoff records (`$KV.ORCH_HANDOFFS.<repo>.<agent>.>`, an agent-mode transport keys its
+  records under its own identity), the events mirror (every agent publishes; only the lead and reviewer read,
+  diagnose and watch), the work queue (the lead publishes `tasks.ready`; a worker issued with `takesWork`
+  pulls it and writes fenced claims) and replies to the agents it may mail. Agent-mode views bind with
+  `allow_direct`, and host `ensure` turns `allow_direct` on for existing KV buckets so a read is a narrowable
+  direct get. The local host identity is an nkey whose seed lives only in an admin holder process
+  (`state.json` keeps the public key and socket path; a legacy password is migrated away) and is given only to
+  a process outside every agent tree, using the roots each agent holder registers. A holder survives its root
+  for a grace window and accepts `attach` over its socket from the operator tree, so a respawn from another
+  process re-attaches; `run.json` records `creds_sock`, and a dead holder fails with a message saying to
+  relaunch the agent. `launch` brings the local server up and makes the agent's durables first.
+
 - **NATS features for handoff, events, waiting, claims and work (TM-311, EP-026).**
   `ao-topology handoff` closes a message with a reason (`handed_off_to`, `blocked_on`, `denied`,
   `canceled`, `no-follow-on`, `escalation`; the first three need `--to`). The successor is created

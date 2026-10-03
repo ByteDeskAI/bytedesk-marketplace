@@ -23,8 +23,8 @@ import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
-import { provisionForLaunch } from './agent-creds.mjs';
-import { canonicalRepoId } from './repoid.mjs';
+import { provisionForLaunch, remoteHolder } from './agent-creds.mjs';
+import { canonicalRepoId, repoKey } from './repoid.mjs';
 import { claimAgent } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
 
@@ -741,7 +741,14 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
     // the pane's process IS the agent: its exit is the pane's exit, `remain-on-exit` keeps the body,
     // and `#{pane_dead_status}` is the agent's own status. Failover respawns the pane either way.
     // TM-310: only this pane's process tree may ask the holder for the agent's secrets.
-    if (item.holder) await item.holder.attach(await tmux.panePid(pane));
+    if (item.holder) {
+      try { await item.holder.attach(await tmux.panePid(pane)); } catch (error) {
+        const outcome = `credential holder for ${agentId} could not be re-attached (${error.message}). Its token and NATS identity live only in that holder; stop and relaunch the agent to mint new ones.`;
+        attempts.push({ label: item.label, outcome });
+        await appendJournal(runDir, { type: 'agent.candidate_failed', agent: agentId, candidate: item.label, reason: outcome });
+        continue;
+      }
+    }
     await tmux.sendText(pane, `exec bash ${shellQuote(item.launcher)}`);
     const timeoutMs = item.adapter.ready.timeout_ms ?? 45_000;
     const readiness = client && item.adapter.ready.tmux_pattern
@@ -976,7 +983,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     const bootstrapFile = join(dir, "BOOTSTRAP.md");
     // One token per agent, not per candidate: a failover changes the provider, not who the agent is.
     const token = mintAgentToken();
-    const holder = await provisionForLaunch({ repo: (await canonicalRepoId(spec.consumer || spec.cwd)).id, agent: agent.id, role: agent.role === 'orchestrator' ? 'lead' : 'worker',
+    const holder = await provisionForLaunch({ repo: repoKey((await canonicalRepoId(spec.consumer || spec.cwd)).id), agent: agent.id, role: agent.role === 'orchestrator' ? 'lead' : 'worker',
       mailTo: spec.agents.filter((other) => other.id !== agent.id && (agent.role === 'orchestrator' || other.role === 'orchestrator')).map((other) => other.id), token })
       .catch((error) => { warnings.push(`agent ${agent.id}: credential holder unavailable (${error.message}); the token stays in its launcher`); return null; });
     const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, holder, lineage, replyToken });
@@ -1079,6 +1086,8 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
       // enough to forge one with: the run dir is readable by every agent in the run. Anything that
       // needs the token itself reads it from that agent's own launcher, where only that pane sees it.
       token_sha256: tokenDigest(item.token),
+      // TM-310: where this agent's holder listens (not a secret). A respawn from another process re-attaches through it.
+      creds_sock: item.candidates[0]?.holder?.sock ?? null,
       candidates: item.candidates.map((candidate) => ({ label: candidate.label, cli: candidate.candidate.cli, model: candidate.candidate.model ?? null, adapter: candidate.adapter.id, launcher: candidate.launcher, submit_keys: candidate.adapter.submit_keys, add_dirs: candidate.add_dirs, runtime_dirs: candidate.runtime_dirs, memory: candidate.memory, guard: candidate.guard })),
       active: null,
       provider: null,
@@ -1588,7 +1597,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     const adapter = adapterFor({ cli: candidate.cli, model: candidate.model, args: [], skills: [] }, adapters);
     const guard = workerCandidateGuard(run.worker_guard, candidate);
     invariant(!run.worker_guard || !guard.supported || candidate.guard?.supported === true, 'TOPOLOGY_WORKER_GUARD_UNVERIFIED', 'Legacy candidate launcher has no recorded task guard. Preserve this attempt and launch a governed replacement.');
-    return { index, label: candidate.label, adapter, launcher: candidate.launcher, guard, workerGuard: run.worker_guard, vars: { run_id: run.run_id, run_dir: runDir, session: run.session, agent_id: agentId, agent_role: entry.role, bootstrap_file: entry.bootstrap } };
+    return { index, label: candidate.label, adapter, launcher: candidate.launcher, holder: remoteHolder(entry.creds_sock), guard, workerGuard: run.worker_guard, vars: { run_id: run.run_id, run_dir: runDir, session: run.session, agent_id: agentId, agent_role: entry.role, bootstrap_file: entry.bootstrap } };
   });
   invariant(candidates.slice(startIndex).some(candidate => candidate.guard.supported), 'TOPOLOGY_WORKER_GUARD_UNSUPPORTED', 'No remaining candidate has a measured task ownership guard. The current member is preserved and fallback is held.');
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex,
