@@ -8,6 +8,12 @@
   CAS, event stream, content-addressed evidence, leaf-node offline queue). Selected by
   `storage.backend` or `TM_STORAGE`; `file` stays the default, so nothing changes until cutover.
   `tm migrate [--dry-run]` copies a board and compares both sides. See `docs/storage.md`.
+  Cutover work: evidence, plans, goal-import rollback, doctor and `readEvents` go through the
+  backend; plans (`tm/plan`) and event history migrate re-runnably; leaf-node domain support;
+  a refused credential fails loudly instead of queueing; a path-based repo-key alias; and
+  `tm cutover [--dry-run]`, which switches `storage.backend` only if the copy compares equal.
+  Fixed in the same work: the event reader ignored its subject filter, so one board could read
+  another's events.
 
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool

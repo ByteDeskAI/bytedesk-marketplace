@@ -1,7 +1,7 @@
 // Test harness for the NATS backend: a throwaway nats-server -js on a free port with its own store
 // dir, ambient NATS env cleared. Uses the binary agent-orchestration manages, else PATH.
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,12 +24,52 @@ const up = (port) =>
     c.once("error", () => res(false));
   });
 
-export async function startServer({ port, dir } = {}) {
+export async function startServer({ port, dir, args = [] } = {}) {
   port ??= await freePort();
   const own = !dir;
   dir ??= mkdtempSync(join(tmpdir(), "tm-nats-"));
-  const proc = spawn(NATS_BIN, ["-a", "127.0.0.1", "-p", String(port), "-js", "-sd", dir], { stdio: "ignore" });
+  const proc = spawn(NATS_BIN, ["-a", "127.0.0.1", "-p", String(port), "-js", "-sd", dir, ...args], { stdio: "ignore" });
   for (let i = 0; i < 100 && !(await up(port)); i += 1) await new Promise((r) => setTimeout(r, 50));
   const stop = () => new Promise((res) => (proc.exitCode !== null ? res() : (proc.once("exit", res), proc.kill("SIGKILL"))));
-  return { port, dir, url: `nats://127.0.0.1:${port}`, proc, stop, restart: async () => startServer({ port, dir }), cleanup: async () => (await stop(), own && rmSync(dir, { recursive: true, force: true })) };
+  return { port, dir, url: `nats://127.0.0.1:${port}`, proc, stop, restart: async () => startServer({ port, dir, args }), cleanup: async () => (await stop(), own && rmSync(dir, { recursive: true, force: true })) };
+}
+
+/** A hub (JetStream domain "hub") and a leaf (domain "leaf") linked over a leafnode port, own store dirs. */
+export async function startHubLeaf() {
+  const work = mkdtempSync(join(tmpdir(), "tm-leaf-"));
+  const leafPort = await freePort();
+  const hubConf = join(work, "hub.conf");
+  writeFileSync(hubConf, `server_name: hub\njetstream { domain: hub }\nleafnodes { port: ${leafPort} }\n`);
+  const hub = await startServer({ dir: join(work, "hub-js"), args: ["-c", hubConf] });
+  const leafConf = join(work, "leaf.conf");
+  writeFileSync(leafConf, `server_name: leaf\njetstream { domain: leaf }\nleafnodes { remotes [ { url: "nats://127.0.0.1:${leafPort}" } ] }\n`);
+  const leaf = await startServer({ dir: join(work, "leaf-js"), args: ["-c", leafConf] });
+  const net = { hub, leaf, work, cleanup: async () => { await net.leaf.cleanup(); await net.hub.cleanup(); rmSync(work, { recursive: true, force: true }); } }; // net.hub: a restart replaces it
+  return net;
+}
+
+/**
+ * Real operator-mode credentials via nsc: a server config that only admits users signed by the
+ * operator, plus a good creds file, an expired one, and one from a different operator.
+ */
+export function makeCreds() {
+  const work = mkdtempSync(join(tmpdir(), "tm-creds-"));
+  const nsc = (home, ...a) => execFileSync("nsc", a, { env: { ...process.env, NKEYS_PATH: join(home, "keys"), NSC_HOME: join(home, "home") }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const build = (name) => {
+    const home = join(work, name);
+    nsc(home, "env", "-s", join(home, "store"));
+    nsc(home, "add", "operator", "--name", name, "--sys");
+    nsc(home, "add", "account", "--name", "TM");
+    nsc(home, "edit", "account", "--name", "TM", "--js-mem-storage", "-1", "--js-disk-storage", "-1", "--js-streams", "-1", "--js-consumer", "-1");
+    nsc(home, "add", "user", "--name", "good", "--account", "TM");
+    nsc(home, "add", "user", "--name", "old", "--account", "TM");
+    nsc(home, "edit", "user", "--name", "old", "--account", "TM", "--expiry", "2020-01-01");
+    const creds = (user) => { const f = join(home, `${user}.creds`); writeFileSync(f, nsc(home, "generate", "creds", "--account", "TM", "--name", user)); return f; };
+    return { home, creds };
+  };
+  const real = build("real");
+  const other = build("other");
+  const conf = join(work, "server.conf");
+  nsc(real.home, "generate", "config", "--mem-resolver", "--sys-account", "SYS", "--config-file", conf);
+  return { work, conf, good: real.creds("good"), expired: real.creds("old"), stranger: other.creds("good"), cleanup: () => rmSync(work, { recursive: true, force: true }) };
 }

@@ -23,6 +23,9 @@ import { join } from "node:path";
 import { Backend, ConflictError, OfflineError, UnsupportedError } from "./backend.mjs";
 import { assertWritable, decode } from "./registry.mjs";
 
+/** Stable id of an event row: same row → same id, so a re-run of a migration can tell what is already there. */
+export const eventRow = (e) => ({ ts: e.ts ?? new Date().toISOString(), ...e });
+export const eventId = (row) => createHash("sha256").update(JSON.stringify(row)).digest("hex").slice(0, 32);
 export const OFFLINE_MESSAGE = "offline: read-only, writes queued";
 const DAY_NS = 24 * 3600 * 1e9;
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -53,6 +56,18 @@ export class NatsBackend extends Backend {
   // ── connection ─────────────────────────────────────────────────────────────
   async #ready() {
     if (this.h && this.h.nc.isClosed()) this.h = null; // the server went away under a live handle
+    if (this.h && this.domain && Date.now() - (this.probed ?? 0) > (this.o.probeMs ?? 1000)) {
+      // Through a leaf the connection survives the hub dying; only the JetStream API stops answering.
+      try {
+        await this.h.jsm.getAccountInfo();
+        this.probed = Date.now();
+      } catch (err) {
+        await this.h.nc.close().catch(() => {});
+        this.h = null;
+        this.#goOffline(`hub unreachable: ${err.message}`);
+        return null;
+      }
+    }
     if (this.h) return this.h;
     // Fail fast: once a connect has failed, do not pay the connect timeout again on every call.
     if (this.offline && Date.now() - this.lastFail < (this.o.retryMs ?? 10_000)) return null;
@@ -71,8 +86,12 @@ export class NatsBackend extends Backend {
         maxReconnectAttempts: 0,
         ...(credsFile ? { authenticator: credsAuthenticator(readFileSync(credsFile)) } : {}),
       });
-      const js = nc.jetstream();
-      const jsm = await nc.jetstreamManager();
+      // Leaf mode: connect to the machine's leaf node, address the hub's JetStream by domain.
+      const domain = this.o.domain ?? process.env.TM_NATS_DOMAIN;
+      const jsOpts = { ...(domain ? { domain } : {}), timeout: this.o.apiTimeoutMs ?? 2000 };
+      const js = nc.jetstream(jsOpts);
+      const jsm = await nc.jetstreamManager(jsOpts);
+      if (domain) await jsm.getAccountInfo(); // the leaf is up but is the hub behind it? throws if not
       const kv = async (name, opts) => js.views.kv(name, opts);
       this.h = {
         nc, js, jsm, url,
@@ -86,14 +105,43 @@ export class NatsBackend extends Backend {
       } catch {
         await jsm.streams.add({ name: "TM_EVENTS", subjects: ["tm.*.events.>"], retention: "limits", storage: "file", max_age: 3650 * DAY_NS });
       }
+      this.domain = domain;
+      await this.#resolveRepo();
       this.offline = false;
       this.told = false;
       await this.#replay();
       return this.h;
     } catch (err) {
       if (err instanceof OfflineError) throw err;
+      // A server that answered and said no is not "offline": queueing writes against credentials that
+      // will never work would only hide the problem. Say it, and refuse.
+      if (/authorization|authentication|permissions? violation/i.test(String(err.message))) {
+        this.authRefused = `nats refused the credentials (${String(err.message).replace(/^'|'$/g, "")}) — check TM_NATS_CREDS`;
+        throw new Error(this.authRefused);
+      }
       this.#goOffline(err.message);
       return null;
+    }
+  }
+  /**
+   * Which key prefix holds this board. The primary (origin-based) wins; a board created under an
+   * older alias (path-based) keeps resolving to it so nothing is orphaned by the key change.
+   */
+  async #resolveRepo() {
+    if (this.resolved) return;
+    const has = async (repo) => {
+      const it = await this.h.entities.keys(`${repo}.>`);
+      for await (const _ of it) { it.stop?.(); return true; }
+      return false;
+    };
+    this.resolved = true;
+    if (await has(this.repo)) return;
+    for (const alias of this.o.aliases ?? []) {
+      if (alias !== this.repo && (await has(alias))) {
+        this.repoWas = this.repo;
+        this.repo = alias;
+        return;
+      }
     }
   }
   #goOffline(why) {
@@ -110,7 +158,13 @@ export class NatsBackend extends Backend {
     this.h = null;
   }
   async info() {
-    const h = await this.#ready();
+    let h;
+    try {
+      h = await this.#ready();
+    } catch (err) {
+      if (!this.authRefused) throw err;
+      return { kind: "nats", server: this.o.url ?? process.env.TM_NATS_URL ?? null, offline: true, why: this.authRefused, authRefused: true, queued: this.queue().length };
+    }
     return { kind: "nats", server: h?.url ?? this.o.url ?? process.env.TM_NATS_URL ?? null, offline: !h, why: h ? undefined : this.why, queued: this.queue().length };
   }
 
@@ -181,7 +235,7 @@ export class NatsBackend extends Backend {
         if (prior?.value?.length && dec(prior.value).status !== "pending") { done.push({ ...rec, status: dec(prior.value).status, replayed: false }); continue; }
       }
       try {
-        if (rec.op === "event") await this.h.js.publish(`tm.${this.repo}.events.${safe(rec.payload.event || rec.payload.kind || "event")}`, enc(rec.payload), { msgID: rec.proposalId });
+        if (rec.op === "event") await this.h.js.publish(`tm.${this.repo}.events.${safe(rec.payload.event || rec.payload.kind || "event")}`, enc(rec.payload), { msgID: `${this.repo}:${rec.proposalId}` });
         else if (rec.op === "put" || rec.op === "create") await this.#putOnline(rec.type, rec.id, rec.payload, { ifRev: rec.ifRev ?? undefined, reason: rec.reason }, rec.op === "create");
         else if (rec.op === "delete") await this.#deleteOnline(rec.type, rec.id, { ifRev: rec.ifRev ?? undefined, reason: rec.reason });
       } catch (err) {
@@ -302,7 +356,7 @@ export class NatsBackend extends Backend {
 
   // ── blobs ──────────────────────────────────────────────────────────────────
   async blobPut(input) {
-    const buf = Buffer.isBuffer(input) ? input : typeof input === "string" ? Buffer.from(input) : Buffer.concat(await (async () => { const o = []; for await (const c of input) o.push(Buffer.from(c)); return o; })());
+    const buf = Buffer.isBuffer(input) ? input : input instanceof Uint8Array ? Buffer.from(input) : typeof input === "string" ? Buffer.from(input) : Buffer.concat(await (async () => { const o = []; for await (const c of input) o.push(Buffer.from(c)); return o; })());
     const digest = sha(buf);
     const h = await this.#ready();
     if (!h) {
@@ -335,10 +389,11 @@ export class NatsBackend extends Backend {
   async appendEvent(event) {
     const h = await this.#ready();
     const kind = safe(event.event || event.kind || "event");
-    const row = { ts: new Date().toISOString(), ...event };
-    const msgID = sha(JSON.stringify(row)).slice(0, 32);
+    const row = eventRow(event);
+    const msgID = eventId(row);
     if (!h) return this.#enqueue({ op: "event", type: "tm/event", id: kind, payload: row });
-    await h.js.publish(`tm.${this.repo}.events.${kind}`, enc(row), { msgID });
+    // Msg-Id dedupe is stream-wide, so two boards that log an identical row in the same ms must not collide.
+    await h.js.publish(`tm.${this.repo}.events.${kind}`, enc(row), { msgID: `${this.repo}:${msgID}` });
     return { id: msgID };
   }
   async events({ since, filter } = {}) {
@@ -348,7 +403,7 @@ export class NatsBackend extends Backend {
     const info = await h.jsm.streams.info("TM_EVENTS", { subjects_filter: subject });
     const total = Object.values(info.state.subjects ?? {}).reduce((a, b) => a + b, 0);
     if (!total) return [];
-    const c = await h.js.consumers.get("TM_EVENTS", { filter_subjects: [subject], ...(since ? { opt_start_time: new Date(since).toISOString() } : {}) });
+    const c = await h.js.consumers.get("TM_EVENTS", { filterSubjects: [subject], ...(since ? { opt_start_time: new Date(since).toISOString() } : {}) });
     const rows = [];
     const it = await c.fetch({ max_messages: total, expires: 3000 });
     for await (const m of it) {

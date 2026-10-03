@@ -50,9 +50,48 @@ No core edit. Import the registry and register at load time:
 Then use any backend: `backend.put("acme/widget", id, encode("acme/widget", data))`. Adding an
 optional field to a core type is done the same way by the owner of that type, without a bump.
 
-## Not routed through the backend yet
+## Leaf node
 
-`store.mjs` routes entity read/list/write, ids, the write lock, claims and events. These still use
-files directly and stay per-machine or need follow-up before cutover: evidence copying
-(`evidence.mjs`), `plans.mjs`, `goal-import.mjs`, `agents.mjs`, `dispatch/pool.mjs`, `doctor.mjs`,
-`dashboard-api.mjs`, `mcp.mjs` reads of `.file`, and `readEvents` (reads the local log).
+Point `TM_NATS_URL` at the machine's leaf node and set `TM_NATS_DOMAIN` to the hub's JetStream
+domain. The leaf forwards the JetStream API to the hub, so a write on the leaf is a write on the hub.
+If the hub is unreachable the connection to the leaf stays up but the API stops answering; the
+backend probes it (at most once a second), goes offline, and behaves as described under "Offline".
+
+## Credentials
+
+`TM_NATS_CREDS` is a standard `.creds` file (user JWT + seed). A server that answers
+"Authorization Violation" — wrong operator, expired, or no credential — is **not** treated as
+offline: the command fails with "nats refused the credentials", and nothing is queued against a
+credential that cannot work. (The server gives the same text for expired and wrong; they are only
+told apart by which file you passed.)
+
+## Cutting a board over
+
+    tm cutover --dry-run      # plan only: nothing is written, config.json untouched
+    tm cutover                # snapshot, migrate, compare both sides, then set storage.backend=nats
+
+`tm cutover` refuses, and leaves `storage.backend` alone, unless every type, the evidence blobs and
+the event history compare equal. It never changes the default for boards that do not run it.
+Plans migrate as `tm/plan` entities; the event history migrates once — each event gets a stable
+id (a hash of the row), a re-run publishes only events the stream does not have yet.
+
+## Board key and its alias
+
+The board key is `sha256(origin owner/name)[:16]`, so every clone shares one board. Earlier work used
+`sha256(<repo>/.git)[:16]`, the path-based key. On connect the backend uses the primary key if it holds
+any entities, otherwise the first alias that does; writes then go to the same key, so a board created
+under the old key keeps resolving and is never split across two keys. There is no automatic
+re-keying; move data between keys deliberately with `tm migrate` if you ever want to.
+
+## What stays on disk, on purpose
+
+With the NATS backend, `store.mjs` routes entities, ids, the write lease, claims and events, and
+`readEvents` reads the shared stream (the local `events.jsonl` is still written, for the dashboard
+tail). Evidence and plans live in NATS (blobs, `tm/plan`); the files under `evidence/` and `plans/`
+are a working copy that is restored from the backend when missing. `doctor` reports the backend and
+server, and skips the checks that only make sense for files (duplicate ids, stray temp files,
+`index.json` drift).
+
+Per-machine and unchanged: `agents.json` (this machine's worker registry), `pool.state.json`,
+`pool.pid`/`pool.log`, `dashboard.*`, `planner/`, `state.json` (overrides, last stop block), and the
+user-supplied goal documents that `goal-import` and the dashboard read from disk.

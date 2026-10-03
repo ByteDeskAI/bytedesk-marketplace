@@ -597,6 +597,15 @@ export function rotateEvents(p = paths()) {
 
 /** Every event, oldest first, across the rotation boundary. Bad lines are skipped. */
 export function readEvents(p = paths()) {
+  const rb = remote(p);
+  if (rb) {
+    // Symmetric with logEvent: the shared stream is the record. Offline, fall back to this machine's log.
+    try {
+      return rb.call("events").sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+    } catch (err) {
+      if (!(err instanceof OfflineError)) throw err;
+    }
+  }
   const files = [`${p.events.replace(/\.jsonl$/, "")}.1.jsonl`, p.events];
   const rows = [];
   for (const file of files) {
@@ -766,6 +775,16 @@ export function fileFor(id, p = paths()) {
   // and `read()`/`update()` would then operate on a file that `list()` cannot see.
   const hit = readdirSync(dir).find((f) => isEntityFile(f) && (f.startsWith(`${id}-`) || f === `${id}.md`));
   return hit ? join(dir, hit) : null;
+}
+
+/** Remove an entity outright (rollback of a half-finished import). Not a soft delete. */
+export function removeEntity(id, p = paths()) {
+  const rb = remote(p);
+  if (rb) return rb.call("delete", typeOfKind(kindOf(id)), id);
+  const file = fileFor(id, p);
+  if (!file) return false;
+  unlinkSync(file);
+  return true;
 }
 
 export function nextId(kind, p = paths()) {

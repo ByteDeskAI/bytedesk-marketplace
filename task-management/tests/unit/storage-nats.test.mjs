@@ -158,6 +158,21 @@ describe("nats backend", () => {
     await b.close();
   });
 
+  it("events are scoped to their own board and kind, even when other boards' events were published first", async () => {
+    const [x, y] = [make({ repo: "boardX" }), make({ repo: "boardY" })];
+    await x.appendEvent({ event: "x_only", n: 1 });
+    await y.appendEvent({ event: "y_first", n: 2 });
+    await y.appendEvent({ event: "y_second", n: 3 });
+    const ys = await y.events();
+    const xs = await x.events();
+    console.log("boardY events:", JSON.stringify(ys.map((e) => e.event)), "| boardX events:", JSON.stringify(xs.map((e) => e.event)), "| boardY kind filter:", JSON.stringify((await y.events({ filter: "y_second" })).map((e) => e.event)));
+    assert.deepEqual(ys.map((e) => e.event), ["y_first", "y_second"]);
+    assert.deepEqual(xs.map((e) => e.event), ["x_only"]);
+    assert.deepEqual((await y.events({ filter: "y_second" })).map((e) => e.event), ["y_second"]);
+    await x.close();
+    await y.close();
+  });
+
   it("ignores the ambient NATS_URL: with no TM_NATS_URL it is offline, not connected to a stray server", async () => {
     process.env.NATS_URL = srv.url; // a real, reachable server — must still not be used
     delete process.env.TM_NATS_URL;

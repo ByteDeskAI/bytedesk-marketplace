@@ -13,7 +13,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
-import { ENTITY_TYPES, typeOfKind } from "./types.mjs";
+import { ENTITY_TYPES } from "./types.mjs";
+import { eventId, eventRow } from "./nats-backend.mjs";
 import { encode, decode } from "./registry.mjs";
 import { FileBackend } from "./file-backend.mjs";
 import { repoKey } from "./index.mjs";
@@ -31,7 +32,7 @@ function* walk(dir) {
   }
 }
 
-export async function migrate({ backend, p, dryRun = false, snapshotPath, log = () => {} }) {
+export async function migrate({ backend, p, dryRun = false, snapshotPath, log = () => {}, events = true }) {
   const src = new FileBackend({ ...p, forceFile: true });
   const report = { dryRun, snapshot: null, types: {}, evidence: {}, ok: true };
 
@@ -46,7 +47,7 @@ export async function migrate({ backend, p, dryRun = false, snapshotPath, log = 
   }
 
   // 2-4. entities
-  for (const type of ENTITY_TYPES) {
+  for (const type of [...ENTITY_TYPES, "tm/plan"]) {
     const rows = await src.list(type);
     const planned = rows.map((r) => encode(type, r.envelope.data, { src: "import" })); // throws before any write
     const t = (report.types[type] = { source: rows.length, planned: planned.length, destBefore: (await backend.list(type)).length, written: 0, skipped: 0, dest: null, equal: null });
@@ -91,6 +92,31 @@ export async function migrate({ backend, p, dryRun = false, snapshotPath, log = 
     ev.dest = [...digests.keys()].filter((d) => have.has(d)).length;
     ev.equal = ev.dest === digests.size;
     if (!ev.equal) report.ok = false;
+  }
+
+  // Event history: each row gets a stable id (hash of the row) used as Nats-Msg-Id AND as the
+  // already-there test, so a re-run publishes nothing the stream already holds. The 120s Msg-Id
+  // window alone would not survive a re-run an hour later.
+  if (events) {
+    const rows = (await src.events()).map(eventRow);
+    const ids = new Set(rows.map(eventId));
+    const have = new Set((await backend.events()).map((r) => eventId(r)));
+    const e = (report.events = { source: rows.length, sourceDistinct: ids.size, destBefore: have.size, published: 0, dest: null, equal: null });
+    if (!dryRun) {
+      const seen = new Set(have);
+      for (const row of rows) {
+        const id = eventId(row);
+        if (seen.has(id)) continue;
+        await backend.appendEvent(row);
+        seen.add(id);
+        e.published += 1;
+      }
+      const after = new Set((await backend.events()).map((r) => eventId(r)));
+      e.streamCount = (await backend.events()).length;
+      e.dest = [...ids].filter((i) => after.has(i)).length;
+      e.equal = e.dest === ids.size;
+      if (!e.equal) report.ok = false;
+    }
   }
   return report;
 }

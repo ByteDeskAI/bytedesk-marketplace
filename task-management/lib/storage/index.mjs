@@ -35,7 +35,17 @@ export function storageKind(p) {
   return kind;
 }
 
-export const repoKey = (p) => createHash("sha256").update(String(gitBoardId(p.root) || boardId(p.root))).digest("hex").slice(0, 16);
+const key16 = (v) => createHash("sha256").update(String(v)).digest("hex").slice(0, 16);
+
+/** The board's key: its origin remote (owner/name), so every clone shares one board. */
+export const repoKey = (p) => key16(gitBoardId(p.root) || boardId(p.root));
+
+/**
+ * Older keys that may already hold this board: the path-based one (sha of the git common dir).
+ * The backend resolves to the first key that has entities, primary first, so renaming the key
+ * scheme never orphans a board that was created under the old one.
+ */
+export const repoAliases = (p) => [key16(join(p.root, ".git"))].filter((k) => k !== repoKey(p));
 
 const bridges = new Map();
 
@@ -53,6 +63,8 @@ export function remote(p) {
       new SyncBridge(
         {
           repo,
+          aliases: repoAliases(p),
+          domain: process.env.TM_NATS_DOMAIN,
           root: p.root,
           cacheDir: join(process.env.TM_CACHE_DIR || join(homedir(), ".cache", "task-management"), repo),
           actor: { actor: actorLabel(a), agent: a.name },
@@ -64,4 +76,11 @@ export function remote(p) {
     );
   }
   return bridges.get(key);
+}
+
+/** What `tm doctor` and `tm cutover` report: the active backend, its server, and whether it is reachable. */
+export function storageInfo(p) {
+  const kind = storageKind(p);
+  if (kind === "file") return { kind, server: p.base, offline: false };
+  return remote(p).call("info");
 }

@@ -32,7 +32,7 @@ describe("file backend", () => {
     const b = new FileBackend(p);
     await assert.rejects(b.history("tm/task", "TM-1"), UnsupportedError);
     await assert.rejects(b.stateGet("claims.TM-1"), UnsupportedError);
-    await assert.rejects(b.get("tm/plan", "x"), UnsupportedError);
+    await assert.rejects(b.get("tm/capabilitiez", "x"), UnsupportedError);
   });
 
   it("blobs are content addressed", async () => {
