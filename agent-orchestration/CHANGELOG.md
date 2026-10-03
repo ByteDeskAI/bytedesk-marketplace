@@ -6,6 +6,7 @@ _Version markers (`package.json`, `src/mcp.mjs`) are 0.16.0 for TM-310 and TM-31
 
 ### Fixed
 
+- **Admin socket path over 107 bytes (TM-310 round 4).** Node silently truncates a longer unix socket path and binds the truncated name, so a deep `AO_NATS_HOME` (a sandbox) bound a stray socket in a parent directory and every later start failed with `EADDRINUSE` while no `admin.sock` existed. Sockets now live at a short per-user path (`/tmp/ao-sock-<uid>/<hash>-admin.sock`) when `<home>/admin.sock` would not fit, and an over-long path is refused with a clear error. A state left by the password version is migrated to the nkey identity with a printed note; processes it started need a restart. Holders exit when their socket or home is gone, a launch that fails (or a dry run) no longer leaves holders, and the test suite fails if one survives.
 - **A second process no longer collides with the admin holder (TM-310 round 3).** `ensureAdminIdentity` asks the socket itself whether a live holder answers (a new `pub` op) and reuses it; only a socket nobody answers is unlinked and replaced, and a running server is reloaded to trust the replacement. A holder that finds its socket taken probes it before giving up. Re-provisioning an agent retires its previous holder. A recorded server pid is trusted only while it is still a `nats-server`.
 
 ### Added

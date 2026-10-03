@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -15,13 +15,16 @@ const exec = promisify(execFile);
 const lib = (name) => JSON.stringify(new URL(`../../topology/lib/${name}`, import.meta.url).href);
 for (const name of ['AO_NATS_URL', 'NATS_URL', 'AO_CREDS_SOCK']) delete process.env[name];
 
-async function fixture(t) {
-  const home = await mkdtemp(join(os.tmpdir(), 'ao-mp-'));
+async function fixture(t, { deep = false } = {}) {
+  const root = await mkdtemp(join(os.tmpdir(), 'ao-mp-'));
+  // A sandbox lives under a long path; a socket path over 107 bytes is silently truncated by node.
+  const home = deep ? join(root, 'a-deliberately-long-directory-name-'.repeat(3), 'nats-home') : root;
+  if (deep) await mkdir(home, { recursive: true, mode: 0o700 });
   const env = { PATH: process.env.PATH, HOME: home, AO_NATS_HOME: home, AO_NATS_SERVER: await natsServerBin(), AO_NATS_AUTOSTART: '1', AGENT_ORCHESTRATION_SERVICES: '0' };
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'));
   t.after(async () => {
     try { const s = state(); for (const pid of [s.pid, s.adminPid]) if (pid) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } catch { /* none */ }
-    await rm(home, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   });
   /** One real process: bring local NATS up (the path every `ao` command takes), connect as the host, report. */
   const proc = (extra = '') => exec(process.execPath, ['--input-type=module', '-e', `
@@ -32,7 +35,7 @@ async function fixture(t) {
     await t.ensure({ repo: 'mp', agents: ['a'] });
     console.log('RESULT ' + JSON.stringify({ pid: process.pid, sock: local.adminSock, started: local.started, kind: t.kind }));
     await t.close(); process.exit(0);${extra}`], { env, timeout: 60_000 })
-    .then(({ stdout }) => JSON.parse(stdout.split('\n').find((l) => l.startsWith('RESULT ')).slice(7)),
+    .then(({ stdout, stderr }) => ({ ...JSON.parse(stdout.split('\n').find((l) => l.startsWith('RESULT ')).slice(7)), stderr }),
       (error) => { throw new Error(`process failed: ${String(error.stderr).split('\n').filter((l) => /Error|EADDR/.test(l)).slice(0, 2).join(' | ')}`); });
   return { home, env, state, proc };
 }
@@ -95,4 +98,38 @@ test('re-provisioning an agent retires its previous holder', { timeout: 120000 }
   assert.equal(await holderAlive(one.holder.sock), false, 'the superseded holder is gone');
   assert.equal(await holderAlive(two.holder.sock), true);
   await two.holder.revoke();
+});
+
+test('a home whose admin.sock path would exceed the socket limit still works and leaves no truncated socket behind', { timeout: 120000 }, async (t) => {
+  const { home, state, proc } = await fixture(t, { deep: true });
+  assert.ok(Buffer.byteLength(join(home, 'admin.sock')) > 107, 'precondition: the naive path is too long');
+  const first = await proc();
+  const second = await proc();
+  const s = state();
+  console.log(`long home (${Buffer.byteLength(join(home, 'admin.sock'))} bytes naive): adminSock=${s.adminSock} (${Buffer.byteLength(s.adminSock)} bytes) first.started=${first.started} second.started=${second.started}`);
+  assert.ok(Buffer.byteLength(s.adminSock) <= 107);
+  assert.equal(second.started, false);
+  const strays = (await readdir(join(home, '..', '..'), { withFileTypes: true })).filter((e) => e.isSocket());
+  assert.deepEqual(strays.map((e) => e.name), [], 'no truncated socket file in a parent directory');
+  assert.ok(await holderAlive(s.adminSock));
+  await rm(s.adminSock, { force: true });
+});
+
+test('upgrade: a state written by the password version is migrated, with a printed note', { timeout: 180000 }, async (t) => {
+  const { home, state, proc } = await fixture(t);
+  await proc();
+  const modern = state();
+  // Recreate what the previous version left behind: password in state.json and in the config, no admin identity.
+  process.kill(modern.adminPid, 'SIGKILL');
+  const { serverConfig } = await import('../../topology/lib/nats-local.mjs');
+  await writeFile(join(home, 'nats-server.conf'), serverConfig({ port: modern.port, user: 'ao-orch', password: 'legacy-password', storeDir: join(home, 'jetstream') }), { mode: 0o600 });
+  process.kill(modern.pid, 'SIGHUP');
+  await writeFile(join(home, 'state.json'), JSON.stringify({ pid: modern.pid, port: modern.port, bin: modern.bin, user: 'ao-orch', pass: 'legacy-password' }), { mode: 0o600 });
+  await new Promise((r) => setTimeout(r, 400));
+  const after = await proc();
+  const s = state();
+  console.log(`upgrade: state keys now ${Object.keys(s).join(',')}; note printed: ${JSON.stringify(after.stderr.trim())}`);
+  assert.ok(!('pass' in s) && !('user' in s), 'the password is gone from state.json');
+  assert.ok(s.adminPub && await holderAlive(s.adminSock));
+  assert.match(after.stderr, /replaced the stored admin password/);
 });

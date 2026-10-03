@@ -847,6 +847,9 @@ export async function retryWorkflowSpec(run, { runId, stateHome, actor } = {}) {
 }
 
 export async function launchRun(options) {
+  // TM-310: credential holders provisioned for this launch; a launch that fails after provisioning retires them, since nothing will attach them.
+  const holders = [];
+  options = { ...options, holders };
   const original = options.spec;
   const location = await topologyRunLocation({ consumer: original.consumer || original.cwd, nativeRunId: original.run_id, stateHome: options.stateHome || original.state_home });
   let rendered = original;
@@ -883,6 +886,7 @@ export async function launchRun(options) {
     return result;
   }
   catch (error) {
+    await Promise.all(holders.map((holder) => holder.revoke().catch(() => {})));
     // A launch that left no session behind gives its run persona back; one that did keeps it until stop.
     if (options.dryRun || !(await tmux.hasSession(spec.session).catch(() => false))) await releaseRunPersona(spec.session_identity).catch(() => {});
     if (!options.dryRun && error.code !== 'TOPOLOGY_RUN_EXISTS') {
@@ -902,7 +906,7 @@ export async function launchRun(options) {
   }
 }
 
-async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {},
+async function launchRunNative({ holders = [], spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {},
   respawn = true, respawnBounds = {}, requestedBy = null }) {
   const warnings = [];
 
@@ -950,14 +954,14 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
       }
     }
     const respawned = claims.filter((claim) => claim.respawn).map((claim) => claim.respawn);
-    const result = await launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings });
+    const result = await launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings, holders });
     return respawned.length ? { ...result, respawned } : result;
   } finally {
     for (const claim of claims) await claim.release();
   }
 }
 
-async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings }) {
+async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings, holders = [] }) {
   // TM-274: no session-exists refusal. Every name is planned unique — a run holds its own persona, an
   // agent one live session — so a second run of one workflow coexists with the first.
 
@@ -983,9 +987,11 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     const bootstrapFile = join(dir, "BOOTSTRAP.md");
     // One token per agent, not per candidate: a failover changes the provider, not who the agent is.
     const token = mintAgentToken();
-    const holder = await provisionForLaunch({ repo: repoKey((await canonicalRepoId(spec.consumer || spec.cwd)).id), agent: agent.id, role: agent.role === 'orchestrator' ? 'lead' : 'worker',
+    // A dry run starts no pane, so it provisions nothing: a holder nobody attaches would only linger.
+    const holder = dryRun ? null : await provisionForLaunch({ repo: repoKey((await canonicalRepoId(spec.consumer || spec.cwd)).id), agent: agent.id, role: agent.role === 'orchestrator' ? 'lead' : 'worker',
       mailTo: spec.agents.filter((other) => other.id !== agent.id && (agent.role === 'orchestrator' || other.role === 'orchestrator')).map((other) => other.id), token })
       .catch((error) => { warnings.push(`agent ${agent.id}: credential holder unavailable (${error.message}); the token stays in its launcher`); return null; });
+    if (holder) holders.push(holder);
     const candidates = prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings, token, holder, lineage, replyToken });
     prepared.push({ agent, skills, role, dir, bootstrapFile, candidates, token });
   }
@@ -1222,6 +1228,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
       if (!outcome.ready) warnings.push(`agent ${item.agent.id}: ${outcome.label} did not look ready (${outcome.attempts.at(-1).outcome}); bootstrap pointer was sent anyway`);
       if (outcome.index > 0) warnings.push(`agent ${item.agent.id}: fell back to ${outcome.label} after ${outcome.attempts.slice(0, -1).map((attempt) => `${attempt.label} (${attempt.outcome})`).join(", ")}`);
     } else {
+      await item.candidates[0]?.holder?.revoke?.().catch(() => {}); // no pane will ever run this agent: retire its holder
       warnings.push(`agent ${item.agent.id}: every provider in its chain failed — ${outcome.attempts.map((attempt) => `${attempt.label}: ${attempt.outcome}`).join("; ")}`);
     }
     results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent, leadId), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });

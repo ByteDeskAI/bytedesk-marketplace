@@ -18,7 +18,9 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +35,19 @@ async function natsClient() {
     const client = await import(new URL('../../dist/nats-client.cjs', import.meta.url).href);
     return client.default || client;
   }
+}
+
+// A unix socket path holds at most 107 bytes. Node does NOT refuse a longer one: it truncates it, binds the truncated
+// name (a stray socket file in some parent directory) and a later bind of the same path then fails with EADDRINUSE.
+const SOCKET_PATH_MAX = 100;
+
+/** A socket path that fits: `<home>/<name>` when short enough, else a short per-user directory keyed by the home. */
+export function socketPath(home, name) {
+  const direct = join(home, name);
+  if (Buffer.byteLength(direct) <= SOCKET_PATH_MAX) return direct;
+  const dir = join('/tmp', `ao-sock-${process.getuid?.() ?? 0}`);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return join(dir, `${createHash('sha1').update(home).digest('hex').slice(0, 12)}-${name}`);
 }
 
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -275,15 +290,18 @@ export function remoteHolder(sock) {
  * admin: the holder GENERATES an nkey, never reveals the seed to its spawner, and hands it only to
  * a process outside every agent tree. home: where roots.json lives (needed for admin and cross-process attach).
  */
-export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = 20_000 } = {}) {
+export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 20_000 } = {}) {
   let sock = fixedSock;
   if (!sock) {
-    const dir = await mkdtemp(join(tmpdir(), 'ao-creds-'));
+    // tmpdir() can itself be long (a sandbox TMPDIR); fall back to /tmp rather than overflow the socket path.
+    const base = Buffer.byteLength(join(tmpdir(), 'ao-creds-XXXXXX', 'c.sock')) <= SOCKET_PATH_MAX ? tmpdir() : '/tmp';
+    const dir = await mkdtemp(join(base, 'ao-creds-'));
     await chmod(dir, 0o700);
     sock = join(dir, 'c.sock');
   }
+  if (Buffer.byteLength(sock) > 107) throw Object.assign(new Error(`credential holder socket path is ${Buffer.byteLength(sock)} bytes; the limit is 107 (${sock})`), { code: 'HOLDER_SOCKET_PATH_TOO_LONG' });
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--holder'], {
-    detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH ?? '' },
+    detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH ?? '', ...(process.env.AO_TEST_RUN ? { AO_TEST_RUN: process.env.AO_TEST_RUN } : {}) },
   });
   // The channel is unref'd between calls so a launcher can exit; it is ref'd while a reply is awaited so the wait itself keeps the loop alive.
   const send = (message) => new Promise((resolve, reject) => {
@@ -319,6 +337,8 @@ function holderMain() {
   let rootGoneSince = null;
   let graceMs = 20_000;
   const watch = setInterval(() => {
+    // Nothing left to serve: its socket was removed, or the home it belongs to is gone (a deleted test directory, an uninstall).
+    if (sockPath && (!existsSync(sockPath) || (home && !existsSync(home)))) return stop();
     if (!root || existsSync(`/proc/${root}`)) { rootGoneSince = null; return; }
     rootGoneSince ??= Date.now();
     if (Date.now() - rootGoneSince > graceMs) stop();
@@ -384,7 +404,8 @@ function holderMain() {
     } else if (message.type === 'install') { secrets = { ...secrets, ...message.secrets }; reply({ ok: true }); }
     else if (message.type === 'revoke') { reply({ ok: true }); stop(); }
   });
-  process.on('disconnect', () => {});
+  // The process that spawned this holder is gone. If it never attached the holder to a pane, nothing will: retire it (an attached holder outlives its launcher by design).
+  process.on('disconnect', () => { if (!admin) setTimeout(() => { if (!root) stop(); }, Math.min(5000, graceMs)).unref?.(); });
 }
 
 /**

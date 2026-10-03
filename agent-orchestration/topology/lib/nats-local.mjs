@@ -13,7 +13,7 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
-import { holderIdentity, serverPidFor, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
+import { holderIdentity, serverPidFor, socketPath, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
 import { withLock } from './lockfile.mjs';
 import { runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
@@ -99,7 +99,7 @@ export async function rewriteServerConfig(home) {
  * Returns state with adminPub/adminSock; the caller rewrites the config when `changed`.
  */
 export async function ensureAdminIdentity(home, state) {
-  const sock = join(home, 'admin.sock');
+  const sock = socketPath(home, 'admin.sock');
   // Ask the socket itself, not state.json: another process may own a live holder that this state does not name.
   const live = await holderIdentity(sock);
   if (live?.admin) {
@@ -123,9 +123,13 @@ export async function ensureAdminIdentity(home, state) {
 async function revalidateAdminLocked(home) {
   {
     const state = readState(home);
-    if (!state || state.user) return state; // no state yet, or a legacy password state the start path migrates
+    if (!state) return state;
+    const legacy = Boolean(state.user || state.pass);
     const { state: admin, changed } = await ensureAdminIdentity(home, state);
     if (!changed) return state;
+    // Upgrade from a version that stored a password: retire it. Processes it started still hold the password connection,
+    // which the reload below drops; they need a restart to pick up the new identity.
+    if (legacy) process.stderr.write(`[ao] local NATS: replaced the stored admin password with an nkey identity held in memory. Processes started by an earlier version lose their NATS connection until restarted.\n`);
     await writeState(home, admin);
     const confPath = await writeServerConfig(home, { port: admin.port, adminPub: admin.adminPub });
     const pid = serverPidFor(admin.pid, confPath);
