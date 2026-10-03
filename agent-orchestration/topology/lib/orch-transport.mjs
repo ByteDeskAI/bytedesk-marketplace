@@ -275,6 +275,10 @@ export function createFileTransport() {
       claims.set(key, { body, revision: next });
       return { via: 'file', bucket: ORCH_LAYOUT.claimsBucket, key, revision: next };
     },
+    async hasMailMessage({ repo, agent, messageId }) {
+      const subject = ORCH_LAYOUT.mailSubject(orchName(repo), orchName(agent));
+      return (mail.get(subject) ?? []).some((entry) => entry.messageId === messageId);
+    },
     async getClaimEntry({ repo, task }) {
       const entry = claims.get(ORCH_LAYOUT.claimKey(orchName(repo), orchName(task)));
       return entry ? { body: entry.body, revision: entry.revision } : null;
@@ -810,6 +814,21 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       } catch (error) {
         fail('TOPOLOGY_CLAIM_CONFLICT', `Claim compare-and-set failed for ${key}: ${error.message}`);
       }
+    },
+    /** True if an unconsumed mail message carries Nats-Msg-Id `<repo>.<agent>.<messageId>` (needs $JS.API.STREAM.MSG.GET.ORCH_MAIL). */
+    async hasMailMessage({ repo, agent, messageId }) {
+      const nameRepo = orchName(repo);
+      await transport.ensure({ repo: nameRepo });
+      const subject = ORCH_LAYOUT.mailSubject(nameRepo, orchName(agent));
+      const wanted = `${nameRepo}.${orchName(agent)}.${messageId}`;
+      const info = await jsm.streams.info(ORCH_LAYOUT.mailStream);
+      for (let seq = info.state.first_seq; seq <= info.state.last_seq;) {
+        const msg = await jsm.streams.getMessage(ORCH_LAYOUT.mailStream, { seq, next_by_subj: subject }).catch(() => null);
+        if (!msg) return false;
+        if (msg.header?.get?.('Nats-Msg-Id') === wanted) return true;
+        seq = msg.seq + 1;
+      }
+      return false;
     },
     async getClaimEntry({ repo, task }) {
       const nameRepo = orchName(repo);

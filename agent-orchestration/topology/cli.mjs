@@ -1629,6 +1629,9 @@ const commands = {
       : null;
     const { selectLiveTransport } = await import('./lib/orch-transport.mjs');
     const { handoff } = await import('./lib/handoff.mjs');
+    const { wireMessageId } = await import('./lib/mailbox.mjs');
+    const { orchName } = await import('./lib/orch-transport.mjs');
+    const { createHash } = await import('node:crypto');
     const { repoKeyFor } = await import('./lib/events.mjs');
     const transport = await selectLiveTransport({ env: process.env });
     // The successor goes through sendMessage, so delegation, hop limit, routing and the lead-readiness gate are the send path's.
@@ -1639,6 +1642,13 @@ const commands = {
       send: ({ body, to: target }) => sendMessage({ runDir, from, to: [target], stage: "handoff", body, route, fromProject, parentId: messageId,
         idempotencyKey: `handoff:${messageId}`, via: list(flags.via), standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home, transport }, transport, env: process.env }),
       close: ({ body }) => recordReply({ runDir, agentId: from, messageId, body }),
+      // sendMessage allocates the successor's id from the idempotency key; find it again to see whether it was published.
+      probe: async ({ to: target }) => {
+        const current = await loadRun(runDir);
+        const prior = current.message_keys?.[createHash("sha256").update(`handoff:${messageId}`).digest("hex")];
+        if (!prior || !transport.hasMailMessage) return false;
+        return transport.hasMailMessage({ repo: await repoKeyFor(run.consumer), agent: orchName(target), messageId: wireMessageId(runDir, current, `${prior.seq}-handoff`) });
+      },
     });
     if (result.held) process.exitCode = 3;
     out({ ...result, record: undefined, envelope: flags.json ? result.record : undefined });

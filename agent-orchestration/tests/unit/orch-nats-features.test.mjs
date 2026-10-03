@@ -276,7 +276,9 @@ for (const mode of ['watch', 'poll fallback']) {
       await sleep(2500); // past the first (blocking ~1s) reply fetch, so only a wake-up or a poll can notice it
       const replied = await cli(['reply', '--run', runDir, '--agent', 'agent-b', '--message', messageId, '--body', 'done'], cliEnv);
       assert.equal(replied.code, 0, replied.stderr || replied.stdout);
-      const result = await waiting;
+      // Bounded: a missing watch or poll must FAIL this test with a rejection, not hang it.
+      let guard;
+      const result = await Promise.race([waiting, new Promise((_, reject) => { guard = setTimeout(() => reject(new Error(`waitForReplies did not return within 9s via ${mode}`)), 9000); })]).finally(() => clearTimeout(guard));
       console.log(`WAIT ${mode}: ok=${result.ok} elapsed_ms=${result.elapsed_ms} reply=${result.replies?.[0]?.body?.trim()} (pollMs=${useWatch ? 15000 : 200}, replier fired at ~2500ms)`);
       assert.equal(result.ok, true);
       assert.equal(result.replies[0].body.trim(), 'done');
@@ -290,3 +292,81 @@ for (const mode of ['watch', 'poll fallback']) {
     }
   });
 }
+
+test('crash between sending the successor and recording it: a retry after the dedupe window sends nothing more', async () => {
+  const broker = await startBroker();
+  const transport = await open(broker);
+  try {
+    const repo = 'crash';
+    const subject = ORCH_LAYOUT.mailSubject(repo, 'agent-b');
+    const sends = [];
+    const crashingSend = async ({ body, to, plannedId }) => {
+      sends.push(plannedId);
+      await transport.publishMail({ repo, agent: to, messageId: plannedId, body }); // published ...
+      throw new Error('simulated crash before the successor id is recorded'); // ... then the process dies
+    };
+    const args = { transport, repo, messageId: 'msg-c', from: 'agent-a', reason: 'handed_off_to', to: 'agent-b', close: async () => {} };
+    await assert.rejects(handoff({ ...args, send: crashingSend, probe: ({ plannedId, to }) => transport.hasMailMessage({ repo, agent: to, messageId: plannedId }) }), /simulated crash/);
+    const intent = JSON.parse((await transport.getHandoff({ repo, messageId: 'msg-c' })).body).data;
+    await sleep(DUP_WINDOW_MS + 600);
+    const retry = await handoff({ ...args, probe: ({ plannedId, to }) => transport.hasMailMessage({ repo, agent: to, messageId: plannedId }),
+      send: async ({ body, to, plannedId }) => { sends.push(plannedId); await transport.publishMail({ repo, agent: to, messageId: plannedId, body }); return { id: plannedId }; } });
+    const count = await mailCount(transport, subject);
+    console.log(`CRASH intent before send: state=${intent.state} planned_successor=${intent.planned_successor}; retry after ${DUP_WINDOW_MS + 600}ms: state=${retry.state} successor=${retry.successorId} sends=${sends.length} stream msgs on ${subject}=${count}`);
+    assert.equal(count, 1);
+    assert.equal(sends.length, 1);
+    assert.equal(retry.state, 'closed');
+    // Control: without the probe the same retry sends again, and the window no longer hides it.
+    const control = 'msg-d';
+    const controlArgs = { ...args, messageId: control };
+    await assert.rejects(handoff({ ...controlArgs, send: crashingSend }), /simulated crash/);
+    await sleep(DUP_WINDOW_MS + 600);
+    await handoff({ ...controlArgs, send: async ({ body, to, plannedId }) => { await transport.publishMail({ repo, agent: to, messageId: plannedId, body }); return { id: plannedId }; } });
+    console.log(`CRASH control (no probe) stream msgs for msg-d: ${await mailCount(transport, subject)} total on subject (expected 3 = 1 + 2)`);
+    assert.equal(await mailCount(transport, subject), 3);
+  } finally { await transport.close(); await stopBroker(broker); }
+});
+
+test('CLI verbs handoff, diagnose and work run for real against a temp nats-server', async () => {
+  const broker = await startBroker();
+  const { runDir, stateHome, env } = await waitFixture();
+  const cliEnv = { ...env, AO_NATS_URL: broker.url };
+  try {
+    const sent = await cli(['send', '--run', runDir, '--from', 'conductor', '--to', 'agent-b', '--from-project', runDir, '--stage', 'brief', '--body', 'go', '--no-ring'], cliEnv);
+    assert.equal(sent.code, 0, sent.stderr || sent.stdout);
+    const messageId = JSON.parse(sent.stdout).id;
+    const handoffArgs = ['handoff', '--run', runDir, '--agent', 'agent-b', '--message', messageId, '--reason', 'handed_off_to', '--to', 'conductor', '--from-project', runDir, '--json'];
+    const first = await cli(handoffArgs, cliEnv);
+    console.log(`CLI handoff #1 code=${first.code} out=${first.stdout.trim().replace(/\s+/g, ' ').slice(0, 600)} err=${first.stderr.trim().slice(0, 300)}`);
+    assert.equal(first.code, 0, first.stderr);
+    const second = await cli(handoffArgs, cliEnv);
+    console.log(`CLI handoff #2 (same message) code=${second.code} out=${second.stdout.trim().replace(/\s+/g, ' ').slice(0, 300)}`);
+    const a = JSON.parse(first.stdout); const b = JSON.parse(second.stdout);
+    assert.deepEqual([a.ok, a.duplicate, a.state, b.duplicate, b.state], [true, false, 'closed', true, 'closed']);
+    assert.equal(a.successorId, b.successorId);
+    const bad = await cli(['handoff', '--run', runDir, '--agent', 'agent-b', '--message', messageId, '--reason', 'handed_off_to', '--json'], cliEnv);
+    console.log(`CLI handoff without --to code=${bad.code} out=${(bad.stdout + bad.stderr).trim().replace(/\s+/g, ' ').slice(0, 200)}`);
+    assert.equal(bad.code, 1);
+    assert.match(bad.stdout, /TOPOLOGY_HANDOFF_TARGET/);
+    assert.doesNotMatch(bad.stderr, /at .*\.mjs:\d+/, 'a refusal, not a stack trace');
+
+    const diag = await cli(['diagnose', '--run', runDir, '--json'], cliEnv);
+    console.log(`CLI diagnose code=${diag.code} out=${diag.stdout.trim().replace(/\s+/g, ' ').slice(0, 500)} err=${diag.stderr.trim().slice(0, 200)}`);
+    assert.equal(diag.code, 0, diag.stderr);
+    const parsed = JSON.parse(diag.stdout);
+    assert.ok(parsed.events >= 3, `events mirrored from the CLI processes: ${parsed.events}`);
+
+    const pub = await cli(['work', 'publish', '--run', runDir, '--task', 'TM-77'], cliEnv);
+    const take1 = await cli(['work', 'take', '--run', runDir, '--agent', 'agent-b', '--ttl', '1m'], cliEnv);
+    const take2 = await cli(['work', 'take', '--run', runDir, '--agent', 'agent-b'], cliEnv);
+    console.log(`CLI work publish=${pub.stdout.trim().replace(/\s+/g, ' ')} take#1 code=${take1.code} ${take1.stdout.trim().replace(/\s+/g, ' ')} take#2(empty) code=${take2.code} ${take2.stdout.trim().replace(/\s+/g, ' ')}`);
+    assert.equal(JSON.parse(take1.stdout).took, true);
+    assert.equal(JSON.parse(take1.stdout).task, 'TM-77');
+    assert.equal(take2.code, 2);
+    assert.equal(JSON.parse(take2.stdout).empty, true);
+  } finally {
+    await stopBroker(broker);
+    await rm(runDir, { recursive: true, force: true });
+    await rm(stateHome, { recursive: true, force: true });
+  }
+});

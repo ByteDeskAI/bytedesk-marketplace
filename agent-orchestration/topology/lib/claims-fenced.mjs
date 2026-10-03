@@ -1,7 +1,7 @@
 // Fenced claims over ORCH_CLAIMS. The token is the KV revision; every later write presents it and a
 // stale one is refused, so a worker that stalled past its expiry cannot overwrite the worker that
 // took over. `now` is injectable so expiry is testable without sleeping.
-function fail(code, message) { throw Object.assign(new Error(message), { code }); }
+import { fail } from './util.mjs';
 
 const DEFAULT_TTL_MS = 5 * 60_000;
 

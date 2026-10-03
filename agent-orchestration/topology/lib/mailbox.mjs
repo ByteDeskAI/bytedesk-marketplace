@@ -130,7 +130,7 @@ function durableOptions(run, env = process.env) {
   return { env: { ...env, ...(run.state_home ? { AGENT_ORCHESTRATION_STATE_HOME: run.state_home } : {}) } };
 }
 
-function wireMessageId(runDir, run, id) {
+export function wireMessageId(runDir, run, id) {
   return `run:${run.run_id || createHash('sha256').update(resolve(runDir)).digest('hex')}:${id}`;
 }
 
