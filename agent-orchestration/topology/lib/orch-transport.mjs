@@ -439,13 +439,27 @@ export function retireStaleOutage(state, { now = Date.now(), retireAfterMs = OUT
 }
 
 /** TM-276: the last selection on this host, plus the configured NATS outage it fell back from, if any. */
+// ADR-0032: the sources this ao writes. transport.json is a host-wide last-writer file, so an older
+// ao still running (a long-lived MCP server with NATS_URL in its env) can write a NATS_URL selection,
+// fallback or outage after an upgrade. Every reader drops those, and the next open rewrites the file.
+const AO_SOURCES = new Set(['AO_NATS_URL', 'orch.sock', 'managed-local']);
+const foreign = (entry) => Boolean(entry?.source) && !AO_SOURCES.has(entry.source);
+
+/** The state with every selection, fallback and outage from a source ao no longer reads removed. Pure. */
+export function withoutForeignSources(state) {
+  if (!state || !(foreign(state) || foreign(state.fallback) || foreign(state.outage))) return state;
+  return { ...state, ...(foreign(state) ? { source: null, url: null } : {}), fallback: foreign(state.fallback) ? null : state.fallback ?? null,
+    outage: foreign(state.outage) ? null : state.outage ?? null, foreign_dropped: true };
+}
+
 export async function readTransportState(env = process.env, home = homedir(), { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
-  return retireStaleOutage(await readJson(transportStatePath(env, home)).catch(() => null), { now, retireAfterMs });
+  return retireStaleOutage(withoutForeignSources(await readJson(transportStatePath(env, home)).catch(() => null)), { now, retireAfterMs });
 }
 
 /** Persists an outage close (or a fresh last_fallback_at) that a reader derived. */
 export async function writeTransportState(env, home, state) {
-  await writeJson(transportStatePath(env, home), state);
+  const { foreign_dropped: _dropped, ...clean } = state ?? {};
+  await writeJson(transportStatePath(env, home), clean);
 }
 
 /**
@@ -473,7 +487,8 @@ export function holdsFallbackFrom({ source, url }) {
 export async function describeTransport(env = process.env, home = homedir()) {
   if (transportMode(env) === 'file') return { kind: 'file', source: 'AO_TRANSPORT', url: null, fallback: null, outage: null };
   const state = await readTransportState(env, home);
-  return state ? { kind: state.kind, source: state.source, url: state.url, fallback: state.fallback ?? null, outage: state.outage ?? null, at: state.at }
+  return state ? { kind: state.kind, source: state.source, url: state.url, fallback: state.fallback ?? null, outage: state.outage ?? null, at: state.at,
+    ...(state.foreign_dropped ? { note: 'ignored a NATS_URL entry written by an older ao; NATS_URL is not an ao source (ADR-0032)' } : {}) }
     : { kind: 'nats', source: null, url: null, fallback: null, outage: null, note: 'no NATS connection recorded on this host yet' };
 }
 
@@ -497,7 +512,8 @@ async function recordTransportSelection(env, selection, home = homedir()) {
   else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
     outage = { ...outage, recovered_at: new Date().toISOString() };
   }
-  const same = previous && previous.source === selection.source && previous.url === selection.url
+  // A record that held a foreign source is always rewritten, so the stale entry leaves the file.
+  const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url
     && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
   if (same) return;
   await writeJson(transportStatePath(env, home), { kind: selection.kind, source: selection.source, url: selection.url,
