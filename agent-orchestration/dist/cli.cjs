@@ -545,6 +545,9 @@ function validateConfigShape(raw, label) {
   if (raw.nats !== void 0 && (!isPlainObject(raw.nats) || raw.nats.domain !== void 0 && (typeof raw.nats.domain !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.nats.domain)))) {
     errors.push(`${label}: "nats" must be an object whose "domain" is 1-64 letters, digits, hyphen or underscore`);
   }
+  if (isPlainObject(raw.nats) && raw.nats.port !== void 0 && !(Number.isInteger(raw.nats.port) && raw.nats.port >= 1024 && raw.nats.port <= 65535)) {
+    errors.push(`${label}: "nats.port" must be an integer from 1024 to 65535`);
+  }
   if (raw.enabled !== void 0 && typeof raw.enabled !== "boolean") errors.push(`${label}: "enabled" must be true or false`);
   return errors;
 }
@@ -2381,15 +2384,112 @@ function canConnect(port) {
     });
   });
 }
-function freePort() {
-  return new Promise((resolve22, reject) => {
+function canBind(port) {
+  return new Promise((resolve22) => {
     const probe = import_node_net.default.createServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolve22(port));
-    });
+    probe.once("error", () => resolve22(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve22(true)));
   });
+}
+function natsInfo(port) {
+  return new Promise((resolve22) => {
+    let text = "";
+    const socket = import_node_net.default.connect({ host: "127.0.0.1", port });
+    const done = (value) => {
+      socket.destroy();
+      resolve22(value);
+    };
+    socket.on("data", (chunk) => {
+      text += chunk;
+      const end = text.indexOf("\r\n");
+      if (end < 0) return;
+      try {
+        done(text.startsWith("INFO ") ? JSON.parse(text.slice(5, end)) : null);
+      } catch {
+        done(null);
+      }
+    });
+    socket.once("error", () => done(null));
+    socket.setTimeout(1e3, () => done(null));
+  });
+}
+function portHolder(port) {
+  if (process.platform !== "linux") return null;
+  const hex3 = port.toString(16).toUpperCase().padStart(4, "0");
+  const inodes = /* @__PURE__ */ new Set();
+  for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    let lines = [];
+    try {
+      lines = (0, import_node_fs8.readFileSync)(table, "utf8").trim().split("\n").slice(1);
+    } catch {
+      continue;
+    }
+    for (const line of lines) {
+      const cols = line.trim().split(/\s+/);
+      if (cols[1]?.endsWith(`:${hex3}`) && cols[3] === "0A") inodes.add(`socket:[${cols[9]}]`);
+    }
+  }
+  if (inodes.size === 0) return null;
+  for (const pid of (0, import_node_fs8.readdirSync)("/proc").filter((name) => /^\d+$/.test(name))) {
+    let fds = [];
+    try {
+      fds = (0, import_node_fs8.readdirSync)(`/proc/${pid}/fd`);
+    } catch {
+      continue;
+    }
+    for (const fd of fds) {
+      let link = null;
+      try {
+        link = (0, import_node_fs8.readlinkSync)(`/proc/${pid}/fd/${fd}`);
+      } catch {
+        continue;
+      }
+      if (inodes.has(link)) {
+        let command = null;
+        try {
+          command = (0, import_node_fs8.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
+        } catch {
+        }
+        return { pid: Number(pid), command };
+      }
+    }
+  }
+  return { pid: null, command: null };
+}
+async function checkNatsPort(port, env = process.env) {
+  if (await canBind(port)) return false;
+  if ((await natsInfo(port))?.server_name === SERVER_NAME) return true;
+  const holder = portHolder(port);
+  const who = holder?.pid ? `${holder.command ?? "a process"} (pid ${holder.pid})` : holder ? "a process this user cannot inspect" : "another process";
+  return fail("TOPOLOGY_NATS_PORT_CONFLICT", `ao's NATS port 127.0.0.1:${port} (nats.port in ${globalConfigPath(configHome(env), env)}) is held by ${who}. ao does not move to another port: stop that process, or set a different nats.port and run \`agent-orchestration services ensure\`.`, { port, holder });
+}
+async function configuredNatsPort(env = process.env) {
+  const layer = await readConfigLayer("global", { env, home: configHome(env) }).catch(() => null);
+  const port = layer?.document?.nats?.port;
+  return validNatsPort(port) ? port : null;
+}
+async function managedNatsPort({ env = process.env, natsHome = localNatsHome(env) } = {}) {
+  const options = { env, home: configHome(env) };
+  for (let attempt2 = 0; ; attempt2 += 1) {
+    const layer = await readConfigLayer("global", options);
+    if (layer.present && !layer.document) fail("TOPOLOGY_CONFIG_INVALID", layer.errors.join("; "));
+    const configured = layer.document?.nats?.port;
+    if (configured !== void 0) {
+      if (!validNatsPort(configured)) fail("TOPOLOGY_CONFIG_INVALID", `nats.port in ${layer.path} must be an integer from 1024 to 65535; it is ${JSON.stringify(configured)}.`);
+      return configured;
+    }
+    const recorded = readState(natsHome)?.port;
+    const ours = async (port2) => await canBind(port2) || (await natsInfo(port2))?.server_name === SERVER_NAME;
+    let port = validNatsPort(recorded) && await ours(recorded) ? recorded : null;
+    for (let p = NATS_PORT_RANGE[0]; !port && p <= NATS_PORT_RANGE[1]; p += 1) if (await canBind(p)) port = p;
+    if (!port) fail("TOPOLOGY_NATS_UNAVAILABLE", `No free port in ${NATS_PORT_RANGE.join("-")} for ao's NATS; set nats.port in ${layer.path}.`);
+    try {
+      await writeConfigLayer("global", mergeConfig(layer.document ?? {}, { nats: { port } }), { ...options, ifRevision: layer.revision });
+      return port;
+    } catch (error51) {
+      if (error51?.code !== "TOPOLOGY_CONFIG_STALE" || attempt2 >= 3) throw error51;
+    }
+  }
 }
 function serverConfig({ port, user, password, storeDir }) {
   const allow = ["orch.>", "_INBOX.>", "$JS.API.>", "$JS.ACK.>", "$JS.FC.>", "$KV.>", "$O.>"];
@@ -2437,6 +2537,15 @@ function absoluteBinary(bin, env) {
   }
   return bin;
 }
+async function stopDetached(state, keepPort = null) {
+  if (!state || state.managed || !state.pid || state.port === keepPort) return;
+  if (!await canConnect(state.port) || !namesNatsServer(state.pid)) return;
+  try {
+    process.kill(state.pid, "SIGTERM");
+  } catch {
+  }
+  for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve22) => setTimeout(resolve22, 100));
+}
 async function prepareLocalNats({ env = process.env } = {}) {
   const home = localNatsHome(env);
   await (0, import_promises27.mkdir)(home, { recursive: true, mode: 448 });
@@ -2444,16 +2553,11 @@ async function prepareLocalNats({ env = process.env } = {}) {
     const bin = await findNatsServer(env);
     if (!bin) return null;
     const state = readState(home);
-    if (state && !state.managed && state.pid && await canConnect(state.port) && namesNatsServer(state.pid)) {
-      try {
-        process.kill(state.pid, "SIGTERM");
-      } catch {
-      }
-      for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve22) => setTimeout(resolve22, 100));
-    }
+    await stopDetached(state);
+    const port = await managedNatsPort({ env, natsHome: home });
+    await checkNatsPort(port, env);
     const user = state?.user || "ao-orch";
     const pass = state?.pass || (0, import_node_crypto16.randomBytes)(24).toString("hex");
-    const port = state?.managed && state.port ? state.port : await freePort();
     const confPath = await writeServerConfig(home, { port, user, pass });
     const absolute = absoluteBinary(bin, env);
     await writeState(home, { managed: true, pid: null, port, user, pass, bin: absolute });
@@ -2472,30 +2576,33 @@ async function waitForPort(port, attempts = 50) {
   return canConnect(port);
 }
 async function ensureLocalNats({ env = process.env } = {}) {
-  if (servicesEnabled(env)) {
-    const home2 = localNatsHome(env);
-    let state = readState(home2);
-    if (!(state?.managed && await canConnect(state.port)) && env.AGENT_ORCHESTRATION_SERVICES_MANAGED !== "1") {
-      await runServicesEnsure({ env });
-      state = readState(home2);
-    }
-    if (state?.managed && await waitForPort(state.port)) {
-      return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, port: state.port, started: false, managed: true };
-    }
-    if (env.AGENT_ORCHESTRATION_SERVICES_MANAGED === "1") throw unavailable(`The managed nats-server on port ${state?.port ?? "unknown"} is not answering; the service manager is expected to restart it.`);
-  }
   const home = localNatsHome(env);
   await (0, import_promises27.mkdir)(home, { recursive: true, mode: 448 });
+  if (servicesEnabled(env)) {
+    const port = await managedNatsPort({ env, natsHome: home });
+    let state = readState(home);
+    const up = async () => state?.managed && state.port === port && await checkNatsPort(port, env);
+    if (!await up() && env.AGENT_ORCHESTRATION_SERVICES_MANAGED !== "1") {
+      await runServicesEnsure({ env });
+      state = readState(home);
+    }
+    if (state?.managed && state.port === port && await waitForPort(port) && await up()) {
+      return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, port, started: false, managed: true };
+    }
+    if (env.AGENT_ORCHESTRATION_SERVICES_MANAGED === "1") throw unavailable(`The managed nats-server on port ${port} is not answering; the service manager is expected to restart it.`);
+  }
   return withLock((0, import_node_path33.join)(home, "lock"), async () => {
+    const port = await managedNatsPort({ env, natsHome: home });
     const state = readState(home);
-    if (state && await canConnect(state.port)) {
-      return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, port: state.port, started: false };
+    await stopDetached(state, port);
+    if (await checkNatsPort(port, env)) {
+      if (state?.port === port && state.user) return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, port, started: false };
+      throw unavailable(`An ao nats-server answers on 127.0.0.1:${port} but ${(0, import_node_path33.join)(home, "state.json")} holds no credentials for it.`);
     }
     const bin = await findNatsServer(env);
     if (!bin) throw unavailable(NO_BINARY);
     const user = state?.user || "ao-orch";
     const pass = state?.pass || (0, import_node_crypto16.randomBytes)(24).toString("hex");
-    const port = await freePort();
     const confPath = await writeServerConfig(home, { port, user, pass });
     const log = (0, import_node_fs8.openSync)((0, import_node_path33.join)(home, "nats-server.log"), "a", 384);
     const child = (0, import_node_child_process11.spawn)(bin, ["-c", confPath], { detached: true, stdio: ["ignore", log, log] });
@@ -2505,7 +2612,7 @@ async function ensureLocalNats({ env = process.env } = {}) {
     return { servers: `nats://127.0.0.1:${port}`, user, pass, port, started: true };
   });
 }
-var import_node_child_process11, import_node_crypto16, import_node_fs8, import_promises27, import_node_net, import_node_os10, import_node_path33, NO_BINARY, localNatsEnabled;
+var import_node_child_process11, import_node_crypto16, import_node_fs8, import_promises27, import_node_net, import_node_os10, import_node_path33, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, localNatsEnabled;
 var init_nats_local = __esm({
   "topology/lib/nats-local.mjs"() {
     import_node_child_process11 = require("node:child_process");
@@ -2515,8 +2622,14 @@ var init_nats_local = __esm({
     import_node_net = __toESM(require("node:net"), 1);
     import_node_os10 = require("node:os");
     import_node_path33 = require("node:path");
+    init_config();
     init_lockfile();
+    init_util();
     init_services_client();
+    NATS_PORT_RANGE = [45200, 45999];
+    SERVER_NAME = "ao-orch-local";
+    validNatsPort = (port) => Number.isInteger(port) && port >= 1024 && port <= 65535;
+    configHome = (env) => env.HOME || (0, import_node_os10.homedir)();
     NO_BINARY = "No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.";
     localNatsEnabled = (env = process.env) => env.AO_NATS_AUTOSTART !== "0" && !env.AO_NATS_URL;
   }
@@ -18739,6 +18852,7 @@ __export(orch_transport_exports, {
   describeTransport: () => describeTransport,
   discardLiveTransports: () => discardLiveTransports,
   holdsFallbackFrom: () => holdsFallbackFrom,
+  ignoredNatsEnv: () => ignoredNatsEnv,
   isTransportFailure: () => isTransportFailure,
   jetStreamDomain: () => jetStreamDomain,
   openNatsTransport: () => openNatsTransport,
@@ -18789,7 +18903,7 @@ async function resolveTransport({ env = process.env, transport, home } = {}) {
   if (transport) return transport;
   const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
   if (transportMode(selected2) === "file") return createFileTransport();
-  const key = `${selected2.AO_NATS_URL || selected2.NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}|${selected2.AO_NATS_JS_DOMAIN || ""}`;
+  const key = `${selected2.AO_NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}|${selected2.AO_NATS_JS_DOMAIN || ""}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
   const opened = await openTransport({ env: selected2, home });
@@ -18807,7 +18921,7 @@ async function closeLiveTransports() {
   for (const transport of open14) await transport.close();
 }
 function isTransportFailure(error51) {
-  if (error51?.code === "TOPOLOGY_NATS_UNAVAILABLE") return true;
+  if (error51?.code === "TOPOLOGY_NATS_UNAVAILABLE" || error51?.code === "TOPOLOGY_NATS_PORT_CONFLICT") return true;
   return error51?.name === "NatsError" && NATS_OUTAGE_CODES.has(error51.code);
 }
 async function discardLiveTransports() {
@@ -19073,14 +19187,19 @@ async function bridgeUnixSocket(socketPath) {
 }
 function redactUrl(url2) {
   if (!url2) return null;
-  try {
-    const parsed2 = new URL(url2);
-    parsed2.username = "";
-    parsed2.password = "";
-    return parsed2.toString().replace(/\/$/, "");
-  } catch {
-    return url2;
-  }
+  const strip = (text) => text.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme = "") => `${scheme}[redacted]@`);
+  return String(url2).split(",").map((part) => part.trim()).filter(Boolean).map((part) => {
+    let out;
+    try {
+      const parsed2 = new URL(part);
+      parsed2.username = "";
+      parsed2.password = "";
+      out = parsed2.toString().replace(/\/$/, "");
+    } catch {
+      out = part;
+    }
+    return out.includes("@") ? strip(out) : out;
+  }).join(",") || null;
 }
 function retireStaleOutage(state, { now = Date.now(), retireAfterMs = OUTAGE_RETIRE_MS } = {}) {
   const outage = state?.outage;
@@ -19144,6 +19263,37 @@ async function recordTransportSelection(env, selection, home = (0, import_node_o
     outage
   });
 }
+async function recordPortConflict(env, home, error51) {
+  const previous = await readTransportState(env, home);
+  const url2 = `nats://127.0.0.1:${error51.details?.port}`;
+  const at = (/* @__PURE__ */ new Date()).toISOString();
+  const open14 = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url2 ? previous.outage : null;
+  await writeJson(transportStatePath(env, home), {
+    kind: "nats",
+    source: previous?.source ?? null,
+    url: previous?.url ?? null,
+    fallback: null,
+    at,
+    pid: process.pid,
+    outage: {
+      source: "managed-local",
+      url: url2,
+      error: String(error51.message).slice(0, 500),
+      conflict: { port: error51.details?.port ?? null, holder: error51.details?.holder ?? null },
+      since: open14?.since ?? at,
+      last_fallback_at: at,
+      recovered_at: null
+    }
+  });
+}
+function ignoredNatsEnv(env = process.env) {
+  const names2 = ["NATS_URL", "NATS_USER", "NATS_PASSWORD"].filter((name) => env[name]);
+  return names2.length ? {
+    event: "nats-env-ignored",
+    variables: names2,
+    message: `${names2.join(", ")} ${names2.length > 1 ? "are" : "is"} set but ignored: ao uses AO_NATS_URL, the gateway orch.sock, or its managed NATS on nats.port (ADR-0032).`
+  } : null;
+}
 async function openNatsTransport({ env = process.env, home = (0, import_node_os11.homedir)(), servers, credsFile, name = "ao-orch" } = {}) {
   const {
     AckPolicy,
@@ -19164,16 +19314,21 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     }
   });
   const sc = StringCodec();
-  const url2 = servers || env.AO_NATS_URL || env.NATS_URL || "";
-  const configuredSource = servers ? "servers" : env.AO_NATS_URL ? "AO_NATS_URL" : env.NATS_URL ? "NATS_URL" : null;
+  const url2 = servers || env.AO_NATS_URL || "";
+  const configuredSource = servers ? "servers" : env.AO_NATS_URL ? "AO_NATS_URL" : null;
   let selection = { kind: "nats", source: configuredSource, url: redactUrl(url2), fallback: null };
   let bridge = null;
   let target = url2;
-  const explicit = Boolean(servers || env.AO_NATS_URL);
-  const autostart = !explicit && env.AO_NATS_AUTOSTART !== "0";
+  const autostart = !servers && env.AO_NATS_AUTOSTART !== "0";
   let local = null;
   const useLocal = async () => {
-    local = await ensureLocalNats({ env });
+    try {
+      local = await ensureLocalNats({ env });
+    } catch (error51) {
+      if (error51?.code === "TOPOLOGY_NATS_PORT_CONFLICT" && !servers) await recordPortConflict(env, home, error51).catch(() => {
+      });
+      throw error51;
+    }
     target = local.servers;
     selection = { ...selection, source: "managed-local", url: local.servers };
   };
@@ -19213,6 +19368,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       selection = { ...selection, fallback: unreachable };
       nc = await dial();
     } catch (second) {
+      if (second?.code === "TOPOLOGY_NATS_PORT_CONFLICT") throw second;
       fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}; local fallback failed: ${second.message}`);
     }
   }
@@ -29756,12 +29912,13 @@ async function natsOutageTick({
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
   const outageId = messageId("outage", key, outage.since), recoveryId = messageId("recovered", key, outage.since);
-  const sent = async (id2) => Boolean(await readStandingMessage({ id: id2, env, home }).catch(() => null));
+  const record2 = async (id2) => readStandingMessage({ id: id2, env, home }).catch(() => null);
+  const delivered = async (id2) => (await record2(id2))?.status === "delivered";
   let probed = false;
   const redialKey = `${outage.since}|${outage.url}`;
   const redial = redials.get(redialKey);
   if (outage.recovered_at) redials.delete(redialKey);
-  else if ((!redial || now() >= redial.at) && await reachable(outage.url)) {
+  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url)) {
     await discard();
     probed = true;
     const wait = redial ? Math.min(redial.wait * 2, REDIAL_MAX_MS) : REDIAL_FIRST_MS;
@@ -29769,13 +29926,20 @@ async function natsOutageTick({
   }
   const kind = outage.retired ? "retired" : outage.recovered_at ? "recovered" : "outage";
   const id = kind === "outage" ? outageId : recoveryId;
-  if (await sent(id)) return probed ? { kind, status: "already-sent", probed } : null;
-  if (kind !== "outage" && !await sent(outageId)) return null;
+  const existing = await record2(id);
+  if (existing?.status === "delivered") return probed ? { kind, status: "already-sent", probed } : null;
+  if (existing) return { kind, status: existing.status, reason: existing.reason ?? null, message_id: id, ...probed ? { probed } : {} };
+  if (kind !== "outage" && !await delivered(outageId)) return null;
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { kind, status: "skipped", reason: "no lead is registered for this repository" };
   const where = `${outage.url} (${outage.source})`;
-  const body = kind === "outage" ? [
+  const body = kind === "outage" && outage.conflict ? [
+    `NATS PORT CONFLICT on ${(0, import_node_os31.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
+    `Error: ${outage.error}`,
+    `Since: ${outage.since}`,
+    `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`
+  ] : kind === "outage" ? [
     `NATS OUTAGE on ${(0, import_node_os31.hostname)()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
@@ -29791,13 +29955,15 @@ async function natsOutageTick({
   return deliver({
     id,
     consumer,
+    fromProject: consumer,
+    from: SUPERVISOR_SENDER,
     to: leadId,
-    subject: `NATS ${kind}: ${outage.url}`,
+    subject: `NATS ${kind === "outage" && outage.conflict ? "port conflict" : kind}: ${outage.url}`,
     body: body.join("\n"),
     provenance: { source: "ao-topology supervise" }
-  }, { env, home }).then((record2) => ({ kind, status: record2?.status ?? "sent", to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
+  }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto33, import_node_os31, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId;
+var import_node_crypto33, import_node_os31, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto33 = require("node:crypto");
@@ -29810,7 +29976,8 @@ var init_nats_outage = __esm({
     REDIAL_FIRST_MS = 3e4;
     REDIAL_MAX_MS = 15 * 6e4;
     redials = /* @__PURE__ */ new Map();
-    messageId = (kind, key, since) => (0, import_node_crypto33.createHash)("sha256").update(`nats-${kind}:${key}:${since}`).digest("hex").slice(0, 32);
+    messageId = (kind, key, since) => (0, import_node_crypto33.createHash)("sha256").update(`nats-${kind}:v2:${key}:${since}`).digest("hex").slice(0, 32);
+    SUPERVISOR_SENDER = "ao-supervisor";
   }
 });
 
@@ -60226,11 +60393,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1710af70f6edd03d5a90b4cf7a77aa313d5007afc6e53c8a851f202b4e801263";
+  return false ? null : "6b497e20104faa890a4405ca2aeff7db98402566d09d58549df08fb14118ecf1";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1710af70f6edd03d5a90b4cf7a77aa313d5007afc6e53c8a851f202b4e801263";
-  let version2 = false ? null : "0.15.2";
+  const fingerprint2 = false ? null : "6b497e20104faa890a4405ca2aeff7db98402566d09d58549df08fb14118ecf1";
+  let version2 = false ? null : "0.15.3";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -60485,7 +60652,11 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     const token = (await (0, import_promises55.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
-    const nats = localNatsEnabled(env) ? await (deps.prepareNats ?? prepareLocalNats)({ env }).catch(() => null) : null;
+    let natsError = null;
+    const nats = localNatsEnabled(env) ? await (deps.prepareNats ?? prepareLocalNats)({ env }).catch((error51) => {
+      natsError = { code: error51?.code ?? null, message: error51?.message ?? String(error51) };
+      return null;
+    }) : null;
     const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs13.existsSync)(repo.consumer));
     const path3 = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths2.launcher, stateRoot: stateRoot3, logs: paths2.logs, nats, repos, path: path3, env });
@@ -60537,6 +60708,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       changed,
       processes: Object.keys(project.processes),
       unsupported,
+      ...natsError ? { natsError } : {},
       pointer: { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null, fingerprint: pointer.fingerprint ?? null }
     };
   }, { timeoutMs: 3e5 });
@@ -60552,7 +60724,12 @@ async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
   const repos = await readRepos(paths2.repos);
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
   const selfHeal2 = await readJson((0, import_node_path62.join)(paths2.dir, "self-heal.json"), null).catch(() => null);
-  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) }, transport: await describeTransport(env, home).catch(() => null), selfHeal: selfHeal2 };
+  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: await natsStatus(env), transport: await describeTransport(env, home).catch(() => null), selfHeal: selfHeal2 };
+}
+async function natsStatus(env) {
+  const port = await configuredNatsPort(env);
+  const conflict = port ? await checkNatsPort(port, env).then(() => null, (error51) => error51?.code === "TOPOLOGY_NATS_PORT_CONFLICT" ? { message: error51.message, holder: error51.details?.holder ?? null } : null) : null;
+  return { home: localNatsHome(env), port, url: port ? `nats://127.0.0.1:${port}` : null, conflict };
 }
 var processRow = (p) => ({ name: p.name, pid: p.pid, state: p.status, restarts: p.restarts, ready: p.is_ready, exitCode: p.exit_code });
 async function controlProcess(action, name, { pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, home = import_node_os34.default.homedir(), node = process.execPath, deps = {} } = {}) {
@@ -60810,8 +60987,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1710af70f6edd03d5a90b4cf7a77aa313d5007afc6e53c8a851f202b4e801263",
-  version: false ? null : "0.15.2"
+  sourceFingerprint: false ? null : "6b497e20104faa890a4405ca2aeff7db98402566d09d58549df08fb14118ecf1",
+  version: false ? null : "0.15.3"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto36.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -60842,7 +61019,7 @@ async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home
   const problems = [
     ...stale.servers.map((server) => `stale ao MCP server: ${server.host} pid ${server.pid} (${server.reasons.join("; ")}). ${server.advice}`),
     ...tmuxSocket.ok ? [] : [`${tmuxSocket.problem} Fix: ${tmuxSocket.fix}.`],
-    ...outage ? [`configured NATS ${outage.url} (${outage.source}) unreachable since ${outage.since}: ${outage.error}; working on ${transport.source} ${transport.url}.`] : []
+    ...outage?.conflict ? [`NATS port conflict since ${outage.since}: ${outage.error}`] : outage ? [`configured NATS ${outage.url} (${outage.source}) unreachable since ${outage.since}: ${outage.error}; working on ${transport.source} ${transport.url}.`] : []
   ];
   return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, transport, lastSelfHeal, problems };
 }

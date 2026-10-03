@@ -20,7 +20,13 @@ import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs
 const REDIAL_FIRST_MS = 30_000, REDIAL_MAX_MS = 15 * 60_000;
 const redials = new Map();
 
-const messageId = (kind, key, since) => createHash('sha256').update(`nats-${kind}:${key}:${since}`).digest('hex').slice(0, 32);
+// TM-309: v2 because the envelope now names its sender; a pre-TM-309 record under the v1 id is
+// permanently held (source_identity_required) and an envelope change under the same id is refused.
+const messageId = (kind, key, since) => createHash('sha256').update(`nats-${kind}:v2:${key}:${since}`).digest('hex').slice(0, 32);
+
+/** TM-309: the sender these notices carry. Same-repository mail from a named sender is admitted;
+ * an envelope with no `from`/`fromProject` is held forever as source_identity_required. */
+export const SUPERVISOR_SENDER = 'ao-supervisor';
 
 /** TCP reachability of a nats:// URL or a unix socket path. ponytail: first server of a list only. */
 export function canReach(url, timeoutMs = 1000) {
@@ -52,12 +58,17 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
   const outageId = messageId('outage', key, outage.since), recoveryId = messageId('recovered', key, outage.since);
-  const sent = async (id) => Boolean(await readStandingMessage({ id, env, home }).catch(() => null));
+  // TM-309: a record is not a delivery. Only `delivered` silences the tick; a held one is reported
+  // with its reason every tick, and resumeStandingMessages (same supervisor tick) retries it.
+  const record = async (id) => readStandingMessage({ id, env, home }).catch(() => null);
+  const delivered = async (id) => (await record(id))?.status === 'delivered';
   let probed = false;
   const redialKey = `${outage.since}|${outage.url}`;
   const redial = redials.get(redialKey);
   if (outage.recovered_at) redials.delete(redialKey);
-  else if ((!redial || now() >= redial.at) && await reachable(outage.url)) {
+  // TM-308: a port conflict answers TCP by definition (something else holds it); the next managed
+  // open that succeeds on that port is what closes it, so there is nothing to probe.
+  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url)) {
     // The configured NATS answers TCP again. Drop the cached local connection so the next open dials
     // the configured one through the real connect path, which is what closes the outage.
     await discard();
@@ -67,14 +78,21 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   }
   const kind = outage.retired ? 'retired' : outage.recovered_at ? 'recovered' : 'outage';
   const id = kind === 'outage' ? outageId : recoveryId; // recovered and retired share one closing id
-  if (await sent(id)) return probed ? { kind, status: 'already-sent', probed } : null;
+  const existing = await record(id);
+  if (existing?.status === 'delivered') return probed ? { kind, status: 'already-sent', probed } : null;
+  if (existing) return { kind, status: existing.status, reason: existing.reason ?? null, message_id: id, ...(probed ? { probed } : {}) };
   // A recovery or retirement is only news to a lead that was told about the outage.
-  if (kind !== 'outage' && !(await sent(outageId))) return null;
+  if (kind !== 'outage' && !(await delivered(outageId))) return null;
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { kind, status: 'skipped', reason: 'no lead is registered for this repository' };
   const where = `${outage.url} (${outage.source})`;
-  const body = kind === 'outage' ? [
+  const body = kind === 'outage' && outage.conflict ? [
+    `NATS PORT CONFLICT on ${hostname()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
+    `Error: ${outage.error}`,
+    `Since: ${outage.since}`,
+    `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`,
+  ] : kind === 'outage' ? [
     `NATS OUTAGE on ${hostname()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
@@ -87,8 +105,8 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
     `NATS RECOVERED on ${hostname()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? 'back on it' : `now on ${state.url} (${state.source})`}.`,
     `The outage began ${outage.since}: ${outage.error}`,
   ];
-  return deliver({ id, consumer, to: leadId, subject: `NATS ${kind}: ${outage.url}`,
+  return deliver({ id, consumer, fromProject: consumer, from: SUPERVISOR_SENDER, to: leadId, subject: `NATS ${kind === 'outage' && outage.conflict ? 'port conflict' : kind}: ${outage.url}`,
     body: body.join('\n'), provenance: { source: 'ao-topology supervise' } }, { env, home })
-    .then(record => ({ kind, status: record?.status ?? 'sent', to: leadId, message_id: id }))
+    .then(sent => ({ kind, status: sent?.status ?? 'failed', ...(sent?.status === 'delivered' ? {} : { reason: sent?.reason ?? null }), to: leadId, message_id: id }))
     .catch(error => ({ kind, status: 'failed', to: leadId, reason: error?.code ?? String(error) }));
 }

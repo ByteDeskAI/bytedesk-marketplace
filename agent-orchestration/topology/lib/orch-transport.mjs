@@ -96,7 +96,7 @@ export async function resolveTransport({ env = process.env, transport, home } = 
   // so the file double stays selected for the existing suite.
   const selected = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
   if (transportMode(selected) === 'file') return createFileTransport();
-  const key = `${selected.AO_NATS_URL || selected.NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}|${selected.AO_NATS_JS_DOMAIN || ''}`;
+  const key = `${selected.AO_NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}|${selected.AO_NATS_JS_DOMAIN || ''}`;
   const existing = liveTransports.get(key);
   if (existing && existing.stats?.().closed === false) return existing;
   const opened = await openTransport({ env: selected, home });
@@ -125,7 +125,7 @@ const NATS_OUTAGE_CODES = new Set([
   'CONNECTION_TIMEOUT', 'DISCONNECT',
 ]);
 export function isTransportFailure(error) {
-  if (error?.code === 'TOPOLOGY_NATS_UNAVAILABLE') return true;
+  if (error?.code === 'TOPOLOGY_NATS_UNAVAILABLE' || error?.code === 'TOPOLOGY_NATS_PORT_CONFLICT') return true;
   return error?.name === 'NatsError' && NATS_OUTAGE_CODES.has(error.code);
 }
 
@@ -405,11 +405,21 @@ async function bridgeUnixSocket(socketPath) {
   return { server, servers: `nats://127.0.0.1:${port}` };
 }
 
-/** Drops user:password from a URL before it is logged, stored or mailed. */
+/**
+ * Drops user:password from a URL, or each URL of a comma-separated server list, before it is
+ * logged, stored or mailed. TM-309: fails closed — a part that does not parse loses everything up
+ * to its last '@' by regex, and never comes back raw.
+ */
 export function redactUrl(url) {
   if (!url) return null;
-  try { const parsed = new URL(url); parsed.username = ''; parsed.password = ''; return parsed.toString().replace(/\/$/, ''); }
-  catch { return url; }
+  const strip = (text) => text.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme = '') => `${scheme}[redacted]@`);
+  return String(url).split(',').map((part) => part.trim()).filter(Boolean).map((part) => {
+    let out;
+    try { const parsed = new URL(part); parsed.username = ''; parsed.password = ''; out = parsed.toString().replace(/\/$/, ''); }
+    catch { out = part; }
+    // A form URL parses without a host ('u:secret@host' is scheme 'u:') keeps its '@'; strip it too.
+    return out.includes('@') ? strip(out) : out;
+  }).join(',') || null;
 }
 
 export const transportStatePath = (env = process.env, home = homedir()) => join(stateRoot(env, home), 'transport.json');
@@ -440,7 +450,7 @@ export async function writeTransportState(env, home, state) {
 
 /**
  * TM-295: keeps an open outage live for a holder of its fallback, so a long-lived process that is not
- * a supervisor (an MCP server with the dead NATS_URL) does not see its outage retired and then mint a
+ * a supervisor (an MCP server with a dead AO_NATS_URL) does not see its outage retired and then mint a
  * second one on reconnect. Writes only when last_fallback_at is over a quarter bound old. Returns
  * whether it wrote.
  */
@@ -494,6 +504,28 @@ async function recordTransportSelection(env, selection, home = homedir()) {
     fallback: selection.fallback, at: new Date().toISOString(), pid: process.pid, outage });
 }
 
+/**
+ * TM-308 / ADR-0032: a managed NATS port held by another process is an outage of its own. It is
+ * recorded where ADR-0031 outages live, so doctor, `services status` and the lead's mail all see
+ * it, and the next managed open that succeeds on that port closes it.
+ */
+async function recordPortConflict(env, home, error) {
+  const previous = await readTransportState(env, home);
+  const url = `nats://127.0.0.1:${error.details?.port}`;
+  const at = new Date().toISOString();
+  const open = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url ? previous.outage : null;
+  await writeJson(transportStatePath(env, home), { kind: 'nats', source: previous?.source ?? null, url: previous?.url ?? null,
+    fallback: null, at, pid: process.pid, outage: { source: 'managed-local', url, error: String(error.message).slice(0, 500),
+      conflict: { port: error.details?.port ?? null, holder: error.details?.holder ?? null }, since: open?.since ?? at, last_fallback_at: at, recovered_at: null } });
+}
+
+/** ADR-0032: the generic NATS variables are not ao sources. One line for a supervisor to log at start, or null. */
+export function ignoredNatsEnv(env = process.env) {
+  const names = ['NATS_URL', 'NATS_USER', 'NATS_PASSWORD'].filter((name) => env[name]);
+  return names.length ? { event: 'nats-env-ignored', variables: names,
+    message: `${names.join(', ')} ${names.length > 1 ? 'are' : 'is'} set but ignored: ao uses AO_NATS_URL, the gateway orch.sock, or its managed NATS on nats.port (ADR-0032).` } : null;
+}
+
 export async function openNatsTransport({ env = process.env, home = homedir(), servers, credsFile, name = 'ao-orch' } = {}) {
   const {
     AckPolicy,
@@ -516,19 +548,24 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     }
   });
   const sc = StringCodec();
-  const url = servers || env.AO_NATS_URL || env.NATS_URL || '';
+  // ADR-0032: AO_NATS_URL, then the gateway orch.sock, then managed local NATS on nats.port. The
+  // generic NATS_URL belongs to other tools and is never read here.
+  const url = servers || env.AO_NATS_URL || '';
   // TM-276 / ADR-0031: which NATS this is and why, so supervisor start, status and doctor can say.
-  const configuredSource = servers ? 'servers' : env.AO_NATS_URL ? 'AO_NATS_URL' : env.NATS_URL ? 'NATS_URL' : null;
+  const configuredSource = servers ? 'servers' : env.AO_NATS_URL ? 'AO_NATS_URL' : null;
   let selection = { kind: 'nats', source: configuredSource, url: redactUrl(url), fallback: null };
   let bridge = null;
   let target = url;
-  // An explicit `servers` argument or AO_NATS_URL is the operator's choice and is never replaced.
-  // Anything else (ambient NATS_URL, the gateway socket, nothing) may fall back to a local server.
-  const explicit = Boolean(servers || env.AO_NATS_URL);
-  const autostart = !explicit && env.AO_NATS_AUTOSTART !== '0';
+  // An explicit `servers` argument (a test reader, a probe) is never replaced. AO_NATS_URL and the
+  // gateway socket fall back to the managed local server and report the outage (ADR-0031).
+  const autostart = !servers && env.AO_NATS_AUTOSTART !== '0';
   let local = null;
   const useLocal = async () => {
-    local = await ensureLocalNats({ env });
+    try { local = await ensureLocalNats({ env }); }
+    catch (error) {
+      if (error?.code === 'TOPOLOGY_NATS_PORT_CONFLICT' && !servers) await recordPortConflict(env, home, error).catch(() => {});
+      throw error;
+    }
     target = local.servers;
     selection = { ...selection, source: 'managed-local', url: local.servers };
   };
@@ -559,13 +596,14 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     bridge?.server.close();
     bridge = null;
     if (!autostart || local) fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}`);
-    // The configured target (ambient NATS_URL or a stale gateway socket) is down: start the local one.
+    // The configured target (AO_NATS_URL or a stale gateway socket) is down: start the local one.
     const unreachable = { source: selection.source, url: selection.url, error: String(error.message).slice(0, 500) };
     try {
       await useLocal();
       selection = { ...selection, fallback: unreachable };
       nc = await dial();
     } catch (second) {
+      if (second?.code === 'TOPOLOGY_NATS_PORT_CONFLICT') throw second;
       fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}; local fallback failed: ${second.message}`);
     }
   }

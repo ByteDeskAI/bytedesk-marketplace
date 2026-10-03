@@ -446,7 +446,7 @@ for (const transport of ['file', 'nats']) {
   test(`a b64 verdict quoting shell code arrives intact through a wrapping pane under the ${transport} transport`, async t => {
     const f = await fixture(t);
     // A NATS URL nothing listens on: collection must not depend on a verdict the reviewer cannot publish.
-    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1' };
+    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1', AO_NATS_AUTOSTART: '0' };
     const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
     const response = { verdict: 'changes_requested', findings: [quoting, finding({ severity: 'note', line: 3 })] };
     for (const width of [50, 61, 80, 120]) {
@@ -512,7 +512,7 @@ test('a complete b64 verdict followed by a one-word row decodes intact', () => {
 for (const transport of ['file', 'nats']) {
   test(`a failed request is refused without escalating again under the ${transport} transport (TM-220)`, async t => {
     const f = await fixture(t);
-    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1' };
+    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1', AO_NATS_AUTOSTART: '0' };
     const sent = [];
     const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
     const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });

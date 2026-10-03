@@ -74,8 +74,25 @@ die:
 | Process | What it does |
 |---|---|
 | `session-host` | Serves the run session pages and the gateway's control seam. Also sweeps the state root for runs whose worker died, so lost runs are found even when no Claude or Codex session is open. |
-| `nats` | The local NATS server, when no `AO_NATS_URL` is set and a working `nats-server` exists. |
+| `nats` | The local NATS server, when no `AO_NATS_URL` is set and a working `nats-server` exists. It listens on `127.0.0.1:<nats.port>` (see below). |
 | `supervise-<repo>` | One repository supervisor per registered repository: presence, census, prompt refresh, held mail, lead recovery. Not on native Windows, which has no tmux; `status` reports it as unsupported. |
+
+**Which NATS ao uses (ADR-0032).** In order: `AO_NATS_URL`, then the gateway listener
+(`orch.sock`), then ao's managed NATS on `nats://127.0.0.1:<nats.port>`. The generic `NATS_URL`,
+`NATS_USER` and `NATS_PASSWORD` belong to other tools: ao ignores them and its supervisor says so
+once at start. If `AO_NATS_URL` or `orch.sock` is unreachable, ao works on the managed NATS and tells
+the repository lead (ADR-0031).
+
+**The managed port is `nats.port` in your ao user config**
+(`$XDG_CONFIG_HOME/agent-orchestration/config.json`, default `~/.config/agent-orchestration/config.json`).
+The first managed start picks a free port from 45200–45999 (clear of the session host's 45000–45032
+and process-compose's 45100–45199) and writes it there; an existing port in
+`~/.bytedesk/agent-orchestration/nats/state.json` is adopted instead when it is free. Every later start
+uses exactly that port. You may set it yourself: an integer from 1024 to 65535, then run
+`agent-orchestration services ensure`. If another process holds the port, ao does **not** move: it
+refuses to start NATS, names the port and (on Linux) the holding process in `services status --json`
+(`nats.conflict`) and `doctor` (`NATS_PORT_CONFLICT`), and mails the repository lead. The generated
+NATS user and password stay in `state.json` (mode 0600), never in the user config.
 
 **Start or repair them:** `agent-orchestration services ensure`. You rarely need to run it: the
 plugin's SessionStart hook and monitor run it, and so does anything that needs a session host or a

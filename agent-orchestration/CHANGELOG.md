@@ -121,6 +121,60 @@
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
 
+## [0.15.3] — 2026-10-02
+
+### Changed
+
+- **Managed NATS runs on a fixed port from the user config (TM-308, ADR-0032).** The port is
+  `nats.port` in `$XDG_CONFIG_HOME/agent-orchestration/config.json`, validated as an integer from
+  1024 to 65535. The first managed start adopts the port `nats/state.json` already records when it is
+  free (or is ao's own server), else picks the first free port in 45200–45999, and writes it. Every
+  later start uses exactly that port, through `ensureLocalNats` and through the process-compose
+  project (`prepareLocalNats` writes it into `nats-server.conf`), so restarts and reboots keep it.
+  Credentials stay in `state.json` (0600).
+- **A taken port is refused, not moved.** If another process holds `nats.port`, the start fails with
+  `TOPOLOGY_NATS_PORT_CONFLICT`, naming the port and, on Linux, the holder (`/proc/net/tcp` → socket
+  inode → pid and command). The conflict is recorded through the ADR-0031 outage path, so `doctor`
+  reports `NATS_PORT_CONFLICT`, the setup doctor lists it, the repository lead gets one
+  `NATS port conflict` mail (no re-dial), and the next successful managed start closes it.
+  `services status --json` now shows `nats.port`, `nats.url` and a live `nats.conflict`;
+  `services ensure` reports `natsError` instead of silently leaving NATS out.
+- **The generic `NATS_URL` is not an ao source.** Sources are `AO_NATS_URL`, then the gateway
+  `orch.sock`, then managed NATS on `nats.port`. `NATS_URL`, `NATS_USER` and `NATS_PASSWORD` are
+  ignored, and the supervisor logs one `nats-env-ignored` event at start. A down port-forward behind
+  `NATS_URL` no longer causes a fallback warning or an outage report. An unreachable `AO_NATS_URL`
+  now falls back to managed NATS and is reported to the lead, as ADR-0031 decided (it used to fail
+  outright); `AO_NATS_AUTOSTART=0` still makes it fail.
+
+### Fixed
+
+- **NATS outage and recovery notices now reach the lead (TM-309 C1).** `natsOutageTick` sent them
+  with no `from`/`fromProject`, so the standing mailbox held every one permanently as
+  `source_identity_required`; every such record on the authoring machine was held, never delivered.
+  They now come from `ao-supervisor` in the same repository, which admission routes to the lead. A
+  record counts as sent only when its status is `delivered`: a held one is reported on the
+  supervisor tick (`nats_outage.status` and `reason`) and retried by the mailbox, and a recovery is
+  sent only after its outage was delivered. Message ids moved to a `v2` derivation so an old held
+  record under the same id cannot refuse the new envelope.
+- **`redactUrl` fails closed (TM-309 A1).** A comma-separated server list or a URL `new URL()`
+  rejects used to come back raw, leaking `user:secret` into `transport.json`, logs, doctor, `services
+  status` and the lead's mail. Each server in a list is now redacted, and anything still holding an
+  `@` loses its userinfo to `[redacted]`.
+
+### Tests
+
+- `tests/unit/nats-outage.test.mjs` gives the test repository a real library lead and reads that
+  lead's inbox over the real transport: exactly one outage and one recovery arrive, each `delivered`.
+  Removing the sender again fails three tests with `source_identity_required`. New `redactUrl`
+  cases cover lists and malformed forms; the old raw-return behaviour fails them.
+- `tests/unit/nats-port.test.mjs`: the first start writes `nats.port` in 45200–45999 and a second
+  start and two process-compose re-renders reuse it; a port held by a test listener is refused with
+  the holder's pid, starts nothing, shows in `doctor` and `services status`, and mails the lead
+  through `natsOutageTick` with an injected deliver; an unreachable `NATS_URL` gives managed NATS
+  with no fallback and no outage; migration adopts a free `state.json` port and skips a held or
+  sub-1024 one; validation rejects 80, 70000 and `"abc"`. `nats-outage.test.mjs` now drives the
+  ADR-0031 path with `AO_NATS_URL`.
+
 ## [0.15.2] — 2026-10-02
 
 ### Fixed
