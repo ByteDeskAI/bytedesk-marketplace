@@ -11,6 +11,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { killOwnedServer } from "../helpers/isolated-tmux.mjs";
+import { markedProcesses } from "../helpers/suite-leaks.mjs";
 import { NESTED_TEAM_ICON, ROLE_ICON_MAP, UNKNOWN_ROLE_ICON } from "../../topology/lib/identity.mjs";
 import { leadRegistryDir } from "../../topology/lib/lead.mjs";
 import { canonicalRepoId, repoKey } from "../../topology/lib/repoid.mjs";
@@ -75,7 +76,8 @@ test("role icons reach managed panes and title bars; the registered lead wears i
   // Short on purpose: tmux's socket path must fit in ~104 bytes.
   const consumer = await mkdtemp("/tmp/ao-ri-");
   const env = {
-    TMUX: "", AO_TRANSPORT: "file", AO_TMUX_COMMAND: "tmux", TMUX_TMPDIR: consumer, HOME: consumer, XDG_CONFIG_HOME: join(consumer, "config"),
+    // TM-330: pinned here too, not only by the preflight; with services on, launch starts a process-compose under HOME.
+    TMUX: "", AO_TRANSPORT: "file", AGENT_ORCHESTRATION_SERVICES: "0", AO_TMUX_COMMAND: "tmux", TMUX_TMPDIR: consumer, HOME: consumer, XDG_CONFIG_HOME: join(consumer, "config"),
     AO_CONSUMER: consumer, AGENT_ORCHESTRATION_STATE_HOME: join(consumer, "state"), AO_RING_WINDOW_MS: "20000", AO_BELL_POLL_MS: "500",
     // TM-280: the run below re-spawns Ada, who is live in her role session. The fake agent writes no
     // handoff, so bound the wait (default 5m) and let the transcript fallback stand in.
@@ -86,6 +88,8 @@ test("role icons reach managed panes and title bars; the registered lead wears i
   // One hook: reap the supervisor, then the server, then the directory they write into.
   t.after(async () => {
     await stopSupervisors(consumer);
+    // TM-330: anything still carrying this test's private HOME (a service manager, if the services were ever on).
+    for (const { pid } of markedProcesses(`HOME=${consumer}`)) { try { process.kill(pid, "SIGKILL"); } catch {} }
     await killIsolatedServer(env, socket);
     await rm(consumer, { recursive: true, force: true });
   });

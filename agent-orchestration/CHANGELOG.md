@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.1] — 2026-10-03
+
+_EP-026 follow-ups TM-315, TM-327, TM-328, TM-329 and TM-330._
+
+### Fixed
+
+- **`wait` on nothing pending no longer succeeds (TM-327).** A barrier that finds no obligation at all — an unknown or not-yet-sent `--message` id, or a run with none — returned `ok: true` with empty replies and journalled `wait.satisfied`. It now returns `ok: false`, code `TOPOLOGY_NOTHING_PENDING`, journals `wait.nothing_pending` and exits 2. Real pending and already-answered waits are unchanged. `ao-topology wait` is the only caller of `waitForReplies`.
+- **A spec-launched worker can acknowledge its prompt (TM-328).** `launch` wrote `prompt-state.json` without `desired_session`, `desired_binding` or `repo_id`, so `ao-topology prompt ack` always failed with `TOPOLOGY_PROMPT_ACK_INVALID`. `startAgentInPane` (used by launch and failover) now stages them with the same `promotePromptForIncarnation` the library-agent path uses, once the agent process is running and before its brief is delivered. `acknowledgePrompt` is unchanged and still strict.
+- **A handoff retry no longer re-sends a successor the recipient already consumed (TM-315).** The retry probe saw only unconsumed stream messages. A recipient now writes `<repo>.<agent>.delivered.<id>` in `ORCH_HANDOFFS` (create, permanent) when it acknowledges a mail message, and `hasMailMessage` checks it. Agents may read other agents' `delivered` records (ids only), nothing else of theirs.
+- **Supervision-transport test teardown (TM-329).** `node:test` runs `t.after` hooks in registration order, so the directory was removed while the supervisor was still rewriting its presence directory (`ENOTEMPTY`). The supervisor, broker and reader now stop first.
+
+### Added
+
+- **Suite-end check for leaked service managers (TM-330).** A `process-compose` started from a `/tmp/ao-*` home during a run, and still alive at its end, now fails the run and is named. Scrubbed-environment processes carry no `AO_TEST_RUN`, so the check matches on the binary path. The role-icon contract fixture pins `AGENT_ORCHESTRATION_SERVICES=0` and reaps processes holding its private HOME.
+
 ## [0.16.0] — 2026-10-03
 
 _TM-310, TM-311 and TM-312, on top of the 0.15.3 line below (TM-308 fixed `nats.port`, TM-309 outage notices), which this version includes._
