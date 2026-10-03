@@ -2,11 +2,11 @@
 // never mid-review. Fake reviewer only: alive/open/turnEnd/kill are injected, no tmux is touched.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { ensureReviewer, restartReviewer, reviewerInboxRoot } from '../../topology/lib/reviewer.mjs';
+import { ensureReviewer, restartReviewer, reviewerInboxRoot, readReviewerRecord, requestReview } from '../../topology/lib/reviewer.mjs';
 import { refreshPrompt, promptRevisions } from '../../topology/lib/prompt-lifecycle.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 
@@ -17,19 +17,26 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const consumer = join(root, 'repo'), pluginRoot = join(root, 'plugin'), home = join(root, 'home');
   await mkdir(consumer); await run('git', ['init', '-q', consumer]);
+  await run('git', ['-C', consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'base']);
+  const revision = (await run('git', ['-C', consumer, 'rev-parse', 'HEAD'])).stdout.trim();
   const writeConfig = instructions => writeJson(join(pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'codex', instructions } }, management: { reviewer_providers: ['codex', 'claude'] } });
   await writeConfig('Review independently.');
   const env = { ...process.env, XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
-  const f = { consumer, pluginRoot, home, env };
+  const f = { consumer, pluginRoot, home, env, revision };
+  // An admitted, finished TM-1, so a real requestReview can be attempted during the restart.
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  const identity = await canonicalRepoId(consumer);
+  await writeJson(join(env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey(identity.id), 'TM-1.json'), { started: true, task: 'TM-1', owner: 'author', repo_id: identity.id, base_revision: revision, finish: { revision } });
   // The fake reviewer: one live incarnation at a time; every launch goes through ensureReviewer's
   // `open`, the reviewer-only opener whose real form builds the read-only argv.
   const calls = [];
   let live = null, n = 0;
   const probes = {
+    onKill: null,
     alive: async (_s, record) => Boolean(live && record?.binding?.paneId === live.paneId),
     open: async () => { calls.push('open'); live = incarnation(++n); return { session: 'review', pane: live.paneId, binding: live }; },
     turnEnd: async () => { calls.push('turnEnd'); return { ended: true, reason: 'no busy evidence' }; },
-    kill: async () => { calls.push('kill'); live = null; },
+    kill: async () => { calls.push('kill'); await probes.onKill?.(); live = null; },
   };
   const { agent } = await ensureReviewer({ ...f, probes });
   const revisions = async () => promptRevisions({ agent, consumer, loaded: await loadConfig(f), live: true });
@@ -57,20 +64,57 @@ test('TM-302 restart applies a staged prompt by a read-only relaunch and clears 
   assert.equal(after.applied_revision, before.desired_revision);
 });
 
-test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY while a review request is published and uncollected', async t => {
+test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarnation request is in flight', async t => {
   const f = await fixture(t);
+  const { binding } = await readReviewerRecord(f.consumer, f.env, f.home);
   const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests');
-  const nonce = '11111111-2222-3333-4444-555555555555';
-  await writeJson(join(dir, 'TM-1-abc.json'), { task: 'TM-1', revision: 'abc', nonce, reviewer_id: f.agent.id, state: 'published' });
-  await writeJson(join(dir, 'TM-2-def.json'), { task: 'TM-2', revision: 'def', nonce: 'collected', reviewer_id: f.agent.id, state: 'published', collected_at: 'x' });
+  const nonce = '11111111-2222-3333-4444-555555555555', waiting = '66666666-7777-8888-9999-000000000000';
+  const request = (task, extra) => writeJson(join(dir, `${task}-abc.json`), { task, revision: 'abc', reviewer_id: f.agent.id, binding, state: 'published', ...extra });
+  await request('TM-1', { nonce });
+  // still pending: the queue has only recorded "no answer on the pane yet"
+  await request('TM-2', { nonce: waiting, collection: { code: 'TOPOLOGY_REVIEWER_RESPONSE', reason: 'Expected a nonce-bound review response' } });
+  // outcomes, none of which a restart can orphan
+  await request('TM-3', { nonce: 'collected', collected_at: 'x', state: 'collected' });
+  await request('TM-4', { nonce: 'withdrawn', collection: { code: 'TOPOLOGY_REVIEWER_RANGE', reason: 'Review request no longer covers the admitted task range.' } });
+  await request('TM-5', { nonce: 'stale', binding: { ...binding, paneId: '%0', sessionId: '$0' } });
+  await request('TM-6', { nonce: 'failed', state: 'failed' });
   f.calls.length = 0;
   await assert.rejects(restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes }), error => {
     assert.equal(error.code, 'TOPOLOGY_AGENT_BUSY');
     assert.match(error.message, new RegExp(nonce));
-    assert.deepEqual(error.details.pending.map(p => p.nonce), [nonce], 'only the uncollected request blocks');
+    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting].sort(), 'only in-flight current-incarnation requests block');
     return true;
   });
   assert.deepEqual(f.calls, [], 'nothing waited, killed or launched');
+  assert.equal((await readReviewerRecord(f.consumer, f.env, f.home)).restarting, undefined, 'a refused restart leaves no mark');
+});
+
+test('TM-302 a withdrawn or stale-incarnation request does not block a restart', async t => {
+  const f = await fixture(t);
+  const { binding } = await readReviewerRecord(f.consumer, f.env, f.home);
+  const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests');
+  await writeJson(join(dir, 'TM-4-abc.json'), { task: 'TM-4', revision: 'abc', nonce: 'withdrawn', reviewer_id: f.agent.id, binding, state: 'published', collection: { code: 'TOPOLOGY_REVIEWER_RANGE', reason: 'range moved' } });
+  await writeJson(join(dir, 'TM-5-abc.json'), { task: 'TM-5', revision: 'abc', nonce: 'stale', reviewer_id: f.agent.id, binding: { ...binding, paneId: '%0' }, state: 'published' });
+  const result = await restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes });
+  assert.equal(result.new_session.incarnation.paneId, '%2');
+});
+
+test('TM-302 the record is marked restarting before the old incarnation ends, so a new request is refused until the relaunch', async t => {
+  const f = await fixture(t);
+  let refused = null, mark = null;
+  f.probes.onKill = async () => {
+    mark = (await readReviewerRecord(f.consumer, f.env, f.home)).restarting;
+    refused = await requestReview({ ...f, task: 'TM-1', revision: f.revision, authorAgentIds: ['author'], wake: async () => assert.fail('a restarting reviewer must not be woken') }).then(() => null, error => error);
+  };
+  await restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes });
+  assert.ok(mark?.at, 'the mark was on the record when the old incarnation was ended');
+  assert.equal(refused?.code, 'TOPOLOGY_REVIEWER_RESTARTING');
+  const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests');
+  await assert.rejects(readFile(join(dir, `TM-1-${f.revision}.json`)), { code: 'ENOENT' }, 'the refused request was not written');
+  const after = await readReviewerRecord(f.consumer, f.env, f.home);
+  assert.equal(after.restarting, undefined, 'the relaunch cleared the mark');
+  const request = await requestReview({ ...f, task: 'TM-1', revision: f.revision, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  assert.equal(request.binding.paneId, '%2', 'after the relaunch a request binds the new incarnation');
 });
 
 test('TM-302 resume on a reviewer is a fresh read-only launch and says so', async t => {

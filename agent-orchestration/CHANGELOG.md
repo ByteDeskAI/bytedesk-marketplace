@@ -21,8 +21,11 @@
   with `TOPOLOGY_REVIEWER_READ_ONLY`, and `reviewer ensure` leaves a live reviewer alone, so a
   reviewer's staged prompt could never be applied and `agent list` showed it `restart_required`
   forever. A reviewer restart now refuses `TOPOLOGY_AGENT_BUSY` (naming each pending nonce) while a
-  review request to it is published and uncollected, waits out its turn, ends the exact managed pane
-  and relaunches the same identity through the existing read-only launch on the current prompt.
+  review request to its current incarnation is in flight — not collected, not failed, and with no
+  terminal collection outcome (a request withdrawn as `TOPOLOGY_REVIEWER_RANGE`, or bound to an
+  earlier incarnation, does not block) — waits out its turn, marks the reviewer record `restarting`
+  (so `reviewer request` is refused `TOPOLOGY_REVIEWER_RESTARTING` until the relaunch clears it), ends
+  the exact managed pane and relaunches the same identity through the existing read-only launch on the current prompt.
   `--mode resume` and `--mode handoff` are both a fresh read-only launch for a reviewer — it keeps no
   state and cannot write a handoff — and the result says so (`fallback: "fresh"`). The read-only
   launch itself is unchanged.

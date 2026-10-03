@@ -274,10 +274,16 @@ instead); `TOPOLOGY_RESTART_MODE` for a missing or unknown `--mode`; `TOPOLOGY_R
 for an agent that is one pane of a workflow team session.
 
 **The reviewer (TM-302)** takes its own path, because it launches only read-only. `agent restart` on
-the registered reviewer is refused `TOPOLOGY_AGENT_BUSY` while any review request to it is published
-and not yet collected (`details.pending` names each task, revision and nonce; collect first), and
-again if its turn does not end within `--turn-timeout`. Otherwise the exact managed pane incarnation
-is ended and the reviewer is relaunched under the same identity through `reviewer ensure`'s
+the registered reviewer is refused `TOPOLOGY_AGENT_BUSY` while a review request to its current
+incarnation is in flight (`details.pending` names each task, revision and nonce; collect first), and
+again if its turn does not end within `--turn-timeout`. In flight means not collected, not failed,
+and no terminal collection outcome: the queue's "no answer yet" (`TOPOLOGY_REVIEWER_RESPONSE`) still
+counts, but a request withdrawn as `TOPOLOGY_REVIEWER_RANGE`, or bound to an earlier incarnation
+(which can never be collected), does not. Otherwise the reviewer record is marked `restarting` under
+the reviewer lock — `reviewer request` writes its request under the same lock, so it is either seen
+by the final in-flight check or refused `TOPOLOGY_REVIEWER_RESTARTING` until the relaunch clears the
+mark (a mark older than 15 minutes is treated as a crashed restart) — and the exact managed pane
+incarnation is ended and the reviewer is relaunched under the same identity through `reviewer ensure`'s
 read-only launch, on the freshly composed prompt. A reviewer keeps no conversation state and cannot
 write a handoff, so both modes are a fresh launch and the result says so: `restart` carries
 `mode: "fresh"`, `requested_mode`, `fallback: "fresh"` with `fallback_reason`, `read_only: true`,

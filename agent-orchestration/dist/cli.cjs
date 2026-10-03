@@ -22196,7 +22196,8 @@ async function ensureReviewer({ consumer, home = (0, import_node_os18.homedir)()
       const prompt2 = await refreshPrompt({ agent: agent2, consumer, home, pluginRoot, env, live: false });
       invariant2(prompt2.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt2.errors)}`, { errors: prompt2.errors ?? [] });
       const opened2 = await session.open({ agent: agent2, consumer, home, pluginRoot, env, provider: record3.provider, model: agent2.model ?? null, log, existing: record3 });
-      const updated = { ...record3, session: opened2.session ?? record3.session, pane: opened2.pane ?? record3.pane ?? null, binding: opened2.binding ?? null, updated_at: nowIso() };
+      const { restarting: _restarting, ...unmarked } = record3;
+      const updated = { ...unmarked, session: opened2.session ?? record3.session, pane: opened2.pane ?? record3.pane ?? null, binding: opened2.binding ?? null, updated_at: nowIso() };
       await writeJson(recordPath2, updated);
       log(`restarted reviewer ${record3.agent_id} in ${updated.session}`);
       return { record: updated, agent: agent2, created: false, reattached: false, restarted: true };
@@ -22336,14 +22337,15 @@ async function detachReviewer({ consumer, env = process.env, home = (0, import_n
     return { action: "detached", detached: true, record: record2, killed };
   });
 }
-async function uncollectedReviewRequests(consumer, agentId, env, home) {
+async function uncollectedReviewRequests(consumer, record2, env, home) {
   const dir = (0, import_node_path46.join)(await reviewerInboxRoot(consumer, env, home), "requests");
   const names2 = (await (0, import_promises37.readdir)(dir).catch(() => [])).filter((name) => name.endsWith(".json"));
   const requests = await Promise.all(names2.map((name) => readJson3((0, import_node_path46.join)(dir, name)).catch(() => null)));
-  return requests.filter((request) => request && request.reviewer_id === agentId && !request.collected_at && request.state !== "failed");
+  return requests.filter((request) => request && request.reviewer_id === record2.agent_id && !request.collected_at && request.state !== "failed" && (!request.collection?.code || request.collection.code === "TOPOLOGY_REVIEWER_RESPONSE") && sameIncarnation(request.binding, record2.binding));
 }
-async function assertNoReviewInFlight(consumer, agentId, env, home) {
-  const pending = await uncollectedReviewRequests(consumer, agentId, env, home);
+async function assertNoReviewInFlight(consumer, record2, env, home) {
+  const agentId = record2.agent_id;
+  const pending = await uncollectedReviewRequests(consumer, record2, env, home);
   invariant2(
     !pending.length,
     "TOPOLOGY_AGENT_BUSY",
@@ -22366,20 +22368,46 @@ async function restartReviewer({ consumer, agentId, mode = "handoff", home = (0,
     },
     ...probes
   };
-  const { lockPath } = await reviewerPaths(consumer, env, home);
-  const before = await withLock(lockPath, async () => {
+  const { lockPath, recordPath: recordPath2 } = await reviewerPaths(consumer, env, home);
+  const current = async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
     invariant2(record2?.agent_id === agentId, "TOPOLOGY_REVIEWER_NOT_REGISTERED", `${agentId} is not this repository's registered reviewer; nothing was restarted. Use: ao-topology reviewer ensure.`, { agent_id: agentId });
     invariant2(record2.managed !== false && record2.externally_owned !== true, "TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN", `Reviewer ${agentId} runs in a session this host did not launch (assigned); restart it where it is owned.`, { agent_id: agentId });
-    await assertNoReviewInFlight(consumer, agentId, env, home);
-    if (!await session.alive(record2.session, record2)) return { record: record2, ended: false };
-    const turn = await session.turnEnd(record2);
-    invariant2(turn.ended, "TOPOLOGY_AGENT_BUSY", `Reviewer ${agentId} is mid-turn in "${record2.session}" and did not finish within ${turnTimeoutMs}ms; it was not interrupted. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: record2.session, reason: turn.reason });
-    await assertNoReviewInFlight(consumer, agentId, env, home);
-    await session.kill(record2);
-    return { record: record2, ended: true };
+    invariant2(!restartMarked(record2), "TOPOLOGY_AGENT_BUSY", `Reviewer ${agentId} is already being restarted (since ${record2.restarting?.at}).`, { agent_id: agentId, restarting: record2.restarting });
+    return record2;
+  };
+  const first = await withLock(lockPath, async () => {
+    const record2 = await current();
+    await assertNoReviewInFlight(consumer, record2, env, home);
+    return { record: record2, alive: await session.alive(record2.session, record2) };
   });
-  const ensured = await ensureReviewer({ consumer, home, pluginRoot, env, log, probes: { alive: session.alive, open: session.open } });
+  if (first.alive) {
+    const turn = await session.turnEnd(first.record);
+    invariant2(turn.ended, "TOPOLOGY_AGENT_BUSY", `Reviewer ${agentId} is mid-turn in "${first.record.session}" and did not finish within ${turnTimeoutMs}ms; it was not interrupted. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: first.record.session, reason: turn.reason });
+  }
+  const before = await withLock(lockPath, async () => {
+    const record2 = await current();
+    invariant2(sameIncarnation(record2.binding, first.record.binding), "TOPOLOGY_REVIEWER_OWNERSHIP_UNKNOWN", `Reviewer ${agentId} changed incarnation while its turn was waited out; nothing was restarted. Retry.`, { agent_id: agentId });
+    await assertNoReviewInFlight(consumer, record2, env, home);
+    await writeJson(recordPath2, { ...record2, restarting: { at: nowIso(), pid: process.pid } });
+    return { record: record2, ended: first.alive };
+  });
+  const unmark = () => withLock(lockPath, async () => {
+    const { restarting: _, ...rest } = await readReviewerRecord(consumer, env, home);
+    await writeJson(recordPath2, rest);
+  }).catch(() => {
+  });
+  if (first.alive) await session.kill(before.record).catch(async (error51) => {
+    await unmark();
+    throw error51;
+  });
+  let ensured;
+  try {
+    ensured = await ensureReviewer({ consumer, home, pluginRoot, env, log, probes: { alive: session.alive, open: session.open } });
+  } catch (error51) {
+    await unmark();
+    throw error51;
+  }
   const { readPromptState: readPromptState2 } = await Promise.resolve().then(() => (init_prompts(), prompts_exports));
   log(`restarted reviewer ${agentId} read-only in ${ensured.record.session}`);
   return {
@@ -22710,19 +22738,34 @@ async function requestReview({ consumer, task, revision, authorAgentIds, baseRev
   invariant2(authorAgentIds.includes(range.owner), "TOPOLOGY_REVIEWER_AUTHORS", "Review authors must include the admitted task owner.");
   const dir = (0, import_node_path46.join)(await reviewerInboxRoot(consumer, env, home), "requests");
   const key = `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${revision}`;
+  const { lockPath: reviewerLock } = await reviewerPaths(consumer, env, home);
   return withLock((0, import_node_path46.join)(dir, `${key}.lock`), async () => {
     const path3 = (0, import_node_path46.join)(dir, `${key}.json`);
-    const prior = await readJson3(path3).catch((error51) => {
-      if (error51.code === "ENOENT") return null;
-      throw error51;
+    const written = await withLock(reviewerLock, async () => {
+      const record3 = await readReviewerRecord(consumer, env, home);
+      invariant2(record3, "TOPOLOGY_REVIEWER_UNAVAILABLE", "No designated reviewer; preserve the finished task until one is available.");
+      invariant2(
+        !restartMarked(record3),
+        "TOPOLOGY_REVIEWER_RESTARTING",
+        `Reviewer ${record3.agent_id} is being restarted (since ${record3.restarting?.at}); the request was not published. Request the review again once it is back: ao-topology reviewer status.`,
+        { agent_id: record3.agent_id, restarting: record3.restarting ?? null }
+      );
+      invariant2(!authorAgentIds.includes(record3.agent_id), "TOPOLOGY_REVIEWER_CONFLICT", "Review request must identify independent authors.");
+      const prior = await readJson3(path3).catch((error51) => {
+        if (error51.code === "ENOENT") return null;
+        throw error51;
+      });
+      invariant2(incarnationOf(record3.binding), "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Review requires the exact designated reviewer incarnation.");
+      if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record3.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record3.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path: path3 } };
+      const patchPath = (0, import_node_path46.join)(dir, `${key}.patch`);
+      await writeText(patchPath, range.patch);
+      const request2 = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto22.randomUUID)(), task, revision, repo_id: record3.repo_id, reviewer_id: record3.agent_id, binding: incarnationOf(record3.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+      await writeJson(path3, request2);
+      return { record: record3, request: request2 };
     });
-    invariant2(incarnationOf(record2.binding), "TOPOLOGY_REVIEWER_BINDING_REQUIRED", "Review requires the exact designated reviewer incarnation.");
-    if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record2.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record2.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { ...prior, path: path3 };
-    const patchPath = (0, import_node_path46.join)(dir, `${key}.patch`);
-    await writeText(patchPath, range.patch);
-    const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto22.randomUUID)(), task, revision, repo_id: record2.repo_id, reviewer_id: record2.agent_id, binding: incarnationOf(record2.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
-    await writeJson(path3, request);
-    const delivery = await wake({ consumer, record: record2, request, path: path3, env, home }).catch((error51) => ({ rang: false, reason: error51.code ?? error51.message }));
+    if (written.prior) return written.prior;
+    const { request } = written;
+    const delivery = await wake({ consumer, record: written.record, request, path: path3, env, home }).catch((error51) => ({ rang: false, reason: error51.code ?? error51.message }));
     const published = { ...request, delivery: { ...delivery, at: nowIso() }, state: "published" };
     await writeJson(path3, published);
     return { ...published, path: path3 };
@@ -23026,7 +23069,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process12, import_node_crypto22, import_promises37, import_node_os18, import_node_path46, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, COMMIT_SHA, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process12, import_node_crypto22, import_promises37, import_node_os18, import_node_path46, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, COMMIT_SHA, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process12 = require("node:child_process");
@@ -23058,6 +23101,8 @@ var init_reviewer = __esm({
     REVIEW_PATCH_MAX_BYTES = 64 * 1024 * 1024;
     FINDING_TEXT_FIELDS = ["claim", "evidence", "fix"];
     MAX_REVIEW_WAKES = 5;
+    RESTART_MARK_STALE_MS = 15 * 6e4;
+    restartMarked = (record2) => Boolean(record2?.restarting) && Date.now() - Date.parse(record2.restarting.at) <= RESTART_MARK_STALE_MS;
     REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 12e4);
     REVIEW_INCOMPLETE_STALL_MS = Number(process.env.AO_REVIEW_INCOMPLETE_STALL_MS ?? 3e4);
     REVIEW_CAPTURE_LINES = 5e3;
@@ -60136,10 +60181,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b02585e9bc7c934d726c55a098957c28c2e6500f61bb0e606cc7b995303f7076";
+  return false ? null : "29bc4e6eb70617ba40a81f23404d8592522fa5d47921ed023aed773b2d91120d";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b02585e9bc7c934d726c55a098957c28c2e6500f61bb0e606cc7b995303f7076";
+  const fingerprint2 = false ? null : "29bc4e6eb70617ba40a81f23404d8592522fa5d47921ed023aed773b2d91120d";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -60697,7 +60742,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b02585e9bc7c934d726c55a098957c28c2e6500f61bb0e606cc7b995303f7076",
+  sourceFingerprint: false ? null : "29bc4e6eb70617ba40a81f23404d8592522fa5d47921ed023aed773b2d91120d",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
