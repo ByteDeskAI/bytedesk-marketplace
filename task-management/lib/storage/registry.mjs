@@ -70,3 +70,27 @@ export function assertWritable(stored) {
   if (!t) throw new ReadOnlySchemaError(stored.type, stored.id);
   if (stored.schema > t.current) throw new ReadOnlySchemaError(stored.type, stored.id, stored.schema, t.current);
 }
+
+// ── large values ─────────────────────────────────────────────────────────────
+// A field too big for one NATS message is stored as a content-addressed blob and replaced in `data`
+// by {"$blob": {digest, size, encoding}}. A reader that does not know this convention sees the
+// reference itself (never a truncated value); decode() leaves it alone, decodeAsync() resolves it.
+export const isBlobRef = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v) && v.$blob && typeof v.$blob.digest === "string" && Object.keys(v).length === 1;
+
+/** Fetch every top-level $blob field through `fetchBlob(digest) -> Buffer|null`, then `decode`. A missing blob throws: silent truncation is the failure this exists to prevent. */
+export async function decodeAsync(envelope, fetchBlob) {
+  return decode(await hydrate(envelope, fetchBlob));
+}
+
+export async function hydrate(envelope, fetchBlob) {
+  if (!envelope?.data || typeof envelope.data !== "object") return envelope;
+  let data = envelope.data;
+  for (const [k, v] of Object.entries(envelope.data)) {
+    if (!isBlobRef(v)) continue;
+    const buf = await fetchBlob(v.$blob.digest);
+    if (!buf) throw new Error(`${envelope.type} ${envelope.id}: field "${k}" is stored as blob ${v.$blob.digest.slice(0, 12)} (${v.$blob.size} bytes) which is not available`);
+    if (data === envelope.data) data = { ...data };
+    data[k] = JSON.parse(buf.toString("utf8"));
+  }
+  return data === envelope.data ? envelope : { ...envelope, data };
+}

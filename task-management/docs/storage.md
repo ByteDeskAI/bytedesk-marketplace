@@ -95,6 +95,38 @@ the event history compare equal. It never changes the default for boards that do
 Plans migrate as `tm/plan` entities; the event history migrates once — each event gets a stable
 id (a hash of the row), a re-run publishes only events the stream does not have yet.
 
+## Large values
+
+NATS refuses a message over `max_payload` (1 MB by default) with `MAX_PAYLOAD_EXCEEDED`. Real task
+bodies hold evidence and notes and reach several MB, so the schema carries them instead of the server
+limit being raised. A top-level `data` field whose JSON is larger than the threshold is stored in the
+`TM_EVIDENCE` object store, named by content hash, and replaced in the envelope by a reference:
+
+    "body": { "$blob": { "digest": "<sha256 of the stored bytes>", "size": 3465793, "encoding": "json" } }
+
+- **Threshold:** 256 KB. Set `storage.spillBytes` in config (`tm config storage.spillBytes 131072`) or
+  `TM_SPILL_BYTES` (env wins). `0` turns spilling off; a larger value then fails at the server's limit.
+  An envelope still over ~900 KB after that has its largest fields spilled until it fits.
+- **Applies to** entities (`put`/`create`), events (the event id is hashed from the full row first, so
+  re-runs still dedupe) and queued offline proposals (the blob is written to the local cache and
+  uploaded on replay).
+- **Reading:** `get`, `list`, `history`, `watch` and `events` return the field whole. A blob that
+  cannot be fetched is an error, never a shortened value. `registry.decodeAsync(envelope, fetchBlob)`
+  does the same for code that reads a raw envelope; the synchronous `decode` leaves the reference
+  untouched.
+- **Old readers** that do not know `$blob` see the reference object, not a truncated string.
+- **Leaf node:** the KV mirrors carry the small envelope. A read through the hub also caches the blob
+  in the leaf's object store, so the leaf serves the entity whole with the hub down.
+- **Same bytes, one blob:** an unchanged field is not uploaded again; old blobs are kept (history
+  revisions still point at them).
+- **Re-running a migration:** an entity that `tm` has written in NATS since the import is never
+  overwritten from the (older) markdown copy; `tm migrate` reports it as `diverged`. `tm cutover` on a
+  board already on `nats` does nothing.
+
+Limits met rehearsing a 324-task, 65,559-event board: only `max_payload`. The migration published all
+events in about 30 s with the default `TM_EVENTS` stream (no `max_msgs`, `max_bytes` or per-subject
+limit) and the default KV history of 64.
+
 ## Board key and its alias
 
 The board key is `sha256(origin owner/name)[:16]`, so every clone shares one board. Earlier work used

@@ -35,6 +35,15 @@ export function storageKind(p) {
   return kind;
 }
 
+/** `storage.spillBytes` from config.json (env TM_SPILL_BYTES wins, inside the backend); undefined = the default. */
+export function spillBytes(p) {
+  try {
+    return JSON.parse(readFileSync(p.config, "utf8")).storage?.spillBytes;
+  } catch {
+    return undefined;
+  }
+}
+
 const key16 = (v) => createHash("sha256").update(String(v)).digest("hex").slice(0, 16);
 
 /** The board's key: its origin remote (owner/name), so every clone shares one board. */
@@ -70,6 +79,7 @@ export function remote(p) {
           actor: { actor: actorLabel(a), agent: a.name },
           url: process.env.TM_NATS_URL,
           creds: process.env.TM_NATS_CREDS,
+          spillBytes: process.env.TM_SPILL_BYTES ? undefined : spillBytes(p),
         },
         { onNotice: (m, why) => process.stderr.write(`${m}${process.env.TM_DEBUG ? ` (${why})` : ""}\n`) },
       ),
