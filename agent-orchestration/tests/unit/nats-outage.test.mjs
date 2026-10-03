@@ -1,7 +1,8 @@
-// TM-276 / ADR-0031: an unreachable configured NATS falls back to the managed local server AND is
-// reported to the repository lead, once per outage plus once on recovery. Driven through the real
-// connect path: a dead AO_NATS_URL, a real local fallback server, then a real server coming up
-// on the configured port.
+// TM-276 / ADR-0031 and TM-324 / ADR-0035: an unreachable configured NATS is reported to the repository
+// lead, once per outage plus once when it ends. An explicit AO_NATS_URL is never replaced: every open
+// fails until it answers, and no managed local server is started for it (ADR-0035). A stale gateway
+// orch.sock still falls back to the managed local server (ADR-0031). Driven through the real connect
+// path with real nats-server processes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -14,7 +15,7 @@ import { run, sleep } from '../../topology/lib/util.mjs';
 import { findNatsServer } from '../../topology/lib/nats-local.mjs';
 import { closeLiveTransports, readTransportState, redactUrl, resolveTransport, transportStatePath } from '../../topology/lib/orch-transport.mjs';
 import { natsOutageTick } from '../../topology/lib/nats-outage.mjs';
-import { readStandingInbox, readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
+import { readStandingInbox, readStandingMessage, resumeStandingMessages } from '../../topology/lib/standing-mailbox.mjs';
 import { agentsRoot } from '../../topology/lib/agents.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
 
@@ -56,7 +57,7 @@ test('redactUrl fails closed on server lists and malformed URLs', () => {
   assert.equal(redactUrl('nats://h:4222'), 'nats://h:4222', 'a credential-free URL is unchanged');
 });
 
-test('a dead AO_NATS_URL falls back to managed local and mails the lead once, then once on recovery', { timeout: 60_000 }, async t => {
+test('a dead AO_NATS_URL fails every open and starts no local server; the lead gets one outage mail when it answers again, then one recovery mail', { timeout: 60_000 }, async t => {
   const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
   if (!bin) { t.skip('no working nats-server binary'); return; }
   const root = await mkdtemp(join(tmpdir(), 'ao-nats-outage-'));
@@ -77,8 +78,8 @@ test('a dead AO_NATS_URL falls back to managed local and mails the lead once, th
   t.after(async () => {
     await closeLiveTransports();
     if (broker && broker.exitCode === null) broker.kill('SIGKILL');
-    // The fallback server ensureLocalNats started for this test, by the pid it recorded.
-    try { process.kill(JSON.parse(readFileSync(join(natsHome, 'state.json'), 'utf8')).pid, 'SIGKILL'); } catch { /* gone */ }
+    // A managed server would have recorded its pid here; ADR-0035 says none is started for AO_NATS_URL.
+    try { process.kill(JSON.parse(readFileSync(join(natsHome, 'state.json'), 'utf8')).pid, 'SIGKILL'); } catch { /* none */ }
     await rm(root, { recursive: true, force: true });
   });
   const mail = [];
@@ -90,38 +91,50 @@ test('a dead AO_NATS_URL falls back to managed local and mails the lead once, th
   };
   const tick = () => natsOutageTick({ consumer: repo, env, home, lead, deliver });
 
-  // 1. The configured NATS is down: the real connect path falls back and names why.
-  const local = await resolveTransport({ env });
-  assert.equal(local.selection.source, 'managed-local');
-  assert.equal(local.selection.fallback.source, 'AO_NATS_URL');
-  assert.equal(local.selection.fallback.url, configured);
+  const localState = join(natsHome, 'state.json');
+
+  // 1. The configured NATS is down: the open fails, nothing falls back, and the outage is recorded as blocking.
+  await assert.rejects(resolveTransport({ env }), (error) => {
+    assert.equal(error.code, 'TOPOLOGY_NATS_UNAVAILABLE');
+    assert.match(error.message, /does not fall back from an explicit AO_NATS_URL/);
+    return true;
+  });
+  assert.equal(existsSync(localState), false, 'no managed local server was started for it');
   const down = await readTransportState(env, home);
+  assert.equal(down.source, 'AO_NATS_URL');
+  assert.equal(down.url, configured);
+  assert.equal(down.fallback, null);
+  assert.equal(down.outage.source, 'AO_NATS_URL');
   assert.equal(down.outage.url, configured);
+  assert.equal(down.outage.blocking, true);
   assert.equal(down.outage.recovered_at, null);
 
-  // 2. One durable message to the lead naming URL, source, error and fallback, and only one.
+  // 2. One durable message to the lead naming URL, source and error. The only configured server is
+  //    down, so it cannot be published yet: it is held, and later ticks neither re-send nor re-record it.
   const first = await tick();
   assert.equal(first.kind, 'outage');
   assert.equal(first.to, 'lead-1');
   assert.equal(mail.length, 1);
   assert.match(mail[0].body, new RegExp(`${configured.replace(/[.]/g, '\\.')} \\(AO_NATS_URL\\)`));
   assert.match(mail[0].body, /Error: /);
-  assert.match(mail[0].body, new RegExp(`managed local NATS ${local.selection.url.replace(/[.]/g, '\\.')}`));
-  assert.equal(first.status, 'delivered', `the outage notice is delivered, not held (${first.reason})`);
-  assert.equal((await readStandingMessage({ id: first.message_id, env, home })).status, 'delivered');
-  // TM-309 C1: what the lead actually receives, read from its inbox over the real transport.
-  const inboxSubjects = async () => (await readStandingInbox({ consumer: repo, agent: 'lead-1', env, home })).map(m => m.envelope.context?.subject);
-  assert.deepEqual(await inboxSubjects(), [`NATS outage: ${configured}`]);
-  assert.equal(await tick(), null, 'a second tick in the same outage sends nothing');
-  // A reopen during the same outage keeps its identity, so it is still one outage.
-  await closeLiveTransports();
-  await resolveTransport({ env });
+  assert.match(mail[0].body, /does not fall back from an explicit AO_NATS_URL/);
+  assert.doesNotMatch(mail[0].body, /^Fallback:/m);
+  assert.notEqual(first.status, 'delivered', 'nothing can be delivered while the only server is down');
+  const held = await readStandingMessage({ id: first.message_id, env, home });
+  assert.ok(held, 'the outage message is a durable standing record');
+  assert.notEqual(held.status, 'delivered');
+  const again = await tick();
+  assert.equal(again.kind, 'outage');
+  assert.equal(again.message_id, first.message_id);
+  assert.notEqual(again.status, 'delivered');
+  assert.equal(mail.length, 1, 'a second tick in the same outage re-sends nothing');
+  // A retried open during the same outage fails the same way and keeps the outage's identity.
+  await assert.rejects(resolveTransport({ env }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
   assert.equal((await readTransportState(env, home)).outage.since, down.outage.since);
-  assert.equal(await tick(), null);
-  assert.equal(mail.length, 1);
+  assert.equal(existsSync(localState), false, 'still no managed local server');
 
-  // 3. The configured NATS comes back: the tick sees it, drops the local connection, and the next
-  //    open dials the configured server for real, which closes the outage.
+  // 3. The configured NATS comes back: the tick sees it, and the next open dials the configured
+  //    server for real, which closes the outage.
   const storeDir = join(root, 'jetstream');
   mkdirSync(storeDir, { recursive: true });
   broker = spawn(bin, ['-js', '-a', '127.0.0.1', '-p', String(configuredPort), '-sd', storeDir], { stdio: 'ignore' });
@@ -131,17 +144,24 @@ test('a dead AO_NATS_URL falls back to managed local and mails the lead once, th
   const back = await resolveTransport({ env });
   assert.equal(back.selection.source, 'AO_NATS_URL');
   assert.equal(back.selection.fallback, null);
-  assert.ok((await readTransportState(env, home)).outage.recovered_at, 'a fallback-free open closes the outage');
+  const closed = await readTransportState(env, home);
+  assert.ok(closed.outage.recovered_at, 'the first open that reaches the server closes the outage');
+  assert.equal(closed.outage.since, down.outage.since);
 
-  // 4. Exactly one recovery message, then silence.
+  // 4. The supervisor's reconcile resumes held mail before its outage tick (supervision.mjs): the
+  //    outage mail lands now, then exactly one recovery mail, then silence.
+  const resumed = await resumeStandingMessages({ consumer: repo, env, home, force: true });
+  assert.deepEqual(resumed.map(m => [m.envelope.id, m.status]), [[first.message_id, 'delivered']]);
   const recovered = await tick();
   assert.equal(recovered.kind, 'recovered');
+  assert.equal(recovered.status, 'delivered', `the recovery notice is delivered (${recovered.reason})`);
   assert.equal(mail.length, 2);
   assert.match(mail[1].body, /NATS RECOVERED/);
   assert.match(mail[1].body, /back on it/);
-  assert.equal(recovered.status, 'delivered');
   assert.equal(await tick(), null);
   assert.equal(mail.length, 2);
+  // TM-309 C1: what the lead actually receives, read from its inbox over the real transport.
+  const inboxSubjects = async () => (await readStandingInbox({ consumer: repo, agent: 'lead-1', env, home })).map(m => m.envelope.context?.subject);
   assert.deepEqual(await inboxSubjects(), [`NATS outage: ${configured}`, `NATS recovered: ${configured}`], 'exactly one outage and one recovery reach the lead');
 });
 
@@ -182,7 +202,7 @@ test('an open from an env without AO_NATS_URL does not close the dead AO_NATS_UR
   delete other.AO_NATS_URL;
   const tick = () => natsOutageTick({ consumer: f.repo, env, home: f.home, lead: f.lead, deliver: f.deliver, reachable: async () => false });
 
-  await resolveTransport({ env });
+  await assert.rejects(resolveTransport({ env }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
   const since = (await readTransportState(env, f.home)).outage.since;
   assert.equal((await tick()).kind, 'outage');
 
@@ -193,13 +213,13 @@ test('an open from an env without AO_NATS_URL does not close the dead AO_NATS_UR
   const between = await readTransportState(env, f.home);
   assert.equal(between.outage.recovered_at, null, 'an open that never dialled the configured server leaves its outage open');
   assert.equal(between.outage.since, since);
-  assert.equal(await tick(), null);
+  assert.equal((await tick()).kind, 'outage', 'still the same open outage');
 
   await closeLiveTransports();
-  await resolveTransport({ env });
+  await assert.rejects(resolveTransport({ env }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
   assert.equal((await readTransportState(env, f.home)).outage.since, since, 'still the same outage');
-  assert.equal(await tick(), null);
-  assert.deepEqual(f.mail.map(m => m.subject), [`NATS outage: ${f.configured}`]);
+  assert.equal((await tick()).kind, 'outage');
+  assert.deepEqual(f.mail.map(m => m.subject), [`NATS outage: ${f.configured}`], 'one outage mail, no recovery mail');
 });
 
 test('openNatsTransport records the selection under the caller\'s home, not the process home', { timeout: 60_000 }, async t => {
@@ -213,12 +233,13 @@ test('openNatsTransport records the selection under the caller\'s home, not the 
   const decoy = join(f.root, 'decoy'), previousHome = process.env.HOME;
   process.env.HOME = decoy;
   t.after(() => { process.env.HOME = previousHome; });
-  await resolveTransport({ env, home: f.home });
+  await assert.rejects(resolveTransport({ env, home: f.home }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
   const expected = transportStatePath(env, f.home);
   assert.ok(expected.startsWith(f.home), expected);
   assert.ok(existsSync(expected), 'transport.json is written under the caller\'s home');
   assert.equal(existsSync(transportStatePath(env, decoy)), false, 'and not under the process home');
   assert.equal((await readTransportState(env, f.home)).outage.url, f.configured);
+  assert.equal((await readTransportState(env, f.home)).outage.blocking, true);
 });
 
 test('a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick', async t => {
@@ -226,8 +247,8 @@ test('a configured server that accepts TCP but refuses NATS is re-dialled with b
   const { mkdir } = await import('node:fs/promises');
   const statePath = transportStatePath(f.env, f.home);
   await mkdir(join(statePath, '..'), { recursive: true });
-  await writeFile(statePath, JSON.stringify({ kind: 'nats', source: 'managed-local', url: 'nats://127.0.0.1:1', fallback: null,
-    outage: { source: 'AO_NATS_URL', url: f.configured, error: 'Authorization Violation', since: new Date().toISOString(), recovered_at: null } }));
+  await writeFile(statePath, JSON.stringify({ kind: 'nats', source: 'AO_NATS_URL', url: f.configured, fallback: null,
+    outage: { source: 'AO_NATS_URL', url: f.configured, error: 'Authorization Violation', blocking: true, since: new Date().toISOString(), recovered_at: null } }));
   let clock = 0, discards = 0;
   const tick = () => natsOutageTick({ consumer: f.repo, env: f.env, home: f.home, lead: f.lead, deliver: f.deliver,
     reachable: async () => true, discard: async () => { discards += 1; }, now: () => clock });
@@ -247,7 +268,7 @@ async function doctorFlags(f, env) {
   return report.problems.some(p => p.code === 'NATS_CONFIGURED_UNREACHABLE');
 }
 
-test('an outage nothing falls back from any more is retired after the bound: one closing mail, doctor clears, no re-dials', { timeout: 60_000 }, async t => {
+test('an outage nothing retries any more is retired after the bound: one closing mail, doctor clears, no re-dials', { timeout: 60_000 }, async t => {
   const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
   if (!bin) { t.skip('no working nats-server binary'); return; }
   const f = await outageFixture(t, 'ao-nats-retire-');
@@ -256,25 +277,32 @@ test('an outage nothing falls back from any more is retired after the bound: one
   delete fixed.AO_NATS_URL; // the operator applied doctor's fix
   const bound = 60_000, start = Date.now();
   let clock = start, discards = 0;
-  // The supervisor's own env: the dead URL until the operator's fix, then the fixed one. Delivering a
-  // notice opens a transport with it, so a supervisor still configured with the dead URL would
-  // (correctly) fall back again and reopen the outage.
+  // The supervisor's own env: the dead URL until the operator's fix, then the fixed one. A supervisor
+  // still configured with the dead URL cannot deliver anything (ADR-0035), so its notice stays held.
   let supervisorEnv = env;
   const tick = () => natsOutageTick({ consumer: f.repo, env: supervisorEnv, home: f.home, lead: f.lead, deliver: f.deliver, retireAfterMs: bound,
     reachable: async () => true, discard: async () => { discards += 1; }, now: () => clock });
 
-  await resolveTransport({ env });
-  assert.equal((await tick()).kind, 'outage');
+  await assert.rejects(resolveTransport({ env }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
+  const outage = await tick();
+  assert.equal(outage.kind, 'outage');
+  assert.notEqual(outage.status, 'delivered', 'held: the only configured server is down');
   assert.equal(await doctorFlags(f, fixed), true, 'control: doctor reports the open outage');
-  // While this process still holds the fallback, the outage is in use and is not retired.
+  // A retried open inside a quarter of the retire bound, failing the same way, rewrites nothing: the
+  // record keeps its identity and its timestamps (the refresh that keeps an outage alive is in the main test).
+  const recorded = await readTransportState(env, f.home, { retireAfterMs: Infinity });
+  await assert.rejects(resolveTransport({ env }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
+  assert.deepEqual(await readTransportState(env, f.home, { retireAfterMs: Infinity }), recorded, 'a quiet retry does not rewrite transport.json');
   clock = start + 3 * bound;
-  await tick();
-  assert.equal((await readTransportState(env, f.home, { now: clock, retireAfterMs: bound })).outage.recovered_at, null, 'a held fallback keeps the outage open');
 
+  // The operator removes the variable: opens go straight to managed local and never try the dead server
+  // again, and the held outage mail lands over the transport that replaced AO_NATS_URL.
   await closeLiveTransports();
   const plain = await resolveTransport({ env: fixed });
+  assert.equal(plain.selection.source, 'managed-local');
   assert.equal(plain.selection.fallback, null);
   supervisorEnv = fixed;
+  assert.deepEqual((await resumeStandingMessages({ consumer: f.repo, env: fixed, home: f.home, force: true })).map(m => m.status), ['delivered']);
   discards = 0;
   clock = start + 5 * bound;
   const closing = await tick();
@@ -294,18 +322,23 @@ test('an outage nothing falls back from any more is retired after the bound: one
   assert.match(f.mail[1].body, /NATS OUTAGE RETIRED/);
 });
 
-// TM-295: a long-lived process that is not a supervisor (an MCP server with the dead AO_NATS_URL) and
-// never runs the tick keeps its outage open while it holds the fallback, through its own heartbeat.
-test('a non-supervisor holding the fallback keeps its outage open; closing it lets the outage retire', { timeout: 60_000 }, async t => {
+// TM-295: a long-lived process that is not a supervisor (an MCP server behind a stale gateway socket)
+// and never runs the tick keeps its outage open while it holds the fallback, through its own heartbeat.
+// ADR-0035 took AO_NATS_URL out of the fallback path; the stale orch.sock is the fallback that remains.
+test('a non-supervisor holding the orch.sock fallback keeps its outage open; closing it lets the outage retire', { timeout: 60_000 }, async t => {
   const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
   if (!bin) { t.skip('no working nats-server binary'); return; }
   const f = await outageFixture(t, 'ao-nats-held-');
   const bound = 800;
-  const env = { ...f.env, AO_NATS_SERVER: bin, AO_NATS_OUTAGE_RETIRE_MS: String(bound) };
+  const stale = join(f.root, 'stale-orch.sock');
+  await writeFile(stale, ''); // exists, so it is tried; a regular file refuses the connection
+  const env = { ...f.env, AO_NATS_SERVER: bin, AO_NATS_OUTAGE_RETIRE_MS: String(bound), AO_ORCH_SOCKET: stale };
+  delete env.AO_NATS_URL;
   const read = () => readTransportState(env, f.home, { retireAfterMs: bound });
 
   const held = await resolveTransport({ env });
-  assert.ok(held.selection.fallback, 'control: the open fell back');
+  assert.equal(held.selection.fallback?.source, 'orch.sock', 'control: the open fell back from the stale socket');
+  assert.equal(held.selection.source, 'managed-local');
   const since = (await read()).outage.since;
   await sleep(3 * bound);
   const during = (await read()).outage;

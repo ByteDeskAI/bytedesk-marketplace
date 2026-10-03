@@ -1,7 +1,8 @@
 // TM-276 / ADR-0031: an unreachable configured NATS is reported to the repository lead, not hidden.
 //
 // openNatsTransport records the outage in transport.json when it falls back to the managed local
-// server, and closes it when an open needs no fallback. This tick, run by each repository's
+// server — or, for an explicit AO_NATS_URL, when it refuses to (ADR-0035: `blocking`, every open fails
+// until the server answers) — and closes it when an open reaches the server. This tick, run by each repository's
 // supervisor, turns that record into at most two durable standing messages to the lead per outage:
 // one when it starts, one when it ends (recovered, or retired once nothing on the host has fallen back
 // from it for OUTAGE_RETIRE_MS — the operator removed the dead URL). Message ids derive from the outage's `since`, so a
@@ -94,6 +95,12 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`,
+  ] : kind === 'outage' && outage.blocking ? [
+    `NATS UNAVAILABLE on ${hostname()}: the configured NATS ${where} is unreachable, and ao does not fall back from an explicit AO_NATS_URL (ADR-0035).`,
+    `Error: ${outage.error}`,
+    `Since: ${outage.since}`,
+    `Nothing on this host that needs NATS continues until it answers: repository supervisors tick degraded (transport-unavailable), and agents here can neither send nor receive mail, claims or presence. This message itself reaches you only once the server is back, or over whatever replaces AO_NATS_URL.`,
+    `Fix the server at ${outage.url}, or unset AO_NATS_URL on this host to use the gateway orch.sock or the managed local NATS. You will get one more message when it answers again.`,
   ] : kind === 'outage' ? [
     `NATS OUTAGE on ${hostname()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,

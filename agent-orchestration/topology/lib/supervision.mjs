@@ -302,7 +302,14 @@ export async function superviseRepository(options, { signal, once = false, inter
            // degrades the tick the same way; the quiet tick walks the 2s/5s/15s ladder down while
            // the server is away, and the next reconcile dials a fresh connection.
            if(error?.code==='TOPOLOGY_TMUX_OBSERVATION_FAILED') report={...report,at:new Date().toISOString(),reconciled:false,degraded:'tmux-observation-failed'};
-           else if(await transportFailed(error)) report={...report,at:new Date().toISOString(),reconciled:false,degraded:'transport-unavailable'};
+           else if(await transportFailed(error)) {
+             // ADR-0035: with a blocking AO_NATS_URL outage the presence publish throws before reconcile
+             // reaches its own outage tick, so the degraded tick runs it here: the lead's durable record
+             // is written and the tick log can name the transport.
+             const natsOutage=await natsOutageTick({...options,env,home}).catch(e=>({status:'failed',reason:e?.code ?? String(e)}));
+             const transport=await describeTransport(env,home).catch(()=>null);
+             report={...report,at:new Date().toISOString(),reconciled:false,degraded:'transport-unavailable',transport,...(natsOutage ? {nats_outage:natsOutage} : {})};
+           }
            else throw error;
          }
        } else {
