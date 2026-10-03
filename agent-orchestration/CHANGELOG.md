@@ -17,6 +17,16 @@
 
 ### Fixed
 
+- **A task branch that merges its integration branch is reviewed and scoped over its own files
+  (TM-325).** The effective review base asked the server for the merge-base with the default
+  branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
+  kept the admission base: the review range carried every other task merged there, and
+  `manage eligible` refused with "implementation changed files outside the approved task scope".
+  The base is now resolved against the `integrationBranch` tm dispatch recorded on the task,
+  falling back to the default branch only when none (or `HEAD`) is recorded, for both the review
+  range and the scope check. The merge-base must still lie between the admitted base and the
+  revision; an integration branch the server cannot answer for, or that is not a plain branch
+  name, keeps the wider admitted range with a note.
 - **An operator shell carrying `CODEX_BIN` is no longer an agent session (TM-304).** The
   managed-session test matched every `CODEX_*` name, so `CODEX_BIN=codex` — exported by the
   remote gateway's `cli run-gateway` and inherited into tmux's global environment by the server it

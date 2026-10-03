@@ -46,6 +46,7 @@ import { refreshPrompt, protocolOutputLine } from "./prompt-lifecycle.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from "./repoid.mjs";
+import { readStoreTask } from "./routing.mjs";
 import * as tmux from "./tmux.mjs";
 import { AO_HOME, exists, fail, invariant, TopologyError, nowIso, readJson, run, sleep, writeJson, writeText } from "./util.mjs";
 
@@ -838,7 +839,9 @@ export async function githubCompare(repoDir, from, to) {
 
 /**
  * TM-257: the base a task's review range and integration scope start from, as { base, note }. It is
- * always DERIVED, never taken from a caller, and anchored on the server's default branch:
+ * always DERIVED, never taken from a caller, and anchored on the server's copy of the task's
+ * integration branch (TM-325: `branch`, the PR base tm dispatch recorded; null = the default branch,
+ * which is also what every "default branch" below means when no integration branch is configured):
  *   - server merge-base(default, revision) is the admitted base or older: the admitted base.
  *   - it lies strictly between the admitted base and the revision (the branch merged the default
  *     branch): that merge-base. Validated locally; anything else is refused.
@@ -850,27 +853,29 @@ export async function githubCompare(repoDir, from, to) {
  *     a note saying why. Failing closed only ever widens the range.
  * Same-uid limit: a process running as this user can still replace gh or the remote config.
  */
-export async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, serverCompare = githubCompare } = {}) {
+export async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare } = {}) {
   const git = args => run('git', ['-C', repoDir, ...args], { allowFailure: true });
   const ancestor = async (a, b) => (await git(['merge-base', '--is-ancestor', a, b])).code === 0;
   const compare = typeof serverCompare === 'function' ? serverCompare : githubCompare;
+  const target = branch ? `integration branch ${branch}` : 'default branch';
   const ask = async (from, to) => {
+    if (branch !== null && !INTEGRATION_BRANCH.test(branch)) throw new Error(`the integration branch ${JSON.stringify(branch)} is not a plain branch name`);
     const answer = await compare(repoDir, from, to);
     if (typeof answer?.status !== 'string' || !COMMIT_SHA.test(String(answer.merge_base))) throw new Error('the server compare answer is malformed');
     return answer;
   };
-  const admitted = reason => ({ base: admittedBase, note: `The default branch could not be read from the server (${reason}), so the range ${admittedBase}..revision starts at the task admission commit.` });
+  const admitted = reason => ({ base: admittedBase, note: `The ${target} could not be read from the server (${reason}), so the range ${admittedBase}..revision starts at the task admission commit.` });
   let server;
-  try { server = await ask(null, revision); } catch (error) { return admitted(error.message); }
+  try { server = await ask(branch, revision); } catch (error) { return admitted(error.message); }
   const mb = server.merge_base;
   if (mb !== revision) {
     if (mb === admittedBase) return { base: admittedBase, note: null };
     invariant((await git(['cat-file', '-e', `${mb}^{commit}`])).code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'The server merge-base is not a commit in this repository.');
     if (await ancestor(mb, admittedBase)) return { base: admittedBase, note: null };
-    invariant(await ancestor(admittedBase, mb) && await ancestor(mb, revision), 'TOPOLOGY_REVIEWER_RANGE', 'The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the default branch.');
+    invariant(await ancestor(admittedBase, mb) && await ancestor(mb, revision), 'TOPOLOGY_REVIEWER_RANGE', `The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the ${target}.`);
     return { base: mb, note: null };
   }
-  // Landed: the default branch now contains the revision, so it no longer shows what the branch merged.
+  // Landed: the integration (or default) branch now contains the revision, so it no longer shows what the branch merged.
   const candidate = recorded ?? reviewed?.base_revision ?? null;
   if (!candidate || candidate === admittedBase) return { base: admittedBase, note: null };
   const between = COMMIT_SHA.test(String(candidate)) && candidate !== revision && await ancestor(admittedBase, candidate) && await ancestor(candidate, revision);
@@ -881,17 +886,23 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
       'The landed task\'s review request predates TM-257 and its reviewed base cannot be verified against the reviewed patch; a re-review is required.');
   }
   let onDefault;
-  try { onDefault = await ask(candidate, null); } catch (error) { return admitted(error.message); }
-  invariant(onDefault.status === 'ahead' || onDefault.status === 'identical', 'TOPOLOGY_REVIEWER_RANGE', 'The recorded effective review base is not on the server default branch.');
+  try { onDefault = await ask(candidate, branch); } catch (error) { return admitted(error.message); }
+  invariant(onDefault.status === 'ahead' || onDefault.status === 'identical', 'TOPOLOGY_REVIEWER_RANGE', `The recorded effective review base is not on the server ${target}.`);
   return { base: candidate, note: null };
 }
+
+const INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
 
 /** Admitted and effective base for a task's range: every range and scope caller goes through here. */
 export async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, env = process.env, home = homedir() }) {
   const taskKey = segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task'), revisionKey = segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision');
+  // TM-325: the PR base tm dispatch recorded on the task; "HEAD" (tm's unconfigured value) or none = the default branch.
+  // Same-uid limit as githubCompare: the task file is editable by this user; a branch the server lacks only widens the range.
+  const recordedBranch = String((await readStoreTask(consumer, taskKey).catch(() => null))?.integrationBranch ?? '').trim();
+  const branch = recordedBranch && recordedBranch !== 'HEAD' ? recordedBranch : null;
   const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson(join(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
-  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, serverCompare });
+  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
 

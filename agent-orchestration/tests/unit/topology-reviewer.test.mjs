@@ -492,6 +492,50 @@ test('TM-257 (a,f) a branch that merged main is reviewed over its own changes, b
   assert.ok(refused.some(reason => /not on the server default branch/.test(reason)), refused.join('\n'));
 });
 
+// TM-325: the sibling lands on the task's integration branch (tm's recorded PR base), not main.
+async function mergedIntegrationBranch(t, integration) {
+  const m = await mergedMainFixture(t);
+  await mkdir(join(m.f.consumer, '.bytedesk/task-management/tasks'), { recursive: true });
+  await writeFile(join(m.f.consumer, '.bytedesk/task-management/tasks/TM-1-fixture.md'), `---\nid: "TM-1"\nintegrationBranch: ${JSON.stringify(integration)}\n---\n`);
+  await m.git(['checkout', '-q', '-b', 'task']); await m.commit('own.txt', 'early task change');
+  await m.git(['checkout', '-q', '-b', 'fix/integration', 'main']); const sibling = await m.commit('sibling.txt', 'landed sibling task');
+  await m.git(['checkout', '-q', 'task']); await m.git(['merge', '-q', '--no-edit', '--no-ff', 'fix/integration']);
+  const revision = await m.commit('late.txt', 'late task change');
+  await m.admit(revision);
+  const server = fakeServer(m.f.revision), asked = [];
+  const compare = async (dir, from, to) => { asked.push([from, to]); return server.compare(dir, from, to); };
+  assert.match(await m.git(['diff', '--name-only', m.f.revision, revision]), /sibling\.txt/);
+  return { ...m, sibling, revision, server, asked, o: { ...m.opts, serverCompare: compare } };
+}
+
+test('TM-325 a branch that merged its integration branch is reviewed over its own changes only', async t => {
+  const { f, git, sibling, revision, server, asked, o } = await mergedIntegrationBranch(t, 'fix/integration');
+  const request = await requestReview({ ...o, revision });
+  assert.ok(asked.some(([from]) => from === 'fix/integration'), JSON.stringify(asked));
+  assert.equal(request.admitted_base, f.revision); assert.equal(request.effective_base, sibling);
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /early task change/); assert.match(patch, /late task change/); assert.doesNotMatch(patch, /landed sibling task/);
+  const review = await collectReview({ ...o, revision, output: approve(request) });
+  assert.equal(review.effective_base, sibling);
+  // Landed on the integration branch: the recorded base is checked against that branch, not main.
+  await git(['checkout', '-q', 'fix/integration']); await git(['merge', '-q', '--ff-only', revision]);
+  asked.length = 0;
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  assert.ok(asked.some(([from, to]) => from === sibling && to === 'fix/integration'), JSON.stringify(asked));
+  assert.equal(server.main, f.revision, 'main never moved');
+});
+
+test('TM-325 an integration branch the server cannot answer for, or a malformed one, keeps the admitted range', async t => {
+  const { f, revision, o } = await mergedIntegrationBranch(t, 'fix/integration');
+  const down = await requestReview({ ...o, revision, serverCompare: async () => { throw new Error('gh: HTTP 404'); } });
+  assert.equal(down.effective_base, f.revision);
+  assert.match(down.range_note, /integration branch fix\/integration could not be read from the server \(gh: HTTP 404\)/);
+  const { effectiveBase } = await import('../../topology/lib/reviewer.mjs');
+  let called = false;
+  const bad = await effectiveBase(f.consumer, f.revision, revision, { branch: 'main...x', serverCompare: async () => { called = true; return { status: 'ahead', merge_base: revision }; } });
+  assert.equal(bad.base, f.revision); assert.match(bad.note, /not a plain branch name/); assert.equal(called, false);
+});
+
 test('TM-257 (b) a branch that never merged main keeps the admitted range', async t => {
   const { f, git, commit, admit, opts } = await mergedMainFixture(t);
   const { effectiveBase } = await import('../../topology/lib/reviewer.mjs');

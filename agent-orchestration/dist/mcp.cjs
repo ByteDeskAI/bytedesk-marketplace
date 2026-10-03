@@ -29539,19 +29539,21 @@ async function githubCompare(repoDir, from, to) {
   if (found.code !== 0) throw new Error(`gh compare failed: ${first(found)}`);
   return JSON.parse(found.stdout);
 }
-async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, serverCompare = githubCompare } = {}) {
+async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare } = {}) {
   const git3 = (args) => run("git", ["-C", repoDir, ...args], { allowFailure: true });
   const ancestor = async (a, b) => (await git3(["merge-base", "--is-ancestor", a, b])).code === 0;
   const compare = typeof serverCompare === "function" ? serverCompare : githubCompare;
+  const target = branch ? `integration branch ${branch}` : "default branch";
   const ask = async (from, to) => {
+    if (branch !== null && !INTEGRATION_BRANCH.test(branch)) throw new Error(`the integration branch ${JSON.stringify(branch)} is not a plain branch name`);
     const answer = await compare(repoDir, from, to);
     if (typeof answer?.status !== "string" || !COMMIT_SHA.test(String(answer.merge_base))) throw new Error("the server compare answer is malformed");
     return answer;
   };
-  const admitted = (reason) => ({ base: admittedBase, note: `The default branch could not be read from the server (${reason}), so the range ${admittedBase}..revision starts at the task admission commit.` });
+  const admitted = (reason) => ({ base: admittedBase, note: `The ${target} could not be read from the server (${reason}), so the range ${admittedBase}..revision starts at the task admission commit.` });
   let server;
   try {
-    server = await ask(null, revision);
+    server = await ask(branch, revision);
   } catch (error51) {
     return admitted(error51.message);
   }
@@ -29560,7 +29562,7 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
     if (mb === admittedBase) return { base: admittedBase, note: null };
     invariant2((await git3(["cat-file", "-e", `${mb}^{commit}`])).code === 0, "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not a commit in this repository.");
     if (await ancestor(mb, admittedBase)) return { base: admittedBase, note: null };
-    invariant2(await ancestor(admittedBase, mb) && await ancestor(mb, revision), "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the default branch.");
+    invariant2(await ancestor(admittedBase, mb) && await ancestor(mb, revision), "TOPOLOGY_REVIEWER_RANGE", `The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the ${target}.`);
     return { base: mb, note: null };
   }
   const candidate = recorded ?? reviewed?.base_revision ?? null;
@@ -29577,18 +29579,20 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
   }
   let onDefault;
   try {
-    onDefault = await ask(candidate, null);
+    onDefault = await ask(candidate, branch);
   } catch (error51) {
     return admitted(error51.message);
   }
-  invariant2(onDefault.status === "ahead" || onDefault.status === "identical", "TOPOLOGY_REVIEWER_RANGE", "The recorded effective review base is not on the server default branch.");
+  invariant2(onDefault.status === "ahead" || onDefault.status === "identical", "TOPOLOGY_REVIEWER_RANGE", `The recorded effective review base is not on the server ${target}.`);
   return { base: candidate, note: null };
 }
 async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, env = process.env, home = (0, import_node_os18.homedir)() }) {
   const taskKey = segment(task, "TOPOLOGY_REVIEWER_TASK", "task"), revisionKey = segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision");
+  const recordedBranch = String((await readStoreTask(consumer, taskKey).catch(() => null))?.integrationBranch ?? "").trim();
+  const branch = recordedBranch && recordedBranch !== "HEAD" ? recordedBranch : null;
   const request = await readJson3((0, import_node_path46.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson3((0, import_node_path46.join)(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
-  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, serverCompare });
+  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
 async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, env = process.env, home = (0, import_node_os18.homedir)() }) {
@@ -30168,7 +30172,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process12, import_node_crypto22, import_promises37, import_node_os18, import_node_path46, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process12, import_node_crypto22, import_promises37, import_node_os18, import_node_path46, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process12 = require("node:child_process");
@@ -30189,6 +30193,7 @@ var init_reviewer = __esm({
     init_incarnation();
     init_providers();
     init_repoid();
+    init_routing();
     init_tmux();
     init_util();
     REGISTRY_KIND = "reviewers";
@@ -30213,6 +30218,7 @@ var init_reviewer = __esm({
     reviewerAckMemo = (dir, record2) => (0, import_node_path46.join)(dir, `${record2.agent_id}.answered.json`);
     PENDING_COLLECTION_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE"]);
     COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+    INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
     ZERO_BLOB = /^0+$/;
     STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
     B64_PREFIX = "b64:";
@@ -76649,10 +76655,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "7aad58553927bd0d9206c5874cb499e7dd1f5413b5ba556b4f37cb099a37a5f0";
+  return false ? null : "297d308f304089f299c2b38465c4c6d774445e22798c4d83804d9918fe986849";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "7aad58553927bd0d9206c5874cb499e7dd1f5413b5ba556b4f37cb099a37a5f0";
+  const fingerprint2 = false ? null : "297d308f304089f299c2b38465c4c6d774445e22798c4d83804d9918fe986849";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77077,7 +77083,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "7aad58553927bd0d9206c5874cb499e7dd1f5413b5ba556b4f37cb099a37a5f0",
+  sourceFingerprint: false ? null : "297d308f304089f299c2b38465c4c6d774445e22798c4d83804d9918fe986849",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
