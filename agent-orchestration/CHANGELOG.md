@@ -88,6 +88,22 @@ _TM-310, TM-311 and TM-312, on top of the 0.15.3 line below (TM-308 fixed `nats.
 
 ### Fixed
 
+- **A task branch that merges its integration branch is reviewed and scoped over its own files
+  (TM-325).** The effective review base asked the server for the merge-base with the default
+  branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
+  kept the admission base: the review range carried every other task merged there, and
+  `manage eligible` refused with "implementation changed files outside the approved task scope".
+  The base is now resolved against the task's integration branch, for both the review range and
+  the scope check. `manage` admission freezes tm's `integrationBranch` into the producer-owned
+  admission record (`integration_branch`), and the range reads it from there, never from the
+  mutable task file, so a later task-file edit cannot move the range. When the server names the
+  task PR's base, it must agree with the recorded branch or the range is refused. With none
+  recorded (or `HEAD`), the default branch is used as before. The merge-base must still lie
+  between the admitted base and the revision; an integration branch that is not a plain branch
+  name keeps the wider admitted range with a note. Once a landed task's integration branch has
+  been merged and deleted, the range falls back to the effective base recorded on the review
+  request (still checked to lie between admission and revision), not to the admitted base, so
+  re-checking a landed task is not refused for scope.
 - **An operator shell carrying `CODEX_BIN` is no longer an agent session (TM-304).** The
   managed-session test matched every `CODEX_*` name, so `CODEX_BIN=codex` — exported by the
   remote gateway's `cli run-gateway` and inherited into tmux's global environment by the server it
@@ -191,6 +207,26 @@ _TM-310, TM-311 and TM-312, on top of the 0.15.3 line below (TM-308 fixed `nats.
 - Durable NATS mailbox obligations, sender publication recovery and explicit recipient dispositions. Broker acknowledgment follows local durable acceptance; console inspection does not consume messages.
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
+
+## [0.15.4] — 2026-10-02
+
+### Fixed
+
+- **A `NATS_URL` outage left by an older ao no longer shows up (TM-308 follow-up, ADR-0032).**
+  `transport.json` is shared by every ao process on the host, and the last writer wins. A
+  long-lived process still running pre-0.15.3 code with `NATS_URL` in its env kept writing a
+  `NATS_URL` fallback and outage, so `doctor` went on reporting `NATS_CONFIGURED_UNREACHABLE` after
+  the upgrade. `readTransportState` now drops any selection, fallback or outage whose source is not
+  an ao source (`AO_NATS_URL`, `orch.sock`, `managed-local`). That covers `describeTransport`,
+  `doctor`, the setup doctor, `services status` and `natsOutageTick`. The next transport open, or the
+  next supervisor tick, rewrites the file without the entry, and readers ignore it if an old writer
+  puts it back.
+
+### Tests
+
+- `tests/unit/nats-port.test.mjs` seeds the exact record found live. `doctor` reports no `NATS_*`
+  problem, `services status` shows no outage, the tick sends nothing, and a managed open rewrites
+  the file without `NATS_URL`. Turning the filter off fails the test.
 
 ## [0.15.3] — 2026-10-02
 

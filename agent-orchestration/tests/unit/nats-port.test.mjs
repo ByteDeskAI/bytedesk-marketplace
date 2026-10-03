@@ -168,3 +168,45 @@ test('migration adopts a free state.json port; an invalid or foreign-held one is
   await writeFile(join(f.natsHome, 'state.json'), JSON.stringify({ managed: true, pid: null, port: 80 }), { mode: 0o600 });
   assert.ok((await managedNatsPort({ env: f.env })) >= NATS_PORT_RANGE[0], 'a port below 1024 is not adopted');
 });
+
+// TM-308 follow-up: transport.json is host-wide and last-writer-wins, so an older ao (a long-lived MCP
+// server with NATS_URL in its env) can write a NATS_URL outage after the upgrade. The exact record
+// found live on the authoring machine is ignored by every reader and cleared by the next open.
+test('a NATS_URL outage written by an older ao is ignored by doctor, status and the tick, and cleared by a managed open', { timeout: 60_000 }, async t => {
+  const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const f = await fixture(t, 'ao-nats-port-stale-', { AO_NATS_SERVER: bin });
+  await run('git', ['init', '-q', f.repo]);
+  mkdirSync(join(f.repo, '.bytedesk', 'agent-orchestration'), { recursive: true });
+  await writeFile(join(f.repo, '.bytedesk', 'agent-orchestration', 'config.json'), '{"enabled":false}\n');
+  const { transportStatePath, describeTransport } = await import('../../topology/lib/orch-transport.mjs');
+  const path = transportStatePath(f.env, f.home);
+  const now = new Date().toISOString();
+  const stale = { kind: 'nats', source: 'managed-local', url: 'nats://127.0.0.1:39617', at: now, pid: 317229,
+    fallback: { source: 'NATS_URL', url: 'nats://localhost:4222', error: 'CONNECTION_REFUSED' },
+    outage: { source: 'NATS_URL', url: 'nats://localhost:4222', error: 'CONNECTION_REFUSED', since: now, last_fallback_at: now, recovered_at: null } };
+  const seed = async () => { mkdirSync(dirname(path), { recursive: true }); await writeFile(path, JSON.stringify(stale)); };
+  const raw = async () => JSON.parse(await readFile(path, 'utf8'));
+
+  await seed();
+  const described = await describeTransport(f.env, f.home);
+  assert.deepEqual([described.outage, described.fallback], [null, null]);
+  const { doctor } = await import('../../topology/lib/doctor.mjs');
+  const report = await doctor({ adapters: new Map(), workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [], consumer: f.repo, env: f.env, home: f.home });
+  assert.deepEqual(report.problems.filter(p => p.code.startsWith('NATS_')), [], 'doctor reports no NATS problem');
+  const status = await servicesStatus({ pluginRoot, stateRoot: join(f.root, 'svc'), env: f.env, home: f.home, platform: 'linux', deps: { mode: 'detached', lock: {} } });
+  assert.equal(status.transport.outage, null, 'services status shows no outage');
+  const mail = [];
+  assert.equal(await natsOutageTick({ consumer: f.repo, env: f.env, home: f.home, lead: async () => ({ record: { agent_id: 'lead-1' } }),
+    deliver: async (input) => { mail.push(input); return { status: 'delivered' }; }, reachable: async () => true, discard: async () => {} }), null);
+  assert.equal(mail.length, 0, 'the tick sends nothing');
+
+  await seed();
+  assert.equal((await raw()).outage.source, 'NATS_URL', 'control: the stale record is on disk');
+  const opened = await resolveTransport({ env: f.env });
+  assert.equal(opened.selection.source, 'managed-local');
+  const after = await raw();
+  assert.equal(after.outage, null, 'a managed open rewrites the file without the NATS_URL outage');
+  assert.equal(after.fallback, null);
+  assert.equal(JSON.stringify(after).includes('NATS_URL'), false);
+});
