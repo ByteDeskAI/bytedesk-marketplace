@@ -1,0 +1,14 @@
+TM-304 round 3: merge origin/fix/ao-local-nats-autostart 8dad914d, dist rebuilt by npm ci && npm run build
+npm ci=0 build=0 build:check=0
+delegation+permissions tests:
+  30 tests, 30 pass, 0 fail
+test:unit with worker env (TM_DISPATCH_WORKER set): exit 1, 4 fail in topology-management.test.mjs (landing/done-gate; env leak)
+  # tests 1024
+  # pass 1016
+  # fail 4
+  # skipped 4
+test:unit with TM_DISPATCH_WORKER unset: exit 0
+  # tests 1024
+  # pass 1020
+  # fail 0
+  # skipped 4

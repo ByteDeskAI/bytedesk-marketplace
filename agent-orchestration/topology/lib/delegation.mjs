@@ -35,13 +35,17 @@ const AGENT_MARKERS = ['AO_AGENT_ID', 'TM_SESSION_ID', 'TM_DISPATCH_WORKER', 'CL
 /** TM-248: every current scope is plan-scoped, so a grant names a plan and expires within this. */
 export const PLAN_MAX_MS = 14 * 86_400_000;
 const AGENT_MARKER_PREFIXES = ['CLAUDE_CODE_', 'CODEX_'];
+// TM-304: a prefixed name that only locates a binary or directory (CODEX_BIN, CODEX_HOME, CODEX_PATH)
+// is configuration, not a live session; launchers export it and tmux's global environment hands it to
+// every operator pane. Session ids and the ancestor check still identify a real agent.
+const CONFIG_ONLY = /_(BIN|HOME|PATH)$/;
 
 const osUser = env => env.USER || env.LOGNAME || userInfo().username;
 const cleanScopes = value => [...new Set((Array.isArray(value) ? value : String(value || '').split(',')).map(s => s.trim()).filter(Boolean))];
 
 /** Names of agent-session environment markers present in env. */
 export function agentMarkers(env) {
-  return Object.keys(env).filter(k => env[k] != null && env[k] !== '' && (AGENT_MARKERS.includes(k) || AGENT_MARKER_PREFIXES.some(p => k.startsWith(p)))).sort();
+  return Object.keys(env).filter(k => env[k] != null && env[k] !== '' && (AGENT_MARKERS.includes(k) || (AGENT_MARKER_PREFIXES.some(p => k.startsWith(p)) && !CONFIG_ONLY.test(k)))).sort();
 }
 
 /** The agent id a census (any repository) binds to the caller's tmux pane, or null. */

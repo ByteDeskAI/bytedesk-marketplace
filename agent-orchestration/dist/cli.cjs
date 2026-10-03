@@ -23534,7 +23534,7 @@ var init_startup = __esm({
 
 // topology/lib/delegation.mjs
 function agentMarkers(env) {
-  return Object.keys(env).filter((k) => env[k] != null && env[k] !== "" && (AGENT_MARKERS.includes(k) || AGENT_MARKER_PREFIXES.some((p) => k.startsWith(p)))).sort();
+  return Object.keys(env).filter((k) => env[k] != null && env[k] !== "" && (AGENT_MARKERS.includes(k) || AGENT_MARKER_PREFIXES.some((p) => k.startsWith(p)) && !CONFIG_ONLY.test(k))).sort();
 }
 async function registeredAgentPane(env, home) {
   if (!env.TMUX_PANE) return null;
@@ -23643,7 +23643,7 @@ async function findActiveDelegation({ consumer, agentId, scope, task = null, env
   invariant2(covering, "TOPOLOGY_DELEGATION_PLAN", `No live ${scope} grant for ${agentId} covers ${task?.id || "this task"}; its approved plan is ${live2.map((g) => g.plan ? planLabel(g.plan) : "none").join(" / ")}.${stale.length ? ` Grant ${stale.join(", ")} names an epic without a frozen task list, so it covers nothing; ask the operator to re-grant it.` : ""}`);
   return covering;
 }
-var import_node_crypto24, import_promises39, import_node_child_process13, import_promises40, import_node_os20, import_node_path48, DELEGATION_SCOPES, GRANT_CHANNEL, AGENT_PROCESS, AGENT_MARKERS, PLAN_MAX_MS, AGENT_MARKER_PREFIXES, loadEvents, planDigest, planLabel, unfrozenEpic, planCovers;
+var import_node_crypto24, import_promises39, import_node_child_process13, import_promises40, import_node_os20, import_node_path48, DELEGATION_SCOPES, GRANT_CHANNEL, AGENT_PROCESS, AGENT_MARKERS, PLAN_MAX_MS, AGENT_MARKER_PREFIXES, CONFIG_ONLY, loadEvents, planDigest, planLabel, unfrozenEpic, planCovers;
 var init_delegation = __esm({
   "topology/lib/delegation.mjs"() {
     import_node_crypto24 = require("node:crypto");
@@ -23665,6 +23665,7 @@ var init_delegation = __esm({
     AGENT_MARKERS = ["AO_AGENT_ID", "TM_SESSION_ID", "TM_DISPATCH_WORKER", "CLAUDECODE"];
     PLAN_MAX_MS = 14 * 864e5;
     AGENT_MARKER_PREFIXES = ["CLAUDE_CODE_", "CODEX_"];
+    CONFIG_ONLY = /_(BIN|HOME|PATH)$/;
     loadEvents = (path3) => readJson3(path3).catch((error51) => {
       if (error51.code === "ENOENT") return [];
       throw error51;
@@ -60182,10 +60183,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ed1397df2078061c066596c345759ba233a5fb31d419514b75b7206329f8a9ae";
+  return false ? null : "2c30a77de7fb90147caad45ce5da0a5d5186fddd2513b422ae828c34c88adaa8";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ed1397df2078061c066596c345759ba233a5fb31d419514b75b7206329f8a9ae";
+  const fingerprint2 = false ? null : "2c30a77de7fb90147caad45ce5da0a5d5186fddd2513b422ae828c34c88adaa8";
   let version2 = false ? null : "0.15.1";
   if (!version2) {
     try {
@@ -60766,7 +60767,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ed1397df2078061c066596c345759ba233a5fb31d419514b75b7206329f8a9ae",
+  sourceFingerprint: false ? null : "2c30a77de7fb90147caad45ce5da0a5d5186fddd2513b422ae828c34c88adaa8",
   version: false ? null : "0.15.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

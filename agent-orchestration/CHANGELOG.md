@@ -17,6 +17,13 @@
 
 ### Fixed
 
+- **An operator shell carrying `CODEX_BIN` is no longer an agent session (TM-304).** The
+  managed-session test matched every `CODEX_*` name, so `CODEX_BIN=codex` — exported by the
+  remote gateway's `cli run-gateway` and inherited into tmux's global environment by the server it
+  starts — refused `record-landing --authorized` and `delegate grant` from every plain pane with
+  `TOPOLOGY_MANAGEMENT_SELF_ASSERT`. Prefixed names ending `_BIN`, `_HOME` or `_PATH` now count as
+  configuration; session ids (`CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`, …), the explicit markers
+  and the agent-ancestor check still refuse.
 - **`agent restart` applies a staged prompt to the reviewer (TM-302).** It refused every reviewer
   with `TOPOLOGY_REVIEWER_READ_ONLY`, and `reviewer ensure` leaves a live reviewer alone, so a
   reviewer's staged prompt could never be applied and `agent list` showed it `restart_required`
