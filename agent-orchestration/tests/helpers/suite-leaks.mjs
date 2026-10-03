@@ -11,6 +11,11 @@ import { tmpdir } from "node:os";
 
 import { operatorSockets } from "./isolated-tmux.mjs";
 
+// TM-310: a credential holder outlives its pane by this long so a respawn can re-attach. Every test process that loads this
+// check (the preflight does, and so do the contract files, which CI runs without the preflight) must not wait the 20 s default
+// for its own holders to exit, or the check below reports them as leaks.
+process.env.AO_CREDS_GRACE_MS ||= "500";
+
 /** Live processes other than `self` whose environment holds `marker` (`NAME=value`). Linux /proc only. */
 export function markedProcesses(marker, { self = process.pid, proc = "/proc" } = {}) {
   let pids = [];
