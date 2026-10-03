@@ -1,0 +1,707 @@
+/**
+ * NATS JetStream backend (CONTRACT §3, §5, §6).
+ *
+ *   KV  TM_ENTITIES   <repo>.<type>.<id>              history 64, CAS via revision
+ *   KV  TM_PROPOSALS  <repo>.<type>.<id>.<proposal>   writes that were queued offline
+ *   KV  TM_STATE      <repo>.claims.<task> | <repo>.session.<sid> | <repo>.lock   (replaces state.lock)
+ *   STR TM_EVENTS     tm.<repo>.events.<kind>         limits, max_age 3650d
+ *   OBJ TM_EVIDENCE   <repo>/<sha256>
+ *
+ * Connection: URL from opts.url or TM_NATS_URL, creds from opts.creds or TM_NATS_CREDS. The ambient
+ * NATS_URL is never read (ADR-0032) — a stray variable must not point the board at another server.
+ *
+ * Offline (leaf node down / unreachable): connect fails fast. Reads come from the local cache that
+ * every successful read refreshes; writes append to a local queue as proposals and replay on the
+ * next connection, same proposal id, so a replay twice is a no-op. The caller is told once via
+ * `onOffline` ("offline: read-only, writes queued"). Claims and the lease need a live CAS and are
+ * refused offline rather than faked.
+ */
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { Backend, ConflictError, OfflineError, UnsupportedError } from "./backend.mjs";
+import { assertWritable, decode, hydrate, isBlobRef } from "./registry.mjs";
+
+/** Stable id of an event row: same row → same id, so a re-run of a migration can tell what is already there. */
+export const eventRow = (e) => ({ ts: e.ts ?? new Date().toISOString(), ...e });
+export const eventId = (row) => createHash("sha256").update(JSON.stringify(row)).digest("hex").slice(0, 32);
+/**
+ * What a creds file says about itself, decoded client-side (no signature check — the server does
+ * that): the user key, issuer, and the exp/nbf claims. Lets us say "expired at <time>" before
+ * connecting, which the server never does (it answers "Authorization Violation" to everything).
+ */
+export function credsStatus(file, now = Date.now()) {
+  const text = readFileSync(file, "utf8");
+  const jwt = /-----BEGIN NATS USER JWT-----\s+([A-Za-z0-9._-]+)\s+-+END NATS USER JWT/.exec(text)?.[1];
+  if (!jwt) return { ok: false, problem: "no user JWT in the creds file" };
+  const claims = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8"));
+  const exp = claims.exp ? claims.exp * 1000 : null;
+  const nbf = claims.nbf ? claims.nbf * 1000 : null;
+  return {
+    ok: true,
+    user: claims.sub,
+    issuer: claims.iss,
+    issuerAccount: claims.nats?.issuer_account ?? null,
+    expiresAt: exp ? new Date(exp).toISOString() : null,
+    expired: exp !== null && exp < now,
+    notBefore: nbf ? new Date(nbf).toISOString() : null,
+    notYetValid: nbf !== null && nbf > now,
+  };
+}
+
+/** Default size above which a field leaves the envelope for the object store. NATS max_payload is 1 MB by default. */
+export const DEFAULT_SPILL_BYTES = 256 * 1024;
+const WIRE_LIMIT = 900 * 1024; // an envelope still bigger than this after field spilling has its largest fields spilled until it fits
+
+export const OFFLINE_MESSAGE = "offline: read-only, writes queued";
+const DAY_NS = 24 * 3600 * 1e9;
+const sha = (b) => createHash("sha256").update(b).digest("hex");
+const safe = (s) => String(s).replace(/[^A-Za-z0-9_\-=]/g, "_");
+const enc = (v) => new TextEncoder().encode(JSON.stringify(v));
+const dec = (u8) => JSON.parse(new TextDecoder().decode(u8));
+
+export class NatsBackend extends Backend {
+  /**
+   * @param {object} o  repo (required key prefix), cacheDir (local cache + queue), url, creds,
+   *   connectTimeoutMs, onOffline(msg), actor() -> {actor, agent}, root (for git meta)
+   */
+  constructor(o = {}) {
+    super();
+    this.o = o;
+    this.repo = o.repo;
+    if (!this.repo) throw new Error("NatsBackend needs a repo key");
+    this.cacheDir = o.cacheDir;
+    this.offline = false;
+    this.told = false;
+    this.nc = null;
+    this.h = null; // hub handles (read/write)
+    this.lh = null; // leaf-side mirror handles (read-only)
+    this.stats = { maxBatch: 0, fetches: 0 };
+    // 0 (or negative) turns spilling off: a value past max_payload then fails with MAX_PAYLOAD_EXCEEDED.
+    this.spillBytes = Number(o.spillBytes ?? process.env.TM_SPILL_BYTES ?? DEFAULT_SPILL_BYTES);
+    this.lastReadTier = null;
+  }
+  get kind() {
+    return "nats";
+  }
+
+  // ── connection ─────────────────────────────────────────────────────────────
+  async #ready() {
+    if (this.h && this.h.nc.isClosed()) this.h = null; // the server went away under a live handle
+    if (this.h && this.domain && Date.now() - (this.probed ?? 0) > (this.o.probeMs ?? 1000)) {
+      // Through a leaf the connection survives the hub dying; only the JetStream API stops answering.
+      try {
+        await this.h.jsm.getAccountInfo();
+        this.probed = Date.now();
+      } catch (err) {
+        this.h = null; // keep this.nc: the leaf itself is still there and serves reads from its mirrors
+        this.#goOffline(`hub unreachable: ${err.message}`);
+        return null;
+      }
+    }
+    if (this.h) return this.h;
+    // Fail fast: once a connect has failed, do not pay the connect timeout again on every call.
+    if (this.offline && Date.now() - this.lastFail < (this.o.retryMs ?? 10_000)) return null;
+    const url = this.o.url ?? process.env.TM_NATS_URL;
+    if (!url) {
+      this.#goOffline("TM_NATS_URL is not set");
+      return null;
+    }
+    try {
+      const { connect, credsAuthenticator } = await import("nats");
+      const credsFile = this.o.creds ?? process.env.TM_NATS_CREDS;
+      if (credsFile && !this.credsChecked) {
+        // Say what we can say locally, before the server gives its one-size-fits-all refusal.
+        const st = credsStatus(credsFile);
+        this.creds = st;
+        if (st.ok && st.expired) {
+          this.authRefused = `credentials expired at ${st.expiresAt} (user ${st.user}) — renew TM_NATS_CREDS`;
+          throw new Error(this.authRefused);
+        }
+        if (st.ok && st.notYetValid) {
+          this.authRefused = `credentials not valid until ${st.notBefore} (user ${st.user})`;
+          throw new Error(this.authRefused);
+        }
+      }
+      const nc = this.nc && !this.nc.isClosed()
+        ? this.nc
+        : (this.nc = await connect({
+            servers: url,
+            timeout: this.o.connectTimeoutMs ?? 1500,
+            reconnect: this.o.reconnect ?? false,
+            maxReconnectAttempts: 0,
+            ...(credsFile ? { authenticator: credsAuthenticator(readFileSync(credsFile)) } : {}),
+          }));
+      // Leaf mode: connect to the machine's leaf node, address the hub's JetStream by domain.
+      const domain = this.o.domain ?? process.env.TM_NATS_DOMAIN;
+      const jsOpts = { ...(domain ? { domain } : {}), timeout: this.o.apiTimeoutMs ?? 2000 };
+      const js = nc.jetstream(jsOpts);
+      const jsm = await nc.jetstreamManager(jsOpts);
+      if (domain) await jsm.getAccountInfo(); // the leaf is up but is the hub behind it? throws if not
+      const kv = async (name, opts) => js.views.kv(name, opts);
+      this.h = {
+        nc, js, jsm, url,
+        entities: await kv("TM_ENTITIES", { history: 64 }),
+        proposals: await kv("TM_PROPOSALS", { history: 8 }),
+        state: await kv("TM_STATE", { history: 8 }),
+        evidence: await js.views.os("TM_EVIDENCE"),
+      };
+      try {
+        await jsm.streams.info("TM_EVENTS");
+      } catch {
+        await jsm.streams.add({ name: "TM_EVENTS", subjects: ["tm.*.events.>"], retention: "limits", storage: "file", max_age: 3650 * DAY_NS });
+      }
+      this.domain = domain;
+      await this.#resolveRepo(this.h);
+      if (domain) await this.#mirrors(domain);
+      this.offline = false;
+      this.told = false;
+      await this.#replay();
+      return this.h;
+    } catch (err) {
+      if (err instanceof OfflineError) throw err;
+      // A server that answered and said no is not "offline": queueing writes against credentials that
+      // will never work would only hide the problem. Say it, and refuse.
+      if (this.authRefused && /^credentials (expired|not valid)/.test(this.authRefused)) throw new Error(this.authRefused);
+      if (/authorization|authentication|permissions? violation/i.test(String(err.message))) {
+        const c = this.creds;
+        const valid = c?.ok ? ` The credential is not expired${c.expiresAt ? ` (valid until ${c.expiresAt})` : " (no expiry)"}, so the server does not accept this user: wrong operator or account, or the user was revoked.` : "";
+        this.authRefused = `nats refused the credentials (${String(err.message).replace(/^'|'$/g, "")}) — check TM_NATS_CREDS.${valid}`;
+        throw new Error(this.authRefused);
+      }
+      this.#goOffline(err.message);
+      return null;
+    }
+  }
+  /**
+   * Which key prefix holds this board. The primary (origin-based) wins; a board created under an
+   * older alias (path-based) keeps resolving to it so nothing is orphaned by the key change.
+   */
+  async #resolveRepo(hh) {
+    if (this.resolved) return;
+    const has = async (repo) => {
+      const it = await hh.entities.keys(`${repo}.>`);
+      for await (const _ of it) { it.stop?.(); return true; }
+      return false;
+    };
+    this.resolved = true;
+    if (await has(this.repo)) return;
+    for (const alias of this.o.aliases ?? []) {
+      if (alias !== this.repo && (await has(alias))) {
+        this.repoWas = this.repo;
+        this.repo = alias;
+        return;
+      }
+    }
+  }
+  /**
+   * Leaf-side copies of the hub's buckets, so a machine with the hub down still has the board in its
+   * own JetStream. KV buckets and the event stream are mirrors (the hub stays the only writer);
+   * evidence is a local object store filled on demand by blobGet.
+   */
+  async #mirrors(domain) {
+    const nc = this.nc;
+    const api = `$JS.${domain}.API`;
+    const jsOpts = { timeout: this.o.apiTimeoutMs ?? 2000 }; // no domain: the server we are connected to
+    const js = nc.jetstream(jsOpts);
+    const jsm = await nc.jetstreamManager(jsOpts);
+    const mirror = (name) => ({ name, external: { api, deliver: "" } });
+    const kv = (name, history) => js.views.kv(name, { history, mirror: mirror(name) });
+    const lh = {
+      nc, js, jsm,
+      entities: await kv("TM_ENTITIES", 64),
+      proposals: await kv("TM_PROPOSALS", 8),
+      state: await kv("TM_STATE", 8),
+      evidence: await js.views.os("TM_EVIDENCE"),
+    };
+    try {
+      await jsm.streams.info("TM_EVENTS");
+    } catch {
+      await jsm.streams.add({ name: "TM_EVENTS", mirror: { name: "TM_EVENTS", external: { api, deliver: "" } }, storage: "file" });
+    }
+    this.lh = lh;
+    return lh;
+  }
+  /** Bind to mirrors that already exist on the leaf (hub down, fresh process): never create anything. */
+  async #leaf() {
+    if (this.lh && !this.nc?.isClosed()) return this.lh;
+    if (!this.nc || this.nc.isClosed() || !(this.o.domain ?? process.env.TM_NATS_DOMAIN)) return null;
+    try {
+      const jsOpts = { timeout: this.o.apiTimeoutMs ?? 2000 };
+      const js = this.nc.jetstream(jsOpts);
+      const jsm = await this.nc.jetstreamManager(jsOpts);
+      await jsm.getAccountInfo();
+      const kv = (name) => js.views.kv(name, { bindOnly: true });
+      const lh = { nc: this.nc, js, jsm, entities: await kv("TM_ENTITIES"), proposals: await kv("TM_PROPOSALS"), state: await kv("TM_STATE"), evidence: await js.views.os("TM_EVIDENCE", { bindOnly: true }) };
+      await jsm.streams.info("TM_EVENTS");
+      await this.#resolveRepo(lh);
+      this.lh = lh;
+      return lh;
+    } catch {
+      return null; // the leaf has no copy yet (never been online with the hub), or is gone
+    }
+  }
+  /**
+   * Who answers a read: the hub when it is reachable, else the leaf's own mirror, else null (the
+   * caller falls back to the file cache). The tier is recorded so info() can say which one it was.
+   */
+  async #reader() {
+    const h = await this.#ready();
+    if (h) return (this.lastReadTier = "hub"), h;
+    const lh = await this.#leaf();
+    if (lh) return (this.lastReadTier = "leaf"), lh;
+    this.lastReadTier = "cache";
+    return null;
+  }
+  #goOffline(why) {
+    this.offline = true;
+    this.why = why;
+    this.lastFail = Date.now();
+    if (!this.told) {
+      this.told = true;
+      this.o.onOffline?.(OFFLINE_MESSAGE, why);
+    }
+  }
+  async close() {
+    if (this.nc && !this.nc.isClosed()) await this.nc.drain().catch(() => {});
+    this.h = null;
+    this.lh = null;
+  }
+  async info() {
+    let h;
+    try {
+      h = await this.#ready();
+    } catch (err) {
+      if (!this.authRefused) throw err;
+      return { kind: "nats", server: this.o.url ?? process.env.TM_NATS_URL ?? null, offline: true, why: this.authRefused, authRefused: true, queued: this.queue().length };
+    }
+    const tier = h ? "hub" : (await this.#leaf()) ? "leaf" : "cache";
+    return { kind: "nats", server: h?.url ?? this.o.url ?? process.env.TM_NATS_URL ?? null, offline: !h, why: h ? undefined : this.why, tier, lastReadTier: this.lastReadTier, queued: this.queue().length };
+  }
+
+  // ── keys & meta ────────────────────────────────────────────────────────────
+  key(type, id) { return `${this.repo}.${type}.${safe(id)}`; }
+  #meta(extra = {}) {
+    const who = (typeof this.o.actor === "function" ? this.o.actor() : this.o.actor) ?? {};
+    this.commit ??= (() => {
+      try {
+        return execFileSync("git", ["-C", this.o.root || process.cwd(), "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      } catch {
+        return null;
+      }
+    })();
+    return { actor: who.actor ?? null, agent: who.agent ?? null, ts: new Date().toISOString(), src: "tm", git: { commit: this.commit, pr: null }, ...extra };
+  }
+  #entry(type, e) {
+    const envelope = dec(e.value);
+    envelope.meta = { ...envelope.meta, rev: e.revision };
+    return { envelope, rev: e.revision };
+  }
+
+  // ── local cache + queue (leaf-node offline) ────────────────────────────────
+  #cacheFile(type, id) { return join(this.cacheDir, "entities", safe(type), `${safe(id)}.json`); }
+  #cacheSet(type, id, v) {
+    if (!this.cacheDir) return;
+    try {
+      const f = this.#cacheFile(type, id);
+      mkdirSync(join(f, ".."), { recursive: true });
+      writeFileSync(f, JSON.stringify(v));
+    } catch { /* a cache failure must not fail a read */ }
+  }
+  #cacheGet(type, id) {
+    try { return JSON.parse(readFileSync(this.#cacheFile(type, id), "utf8")); } catch { return null; }
+  }
+  #cacheList(type) {
+    if (!this.cacheDir) return [];
+    const dir = join(this.cacheDir, "entities", safe(type));
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+  }
+  get queueFile() { return this.cacheDir && join(this.cacheDir, "queue.jsonl"); }
+  queue() {
+    if (!this.queueFile || !existsSync(this.queueFile)) return [];
+    return readFileSync(this.queueFile, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  }
+  #enqueue(rec) {
+    if (!this.queueFile) throw new OfflineError("offline and no local cache configured — write refused");
+    const id = sha(JSON.stringify({ op: rec.op, type: rec.type, id: rec.id, ifRev: rec.ifRev ?? null, payload: rec.payload })).slice(0, 16);
+    const full = { ...rec, proposalId: id, queuedAt: new Date().toISOString() };
+    mkdirSync(this.cacheDir, { recursive: true });
+    if (!this.queue().some((q) => q.proposalId === id)) appendFileSync(this.queueFile, `${JSON.stringify(full)}\n`);
+    return { rev: null, queued: true, proposalId: id };
+  }
+
+  /** Push a blob that was written to the local cache while offline. */
+  async #upload(digest) {
+    const f = this.cacheDir && join(this.cacheDir, "blobs", digest);
+    const name = `${this.repo}/${digest}`;
+    if (f && existsSync(f) && !(await this.h.evidence.info(name))) await this.h.evidence.putBlob({ name }, new Uint8Array(readFileSync(f)));
+  }
+
+  /** Replay queued proposals. Idempotent: the proposal key is the dedupe, and an applied one is skipped. */
+  async #replay() {
+    const q = this.queue();
+    if (!q.length) return [];
+    const done = [];
+    for (const rec of q) {
+      const pkey = `${this.repo}.${rec.type}.${safe(rec.id)}.${rec.proposalId}`;
+      let status = "applied";
+      try {
+        await this.h.proposals.create(pkey, enc({ ...rec, status: "pending" }));
+      } catch (err) {
+        const prior = await this.h.proposals.get(pkey);
+        if (prior?.value?.length && dec(prior.value).status !== "pending") { done.push({ ...rec, status: dec(prior.value).status, replayed: false }); continue; }
+      }
+      try {
+        for (const d of [rec.op === "blob" ? rec.id : null, ...Object.values(rec.payload?.data ?? rec.payload ?? {}).map((v) => (isBlobRef(v) ? v.$blob.digest : null))].filter(Boolean)) await this.#upload(d);
+        if (rec.op === "blob") { /* uploaded above */ }
+        else if (rec.op === "event") await this.h.js.publish(`tm.${this.repo}.events.${safe(rec.payload.event || rec.payload.kind || "event")}`, enc(rec.payload), { msgID: `${this.repo}:${rec.proposalId}` });
+        else if (rec.op === "put" || rec.op === "create") await this.#putOnline(rec.type, rec.id, rec.payload, { ifRev: rec.ifRev ?? undefined, reason: rec.reason }, rec.op === "create");
+        else if (rec.op === "delete") await this.#deleteOnline(rec.type, rec.id, { ifRev: rec.ifRev ?? undefined, reason: rec.reason });
+      } catch (err) {
+        status = err instanceof ConflictError ? "conflict" : "failed";
+        rec.detail = err.message;
+      }
+      await this.h.proposals.put(pkey, enc({ ...rec, status }));
+      done.push({ ...rec, status, replayed: true });
+    }
+    writeFileSync(this.queueFile, "");
+    this.replayed = done;
+    return done;
+  }
+
+  // ── large values ───────────────────────────────────────────────────────────
+  /**
+   * Move oversized top-level fields of `envelope.data` into the object store and leave a
+   * {"$blob": {digest,size,encoding}} reference. Blobs are keyed by content hash, so an unchanged
+   * field is never uploaded twice. Offline the blob lands in the local cache and uploads on replay.
+   */
+  async #spill(envelope) {
+    if (!(this.spillBytes > 0) || !envelope?.data || typeof envelope.data !== "object") return envelope;
+    const sized = Object.entries(envelope.data).map(([k, v]) => [k, v === undefined || isBlobRef(v) ? 0 : Buffer.byteLength(JSON.stringify(v))]);
+    const pick = new Set(sized.filter(([, n]) => n > this.spillBytes).map(([k]) => k));
+    let total = Buffer.byteLength(JSON.stringify(envelope)) - sized.filter(([k]) => pick.has(k)).reduce((a, [, n]) => a + n, 0);
+    for (const [k, n] of [...sized].sort((a, b) => b[1] - a[1])) {
+      if (total <= WIRE_LIMIT) break;
+      if (!pick.has(k) && n > 1024) (pick.add(k), (total -= n));
+    }
+    if (!pick.size) return envelope;
+    const data = { ...envelope.data };
+    for (const k of pick) {
+      const buf = Buffer.from(JSON.stringify(data[k]));
+      const digest = await this.blobPut(buf);
+      data[k] = { $blob: { digest, size: buf.length, encoding: "json" } };
+    }
+    return { ...envelope, data };
+  }
+  async #fetch(digest) {
+    const f = this.cacheDir && join(this.cacheDir, "blobs", digest);
+    if (f && existsSync(f)) return readFileSync(f);
+    const buf = await this.blobGet(digest);
+    if (buf && f) {
+      try { mkdirSync(join(f, ".."), { recursive: true }); writeFileSync(f, buf); } catch { /* cache only */ }
+    }
+    return buf;
+  }
+  /** A stored entry with its $blob fields resolved. The stored (small) form stays what the cache and KV hold. */
+  async #full(hit) {
+    return hit && { ...hit, envelope: await hydrate(hit.envelope, (d) => this.#fetch(d)) };
+  }
+
+  // ── entities ───────────────────────────────────────────────────────────────
+  async #stored(type, id) {
+    const e = await this.h.entities.get(this.key(type, id));
+    return e && e.operation === "PUT" ? this.#entry(type, e) : null;
+  }
+  async get(type, id) {
+    const r = await this.#reader();
+    if (!r) return this.#full(this.#cacheGet(type, id));
+    const e = await r.entities.get(this.key(type, id));
+    const hit = e && e.operation === "PUT" ? this.#entry(type, e) : null;
+    if (hit) this.#cacheSet(type, id, hit);
+    return this.#full(hit);
+  }
+  async list(type, { prefix = "" } = {}) {
+    const h = await this.#reader();
+    if (!h) return Promise.all(this.#cacheList(type).filter((e) => e.envelope.id.startsWith(prefix)).map((e) => this.#full(e)));
+    const out = [];
+    const keys = await h.entities.keys(`${this.repo}.${type}.>`);
+    const names = [];
+    for await (const k of keys) names.push(k);
+    for (const k of names) {
+      const e = await h.entities.get(k);
+      if (!e || e.operation !== "PUT") continue;
+      const hit = this.#entry(type, e);
+      if (!hit.envelope.id.startsWith(prefix)) continue;
+      this.#cacheSet(type, hit.envelope.id, hit);
+      out.push(await this.#full(hit));
+    }
+    return out.sort((a, b) => String(a.envelope.id).localeCompare(String(b.envelope.id)));
+  }
+
+  async #putOnline(type, id, envelope, { ifRev, reason } = {}, mustCreate = false) {
+    const key = this.key(type, id);
+    const body = (rev) => enc({ ...envelope, id, meta: { ...this.#meta({ reason }), ...envelope.meta, rev: undefined, reason: reason ?? envelope.meta?.reason } });
+    for (let attempt = 0; ; attempt += 1) {
+      const cur = await this.#stored(type, id);
+      if (cur) assertWritable(cur.envelope);
+      if (mustCreate && cur) throw new ConflictError(`${type} ${id} already exists`, cur.rev);
+      if (ifRev !== undefined && (cur?.rev ?? null) !== ifRev) throw new ConflictError(`${type} ${id} changed since rev ${ifRev}`, cur?.rev ?? null);
+      try {
+        const rev = cur ? await this.h.entities.update(key, body(), cur.rev) : await this.h.entities.create(key, body());
+        const hit = { envelope: { ...envelope, meta: { ...envelope.meta, rev } }, rev };
+        this.#cacheSet(type, id, hit);
+        return { rev };
+      } catch (err) {
+        if (!/wrong last sequence|key exists/i.test(String(err.message))) throw err;
+        // Someone else landed between our read and write. An explicit ifRev is final; an
+        // unconditional put retries on the fresh revision.
+        if (ifRev !== undefined || mustCreate || attempt >= 4) {
+          const now = await this.#stored(type, id);
+          throw new ConflictError(`${type} ${id} changed under the write`, now?.rev ?? null);
+        }
+      }
+    }
+  }
+  async put(type, id, envelope, opts = {}) {
+    // Offline, the write is a proposal against the revision we last saw, so a change made elsewhere
+    // meanwhile shows up as a conflict on replay instead of being silently overwritten.
+    envelope = await this.#spill(envelope);
+    if (!(await this.#ready())) return this.#enqueue({ op: "put", type, id, ifRev: opts.ifRev ?? this.#cacheGet(type, id)?.rev, reason: opts.reason, payload: envelope });
+    return this.#putOnline(type, id, envelope, opts);
+  }
+  async create(type, id, envelope) {
+    envelope = await this.#spill(envelope);
+    if (!(await this.#ready())) return this.#enqueue({ op: "create", type, id, payload: envelope });
+    return this.#putOnline(type, id, envelope, {}, true);
+  }
+  async #deleteOnline(type, id, { ifRev, reason } = {}) {
+    const cur = await this.#stored(type, id);
+    if (!cur) return false;
+    assertWritable(cur.envelope);
+    if (ifRev !== undefined && cur.rev !== ifRev) throw new ConflictError(`${type} ${id} changed since rev ${ifRev}`, cur.rev);
+    try {
+      await this.h.entities.delete(this.key(type, id), { previousSeq: cur.rev });
+    } catch (err) {
+      throw new ConflictError(`${type} ${id} changed under the delete`, (await this.#stored(type, id))?.rev ?? null);
+    }
+    return true;
+  }
+  async delete(type, id, opts = {}) {
+    if (!(await this.#ready())) return this.#enqueue({ op: "delete", type, id, ifRev: opts.ifRev, reason: opts.reason });
+    return this.#deleteOnline(type, id, opts);
+  }
+
+  async history(type, id, { limit = 64 } = {}) {
+    const h = await this.#reader();
+    if (!h) throw new OfflineError(`${OFFLINE_MESSAGE} — history needs the server`);
+    const it = await h.entities.history({ key: this.key(type, id) });
+    const rows = [];
+    for await (const e of it) rows.push({ rev: e.revision, op: e.operation, ts: e.created, envelope: e.operation === "PUT" ? dec(e.value) : null });
+    const out = rows.slice(-limit);
+    for (const r of out) if (r.envelope) r.envelope = await hydrate(r.envelope, (d) => this.#fetch(d));
+    return out;
+  }
+
+  async *watch(type, { since } = {}) {
+    const h = await this.#ready();
+    if (!h) throw new OfflineError(`${OFFLINE_MESSAGE} — watch needs the server`);
+    const w = await h.entities.watch({ key: `${this.repo}.${type}.>`, ...(since ? { resumeFromRevision: since } : { ignoreDeletes: false }) });
+    try {
+      for await (const e of w) {
+        const id = e.key.split(".").slice(2).join(".");
+        yield { type, id, op: e.operation, rev: e.revision, envelope: e.operation === "PUT" ? (await this.#full(this.#entry(type, e))).envelope : null };
+      }
+    } finally {
+      w.stop();
+    }
+  }
+
+  // ── blobs ──────────────────────────────────────────────────────────────────
+  async blobPut(input) {
+    const buf = Buffer.isBuffer(input) ? input : input instanceof Uint8Array ? Buffer.from(input) : typeof input === "string" ? Buffer.from(input) : Buffer.concat(await (async () => { const o = []; for await (const c of input) o.push(Buffer.from(c)); return o; })());
+    const digest = sha(buf);
+    const h = await this.#ready();
+    if (!h) {
+      if (!this.cacheDir) throw new OfflineError("offline and no local cache — blob refused");
+      mkdirSync(join(this.cacheDir, "blobs"), { recursive: true });
+      writeFileSync(join(this.cacheDir, "blobs", digest), buf);
+      this.#enqueue({ op: "blob", type: "tm/evidence", id: digest, payload: { digest } });
+      return digest;
+    }
+    const name = `${this.repo}/${digest}`;
+    if (!(await h.evidence.info(name))) await h.evidence.putBlob({ name }, new Uint8Array(buf));
+    return digest;
+  }
+  /** Online: fetched from the hub on demand and cached in the leaf's own object store. Offline: from that cache, then the file cache. */
+  async blobGet(digest) {
+    const r = await this.#reader();
+    const name = `${this.repo}/${digest}`;
+    if (!r) {
+      const f = this.cacheDir && join(this.cacheDir, "blobs", digest);
+      return f && existsSync(f) ? readFileSync(f) : null;
+    }
+    const u8 = await r.evidence.getBlob(name);
+    if (u8 && r === this.h && this.lh) await this.lh.evidence.putBlob({ name }, u8).catch(() => {});
+    return u8 ? Buffer.from(u8) : null;
+  }
+  async blobList() {
+    const h = await this.#reader();
+    if (!h) return [];
+    return (await h.evidence.list()).filter((i) => i.name.startsWith(`${this.repo}/`) && !i.deleted).map((i) => i.name.slice(this.repo.length + 1)).sort();
+  }
+
+  // ── events ─────────────────────────────────────────────────────────────────
+  async appendEvent(event) {
+    const h = await this.#ready();
+    const kind = safe(event.event || event.kind || "event");
+    const row = eventRow(event);
+    const msgID = eventId(row);
+    const wire = await this.#spillRow(row);
+    if (!h) return this.#enqueue({ op: "event", type: "tm/event", id: kind, payload: wire });
+    // Msg-Id dedupe is stream-wide, so two boards that log an identical row in the same ms must not collide.
+    await h.js.publish(`tm.${this.repo}.events.${kind}`, enc(wire), { msgID: `${this.repo}:${msgID}` });
+    return { id: msgID };
+  }
+  async #rowFull(row) {
+    return (await hydrate({ data: row }, (d) => this.#fetch(d))).data;
+  }
+  /** Event rows are flat objects: same rule as an envelope's data (the id was taken from the full row, before this). */
+  async #spillRow(row) {
+    return (await this.#spill({ data: row })).data;
+  }
+  /**
+   * One bounded page of events: at most `limit` rows (and never more than `batch` per server fetch),
+   * from stream sequence `after`. `next` is the cursor for the following page, or null at the end.
+   * Never reads the whole stream in one go; `events()` below walks the pages.
+   */
+  async eventsPage({ since, filter, limit = 1000, after = 0, batch = 500 } = {}) {
+    const r = await this.#reader();
+    if (!r) throw new OfflineError(`${OFFLINE_MESSAGE} — event history needs the server`);
+    const subject = `tm.${this.repo}.events.${filter ? safe(filter) : ">"}`;
+    const start = since
+      ? { deliver_policy: "by_start_time", opt_start_time: new Date(since).toISOString() }
+      : after
+        ? { deliver_policy: "by_start_sequence", opt_start_seq: after + 1 }
+        : { deliver_policy: "all" };
+    const ci = await r.jsm.consumers.add("TM_EVENTS", { ack_policy: "none", filter_subjects: [subject], inactive_threshold: 30e9, ...start });
+    const rows = [];
+    let last = after;
+    try {
+      const pending = ci.num_pending;
+      const want = Math.min(limit, pending);
+      const c = await r.js.consumers.get("TM_EVENTS", ci.name);
+      while (rows.length < want) {
+        const n = Math.min(batch, want - rows.length);
+        this.stats.maxBatch = Math.max(this.stats.maxBatch, n);
+        this.stats.fetches += 1;
+        let got = 0;
+        for await (const m of await c.fetch({ max_messages: n, expires: 5000 })) {
+          rows.push(await this.#rowFull(dec(m.data)));
+          last = m.seq;
+          if (++got >= n) break;
+        }
+        if (!got) break;
+      }
+      return { rows, next: rows.length < pending ? last : null, pending };
+    } finally {
+      await r.jsm.consumers.delete("TM_EVENTS", ci.name).catch(() => {});
+    }
+  }
+  async events({ since, filter, limit = Infinity, batch = 500 } = {}) {
+    const out = [];
+    let after = 0;
+    for (;;) {
+      const page = await this.eventsPage({ since: after ? undefined : since, filter, limit: Math.min(batch, limit - out.length), after, batch });
+      out.push(...page.rows);
+      if (page.next === null || out.length >= limit || !page.rows.length) return out;
+      after = page.next;
+      since = undefined;
+    }
+  }
+  /** How many events this board has, from stream metadata — no messages are fetched. */
+  async eventCount() {
+    const r = await this.#reader();
+    if (!r) return null;
+    const info = await r.jsm.streams.info("TM_EVENTS", { subjects_filter: `tm.${this.repo}.events.>` });
+    return Object.values(info.state.subjects ?? {}).reduce((a, b) => a + b, 0);
+  }
+  async getStats() {
+    return { ...this.stats };
+  }
+
+  // ── TM_STATE: claims, sessions, lease (CAS) ────────────────────────────────
+  async #state() {
+    const h = await this.#ready();
+    if (!h) throw new OfflineError(`${OFFLINE_MESSAGE} — claims and the write lease need the server`);
+    return h.state;
+  }
+  async stateGet(key) {
+    const kv = (await this.#reader())?.state ?? (await this.#state());
+    const e = await kv.get(`${this.repo}.${key}`);
+    return e && e.operation === "PUT" ? { value: dec(e.value), rev: e.revision } : null;
+  }
+  async statePut(key, value, { ifRev } = {}) {
+    const kv = await this.#state();
+    try {
+      return ifRev === undefined ? await kv.put(`${this.repo}.${key}`, enc(value)) : await kv.update(`${this.repo}.${key}`, enc(value), ifRev);
+    } catch (err) {
+      if (!/wrong last sequence/i.test(String(err.message))) throw err;
+      throw new ConflictError(`${key} changed since rev ${ifRev}`, (await this.stateGet(key))?.rev ?? null);
+    }
+  }
+  async stateCreate(key, value) {
+    const kv = await this.#state();
+    try {
+      return await kv.create(`${this.repo}.${key}`, enc(value));
+    } catch (err) {
+      if (!/wrong last sequence|key exists/i.test(String(err.message))) throw err;
+      throw new ConflictError(`${key} already exists`, (await this.stateGet(key))?.rev ?? null);
+    }
+  }
+  async stateDelete(key, { ifRev } = {}) {
+    const kv = await this.#state();
+    try {
+      await kv.delete(`${this.repo}.${key}`, ifRev === undefined ? undefined : { previousSeq: ifRev });
+      return true;
+    } catch (err) {
+      throw new ConflictError(`${key} changed since rev ${ifRev}`, (await this.stateGet(key))?.rev ?? null);
+    }
+  }
+  async stateList(prefix = "") {
+    const kv = (await this.#reader())?.state ?? (await this.#state());
+    const out = [];
+    for await (const k of await kv.keys(`${this.repo}.${prefix ? `${prefix}.` : ""}>`)) {
+      const e = await kv.get(k);
+      if (e?.operation === "PUT") out.push({ key: k.slice(this.repo.length + 1), value: dec(e.value), rev: e.revision });
+    }
+    return out;
+  }
+
+  /**
+   * The cross-process write lease that replaces state.lock: a TM_STATE key created with CAS, taken
+   * over with CAS once its owner's ttl has passed. Returns the release function.
+   */
+  async acquireLease(owner, { ttlMs = 30_000, waitMs = 30_000 } = {}) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      const mine = { owner, expires: Date.now() + ttlMs };
+      try {
+        const rev = await this.stateCreate("lock", mine);
+        return () => this.stateDelete("lock", { ifRev: rev }).catch(() => {});
+      } catch (err) {
+        if (!(err instanceof ConflictError)) throw err;
+        const cur = await this.stateGet("lock");
+        if (cur && cur.value.expires < Date.now()) {
+          try {
+            const rev = await this.statePut("lock", mine, { ifRev: cur.rev });
+            return () => this.stateDelete("lock", { ifRev: rev }).catch(() => {});
+          } catch { /* lost the takeover race; loop */ }
+        }
+      }
+      if (Date.now() > deadline) throw new Error(`could not take the store lease within ${waitMs / 1000}s — held by ${(await this.stateGet("lock"))?.value?.owner}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+}

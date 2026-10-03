@@ -16,6 +16,10 @@ import { TRIAGE_LABELS, agentReadiness } from "./completeness.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 import { assertGovernedMutation } from "./governance-check.mjs";
 import { assertGoalMutation } from "./goal-guard.mjs";
+import { remote } from "./storage/index.mjs";
+import { decode, encode } from "./storage/registry.mjs";
+import { OfflineError } from "./storage/backend.mjs";
+import { typeOfKind } from "./storage/types.mjs";
 
 const DEFAULT_CONFIG = {
   enforce: true,
@@ -54,7 +58,10 @@ const DEFAULT_CONFIG = {
   },
 };
 
-const NESTED_CONFIG = ["board", "ntfy", "plugin", "labels", "dispatch"];
+/** Rows per event-stream round trip on the NATS backend. */
+export const EVENT_PAGE = 500;
+
+const NESTED_CONFIG = ["board", "ntfy", "plugin", "labels", "dispatch", "storage"];
 
 export const now = () => new Date().toISOString();
 
@@ -222,6 +229,24 @@ export function withLock(p = paths(), fn) {
       return fn();
     } finally {
       heldDepth -= 1;
+    }
+  }
+  const rb = remote(p);
+  if (rb) {
+    // NATS: the write lease is a CAS key in TM_STATE, not state.lock. Offline there is no lease to
+    // take — writes are queued as proposals and reconciled by revision on replay.
+    let lease = null;
+    try {
+      lease = rb.call("acquireLease", `${process.pid}@${actorLabel(actor())}`, { waitMs: lockTimeout() });
+    } catch (err) {
+      if (!(err instanceof OfflineError)) throw err;
+    }
+    heldDepth = 1;
+    try {
+      return fn();
+    } finally {
+      heldDepth = 0;
+      if (lease !== null) rb.call("releaseLease", lease);
     }
   }
   const lock = join(p.base, "state.lock");
@@ -489,6 +514,14 @@ const SHARED_STATE = ["activeEpic"];
 export function state(p = paths()) {
   const local = readJson(p.state, { claims: {}, override: null, lastStopBlock: null });
   const cfg = readJson(p.config, {});
+  const rb = remote(p);
+  if (rb) {
+    try {
+      local.claims = Object.fromEntries(rb.call("stateList", "claims").map((e) => [e.key.slice("claims.".length), e.value]));
+    } catch (err) {
+      if (!(err instanceof OfflineError)) throw err; // offline: the last mirrored claims in state.json
+    }
+  }
   // A pre-0.5 store still carries activeEpic in state.json; read through to it until a write moves it.
   return { activeEpic: cfg.activeEpic ?? local.activeEpic ?? null, ...local };
 }
@@ -506,6 +539,16 @@ function writeStateUnlocked(patch, p = paths()) {
     delete next[k];
   }
   if (SHARED_STATE.some((k) => k in patch)) writeConfig(shared, p);
+  const rb = remote(p);
+  if (rb && patch.claims) {
+    // Claims live in TM_STATE. A new claim is a CAS create, so two sessions claiming one task cannot both win.
+    const have = Object.fromEntries(rb.call("stateList", "claims").map((e) => [e.key.slice("claims.".length), e]));
+    for (const [id, v] of Object.entries(patch.claims)) {
+      if (!have[id]) rb.call("stateCreate", `claims.${id}`, v);
+      else if (JSON.stringify(have[id].value) !== JSON.stringify(v)) rb.call("statePut", `claims.${id}`, v, { ifRev: have[id].rev });
+    }
+    for (const id of Object.keys(have)) if (!(id in patch.claims)) rb.call("stateDelete", `claims.${id}`, { ifRev: have[id].rev });
+  }
   writeAtomic(p.state, `${JSON.stringify(next, null, 2)}\n`);
   return { ...shared, ...next };
 }
@@ -520,6 +563,11 @@ export function logEvent(event, fields = {}, p = paths()) {
     appendFileSync(p.events, `${JSON.stringify(row)}\n`);
   } catch {
     /* ignore */
+  }
+  try {
+    remote(p)?.call("appendEvent", row);
+  } catch {
+    /* the shared stream is best-effort here; the local log above is the audit trail of record */
   }
   // Fire-and-forget push. Never awaited, never allowed to throw: a notifier must
   // not be able to fail a hook or a CLI command.
@@ -551,7 +599,25 @@ export function rotateEvents(p = paths()) {
 }
 
 /** Every event, oldest first, across the rotation boundary. Bad lines are skipped. */
-export function readEvents(p = paths()) {
+export function readEvents(p = paths(), { limit = Infinity, after = 0 } = {}) {
+  const rb = remote(p);
+  if (rb) {
+    // Symmetric with logEvent: the shared stream is the record, read a bounded page at a time
+    // (EVENT_PAGE rows per round trip) — never the whole stream in one fetch. `limit`/`after` give
+    // callers that only want a window a way to ask for one. Offline with no mirror: this machine's log.
+    try {
+      const rows = [];
+      let cursor = after;
+      do {
+        const page = rb.call("eventsPage", { limit: Math.min(EVENT_PAGE, limit - rows.length), after: cursor, batch: EVENT_PAGE });
+        rows.push(...page.rows);
+        cursor = page.next;
+      } while (cursor !== null && rows.length < limit);
+      return rows.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+    } catch (err) {
+      if (!(err instanceof OfflineError)) throw err;
+    }
+  }
   const files = [`${p.events.replace(/\.jsonl$/, "")}.1.jsonl`, p.events];
   const rows = [];
   for (const file of files) {
@@ -723,8 +789,23 @@ export function fileFor(id, p = paths()) {
   return hit ? join(dir, hit) : null;
 }
 
+/** Remove an entity outright (rollback of a half-finished import). Not a soft delete. */
+export function removeEntity(id, p = paths()) {
+  const rb = remote(p);
+  if (rb) return rb.call("delete", typeOfKind(kindOf(id)), id);
+  const file = fileFor(id, p);
+  if (!file) return false;
+  unlinkSync(file);
+  return true;
+}
+
 export function nextId(kind, p = paths()) {
   const { prefix, pad } = KINDS[kind];
+  const rb = remote(p);
+  if (rb) {
+    const nums = rb.call("list", typeOfKind(kind)).map((e) => new RegExp(`^${prefix}-(\\d+)`).exec(e.envelope.id)).filter(Boolean).map((m) => Number(m[1]));
+    return `${prefix}-${String(Math.max(0, ...nums) + 1).padStart(pad, "0")}`;
+  }
   const dir = dirFor(kind, p);
   // `.md` only, for the same reason fileFor filters: a temp file from an interrupted write
   // named after the id it was destined for used to reserve that number, so the id was burned
@@ -739,7 +820,20 @@ export function nextId(kind, p = paths()) {
   return `${prefix}-${String(Math.max(0, ...nums) + 1).padStart(pad, "0")}`;
 }
 
+/** An envelope off the NATS backend as the flat doc the rest of the store works with. */
+function docFromEnvelope(env) {
+  const { data } = decode(env);
+  const { body = "", ...fields } = data;
+  return { ...fields, id: fields.id || env.id, body, file: `nats:${env.type}/${env.id}` };
+}
+
 export function read(id, p = paths()) {
+  const rb = remote(p);
+  if (rb) {
+    const kind = kindOf(id);
+    const hit = kind && rb.call("get", typeOfKind(kind), id);
+    return hit ? docFromEnvelope(hit.envelope) : null;
+  }
   const file = fileFor(id, p);
   if (!file) return null;
   const { data, body } = parseDoc(readFileSync(file, "utf8"));
@@ -832,6 +926,13 @@ export function write(doc, p = paths()) {
         "This is your own tool call leaking into the text — send the body only.\n" +
         "To include an example deliberately, put it in a fenced code block.",
     );
+  }
+  const rb = remote(p);
+  if (rb) {
+    const type = typeOfKind(kindOf(data.id));
+    const stamped = { ...data, updated: now(), body };
+    rb.call("put", type, data.id, encode(type, stamped));
+    return { ...doc, file: `nats:${type}/${data.id}` };
   }
   const target = file || join(dirFor(kindOf(data.id), p), `${data.id}-${slug(data.title)}.md`);
   ensureDirs(p);
@@ -1001,10 +1102,19 @@ export function mutate(id, fn, p = paths()) {
  * in listings, counts, or the duplicate guard. Ask for them explicitly to see them.
  */
 export function list(kind, filter = {}, p = paths()) {
-  const dir = dirFor(kind, p);
-  if (!existsSync(dir)) return [];
+  const rb = remote(p);
   const { includeDeleted, ...match } = filter;
   const wantDeleted = includeDeleted || match.status === "deleted";
+  if (rb) {
+    return rb
+      .call("list", typeOfKind(kind))
+      .map((e) => docFromEnvelope(e.envelope))
+      .filter((d) => wantDeleted || d.status !== "deleted")
+      .filter((d) => Object.entries(match).every(([k, v]) => (v === undefined ? true : d[k] === v)))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  }
+  const dir = dirFor(kind, p);
+  if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter(isEntityFile)
     .map((f) => {

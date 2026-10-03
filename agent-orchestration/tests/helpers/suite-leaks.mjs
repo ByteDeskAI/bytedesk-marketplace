@@ -27,6 +27,26 @@ export function markedProcesses(marker, { self = process.pid, proc = "/proc" } =
 }
 
 /**
+ * TM-330: process-compose service managers whose binary lives under `<tmp>/ao-*` — the private HOME
+ * of a test fixture. The managed services scrub the environment, so these carry no AO_TEST_RUN and
+ * the marker scan cannot see them; the path is the only tie to a test. Pass the pids seen at run
+ * start as `ignore`: older ones belong to other sessions and are only counted, never reported.
+ */
+export function serviceManagersUnder(tmp = tmpdir(), { proc = "/proc", ignore = new Set() } = {}) {
+  let pids = [];
+  try { pids = readdirSync(proc).filter((name) => /^[0-9]+$/.test(name)); } catch { return []; }
+  const found = [];
+  for (const pid of pids) {
+    if (ignore.has(Number(pid))) continue;
+    try {
+      const argv = readFileSync(`${proc}/${pid}/cmdline`, "latin1").split("\0").filter(Boolean);
+      if (/(^|\/)process-compose(-v[0-9.]+)?(\.exe)?$/.test(argv[0] ?? "") && argv[0].startsWith(`${tmp}/ao-`)) found.push({ pid: Number(pid), command: argv.join(" ") });
+    } catch { /* exited, or another user's */ }
+  }
+  return found;
+}
+
+/**
  * `socket\tsession\tstart paths` for every session on an operator socket. Read-only: list-sessions
  * and list-panes never start a server, and nothing here writes to one.
  */
@@ -61,11 +81,15 @@ if (!process.env.AO_TEST_RUN) {
   process.env.AO_TEST_RUN = `${process.pid}-${Date.now()}`;
   const marker = `AO_TEST_RUN=${process.env.AO_TEST_RUN}`;
   const before = operatorSessions();
+  const serviceManagersAtStart = new Set(serviceManagersUnder().map(({ pid }) => pid));
   process.on("exit", () => {
     // A teardown's SIGTERM may still be in flight when the last test file exits.
     let alive = markedProcesses(marker);
-    for (let i = 0; i < 30 && alive.length; i += 1) { sleepSync(100); alive = markedProcesses(marker); }
+    for (let i = 0; i < 30 && (alive.length || serviceManagersUnder(tmpdir(), { ignore: serviceManagersAtStart }).length); i += 1) { sleepSync(100); alive = markedProcesses(marker); }
     const escaped = escapedSessions(before, operatorSessions());
+    // TM-330: a service manager started during this run, from a /tmp/ao-* home, that is still alive.
+    const managers = serviceManagersUnder(tmpdir(), { ignore: serviceManagersAtStart }).filter((m) => !alive.some((a) => a.pid === m.pid));
+    alive = [...alive, ...managers];
     if (!alive.length && !escaped.length) return;
     process.stderr.write(`\nTM-298 suite-end check: the run left ${alive.length} process(es) and ${escaped.length} operator tmux session(s) behind:\n`);
     for (const { pid, command } of alive) process.stderr.write(`  pid ${pid}: ${command}\n`);
