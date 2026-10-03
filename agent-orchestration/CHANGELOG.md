@@ -17,6 +17,14 @@
 
 ### Fixed
 
+- **A task worktree can no longer capture the services pointer (TM-305).** `services ensure` from a
+  linked git worktree (under `.bytedesk/worktrees`, `.claude/worktrees`, or any checkout whose `.git`
+  file names `…/worktrees/<name>`) keeps the current root even for an identical or newer build, and
+  refuses with `AO_SERVICES_WORKTREE_ROOT` when there is none; a pointer already naming a worktree
+  moves back at the next ensure from the installed plugin or source checkout. `services ensure`,
+  `restart` and `stop` refuse inside a dispatched worker (`TM_DISPATCH_WORKER`); the SessionStart
+  `ensure --detach` is a silent no-op there.
+
 - **Self-heal refreshes a host copy on an older build at the same version (TM-299).** The host-copy
   sync compared versions only, so a Grok or Codex copy at the services' version but on an older build
   was reported "same version, different build" and never refreshed. It now compares the build
