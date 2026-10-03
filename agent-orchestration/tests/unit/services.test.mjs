@@ -148,6 +148,7 @@ test("ensure is idempotent: the second run writes nothing, reloads nothing, star
   const binary = join(data, "bin", "process-compose");
   const deps = {
     mode: "systemd",
+    worktree: () => false, // this suite may run from a task worktree; root choice is TM-305's test
     install: async () => ({ binary, installed: false }),
     prepareNats: async () => null,
     fetchImpl: api.fetchImpl,
@@ -230,6 +231,76 @@ test("TM-283: equivalent copies never flap, an older session never downgrades, a
   assert.equal((await pointer()).pluginRoot, old);
 });
 
+test("TM-305: a linked task worktree never captures the services pointer, and a captured one moves back", async (t) => {
+  const root = await scratch(t, "ao-services-worktree-");
+  const home = join(root, "home"), stateRoot = join(root, "state"), data = join(root, "data");
+  const managers = await fakeManagers(root);
+  const api = fakeApi();
+  const base = {
+    mode: "systemd", install: async () => ({ binary: join(data, "bin", "pc"), installed: false }), prepareNats: async () => null,
+    fetchImpl: api.fetchImpl, lock: readLock(pluginRoot),
+    run: async (mode, args) => { const result = await managers.runFake(mode, args); if (args.includes("start")) api.state.started = true; return result; },
+  };
+  const env = { AGENT_ORCHESTRATION_DATA_HOME: data, XDG_CONFIG_HOME: join(home, ".config") };
+  const copy = async (...parts) => { const dir = join(root, ...parts, "agent-orchestration"); await mkdir(dir, { recursive: true }); return dir; };
+  const cache = await copy("cache-60a3328828f4");
+  const worktree = await copy("marketplace", ".bytedesk", "worktrees", "TM-276-x");
+  // A worktree outside the conventional folders, recognised by its `.git` file alone.
+  const linked = await copy("elsewhere", "wt");
+  await writeFile(join(linked, "..", ".git"), `gitdir: ${join(root, "marketplace", ".git", "worktrees", "wt")}\n`);
+  const build = { fingerprint: "fp-0.13.1", version: "0.13.1" };
+  const ensure = (dir, identity = build) => ensureServices({ pluginRoot: dir, stateRoot, env, home, platform: "linux", deps: { ...base, identity } });
+  const pointer = async () => JSON.parse(await readFile(servicePaths({ stateRoot, data }).pointer, "utf8")).pluginRoot;
+
+  // No services yet: a worktree is refused rather than becoming the first root.
+  await assert.rejects(ensure(worktree), { code: "AO_SERVICES_WORKTREE_ROOT" });
+  await ensure(cache);
+  for (const dir of [worktree, linked]) {
+    await ensure(dir);
+    assert.equal(await pointer(), cache, `an identical build in ${dir} keeps the cache`);
+    await ensure(dir, { fingerprint: "fp-0.14.0", version: "0.14.0" });
+    assert.equal(await pointer(), cache, `a newer build in ${dir} still never captures the pointer`);
+  }
+  // The TM-276 state: the pointer already names a worktree. The next ensure from the cache takes it back.
+  await writeFile(servicePaths({ stateRoot, data }).pointer, JSON.stringify({ pluginRoot: worktree, node: process.execPath, ...build }));
+  await ensure(cache);
+  assert.equal(await pointer(), cache);
+});
+
+test("TM-305: linkedWorktree tells a linked worktree from a main checkout and a submodule", async (t) => {
+  const { linkedWorktree } = await import("../../src/services/services.mjs");
+  const root = await scratch(t, "ao-linked-");
+  const main = join(root, "main", "agent-orchestration"), sub = join(root, "sub", "agent-orchestration"), wt = join(root, "wt", "agent-orchestration");
+  for (const dir of [main, sub, wt]) await mkdir(dir, { recursive: true });
+  await mkdir(join(root, "main", ".git"));
+  await writeFile(join(root, "sub", ".git"), "gitdir: ../.git/modules/sub\n");
+  await writeFile(join(root, "wt", ".git"), "gitdir: /repo/.git/worktrees/wt\n");
+  const cases = [[main, false], [sub, false], [wt, true], ["/repo/.claude/worktrees/x/agent-orchestration", true], [join(root, "none"), false]];
+  assert.equal(cases.length, 5);
+  for (const [dir, want] of cases) assert.equal(linkedWorktree(dir), want, dir);
+});
+
+test("TM-305: services ensure, restart and stop refuse inside a dispatched worker session", async (t) => {
+  const { runServicesCommand } = await import("../../src/services/cli.mjs");
+  const written = [];
+  const write = process.stderr.write;
+  process.stderr.write = (chunk) => { written.push(String(chunk)); return true; };
+  t.after(() => { process.stderr.write = write; });
+  // A relative state root: had the guard not refused first, the command would throw on validation, not touch services.
+  const values = { "state-root": "not-absolute" };
+  const env = { TM_DISPATCH_WORKER: "1" };
+  const subs = ["ensure", "restart", "stop"];
+  assert.equal(subs.length, 3);
+  for (const sub of subs) assert.equal(await runServicesCommand(sub, values, ["session-host"], env), 1, sub);
+  process.stderr.write = write;
+  assert.equal(written.length, 3);
+  for (const [i, sub] of subs.entries()) assert.match(written[i], new RegExp(`services ${sub}: refused inside a dispatched worker session \\(TM_DISPATCH_WORKER`));
+  // SessionStart's detached ensure is a silent no-op in a worker.
+  assert.equal(await runServicesCommand("ensure", { ...values, detach: true }, [], env), 0);
+  // Without the marker the guard is out of the way: the state root is validated as before.
+  await assert.rejects(runServicesCommand("ensure", values, [], {}), { code: "AO_STATE_ROOT_NOT_ABSOLUTE" });
+});
+
 test("TM-283: compareVersions orders x.y.z numerically and sorts junk lowest", async () => {
   const { compareVersions } = await import("../../src/services/services.mjs");
   const cases = [["0.13.1", "0.13.0", 1], ["0.9.0", "0.10.0", -1], ["1.0.0", "1.0.0", 0], [null, "0.0.1", -1], ["0.14.0-rc1", "0.13.9", 1]];
@@ -242,7 +313,7 @@ test("ensure leaves nats out when AO_NATS_URL is set, and hot-reloads a changed 
   const stateRoot = join(root, "state"), data = join(root, "data");
   const api = fakeApi();
   let prepared = 0, spawned = 0;
-  const deps = { mode: "detached", install: async () => ({ binary: "/pc", installed: false }), fetchImpl: api.fetchImpl,
+  const deps = { mode: "detached", worktree: () => false, install: async () => ({ binary: "/pc", installed: false }), fetchImpl: api.fetchImpl,
     spawnDetached: () => { spawned += 1; api.state.started = true; },
     prepareNats: async () => { prepared += 1; return { bin: "/usr/bin/nats-server", args: ["-c", "/c"], log: "/n.log" }; } };
   const base = { pluginRoot, stateRoot, home: root, platform: "linux", deps };

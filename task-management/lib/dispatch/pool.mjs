@@ -405,7 +405,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
     try {
       const res = await collect(t.id, p, impls);
       collected.push({ id: t.id, ...res });
-      if (res.ok && !res.pending) {
+      if (res.ok && !res.pending && !res.duplicate) {
         // Registry hygiene only — capacity is read from the board below.
         const run = read(t.id, p)?.dispatched?.run;
         const agent = run ? listAgents(p).find((a) => a.runId && a.runId === run) : null;
