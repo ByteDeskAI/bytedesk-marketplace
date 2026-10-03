@@ -36,11 +36,19 @@ function isolatedEnv(root, home, extra = {}) {
 
 async function quietRepo(t, label) {
   const root = await mkdtemp(join(tmpdir(), `ao-supervise-nats-${label}-`));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // TM-329: node:test runs t.after hooks in REGISTRATION order, so a bare rm registered here ran
+  // first, while the supervisor was still rewriting its presence directory (measured: the supervisor
+  // was alive when rm began), and recursive rm lost the race with ENOTEMPTY. Everything that must
+  // stop first registers through `stopFirst`; the directory goes only after all of it has exited.
+  const stoppers = [];
+  t.after(async () => {
+    for (const stop of stoppers.reverse()) await stop();
+    await rm(root, { recursive: true, force: true });
+  });
   const repo = join(root, 'repo'), home = join(root, 'home');
   await run('git', ['init', '-q', repo]);
   const env = isolatedEnv(root, home);
-  return { root, repo, home, env, options: { consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` } };
+  return { root, repo, home, env, stopFirst: fn => stoppers.push(fn), options: { consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` } };
 }
 
 /** A transport opener whose Nth connection fails every presence write with plan[N-1] (a NatsError
@@ -193,13 +201,13 @@ async function killPid(child) {
 test('a supervisor keeps its pid across a real nats-server kill -9 and restart, and publishes again', { timeout: 90_000 }, async t => {
   const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
   if (!bin) { t.skip('no working nats-server binary'); return; }
-  const { root, repo, home } = await quietRepo(t, 'live');
+  const { root, repo, home, stopFirst } = await quietRepo(t, 'live');
   const port = await freePort();
   const url = `nats://127.0.0.1:${port}`;
   const storeDir = join(root, 'jetstream');
   mkdirSync(storeDir, { recursive: true });
   let broker = startBroker(bin, port, storeDir);
-  t.after(() => killPid(broker));
+  stopFirst(() => killPid(broker));
   await untilConnect(port);
 
   const env = isolatedEnv(root, home, { AO_NATS_URL: url });
@@ -214,7 +222,7 @@ await superviseRepository({ consumer: ${JSON.stringify(repo)}, home: ${JSON.stri
     code: r.transport_error?.code ?? null, beats: r.presence_beats_degraded ?? 0 }) + '\\n') });
 `);
   const child = spawn(process.execPath, [script], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => killPid(child));
+  stopFirst(() => killPid(child));
   const ticks = [];
   let stderr = '', buffer = '';
   child.stderr.on('data', chunk => { stderr += chunk; });
@@ -257,7 +265,7 @@ await superviseRepository({ consumer: ${JSON.stringify(repo)}, home: ${JSON.stri
 
   // And the write reached the restarted server, not just the supervisor's own bookkeeping.
   const reader = await openNatsTransport({ servers: url, name: 'ao-tm277-reader' });
-  t.after(() => reader.close({ force: true }));
+  stopFirst(() => reader.close({ force: true }));
   const presence = await reader.getPresence({ repo: repoKey((await canonicalRepoId(repo)).id) });
   assert.ok(presence, 'presence must be in the restarted server');
   assert.ok(new Date(JSON.parse(presence.body).generatedAt) >= restartedAt, 'the stored presence was written after the restart');

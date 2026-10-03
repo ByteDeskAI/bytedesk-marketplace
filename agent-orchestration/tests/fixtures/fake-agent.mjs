@@ -54,6 +54,15 @@ rl.on("line", async (line) => {
   if (bootstrap) {
     const content = await readFile(bootstrap[1], "utf8").catch(() => "");
     bootstrapped = content.includes("# Bootstrap");
+    // TM-328: `--ack-cli <cli.mjs>` makes this agent do what its brief tells a real one to: run the
+    // staged prompt's ack command from its own pane and leave the outcome where a test can read it.
+    if (arg("--ack-cli") && bootstrapped) {
+      const dir = join(process.env.AO_RUN_DIR, "agents", process.env.AO_AGENT_ID);
+      const state = JSON.parse(await readFile(join(dir, "prompt-state.json"), "utf8"));
+      const { execFile } = await import("node:child_process");
+      const result = await new Promise(done => execFile(process.execPath, [arg("--ack-cli"), "prompt", "ack", process.env.AO_AGENT_ID, "--run", process.env.AO_RUN_DIR, "--consumer", process.env.AO_CONSUMER, "--revision", state.desired_revision, "--nonce", state.nonce], { encoding: "utf8" }, (error, stdout, stderr) => done({ code: error?.code ?? 0, stdout, stderr })));
+      await writeFile(join(dir, "ack-result.json"), JSON.stringify(result));
+    }
     process.stdout.write(`${bootstrapped ? "READY" : "BOOTSTRAP MISSING"}\n> `);
     return;
   }

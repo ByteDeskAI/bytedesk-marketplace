@@ -242,6 +242,15 @@ var init_nats_local = __esm({
 });
 
 // topology/lib/orch-transport.mjs
+function orchName(value) {
+  const cleaned = String(value ?? "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+  if (!/^[A-Za-z0-9_-]+$/.test(cleaned)) {
+    const error = new Error(`Orch name is empty after sanitizing ${JSON.stringify(value)}`);
+    error.code = "TOPOLOGY_ORCH_NAME";
+    throw error;
+  }
+  return cleaned;
+}
 var ORCH_LAYOUT, OUTAGE_RETIRE_MS;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
@@ -271,6 +280,8 @@ var init_orch_transport = __esm({
       eventsFilter: (repo) => `orch.${repo}.events.>`,
       // TM-310: an agent-mode transport keys its records under its own identity so the grant can name them.
       handoffKey: (repo, messageId, agent = null) => agent ? `${repo}.${agent}.${messageId}` : `${repo}.${messageId}`,
+      // TM-315: written by the RECIPIENT when it consumes a mail message, under its own identity so its grant covers it.
+      deliveredKey: (repo, agent, messageId) => `${repo}.${agent}.delivered.${orchName(messageId)}`,
       claimKey: (repo, task) => `${repo}.${task}`,
       agentKey: (repo, agent) => `${repo}.${agent}`,
       mailDurable: (repo, agent) => `mail_${repo}_${agent}`,

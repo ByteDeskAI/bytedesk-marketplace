@@ -672,6 +672,12 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
           });
         }
       }
+      // A barrier that finds no obligation at all (unknown or not-yet-sent id, empty run) has nothing
+      // to be satisfied BY. Reporting ok with zero replies made a typo'd id look like a finished wait.
+      if (replies.length === 0) {
+        await appendJournal(runDir, { type: "wait.nothing_pending", agents: targets, message: messageId ?? null });
+        return { ok: false, code: "TOPOLOGY_NOTHING_PENDING", message: messageId ? `No pending or answered obligation for message "${messageId}" among ${targets.join(", ") || "any agent"}; nothing to wait for.` : `No obligations exist for ${targets.join(", ") || "any agent"}; nothing to wait for.`, elapsed_ms: Date.now() - started };
+      }
       await appendJournal(runDir, { type: "wait.satisfied", agents: targets, message: messageId ?? null, elapsed_ms: Date.now() - started });
       return { ok: true, replies, elapsed_ms: Date.now() - started };
     }

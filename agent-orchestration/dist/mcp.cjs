@@ -25303,6 +25303,7 @@ function createFileTransport() {
   const probes = /* @__PURE__ */ new Map();
   const verdictWaiters = /* @__PURE__ */ new Map();
   const handoffs = /* @__PURE__ */ new Map();
+  const delivered = /* @__PURE__ */ new Set();
   const events = /* @__PURE__ */ new Map();
   const eventWatchers = /* @__PURE__ */ new Set();
   let eventSeq = 0;
@@ -25356,6 +25357,7 @@ function createFileTransport() {
             messageId: item.messageId,
             body: item.body,
             ack: async () => {
+              if (item.messageId) delivered.add(ORCH_LAYOUT.deliveredKey(orchName(repo), orchName(agent), item.messageId));
               item.acked = true;
               pruneAcked(queue);
             }
@@ -25378,6 +25380,7 @@ function createFileTransport() {
     },
     async hasMailMessage({ repo, agent, messageId: messageId2 }) {
       const subject = ORCH_LAYOUT.mailSubject(orchName(repo), orchName(agent));
+      if (delivered.has(ORCH_LAYOUT.deliveredKey(orchName(repo), orchName(agent), messageId2))) return true;
       return (mail.get(subject) ?? []).some((entry) => entry.messageId === messageId2);
     },
     async getClaimEntry({ repo, task }) {
@@ -25930,6 +25933,15 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         messageId: msg.headers?.get?.("Nats-Msg-Id") ?? null,
         body: sc.decode(msg.data),
         ack: async () => {
+          const wire = msg.headers?.get?.("Nats-Msg-Id") ?? null;
+          const prefix = `${nameRepo}.${nameAgent}.`;
+          if (wire?.startsWith(prefix)) {
+            const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+            await kv.create(ORCH_LAYOUT.deliveredKey(nameRepo, nameAgent, wire.slice(prefix.length)), JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString() })).catch(async (error51) => {
+              const entry = await kv.get(ORCH_LAYOUT.deliveredKey(nameRepo, nameAgent, wire.slice(prefix.length))).catch(() => null);
+              if (!entry || entry.operation !== "PUT") throw error51;
+            });
+          }
           msg.ack();
           await nc.flush();
         },
@@ -26005,6 +26017,9 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, orchName(agent));
+      const kv = await views.kv(ORCH_LAYOUT.handoffsBucket);
+      const consumed = await kv.get(ORCH_LAYOUT.deliveredKey(nameRepo, orchName(agent), messageId2)).catch(() => null);
+      if (consumed && consumed.operation === "PUT") return true;
       const wanted = `${nameRepo}.${orchName(agent)}.${messageId2}`;
       const info = await jsm.streams.info(ORCH_LAYOUT.mailStream);
       for (let seq = info.state.first_seq; seq <= info.state.last_seq; ) {
@@ -26352,6 +26367,8 @@ var init_orch_transport = __esm({
       eventsFilter: (repo) => `orch.${repo}.events.>`,
       // TM-310: an agent-mode transport keys its records under its own identity so the grant can name them.
       handoffKey: (repo, messageId2, agent = null) => agent ? `${repo}.${agent}.${messageId2}` : `${repo}.${messageId2}`,
+      // TM-315: written by the RECIPIENT when it consumes a mail message, under its own identity so its grant covers it.
+      deliveredKey: (repo, agent, messageId2) => `${repo}.${agent}.delivered.${orchName(messageId2)}`,
       claimKey: (repo, task) => `${repo}.${task}`,
       agentKey: (repo, agent) => `${repo}.${agent}`,
       mailDurable: (repo, agent) => `mail_${repo}_${agent}`,
@@ -26419,6 +26436,7 @@ function agentPermissions({ repo, agent, role = "worker", mailTo = [], inboxPref
   if (overseer) publish3.push(`$JS.API.STREAM.INFO.${E}`, `$JS.API.STREAM.MSG.GET.${E}`);
   publish3.push(`$KV.${handoffs}.${r}.${a}.>`);
   if (role !== "lead") publish3.push(`$JS.API.DIRECT.GET.KV_${handoffs}.$KV.${handoffs}.${r}.${a}.>`);
+  if (role !== "lead") publish3.push(`$JS.API.DIRECT.GET.KV_${handoffs}.$KV.${handoffs}.${r}.*.delivered.>`);
   if (role === "lead") publish3.push(ORCH_LAYOUT.tasksSubject(r), `$KV.${ORCH_LAYOUT.claimsBucket}.${r}.>`, `$JS.API.STREAM.MSG.GET.${ORCH_LAYOUT.mailStream}`, `orch.${r}.probe.*`);
   if (role === "lead" || takesWork) publish3.push(`$JS.API.CONSUMER.INFO.${ORCH_LAYOUT.tasksStream}.${tasks}`, `$JS.API.CONSUMER.MSG.NEXT.${ORCH_LAYOUT.tasksStream}.${tasks}`, `$JS.ACK.${ORCH_LAYOUT.tasksStream}.${tasks}.>`, `$JS.API.STREAM.INFO.${ORCH_LAYOUT.tasksStream}`);
   if (takesWork) publish3.push(`$KV.${ORCH_LAYOUT.claimsBucket}.${r}.>`);
@@ -34308,6 +34326,10 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
       await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, attention: readiness.attention === true, exit_status: readiness.exit_status ?? null });
       continue;
     }
+    const staged = await loadRun(runDir);
+    const stagedBinding = (await panesOn(await serverOf(pane))).find((p) => p.paneId === pane && p.sessionName === staged.session) || null;
+    invariant2(stagedBinding, "TOPOLOGY_SESSION_OWNERSHIP", `Pane ${pane} of ${agentId} is not in session ${staged.session}; its prompt cannot be staged.`);
+    await promotePromptForIncarnation({ agent: { id: agentId, _dir: (0, import_node_path54.join)(runDir, "agents", agentId) }, binding: stagedBinding, consumer: staged.consumer, session: staged.session });
     const pointer = render(item.adapter.bootstrap_message, item.vars) + (role === "orchestrator" ? BEGIN_CLAUSE : "");
     const delivery = await deliverPointer(pane, item.adapter, pointer);
     if (!delivery.delivered) {
@@ -77410,11 +77432,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "9ae898f0be96fa4a1aa04bbe644dee57d23f23abad608cfc483f1a8593b82c2c";
+  return false ? null : "04254e44a2d7ee88ac315057fe17ce3970b93ceda0b3dd677682cf935a845bdd";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "9ae898f0be96fa4a1aa04bbe644dee57d23f23abad608cfc483f1a8593b82c2c";
-  let version2 = false ? null : "0.16.0";
+  const fingerprint2 = false ? null : "04254e44a2d7ee88ac315057fe17ce3970b93ceda0b3dd677682cf935a845bdd";
+  let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs15.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -77838,8 +77860,8 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "9ae898f0be96fa4a1aa04bbe644dee57d23f23abad608cfc483f1a8593b82c2c",
-  version: false ? null : "0.16.0"
+  sourceFingerprint: false ? null : "04254e44a2d7ee88ac315057fe17ce3970b93ceda0b3dd677682cf935a845bdd",
+  version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto37.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -78869,7 +78891,7 @@ function register3(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.16.0" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.16.1" });
   register3(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });

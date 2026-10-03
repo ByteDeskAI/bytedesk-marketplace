@@ -370,3 +370,41 @@ test('CLI verbs handoff, diagnose and work run for real against a temp nats-serv
     await rm(stateHome, { recursive: true, force: true });
   }
 });
+
+// TM-315: the retry's probe sees only UNCONSUMED stream messages. When the recipient consumed the
+// successor before the retry (and the dedupe window is over) the probe said "not sent" and the
+// handoff sent a second copy. The recipient now leaves a delivered record when it consumes.
+for (const removeRecord of [false, true]) {
+  test(`handoff retry after the recipient consumed the successor ${removeRecord ? 'DOUBLE-delivers when the delivered record is removed (mutation)' : 'delivers exactly once'}`, async () => {
+    const broker = await startBroker();
+    const transport = await open(broker);
+    try {
+      const repo = 'repod';
+      const subject = ORCH_LAYOUT.mailSubject(repo, 'agent-b');
+      let published = 0;
+      const crashAfterSend = async ({ body, to }) => {
+        await transport.publishMail({ repo, agent: to, messageId: 'handoff-msg-9', body });
+        published += 1;
+        throw new Error('crash between send and recording the successor id');
+      };
+      await assert.rejects(handoff({ transport, repo, messageId: 'msg-9', from: 'agent-a', reason: 'handed_off_to', to: 'agent-b', send: crashAfterSend, close: async () => {} }), /crash between/);
+
+      const item = await transport.pullMail({ repo, agent: 'agent-b', timeoutMs: 2000 });
+      assert.ok(item, 'the recipient must receive the successor');
+      await item.ack();
+      await sleep(DUP_WINDOW_MS + 600); // past the stream's dedupe window
+      const kvBucket = await transport.nc.jetstream().views.kv(ORCH_LAYOUT.handoffsBucket);
+      const recordKey = ORCH_LAYOUT.deliveredKey(repo, 'agent-b', 'handoff-msg-9');
+      if (removeRecord) await kvBucket.purge(recordKey);
+
+      const send = async ({ body, to }) => { await transport.publishMail({ repo, agent: to, messageId: 'handoff-msg-9', body }); published += 1; return { id: 'successor-9' }; };
+      const probe = ({ to }) => transport.hasMailMessage({ repo, agent: to, messageId: 'handoff-msg-9' });
+      const retry = await handoff({ transport, repo, messageId: 'msg-9', from: 'agent-a', reason: 'handed_off_to', to: 'agent-b', send, close: async () => {}, probe });
+      const entry = await kvBucket.get(recordKey).catch(() => null);
+      const streamCount = await mailCount(transport, subject);
+      console.log(`TM-315 removeRecord=${removeRecord} published=${published} stream(${subject}) msgs=${streamCount} delivered-record=${entry && entry.operation === 'PUT' ? `${recordKey}@rev${entry.revision}` : 'absent'} retry.successorId=${retry.successorId}`);
+      assert.equal(published, removeRecord ? 2 : 1);
+      assert.equal(streamCount, removeRecord ? 1 : 0, 'a second copy sits in the stream only when the record is gone');
+    } finally { await transport.close(); await stopBroker(broker); }
+  });
+}
