@@ -428,7 +428,10 @@ const commands = {
     // Start the watcher only after winning repository ownership. Both loops
     // share a lifetime; a failed or losing supervisor cannot leave one behind.
     const onOwned = async () => {
-      const { resolveTransport, describeTransport } = await import('./lib/orch-transport.mjs');
+      const { resolveTransport, describeTransport, ignoredNatsEnv } = await import('./lib/orch-transport.mjs');
+      // ADR-0032: once per supervisor start, never per tick.
+      const ignored = ignoredNatsEnv(process.env);
+      if (ignored) out({ ...ignored, consumer: ctx.consumer });
       // Open it now so the start log names what this supervisor will use, not a stale record.
       const opened = await resolveTransport({ env: process.env }).catch((error) => ({ error }));
       if (opened.error) out({ event: 'transport-unavailable', consumer: ctx.consumer, code: opened.error.code ?? null, message: opened.error.message });

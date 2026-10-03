@@ -136,6 +136,10 @@ export function validateConfigShape(raw, label) {
   if (raw.nats !== undefined && (!isPlainObject(raw.nats) || (raw.nats.domain !== undefined && (typeof raw.nats.domain !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.nats.domain))))) {
     errors.push(`${label}: "nats" must be an object whose "domain" is 1-64 letters, digits, hyphen or underscore`);
   }
+  // TM-308 / ADR-0032: `nats.port` is this machine's managed NATS port, chosen once and kept.
+  if (isPlainObject(raw.nats) && raw.nats.port !== undefined && !(Number.isInteger(raw.nats.port) && raw.nats.port >= 1024 && raw.nats.port <= 65535)) {
+    errors.push(`${label}: "nats.port" must be an integer from 1024 to 65535`);
+  }
   // TM-167: enrollment reads `enabled` from the repo layer (repo-enrollment.mjs), and a non-boolean
   // there fails closed as `enabled: false`. Reporting it here too makes the refusal visible.
   if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") errors.push(`${label}: "enabled" must be true or false`);

@@ -15,7 +15,7 @@ import { invariant } from "../errors.mjs";
 import { ensurePrivateDir, readJson, runFile, sha256 } from "../util.mjs";
 import { probeSessionHost } from "../session/host.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
-import { localNatsEnabled, localNatsHome, prepareLocalNats } from "../../topology/lib/nats-local.mjs";
+import { checkNatsPort, configuredNatsPort, localNatsEnabled, localNatsHome, prepareLocalNats } from "../../topology/lib/nats-local.mjs";
 import { describeTransport } from "../../topology/lib/orch-transport.mjs";
 import { registrationMode, register, registrationState, start, unregister } from "./os-registration.mjs";
 import { compareVersions } from "./host-copies.mjs";
@@ -348,7 +348,9 @@ export async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
     const token = (await readFile(paths.token, "utf8")).trim();
     const previous = await readJson(paths.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
-    const nats = localNatsEnabled(env) ? await (deps.prepareNats ?? prepareLocalNats)({ env }).catch(() => null) : null;
+    // TM-308: a nats.port held by another process leaves nats out of the project and is reported, never moved.
+    let natsError = null;
+    const nats = localNatsEnabled(env) ? await (deps.prepareNats ?? prepareLocalNats)({ env }).catch((error) => { natsError = { code: error?.code ?? null, message: error?.message ?? String(error) }; return null; }) : null;
     const repos = (await readRepos(paths.repos)).filter((repo) => existsSync(repo.consumer));
     const path = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths.launcher, stateRoot, logs: paths.logs, nats, repos, path, env });
@@ -380,7 +382,7 @@ export async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
       }
     }
     invariant(alive, "AO_SERVICES_UNAVAILABLE", `process-compose did not answer on 127.0.0.1:${port}; see ${log}.`, { mode });
-    return { ok: true, mode, port, version: lock.version, binary, actions, changed, processes: Object.keys(project.processes), unsupported,
+    return { ok: true, mode, port, version: lock.version, binary, actions, changed, processes: Object.keys(project.processes), unsupported, ...(natsError ? { natsError } : {}),
       pointer: { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null, fingerprint: pointer.fingerprint ?? null } };
   }, { timeoutMs: 300_000 }); // a concurrent first ensure may be downloading the binary
 }
@@ -397,7 +399,14 @@ export async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot, env 
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
   // TM-285: what the last ensure found and repaired (stale MCP servers, refreshed host copies, leaked scopes).
   const selfHeal = await readJson(join(paths.dir, "self-heal.json"), null).catch(() => null);
-  return { ok: alive, registration, processCompose: { alive, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: { home: localNatsHome(env) }, transport: await describeTransport(env, home).catch(() => null), selfHeal };
+  return { ok: alive, registration, processCompose: { alive, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: await natsStatus(env), transport: await describeTransport(env, home).catch(() => null), selfHeal };
+}
+
+/** TM-308: the managed NATS port, its URL, and whether something else holds it right now. */
+async function natsStatus(env) {
+  const port = await configuredNatsPort(env);
+  const conflict = port ? await checkNatsPort(port, env).then(() => null, (error) => error?.code === "TOPOLOGY_NATS_PORT_CONFLICT" ? { message: error.message, holder: error.details?.holder ?? null } : null) : null;
+  return { home: localNatsHome(env), port, url: port ? `nats://127.0.0.1:${port}` : null, conflict };
 }
 
 /** One managed process as `services status --json` reports it: scripts read the pid here, never from pgrep. */
