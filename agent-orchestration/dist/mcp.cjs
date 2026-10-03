@@ -26022,14 +26022,19 @@ async function bridgeUnixSocket(socketPath) {
 }
 function redactUrl(url2) {
   if (!url2) return null;
-  try {
-    const parsed2 = new URL(url2);
-    parsed2.username = "";
-    parsed2.password = "";
-    return parsed2.toString().replace(/\/$/, "");
-  } catch {
-    return url2;
-  }
+  const strip = (text) => text.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme = "") => `${scheme}[redacted]@`);
+  return String(url2).split(",").map((part) => part.trim()).filter(Boolean).map((part) => {
+    let out;
+    try {
+      const parsed2 = new URL(part);
+      parsed2.username = "";
+      parsed2.password = "";
+      out = parsed2.toString().replace(/\/$/, "");
+    } catch {
+      out = part;
+    }
+    return out.includes("@") ? strip(out) : out;
+  }).join(",") || null;
 }
 function retireStaleOutage(state, { now = Date.now(), retireAfterMs = OUTAGE_RETIRE_MS } = {}) {
   const outage = state?.outage;
@@ -36742,7 +36747,8 @@ async function natsOutageTick({
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
   const outageId = messageId("outage", key, outage.since), recoveryId = messageId("recovered", key, outage.since);
-  const sent = async (id2) => Boolean(await readStandingMessage({ id: id2, env, home }).catch(() => null));
+  const record2 = async (id2) => readStandingMessage({ id: id2, env, home }).catch(() => null);
+  const delivered = async (id2) => (await record2(id2))?.status === "delivered";
   let probed = false;
   const redialKey = `${outage.since}|${outage.url}`;
   const redial = redials.get(redialKey);
@@ -36755,8 +36761,10 @@ async function natsOutageTick({
   }
   const kind = outage.retired ? "retired" : outage.recovered_at ? "recovered" : "outage";
   const id = kind === "outage" ? outageId : recoveryId;
-  if (await sent(id)) return probed ? { kind, status: "already-sent", probed } : null;
-  if (kind !== "outage" && !await sent(outageId)) return null;
+  const existing = await record2(id);
+  if (existing?.status === "delivered") return probed ? { kind, status: "already-sent", probed } : null;
+  if (existing) return { kind, status: existing.status, reason: existing.reason ?? null, message_id: id, ...probed ? { probed } : {} };
+  if (kind !== "outage" && !await delivered(outageId)) return null;
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { kind, status: "skipped", reason: "no lead is registered for this repository" };
@@ -36782,13 +36790,15 @@ async function natsOutageTick({
   return deliver({
     id,
     consumer,
+    fromProject: consumer,
+    from: SUPERVISOR_SENDER,
     to: leadId,
     subject: `NATS ${kind === "outage" && outage.conflict ? "port conflict" : kind}: ${outage.url}`,
     body: body.join("\n"),
     provenance: { source: "ao-topology supervise" }
-  }, { env, home }).then((record2) => ({ kind, status: record2?.status ?? "sent", to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
+  }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto33, import_node_os31, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId;
+var import_node_crypto33, import_node_os31, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto33 = require("node:crypto");
@@ -36801,7 +36811,8 @@ var init_nats_outage = __esm({
     REDIAL_FIRST_MS = 3e4;
     REDIAL_MAX_MS = 15 * 6e4;
     redials = /* @__PURE__ */ new Map();
-    messageId = (kind, key, since) => (0, import_node_crypto33.createHash)("sha256").update(`nats-${kind}:${key}:${since}`).digest("hex").slice(0, 32);
+    messageId = (kind, key, since) => (0, import_node_crypto33.createHash)("sha256").update(`nats-${kind}:v2:${key}:${since}`).digest("hex").slice(0, 32);
+    SUPERVISOR_SENDER = "ao-supervisor";
   }
 });
 
@@ -76571,10 +76582,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "136913948a705ab88fc4d8493d5c5bc887e1572a72414f3b2b7a08997bd7c9ad";
+  return false ? null : "3818389bae1f4ea9d04a46f589ba3f9648e46059048de17224ae6756aa8d6489";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "136913948a705ab88fc4d8493d5c5bc887e1572a72414f3b2b7a08997bd7c9ad";
+  const fingerprint2 = false ? null : "3818389bae1f4ea9d04a46f589ba3f9648e46059048de17224ae6756aa8d6489";
   let version2 = false ? null : "0.15.2";
   if (!version2) {
     try {
@@ -76999,7 +77010,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "136913948a705ab88fc4d8493d5c5bc887e1572a72414f3b2b7a08997bd7c9ad",
+  sourceFingerprint: false ? null : "3818389bae1f4ea9d04a46f589ba3f9648e46059048de17224ae6756aa8d6489",
   version: false ? null : "0.15.2"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

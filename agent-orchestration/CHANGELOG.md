@@ -146,8 +146,27 @@
   now falls back to managed NATS and is reported to the lead, as ADR-0031 decided (it used to fail
   outright); `AO_NATS_AUTOSTART=0` still makes it fail.
 
+### Fixed
+
+- **NATS outage and recovery notices now reach the lead (TM-309 C1).** `natsOutageTick` sent them
+  with no `from`/`fromProject`, so the standing mailbox held every one permanently as
+  `source_identity_required`; every such record on the authoring machine was held, never delivered.
+  They now come from `ao-supervisor` in the same repository, which admission routes to the lead. A
+  record counts as sent only when its status is `delivered`: a held one is reported on the
+  supervisor tick (`nats_outage.status` and `reason`) and retried by the mailbox, and a recovery is
+  sent only after its outage was delivered. Message ids moved to a `v2` derivation so an old held
+  record under the same id cannot refuse the new envelope.
+- **`redactUrl` fails closed (TM-309 A1).** A comma-separated server list or a URL `new URL()`
+  rejects used to come back raw, leaking `user:secret` into `transport.json`, logs, doctor, `services
+  status` and the lead's mail. Each server in a list is now redacted, and anything still holding an
+  `@` loses its userinfo to `[redacted]`.
+
 ### Tests
 
+- `tests/unit/nats-outage.test.mjs` gives the test repository a real library lead and reads that
+  lead's inbox over the real transport: exactly one outage and one recovery arrive, each `delivered`.
+  Removing the sender again fails three tests with `source_identity_required`. New `redactUrl`
+  cases cover lists and malformed forms; the old raw-return behaviour fails them.
 - `tests/unit/nats-port.test.mjs`: the first start writes `nats.port` in 45200–45999 and a second
   start and two process-compose re-renders reuse it; a port held by a test listener is refused with
   the holder's pid, starts nothing, shows in `doctor` and `services status`, and mails the lead

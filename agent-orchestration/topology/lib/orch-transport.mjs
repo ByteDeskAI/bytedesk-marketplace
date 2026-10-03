@@ -405,11 +405,21 @@ async function bridgeUnixSocket(socketPath) {
   return { server, servers: `nats://127.0.0.1:${port}` };
 }
 
-/** Drops user:password from a URL before it is logged, stored or mailed. */
+/**
+ * Drops user:password from a URL, or each URL of a comma-separated server list, before it is
+ * logged, stored or mailed. TM-309: fails closed — a part that does not parse loses everything up
+ * to its last '@' by regex, and never comes back raw.
+ */
 export function redactUrl(url) {
   if (!url) return null;
-  try { const parsed = new URL(url); parsed.username = ''; parsed.password = ''; return parsed.toString().replace(/\/$/, ''); }
-  catch { return url; }
+  const strip = (text) => text.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme = '') => `${scheme}[redacted]@`);
+  return String(url).split(',').map((part) => part.trim()).filter(Boolean).map((part) => {
+    let out;
+    try { const parsed = new URL(part); parsed.username = ''; parsed.password = ''; out = parsed.toString().replace(/\/$/, ''); }
+    catch { out = part; }
+    // A form URL parses without a host ('u:secret@host' is scheme 'u:') keeps its '@'; strip it too.
+    return out.includes('@') ? strip(out) : out;
+  }).join(',') || null;
 }
 
 export const transportStatePath = (env = process.env, home = homedir()) => join(stateRoot(env, home), 'transport.json');

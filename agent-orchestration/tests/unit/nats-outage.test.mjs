@@ -14,7 +14,9 @@ import { run, sleep } from '../../topology/lib/util.mjs';
 import { findNatsServer } from '../../topology/lib/nats-local.mjs';
 import { closeLiveTransports, readTransportState, redactUrl, resolveTransport, transportStatePath } from '../../topology/lib/orch-transport.mjs';
 import { natsOutageTick } from '../../topology/lib/nats-outage.mjs';
-import { readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
+import { readStandingInbox, readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
+import { agentsRoot } from '../../topology/lib/agents.mjs';
+import { writeJson } from '../../topology/lib/util.mjs';
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -42,6 +44,18 @@ test('redactUrl drops credentials and keeps host and port', () => {
   assert.equal(redactUrl(''), null);
 });
 
+// TM-309 A1: the list form NATS accepts and anything new URL() rejects must never come back raw.
+test('redactUrl fails closed on server lists and malformed URLs', () => {
+  assert.equal(redactUrl('nats://a:secret1@h1:4222,nats://b:secret2@h2:4222'), 'nats://h1:4222,nats://h2:4222');
+  assert.equal(redactUrl('tls://x:secret@h:1, nats://h2:2'), 'tls://h:1,nats://h2:2');
+  for (const raw of ['nats://u:secret@[not-a-host', 'u:secret@host:4222', 'nats://u:p@secret@[bad', 'nats://ok:4222,nats://u:secret@[bad']) {
+    const out = redactUrl(raw);
+    assert.doesNotMatch(out, /secret/, `${raw} -> ${out}`);
+    assert.match(out, /\[redacted\]@/, `${raw} -> ${out}`);
+  }
+  assert.equal(redactUrl('nats://h:4222'), 'nats://h:4222', 'a credential-free URL is unchanged');
+});
+
 test('a dead AO_NATS_URL falls back to managed local and mails the lead once, then once on recovery', { timeout: 60_000 }, async t => {
   const bin = await findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
   if (!bin) { t.skip('no working nats-server binary'); return; }
@@ -51,6 +65,8 @@ test('a dead AO_NATS_URL falls back to managed local and mails the lead once, th
   // Opt the temp repo out of enrollment so nothing can start a real provider lead.
   mkdirSync(join(repo, '.bytedesk', 'agent-orchestration'), { recursive: true });
   await writeFile(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), '{"enabled":false}\n');
+  // TM-309 C1: a real library lead, so admission routes the notice to it and the inbox can be read.
+  await writeJson(join(agentsRoot(repo), 'lead-1', 'agent.json'), { id: 'lead-1', role: 'lead', full_name: 'lead-1' });
   const configuredPort = await freePort();
   const configured = `nats://127.0.0.1:${configuredPort}`;
   const env = { ...process.env, TMUX: '', TMUX_TMPDIR: join(root, 'tmux'), HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
@@ -91,7 +107,11 @@ test('a dead AO_NATS_URL falls back to managed local and mails the lead once, th
   assert.match(mail[0].body, new RegExp(`${configured.replace(/[.]/g, '\\.')} \\(AO_NATS_URL\\)`));
   assert.match(mail[0].body, /Error: /);
   assert.match(mail[0].body, new RegExp(`managed local NATS ${local.selection.url.replace(/[.]/g, '\\.')}`));
-  assert.ok(await readStandingMessage({ id: first.message_id, env, home }), 'the outage message is a durable standing record');
+  assert.equal(first.status, 'delivered', `the outage notice is delivered, not held (${first.reason})`);
+  assert.equal((await readStandingMessage({ id: first.message_id, env, home })).status, 'delivered');
+  // TM-309 C1: what the lead actually receives, read from its inbox over the real transport.
+  const inboxSubjects = async () => (await readStandingInbox({ consumer: repo, agent: 'lead-1', env, home })).map(m => m.envelope.context?.subject);
+  assert.deepEqual(await inboxSubjects(), [`NATS outage: ${configured}`]);
   assert.equal(await tick(), null, 'a second tick in the same outage sends nothing');
   // A reopen during the same outage keeps its identity, so it is still one outage.
   await closeLiveTransports();
@@ -119,8 +139,10 @@ test('a dead AO_NATS_URL falls back to managed local and mails the lead once, th
   assert.equal(mail.length, 2);
   assert.match(mail[1].body, /NATS RECOVERED/);
   assert.match(mail[1].body, /back on it/);
+  assert.equal(recovered.status, 'delivered');
   assert.equal(await tick(), null);
   assert.equal(mail.length, 2);
+  assert.deepEqual(await inboxSubjects(), [`NATS outage: ${configured}`, `NATS recovered: ${configured}`], 'exactly one outage and one recovery reach the lead');
 });
 
 // Shared fixture for the faro round-4 tests: a temp repo opted out of enrollment, a dead configured
@@ -131,6 +153,7 @@ async function outageFixture(t, prefix) {
   await run('git', ['init', '-q', repo]);
   mkdirSync(join(repo, '.bytedesk', 'agent-orchestration'), { recursive: true });
   await writeFile(join(repo, '.bytedesk', 'agent-orchestration', 'config.json'), '{"enabled":false}\n');
+  await writeJson(join(agentsRoot(repo), 'lead-1', 'agent.json'), { id: 'lead-1', role: 'lead', full_name: 'lead-1' });
   const configured = `nats://127.0.0.1:${await freePort()}`;
   const env = { ...process.env, TMUX: '', TMUX_TMPDIR: join(root, 'tmux'), HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
     AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AGENT_ORCHESTRATION_SERVICES: '0', AO_NATS_HOME: natsHome,
@@ -233,7 +256,11 @@ test('an outage nothing falls back from any more is retired after the bound: one
   delete fixed.AO_NATS_URL; // the operator applied doctor's fix
   const bound = 60_000, start = Date.now();
   let clock = start, discards = 0;
-  const tick = () => natsOutageTick({ consumer: f.repo, env, home: f.home, lead: f.lead, deliver: f.deliver, retireAfterMs: bound,
+  // The supervisor's own env: the dead URL until the operator's fix, then the fixed one. Delivering a
+  // notice opens a transport with it, so a supervisor still configured with the dead URL would
+  // (correctly) fall back again and reopen the outage.
+  let supervisorEnv = env;
+  const tick = () => natsOutageTick({ consumer: f.repo, env: supervisorEnv, home: f.home, lead: f.lead, deliver: f.deliver, retireAfterMs: bound,
     reachable: async () => true, discard: async () => { discards += 1; }, now: () => clock });
 
   await resolveTransport({ env });
@@ -247,6 +274,7 @@ test('an outage nothing falls back from any more is retired after the bound: one
   await closeLiveTransports();
   const plain = await resolveTransport({ env: fixed });
   assert.equal(plain.selection.fallback, null);
+  supervisorEnv = fixed;
   discards = 0;
   clock = start + 5 * bound;
   const closing = await tick();
