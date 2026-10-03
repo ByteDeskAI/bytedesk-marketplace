@@ -300,11 +300,17 @@ async function dead(owner) {
   return Boolean(identity && owner.process_identity && identity !== owner.process_identity);
 }
 async function removeOwned(path3, token) {
-  const gate = (0, import_node_path9.join)(path3, ".remove");
+  const gateToken = (0, import_node_crypto6.randomUUID)();
+  let gate = (0, import_node_path9.join)(path3, ".remove");
   try {
-    await (0, import_promises6.mkdir)(gate);
+    for (; ; ) {
+      if (await admit(gate, gateToken)) break;
+      const holder = await lockOwner(gate);
+      if (!holder || !await dead(holder)) return false;
+      gate = (0, import_node_path9.join)(path3, `.remove-${holder.token}`);
+    }
   } catch (error51) {
-    if (["EEXIST", "ENOENT"].includes(error51.code)) return false;
+    if (error51.code === "ENOENT") return false;
     throw error51;
   }
   let moved = false;
@@ -319,29 +325,64 @@ async function removeOwned(path3, token) {
     if (!moved) await (0, import_promises6.rm)(gate, { recursive: true, force: true });
   }
 }
+async function sweepPending(lockPath) {
+  const dir = (0, import_node_path9.dirname)(lockPath), prefix = `${(0, import_node_path9.basename)(lockPath)}.pending-`, retiredPrefix = `${(0, import_node_path9.basename)(lockPath)}.retired-`;
+  for (const name of await (0, import_promises6.readdir)(dir).catch(() => [])) {
+    const path3 = (0, import_node_path9.join)(dir, name);
+    if (name.startsWith(retiredPrefix)) {
+      await (0, import_promises6.rm)(path3, { recursive: true, force: true }).catch(() => {
+      });
+      continue;
+    }
+    if (!name.startsWith(prefix)) continue;
+    try {
+      const owner = await lockOwner(path3);
+      const old = Date.now() - (await (0, import_promises6.stat)(path3)).mtimeMs > PENDING_STALE_MS;
+      if (!old && !await dead(owner)) continue;
+      const retired = `${lockPath}.retired-${(0, import_node_crypto6.randomUUID)()}`;
+      await (0, import_promises6.rename)(path3, retired);
+      await (0, import_promises6.rm)(retired, { recursive: true, force: true });
+    } catch {
+    }
+  }
+}
+async function admit(lockPath, token, hooks = {}) {
+  const pending = await (0, import_promises6.mkdtemp)(`${lockPath}.pending-`);
+  try {
+    await hooks.step?.("pending", pending);
+    await (0, import_promises6.writeFile)((0, import_node_path9.join)(pending, "owner.json"), JSON.stringify({
+      token,
+      pid: process.pid,
+      process_identity: await processIdentity(process.pid),
+      created_at: nowIso()
+    }), "utf8");
+    await hooks.step?.("owner", pending);
+    try {
+      await (0, import_promises6.rename)(pending, lockPath);
+    } catch (error51) {
+      if (["EEXIST", "ENOTEMPTY", "EPERM", "EACCES", "ENOENT"].includes(error51.code)) return false;
+      throw error51;
+    }
+    await hooks.step?.("renamed", lockPath);
+    return true;
+  } finally {
+    await (0, import_promises6.rm)(pending, { recursive: true, force: true });
+  }
+}
 async function withLock(lockPath, fn, { timeoutMs = 3e4, pollMs = 50, hooks = {}, timeoutCode = "TOPOLOGY_LOCK_TIMEOUT" } = {}) {
   const deadline = Date.now() + timeoutMs;
   const token = (0, import_node_crypto6.randomUUID)();
   await (0, import_promises6.mkdir)((0, import_node_path9.dirname)(lockPath), { recursive: true });
+  let swept = false;
   for (; ; ) {
-    let acquired = false;
-    try {
-      await (0, import_promises6.mkdir)(lockPath);
-      acquired = true;
-    } catch (error51) {
-      if (error51.code !== "EEXIST") throw error51;
-    }
-    if (acquired) {
-      await hooks.afterMkdir?.();
-      await (0, import_promises6.writeFile)((0, import_node_path9.join)(lockPath, "owner.json"), JSON.stringify({
-        token,
-        pid: process.pid,
-        process_identity: await processIdentity(process.pid),
-        created_at: nowIso()
-      }), "utf8");
-      break;
+    if (await admit(lockPath, token, hooks)) break;
+    if (!swept) {
+      swept = true;
+      await sweepPending(lockPath);
     }
     const owner = await lockOwner(lockPath);
+    if (!owner && process.platform === "win32") await (0, import_promises6.rmdir)(lockPath).catch(() => {
+    });
     if (await dead(owner)) {
       await hooks.beforeReclaim?.(owner);
       await removeOwned(lockPath, owner.token);
@@ -355,16 +396,18 @@ async function withLock(lockPath, fn, { timeoutMs = 3e4, pollMs = 50, hooks = {}
   try {
     return await fn(ownership);
   } finally {
-    await removeOwned(lockPath, token);
+    const end = Date.now() + timeoutMs;
+    while (!await removeOwned(lockPath, token) && (await lockOwner(lockPath))?.token === token && Date.now() < end) await sleep(pollMs);
   }
 }
-var import_node_crypto6, import_promises6, import_node_path9;
+var import_node_crypto6, import_promises6, import_node_path9, PENDING_STALE_MS;
 var init_lockfile = __esm({
   "topology/lib/lockfile.mjs"() {
     import_node_crypto6 = require("node:crypto");
     import_promises6 = require("node:fs/promises");
     import_node_path9 = require("node:path");
     init_util();
+    PENDING_STALE_MS = 10 * 6e4;
   }
 });
 
@@ -31584,9 +31627,9 @@ var RunStore = class {
   }
   /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
   async listRecoverable() {
-    const { readdir: readdir23, stat: stat11 } = await import("node:fs/promises");
+    const { readdir: readdir24, stat: stat11 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir23((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir24((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const recoverable = [];
     for (const id of ids) {
       const marked = await stat11(this.activeMarkerPath(id)).then(() => true).catch(() => false);
@@ -31762,9 +31805,9 @@ var RunStore = class {
     return snapshot;
   }
   async list() {
-    const { readdir: readdir23 } = await import("node:fs/promises");
+    const { readdir: readdir24 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir23((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir24((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const settled = await Promise.allSettled(ids.map((id) => this.get(id)));
     const snapshots = [];
     for (const result of settled) {
@@ -60183,11 +60226,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2c30a77de7fb90147caad45ce5da0a5d5186fddd2513b422ae828c34c88adaa8";
+  return false ? null : "1710af70f6edd03d5a90b4cf7a77aa313d5007afc6e53c8a851f202b4e801263";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2c30a77de7fb90147caad45ce5da0a5d5186fddd2513b422ae828c34c88adaa8";
-  let version2 = false ? null : "0.15.1";
+  const fingerprint2 = false ? null : "1710af70f6edd03d5a90b4cf7a77aa313d5007afc6e53c8a851f202b4e801263";
+  let version2 = false ? null : "0.15.2";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -60767,8 +60810,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2c30a77de7fb90147caad45ce5da0a5d5186fddd2513b422ae828c34c88adaa8",
-  version: false ? null : "0.15.1"
+  sourceFingerprint: false ? null : "1710af70f6edd03d5a90b4cf7a77aa313d5007afc6e53c8a851f202b4e801263",
+  version: false ? null : "0.15.2"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto36.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
