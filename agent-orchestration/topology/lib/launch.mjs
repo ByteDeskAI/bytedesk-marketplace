@@ -759,6 +759,14 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
       await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, attention: readiness.attention === true, exit_status: readiness.exit_status ?? null });
       continue;
     }
+    // TM-328: the process is now the agent (exec'd), so this is the incarnation that will run the
+    // ack command. Stage the same identity the library-agent path stages — desired session, binding
+    // and repo — BEFORE the pointer that makes the agent read its brief, or its ack finds none.
+    // Shared by launch and failover, the only two callers of this function.
+    const staged = await loadRun(runDir);
+    const stagedBinding = (await panesOn(await tmux.serverOf(pane))).find(p => p.paneId === pane && p.sessionName === staged.session) || null;
+    invariant(stagedBinding, 'TOPOLOGY_SESSION_OWNERSHIP', `Pane ${pane} of ${agentId} is not in session ${staged.session}; its prompt cannot be staged.`);
+    await promotePromptForIncarnation({ agent: { id: agentId, _dir: join(runDir, 'agents', agentId) }, binding: stagedBinding, consumer: staged.consumer, session: staged.session });
     const pointer = render(item.adapter.bootstrap_message, item.vars) + (role === "orchestrator" ? BEGIN_CLAUSE : "");
     // Always verified, ready or not. A not-ready pane is where the pointer vanishes outright, but a
     // READY one is where it lands in the composer and is never submitted, and one check covers both.
