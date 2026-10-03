@@ -121,6 +121,26 @@
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
 
+## [0.15.4] — 2026-10-02
+
+### Fixed
+
+- **A `NATS_URL` outage left by an older ao no longer shows up (TM-308 follow-up, ADR-0032).**
+  `transport.json` is shared by every ao process on the host, and the last writer wins. A
+  long-lived process still running pre-0.15.3 code with `NATS_URL` in its env kept writing a
+  `NATS_URL` fallback and outage, so `doctor` went on reporting `NATS_CONFIGURED_UNREACHABLE` after
+  the upgrade. `readTransportState` now drops any selection, fallback or outage whose source is not
+  an ao source (`AO_NATS_URL`, `orch.sock`, `managed-local`). That covers `describeTransport`,
+  `doctor`, the setup doctor, `services status` and `natsOutageTick`. The next transport open, or the
+  next supervisor tick, rewrites the file without the entry, and readers ignore it if an old writer
+  puts it back.
+
+### Tests
+
+- `tests/unit/nats-port.test.mjs` seeds the exact record found live. `doctor` reports no `NATS_*`
+  problem, `services status` shows no outage, the tick sends nothing, and a managed open rewrites
+  the file without `NATS_URL`. Turning the filter off fails the test.
+
 ## [0.15.3] — 2026-10-02
 
 ### Changed

@@ -46,6 +46,8 @@ export function canReach(url, timeoutMs = 1000) {
 export async function natsOutageTick({ consumer, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration, reachable = canReach,
   discard = discardLiveTransports, now = Date.now, retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS, holds = holdsFallbackFrom }) {
   let state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  // ADR-0032: an older ao wrote a NATS_URL entry. Readers already ignore it; drop it from the file too.
+  if (state?.foreign_dropped) await writeTransportState(env, home, state).catch(() => {});
   if (!state?.outage?.since) return null;
   // A connection this supervisor still holds on the fallback is a fallback in use: keep the outage live.
   // touchFallback is the same refresh every holder's transport heartbeat runs (TM-295).
