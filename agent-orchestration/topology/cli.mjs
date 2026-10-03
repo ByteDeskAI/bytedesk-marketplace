@@ -118,6 +118,14 @@ Conduct (used by the orchestrator agent)
                                                is consent given in advance in config, never refuses.
 
 Reply (used by every agent)
+  handoff --run <run_dir> --agent <id> --message <id> --reason handed_off_to|blocked_on|denied|canceled|no-follow-on|escalation
+          [--to <agent>] [--note <text>]       close a message with a reason; the first three create a successor
+                                               message first (same checks as send), then close the source. Retrying
+                                               the same --message never creates a second successor.
+  diagnose --run <run_dir> [--json]            PARKED (idle agent, unanswered mail) and DONE-UNSEEN (reply never read),
+                                               computed from the ORCH_EVENTS mirror and the census; never stored
+  work publish|take --run <run_dir> [--task <id>] [--agent <id>] [--ttl 5m]
+                                               ORCH_TASKS: publish a ready item, or take one with a fenced claim
   reply --run <run_dir> --agent <id> --message <id> (--file <md> | --body <text>)
 
 Standing repository services
@@ -1604,6 +1612,71 @@ const commands = {
     } finally {
       await closeLiveTransports();
     }
+  },
+
+  async handoff({ flags }) {
+    const runDir = await runDirFrom(flags);
+    const run = await loadRun(runDir);
+    const from = String(flags.agent && flags.agent !== true ? flags.agent : process.env.AO_AGENT_ID || "");
+    const messageId = String(flags.message && flags.message !== true ? flags.message : "");
+    invariant(from && messageId, "TOPOLOGY_HANDOFF_INVALID", "Pass --agent <id> and --message <id>.");
+    const to = flags.to && flags.to !== true ? String(flags.to) : null;
+    const ctx = context(flags);
+    const fromProject = flags["from-project"] && flags["from-project"] !== true ? absolutize(String(flags["from-project"])) : process.env.AO_CONSUMER || null;
+    const routingConsumer = run.consumer || null;
+    const route = fromProject && routingConsumer
+      ? (args) => routeMessage({ consumer: routingConsumer, pluginRoot: PLUGIN_ROOT, home: ctx.home, ...args })
+      : null;
+    const { selectLiveTransport } = await import('./lib/orch-transport.mjs');
+    const { handoff } = await import('./lib/handoff.mjs');
+    const { repoKeyFor } = await import('./lib/events.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    // The successor goes through sendMessage, so delegation, hop limit, routing and the lead-readiness gate are the send path's.
+    const result = await handoff({
+      transport, repo: await repoKeyFor(run.consumer), messageId, from, to,
+      reason: flags.reason && flags.reason !== true ? String(flags.reason) : "",
+      note: flags.note && flags.note !== true ? String(flags.note) : null,
+      send: ({ body, to: target }) => sendMessage({ runDir, from, to: [target], stage: "handoff", body, route, fromProject, parentId: messageId,
+        idempotencyKey: `handoff:${messageId}`, via: list(flags.via), standingOptions: { pluginRoot: PLUGIN_ROOT, home: ctx.home, transport }, transport, env: process.env }),
+      close: ({ body }) => recordReply({ runDir, agentId: from, messageId, body }),
+    });
+    if (result.held) process.exitCode = 3;
+    out({ ...result, record: undefined, envelope: flags.json ? result.record : undefined });
+  },
+
+  async diagnose({ flags }) {
+    const runDir = await runDirFrom(flags);
+    const run = await loadRun(runDir);
+    const { selectLiveTransport } = await import('./lib/orch-transport.mjs');
+    const { diagnose, readRepoEvents, repoKeyFor } = await import('./lib/events.mjs');
+    const { readCensus } = await import('./lib/census.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    const events = await readRepoEvents(transport, await repoKeyFor(run.consumer));
+    const census = await readCensus({ ...context(flags), consumer: run.consumer }).catch(() => null);
+    const idleAgents = (census?.agents ?? []).filter((agent) => agent.state === "idle").map((agent) => agent.agentId);
+    const findings = diagnose(events, { idleAgents });
+    out(flags.json ? { events: events.length, idleAgents, findings }
+      : (findings.length ? findings.map((f) => `${f.diagnosis.padEnd(11)} ${f.agent}  ${f.id}  since ${f.since}`).join("\n") : `no PARKED or DONE-UNSEEN findings (${events.length} events read, idle: ${idleAgents.join(",") || "none"})`));
+  },
+
+  async work({ flags, positional }) {
+    const runDir = await runDirFrom(flags);
+    const run = await loadRun(runDir);
+    const { selectLiveTransport } = await import('./lib/orch-transport.mjs');
+    const { publishWork, takeWork } = await import('./lib/work-queue.mjs');
+    const { repoKeyFor } = await import('./lib/events.mjs');
+    const transport = await selectLiveTransport({ env: process.env });
+    const repo = await repoKeyFor(run.consumer);
+    if (positional[0] === "publish") {
+      invariant(flags.task && flags.task !== true, "TOPOLOGY_WORK_INVALID", "Pass --task <id>.");
+      return out(await publishWork({ transport, repo, task: String(flags.task) }));
+    }
+    invariant(positional[0] === "take", "TOPOLOGY_WORK_INVALID", "Use `work publish` or `work take`.");
+    const worker = String(flags.agent && flags.agent !== true ? flags.agent : process.env.AO_AGENT_ID || "");
+    invariant(worker, "TOPOLOGY_WORK_INVALID", "Pass --agent <id>.");
+    const result = await takeWork({ transport, repo, worker, ttlMs: parseDuration(flags.ttl, 5 * 60_000) });
+    if (!result.took) process.exitCode = 2;
+    out(result);
   },
 
   async ack({ flags }) {

@@ -4,6 +4,27 @@
 
 ### Added
 
+- **NATS features for handoff, events, waiting, claims and work (TM-311, EP-026).**
+  `ao-topology handoff` closes a message with a reason (`handed_off_to`, `blocked_on`, `denied`,
+  `canceled`, `no-follow-on`, `escalation`; the first three need `--to`). The successor is created
+  first through `sendMessage`, so delegation, hop limit, routing and the lead-readiness gate apply,
+  then the source is closed. A retry never makes a second successor: the id is claimed with a KV
+  create on `ORCH_HANDOFFS` (`<repo>.<messageId>`), which outlives the 120 s `Nats-Msg-Id` window.
+  A successor held by the readiness gate leaves the source open and the retry resumes it.
+  Journal events are mirrored to the `ORCH_EVENTS` stream (`orch.<repo>.events.>`, limits, 90 d);
+  the journal file stays. `ao-topology diagnose` computes PARKED and DONE-UNSEEN from those events
+  and the census on read, and stores nothing. `waitForReplies` wakes on the events subject and keeps
+  its poll as the fallback. Claims have fenced writes (`claims-fenced.mjs`): the KV revision is the
+  token and a stale one is refused with `TOPOLOGY_CLAIM_FENCED`. `ao-topology work publish|take`
+  runs the `ORCH_TASKS` queue: idle agents take an item with a fenced claim, and a lost race is
+  nak'd with a delay and retried. New envelope module (`ao/handoff`, `ao/event`, schema 1) follows
+  the shared contract: unknown fields are preserved and a newer schema is read-only. The file
+  transport mirrors every new method. `pullReady` now returns `messageId` and `nak`, and the file
+  double keeps pulled items in flight until acked or nak'd. Test-only
+  `AO_ORCH_DUPLICATE_WINDOW_MS` shortens the mail stream's duplicate window.
+  Gateway grants these need: publish and subscribe `orch.<repo>.events.>`, `$JS.API.STREAM.MSG.GET.ORCH_EVENTS`
+  for `diagnose`, and `$KV.ORCH_HANDOFFS.<repo>.>` read/write.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or

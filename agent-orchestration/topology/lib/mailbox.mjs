@@ -10,7 +10,8 @@ import { agentDirs, findLead } from "./agents.mjs";
 import { withLock } from "./lockfile.mjs";
 import { publishTopologyWorkflow } from './discovery.mjs';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
-import { ORCH_LAYOUT, orchName, resolveTransport } from './orch-transport.mjs';
+import { ORCH_LAYOUT, orchName, peekLiveTransport, resolveTransport } from './orch-transport.mjs';
+import { mirrorJournalEvent, repoKeyFor } from './events.mjs';
 import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts } from './mailbox-receipts.mjs';
 
 export const RUN_FILE = "run.json";
@@ -71,10 +72,12 @@ export async function recordRedirect(runDir, { messageId, intended, deliveredTo,
   });
 }
 
-export async function appendJournal(runDir, event) {
+export async function appendJournal(runDir, event, { transport } = {}) {
   const record = { ts: nowIso(), ...event };
   await appendFile(join(runDir, JOURNAL_FILE), `${JSON.stringify(record)}\n`, "utf8");
   const run = await readJson(join(runDir, RUN_FILE)).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  // ORCH_EVENTS mirror: only through a transport that is already open (or handed in), never by dialling one.
+  await mirrorJournalEvent(transport ?? peekLiveTransport(), run?.consumer, record);
   await publishDiscovery(runDir, run);
   return record;
 }
@@ -613,10 +616,18 @@ export async function pendingReplies(runDir, agentIds, { addressing = {}, transp
 }
 
 /** Wait until every named agent has replied to the message id (or to all pending messages). */
-export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {}, transport = null }) {
+export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {}, transport = null, watch = true }) {
   const started = Date.now();
   const run = await loadRun(runDir);
   const active = transport ?? await resolveTransport({ env: process.env });
+  // A watch only wakes the loop early; every pass still re-reads the real state, and pollMs stays the
+  // fallback if the watch is unavailable or a wake-up is missed.
+  const watcher = watch && active.watch && run.consumer
+    ? await active.watch({ repo: await repoKeyFor(run.consumer) }).catch(() => null) : null;
+  try {
+    return await waitLoop();
+  } finally { watcher?.stop(); }
+  async function waitLoop() {
   const targets = agentIds && agentIds.length > 0 ? await expandTargets(run, agentIds, addressing) : [...new Set([...run.agents.filter((agent) => agent.role !== "orchestrator").map((agent) => agent.id), ...Object.values(run.standing_messages ?? {}).map(ref => ref.requested)])];
   for (;;) {
     const pending = (await pendingReplies(runDir, targets, { transport: active })).filter((item) => !messageId || item.id === messageId);
@@ -668,7 +679,8 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
       return { ok: false, pending, elapsed_ms: Date.now() - started };
     }
     if (onTick) await onTick(pending, Date.now() - started);
-    await sleep(pollMs);
+    if (watcher) await watcher.changed(pollMs); else await sleep(pollMs);
+  }
   }
 }
 
