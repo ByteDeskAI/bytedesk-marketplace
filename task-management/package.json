@@ -1,0 +1,9 @@
+{
+  "name": "task-management",
+  "private": true,
+  "type": "module",
+  "description": "Only the optional NATS storage backend needs a dependency (run `npm install` here to use it); the default file backend has none.",
+  "dependencies": {
+    "nats": "^2.29.3"
+  }
+}

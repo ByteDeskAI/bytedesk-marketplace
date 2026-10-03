@@ -1044,6 +1044,28 @@ const VERBS = {
   },
 
   /**
+   * Copy the markdown board into the NATS backend and verify both sides (lib/storage/migrate.mjs).
+   * `tm migrate [--dry-run] [--snapshot <file>]`. Needs TM_NATS_URL (and TM_NATS_CREDS).
+   */
+  async migrate(...args) {
+    const { NatsBackend } = await import("../lib/storage/nats-backend.mjs");
+    const { migrate: run } = await import("../lib/storage/migrate.mjs");
+    const { repoKey } = await import("../lib/storage/index.mjs");
+    const dryRun = args.includes("--dry-run");
+    const si = args.indexOf("--snapshot");
+    const backend = new NatsBackend({ repo: repoKey(P), root: P.root, url: process.env.TM_NATS_URL, creds: process.env.TM_NATS_CREDS });
+    if ((await backend.info()).offline) die("migrate needs a reachable NATS server: set TM_NATS_URL (and TM_NATS_CREDS)");
+    const report = await run({ backend, p: P, dryRun, snapshotPath: si >= 0 ? args[si + 1] : undefined, log: out });
+    await backend.close();
+    emit(report, () => {
+      for (const [t, r] of Object.entries(report.types)) out(`${t.padEnd(14)} source ${r.source}  planned ${r.planned}  dest-before ${r.destBefore}${dryRun ? "" : `  written ${r.written}  skipped ${r.skipped}  dest ${r.dest}  ${r.equal ? "equal" : "MISMATCH"}`}`);
+      out(`evidence       files ${report.evidence.sourceFiles}  distinct ${report.evidence.sourceDistinct}${dryRun ? "" : `  dest ${report.evidence.dest}  ${report.evidence.equal ? "equal" : "MISMATCH"}`}`);
+      out(dryRun ? "dry run: nothing written" : report.ok ? "migrated: both sides agree" : "FAILED: sides disagree");
+    });
+    if (!dryRun && !report.ok) process.exitCode = 1;
+  },
+
+  /**
    * What is inconsistent in the store, and optionally repair the unambiguous half.
    * Exits 1 on an error-level finding so it can gate a commit or a CI step.
    */
@@ -1749,7 +1771,7 @@ const VERBS = {
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
         "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
-        "  reindex | override <reason> | override --clear | config [key [value]] | config --with-revision | config --set-file <json> [--if-revision <rev>] | context",
+        "  reindex | migrate [--dry-run] [--snapshot <file>] | override <reason> | override --clear | config [key [value]] | config --with-revision | config --set-file <json> [--if-revision <rev>] | context",
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",

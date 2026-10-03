@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Pluggable storage with a schema registry and an opt-in NATS backend (TM-312, EP-026).**
+  `lib/storage/` adds the `Backend` interface, a versioned envelope with upcasters (legacy markdown
+  = schema 0), a `file` backend wrapping the current store, and a `nats` backend (JetStream KV with
+  CAS, event stream, content-addressed evidence, leaf-node offline queue). Selected by
+  `storage.backend` or `TM_STORAGE`; `file` stays the default, so nothing changes until cutover.
+  `tm migrate [--dry-run]` copies a board and compares both sides. See `docs/storage.md`.
+
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool
   collected it again on every tick: 575 identical comments and `task_result` events on TM-290. The
