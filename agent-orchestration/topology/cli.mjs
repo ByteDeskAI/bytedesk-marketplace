@@ -73,6 +73,9 @@ Conduct (used by the orchestrator agent)
                                                the session and passes the predecessor's handoff; resume
                                                continues the same provider conversation where the
                                                provider can (else falls back to handoff and says why).
+                                               A reviewer (TM-302) is refused TOPOLOGY_AGENT_BUSY while a
+                                               review request to it is uncollected, then relaunched fresh
+                                               and read-only; either mode says so (fallback: fresh).
                                                agent list --json flags restart_required per agent
   agent set-instructions <id> (--file <md> | --text <s>) [--mode append|replace]
                                                the agent's own instructions; replace drops its template
@@ -1259,6 +1262,15 @@ const commands = {
     if (sub === "restart") {
       const mode = String(flags.mode ?? "");
       invariant(mode === "handoff" || mode === "resume", "TOPOLOGY_RESTART_MODE", "Pass --mode handoff|resume.");
+      const agent = await requireAgent(String(positional[1] || ""), ctx.agentDirs);
+      if (agent.role === "reviewer") {
+        // TM-302: a reviewer relaunches only through its own read-only path, and never mid-review.
+        const { restartReviewer } = await import("./lib/reviewer.mjs");
+        const { respawnBounds } = respawnFlags(flags);
+        const restart = await restartReviewer({ ...ctx, agentId: agent.id, mode, turnTimeoutMs: respawnBounds.turnTimeoutMs,
+          log: flags.json ? () => {} : (line) => console.error(`  ${line}`) });
+        return out({ ok: true, agent: displayName(agent), id: agent.id, ...roleVisual({ role: agent.role }), restart });
+      }
       return commands.session({ flags, positional: ["open", positional[1]], replace: mode });
     }
     const roster = await listAgents(ctx.agentDirs);
