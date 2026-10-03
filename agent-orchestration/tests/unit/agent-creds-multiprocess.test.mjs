@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -244,4 +245,56 @@ test('the services path (a BUNDLED nats-local, as dist/cli.cjs runs it) and topo
   assert.equal(finalState.schema, 2);
   assert.ok(!('pass' in finalState) && finalState.adminPub);
   for (const pid of [...pidsAt8s, finalState.adminPid]) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+});
+
+test('TM-308 + TM-310 together: nats.port fixed in config, a manager process, two CLIs and a per-agent credential share one home', { timeout: 180000 }, async (t) => {
+  const { home, env, state } = await fixture(t);
+  // A port in ao's NATS range that is free right now, written to the user's config before anything starts.
+  const configured = await new Promise((resolve, reject) => { const s = net.createServer(); s.once('error', reject); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
+  const { writeConfigLayer } = await import('../../topology/lib/config.mjs');
+  await writeConfigLayer('global', { nats: { port: configured } }, { env: { HOME: home }, home });
+  const header = `import { ensureLocalNats, prepareLocalNats } from ${lib('nats-local.mjs')};
+    import { spawn } from 'node:child_process'; import net from 'node:net';
+    const until = Date.now() + 30000;
+    const up = (port) => new Promise((r) => { const s = net.connect(port, '127.0.0.1', () => { s.destroy(); r(true); }); s.once('error', () => r(false)); });
+    const seen = new Set();`;
+  const manager = `${header}
+    let child = null;
+    while (Date.now() < until) {
+      const p = await prepareLocalNats({ env: process.env }); seen.add(p.port);
+      if (!(await up(p.port))) { child = spawn(p.bin, p.args, { detached: true, stdio: 'ignore' }); child.unref(); await new Promise((r) => setTimeout(r, 800)); }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    console.log('RESULT ' + JSON.stringify([...seen])); process.exit(0);`;
+  const cli = `${header}
+    while (Date.now() < until) { try { seen.add((await ensureLocalNats({ env: process.env })).port); } catch { /* manager mid-start */ } await new Promise((r) => setTimeout(r, 400)); }
+    console.log('RESULT ' + JSON.stringify([...seen])); process.exit(0);`;
+  const run = (source) => exec(process.execPath, ['--input-type=module', '-e', source], { env, timeout: 90_000 }).then(({ stdout }) => JSON.parse(stdout.split('\n').find((l) => l.startsWith('RESULT ')).slice(7)));
+  const livePids = async () => (await exec('ps', ['-eo', 'pid,args', '-ww'])).stdout.split('\n').filter((l) => l.includes('nats-server') && l.includes(home)).map((l) => Number(l.trim().split(/\s+/)[0]));
+  const all = Promise.all([run(manager), run(cli), run(cli)]);
+  // Per-agent credential issued while the processes above are running; it must authenticate against the managed server.
+  await new Promise((r) => setTimeout(r, 6000));
+  const { CredStore } = await import('../../topology/lib/agent-creds.mjs');
+  const { provision } = { provision: (o) => new CredStore({ home, graceMs: 60_000 }).provision(o) };
+  const agent = await provision({ repo: 'mp', agent: 'a', role: 'worker', mailTo: ['boss'], extra: { token: 'tok' } });
+  const nats = await import('nats');
+  await new Promise((r) => setTimeout(r, 600));
+  let connected = 'no';
+  for (let i = 0; i < 20 && connected === 'no'; i += 1) {
+    connected = await nats.connect({ servers: `nats://127.0.0.1:${configured}`, authenticator: nats.nkeyAuthenticator(new TextEncoder().encode(agent.issued.seed)), inboxPrefix: agent.issued.inboxPrefix, maxReconnectAttempts: 0, timeout: 2000 })
+      .then(async (nc) => { await nc.close(); return 'yes'; }, () => 'no');
+    if (connected === 'no') await new Promise((r) => setTimeout(r, 300));
+  }
+  const pidsAt10s = await livePids();
+  const results = await all;
+  const ports = [...new Set(results.flat())];
+  const finalState = state();
+  console.log(`configured=${configured} ports seen=${JSON.stringify(ports)} server pids at 10s=${JSON.stringify(pidsAt10s)} end=${JSON.stringify(await livePids())} schema=${finalState.schema} agent-credential-connects=${connected}`);
+  assert.deepEqual(ports, [configured], 'the configured port was not the only port used');
+  assert.equal(pidsAt10s.length, 1);
+  assert.deepEqual(await livePids(), pidsAt10s, 'the server was replaced');
+  assert.equal(finalState.schema, 2);
+  assert.equal(connected, 'yes', 'the per-agent credential did not authenticate against the managed server');
+  await agent.holder.revoke().catch(() => {});
+  for (const pid of [...pidsAt10s, finalState.adminPid]) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
 });

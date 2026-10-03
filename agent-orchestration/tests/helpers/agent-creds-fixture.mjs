@@ -20,7 +20,7 @@ export const enc = new TextEncoder();
 export async function startServer({ agents = ['agentA', 'agentB', 'boss'] } = {}) {
   const home = await mkdtemp(join(os.tmpdir(), 'ao-creds-home-'));
   const bin = await natsServerBin();
-  const hostEnv = { ...process.env, AO_NATS_HOME: home, AO_NATS_SERVER: bin, AO_NATS_AUTOSTART: '1', AGENT_ORCHESTRATION_SERVICES: '0' };
+  const hostEnv = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), AO_NATS_HOME: home, AO_NATS_SERVER: bin, AO_NATS_AUTOSTART: '1', AGENT_ORCHESTRATION_SERVICES: '0' };
   const prepared = await prepareLocalNats({ env: hostEnv });
   const child = spawn(bin, prepared.args, { stdio: ['ignore', 'ignore', 'ignore'] });
   const url = `nats://127.0.0.1:${prepared.port}`;

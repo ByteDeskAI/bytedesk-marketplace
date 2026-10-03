@@ -206,6 +206,14 @@ var init_lockfile = __esm({
   }
 });
 
+// topology/lib/config.mjs
+var init_config = __esm({
+  "topology/lib/config.mjs"() {
+    init_lockfile();
+    init_util();
+  }
+});
+
 // topology/lib/repoid.mjs
 var init_repoid = __esm({
   "topology/lib/repoid.mjs"() {
@@ -226,7 +234,9 @@ var init_services_client = __esm({
 var init_nats_local = __esm({
   "topology/lib/nats-local.mjs"() {
     init_agent_creds();
+    init_config();
     init_lockfile();
+    init_util();
     init_services_client();
   }
 });

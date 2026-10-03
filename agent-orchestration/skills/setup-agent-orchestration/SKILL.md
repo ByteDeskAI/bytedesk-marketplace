@@ -82,6 +82,12 @@ Act on them only through their names:
 Never `pkill`, `pgrep` or `kill` these by name or command line: unrelated `nats-server` processes
 (microk8s, for one) exist on dev machines, and process-compose restarts a killed child anyway.
 
+The local NATS listens on `nats.port` from `~/.config/agent-orchestration/config.json`
+(`$XDG_CONFIG_HOME` if set). ao writes it on the first start and keeps it; `services status --json`
+shows it as `nats.url`. If `nats.conflict` is set, another process holds that port: stop it, or set
+a different `nats.port` (an integer from 1024 to 65535) and run `agent-orchestration services ensure`.
+ao ignores the generic `NATS_URL`; use `AO_NATS_URL` to point ao at another server.
+
 ## 7. Confirm
 
 Run `AO doctor` again and report the line `OK — ready to launch.` or the remaining problems.

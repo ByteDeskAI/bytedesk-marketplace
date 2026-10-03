@@ -16,7 +16,8 @@ test('ensureLocalNats starts once, reuses, and refuses bad credentials', async (
   const bin = await findNatsServer();
   if (!bin) return t.skip('no working nats-server on this machine');
   const home = await mkdtemp(join(os.tmpdir(), 'ao-nats-local-'));
-  const env = { ...process.env, AO_NATS_HOME: home };
+  // TM-308: nats.port is written to the user config, so it must be a temp one.
+  const env = { ...process.env, AO_NATS_HOME: home, HOME: home, XDG_CONFIG_HOME: join(home, 'config') };
   let pid;
   t.after(async () => {
     if (pid) try { process.kill(pid); } catch { /* already gone */ }
@@ -48,7 +49,7 @@ test('a managed process never starts a detached server beside the managed one (T
   // Port 1 never answers, so this is the window in which the service manager is restarting it.
   const state = JSON.stringify({ managed: true, pid: null, port: 1, user: 'ao-orch', pass: 'p' });
   await writeFile(join(home, 'state.json'), state, { mode: 0o600 });
-  const env = { ...process.env, AO_NATS_HOME: home, AGENT_ORCHESTRATION_SERVICES: '1', AGENT_ORCHESTRATION_SERVICES_MANAGED: '1' };
+  const env = { ...process.env, AO_NATS_HOME: home, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), AGENT_ORCHESTRATION_SERVICES: '1', AGENT_ORCHESTRATION_SERVICES_MANAGED: '1' };
   await assert.rejects(ensureLocalNats({ env }), { code: 'TOPOLOGY_NATS_UNAVAILABLE' });
   assert.equal(await readFile(join(home, 'state.json'), 'utf8'), state, 'state.json still names the managed port');
 });

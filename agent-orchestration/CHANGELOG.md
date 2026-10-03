@@ -1,13 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.16.0] — 2026-10-03
 
-_Version markers (`package.json`, `src/mcp.mjs`) are 0.16.0 for TM-310 and TM-311._
+_TM-310, TM-311 and TM-312, on top of the 0.15.3 line below (TM-308 fixed `nats.port`, TM-309 outage notices), which this version includes._
 
 ### Fixed
 
+- **TM-308 and TM-310 reconciled in `nats-local.mjs`.** The port comes from TM-308's `managedNatsPort` (config `nats.port`, else the recorded port while free or ours, else the first free one in range) and `checkNatsPort` refuses a port held by something else. TM-310's rules sit on top: a managed server is never shadowed by a detached start, `managed` is kept, the admin identity is an nkey held by a holder process, `state.json` is stamped `schema: 2`, socket paths fit the 107-byte limit, and the holder has its own bundle entry. Covered by one test running a configured `nats.port`, a manager process, two CLI processes and a per-agent credential for 30 s.
 - **The committed bundles carry the credential code (TM-310 round 6).** `dist/cli.cjs` and `dist/mcp.cjs`, which the services path runs (`runServicesEnsure` spawns `dist/cli.cjs`), still held the previous nats-local and rewrote `state.json` in the password format beside the topology code. Rebuilt, with a bundle-safe holder: a bundle's `import.meta.url` names the bundle, so the holder now has its own entry (`topology/lib/credential-holder.mjs`, built to `dist/credential-holder.cjs`) instead of re-running a bundle with `--holder`. A unit test fails when either bundle lacks the credential code, and another runs a bundled writer and topology source against one home.
-- **The local nats-server is no longer replaced on a new port every few seconds (TM-310 round 5).** A CLI that found the managed server briefly down started its own detached server on a fresh random port and wrote `state.json` without the `managed` flag; the manager's next tick then treated it as a stray, stopped it and started another on yet another port. Now a process whose services are enabled never starts a detached server beside a managed one, a process with services disabled first waits for a manager that is mid-start, a detached start keeps the `managed` flag, and every start (manager restart, detached start, handover) reuses the port in `state.json` while nothing holds it. TM-308's fixed `nats.port` (PR #171) is a stricter version of the same rule and still needs merging into this branch; it conflicts in `nats-local.mjs` (7 hunks).
+- **The local nats-server is no longer replaced on a new port every few seconds (TM-310 round 5).** A CLI that found the managed server briefly down started its own detached server on a fresh random port and wrote `state.json` without the `managed` flag; the manager's next tick then treated it as a stray, stopped it and started another on yet another port. Now a process whose services are enabled never starts a detached server beside a managed one, a process with services disabled first waits for a manager that is mid-start, a detached start keeps the `managed` flag, and every start (manager restart, detached start, handover) reuses the port in `state.json` while nothing holds it.  TM-308's fixed `nats.port` is the stricter form of the same rule and wins when set; the recorded port is the fallback.
 - **Holders no longer pin their launcher, and state.json is versioned (TM-310 round 5).** A credential holder's IPC channel carries only the start handshake and is closed once the holder is ready; attach, install and revoke go over its unix socket, authorised by a per-holder control key held in the spawner's memory or, from another process, by being outside every agent's tree. A launcher can therefore exit while its holders keep serving. `state.json` is stamped `schema: 2`; a newer schema is refused untouched, and a password-format file found next to a live nkey holder prints a loud warning naming the older version that rewrote it. Versions before this one never check the stamp, so they can still overwrite the file: upgrade every installation that shares a home.
 - **Admin socket path over 107 bytes (TM-310 round 4).** Node silently truncates a longer unix socket path and binds the truncated name, so a deep `AO_NATS_HOME` (a sandbox) bound a stray socket in a parent directory and every later start failed with `EADDRINUSE` while no `admin.sock` existed. Sockets now live at a short per-user path (`/tmp/ao-sock-<uid>/<hash>-admin.sock`) when `<home>/admin.sock` would not fit, and an over-long path is refused with a clear error. A state left by the password version is migrated to the nkey identity with a printed note; processes it started need a restart. Holders exit when their socket or home is gone, a launch that fails (or a dry run) no longer leaves holders, and the test suite fails if one survives.
 - **A second process no longer collides with the admin holder (TM-310 round 3).** `ensureAdminIdentity` asks the socket itself whether a live holder answers (a new `pub` op) and reuses it; only a socket nobody answers is unlinked and replaced, and a running server is reloaded to trust the replacement. A holder that finds its socket taken probes it before giving up. Re-provisioning an agent retires its previous holder. A recorded server pid is trusted only while it is still a `nats-server`.
@@ -175,6 +176,60 @@ _Version markers (`package.json`, `src/mcp.mjs`) are 0.16.0 for TM-310 and TM-31
 - Durable NATS mailbox obligations, sender publication recovery and explicit recipient dispositions. Broker acknowledgment follows local durable acceptance; console inspection does not consume messages.
 - A bounded, persistent original-goal feedback controller with PM, build, independent QA/review, governed integration, approved test deployment, dogfood and assessment phases. Task Management owns proof; limits and human decisions survive restart.
 - Public mailbox and goal-loop CLI/MCP contracts and a third workflow-index runtime for Gateway, including revision-bound operator controls and retained message receipt diagnostics.
+
+## [0.15.3] — 2026-10-02
+
+### Changed
+
+- **Managed NATS runs on a fixed port from the user config (TM-308, ADR-0032).** The port is
+  `nats.port` in `$XDG_CONFIG_HOME/agent-orchestration/config.json`, validated as an integer from
+  1024 to 65535. The first managed start adopts the port `nats/state.json` already records when it is
+  free (or is ao's own server), else picks the first free port in 45200–45999, and writes it. Every
+  later start uses exactly that port, through `ensureLocalNats` and through the process-compose
+  project (`prepareLocalNats` writes it into `nats-server.conf`), so restarts and reboots keep it.
+  Credentials stay in `state.json` (0600).
+- **A taken port is refused, not moved.** If another process holds `nats.port`, the start fails with
+  `TOPOLOGY_NATS_PORT_CONFLICT`, naming the port and, on Linux, the holder (`/proc/net/tcp` → socket
+  inode → pid and command). The conflict is recorded through the ADR-0031 outage path, so `doctor`
+  reports `NATS_PORT_CONFLICT`, the setup doctor lists it, the repository lead gets one
+  `NATS port conflict` mail (no re-dial), and the next successful managed start closes it.
+  `services status --json` now shows `nats.port`, `nats.url` and a live `nats.conflict`;
+  `services ensure` reports `natsError` instead of silently leaving NATS out.
+- **The generic `NATS_URL` is not an ao source.** Sources are `AO_NATS_URL`, then the gateway
+  `orch.sock`, then managed NATS on `nats.port`. `NATS_URL`, `NATS_USER` and `NATS_PASSWORD` are
+  ignored, and the supervisor logs one `nats-env-ignored` event at start. A down port-forward behind
+  `NATS_URL` no longer causes a fallback warning or an outage report. An unreachable `AO_NATS_URL`
+  now falls back to managed NATS and is reported to the lead, as ADR-0031 decided (it used to fail
+  outright); `AO_NATS_AUTOSTART=0` still makes it fail.
+
+### Fixed
+
+- **NATS outage and recovery notices now reach the lead (TM-309 C1).** `natsOutageTick` sent them
+  with no `from`/`fromProject`, so the standing mailbox held every one permanently as
+  `source_identity_required`; every such record on the authoring machine was held, never delivered.
+  They now come from `ao-supervisor` in the same repository, which admission routes to the lead. A
+  record counts as sent only when its status is `delivered`: a held one is reported on the
+  supervisor tick (`nats_outage.status` and `reason`) and retried by the mailbox, and a recovery is
+  sent only after its outage was delivered. Message ids moved to a `v2` derivation so an old held
+  record under the same id cannot refuse the new envelope.
+- **`redactUrl` fails closed (TM-309 A1).** A comma-separated server list or a URL `new URL()`
+  rejects used to come back raw, leaking `user:secret` into `transport.json`, logs, doctor, `services
+  status` and the lead's mail. Each server in a list is now redacted, and anything still holding an
+  `@` loses its userinfo to `[redacted]`.
+
+### Tests
+
+- `tests/unit/nats-outage.test.mjs` gives the test repository a real library lead and reads that
+  lead's inbox over the real transport: exactly one outage and one recovery arrive, each `delivered`.
+  Removing the sender again fails three tests with `source_identity_required`. New `redactUrl`
+  cases cover lists and malformed forms; the old raw-return behaviour fails them.
+- `tests/unit/nats-port.test.mjs`: the first start writes `nats.port` in 45200–45999 and a second
+  start and two process-compose re-renders reuse it; a port held by a test listener is refused with
+  the holder's pid, starts nothing, shows in `doctor` and `services status`, and mails the lead
+  through `natsOutageTick` with an injected deliver; an unreachable `NATS_URL` gives managed NATS
+  with no fallback and no outage; migration adopts a free `state.json` port and skips a held or
+  sub-1024 one; validation rejects 80, 70000 and `"abc"`. `nats-outage.test.mjs` now drives the
+  ADR-0031 path with `AO_NATS_URL`.
 
 ## [0.15.2] — 2026-10-02
 
