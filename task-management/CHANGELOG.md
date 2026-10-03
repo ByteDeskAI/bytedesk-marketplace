@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Tests no longer leave nats-server processes behind (TM-326).** `tests/unit/nats-helpers.mjs`
+  registers every server and temp dir and reaps them on exit, SIGTERM and SIGINT; `stop()` no longer
+  hangs on an already-signalled process. `run-tests.sh` keeps stores under a per-run `/tmp/tm-run-*`
+  dir and fails with `nats-server-leak` if any server for that dir is still alive.
+
 - **Large values spill to the object store (TM-312).** A `data` field over `storage.spillBytes`
   (default 256 KB, `TM_SPILL_BYTES`, 0 = off) is stored by content hash and replaced by
   `{"$blob": {digest,size,encoding}}`; reads rehydrate it, old readers see the reference. Fixes
