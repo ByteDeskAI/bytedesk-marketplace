@@ -381,7 +381,9 @@ export async function admitTask(options) {
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
     const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
-    Object.assign(record, { base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
+    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
+    const integration = String(provisioned.integrationBranch ?? '').trim();
+    Object.assign(record, { integration_branch: integration && integration !== 'HEAD' ? integration : null, base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
     await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});
     return { admitted: true, record };
