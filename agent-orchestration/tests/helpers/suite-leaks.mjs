@@ -6,8 +6,9 @@
 //     NEW session on an operator socket whose panes started under the temp directory.
 // Report only: it kills nothing, because the second kind lives on the operator's server.
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { operatorSockets } from "./isolated-tmux.mjs";
 
@@ -15,6 +16,17 @@ import { operatorSockets } from "./isolated-tmux.mjs";
 // check (the preflight does, and so do the contract files, which CI runs without the preflight) must not wait the 20 s default
 // for its own holders to exit, or the check below reports them as leaks.
 process.env.AO_CREDS_GRACE_MS ||= "500";
+
+// A test process must never reach the operator's real local NATS home (~/.bytedesk/agent-orchestration/nats): the
+// per-agent credential tests provision users there, rewrite its state.json and reload the operator's live server, which
+// is what happened during EP-026 (hundreds of test users in agent-users.json, old clients refused). Every process that loads
+// this helper gets a private home; children inherit it unless a test passes a scrubbed env, which nats-local.mjs's own
+// test-run guard then refuses (AO_TEST_RUN without AO_NATS_HOME throws instead of falling back to the real home).
+if (!process.env.AO_NATS_HOME) {
+  const natsHome = mkdtempSync(join(tmpdir(), "aot-nats-"));
+  process.env.AO_NATS_HOME = natsHome;
+  process.on("exit", () => { try { rmSync(natsHome, { recursive: true, force: true }); } catch {} });
+}
 
 /** Live processes other than `self` whose environment holds `marker` (`NAME=value`). Linux /proc only. */
 export function markedProcesses(marker, { self = process.pid, proc = "/proc" } = {}) {

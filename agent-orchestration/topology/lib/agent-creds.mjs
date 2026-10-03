@@ -449,7 +449,11 @@ export async function provisionForLaunch({ env = process.env, repo, agent, role,
     await host?.ensure?.({ repo, agents: [agent], replies: [agent] }).catch(() => {});
     return holder;
   }
-  return startHolder({ token });
+  // No local NATS (file transport, or an external server): the holder still needs the shared registry of agent trees to
+  // tell the operator from an agent, or a failover from another process could never re-attach it (it would be refused as
+  // "not the operator" because nothing can be judged). The registry is just roots.json beside the NATS home.
+  await mkdir(home, { recursive: true, mode: 0o700 });
+  return startHolder({ token }, { home });
 }
 
 /** One request to a holder socket; resolves the parsed reply. */

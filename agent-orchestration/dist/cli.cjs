@@ -1746,7 +1746,9 @@ __export(nats_local_exports, {
   validNatsPort: () => validNatsPort
 });
 function localNatsHome(env = process.env) {
-  return env.AO_NATS_HOME || (0, import_node_path30.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
+  if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
+  if (env.AO_TEST_RUN) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run: refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
+  return (0, import_node_path30.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
   const { execFile: execFile5 } = await import("node:child_process");
@@ -19710,7 +19712,8 @@ async function provisionForLaunch({ env = process.env, repo, agent, role, mailTo
     });
     return holder;
   }
-  return startHolder({ token });
+  await (0, import_promises26.mkdir)(home, { recursive: true, mode: 448 });
+  return startHolder({ token }, { home });
 }
 function requestSocket(sock, request, timeoutMs = 5e3) {
   return new Promise((resolve22, reject) => {
@@ -61239,10 +61242,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "35a43d86d2499ab9a0cab0fcde226f9fb357498d9f48820e599086ab8187b7cc";
+  return false ? null : "816de401705a4e3e9f07bc5e5ea1399e6d854da252530abfdfcce25d30614f4d";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "35a43d86d2499ab9a0cab0fcde226f9fb357498d9f48820e599086ab8187b7cc";
+  const fingerprint2 = false ? null : "816de401705a4e3e9f07bc5e5ea1399e6d854da252530abfdfcce25d30614f4d";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -61833,7 +61836,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "35a43d86d2499ab9a0cab0fcde226f9fb357498d9f48820e599086ab8187b7cc",
+  sourceFingerprint: false ? null : "816de401705a4e3e9f07bc5e5ea1399e6d854da252530abfdfcce25d30614f4d",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

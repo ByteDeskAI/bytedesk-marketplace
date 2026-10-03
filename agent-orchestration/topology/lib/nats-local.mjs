@@ -24,7 +24,11 @@ import { fail } from './util.mjs';
 import { runServicesEnsure, servicesEnabled } from './services-client.mjs';
 
 export function localNatsHome(env = process.env) {
-  return env.AO_NATS_HOME || join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
+  if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
+  // A test run (the helper that loads suite-leaks sets AO_TEST_RUN) that reaches here has lost AO_NATS_HOME, for example
+  // through a scrubbed child env. Falling back would provision test users into the operator's live server.
+  if (env.AO_TEST_RUN) throw Object.assign(new Error('AO_NATS_HOME is not set in a test run: refusing to use the operator\'s real local NATS home.'), { code: 'TOPOLOGY_TEST_REAL_NATS_HOME' });
+  return join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
 }
 
 /** AO_NATS_SERVER, then the ao-orch cache, then PATH. A snap shim with no snap behind it is skipped by running --version. */
