@@ -699,16 +699,19 @@ export async function detachReviewer({ consumer, env = process.env, home = homed
  * Review requests to THIS reviewer incarnation that are still in flight: no collected verdict, not
  * failed, and no terminal collection outcome. A recorded collection code is an outcome — the
  * request was withdrawn (TOPOLOGY_REVIEWER_RANGE: the range moved), or its reviewer changed — except
- * TOPOLOGY_REVIEWER_RESPONSE, which is the queue's "no answer on the pane yet" and so still pending.
+ * TOPOLOGY_REVIEWER_RESPONSE ("no answer on the pane yet") and TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE
+ * (verdict still printing, not yet aged out to failed), which are both still pending.
  * A request bound to an earlier incarnation can never be collected (collectReview refuses it), so it
  * cannot be orphaned by a restart either.
  */
+const PENDING_COLLECTION_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE']);
+
 async function uncollectedReviewRequests(consumer, record, env, home) {
   const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
   const names = (await readdir(dir).catch(() => [])).filter(name => name.endsWith('.json'));
   const requests = await Promise.all(names.map(name => readJson(join(dir, name)).catch(() => null)));
   return requests.filter(request => request && request.reviewer_id === record.agent_id && !request.collected_at && request.state !== 'failed'
-    && (!request.collection?.code || request.collection.code === 'TOPOLOGY_REVIEWER_RESPONSE')
+    && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code))
     && sameIncarnation(request.binding, record.binding));
 }
 

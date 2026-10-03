@@ -68,11 +68,13 @@ test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarna
   const f = await fixture(t);
   const { binding } = await readReviewerRecord(f.consumer, f.env, f.home);
   const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests');
-  const nonce = '11111111-2222-3333-4444-555555555555', waiting = '66666666-7777-8888-9999-000000000000';
+  const nonce = '11111111-2222-3333-4444-555555555555', waiting = '66666666-7777-8888-9999-000000000000', printing = '77777777-8888-9999-0000-111111111111';
   const request = (task, extra) => writeJson(join(dir, `${task}-abc.json`), { task, revision: 'abc', reviewer_id: f.agent.id, binding, state: 'published', ...extra });
   await request('TM-1', { nonce });
   // still pending: the queue has only recorded "no answer on the pane yet"
   await request('TM-2', { nonce: waiting, collection: { code: 'TOPOLOGY_REVIEWER_RESPONSE', reason: 'Expected a nonce-bound review response' } });
+  // still pending: the verdict is mid-print and has not aged out to failed
+  await request('TM-7', { nonce: printing, incomplete_since: new Date().toISOString(), collection: { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason: 'The review response is still being printed; collect it again later.' } });
   // outcomes, none of which a restart can orphan
   await request('TM-3', { nonce: 'collected', collected_at: 'x', state: 'collected' });
   await request('TM-4', { nonce: 'withdrawn', collection: { code: 'TOPOLOGY_REVIEWER_RANGE', reason: 'Review request no longer covers the admitted task range.' } });
@@ -82,7 +84,7 @@ test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarna
   await assert.rejects(restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes }), error => {
     assert.equal(error.code, 'TOPOLOGY_AGENT_BUSY');
     assert.match(error.message, new RegExp(nonce));
-    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting].sort(), 'only in-flight current-incarnation requests block');
+    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting, printing].sort(), 'only in-flight current-incarnation requests block');
     return true;
   });
   assert.deepEqual(f.calls, [], 'nothing waited, killed or launched');
