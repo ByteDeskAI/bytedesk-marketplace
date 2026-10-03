@@ -156,3 +156,45 @@ test('state.json is stamped schema 2; a newer schema is refused; an old version 
   await assert.rejects(proc(), /schema 3.*Upgrade this installation/);
   assert.equal(readFileSync(join(home, 'state.json'), 'utf8'), before, 'a newer state file is left untouched');
 });
+
+test('a process manager and CLI processes sharing one home never replace the server or move its port', { timeout: 120000 }, async (t) => {
+  const { home, env, state } = await fixture(t);
+  const windowMs = 25_000;
+  const header = `import { ensureLocalNats, prepareLocalNats } from ${lib('nats-local.mjs')};
+    import { spawn } from 'node:child_process'; import net from 'node:net';
+    const until = Date.now() + ${windowMs};
+    const up = (port) => new Promise((r) => { const s = net.connect(port, '127.0.0.1', () => { s.destroy(); r(true); }); s.once('error', () => r(false)); });
+    const seen = new Set(); const starts = [];`;
+  // The service manager: re-runs `services ensure` (prepareLocalNats) on a tick and keeps its server running, as process-compose does.
+  const manager = `${header}
+    let child = null;
+    while (Date.now() < until) {
+      const p = await prepareLocalNats({ env: process.env });
+      seen.add(p.port);
+      if (!(await up(p.port))) { child = spawn(p.bin, p.args, { detached: true, stdio: 'ignore' }); child.unref(); starts.push(child.pid); await new Promise((r) => setTimeout(r, 800)); }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    console.log('RESULT ' + JSON.stringify({ ports: [...seen], starts })); process.exit(0);`;
+  // CLI commands: every one asks for the local NATS (services disabled in this test process, as in the suite).
+  const cli = `${header}
+    while (Date.now() < until) {
+      try { const l = await ensureLocalNats({ env: process.env }); seen.add(l.port); if (l.started) starts.push(l.port); } catch (e) { /* the manager may be restarting it */ }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    console.log('RESULT ' + JSON.stringify({ ports: [...seen], starts })); process.exit(0);`;
+  const run = (source) => exec(process.execPath, ['--input-type=module', '-e', source], { env, timeout: 90_000 }).then(({ stdout }) => JSON.parse(stdout.split('\n').find((l) => l.startsWith('RESULT ')).slice(7)));
+  const livePids = async () => (await exec('ps', ['-eo', 'pid,args', '-ww'])).stdout.split('\n').filter((l) => l.includes('nats-server') && l.includes(home)).map((l) => Number(l.trim().split(/\s+/)[0]));
+  // A first start may be a handover (a CLI's detached server taken over by the manager once). After the first ten seconds nothing may change.
+  const settled = new Promise((resolve) => setTimeout(async () => resolve(await livePids()), 10_000));
+  const [m, a, b] = await Promise.all([run(manager), run(cli), run(cli)]);
+  const pidsAt10s = await settled;
+  const ports = [...new Set([...m.ports, ...a.ports, ...b.ports])];
+  const servers = (await exec('ps', ['-eo', 'pid,args', '-ww'])).stdout.split('\n').filter((l) => l.includes('nats-server') && l.includes(home));
+  console.log(`window ${windowMs}ms: ports seen=${JSON.stringify(ports)} manager starts=${JSON.stringify(m.starts)} cli detached starts=${JSON.stringify([...a.starts, ...b.starts])} live servers for this home=${servers.length}`);
+  assert.equal(ports.length, 1, `the port moved: ${ports}`);
+  console.log(`server pid at 10s=${JSON.stringify(pidsAt10s)} at the end=${JSON.stringify(await livePids())}`);
+  assert.equal(m.starts.length + a.starts.length + b.starts.length <= 2, true, `more than one handover: manager ${m.starts}, cli ${a.starts} ${b.starts}`);
+  assert.deepEqual(await livePids(), pidsAt10s, 'the server was replaced after it had settled');
+  assert.equal(servers.length, 1);
+  for (const pid of [state().pid, ...servers.map((l) => Number(l.trim().split(/\s+/)[0]))]) if (pid) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+});

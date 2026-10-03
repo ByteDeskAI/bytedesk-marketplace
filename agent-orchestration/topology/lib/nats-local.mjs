@@ -40,6 +40,25 @@ function canConnect(port) {
   });
 }
 
+function canBind(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+  });
+}
+
+/**
+ * The port this home's server used last, while nothing holds it; a new random one only when it is taken. A server that is
+ * restarted (by a manager, after a crash, handed over from a detached start) must come back where every cached client
+ * URL expects it, or each restart turns into CONNECTION_REFUSED for everything that had connected.
+ */
+async function stickyPort(state) {
+  const previous = state?.port;
+  if (Number.isInteger(previous) && previous >= 1024 && !(await canConnect(previous)) && await canBind(previous)) return previous;
+  return freePort();
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -181,7 +200,8 @@ export async function prepareLocalNats({ env = process.env } = {}) {
       try { process.kill(state.pid, 'SIGTERM'); } catch { /* already gone */ }
       for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const port = state?.managed && state.port ? state.port : await freePort();
+    // Managed: the port is the manager's and never moves. Handed over from a detached start: the same port, now freed.
+    const port = state?.managed && state.port ? state.port : await stickyPort(state);
     const { state: admin, changed } = await ensureAdminIdentity(home, { adminPub: state?.adminPub, adminSock: state?.adminSock });
     const confPath = await writeServerConfig(home, { port, adminPub: admin.adminPub });
     const absolute = absoluteBinary(bin, env);
@@ -233,16 +253,22 @@ export async function ensureLocalNats({ env = process.env } = {}) {
       state = (await revalidateAdminLocked(home)) ?? state;
       return { servers: `nats://127.0.0.1:${state.port}`, user: state.user, pass: state.pass, adminSock: state.adminSock, port: state.port, started: false };
     }
+    // A manager owns this server (state.managed): a CLI that finds it down is watching the manager restart it. Starting a detached
+    // one beside it is what produced a new server on a new port every few seconds, each stopped by the manager's next tick.
+    if (state?.managed && servicesEnabled(env)) throw unavailable(`The managed nats-server on port ${state.port} is not answering; the service manager is expected to restart it.`);
+    // Services are off in this process's view but state says a manager ran here: give a manager that is mid-start a moment before starting a second server.
+    if (state?.managed && await waitForPort(state.port, 30)) return { servers: `nats://127.0.0.1:${state.port}`, adminSock: state.adminSock, port: state.port, started: false, managed: true };
     const bin = await findNatsServer(env);
     if (!bin) throw unavailable(NO_BINARY);
-    const port = await freePort();
+    const port = await stickyPort(state);
     const { state: admin } = await ensureAdminIdentity(home, { adminPub: state?.adminPub, adminSock: state?.adminSock });
     const confPath = await writeServerConfig(home, { port, adminPub: admin.adminPub });
     const log = openSync(join(home, 'nats-server.log'), 'a', 0o600);
     const child = spawn(bin, ['-c', confPath], { detached: true, stdio: ['ignore', log, log] });
     child.unref();
     if (!(await waitForPort(port))) throw unavailable(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${join(home, 'nats-server.log')}`);
-    await writeState(home, { pid: child.pid, port, bin, adminPub: admin.adminPub, adminSock: admin.adminSock, adminPid: admin.adminPid });
+    // `managed` is kept as found: dropping it made the manager's next tick treat this server as a stray and stop it.
+    await writeState(home, { ...(state?.managed ? { managed: true } : {}), pid: child.pid, port, bin, adminPub: admin.adminPub, adminSock: admin.adminSock, adminPid: admin.adminPid });
     return { servers: `nats://127.0.0.1:${port}`, adminSock: admin.adminSock, port, started: true };
   });
 }
