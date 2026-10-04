@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.2] — 2026-10-03
+
+_TM-317: the credential holder's caller check on macOS. **NOT VERIFIED ON REAL macOS** — the Mac host (macbook-pro.local) was unreachable. Run `scripts/verify-macos-holder.sh` on a Mac before trusting it._
+
+### Added
+
+- **`topology/lib/peer-process.mjs`**: `peerPids`, `parentOf`, `isAlive`, `argvOf`, `listArgv` dispatch on `process.platform`. Linux behaviour is unchanged (`ss` + `/proc`). Darwin discovers the peer with `lsof -nP -U -F pfdtn` (our accepted socket's pcb address names the peer's), the parent with `ps -o ppid=`, liveness with `kill(pid, 0)`. Each tool's output goes through a pure parser; unparseable or empty output yields `[]`/`0`, so the holder still fails closed. Any other platform has no peer discovery and refuses.
+- `tests/unit/peer-process.test.mjs`: parsers against **synthesized** fixtures (not captured on a Mac), fail-closed cases, and the darwin path run on Linux through a fake `lsof`/`ps` on `PATH` with a real unix socket.
+- `scripts/verify-macos-holder.sh`: PASS/FAIL checks for a human on a Mac; uses a private temp home, never the real NATS home.
+
+### Changed
+
+- `agent-creds.mjs` uses the platform layer for peer discovery, parent lookup, liveness (`/proc/<pid>` existence) and the nats-server pid lookup.
+
+### Still Linux-only (documented, not abstracted)
+
+`topology/lib/slots.mjs` `callerRunsInPane` (fails closed off Linux), `management.mjs` pane idle/identity reads, `lockfile.mjs` and `src/util.mjs` process identity (`/proc/<pid>/stat`; `util.mjs` has a ps fallback), `nats-local.mjs` port-owner lookup (`/proc/net/tcp`), `services/self-heal.mjs`, `platform/linux-*.mjs` (Linux by name), `doctor.mjs` WSL probe.
+
 ## [0.16.1] — 2026-10-03
 
 _EP-026 follow-ups TM-315, TM-327, TM-328, TM-329 and TM-330._

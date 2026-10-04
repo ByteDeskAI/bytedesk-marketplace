@@ -1,0 +1,2 @@
+u_str ESTAB 0 0 /tmp/h.sock 51234 * 51235
+u_str ESTAB 0 0 /tmp/h.sock 61234 * 61235
