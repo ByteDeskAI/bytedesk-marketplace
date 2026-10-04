@@ -74,7 +74,7 @@ test('mutation: with the watcher off, the broad user stays usable, and the next 
   });
 });
 
-test('watcher: a rewritten config and SIGHUP is undone, journaled, and shown by doctor; a server restart is a notice', { timeout: 180000 }, async () => {
+test('watcher: a rewritten config and SIGHUP is undone, journaled, and shown by doctor; a server restart is a notice', { timeout: 180000 }, async (t) => {
   await withServer(300, async (server) => {
     const attacker = (await import('nats')).nkeys.createUser();
     const pub = attacker.getPublicKey();
@@ -120,6 +120,7 @@ test('watcher: a rewritten config and SIGHUP is undone, journaled, and shown by 
     await new Promise((resolve) => server.child.on('exit', resolve));
     const next = spawn(server.hostEnv.AO_NATS_SERVER, ['-c', server.conf], { stdio: 'ignore' });
     server.child = next;
+    t.after(() => next.kill('SIGKILL')); // stop() kills only the server it started, not this replacement
     // The watcher may sample between the kill and the new start (pid null), so the chain is old -> (null) -> new.
     let swaps = [];
     for (let i = 0; i < 60 && !swaps.some((e) => e.after.pid === next.pid); i += 1) { await sleep(150); swaps = readTamperEvents(server.home).filter((e) => e.kind === 'server-pid-changed'); }
