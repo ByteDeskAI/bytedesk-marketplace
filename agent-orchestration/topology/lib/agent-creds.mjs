@@ -17,7 +17,7 @@
 // by registry pruning on the next apply, since nkey users carry no expiry; JWT users would.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { withLock } from './lockfile.mjs';
 import { argvOf, isAlive, listArgv, parentOf, peerPids } from './peer-process.mjs';
 import { ORCH_LAYOUT, orchName } from './orch-transport.mjs';
+import { TAMPER_INTERVAL_MS, journalTamper, sha256, summarizeChange } from './nats-tamper.mjs';
 
 /** nkeys ships inside the nats client; the installed plugin has only the bundle. */
 async function natsClient() {
@@ -48,6 +49,7 @@ export function socketPath(home, name) {
   if (Buffer.byteLength(direct) <= SOCKET_PATH_MAX) return direct;
   const dir = join('/tmp', `ao-sock-${process.getuid?.() ?? 0}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700); // mkdir's mode does not apply to a directory that already existed
   return join(dir, `${createHash('sha1').update(home).digest('hex').slice(0, 12)}-${name}`);
 }
 
@@ -297,7 +299,7 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
   const ready = await new Promise((resolve, reject) => {
     child.once('message', resolve);
     child.once('exit', () => reject(new Error('credential holder exited')));
-    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid }, (error) => { if (error) reject(error); });
+    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error) => { if (error) reject(error); });
   });
   if (!ready.ok) { child.kill('SIGKILL'); throw Object.assign(new Error(`credential holder failed: ${ready.error}`), { code: ready.code ?? 'HOLDER_FAILED' }); }
   child.disconnect();
@@ -326,6 +328,41 @@ export function holderMain() {
   let ctl = null;
   let spawnerPid = null;
   const startedAt = Date.now();
+  // TM-316 (admin holder only): the expected server config lives here, in memory, and is compared with the file.
+  let expected = null; // { conf, confPath, at }
+  let tamperMs = TAMPER_INTERVAL_MS;
+  let seen = { pid: undefined, exe: null };
+  let repairs = 0;
+  const tamperTick = () => {
+    if (!admin || !expected || !home) return { watching: false };
+    const { conf, confPath } = expected;
+    // A write announced a moment ago may not have reached the disk yet; do not "repair" it into itself.
+    if (Date.now() - expected.at < Math.min(1500, 2 * tamperMs)) return { watching: true, skipped: 'announce-grace' };
+    let actual = null;
+    try { actual = readFileSync(confPath, 'utf8'); } catch { /* missing counts as changed */ }
+    const out = { watching: true, inSync: actual === conf };
+    if (actual !== conf) {
+      let repaired = false; let error = null; let reloaded = null;
+      try { writeFileSync(`${confPath}.repair`, conf, { mode: 0o600 }); renameSync(`${confPath}.repair`, confPath); repaired = true; } catch (e) { error = e.message; }
+      const pid = serverPidFor(null, confPath);
+      if (repaired && pid) { try { process.kill(pid, 'SIGHUP'); reloaded = pid; } catch { /* gone */ } }
+      repairs += 1;
+      journalTamper(home, { kind: 'conf-changed', severity: 'tamper', confPath, ...summarizeChange(conf, actual), repaired, reloaded, ...(error ? { error } : {}) });
+      out.repaired = repaired;
+    } else {
+      try { if ((statSync(confPath).mode & 0o077) !== 0) { chmodSync(confPath, 0o600); journalTamper(home, { kind: 'conf-mode', severity: 'tamper', confPath, repaired: true }); } } catch { /* raced */ }
+    }
+    // The server process: a new pid or a new executable behind the same pid is reported (a service-manager restart is a notice, not an alarm).
+    const pid = serverPidFor(null, confPath);
+    let exe = null;
+    if (pid) { try { exe = readlinkSync(`/proc/${pid}/exe`); } catch { /* not ours to read */ } }
+    if (seen.pid !== undefined && (pid !== seen.pid || (exe && seen.exe && exe !== seen.exe))) {
+      journalTamper(home, { kind: pid === seen.pid ? 'server-exe-changed' : 'server-pid-changed', severity: pid === seen.pid ? 'tamper' : 'notice', before: { pid: seen.pid, exe: seen.exe }, after: { pid, exe } });
+    }
+    seen = { pid, exe };
+    return out;
+  };
+  const tamperTimer = { current: null };
   const stop = () => { secrets = null; server?.close(); try { if (sockPath) unlinkSync(sockPath); } catch { /* gone */ } setTimeout(() => process.exit(0), 50); };
   // The root dying is not the end: a failover or restart re-attaches within the grace window.
   let rootGoneSince = null;
@@ -351,12 +388,29 @@ export function holderMain() {
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     // The public key is not a secret: anyone who can reach the socket may learn whose holder this is.
     if (request.op === 'pub') return { publicKey, pid: process.pid, admin };
+    // Digests are not secret: anyone may ask whether the admin holder is watching and whether the file still matches.
+    if (request.op === 'tamper') {
+      let current = null;
+      try { current = sha256(readFileSync(expected.confPath, 'utf8')); } catch { /* none */ }
+      return { admin, watching: Boolean(expected), intervalMs: tamperMs, repairs, expectedSha: expected ? sha256(expected.conf) : null, currentSha: current };
+    }
     // Control is the spawner's (it holds `ctl`) or, from another process, the operator tree's (outside every agent tree, with a registry to judge by).
     const controller = (Boolean(ctl) && request.ctl === ctl) || (Boolean(home) && operator);
     if (request.op === 'install') {
       if (!controller) return { ok: false, error: 'install is for the spawner or the operator process tree only' };
       secrets = { ...secrets, ...request.secrets };
       return { ok: true };
+    }
+    if (request.op === 'expect' || request.op === 'check') {
+      if (!controller || !admin) return { ok: false, error: `${request.op} is for the operator process tree, on the admin holder only` };
+      if (request.op === 'check') { expected && (expected.at = 0); return { ok: true, ...tamperTick() }; }
+      // Anything on disk that is neither the config we last expected nor the one about to be written was put there by someone else.
+      let pre = null;
+      if (expected) { try { pre = readFileSync(expected.confPath, 'utf8'); } catch { /* missing */ } }
+      const tampered = Boolean(expected) && expected.confPath === request.confPath && pre !== expected.conf && pre !== request.conf;
+      if (tampered) { journalTamper(home, { kind: 'conf-changed-before-update', severity: 'tamper', confPath: request.confPath, ...summarizeChange(expected.conf, pre), repaired: true, reloaded: null }); repairs += 1; }
+      expected = { conf: String(request.conf), confPath: String(request.confPath), at: Date.now() };
+      return { ok: true, tampered };
     }
     if (request.op === 'revoke') {
       if (!controller) return { ok: false, error: 'revoke is for the spawner or the operator process tree only' };
@@ -377,6 +431,9 @@ export function holderMain() {
     if (message.type === 'init') {
       secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs; ctl = message.ctl; spawnerPid = message.spawnerPid;
       if (admin) {
+        tamperMs = message.tamperMs ?? tamperMs;
+        tamperTimer.current = setInterval(() => { try { tamperTick(); } catch { /* the watcher must not die of one bad read */ } }, tamperMs);
+        tamperTimer.current.unref?.();
         const user = (await natsClient()).nkeys.createUser();
         publicKey = user.getPublicKey();
         secrets = { seed: new TextDecoder().decode(user.getSeed()) };

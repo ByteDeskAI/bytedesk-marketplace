@@ -8830,7 +8830,15 @@ function readState(home) {
 }
 async function writeServerConfig(home, { port, user, pass, adminPub = null }) {
   const confPath = (0, import_node_path30.join)(home, "nats-server.conf");
-  await (0, import_promises25.writeFile)(confPath, serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: (0, import_node_path30.join)(home, "jetstream"), agentUsers: loadAgentUsers(home) }), { mode: 384 });
+  const text = serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: (0, import_node_path30.join)(home, "jetstream"), agentUsers: loadAgentUsers(home) });
+  if (adminPub) {
+    const pre = await requestSocket(socketPath(home, "admin.sock"), { op: "expect", conf: text, confPath }, 2e3).catch(() => null);
+    if (pre?.tampered) process.stderr.write(`[ao] WARNING: ${confPath} was changed by something other than ao; it is being rewritten (see ${(0, import_node_path30.join)(home, "tamper.jsonl")}).
+`);
+  }
+  await (0, import_promises25.chmod)(home, 448).catch(() => {
+  });
+  await (0, import_promises25.writeFile)(confPath, text, { mode: 384 });
   await (0, import_promises25.chmod)(confPath, 384);
   return confPath;
 }
@@ -26453,6 +26461,14 @@ var init_orch_transport = __esm({
   }
 });
 
+// topology/lib/nats-tamper.mjs
+var TAMPER_INTERVAL_MS;
+var init_nats_tamper = __esm({
+  "topology/lib/nats-tamper.mjs"() {
+    TAMPER_INTERVAL_MS = 5e3;
+  }
+});
+
 // topology/lib/agent-creds.mjs
 async function natsClient() {
   try {
@@ -26468,6 +26484,7 @@ function socketPath(home, name) {
   if (Buffer.byteLength(direct) <= SOCKET_PATH_MAX2) return direct;
   const dir = (0, import_node_path32.join)("/tmp", `ao-sock-${process.getuid?.() ?? 0}`);
   (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
+  (0, import_node_fs10.chmodSync)(dir, 448);
   return (0, import_node_path32.join)(dir, `${(0, import_node_crypto15.createHash)("sha1").update(home).digest("hex").slice(0, 12)}-${name}`);
 }
 function agentPermissions({ repo, agent, role = "worker", mailTo = [], inboxPrefix, takesWork = false }) {
@@ -26581,7 +26598,7 @@ async function startHolder(secrets, { home = null, sock: fixedSock = null, admin
   const ready = await new Promise((resolve21, reject) => {
     child.once("message", resolve21);
     child.once("exit", () => reject(new Error("credential holder exited")));
-    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid }, (error51) => {
+    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error51) => {
       if (error51) reject(error51);
     });
   });
@@ -26688,6 +26705,7 @@ var init_agent_creds = __esm({
     init_lockfile();
     init_peer_process();
     init_orch_transport();
+    init_nats_tamper();
     SOCKET_PATH_MAX2 = 100;
     DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
     REGISTRY = "agent-users.json";
@@ -30844,8 +30862,8 @@ function parseReviewResponse(screen, nonce) {
 async function ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs, stallMs, deliver, lead }) {
   const now = Date.now();
   const since = request.incomplete_since ?? new Date(now).toISOString();
-  const sha2562 = (0, import_node_crypto23.createHash)("sha256").update(screen).digest("hex");
-  const seen = request.incomplete_screen?.sha256 === sha2562 ? request.incomplete_screen : { sha256: sha2562, at: new Date(now).toISOString() };
+  const sha2563 = (0, import_node_crypto23.createHash)("sha256").update(screen).digest("hex");
+  const seen = request.incomplete_screen?.sha256 === sha2563 ? request.incomplete_screen : { sha256: sha2563, at: new Date(now).toISOString() };
   const overBound = now - Date.parse(since) >= boundMs;
   const stalled = !overBound && now - Date.parse(seen.at) >= stallMs;
   if (!overBound && !stalled) {
@@ -77504,10 +77522,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "50e7574da4e0b32e3492669ab72aca10f76f22f92aab1b9249ebcf18eace71bf";
+  return false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "50e7574da4e0b32e3492669ab72aca10f76f22f92aab1b9249ebcf18eace71bf";
+  const fingerprint2 = false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d";
   let version2 = false ? null : "0.16.2";
   if (!version2) {
     try {
@@ -77932,7 +77950,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "50e7574da4e0b32e3492669ab72aca10f76f22f92aab1b9249ebcf18eace71bf",
+  sourceFingerprint: false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d",
   version: false ? null : "0.16.2"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

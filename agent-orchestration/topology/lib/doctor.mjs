@@ -127,6 +127,18 @@ async function claudeTrust(consumer, home) {
   return { known: false, trusted: false, path };
 }
 
+/** Tamper journal plus the admin holder's own report. Reads only; starts and provisions nothing. null when this host has no local NATS state. */
+async function natsTamperStatus(env) {
+  const { localNatsHome } = await import("./nats-local.mjs");
+  const { readTamperEvents } = await import("./nats-tamper.mjs");
+  const { requestSocket, socketPath } = await import("./agent-creds.mjs");
+  const home = localNatsHome(env);
+  if (!(await exists(join(home, "state.json")))) return null;
+  const windowMs = Number(env.AO_TAMPER_REPORT_MS) || 24 * 60 * 60 * 1000;
+  const holder = await requestSocket(socketPath(home, "admin.sock"), { op: "tamper" }, 2000).catch(() => null);
+  return { journal: join(home, "tamper.jsonl"), windowMs, events: readTamperEvents(home, { sinceMs: windowMs }).filter((event) => event.severity === "tamper"), holder };
+}
+
 export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home }) {
   const osInfo = await detectOs();
   const tmux = await tmuxVersion();
@@ -198,6 +210,13 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
   if (outage?.conflict) problems.push({ code: "NATS_PORT_CONFLICT", message: outage.error, fix: { note: `Stop the process holding port ${outage.conflict.port}, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. ao never moves the port on its own (ADR-0032).` } });
   else if (outage) problems.push({ code: "NATS_CONFIGURED_UNREACHABLE", message: `The configured NATS ${outage.url} (${outage.source}) has been unreachable since ${outage.since}: ${outage.error}. ao is working on ${transport.source} ${transport.url}; other machines on ${outage.url} cannot see this host.`, fix: { note: `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. Once nothing on this host has fallen back from it for an hour (AO_NATS_OUTAGE_RETIRE_MS), the outage is retired and this check clears. Each repository supervisor mails its registered lead once per outage and once when it recovers or is retired.` } });
+  // TM-316: did something other than ao change the local NATS server config or swap the server? The admin holder repairs a
+  // changed config on its own; this reports that it happened, in the last AO_TAMPER_REPORT_MS (default 24 h).
+  const tamper = await natsTamperStatus(env ?? process.env).catch((error) => ({ error: error.message }));
+  if (tamper?.events?.length) {
+    const last = tamper.events[tamper.events.length - 1];
+    problems.push({ code: "NATS_CONFIG_TAMPERED", message: `The local NATS server config or process was changed outside ao ${tamper.events.length} time(s) in the last ${Math.round(tamper.windowMs / 3600000)} h; last: ${last.kind} at ${last.ts}${last.usersAdded?.length ? `, users added: ${last.usersAdded.join(", ")}` : ""}${last.repaired ? " (config rewritten from the admin holder's copy and reloaded)" : ""}.`, fix: { note: `Events: ${tamper.journal}. A same-uid process did this; find it, and see agent-orchestration/docs/adr/0003-same-uid-threat-model.md for what ao can and cannot stop.` } });
+  }
   // TM-155: the first-run trust gate, and the socket-path limit. Both are conditions an operator
   // meets as a stalled pane or a raw tmux error, and both are knowable before anything is launched.
   const trust = await claudeTrust(consumer, home);
@@ -210,5 +229,5 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   }
   const socket = socketPathProblem(env);
   if (socket) problems.push(socket);
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, trust, problems };
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, tamper, trust, problems };
 }
