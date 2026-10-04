@@ -27,7 +27,8 @@ export function localNatsHome(env = process.env) {
   if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
   // A test run (the helper that loads suite-leaks sets AO_TEST_RUN) that reaches here has lost AO_NATS_HOME, for example
   // through a scrubbed child env. Falling back would provision test users into the operator's live server.
-  if (env.AO_TEST_RUN) throw Object.assign(new Error('AO_NATS_HOME is not set in a test run: refusing to use the operator\'s real local NATS home.'), { code: 'TOPOLOGY_TEST_REAL_NATS_HOME' });
+  // NODE_TEST_CONTEXT is set by `node --test` in every test child, with or without our preflight, so a test file run on its own is covered too.
+  if (env.AO_TEST_RUN || env.NODE_TEST_CONTEXT) throw Object.assign(new Error('AO_NATS_HOME is not set in a test run (AO_TEST_RUN or node --test): refusing to use the operator\'s real local NATS home.'), { code: 'TOPOLOGY_TEST_REAL_NATS_HOME' });
   return join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
 }
 

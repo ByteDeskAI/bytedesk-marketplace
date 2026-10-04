@@ -1782,7 +1782,7 @@ __export(nats_local_exports, {
 });
 function localNatsHome(env = process.env) {
   if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
-  if (env.AO_TEST_RUN) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run: refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
+  if (env.AO_TEST_RUN || env.NODE_TEST_CONTEXT) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run (AO_TEST_RUN or node --test): refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
   return (0, import_node_path30.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
@@ -61285,10 +61285,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b6a6ddb1401b76e849fd0b7e9eee013bfe0eb2a3906ce671df4da0971e800c10";
+  return false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b6a6ddb1401b76e849fd0b7e9eee013bfe0eb2a3906ce671df4da0971e800c10";
+  const fingerprint2 = false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98";
   let version2 = false ? null : "0.16.3";
   if (!version2) {
     try {
@@ -61879,7 +61879,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b6a6ddb1401b76e849fd0b7e9eee013bfe0eb2a3906ce671df4da0971e800c10",
+  sourceFingerprint: false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98",
   version: false ? null : "0.16.3"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
