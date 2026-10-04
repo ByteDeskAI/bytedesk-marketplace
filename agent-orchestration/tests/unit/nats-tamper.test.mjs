@@ -2,8 +2,8 @@
 // A real child process does the editing. The mutation run starts the admin holder with the watcher effectively
 // disabled (AO_TAMPER_INTERVAL_MS = 1 h) and shows the same attack stays in force, so the repair is the watcher's doing.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { REPO, enc, nats, startServer } from '../helpers/agent-creds-fixture.mjs';
@@ -135,7 +135,11 @@ test('watcher: a rewritten config and SIGHUP is undone, journaled, and shown by 
 
 import { statSync as statSync0 } from 'node:fs';
 async function runDoctor(server) {
-  const child = spawn(process.execPath, [CLI, 'doctor', '--json'], { env: { PATH: process.env.PATH, HOME: server.home, XDG_CONFIG_HOME: join(server.home, '.config'), AO_NATS_HOME: server.home,
+  // doctor probes every provider CLI on PATH (`claude --version`...); the suite's guard (TM-290) forbids real ones, so give it a PATH holding only tmux.
+  const bin = join(server.home, 'bin');
+  mkdirSync(bin, { recursive: true });
+  try { symlinkSync(execFileSync('which', ['tmux'], { encoding: 'utf8' }).trim(), join(bin, 'tmux')); } catch { /* no tmux: doctor reports it */ }
+  const child = spawn(process.execPath, [CLI, 'doctor', '--json'], { env: { PATH: bin, HOME: server.home, XDG_CONFIG_HOME: join(server.home, '.config'), AO_NATS_HOME: server.home,
     AGENT_ORCHESTRATION_SERVICES: '0', AO_NATS_AUTOSTART: '0', TMUX: '', TMUX_TMPDIR: server.home }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
