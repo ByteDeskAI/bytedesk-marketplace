@@ -8541,6 +8541,41 @@ var init_discovery = __esm({
   }
 });
 
+// topology/lib/peer-process.mjs
+function parsePsList(text) {
+  return String(text ?? "").split("\n").flatMap((line) => {
+    const m = /^\s*(\d+)\s+(.*\S)\s*$/.exec(line);
+    return m ? [{ pid: Number(m[1]), argv: m[2].split(/\s+/) }] : [];
+  });
+}
+function argvOf(pid, { platform = process.platform, exec = defaultExec } = {}) {
+  try {
+    if (platform === "linux") return (0, import_node_fs7.readFileSync)(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    if (platform === "darwin") return parsePsList(exec("ps", ["-o", "pid=,args=", "-p", String(pid)]))[0]?.argv ?? null;
+  } catch {
+  }
+  return null;
+}
+function listArgv({ platform = process.platform, exec = defaultExec } = {}) {
+  try {
+    if (platform === "linux") return (0, import_node_fs7.readdirSync)("/proc").filter((d) => /^\d+$/.test(d)).flatMap((d) => {
+      const argv = argvOf(Number(d), { platform });
+      return argv ? [{ pid: Number(d), argv }] : [];
+    });
+    if (platform === "darwin") return parsePsList(exec("ps", ["-axo", "pid=,args="]));
+  } catch {
+  }
+  return [];
+}
+var import_node_child_process9, import_node_fs7, defaultExec;
+var init_peer_process = __esm({
+  "topology/lib/peer-process.mjs"() {
+    import_node_child_process9 = require("node:child_process");
+    import_node_fs7 = require("node:fs");
+    defaultExec = (cmd, args) => (0, import_node_child_process9.execFileSync)(cmd, args, { encoding: "utf8", maxBuffer: 1 << 26, stdio: ["ignore", "pipe", "ignore"] });
+  }
+});
+
 // topology/lib/services-client.mjs
 function servicesEnabled(env = process.env) {
   const value = env.AGENT_ORCHESTRATION_SERVICES ?? process.env.AGENT_ORCHESTRATION_SERVICES;
@@ -8568,7 +8603,7 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
 function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
   const cli = (0, import_node_url3.fileURLToPath)(new URL("../../dist/cli.cjs", __aoImportMetaUrl));
   return new Promise((resolve21) => {
-    const child = (0, import_node_child_process9.spawn)(process.execPath, [cli, "services", "ensure", "--json"], {
+    const child = (0, import_node_child_process10.spawn)(process.execPath, [cli, "services", "ensure", "--json"], {
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
@@ -8596,10 +8631,10 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
     });
   });
 }
-var import_node_child_process9, import_node_os9, import_node_path29, import_node_url3;
+var import_node_child_process10, import_node_os9, import_node_path29, import_node_url3;
 var init_services_client = __esm({
   "topology/lib/services-client.mjs"() {
-    import_node_child_process9 = require("node:child_process");
+    import_node_child_process10 = require("node:child_process");
     import_node_os9 = require("node:os");
     import_node_path29 = require("node:path");
     import_node_url3 = require("node:url");
@@ -8630,7 +8665,7 @@ __export(nats_local_exports, {
 });
 function localNatsHome(env = process.env) {
   if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
-  if (env.AO_TEST_RUN) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run: refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
+  if (env.AO_TEST_RUN || env.NODE_TEST_CONTEXT) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run (AO_TEST_RUN or node --test): refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
   return (0, import_node_path30.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
@@ -8691,7 +8726,7 @@ function portHolder(port) {
   for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
     let lines = [];
     try {
-      lines = (0, import_node_fs7.readFileSync)(table, "utf8").trim().split("\n").slice(1);
+      lines = (0, import_node_fs8.readFileSync)(table, "utf8").trim().split("\n").slice(1);
     } catch {
       continue;
     }
@@ -8701,24 +8736,24 @@ function portHolder(port) {
     }
   }
   if (inodes.size === 0) return null;
-  for (const pid of (0, import_node_fs7.readdirSync)("/proc").filter((name) => /^\d+$/.test(name))) {
+  for (const pid of (0, import_node_fs8.readdirSync)("/proc").filter((name) => /^\d+$/.test(name))) {
     let fds = [];
     try {
-      fds = (0, import_node_fs7.readdirSync)(`/proc/${pid}/fd`);
+      fds = (0, import_node_fs8.readdirSync)(`/proc/${pid}/fd`);
     } catch {
       continue;
     }
     for (const fd of fds) {
       let link = null;
       try {
-        link = (0, import_node_fs7.readlinkSync)(`/proc/${pid}/fd/${fd}`);
+        link = (0, import_node_fs8.readlinkSync)(`/proc/${pid}/fd/${fd}`);
       } catch {
         continue;
       }
       if (inodes.has(link)) {
         let command = null;
         try {
-          command = (0, import_node_fs7.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
+          command = (0, import_node_fs8.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
         } catch {
         }
         return { pid: Number(pid), command };
@@ -8786,7 +8821,7 @@ function unavailable(message) {
 function readState(home) {
   let state = null;
   try {
-    state = JSON.parse((0, import_node_fs7.readFileSync)((0, import_node_path30.join)(home, "state.json"), "utf8"));
+    state = JSON.parse((0, import_node_fs8.readFileSync)((0, import_node_path30.join)(home, "state.json"), "utf8"));
   } catch {
     return null;
   }
@@ -8795,7 +8830,15 @@ function readState(home) {
 }
 async function writeServerConfig(home, { port, user, pass, adminPub = null }) {
   const confPath = (0, import_node_path30.join)(home, "nats-server.conf");
-  await (0, import_promises25.writeFile)(confPath, serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: (0, import_node_path30.join)(home, "jetstream"), agentUsers: loadAgentUsers(home) }), { mode: 384 });
+  const text = serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: (0, import_node_path30.join)(home, "jetstream"), agentUsers: loadAgentUsers(home) });
+  if (adminPub) {
+    const pre = await requestSocket(socketPath(home, "admin.sock"), { op: "expect", conf: text, confPath }, 2e3).catch(() => null);
+    if (pre?.tampered) process.stderr.write(`[ao] WARNING: ${confPath} was changed by something other than ao; it is being rewritten (see ${(0, import_node_path30.join)(home, "tamper.jsonl")}).
+`);
+  }
+  await (0, import_promises25.chmod)(home, 448).catch(() => {
+  });
+  await (0, import_promises25.writeFile)(confPath, text, { mode: 384 });
   await (0, import_promises25.chmod)(confPath, 384);
   return confPath;
 }
@@ -8857,7 +8900,7 @@ function absoluteBinary(bin, env) {
   if ((0, import_node_path30.isAbsolute)(bin)) return bin;
   for (const dir of String(env.PATH || "").split(import_node_path30.delimiter).filter(Boolean)) {
     const candidate = (0, import_node_path30.join)(dir, bin);
-    if ((0, import_node_fs7.existsSync)(candidate)) return candidate;
+    if ((0, import_node_fs8.existsSync)(candidate)) return candidate;
   }
   return bin;
 }
@@ -8893,7 +8936,7 @@ async function prepareLocalNats({ env = process.env } = {}) {
 }
 function namesNatsServer(pid) {
   try {
-    return (0, import_node_fs7.readFileSync)(`/proc/${pid}/cmdline`, "utf8").includes("nats-server");
+    return (0, import_node_fs8.readFileSync)(`/proc/${pid}/cmdline`, "utf8").includes("nats-server");
   } catch {
     return process.platform !== "linux";
   }
@@ -8936,19 +8979,19 @@ async function ensureLocalNats({ env = process.env } = {}) {
     if (!bin) throw unavailable(NO_BINARY);
     const { state: admin } = await ensureAdminIdentity(home, { adminPub: state?.adminPub, adminSock: state?.adminSock });
     const confPath = await writeServerConfig(home, { port, adminPub: admin.adminPub });
-    const log = (0, import_node_fs7.openSync)((0, import_node_path30.join)(home, "nats-server.log"), "a", 384);
-    const child = (0, import_node_child_process10.spawn)(bin, ["-c", confPath], { detached: true, stdio: ["ignore", log, log] });
+    const log = (0, import_node_fs8.openSync)((0, import_node_path30.join)(home, "nats-server.log"), "a", 384);
+    const child = (0, import_node_child_process11.spawn)(bin, ["-c", confPath], { detached: true, stdio: ["ignore", log, log] });
     child.unref();
     if (!await waitForPort(port)) throw unavailable(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${(0, import_node_path30.join)(home, "nats-server.log")}`);
     await writeState(home, { ...state?.managed ? { managed: true } : {}, pid: child.pid, port, bin, adminPub: admin.adminPub, adminSock: admin.adminSock, adminPid: admin.adminPid });
     return { servers: `nats://127.0.0.1:${port}`, adminSock: admin.adminSock, port, started: true };
   });
 }
-var import_node_child_process10, import_node_fs7, import_promises25, import_node_net, import_node_os10, import_node_path30, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, STATE_SCHEMA, revalidateAdmin, localNatsEnabled;
+var import_node_child_process11, import_node_fs8, import_promises25, import_node_net, import_node_os10, import_node_path30, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, STATE_SCHEMA, revalidateAdmin, localNatsEnabled;
 var init_nats_local = __esm({
   "topology/lib/nats-local.mjs"() {
-    import_node_child_process10 = require("node:child_process");
-    import_node_fs7 = require("node:fs");
+    import_node_child_process11 = require("node:child_process");
+    import_node_fs8 = require("node:fs");
     import_promises25 = require("node:fs/promises");
     import_node_net = __toESM(require("node:net"), 1);
     import_node_os10 = require("node:os");
@@ -24619,7 +24662,7 @@ var require_node_transport = __commonJS({
     var util_1 = require_util2();
     var tls_1 = require("tls");
     var { resolve: resolve21 } = require("path");
-    var { readFile: readFile32, existsSync: existsSync8 } = require("fs");
+    var { readFile: readFile32, existsSync: existsSync9 } = require("fs");
     var dns = require("dns");
     var VERSION = "2.29.3";
     var LANG = "nats.js";
@@ -24734,7 +24777,7 @@ var require_node_transport = __commonJS({
         const d = (0, nats_base_client_1.deferred)();
         try {
           fn = resolve21(fn);
-          if (!existsSync8(fn)) {
+          if (!existsSync9(fn)) {
             d.reject(new Error(`${fn} doesn't exist`));
           }
           readFile32(fn, (err, data) => {
@@ -25780,7 +25823,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
   };
   if (!target) {
     const socketPath2 = orchSocketPath(env);
-    if ((0, import_node_fs8.existsSync)(socketPath2)) {
+    if ((0, import_node_fs9.existsSync)(socketPath2)) {
       bridge = await bridgeUnixSocket(socketPath2);
       target = bridge.servers;
       selection = { ...selection, source: "orch.sock", url: socketPath2 };
@@ -25807,7 +25850,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     else if (held?.creds) options.authenticator = credsAuthenticator(new TextEncoder().encode(held.creds));
     else if (admin?.seed) options.authenticator = nkeyAuthenticator(new TextEncoder().encode(admin.seed));
     else if (local) Object.assign(options, { user: local.user, pass: local.pass });
-    else if (creds) options.authenticator = credsAuthenticator((0, import_node_fs8.readFileSync)(creds));
+    else if (creds) options.authenticator = credsAuthenticator((0, import_node_fs9.readFileSync)(creds));
     const inboxPrefix = held?.inboxPrefix || env.AO_ORCH_INBOX_PREFIX;
     if (inboxPrefix) options.inboxPrefix = inboxPrefix;
     return connect(options);
@@ -26355,11 +26398,11 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto13, import_node_fs8, import_node_net2, import_node_os11, import_node_path31, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign;
+var import_node_crypto13, import_node_fs9, import_node_net2, import_node_os11, import_node_path31, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto13 = require("node:crypto");
-    import_node_fs8 = require("node:fs");
+    import_node_fs9 = require("node:fs");
     import_node_net2 = __toESM(require("node:net"), 1);
     import_node_os11 = require("node:os");
     import_node_path31 = require("node:path");
@@ -26418,6 +26461,14 @@ var init_orch_transport = __esm({
   }
 });
 
+// topology/lib/nats-tamper.mjs
+var TAMPER_INTERVAL_MS;
+var init_nats_tamper = __esm({
+  "topology/lib/nats-tamper.mjs"() {
+    TAMPER_INTERVAL_MS = 5e3;
+  }
+});
+
 // topology/lib/agent-creds.mjs
 async function natsClient() {
   try {
@@ -26432,7 +26483,8 @@ function socketPath(home, name) {
   const direct = (0, import_node_path32.join)(home, name);
   if (Buffer.byteLength(direct) <= SOCKET_PATH_MAX2) return direct;
   const dir = (0, import_node_path32.join)("/tmp", `ao-sock-${process.getuid?.() ?? 0}`);
-  (0, import_node_fs10.mkdirSync)(dir, { recursive: true, mode: 448 });
+  (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
+  (0, import_node_fs10.chmodSync)(dir, 448);
   return (0, import_node_path32.join)(dir, `${(0, import_node_crypto15.createHash)("sha1").update(home).digest("hex").slice(0, 12)}-${name}`);
 }
 function agentPermissions({ repo, agent, role = "worker", mailTo = [], inboxPrefix, takesWork = false }) {
@@ -26489,7 +26541,7 @@ function renderAgentUser(entry) {
 }
 function loadAgentUsers(home, now = Date.now()) {
   try {
-    const users = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path32.join)(home, REGISTRY), "utf8")).users ?? {};
+    const users = JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path32.join)(home, REGISTRY), "utf8")).users ?? {};
     return Object.values(users).filter((entry) => !entry.expiresAt || entry.expiresAt > now);
   } catch {
     return [];
@@ -26497,7 +26549,7 @@ function loadAgentUsers(home, now = Date.now()) {
 }
 async function readRegistry(home) {
   try {
-    return JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path32.join)(home, REGISTRY), "utf8"));
+    return JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path32.join)(home, REGISTRY), "utf8"));
   } catch {
     return { version: 1, users: {} };
   }
@@ -26508,22 +26560,11 @@ async function writeRegistry(home, registry3) {
   await (0, import_promises26.rename)(`${path3}.tmp`, path3);
 }
 function findServerPid(confPath) {
-  for (const dir of (0, import_node_fs9.readdirSync)("/proc")) {
-    if (!/^\d+$/.test(dir)) continue;
-    try {
-      const argv = (0, import_node_fs9.readFileSync)(`/proc/${dir}/cmdline`, "utf8").split("\0");
-      if (argv[0].includes("nats-server") && argv.includes(confPath)) return Number(dir);
-    } catch {
-    }
-  }
-  return null;
+  return listArgv().find(({ argv }) => argv[0]?.includes("nats-server") && argv.includes(confPath))?.pid ?? null;
 }
 function serverPidFor(recorded, confPath) {
   if (recorded) {
-    try {
-      if ((0, import_node_fs9.readFileSync)(`/proc/${recorded}/cmdline`, "utf8").includes("nats-server")) return recorded;
-    } catch {
-    }
+    if (argvOf(recorded)?.join(" ").includes("nats-server")) return recorded;
   }
   return findServerPid(confPath);
 }
@@ -26539,7 +26580,7 @@ function holderScript() {
   const here = (0, import_node_url4.fileURLToPath)(__aoImportMetaUrl);
   return (0, import_node_path32.join)((0, import_node_path32.dirname)(here), here.endsWith(".mjs") ? "credential-holder.mjs" : "credential-holder.cjs");
 }
-async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 2e4 } = {}) {
+async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 2e4, lineageOff = [] } = {}) {
   let sock = fixedSock;
   if (!sock) {
     const base = Buffer.byteLength((0, import_node_path32.join)((0, import_node_os12.tmpdir)(), "ao-creds-XXXXXX", "c.sock")) <= SOCKET_PATH_MAX2 ? (0, import_node_os12.tmpdir)() : "/tmp";
@@ -26548,7 +26589,7 @@ async function startHolder(secrets, { home = null, sock: fixedSock = null, admin
     sock = (0, import_node_path32.join)(dir, "c.sock");
   }
   if (Buffer.byteLength(sock) > 107) throw Object.assign(new Error(`credential holder socket path is ${Buffer.byteLength(sock)} bytes; the limit is 107 (${sock})`), { code: "HOLDER_SOCKET_PATH_TOO_LONG" });
-  const child = (0, import_node_child_process11.spawn)(process.execPath, [holderScript()], {
+  const child = (0, import_node_child_process12.spawn)(process.execPath, [holderScript()], {
     detached: true,
     stdio: ["ignore", "ignore", "ignore", "ipc"],
     env: { PATH: process.env.PATH ?? "", ...process.env.AO_TEST_RUN ? { AO_TEST_RUN: process.env.AO_TEST_RUN } : {} }
@@ -26557,7 +26598,7 @@ async function startHolder(secrets, { home = null, sock: fixedSock = null, admin
   const ready = await new Promise((resolve21, reject) => {
     child.once("message", resolve21);
     child.once("exit", () => reject(new Error("credential holder exited")));
-    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid }, (error51) => {
+    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, lineageOff, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error51) => {
       if (error51) reject(error51);
     });
   });
@@ -26587,7 +26628,7 @@ async function provisionForLaunch({ env = process.env, repo, agent, role, mailTo
   const { transportMode: transportMode2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
   const home = localNatsHome2(env);
   if (transportMode2(env) !== "file" && localNatsEnabled2(env)) await ensureLocalNats2({ env }).catch(() => null);
-  if (!env.AO_NATS_URL && (0, import_node_fs9.existsSync)((0, import_node_path32.join)(home, "state.json"))) {
+  if (!env.AO_NATS_URL && (0, import_node_fs10.existsSync)((0, import_node_path32.join)(home, "state.json"))) {
     const { holder } = await new CredStore({ home }).provision({ repo, agent, role, mailTo, extra: { token } });
     const { resolveTransport: resolveTransport2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
     const host = await resolveTransport2({ env }).catch(() => null);
@@ -26648,21 +26689,23 @@ async function holderAlive(sock) {
     probe.once("error", () => resolve21(false));
   });
 }
-var import_node_child_process11, import_node_crypto14, import_node_fs9, import_node_crypto15, import_promises26, import_node_fs10, import_node_net3, import_node_os12, import_node_path32, import_node_url4, SOCKET_PATH_MAX2, DEFAULT_TTL_MS, REGISTRY, list, CredStore;
+var import_node_child_process12, import_node_crypto14, import_node_fs10, import_node_crypto15, import_promises26, import_node_fs11, import_node_net3, import_node_os12, import_node_path32, import_node_url4, SOCKET_PATH_MAX2, DEFAULT_TTL_MS, REGISTRY, list, CredStore;
 var init_agent_creds = __esm({
   "topology/lib/agent-creds.mjs"() {
-    import_node_child_process11 = require("node:child_process");
+    import_node_child_process12 = require("node:child_process");
     import_node_crypto14 = require("node:crypto");
-    import_node_fs9 = require("node:fs");
+    import_node_fs10 = require("node:fs");
     import_node_crypto15 = require("node:crypto");
     import_promises26 = require("node:fs/promises");
-    import_node_fs10 = require("node:fs");
+    import_node_fs11 = require("node:fs");
     import_node_net3 = __toESM(require("node:net"), 1);
     import_node_os12 = require("node:os");
     import_node_path32 = require("node:path");
     import_node_url4 = require("node:url");
     init_lockfile();
+    init_peer_process();
     init_orch_transport();
+    init_nats_tamper();
     SOCKET_PATH_MAX2 = 100;
     DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
     REGISTRY = "agent-users.json";
@@ -26688,7 +26731,7 @@ var init_agent_creds = __esm({
           const confPath = await rewriteServerConfig2(this.home);
           const pid = this.serverPid ?? serverPidFor((() => {
             try {
-              return JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path32.join)(this.home, "state.json"), "utf8")).pid;
+              return JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path32.join)(this.home, "state.json"), "utf8")).pid;
             } catch {
               return null;
             }
@@ -27218,7 +27261,7 @@ var init_prompt_lifecycle = __esm({
 // topology/lib/agents.mjs
 function libraryConsumer(consumer) {
   try {
-    const paths2 = (0, import_node_child_process12.execFileSync)("git", ["-C", consumer, "worktree", "list", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const paths2 = (0, import_node_child_process13.execFileSync)("git", ["-C", consumer, "worktree", "list", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
     const first = paths2.split("\n").find((line) => line.startsWith("worktree "));
     return first ? first.slice(9) : consumer;
   } catch {
@@ -27240,7 +27283,7 @@ function listAgentsSync(dirs) {
   for (const dir of dirs) {
     let entries2 = [];
     try {
-      entries2 = (0, import_node_fs11.readdirSync)(dir, { withFileTypes: true });
+      entries2 = (0, import_node_fs12.readdirSync)(dir, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -27249,7 +27292,7 @@ function listAgentsSync(dirs) {
       const file2 = (0, import_node_path35.join)(dir, entry.name, DEFINITION);
       let raw;
       try {
-        raw = JSON.parse((0, import_node_fs11.readFileSync)(file2, "utf8"));
+        raw = JSON.parse((0, import_node_fs12.readFileSync)(file2, "utf8"));
       } catch {
         continue;
       }
@@ -27381,11 +27424,11 @@ async function requireAgent(ref, dirs) {
   if (!agent) fail("TOPOLOGY_AGENT_NOT_FOUND", `No agent matches ${JSON.stringify(ref)} in this repo.`);
   return agent;
 }
-var import_node_child_process12, import_node_fs11, import_promises28, import_node_path35, import_node_url5, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
+var import_node_child_process13, import_node_fs12, import_promises28, import_node_path35, import_node_url5, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
 var init_agents = __esm({
   "topology/lib/agents.mjs"() {
-    import_node_child_process12 = require("node:child_process");
-    import_node_fs11 = require("node:fs");
+    import_node_child_process13 = require("node:child_process");
+    import_node_fs12 = require("node:fs");
     import_promises28 = require("node:fs/promises");
     import_node_path35 = require("node:path");
     import_node_url5 = require("node:url");
@@ -28926,7 +28969,7 @@ Searched:
 function libraryCwd(agent, context4) {
   if (!agent._agent_dir) return null;
   const dir = isInside(context4.consumer, agent._agent_dir) ? agent._agent_dir : (0, import_node_path43.join)(agentsRoot(context4.consumer), String(agent._agent));
-  (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
+  (0, import_node_fs13.mkdirSync)(dir, { recursive: true });
   return dir;
 }
 function readInstructionsFile(agent, context4, vars) {
@@ -28934,7 +28977,7 @@ function readInstructionsFile(agent, context4, vars) {
   let text = context4.instructionFiles?.[agent.id]?.text;
   invariant2(!context4.replayRecipe || typeof text === "string", "TOPOLOGY_RETRY_RECIPE_INCOMPLETE", "The retained recipe has no original instruction-file source for this member. Preserve this attempt.");
   try {
-    if (typeof text !== "string") text = (0, import_node_fs12.readFileSync)(path3, "utf8");
+    if (typeof text !== "string") text = (0, import_node_fs13.readFileSync)(path3, "utf8");
   } catch (error51) {
     fail(
       "TOPOLOGY_INSTRUCTIONS_FILE_NOT_FOUND",
@@ -29050,10 +29093,10 @@ function containPath(candidate, consumer, field, context4 = {}) {
   );
   return candidate;
 }
-var import_node_fs12, import_node_path43, ID_PATTERN, FROM_LIBRARY, MAX_FANOUT;
+var import_node_fs13, import_node_path43, ID_PATTERN, FROM_LIBRARY, MAX_FANOUT;
 var init_spec = __esm({
   "topology/lib/spec.mjs"() {
-    import_node_fs12 = require("node:fs");
+    import_node_fs13 = require("node:fs");
     import_node_path43 = require("node:path");
     init_util();
     init_agents();
@@ -30428,7 +30471,7 @@ function blobSha256(consumer, sha2, path3, size) {
   return new Promise((resolve21, reject) => {
     const hash4 = (0, import_node_crypto23.createHash)("sha256");
     let stderr = "";
-    const child = (0, import_node_child_process13.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = (0, import_node_child_process14.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (chunk) => hash4.update(chunk));
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
@@ -30819,8 +30862,8 @@ function parseReviewResponse(screen, nonce) {
 async function ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs, stallMs, deliver, lead }) {
   const now = Date.now();
   const since = request.incomplete_since ?? new Date(now).toISOString();
-  const sha2562 = (0, import_node_crypto23.createHash)("sha256").update(screen).digest("hex");
-  const seen = request.incomplete_screen?.sha256 === sha2562 ? request.incomplete_screen : { sha256: sha2562, at: new Date(now).toISOString() };
+  const sha2563 = (0, import_node_crypto23.createHash)("sha256").update(screen).digest("hex");
+  const seen = request.incomplete_screen?.sha256 === sha2563 ? request.incomplete_screen : { sha256: sha2563, at: new Date(now).toISOString() };
   const overBound = now - Date.parse(since) >= boundMs;
   const stalled = !overBound && now - Date.parse(seen.at) >= stallMs;
   if (!overBound && !stalled) {
@@ -30953,10 +30996,10 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process13, import_node_crypto23, import_promises38, import_node_os19, import_node_path47, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process14, import_node_crypto23, import_promises38, import_node_os19, import_node_path47, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
-    import_node_child_process13 = require("node:child_process");
+    import_node_child_process14 = require("node:child_process");
     import_node_crypto23 = require("node:crypto");
     import_promises38 = require("node:fs/promises");
     import_node_os19 = require("node:os");
@@ -31444,7 +31487,7 @@ async function ancestorProcesses(pid = process.pid) {
       name = [name, ...argv0.slice(0, 2)].join(" ");
     } catch {
       try {
-        [ppid, name] = (0, import_node_child_process14.execFileSync)("ps", ["-o", "ppid=,command=", "-p", String(pid)], { encoding: "utf8" }).trim().split(/\s+(.*)/);
+        [ppid, name] = (0, import_node_child_process15.execFileSync)("ps", ["-o", "ppid=,command=", "-p", String(pid)], { encoding: "utf8" }).trim().split(/\s+(.*)/);
         ppid = Number(ppid);
       } catch {
         break;
@@ -31528,12 +31571,12 @@ async function findActiveDelegation({ consumer, agentId, scope, task = null, env
   invariant2(covering, "TOPOLOGY_DELEGATION_PLAN", `No live ${scope} grant for ${agentId} covers ${task?.id || "this task"}; its approved plan is ${live2.map((g) => g.plan ? planLabel(g.plan) : "none").join(" / ")}.${stale.length ? ` Grant ${stale.join(", ")} names an epic without a frozen task list, so it covers nothing; ask the operator to re-grant it.` : ""}`);
   return covering;
 }
-var import_node_crypto25, import_promises40, import_node_child_process14, import_promises41, import_node_os21, import_node_path49, DELEGATION_SCOPES, GRANT_CHANNEL, AGENT_PROCESS, AGENT_MARKERS, PLAN_MAX_MS, AGENT_MARKER_PREFIXES, CONFIG_ONLY, loadEvents, planDigest, planLabel, unfrozenEpic, planCovers;
+var import_node_crypto25, import_promises40, import_node_child_process15, import_promises41, import_node_os21, import_node_path49, DELEGATION_SCOPES, GRANT_CHANNEL, AGENT_PROCESS, AGENT_MARKERS, PLAN_MAX_MS, AGENT_MARKER_PREFIXES, CONFIG_ONLY, loadEvents, planDigest, planLabel, unfrozenEpic, planCovers;
 var init_delegation = __esm({
   "topology/lib/delegation.mjs"() {
     import_node_crypto25 = require("node:crypto");
     import_promises40 = require("node:fs/promises");
-    import_node_child_process14 = require("node:child_process");
+    import_node_child_process15 = require("node:child_process");
     import_promises41 = require("node:readline/promises");
     import_node_os21 = require("node:os");
     import_node_path49 = require("node:path");
@@ -38099,7 +38142,7 @@ async function startRepositorySupervision(options) {
     const log = await (0, import_promises52.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
-      const child = (0, import_node_child_process15.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
+      const child = (0, import_node_child_process16.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
       await new Promise((resolve21, reject) => {
         child.once("spawn", resolve21);
         child.once("error", reject);
@@ -38130,12 +38173,12 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path60, import_node_crypto35, import_node_child_process15, import_node_url7, import_node_os33, import_promises52, import_promises53, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path60, import_node_crypto35, import_node_child_process16, import_node_url7, import_node_os33, import_promises52, import_promises53, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path60 = require("node:path");
     import_node_crypto35 = require("node:crypto");
-    import_node_child_process15 = require("node:child_process");
+    import_node_child_process16 = require("node:child_process");
     import_node_url7 = require("node:url");
     import_node_os33 = require("node:os");
     import_promises52 = require("node:fs/promises");
@@ -68599,13 +68642,13 @@ function defaultResolveNpmCliPath(execPath) {
 function resolveInstalledBuiltInAgentLaunch(agentCommand, options = {}) {
   const spec = findBuiltInAgentPackage(agentCommand);
   if (!spec) return;
-  const readFileSync10 = options.readFileSync ?? import_node_fs2.default.readFileSync;
-  const existsSync8 = options.existsSync ?? import_node_fs2.default.existsSync;
+  const readFileSync11 = options.readFileSync ?? import_node_fs2.default.readFileSync;
+  const existsSync9 = options.existsSync ?? import_node_fs2.default.existsSync;
   const resolvePackageRoot = options.resolvePackageRoot ?? defaultResolvePackageRoot;
   try {
     const resolved = resolveInstalledBuiltInAgentPackage(spec, {
-      readFileSync: readFileSync10,
-      existsSync: existsSync8,
+      readFileSync: readFileSync11,
+      existsSync: existsSync9,
       resolvePackageRoot
     });
     if (!resolved) return;
@@ -68637,12 +68680,12 @@ function resolveInstalledBuiltInAgentPackage(spec, options) {
 function resolvePackageExecBuiltInAgentLaunch(agentCommand, options = {}) {
   const spec = findBuiltInAgentPackage(agentCommand);
   if (!spec) return;
-  const existsSync8 = options.existsSync ?? import_node_fs2.default.existsSync;
+  const existsSync9 = options.existsSync ?? import_node_fs2.default.existsSync;
   const execPath = options.execPath ?? process.execPath;
   const resolveNpmCliPath = options.resolveNpmCliPath ?? defaultResolveNpmCliPath;
   try {
     const npmCliPath = resolveNpmCliPath(execPath);
-    if (!existsSync8(npmCliPath)) return;
+    if (!existsSync9(npmCliPath)) return;
     return {
       source: "package-exec",
       command: execPath,
@@ -77229,7 +77272,7 @@ init_prompts();
 
 // src/services/services.mjs
 var import_node_crypto36 = require("node:crypto");
-var import_node_fs15 = require("node:fs");
+var import_node_fs16 = require("node:fs");
 var import_promises55 = require("node:fs/promises");
 var import_node_net5 = __toESM(require("node:net"), 1);
 var import_node_os35 = __toESM(require("node:os"), 1);
@@ -77240,8 +77283,8 @@ init_nats_local();
 init_orch_transport();
 
 // src/services/os-registration.mjs
-var import_node_child_process16 = require("node:child_process");
-var import_node_fs13 = require("node:fs");
+var import_node_child_process17 = require("node:child_process");
+var import_node_fs14 = require("node:fs");
 var import_promises54 = require("node:fs/promises");
 var import_node_os34 = __toESM(require("node:os"), 1);
 var import_node_path61 = require("node:path");
@@ -77394,22 +77437,22 @@ async function start({ mode, argv, logPath, run: run2 = defaultRun, uid = proces
   }
 }
 function defaultSpawnDetached(argv, logPath) {
-  const log = (0, import_node_fs13.openSync)(logPath, "a", 384);
+  const log = (0, import_node_fs14.openSync)(logPath, "a", 384);
   try {
-    const child = (0, import_node_child_process16.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
+    const child = (0, import_node_child_process17.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
     child.unref();
     return { pid: child.pid };
   } finally {
-    (0, import_node_fs13.closeSync)(log);
+    (0, import_node_fs14.closeSync)(log);
   }
 }
 
 // src/services/host-copies.mjs
-var import_node_fs14 = require("node:fs");
+var import_node_fs15 = require("node:fs");
 var import_node_path62 = require("node:path");
 var readJsonSync = (path3) => {
   try {
-    return JSON.parse((0, import_node_fs14.readFileSync)(path3, "utf8"));
+    return JSON.parse((0, import_node_fs15.readFileSync)(path3, "utf8"));
   } catch {
     return null;
   }
@@ -77426,7 +77469,7 @@ function copyIdentity(root) {
     version: version2,
     get fingerprint() {
       try {
-        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs14.readFileSync)((0, import_node_path62.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
+        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs15.readFileSync)((0, import_node_path62.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
       } catch {
         return null;
       }
@@ -77436,7 +77479,7 @@ function copyIdentity(root) {
 
 // src/services/services.mjs
 function readLock(pluginRoot = PLUGIN_ROOT) {
-  return JSON.parse((0, import_node_fs15.readFileSync)((0, import_node_path63.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
+  return JSON.parse((0, import_node_fs16.readFileSync)((0, import_node_path63.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
 function dataHome({ platform = process.platform, env = process.env, home = import_node_os35.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
@@ -77479,21 +77522,21 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "816de401705a4e3e9f07bc5e5ea1399e6d854da252530abfdfcce25d30614f4d";
+  return false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "816de401705a4e3e9f07bc5e5ea1399e6d854da252530abfdfcce25d30614f4d";
-  let version2 = false ? null : "0.16.1";
+  const fingerprint2 = false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98";
+  let version2 = false ? null : "0.16.3";
   if (!version2) {
     try {
-      version2 = JSON.parse((0, import_node_fs15.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
+      version2 = JSON.parse((0, import_node_fs16.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
     } catch {
       version2 = null;
     }
   }
   return { fingerprint: fingerprint2, version: version2 };
 }
-function choosePointer(previous, candidate, { exists: exists2 = import_node_fs15.existsSync, worktree = linkedWorktree } = {}) {
+function choosePointer(previous, candidate, { exists: exists2 = import_node_fs16.existsSync, worktree = linkedWorktree } = {}) {
   const usable = previous?.pluginRoot && exists2(previous.pluginRoot);
   if (worktree(candidate.pluginRoot)) {
     invariant(
@@ -77509,7 +77552,7 @@ function choosePointer(previous, candidate, { exists: exists2 = import_node_fs15
   if (previous.version && compareVersions(candidate.version, previous.version) < 0) return previous;
   return candidate;
 }
-function linkedWorktree(root, { read: read3 = (path3) => (0, import_node_fs15.readFileSync)(path3, "utf8") } = {}) {
+function linkedWorktree(root, { read: read3 = (path3) => (0, import_node_fs16.readFileSync)(path3, "utf8") } = {}) {
   if (!root) return false;
   if (/[\\/]\.(bytedesk|claude)[\\/]worktrees[\\/]/.test(`${root}/`)) return true;
   for (let dir = root; ; dir = (0, import_node_path63.dirname)(dir)) {
@@ -77545,7 +77588,7 @@ async function installProcessCompose({ data, platform = process.platform, arch =
   invariant(asset, "AO_SERVICES_UNSUPPORTED_PLATFORM", `No pinned process-compose build for ${platform}-${arch}.`);
   const binDir = (0, import_node_path63.join)(data, "bin", `process-compose-${lock.version}`);
   const binary = (0, import_node_path63.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
-  if ((0, import_node_fs15.existsSync)(binary)) return { binary, installed: false };
+  if ((0, import_node_fs16.existsSync)(binary)) return { binary, installed: false };
   const url2 = `${lock.url}${asset.file}`;
   let bytes;
   try {
@@ -77570,7 +77613,7 @@ async function installProcessCompose({ data, platform = process.platform, arch =
     await (0, import_promises55.writeFile)(archive, bytes);
     await extract(archive, staging, platform);
     const extracted = (0, import_node_path63.join)(staging, (0, import_node_path63.basename)(binary));
-    invariant((0, import_node_fs15.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path63.basename)(binary)}.`);
+    invariant((0, import_node_fs16.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path63.basename)(binary)}.`);
     await (0, import_promises55.mkdir)(binDir, { recursive: true });
     await (0, import_promises55.rename)(extracted, binary);
     await (0, import_promises55.chmod)(binary, 493);
@@ -77729,12 +77772,12 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     if (installed) actions.push("installed");
     const previousPointer = await readJson(paths2.pointer, null).catch(() => null);
     const candidate = { pluginRoot, sha: pluginSha(pluginRoot), node, ...deps.identity ?? pluginIdentity(pluginRoot) };
-    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs15.existsSync, worktree: deps.worktree ?? linkedWorktree });
+    const pointer = choosePointer(previousPointer, candidate, { exists: deps.exists ?? import_node_fs16.existsSync, worktree: deps.worktree ?? linkedWorktree });
     const changed = {
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
       pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
     };
-    if (!(0, import_node_fs15.existsSync)(paths2.token)) await (0, import_promises55.writeFile)(paths2.token, (0, import_node_crypto36.randomBytes)(24).toString("hex"), { mode: 384 });
+    if (!(0, import_node_fs16.existsSync)(paths2.token)) await (0, import_promises55.writeFile)(paths2.token, (0, import_node_crypto36.randomBytes)(24).toString("hex"), { mode: 384 });
     const token = (await (0, import_promises55.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
@@ -77743,7 +77786,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       natsError = { code: error51?.code ?? null, message: error51?.message ?? String(error51) };
       return null;
     }) : null;
-    const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs15.existsSync)(repo.consumer));
+    const repos = (await readRepos(paths2.repos)).filter((repo) => (0, import_node_fs16.existsSync)(repo.consumer));
     const path3 = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths2.launcher, stateRoot: stateRoot3, logs: paths2.logs, nats, repos, path: path3, env });
     changed.project = await writeIfChanged(paths2.project, json3(project));
@@ -77801,11 +77844,11 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
 }
 
 // src/services/self-heal.mjs
-var import_node_child_process17 = require("node:child_process");
-var import_node_fs16 = require("node:fs");
+var import_node_child_process18 = require("node:child_process");
+var import_node_fs17 = require("node:fs");
 var import_node_path64 = require("node:path");
 var import_node_util5 = require("node:util");
-var execFileP = (0, import_node_util5.promisify)(import_node_child_process17.execFile);
+var execFileP = (0, import_node_util5.promisify)(import_node_child_process18.execFile);
 function parseEtime(text) {
   const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(String(text).trim());
   if (!m) return null;
@@ -77814,21 +77857,21 @@ function parseEtime(text) {
 }
 var procArgv = (pid) => {
   try {
-    return (0, import_node_fs16.readFileSync)(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+    return (0, import_node_fs17.readFileSync)(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
   } catch {
     return null;
   }
 };
 var procParent = (pid) => {
   try {
-    return Number(/\)\s+\S+\s+(\d+)/.exec((0, import_node_fs16.readFileSync)(`/proc/${pid}/stat`, "utf8"))[1]);
+    return Number(/\)\s+\S+\s+(\d+)/.exec((0, import_node_fs17.readFileSync)(`/proc/${pid}/stat`, "utf8"))[1]);
   } catch {
     return null;
   }
 };
 var procComm = (pid) => {
   try {
-    return (0, import_node_fs16.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
+    return (0, import_node_fs17.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
   } catch {
     return null;
   }
@@ -77857,7 +77900,7 @@ function hostOf(root) {
   if (/[\\/]\.claude[\\/]/.test(root)) return "claude";
   return "source checkout";
 }
-async function staleMcpServers({ pointer, platform = process.platform, list: list3 = listMcpServers, exists: exists2 = import_node_fs16.existsSync, mtime = (path3) => (0, import_node_fs16.statSync)(path3).mtimeMs } = {}) {
+async function staleMcpServers({ pointer, platform = process.platform, list: list3 = listMcpServers, exists: exists2 = import_node_fs17.existsSync, mtime = (path3) => (0, import_node_fs17.statSync)(path3).mtimeMs } = {}) {
   const servers = await list3({ platform }).catch((error51) => ({ error: error51.message }));
   if (servers === null) return { supported: false, note: "process listing is not implemented on native Windows; restart long-lived host sessions after an update", servers: [] };
   if (servers.error) return { supported: false, note: `could not list processes: ${servers.error}`, servers: [] };
@@ -77907,8 +77950,8 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "816de401705a4e3e9f07bc5e5ea1399e6d854da252530abfdfcce25d30614f4d",
-  version: false ? null : "0.16.1"
+  sourceFingerprint: false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98",
+  version: false ? null : "0.16.3"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto37.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -78938,7 +78981,7 @@ function register3(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.16.1" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.16.3" });
   register3(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });

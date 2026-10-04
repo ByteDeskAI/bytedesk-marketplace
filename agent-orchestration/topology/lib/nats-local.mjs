@@ -17,7 +17,7 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
-import { holderIdentity, serverPidFor, socketPath, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
+import { holderIdentity, requestSocket, serverPidFor, socketPath, loadAgentUsers, renderAgentUser, startHolder } from './agent-creds.mjs';
 import { globalConfigPath, mergeConfig, readConfigLayer, writeConfigLayer } from './config.mjs';
 import { withLock } from './lockfile.mjs';
 import { fail } from './util.mjs';
@@ -27,7 +27,8 @@ export function localNatsHome(env = process.env) {
   if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
   // A test run (the helper that loads suite-leaks sets AO_TEST_RUN) that reaches here has lost AO_NATS_HOME, for example
   // through a scrubbed child env. Falling back would provision test users into the operator's live server.
-  if (env.AO_TEST_RUN) throw Object.assign(new Error('AO_NATS_HOME is not set in a test run: refusing to use the operator\'s real local NATS home.'), { code: 'TOPOLOGY_TEST_REAL_NATS_HOME' });
+  // NODE_TEST_CONTEXT is set by `node --test` in every test child, with or without our preflight, so a test file run on its own is covered too.
+  if (env.AO_TEST_RUN || env.NODE_TEST_CONTEXT) throw Object.assign(new Error('AO_NATS_HOME is not set in a test run (AO_TEST_RUN or node --test): refusing to use the operator\'s real local NATS home.'), { code: 'TOPOLOGY_TEST_REAL_NATS_HOME' });
   return join(homedir(), '.bytedesk', 'agent-orchestration', 'nats');
 }
 
@@ -199,7 +200,15 @@ function readState(home) {
  * restart reuses the JetStream data they guard. */
 async function writeServerConfig(home, { port, user, pass, adminPub = null }) {
   const confPath = join(home, 'nats-server.conf');
-  await writeFile(confPath, serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: join(home, 'jetstream'), agentUsers: loadAgentUsers(home) }), { mode: 0o600 });
+  const text = serverConfig({ port, user, password: pass, adminNkey: adminPub, storeDir: join(home, 'jetstream'), agentUsers: loadAgentUsers(home) });
+  // TM-316: every config write in this module goes through here, so this is the one place the admin holder is told what
+  // the file should say. Announced BEFORE the write: the watcher must never see a new file it was not told about.
+  if (adminPub) {
+    const pre = await requestSocket(socketPath(home, 'admin.sock'), { op: 'expect', conf: text, confPath }, 2000).catch(() => null);
+    if (pre?.tampered) process.stderr.write(`[ao] WARNING: ${confPath} was changed by something other than ao; it is being rewritten (see ${join(home, 'tamper.jsonl')}).\n`);
+  }
+  await chmod(home, 0o700).catch(() => {}); // mode only keeps other users out; a same-uid process is what the watcher is for
+  await writeFile(confPath, text, { mode: 0o600 });
   await chmod(confPath, 0o600);
   return confPath;
 }

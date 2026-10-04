@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.16.3] — 2026-10-03
+
+_TM-332: a daemonized child of an agent pane is no longer judged "the operator". Defense in depth, **not** a closed gap._
+
+### Changed
+
+- The credential holder judges a peer an operator only when (a) no lineage marker ties it to an agent: it descends from a registered pane root, **or** its initial environment carries `AO_AGENT_ID`/`AO_CREDS_SOCK`, **or** it shares the Linux session or process group of a root that leads that session/group; **and** (b) every process holding the peer socket runs the node binary (`/proc/<pid>/exe`). Unreadable `/proc` data fails closed. macOS keeps the descendant check only.
+- `startHolder` accepts `lineageOff` (marker names to skip) for mutation tests; it travels over the spawn handshake, never the environment.
+
+### Added
+
+- `tests/unit/agent-creds-escape.test.mjs`: real double-fork variants against a real admin holder (before/after, per-marker mutations, the legitimate operator from a shell and a non-agent tmux pane, and the documented NOT STOPPED case).
+- ADR-0003 section "TM-332 mitigation".
+
+## [0.16.2] — 2026-10-03
+
+_TM-316: the same-uid gap in the local NATS server._
+
+### Added
+
+- **Config tamper detection and repair (TM-316).** The admin holder keeps the expected `nats-server.conf` in memory (announced by `writeServerConfig`, the one writer, before each write) and re-reads the file every `AO_TAMPER_INTERVAL_MS` (default 5000). A different file is rewritten atomically from the holder's copy, the server is reloaded, and a `nats.tamper` event (digests before and after, public keys added or removed, changed lines with secrets redacted) is appended to `<nats home>/tamper.jsonl`. A change found at issue or revoke time is journaled as `conf-changed-before-update`. A new server pid or executable is journaled (`server-pid-changed` is a notice; `server-exe-changed` is a tamper).
+- **`ao-topology doctor` finding `NATS_CONFIG_TAMPERED`** for tamper events in the last 24 h (`AO_TAMPER_REPORT_MS`), and a "NATS config watch" line.
+- **ADR-0003** states what per-agent credentials do and do not stop against a same-uid process, how to run panes under the provider sandbox, and the follow-ups.
+- Tests: `nats-tamper.test.mjs` (a real child edits the config and sends SIGHUP; mutation run with the watcher off) and `agent-pane-hardening.test.mjs` (modes, and a scan of every pane process's environ and cmdline).
+
+### Changed
+
+- The NATS home is `chmod 0700` on every config write and the fallback socket directory is re-chmodded `0700`.
+
+_TM-317: the credential holder's caller check on macOS. **NOT VERIFIED ON REAL macOS** — the Mac host (macbook-pro.local) was unreachable. Run `scripts/verify-macos-holder.sh` on a Mac before trusting it._
+
+### Added
+
+- **`topology/lib/peer-process.mjs`**: `peerPids`, `parentOf`, `isAlive`, `argvOf`, `listArgv` dispatch on `process.platform`. Linux behaviour is unchanged (`ss` + `/proc`). Darwin discovers the peer with `lsof -nP -U -F pfdtn` (our accepted socket's pcb address names the peer's), the parent with `ps -o ppid=`, liveness with `kill(pid, 0)`. Each tool's output goes through a pure parser; unparseable or empty output yields `[]`/`0`, so the holder still fails closed. Any other platform has no peer discovery and refuses.
+- `tests/unit/peer-process.test.mjs`: parsers against **synthesized** fixtures (not captured on a Mac), fail-closed cases, and the darwin path run on Linux through a fake `lsof`/`ps` on `PATH` with a real unix socket.
+- `scripts/verify-macos-holder.sh`: PASS/FAIL checks for a human on a Mac; uses a private temp home, never the real NATS home.
+
+### Changed
+
+- `agent-creds.mjs` uses the platform layer for peer discovery, parent lookup, liveness (`/proc/<pid>` existence) and the nats-server pid lookup.
+
+### Still Linux-only (documented, not abstracted)
+
+`topology/lib/slots.mjs` `callerRunsInPane` (fails closed off Linux), `management.mjs` pane idle/identity reads, `lockfile.mjs` and `src/util.mjs` process identity (`/proc/<pid>/stat`; `util.mjs` has a ps fallback), `nats-local.mjs` port-owner lookup (`/proc/net/tcp`), `services/self-heal.mjs`, `platform/linux-*.mjs` (Linux by name), `doctor.mjs` WSL probe.
+
 ## [0.16.1] — 2026-10-03
 
 _EP-026 follow-ups TM-315, TM-327, TM-328, TM-329 and TM-330._

@@ -4,7 +4,7 @@
 // durable, reply durable, inbox prefix and presence/agent keys. The server config holds public keys
 // only. The seed lives in memory of a small holder process; the agent's `ao-topology` commands ask
 // that holder over a unix socket. The holder identifies the asker from the KERNEL (the socket's peer
-// inode, mapped to owning pids through /proc) and answers only a descendant of the agent's pane, so
+// inode, mapped to owning pids through peer-process.mjs) and answers only a descendant of the agent's pane, so
 // a sibling agent of the same OS user who finds the socket path gets a refusal, not the seed.
 //
 // Gateway path: the same holder can serve the text of an AO_ORCH_CREDS file instead of a seed, so
@@ -13,11 +13,11 @@
 // Residual, stated plainly: the local ADMIN user's password (state.json, 0600) and anything else a
 // same-uid process can read is still readable by a sibling. This module closes the per-agent
 // secret; the admin secret needs the provider sandbox (TM-282) or the gateway's separate issuer.
-// ponytail: Linux only (/proc + ss); macOS needs LOCAL_PEERPID. Expiry is enforced by the holder and
+// ponytail: peer discovery is platform-split in peer-process.mjs (Linux /proc+ss; darwin lsof+ps, unverified on a real Mac). Expiry is enforced by the holder and
 // by registry pruning on the next apply, since nkey users carry no expiry; JWT users would.
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -26,7 +26,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLock } from './lockfile.mjs';
+import { argvOf, isAlive, lineageReason, listArgv, operatorProof, parentOf, peerPids } from './peer-process.mjs';
 import { ORCH_LAYOUT, orchName } from './orch-transport.mjs';
+import { TAMPER_INTERVAL_MS, journalTamper, sha256, summarizeChange } from './nats-tamper.mjs';
 
 /** nkeys ships inside the nats client; the installed plugin has only the bundle. */
 async function natsClient() {
@@ -47,6 +49,7 @@ export function socketPath(home, name) {
   if (Buffer.byteLength(direct) <= SOCKET_PATH_MAX) return direct;
   const dir = join('/tmp', `ao-sock-${process.getuid?.() ?? 0}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700); // mkdir's mode does not apply to a directory that already existed
   return join(dir, `${createHash('sha1').update(home).digest('hex').slice(0, 12)}-${name}`);
 }
 
@@ -128,22 +131,15 @@ async function writeRegistry(home, registry) {
   await rename(`${path}.tmp`, path);
 }
 
-/** Linux: the nats-server whose command line names this config. Used when the server was started by a service manager. */
+/** The nats-server whose command line names this config. Used when the server was started by a service manager. */
 export function findServerPid(confPath) {
-  for (const dir of readdirSync('/proc')) {
-    if (!/^\d+$/.test(dir)) continue;
-    try {
-      const argv = readFileSync(`/proc/${dir}/cmdline`, 'utf8').split('\0');
-      if (argv[0].includes('nats-server') && argv.includes(confPath)) return Number(dir);
-    } catch { /* gone or not ours */ }
-  }
-  return null;
+  return listArgv().find(({ argv }) => argv[0]?.includes('nats-server') && argv.includes(confPath))?.pid ?? null;
 }
 
 /** A recorded server pid is trusted only if that pid is still a nats-server; a reused pid would otherwise receive our SIGHUP. */
 export function serverPidFor(recorded, confPath) {
   if (recorded) {
-    try { if (readFileSync(`/proc/${recorded}/cmdline`, 'utf8').includes('nats-server')) return recorded; } catch { /* gone */ }
+    if (argvOf(recorded)?.join(' ').includes('nats-server')) return recorded;
   }
   return findServerPid(confPath);
 }
@@ -231,44 +227,25 @@ export class CredStore {
 
 // ---- holder (the only place a seed lives) ---------------------------------------------------------
 
-function ppidOf(pid) {
-  try { return Number(readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) \S+ /, '').split(' ')[0]); } catch { return 0; }
-}
-
-export function isDescendant(pid, root) {
-  for (let hops = 0, p = pid; p > 1 && hops < 64; hops += 1, p = ppidOf(p)) if (p === root) return true;
+export function isDescendant(pid, root, opts) {
+  for (let hops = 0, p = pid; p > 1 && hops < 64; hops += 1, p = parentOf(p, opts)) if (p === root) return true;
   return false;
 }
 
-/** Pids holding the other end of this accepted unix socket, from the kernel's own pairing. Empty when it cannot be proven. */
-export function peerPids(socket, sockPath) {
-  try {
-    const inode = readlinkSync(`/proc/self/fd/${socket._handle.fd}`).slice('socket:['.length, -1);
-    const rows = execFileSync('ss', ['-xnH', 'src', sockPath], { encoding: 'utf8', maxBuffer: 1 << 26 }).split('\n');
-    const row = rows.map((line) => line.trim().split(/\s+/)).find((fields) => fields.includes(inode));
-    if (!row) return [];
-    const peer = row[row.indexOf(inode) + 2];
-    const found = [];
-    for (const dir of readdirSync('/proc')) {
-      if (!/^\d+$/.test(dir)) continue;
-      try { for (const fd of readdirSync(`/proc/${dir}/fd`)) if (readlinkSync(`/proc/${dir}/fd/${fd}`) === `socket:[${peer}]`) found.push(Number(dir)); } catch { /* not ours */ }
-    }
-    return found;
-  } catch { return []; }
-}
+export { peerPids };
 
 // Pids that root an agent's tree, written by each agent holder when it is attached. Not secret; read by
 // every holder to tell "an agent's process" from "the operator's process".
 const rootsFile = (home) => join(home, 'roots.json');
 export function agentRoots(home) {
   if (!home) return [];
-  try { return Object.values(JSON.parse(readFileSync(rootsFile(home), 'utf8'))).filter((pid) => existsSync(`/proc/${pid}`)); } catch { return []; }
+  try { return Object.values(JSON.parse(readFileSync(rootsFile(home), 'utf8'))).filter((pid) => isAlive(pid)); } catch { return []; }
 }
 async function registerRoot(home, sock, pid) {
   await withLock(join(home, 'roots.lock'), async () => {
     let roots = {};
     try { roots = JSON.parse(readFileSync(rootsFile(home), 'utf8')); } catch { /* first */ }
-    for (const [key, value] of Object.entries(roots)) if (!existsSync(`/proc/${value}`)) delete roots[key];
+    for (const [key, value] of Object.entries(roots)) if (!isAlive(value)) delete roots[key];
     roots[sock] = pid;
     await writeFile(`${rootsFile(home)}.tmp`, JSON.stringify(roots), { mode: 0o600 });
     await rename(`${rootsFile(home)}.tmp`, rootsFile(home));
@@ -302,7 +279,7 @@ function holderScript() {
  * admin: the holder GENERATES an nkey, never reveals the seed to its spawner, and hands it only to
  * a process outside every agent tree. home: where roots.json lives (needed for admin and cross-process attach).
  */
-export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 20_000 } = {}) {
+export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 20_000, lineageOff = [] } = {}) {
   let sock = fixedSock;
   if (!sock) {
     // tmpdir() can itself be long (a sandbox TMPDIR); fall back to /tmp rather than overflow the socket path.
@@ -322,7 +299,7 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
   const ready = await new Promise((resolve, reject) => {
     child.once('message', resolve);
     child.once('exit', () => reject(new Error('credential holder exited')));
-    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid }, (error) => { if (error) reject(error); });
+    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, lineageOff, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error) => { if (error) reject(error); });
   });
   if (!ready.ok) { child.kill('SIGKILL'); throw Object.assign(new Error(`credential holder failed: ${ready.error}`), { code: ready.code ?? 'HOLDER_FAILED' }); }
   child.disconnect();
@@ -350,7 +327,43 @@ export function holderMain() {
   let publicKey = null;
   let ctl = null;
   let spawnerPid = null;
+  let lineageOff = [];
   const startedAt = Date.now();
+  // TM-316 (admin holder only): the expected server config lives here, in memory, and is compared with the file.
+  let expected = null; // { conf, confPath, at }
+  let tamperMs = TAMPER_INTERVAL_MS;
+  let seen = { pid: undefined, exe: null };
+  let repairs = 0;
+  const tamperTick = () => {
+    if (!admin || !expected || !home) return { watching: false };
+    const { conf, confPath } = expected;
+    // A write announced a moment ago may not have reached the disk yet; do not "repair" it into itself.
+    if (Date.now() - expected.at < Math.min(1500, 2 * tamperMs)) return { watching: true, skipped: 'announce-grace' };
+    let actual = null;
+    try { actual = readFileSync(confPath, 'utf8'); } catch { /* missing counts as changed */ }
+    const out = { watching: true, inSync: actual === conf };
+    if (actual !== conf) {
+      let repaired = false; let error = null; let reloaded = null;
+      try { writeFileSync(`${confPath}.repair`, conf, { mode: 0o600 }); renameSync(`${confPath}.repair`, confPath); repaired = true; } catch (e) { error = e.message; }
+      const pid = serverPidFor(null, confPath);
+      if (repaired && pid) { try { process.kill(pid, 'SIGHUP'); reloaded = pid; } catch { /* gone */ } }
+      repairs += 1;
+      journalTamper(home, { kind: 'conf-changed', severity: 'tamper', confPath, ...summarizeChange(conf, actual), repaired, reloaded, ...(error ? { error } : {}) });
+      out.repaired = repaired;
+    } else {
+      try { if ((statSync(confPath).mode & 0o077) !== 0) { chmodSync(confPath, 0o600); journalTamper(home, { kind: 'conf-mode', severity: 'tamper', confPath, repaired: true }); } } catch { /* raced */ }
+    }
+    // The server process: a new pid or a new executable behind the same pid is reported (a service-manager restart is a notice, not an alarm).
+    const pid = serverPidFor(null, confPath);
+    let exe = null;
+    if (pid) { try { exe = readlinkSync(`/proc/${pid}/exe`); } catch { /* not ours to read */ } }
+    if (seen.pid !== undefined && (pid !== seen.pid || (exe && seen.exe && exe !== seen.exe))) {
+      journalTamper(home, { kind: pid === seen.pid ? 'server-exe-changed' : 'server-pid-changed', severity: pid === seen.pid ? 'tamper' : 'notice', before: { pid: seen.pid, exe: seen.exe }, after: { pid, exe } });
+    }
+    seen = { pid, exe };
+    return out;
+  };
+  const tamperTimer = { current: null };
   const stop = () => { secrets = null; server?.close(); try { if (sockPath) unlinkSync(sockPath); } catch { /* gone */ } setTimeout(() => process.exit(0), 50); };
   // The root dying is not the end: a failover or restart re-attaches within the grace window.
   let rootGoneSince = null;
@@ -359,8 +372,8 @@ export function holderMain() {
     // Nothing left to serve: its socket was removed, or the home it belongs to is gone (a deleted test directory, an uninstall).
     if (sockPath && (!existsSync(sockPath) || (home && !existsSync(home)))) return stop();
     // Its spawner is gone and it was never attached to a pane: nothing will attach it now.
-    if (!root && !admin && spawnerPid && !existsSync(`/proc/${spawnerPid}`) && Date.now() - startedAt > Math.min(5000, graceMs)) return stop();
-    if (!root || existsSync(`/proc/${root}`)) { rootGoneSince = null; return; }
+    if (!root && !admin && spawnerPid && !isAlive(spawnerPid) && Date.now() - startedAt > Math.min(5000, graceMs)) return stop();
+    if (!root || isAlive(root)) { rootGoneSince = null; return; }
     rootGoneSince ??= Date.now();
     if (Date.now() - rootGoneSince > graceMs) stop();
   }, 1000);
@@ -370,18 +383,37 @@ export function holderMain() {
   const serve = (socket, request) => {
     const peers = peerPids(socket, sockPath);
     const roots = agentRoots(home);
-    // Outside every agent tree. Fails closed when the kernel cannot name the peer.
-    const operator = peers.length > 0 && !peers.some((pid) => roots.some((rootPid) => isDescendant(pid, rootPid)));
+    // TM-332: operator = the kernel names the peer, NO lineage marker ties it to an agent (descendant, environment, session, process
+    // group), and every peer process is the node binary. Absence from the agent trees alone is not enough: a double-fork escapes it.
+    const operator = peers.length > 0 && !peers.some((pid) => lineageReason(pid, roots, { isDesc: isDescendant, off: lineageOff }))
+      && peers.every((pid) => operatorProof(pid, { off: lineageOff }));
     const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     // The public key is not a secret: anyone who can reach the socket may learn whose holder this is.
     if (request.op === 'pub') return { publicKey, pid: process.pid, admin };
+    // Digests are not secret: anyone may ask whether the admin holder is watching and whether the file still matches.
+    if (request.op === 'tamper') {
+      let current = null;
+      try { current = sha256(readFileSync(expected.confPath, 'utf8')); } catch { /* none */ }
+      return { admin, watching: Boolean(expected), intervalMs: tamperMs, repairs, expectedSha: expected ? sha256(expected.conf) : null, currentSha: current };
+    }
     // Control is the spawner's (it holds `ctl`) or, from another process, the operator tree's (outside every agent tree, with a registry to judge by).
     const controller = (Boolean(ctl) && request.ctl === ctl) || (Boolean(home) && operator);
     if (request.op === 'install') {
       if (!controller) return { ok: false, error: 'install is for the spawner or the operator process tree only' };
       secrets = { ...secrets, ...request.secrets };
       return { ok: true };
+    }
+    if (request.op === 'expect' || request.op === 'check') {
+      if (!controller || !admin) return { ok: false, error: `${request.op} is for the operator process tree, on the admin holder only` };
+      if (request.op === 'check') { expected && (expected.at = 0); return { ok: true, ...tamperTick() }; }
+      // Anything on disk that is neither the config we last expected nor the one about to be written was put there by someone else.
+      let pre = null;
+      if (expected) { try { pre = readFileSync(expected.confPath, 'utf8'); } catch { /* missing */ } }
+      const tampered = Boolean(expected) && expected.confPath === request.confPath && pre !== expected.conf && pre !== request.conf;
+      if (tampered) { journalTamper(home, { kind: 'conf-changed-before-update', severity: 'tamper', confPath: request.confPath, ...summarizeChange(expected.conf, pre), repaired: true, reloaded: null }); repairs += 1; }
+      expected = { conf: String(request.conf), confPath: String(request.confPath), at: Date.now() };
+      return { ok: true, tampered };
     }
     if (request.op === 'revoke') {
       if (!controller) return { ok: false, error: 'revoke is for the spawner or the operator process tree only' };
@@ -400,8 +432,11 @@ export function holderMain() {
   process.on('message', async (message) => {
     const reply = (body) => process.send(body);
     if (message.type === 'init') {
-      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs; ctl = message.ctl; spawnerPid = message.spawnerPid;
+      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs; ctl = message.ctl; spawnerPid = message.spawnerPid; lineageOff = message.lineageOff ?? [];
       if (admin) {
+        tamperMs = message.tamperMs ?? tamperMs;
+        tamperTimer.current = setInterval(() => { try { tamperTick(); } catch { /* the watcher must not die of one bad read */ } }, tamperMs);
+        tamperTimer.current.unref?.();
         const user = (await natsClient()).nkeys.createUser();
         publicKey = user.getPublicKey();
         secrets = { seed: new TextDecoder().decode(user.getSeed()) };

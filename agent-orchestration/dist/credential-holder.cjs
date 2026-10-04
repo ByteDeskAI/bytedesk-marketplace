@@ -206,6 +206,179 @@ var init_lockfile = __esm({
   }
 });
 
+// topology/lib/peer-process.mjs
+function parseSsPeerInode(text, inode) {
+  const row = String(text ?? "").split("\n").map((line) => line.trim().split(/\s+/)).find((fields) => fields.includes(inode));
+  return row ? row[row.indexOf(inode) + 2] ?? null : null;
+}
+function parseLsofFields(text) {
+  const rows = [];
+  let pid = null;
+  let row = null;
+  for (const line of String(text ?? "").split("\n")) {
+    if (!line) continue;
+    const value = line.slice(1);
+    switch (line[0]) {
+      case "p":
+        pid = /^\d+$/.test(value) ? Number(value) : null;
+        row = null;
+        break;
+      case "f":
+        row = pid === null ? null : { pid, fd: value, type: "", device: "", name: "" };
+        if (row) rows.push(row);
+        break;
+      case "t":
+        if (row) row.type = value;
+        break;
+      case "d":
+        if (row) row.device = value.toLowerCase();
+        break;
+      case "n":
+        if (row) row.name = value;
+        break;
+      default:
+        break;
+    }
+  }
+  return rows;
+}
+function darwinPeerPids(rows, self2, fd) {
+  const mine = rows.find((r) => r.pid === self2 && r.fd === String(fd) && r.type.toUpperCase() === "UNIX");
+  const peer = mine && PEER_ADDR.exec(mine.name)?.[1].toLowerCase();
+  if (!mine || !peer || !mine.device) return [];
+  const found = /* @__PURE__ */ new Set();
+  for (const r of rows) {
+    if (r.pid === self2 || r.type.toUpperCase() !== "UNIX") continue;
+    if (r.device === peer || PEER_ADDR.exec(r.name)?.[1].toLowerCase() === mine.device) found.add(r.pid);
+  }
+  return [...found];
+}
+function parsePsPpid(text) {
+  const value = String(text ?? "").trim();
+  return /^\d+$/.test(value) ? Number(value) : 0;
+}
+function linuxPeerPids(socket, sockPath, { exec, fd }) {
+  const inode = (0, import_node_fs.readlinkSync)(`/proc/self/fd/${fd}`).slice("socket:[".length, -1);
+  const peer = parseSsPeerInode(exec("ss", ["-xnH", "src", sockPath]), inode);
+  if (!peer) return [];
+  const found = [];
+  for (const dir of (0, import_node_fs.readdirSync)("/proc")) {
+    if (!/^\d+$/.test(dir)) continue;
+    try {
+      for (const f of (0, import_node_fs.readdirSync)(`/proc/${dir}/fd`)) if ((0, import_node_fs.readlinkSync)(`/proc/${dir}/fd/${f}`) === `socket:[${peer}]`) found.push(Number(dir));
+    } catch {
+    }
+  }
+  return found;
+}
+function peerPids(socket, sockPath, { platform = process.platform, exec = defaultExec, pid = process.pid } = {}) {
+  try {
+    const fd = socket._handle.fd;
+    if (platform === "linux") return linuxPeerPids(socket, sockPath, { exec, fd });
+    if (platform === "darwin") return darwinPeerPids(parseLsofFields(exec("lsof", ["-nP", "-U", "-F", "pfdtn"])), pid, fd);
+    return [];
+  } catch {
+    return [];
+  }
+}
+function parentOf(pid, { platform = process.platform, exec = defaultExec } = {}) {
+  try {
+    if (platform === "linux") return Number((0, import_node_fs.readFileSync)(`/proc/${pid}/stat`, "utf8").replace(/^.*\) \S+ /, "").split(" ")[0]) || 0;
+    if (platform === "darwin") return parsePsPpid(exec("ps", ["-o", "ppid=", "-p", String(pid)]));
+  } catch {
+  }
+  return 0;
+}
+function isAlive(pid, { platform = process.platform, kill = process.kill.bind(process) } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (platform === "linux") return (0, import_node_fs.existsSync)(`/proc/${pid}`);
+  try {
+    kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+function parsePsList(text) {
+  return String(text ?? "").split("\n").flatMap((line) => {
+    const m = /^\s*(\d+)\s+(.*\S)\s*$/.exec(line);
+    return m ? [{ pid: Number(m[1]), argv: m[2].split(/\s+/) }] : [];
+  });
+}
+function argvOf(pid, { platform = process.platform, exec = defaultExec } = {}) {
+  try {
+    if (platform === "linux") return (0, import_node_fs.readFileSync)(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    if (platform === "darwin") return parsePsList(exec("ps", ["-o", "pid=,args=", "-p", String(pid)]))[0]?.argv ?? null;
+  } catch {
+  }
+  return null;
+}
+function listArgv({ platform = process.platform, exec = defaultExec } = {}) {
+  try {
+    if (platform === "linux") return (0, import_node_fs.readdirSync)("/proc").filter((d) => /^\d+$/.test(d)).flatMap((d) => {
+      const argv = argvOf(Number(d), { platform });
+      return argv ? [{ pid: Number(d), argv }] : [];
+    });
+    if (platform === "darwin") return parsePsList(exec("ps", ["-axo", "pid=,args="]));
+  } catch {
+  }
+  return [];
+}
+function procStat(pid) {
+  try {
+    const f = (0, import_node_fs.readFileSync)(`/proc/${pid}/stat`, "utf8").replace(/^.*\) \S+ /, "").split(" ");
+    return { pgrp: Number(f[1]), sid: Number(f[2]), tty: Number(f[3]) };
+  } catch {
+    return null;
+  }
+}
+function environNames(pid, names) {
+  try {
+    const have = new Set((0, import_node_fs.readFileSync)(`/proc/${pid}/environ`, "latin1").split("\0").map((kv) => kv.slice(0, kv.indexOf("="))));
+    return names.filter((n) => have.has(n));
+  } catch {
+    return void 0;
+  }
+}
+function exeIsNode(pid) {
+  try {
+    return /^node(js)?( \(deleted\))?$/.test((0, import_node_fs.readlinkSync)(`/proc/${pid}/exe`).split("/").pop());
+  } catch {
+    return false;
+  }
+}
+function lineageReason(pid, roots, { isDesc, off = [] } = {}) {
+  const skip = new Set(off);
+  if (!skip.has("descendant") && roots.some((root) => isDesc(pid, root))) return "descendant";
+  if (process.platform !== "linux") return null;
+  if (!skip.has("env")) {
+    const names = environNames(pid, ["AO_AGENT_ID", "AO_CREDS_SOCK"]);
+    if (names === void 0) return "environ-unreadable";
+    if (names.length) return `env:${names.join(",")}`;
+  }
+  const me = procStat(pid);
+  if (!me) return "stat-unreadable";
+  for (const root of roots) {
+    const r = procStat(root);
+    if (!r) continue;
+    if (!skip.has("session") && r.sid === root && me.sid === r.sid) return `session:${r.sid}`;
+    if (!skip.has("pgrp") && r.pgrp === root && me.pgrp === r.pgrp) return `pgrp:${r.pgrp}`;
+  }
+  return null;
+}
+function operatorProof(pid, { off = [] } = {}) {
+  return off.includes("exe") || process.platform !== "linux" ? true : exeIsNode(pid);
+}
+var import_node_child_process2, import_node_fs, defaultExec, PEER_ADDR;
+var init_peer_process = __esm({
+  "topology/lib/peer-process.mjs"() {
+    import_node_child_process2 = require("node:child_process");
+    import_node_fs = require("node:fs");
+    defaultExec = (cmd, args) => (0, import_node_child_process2.execFileSync)(cmd, args, { encoding: "utf8", maxBuffer: 1 << 26, stdio: ["ignore", "pipe", "ignore"] });
+    PEER_ADDR = /->\s*(0x[0-9a-f]+)/i;
+  }
+});
+
 // topology/lib/config.mjs
 var init_config = __esm({
   "topology/lib/config.mjs"() {
@@ -289,6 +462,44 @@ var init_orch_transport = __esm({
       tasksDurable: (repo) => `tasks_${repo}`
     });
     OUTAGE_RETIRE_MS = 60 * 6e4;
+  }
+});
+
+// topology/lib/nats-tamper.mjs
+function summarizeChange(expected, actual) {
+  const before = new Set(String(expected).split("\n"));
+  const after = new Set(String(actual ?? "").split("\n"));
+  const was = keysOf(expected);
+  const now = keysOf(actual ?? "");
+  return {
+    before: { sha256: sha256(expected), bytes: Buffer.byteLength(expected) },
+    after: actual == null ? null : { sha256: sha256(actual), bytes: Buffer.byteLength(actual) },
+    usersAdded: [...now].filter((k) => !was.has(k)),
+    usersRemoved: [...was].filter((k) => !now.has(k)),
+    linesAdded: [...after].filter((l) => !before.has(l)).slice(0, 8).map(redact),
+    linesRemoved: [...before].filter((l) => !after.has(l)).slice(0, 8).map(redact)
+  };
+}
+function journalTamper(home, event) {
+  const line = JSON.stringify({ type: "nats.tamper", ts: (/* @__PURE__ */ new Date()).toISOString(), ...event });
+  try {
+    (0, import_node_fs2.appendFileSync)((0, import_node_path3.join)(home, "tamper.jsonl"), `${line}
+`, { mode: 384 });
+  } catch {
+  }
+  return line;
+}
+var import_node_crypto2, import_node_fs2, import_node_path3, TAMPER_INTERVAL_MS, sha256, NKEY, keysOf, redact;
+var init_nats_tamper = __esm({
+  "topology/lib/nats-tamper.mjs"() {
+    import_node_crypto2 = require("node:crypto");
+    import_node_fs2 = require("node:fs");
+    import_node_path3 = require("node:path");
+    TAMPER_INTERVAL_MS = 5e3;
+    sha256 = (text) => (0, import_node_crypto2.createHash)("sha256").update(text).digest("hex");
+    NKEY = /nkey:\s*([A-Z0-9]{56})/g;
+    keysOf = (text) => new Set([...String(text).matchAll(NKEY)].map((m) => m[1]));
+    redact = (line) => /pass(word)?\s*[:=]/i.test(line) ? "<redacted>" : line.trim();
   }
 });
 
@@ -15942,7 +16153,7 @@ var require_node_transport = __commonJS({
     var util_1 = require_util();
     var tls_1 = require("tls");
     var { resolve: resolve2 } = require("path");
-    var { readFile: readFile2, existsSync: existsSync2 } = require("fs");
+    var { readFile: readFile2, existsSync: existsSync3 } = require("fs");
     var dns = require("dns");
     var VERSION = "2.29.3";
     var LANG = "nats.js";
@@ -16057,7 +16268,7 @@ var require_node_transport = __commonJS({
         const d = (0, nats_base_client_1.deferred)();
         try {
           fn = resolve2(fn);
-          if (!existsSync2(fn)) {
+          if (!existsSync3(fn)) {
             d.reject(new Error(`${fn} doesn't exist`));
           }
           readFile2(fn, (err, data) => {
@@ -16507,53 +16718,35 @@ async function natsClient() {
     return client.default || client;
   }
 }
-function ppidOf(pid) {
-  try {
-    return Number((0, import_node_fs.readFileSync)(`/proc/${pid}/stat`, "utf8").replace(/^.*\) \S+ /, "").split(" ")[0]);
-  } catch {
-    return 0;
-  }
+function findServerPid(confPath) {
+  return listArgv().find(({ argv }) => argv[0]?.includes("nats-server") && argv.includes(confPath))?.pid ?? null;
 }
-function isDescendant(pid, root) {
-  for (let hops = 0, p = pid; p > 1 && hops < 64; hops += 1, p = ppidOf(p)) if (p === root) return true;
+function serverPidFor(recorded, confPath) {
+  if (recorded) {
+    if (argvOf(recorded)?.join(" ").includes("nats-server")) return recorded;
+  }
+  return findServerPid(confPath);
+}
+function isDescendant(pid, root, opts) {
+  for (let hops = 0, p = pid; p > 1 && hops < 64; hops += 1, p = parentOf(p, opts)) if (p === root) return true;
   return false;
-}
-function peerPids(socket, sockPath) {
-  try {
-    const inode = (0, import_node_fs.readlinkSync)(`/proc/self/fd/${socket._handle.fd}`).slice("socket:[".length, -1);
-    const rows = (0, import_node_child_process2.execFileSync)("ss", ["-xnH", "src", sockPath], { encoding: "utf8", maxBuffer: 1 << 26 }).split("\n");
-    const row = rows.map((line) => line.trim().split(/\s+/)).find((fields) => fields.includes(inode));
-    if (!row) return [];
-    const peer = row[row.indexOf(inode) + 2];
-    const found = [];
-    for (const dir of (0, import_node_fs.readdirSync)("/proc")) {
-      if (!/^\d+$/.test(dir)) continue;
-      try {
-        for (const fd of (0, import_node_fs.readdirSync)(`/proc/${dir}/fd`)) if ((0, import_node_fs.readlinkSync)(`/proc/${dir}/fd/${fd}`) === `socket:[${peer}]`) found.push(Number(dir));
-      } catch {
-      }
-    }
-    return found;
-  } catch {
-    return [];
-  }
 }
 function agentRoots(home) {
   if (!home) return [];
   try {
-    return Object.values(JSON.parse((0, import_node_fs.readFileSync)(rootsFile(home), "utf8"))).filter((pid) => (0, import_node_fs.existsSync)(`/proc/${pid}`));
+    return Object.values(JSON.parse((0, import_node_fs3.readFileSync)(rootsFile(home), "utf8"))).filter((pid) => isAlive(pid));
   } catch {
     return [];
   }
 }
 async function registerRoot(home, sock, pid) {
-  await withLock((0, import_node_path3.join)(home, "roots.lock"), async () => {
+  await withLock((0, import_node_path4.join)(home, "roots.lock"), async () => {
     let roots = {};
     try {
-      roots = JSON.parse((0, import_node_fs.readFileSync)(rootsFile(home), "utf8"));
+      roots = JSON.parse((0, import_node_fs3.readFileSync)(rootsFile(home), "utf8"));
     } catch {
     }
-    for (const [key, value] of Object.entries(roots)) if (!(0, import_node_fs.existsSync)(`/proc/${value}`)) delete roots[key];
+    for (const [key, value] of Object.entries(roots)) if (!isAlive(value)) delete roots[key];
     roots[sock] = pid;
     await (0, import_promises2.writeFile)(`${rootsFile(home)}.tmp`, JSON.stringify(roots), { mode: 384 });
     await (0, import_promises2.rename)(`${rootsFile(home)}.tmp`, rootsFile(home));
@@ -16569,12 +16762,73 @@ function holderMain() {
   let publicKey = null;
   let ctl = null;
   let spawnerPid = null;
+  let lineageOff = [];
   const startedAt = Date.now();
+  let expected = null;
+  let tamperMs = TAMPER_INTERVAL_MS;
+  let seen = { pid: void 0, exe: null };
+  let repairs = 0;
+  const tamperTick = () => {
+    if (!admin || !expected || !home) return { watching: false };
+    const { conf, confPath } = expected;
+    if (Date.now() - expected.at < Math.min(1500, 2 * tamperMs)) return { watching: true, skipped: "announce-grace" };
+    let actual = null;
+    try {
+      actual = (0, import_node_fs3.readFileSync)(confPath, "utf8");
+    } catch {
+    }
+    const out = { watching: true, inSync: actual === conf };
+    if (actual !== conf) {
+      let repaired = false;
+      let error = null;
+      let reloaded = null;
+      try {
+        (0, import_node_fs3.writeFileSync)(`${confPath}.repair`, conf, { mode: 384 });
+        (0, import_node_fs3.renameSync)(`${confPath}.repair`, confPath);
+        repaired = true;
+      } catch (e) {
+        error = e.message;
+      }
+      const pid2 = serverPidFor(null, confPath);
+      if (repaired && pid2) {
+        try {
+          process.kill(pid2, "SIGHUP");
+          reloaded = pid2;
+        } catch {
+        }
+      }
+      repairs += 1;
+      journalTamper(home, { kind: "conf-changed", severity: "tamper", confPath, ...summarizeChange(conf, actual), repaired, reloaded, ...error ? { error } : {} });
+      out.repaired = repaired;
+    } else {
+      try {
+        if (((0, import_node_fs3.statSync)(confPath).mode & 63) !== 0) {
+          (0, import_node_fs3.chmodSync)(confPath, 384);
+          journalTamper(home, { kind: "conf-mode", severity: "tamper", confPath, repaired: true });
+        }
+      } catch {
+      }
+    }
+    const pid = serverPidFor(null, confPath);
+    let exe = null;
+    if (pid) {
+      try {
+        exe = (0, import_node_fs3.readlinkSync)(`/proc/${pid}/exe`);
+      } catch {
+      }
+    }
+    if (seen.pid !== void 0 && (pid !== seen.pid || exe && seen.exe && exe !== seen.exe)) {
+      journalTamper(home, { kind: pid === seen.pid ? "server-exe-changed" : "server-pid-changed", severity: pid === seen.pid ? "tamper" : "notice", before: { pid: seen.pid, exe: seen.exe }, after: { pid, exe } });
+    }
+    seen = { pid, exe };
+    return out;
+  };
+  const tamperTimer = { current: null };
   const stop = () => {
     secrets = null;
     server?.close();
     try {
-      if (sockPath) (0, import_node_fs.unlinkSync)(sockPath);
+      if (sockPath) (0, import_node_fs3.unlinkSync)(sockPath);
     } catch {
     }
     setTimeout(() => process.exit(0), 50);
@@ -16582,9 +16836,9 @@ function holderMain() {
   let rootGoneSince = null;
   let graceMs = 2e4;
   const watch = setInterval(() => {
-    if (sockPath && (!(0, import_node_fs.existsSync)(sockPath) || home && !(0, import_node_fs.existsSync)(home))) return stop();
-    if (!root && !admin && spawnerPid && !(0, import_node_fs.existsSync)(`/proc/${spawnerPid}`) && Date.now() - startedAt > Math.min(5e3, graceMs)) return stop();
-    if (!root || (0, import_node_fs.existsSync)(`/proc/${root}`)) {
+    if (sockPath && (!(0, import_node_fs3.existsSync)(sockPath) || home && !(0, import_node_fs3.existsSync)(home))) return stop();
+    if (!root && !admin && spawnerPid && !isAlive(spawnerPid) && Date.now() - startedAt > Math.min(5e3, graceMs)) return stop();
+    if (!root || isAlive(root)) {
       rootGoneSince = null;
       return;
     }
@@ -16598,15 +16852,44 @@ function holderMain() {
   const serve = (socket, request) => {
     const peers = peerPids(socket, sockPath);
     const roots = agentRoots(home);
-    const operator = peers.length > 0 && !peers.some((pid) => roots.some((rootPid) => isDescendant(pid, rootPid)));
+    const operator = peers.length > 0 && !peers.some((pid) => lineageReason(pid, roots, { isDesc: isDescendant, off: lineageOff })) && peers.every((pid) => operatorProof(pid, { off: lineageOff }));
     const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     if (request.op === "pub") return { publicKey, pid: process.pid, admin };
+    if (request.op === "tamper") {
+      let current = null;
+      try {
+        current = sha256((0, import_node_fs3.readFileSync)(expected.confPath, "utf8"));
+      } catch {
+      }
+      return { admin, watching: Boolean(expected), intervalMs: tamperMs, repairs, expectedSha: expected ? sha256(expected.conf) : null, currentSha: current };
+    }
     const controller = Boolean(ctl) && request.ctl === ctl || Boolean(home) && operator;
     if (request.op === "install") {
       if (!controller) return { ok: false, error: "install is for the spawner or the operator process tree only" };
       secrets = { ...secrets, ...request.secrets };
       return { ok: true };
+    }
+    if (request.op === "expect" || request.op === "check") {
+      if (!controller || !admin) return { ok: false, error: `${request.op} is for the operator process tree, on the admin holder only` };
+      if (request.op === "check") {
+        expected && (expected.at = 0);
+        return { ok: true, ...tamperTick() };
+      }
+      let pre = null;
+      if (expected) {
+        try {
+          pre = (0, import_node_fs3.readFileSync)(expected.confPath, "utf8");
+        } catch {
+        }
+      }
+      const tampered = Boolean(expected) && expected.confPath === request.confPath && pre !== expected.conf && pre !== request.conf;
+      if (tampered) {
+        journalTamper(home, { kind: "conf-changed-before-update", severity: "tamper", confPath: request.confPath, ...summarizeChange(expected.conf, pre), repaired: true, reloaded: null });
+        repairs += 1;
+      }
+      expected = { conf: String(request.conf), confPath: String(request.confPath), at: Date.now() };
+      return { ok: true, tampered };
     }
     if (request.op === "revoke") {
       if (!controller) return { ok: false, error: "revoke is for the spawner or the operator process tree only" };
@@ -16633,7 +16916,16 @@ function holderMain() {
       graceMs = message.graceMs ?? graceMs;
       ctl = message.ctl;
       spawnerPid = message.spawnerPid;
+      lineageOff = message.lineageOff ?? [];
       if (admin) {
+        tamperMs = message.tamperMs ?? tamperMs;
+        tamperTimer.current = setInterval(() => {
+          try {
+            tamperTick();
+          } catch {
+          }
+        }, tamperMs);
+        tamperTimer.current.unref?.();
         const user = (await natsClient()).nkeys.createUser();
         publicKey = user.getPublicKey();
         secrets = { seed: new TextDecoder().decode(user.getSeed()) };
@@ -16655,14 +16947,14 @@ function holderMain() {
           if (error.code !== "EADDRINUSE" || !retry) return reply({ ok: false, error: error.message });
           if (await holderAlive(sockPath)) return reply({ ok: false, code: "HOLDER_LIVE", error: `a live holder already owns ${sockPath}` });
           try {
-            (0, import_node_fs.unlinkSync)(sockPath);
+            (0, import_node_fs3.unlinkSync)(sockPath);
           } catch {
           }
           listen(false);
         });
         server.listen(sockPath, () => {
           try {
-            (0, import_node_fs.chmodSync)(sockPath, 384);
+            (0, import_node_fs3.chmodSync)(sockPath, 384);
           } catch {
           }
           reply({ ok: true, publicKey });
@@ -16681,18 +16973,19 @@ async function holderAlive(sock) {
     probe.once("error", () => resolve2(false));
   });
 }
-var import_node_child_process2, import_node_fs, import_promises2, import_node_net, import_node_path3, DEFAULT_TTL_MS, rootsFile;
+var import_node_fs3, import_promises2, import_node_net, import_node_path4, DEFAULT_TTL_MS, rootsFile;
 var init_agent_creds = __esm({
   "topology/lib/agent-creds.mjs"() {
-    import_node_child_process2 = require("node:child_process");
-    import_node_fs = require("node:fs");
+    import_node_fs3 = require("node:fs");
     import_promises2 = require("node:fs/promises");
     import_node_net = __toESM(require("node:net"), 1);
-    import_node_path3 = require("node:path");
+    import_node_path4 = require("node:path");
     init_lockfile();
+    init_peer_process();
     init_orch_transport();
+    init_nats_tamper();
     DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
-    rootsFile = (home) => (0, import_node_path3.join)(home, "roots.json");
+    rootsFile = (home) => (0, import_node_path4.join)(home, "roots.json");
   }
 });
 
