@@ -8665,7 +8665,7 @@ __export(nats_local_exports, {
 });
 function localNatsHome(env = process.env) {
   if (env.AO_NATS_HOME) return env.AO_NATS_HOME;
-  if (env.AO_TEST_RUN) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run: refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
+  if (env.AO_TEST_RUN || env.NODE_TEST_CONTEXT) throw Object.assign(new Error("AO_NATS_HOME is not set in a test run (AO_TEST_RUN or node --test): refusing to use the operator's real local NATS home."), { code: "TOPOLOGY_TEST_REAL_NATS_HOME" });
   return (0, import_node_path30.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
@@ -26580,7 +26580,7 @@ function holderScript() {
   const here = (0, import_node_url4.fileURLToPath)(__aoImportMetaUrl);
   return (0, import_node_path32.join)((0, import_node_path32.dirname)(here), here.endsWith(".mjs") ? "credential-holder.mjs" : "credential-holder.cjs");
 }
-async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 2e4 } = {}) {
+async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 2e4, lineageOff = [] } = {}) {
   let sock = fixedSock;
   if (!sock) {
     const base = Buffer.byteLength((0, import_node_path32.join)((0, import_node_os12.tmpdir)(), "ao-creds-XXXXXX", "c.sock")) <= SOCKET_PATH_MAX2 ? (0, import_node_os12.tmpdir)() : "/tmp";
@@ -26598,7 +26598,7 @@ async function startHolder(secrets, { home = null, sock: fixedSock = null, admin
   const ready = await new Promise((resolve21, reject) => {
     child.once("message", resolve21);
     child.once("exit", () => reject(new Error("credential holder exited")));
-    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error51) => {
+    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, lineageOff, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error51) => {
       if (error51) reject(error51);
     });
   });
@@ -77522,11 +77522,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d";
+  return false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d";
-  let version2 = false ? null : "0.16.2";
+  const fingerprint2 = false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98";
+  let version2 = false ? null : "0.16.3";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs16.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -77950,8 +77950,8 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d",
-  version: false ? null : "0.16.2"
+  sourceFingerprint: false ? null : "09c27b9aaa0f7712b8a9c11202b097eb96a59bf1dbdf12f736c0c09646fcda98",
+  version: false ? null : "0.16.3"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto37.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -78981,7 +78981,7 @@ function register3(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.16.2" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.16.3" });
   register3(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });

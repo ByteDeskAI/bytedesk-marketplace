@@ -129,3 +129,66 @@ export function listArgv({ platform = process.platform, exec = defaultExec } = {
   } catch { /* unlistable */ }
   return [];
 }
+
+// ---- TM-332: lineage markers and a positive operator proof (Linux; elsewhere they say "no evidence") -----------
+// "Not a descendant of an agent root" is NOT proof of being the operator: a same-uid process that double-forks out of a pane
+// reparents to pid 1. These helpers add evidence that survives reparenting. They raise the cost of an escape; they do not
+// stop a same-uid process that scrubs its environment, changes session and execs node (docs/adr/0003, "TM-332 mitigation").
+
+/** Fields of /proc/<pid>/stat that survive reparenting: {pgrp, sid, tty}. null when unreadable (not Linux, gone). */
+export function procStat(pid) {
+  try {
+    const f = readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) \S+ /, '').split(' ');
+    return { pgrp: Number(f[1]), sid: Number(f[2]), tty: Number(f[3]) };
+  } catch { return null; }
+}
+
+/** Which of `names` are set in the process's initial environment. undefined when it cannot be read (callers fail closed). */
+export function environNames(pid, names) {
+  try {
+    const have = new Set(readFileSync(`/proc/${pid}/environ`, 'latin1').split('\0').map((kv) => kv.slice(0, kv.indexOf('='))));
+    return names.filter((n) => have.has(n));
+  } catch { return undefined; }
+}
+
+/** True when the process's executable is the node binary (the kernel's /proc/<pid>/exe, not the forgeable argv[0]). */
+export function exeIsNode(pid) {
+  try { return /^node(js)?( \(deleted\))?$/.test(readlinkSync(`/proc/${pid}/exe`).split('/').pop()); } catch { return false; }
+}
+
+/**
+ * Why this peer is agent lineage (a string), or null when no marker catches it. `roots` are live pane-root pids; `isDesc(pid, root)`
+ * is the ancestry test. `off` names markers to skip (a test-only mutation switch passed at holder start, never read from the environment).
+ * Markers, with the false positive each avoids:
+ *  descendant  kernel parent chain reaches a root (the original check).
+ *  env         initial environment has AO_AGENT_ID or AO_CREDS_SOCK: set only in a pane; daemonizing keeps it unless scrubbed.
+ *  session     same Linux session as a root that is its own session leader (a tmux pane process is). A root that merely lives in a
+ *              human's session is not used, or the operator who started it would be flagged.
+ *  pgrp        same process group as a root that leads its group (same guard).
+ * Rejected after evaluation: tty (equal tty_nr implies the same session, so it adds nothing over `session`); cwd under the agent
+ * directory (an operator legitimately sits there); start time after the root (every later process qualifies).
+ */
+export function lineageReason(pid, roots, { isDesc, off = [] } = {}) {
+  const skip = new Set(off);
+  if (!skip.has('descendant') && roots.some((root) => isDesc(pid, root))) return 'descendant';
+  if (process.platform !== 'linux') return null; // ponytail: markers read /proc; darwin has descendant only (ADR-0003)
+  if (!skip.has('env')) {
+    const names = environNames(pid, ['AO_AGENT_ID', 'AO_CREDS_SOCK']);
+    if (names === undefined) return 'environ-unreadable'; // fail closed
+    if (names.length) return `env:${names.join(',')}`;
+  }
+  const me = procStat(pid);
+  if (!me) return 'stat-unreadable';
+  for (const root of roots) {
+    const r = procStat(root);
+    if (!r) continue;
+    if (!skip.has('session') && r.sid === root && me.sid === r.sid) return `session:${r.sid}`;
+    if (!skip.has('pgrp') && r.pgrp === root && me.pgrp === r.pgrp) return `pgrp:${r.pgrp}`;
+  }
+  return null;
+}
+
+/** Positive operator evidence for operator-only verbs: the peer runs the node binary. A forged cmdline is not consulted. */
+export function operatorProof(pid, { off = [] } = {}) {
+  return off.includes('exe') || process.platform !== 'linux' ? true : exeIsNode(pid);
+}

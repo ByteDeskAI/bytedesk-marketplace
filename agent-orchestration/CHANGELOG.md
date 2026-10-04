@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.3] — 2026-10-03
+
+_TM-332: a daemonized child of an agent pane is no longer judged "the operator". Defense in depth, **not** a closed gap._
+
+### Changed
+
+- The credential holder judges a peer an operator only when (a) no lineage marker ties it to an agent: it descends from a registered pane root, **or** its initial environment carries `AO_AGENT_ID`/`AO_CREDS_SOCK`, **or** it shares the Linux session or process group of a root that leads that session/group; **and** (b) every process holding the peer socket runs the node binary (`/proc/<pid>/exe`). Unreadable `/proc` data fails closed. macOS keeps the descendant check only.
+- `startHolder` accepts `lineageOff` (marker names to skip) for mutation tests; it travels over the spawn handshake, never the environment.
+
+### Added
+
+- `tests/unit/agent-creds-escape.test.mjs`: real double-fork variants against a real admin holder (before/after, per-marker mutations, the legitimate operator from a shell and a non-agent tmux pane, and the documented NOT STOPPED case).
+- ADR-0003 section "TM-332 mitigation".
+
 ## [0.16.2] — 2026-10-03
 
 _TM-316: the same-uid gap in the local NATS server._
