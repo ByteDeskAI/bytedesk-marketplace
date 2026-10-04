@@ -19697,7 +19697,7 @@ function holderScript() {
   const here = (0, import_node_url4.fileURLToPath)(__aoImportMetaUrl);
   return (0, import_node_path32.join)((0, import_node_path32.dirname)(here), here.endsWith(".mjs") ? "credential-holder.mjs" : "credential-holder.cjs");
 }
-async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 2e4 } = {}) {
+async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 2e4, lineageOff = [] } = {}) {
   let sock = fixedSock;
   if (!sock) {
     const base = Buffer.byteLength((0, import_node_path32.join)((0, import_node_os12.tmpdir)(), "ao-creds-XXXXXX", "c.sock")) <= SOCKET_PATH_MAX2 ? (0, import_node_os12.tmpdir)() : "/tmp";
@@ -19715,7 +19715,7 @@ async function startHolder(secrets, { home = null, sock: fixedSock = null, admin
   const ready = await new Promise((resolve22, reject) => {
     child.once("message", resolve22);
     child.once("exit", () => reject(new Error("credential holder exited")));
-    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error51) => {
+    child.send({ type: "init", sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, lineageOff, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error51) => {
       if (error51) reject(error51);
     });
   });
@@ -61285,11 +61285,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d";
+  return false ? null : "b6a6ddb1401b76e849fd0b7e9eee013bfe0eb2a3906ce671df4da0971e800c10";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d";
-  let version2 = false ? null : "0.16.2";
+  const fingerprint2 = false ? null : "b6a6ddb1401b76e849fd0b7e9eee013bfe0eb2a3906ce671df4da0971e800c10";
+  let version2 = false ? null : "0.16.3";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs16.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -61879,8 +61879,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "3e0afad4ce0a647e3b16a2a435a8b5960cf241cbc1388a940d2607f0fb43f06d",
-  version: false ? null : "0.16.2"
+  sourceFingerprint: false ? null : "b6a6ddb1401b76e849fd0b7e9eee013bfe0eb2a3906ce671df4da0971e800c10",
+  version: false ? null : "0.16.3"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises58.readFile)(path3).then((bytes) => (0, import_node_crypto37.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);

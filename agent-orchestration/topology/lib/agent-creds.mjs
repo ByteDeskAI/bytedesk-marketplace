@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLock } from './lockfile.mjs';
-import { argvOf, isAlive, listArgv, parentOf, peerPids } from './peer-process.mjs';
+import { argvOf, isAlive, lineageReason, listArgv, operatorProof, parentOf, peerPids } from './peer-process.mjs';
 import { ORCH_LAYOUT, orchName } from './orch-transport.mjs';
 import { TAMPER_INTERVAL_MS, journalTamper, sha256, summarizeChange } from './nats-tamper.mjs';
 
@@ -279,7 +279,7 @@ function holderScript() {
  * admin: the holder GENERATES an nkey, never reveals the seed to its spawner, and hands it only to
  * a process outside every agent tree. home: where roots.json lives (needed for admin and cross-process attach).
  */
-export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 20_000 } = {}) {
+export async function startHolder(secrets, { home = null, sock: fixedSock = null, admin = false, graceMs = Number(process.env.AO_CREDS_GRACE_MS) || 20_000, lineageOff = [] } = {}) {
   let sock = fixedSock;
   if (!sock) {
     // tmpdir() can itself be long (a sandbox TMPDIR); fall back to /tmp rather than overflow the socket path.
@@ -299,7 +299,7 @@ export async function startHolder(secrets, { home = null, sock: fixedSock = null
   const ready = await new Promise((resolve, reject) => {
     child.once('message', resolve);
     child.once('exit', () => reject(new Error('credential holder exited')));
-    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error) => { if (error) reject(error); });
+    child.send({ type: 'init', sock, secrets, home, admin, graceMs, ctl, spawnerPid: process.pid, lineageOff, tamperMs: Number(process.env.AO_TAMPER_INTERVAL_MS) || TAMPER_INTERVAL_MS }, (error) => { if (error) reject(error); });
   });
   if (!ready.ok) { child.kill('SIGKILL'); throw Object.assign(new Error(`credential holder failed: ${ready.error}`), { code: ready.code ?? 'HOLDER_FAILED' }); }
   child.disconnect();
@@ -327,6 +327,7 @@ export function holderMain() {
   let publicKey = null;
   let ctl = null;
   let spawnerPid = null;
+  let lineageOff = [];
   const startedAt = Date.now();
   // TM-316 (admin holder only): the expected server config lives here, in memory, and is compared with the file.
   let expected = null; // { conf, confPath, at }
@@ -382,8 +383,10 @@ export function holderMain() {
   const serve = (socket, request) => {
     const peers = peerPids(socket, sockPath);
     const roots = agentRoots(home);
-    // Outside every agent tree. Fails closed when the kernel cannot name the peer.
-    const operator = peers.length > 0 && !peers.some((pid) => roots.some((rootPid) => isDescendant(pid, rootPid)));
+    // TM-332: operator = the kernel names the peer, NO lineage marker ties it to an agent (descendant, environment, session, process
+    // group), and every peer process is the node binary. Absence from the agent trees alone is not enough: a double-fork escapes it.
+    const operator = peers.length > 0 && !peers.some((pid) => lineageReason(pid, roots, { isDesc: isDescendant, off: lineageOff }))
+      && peers.every((pid) => operatorProof(pid, { off: lineageOff }));
     const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     // The public key is not a secret: anyone who can reach the socket may learn whose holder this is.
@@ -429,7 +432,7 @@ export function holderMain() {
   process.on('message', async (message) => {
     const reply = (body) => process.send(body);
     if (message.type === 'init') {
-      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs; ctl = message.ctl; spawnerPid = message.spawnerPid;
+      secrets = message.secrets; sockPath = message.sock; home = message.home; admin = message.admin; graceMs = message.graceMs ?? graceMs; ctl = message.ctl; spawnerPid = message.spawnerPid; lineageOff = message.lineageOff ?? [];
       if (admin) {
         tamperMs = message.tamperMs ?? tamperMs;
         tamperTimer.current = setInterval(() => { try { tamperTick(); } catch { /* the watcher must not die of one bad read */ } }, tamperMs);

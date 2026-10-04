@@ -324,6 +324,51 @@ function listArgv({ platform = process.platform, exec = defaultExec } = {}) {
   }
   return [];
 }
+function procStat(pid) {
+  try {
+    const f = (0, import_node_fs.readFileSync)(`/proc/${pid}/stat`, "utf8").replace(/^.*\) \S+ /, "").split(" ");
+    return { pgrp: Number(f[1]), sid: Number(f[2]), tty: Number(f[3]) };
+  } catch {
+    return null;
+  }
+}
+function environNames(pid, names) {
+  try {
+    const have = new Set((0, import_node_fs.readFileSync)(`/proc/${pid}/environ`, "latin1").split("\0").map((kv) => kv.slice(0, kv.indexOf("="))));
+    return names.filter((n) => have.has(n));
+  } catch {
+    return void 0;
+  }
+}
+function exeIsNode(pid) {
+  try {
+    return /^node(js)?( \(deleted\))?$/.test((0, import_node_fs.readlinkSync)(`/proc/${pid}/exe`).split("/").pop());
+  } catch {
+    return false;
+  }
+}
+function lineageReason(pid, roots, { isDesc, off = [] } = {}) {
+  const skip = new Set(off);
+  if (!skip.has("descendant") && roots.some((root) => isDesc(pid, root))) return "descendant";
+  if (process.platform !== "linux") return null;
+  if (!skip.has("env")) {
+    const names = environNames(pid, ["AO_AGENT_ID", "AO_CREDS_SOCK"]);
+    if (names === void 0) return "environ-unreadable";
+    if (names.length) return `env:${names.join(",")}`;
+  }
+  const me = procStat(pid);
+  if (!me) return "stat-unreadable";
+  for (const root of roots) {
+    const r = procStat(root);
+    if (!r) continue;
+    if (!skip.has("session") && r.sid === root && me.sid === r.sid) return `session:${r.sid}`;
+    if (!skip.has("pgrp") && r.pgrp === root && me.pgrp === r.pgrp) return `pgrp:${r.pgrp}`;
+  }
+  return null;
+}
+function operatorProof(pid, { off = [] } = {}) {
+  return off.includes("exe") || process.platform !== "linux" ? true : exeIsNode(pid);
+}
 var import_node_child_process2, import_node_fs, defaultExec, PEER_ADDR;
 var init_peer_process = __esm({
   "topology/lib/peer-process.mjs"() {
@@ -16717,6 +16762,7 @@ function holderMain() {
   let publicKey = null;
   let ctl = null;
   let spawnerPid = null;
+  let lineageOff = [];
   const startedAt = Date.now();
   let expected = null;
   let tamperMs = TAMPER_INTERVAL_MS;
@@ -16806,7 +16852,7 @@ function holderMain() {
   const serve = (socket, request) => {
     const peers = peerPids(socket, sockPath);
     const roots = agentRoots(home);
-    const operator = peers.length > 0 && !peers.some((pid) => roots.some((rootPid) => isDescendant(pid, rootPid)));
+    const operator = peers.length > 0 && !peers.some((pid) => lineageReason(pid, roots, { isDesc: isDescendant, off: lineageOff })) && peers.every((pid) => operatorProof(pid, { off: lineageOff }));
     const owner = Boolean(root) && peers.some((pid) => isDescendant(pid, root));
     const live = secrets && (!secrets.expiresAt || secrets.expiresAt > Date.now());
     if (request.op === "pub") return { publicKey, pid: process.pid, admin };
@@ -16870,6 +16916,7 @@ function holderMain() {
       graceMs = message.graceMs ?? graceMs;
       ctl = message.ctl;
       spawnerPid = message.spawnerPid;
+      lineageOff = message.lineageOff ?? [];
       if (admin) {
         tamperMs = message.tamperMs ?? tamperMs;
         tamperTimer.current = setInterval(() => {

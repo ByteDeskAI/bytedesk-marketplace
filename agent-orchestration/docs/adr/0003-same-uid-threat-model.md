@@ -40,7 +40,7 @@ A process with the operator's uid can still:
 3. **Be inside the repair window.** An edited config is live for up to one interval.
 4. **Read the operator's other files and `/proc/<pid>/mem`** of sibling processes if `ptrace_scope` allows it, and so read an agent seed from its holder. Modes of 0700/0600 keep other users out and do nothing against the same uid.
 5. **Edit `tamper.jsonl` or `agent-users.json`.** The journal is not tamper-proof (an edit hides the record). A registry edit that adds a public key is *not* detected by the config watcher, because the next legitimate config write re-reads the registry file and would adopt it (read, not run). Follow-up 6.
-6. **Escape the process-tree check** by daemonizing: the holder's descendant test judges the kernel's parent chain, and a reparented process is no longer a descendant, so it is treated as outside every agent tree (the "operator" side). This is the largest gap. By reading `serve` in `holderMain` (not run), it lets a reparented process ask the admin holder for the host seed. Not fixed here.
+6. **Escape the process-tree check** by daemonizing (narrowed by TM-332, see the section below; the fully scrubbed case remains): the holder's descendant test judges the kernel's parent chain, and a reparented process is no longer a descendant, so it is treated as outside every agent tree (the "operator" side). This is the largest gap. By reading `serve` in `holderMain` (not run), it lets a reparented process ask the admin holder for the host seed. Not fixed here.
 7. **Publish to ORCH_EVENTS about itself.** The tamper journal is a local file, not an event on the bus.
 
 ## Running agent panes under the provider sandbox (TM-282): what is feasible
@@ -61,3 +61,25 @@ A process with the operator's uid can still:
 4. Publish `nats.tamper` to `ORCH_EVENTS` (admin identity) so the lead and other machines see it, not only the local doctor.
 5. Optional `ptrace_scope`/`PR_SET_DUMPABLE` hardening: node cannot call `prctl`; a small native launcher (or `systemd-run -p ...`) would. Requires a native helper, which this plugin does not ship.
 6. Keep the registry's expected content in the admin holder too (announce it with the config) so a registry edit is detected the same way.
+
+## TM-332 mitigation (daemonizing out of a pane)
+
+Status: gap 6 above is **narrowed, not closed**. Verified by `tests/unit/agent-creds-escape.test.mjs` (real processes, real admin holder).
+
+The holder used to call a peer "operator" when it was not a descendant of any registered pane root. Now a peer is the operator only if **no lineage marker** catches it and a **positive proof** holds (`topology/lib/peer-process.mjs`, `lineageReason`, `operatorProof`):
+
+| Marker or proof | Catches | Avoids false positives by |
+|---|---|---|
+| descendant | child tree of a pane root (the original check) | n/a |
+| environment | `AO_AGENT_ID` or `AO_CREDS_SOCK` in `/proc/<pid>/environ`; a daemonized child keeps it unless it scrubs it | operators do not carry them |
+| session | same Linux session as a root that is its own session leader (a tmux pane process is) | a root that merely sits in a human's session is ignored, or the operator would be flagged |
+| process group | same process group as a root that leads its group | same guard |
+| exe (positive) | peer executable is not the node binary (`/proc/<pid>/exe`, not forgeable argv) | the operator CLI, MCP server and supervisor all run under node |
+
+Evaluated and rejected: tty (equal `tty_nr` implies the same session, so it adds nothing), cwd under the agent directory (the operator legitimately works there), start time after the root (every later process qualifies). Unreadable `environ` or `stat` fails closed.
+
+**Stopped (tests):** a naive double fork keeping its environment; scrubbed environment in the same session or process group; `setsid` with the environment kept; a non-node executable (python3) after scrubbing and `setsid`. Before the change all five received the admin seed (printed in the test). The operator CLI still works from a separate shell and from a human tmux pane that is not an agent's. Each marker has a mutation in which its escape succeeds.
+
+**NOT stopped (asserted in a test so a change shows up):** a process that scrubs its environment, starts a new session (`setsid`), and runs the node binary. Nothing in the kernel ties it to the pane any more, and a hostile same-uid process can also read `/proc/<pid>/mem`, kill holders, or edit `roots.json`. `/proc/<pid>/environ` shows the initial environment only. macOS has descendant-only (no `/proc`).
+
+Real isolation still needs a separate uid or the provider sandbox with a pid namespace (TM-333). This mitigation makes the lazy and naive escapes fail and the deliberate one cost more; it does not make same-uid agents trustworthy.
