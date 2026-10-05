@@ -237,8 +237,9 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    session, pane, pane PID and creation time, plus the workflow run ID. It refuses a task that is not
    admitted or has a bound worker that is not stopped. After `stop-worker`, `start-worker` starts the
    next round's worker, for example after changes are requested, and keeps the stopped binding in
-   `previous_workers`. If tm refuses the re-dispatch because the task is still dispatched, collect the
-   previous worker with `tm collect TM-id` first. If the worker cannot be observed yet, the result says
+   `previous_workers`. A dispatch tm has already collected no longer blocks the re-dispatch; if tm
+   still refuses because the previous worker is uncollected, run `tm collect TM-id` first. A refused
+   `tm dispatch` is reported as `TOPOLOGY_MANAGEMENT_DISPATCH` with tm's own message. If the worker cannot be observed yet, the result says
    `bound: false`; run `manage bind --task TM-id` then. Do not launch a second worker.
 2. **Adopt.** For a worker started before this rule, run `manage bind --task TM-id --pane <id>
    [--server <socket>]` or `--pid <pid>`. The pane must be live, the only live pane in its session,
@@ -255,6 +256,19 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    as stopped. Anything else is refused with a recovery path, and the worker keeps running. It never
    closes a session it did not start or bind, and never an active one. `manage cleanup` uses the same
    rule.
+4. **Retire a dead worker (TM-247).** When the worker's pane or process is observed gone (or its
+   pane is an idle shell) and it never sent a finish report, `manage stop-worker` retires it instead
+   of refusing. It moves the dead incarnation to `previous_workers` with the observation and what the
+   worker left behind (a `tm block` reason or a blocker report), runs `tm collect` so tm records the
+   dispatch as ended, and leaves the worktree and any uncommitted work untouched. A live or unproven
+   worker is still refused. Then `manage start-worker` binds a successor to the same admission and
+   base revision; its finish queues review as usual.
+5. **Unblock and resume (TM-247).** A worker that ran `tm block` released the claim. After the
+   blocker is resolved: `manage stop-worker` (retires it), `tm unblock TM-id`, then
+   `manage start-worker`. Start-worker, like a resumed `manage admit`, re-claims a released claim for
+   the admission owner through `tm start`, so no `TM_SESSION_ID=<owner> tm start` is needed. A claim
+   held by another session is never taken. While a lead holds the claim, the pool's collector records
+   a dead worker's result but never parks the task or drops the claim.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
 review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a

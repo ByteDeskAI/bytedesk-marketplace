@@ -1526,3 +1526,138 @@ test('TM-360: manage assignment reports a live bound worker, and start-worker su
   await writeJson(path, { ...record, worker: { kind: 'tmux', run: 'tmux:lead-worker', stopped_at: '2026-10-05T00:00:00Z' } });
   assert.equal((await assignmentResult(opts)).worker, undefined, 'a stopped worker is history, not a holder');
 });
+
+// ── TM-247: a governed worker that dies before its finish report is retired and replaced ──────────
+// A fixture lead "author" whose tm dispatch stub opens a real pane in an isolated tmux server.
+async function lifecycleFixture(t) {
+  const f = await fixture(t);
+  const s = await paneServer(t, f.opts); if (!s) return null;
+  const { opts, doc } = f;
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  const collected = [], reviews = [];
+  let round = 0;
+  opts.store.dispatch = async task => {
+    round++;
+    await s.tmux(['new-session', '-d', '-s', `tm-${task}-${round}`, '-c', doc.worktree, 'sleep', '120']);
+    doc.dispatched = { backend: 'tmux', run: `tmux:tm-${task}-${round}`, session: 'author' };
+    opts.store.workers = async () => [{ name: 'agent:TM-1', backend: 'tmux', runId: doc.dispatched.run, session: 'author', registeredAt: `round-${round}`, status: 'active', pid: null }];
+    return { ok: true, backend: 'tmux', run: doc.dispatched.run };
+  };
+  opts.store.collect = async task => { collected.push(task); return { ok: true, outcome: doc.status === 'blocked' ? 'blocked' : 'failed' }; };
+  opts.store.start = async () => { doc.status = 'in_progress'; f.setClaim({ session: 'author', worktree: doc.worktree, branch: doc.branch }); };
+  actual.queueReview = async request => { reviews.push(request); return { nonce: `review-${reviews.length}` }; };
+  return { ...f, s, actual, collected, reviews, kill: async run => s.tmux(['kill-session', '-t', run.replace(/^tmux:/, '')]) };
+}
+
+test('TM-247 AC1/AC4: a live worker is never retired; a dead one is retired with its observation and the worktree kept', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  const live = await stopTaskWorker(l.actual);
+  assert.equal(live.stopped, false); assert.match(live.reason, /finish protocol/);
+  assert.equal(l.collected.length, 0, 'nothing is collected from a live worker');
+  assert.ok(await l.s.paneOf(first.run.replace(/^tmux:/, '')), 'the live worker is untouched');
+  await writeFile(join(l.doc.worktree, 'code.txt'), 'half done, uncommitted');
+  await l.kill(first.run);
+  const retired = await stopTaskWorker(l.actual);
+  assert.equal(retired.stopped, true, retired.reason); assert.equal(retired.retired, true);
+  assert.equal(retired.proof, 'observed-pane-exited'); assert.equal(retired.result.outcome, 'exited-without-finish');
+  assert.deepEqual(l.collected, ['TM-1'], 'tm records the dead dispatch through its own collect');
+  const record = (await managementStatus(l.actual)).management;
+  assert.equal(record.worker, undefined);
+  assert.equal(record.previous_workers.length, 1);
+  assert.equal(record.previous_workers[0].run, first.run);
+  assert.equal(record.previous_workers[0].retired.proof, 'observed-pane-exited');
+  assert.ok(record.events.some(e => e.event === 'worker-retired' && /manage start-worker/.test(e.recovery)));
+  assert.equal((await run('cat', [join(l.doc.worktree, 'code.txt')])).stdout, 'half done, uncommitted', 'uncommitted work survives the retire');
+});
+
+test('TM-247 AC2/AC4: after a retire, start-worker binds a successor whose finish queues review under the original base', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  const admitted = await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  await assert.rejects(startTaskWorker(l.actual), /second writer/, 'no successor while the first is bound');
+  await l.kill(first.run);
+  assert.equal((await stopTaskWorker(l.actual)).retired, true);
+  const second = await startTaskWorker(l.actual);
+  assert.equal(second.bound, true, second.reason); assert.notEqual(second.run, first.run);
+  await writeFile(join(l.doc.worktree, 'code.txt'), 'implemented'); await l.git(l.doc.worktree, ['add', 'code.txt']);
+  await l.git(l.doc.worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'successor']);
+  const revision = (await l.git(l.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...l.actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'successor', revision } });
+  assert.equal(finished.state, 'ready-for-review');
+  assert.equal(l.reviews.length, 1, 'the successor finish produced a review request');
+  assert.equal(l.reviews[0].baseRevision, admitted.record.base_revision);
+  assert.equal(l.reviews[0].revision, revision);
+});
+
+test('TM-247 AC3: stop-worker on a task whose claim was released names the re-claim step', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  assert.equal((await startTaskWorker(l.actual)).bound, true);
+  l.doc.status = 'parked'; l.setClaim(null);
+  const refused = await stopTaskWorker(l.actual);
+  assert.equal(refused.stopped, false);
+  assert.doesNotMatch(refused.reason, /reconcile ownership without stealing/);
+  assert.match(refused.reason, /was released/);
+  assert.match(refused.recovery, /ao-topology manage admit --task TM-1/);
+});
+
+test('TM-247 AC6: a refused tm dispatch is a TOPOLOGY_* error carrying tm\'s message, never a raw stack', async t => {
+  const { opts } = await fixture(t);
+  const { startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(opts);
+  opts.store.dispatch = async () => { throw Object.assign(new Error('Command failed: tm dispatch TM-1 --backend tmux --json\n    at ChildProcess.exithandler'), { code: 2, stderr: 'TM-1 is already dispatched to tmux as tmux:tm-TM-1 — collect it first with `tm collect TM-1`.\n' }); };
+  await assert.rejects(startTaskWorker(opts), error => {
+    assert.equal(error.code, 'TOPOLOGY_MANAGEMENT_DISPATCH');
+    assert.match(error.message, /already dispatched to tmux/);
+    assert.doesNotMatch(error.message, /Command failed|exithandler/);
+    return true;
+  });
+});
+
+test('TM-247 AC14/AC15: a worker that ran tm block is retired with its blocker; unblock, then start-worker re-claims and replaces it', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  // The worker runs `tm block`: status blocked, claim released. Then its harness exits.
+  Object.assign(l.doc, { status: 'blocked', blockedReason: 'needs the staging credentials' }); l.setClaim(null);
+  await l.kill(first.run);
+  const retired = await stopTaskWorker(l.actual);
+  assert.equal(retired.retired, true, retired.reason);
+  assert.deepEqual(retired.result, { outcome: 'blocked', reason: 'needs the staging credentials' });
+  assert.equal((await managementStatus(l.actual)).management.previous_workers[0].retired.result.outcome, 'blocked');
+  await assert.rejects(startTaskWorker(l.actual), { code: 'TOPOLOGY_MANAGEMENT_BLOCKED' }, 'a blocked task waits for tm unblock');
+  l.doc.status = 'open'; delete l.doc.blockedReason; // tm unblock
+  const second = await startTaskWorker(l.actual);
+  assert.equal(second.bound, true, second.reason);
+  assert.equal(l.doc.status, 'in_progress', 'start-worker re-claimed through tm start, no manual TM_SESSION_ID');
+});
+
+test('TM-247 AC15: admit resumes an admission whose claim was released, re-claiming it for the owner', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  await admitTask(l.actual);
+  l.doc.status = 'parked'; l.setClaim(null);
+  const resumed = await admitTask(l.actual);
+  assert.equal(resumed.resumed, true);
+  assert.equal(l.doc.status, 'in_progress');
+  assert.equal((await admitTask({ ...l.actual, owner: 'peer' })).admitted, false, 'another session never takes it over');
+});
+
+test('TM-247 AC13: a finish is accepted from the admission owner or the bound worker\'s dispatch session, never a stranger', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  assert.equal((await startTaskWorker(l.actual)).bound, true);
+  // A claim minted under a transient dispatching session before TM-247 (design-system TM-143).
+  l.doc.dispatched = { ...l.doc.dispatched, session: 'dispatch-shell' };
+  l.setClaim({ session: 'dispatch-shell', worktree: l.doc.worktree, branch: l.doc.branch });
+  const blocker = { kind: 'blocker', report: { message: 'waiting on a fixture' } };
+  await assert.rejects(workerReport({ ...l.actual, ...blocker, owner: 'stranger' }), { code: 'TOPOLOGY_MANAGEMENT_PROTOCOL' });
+  assert.equal((await workerReport({ ...l.actual, ...blocker, owner: 'dispatch-shell' })).state, 'blocked', 'the bound worker reports');
+  assert.equal((await workerReport({ ...l.actual, ...blocker })).state, 'blocked', 'the admission owner reports');
+});

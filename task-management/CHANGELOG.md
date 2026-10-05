@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Governed workers keep one identity, and a dead one no longer strands its lead (TM-247, EP-028).**
+  `tm dispatch` of an admitted task now claims under the admission owner, not under the
+  dispatching session. The worker inherits that id. When a governed task's live claim belongs to
+  its admission owner, the collector records a dead worker's result but never parks the task or
+  releases the claim. The lead retires the worker with `ao-topology manage stop-worker` and starts
+  a successor. A worker that ran `tm block` and exited has its block reason collected as a
+  `blocked` result, once. The duplicate-dispatch guard (`liveOwner`) treats a dispatch tm has
+  already collected as having no worker in flight, so a successor dispatch needs no `--steal`.
+
 - **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
   heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
   exit and the claim expired after 240 minutes under a worker that was still running. Each pool

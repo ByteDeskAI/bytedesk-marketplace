@@ -31334,6 +31334,8 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     // TM-218: the lead's one launcher. tm claims under TM_SESSION_ID=owner, reuses the admitted
     // worktree, spawns the backend, and writes the dispatch + registry row observeWorker reads.
     dispatch: async (id, backend) => JSON.parse((await exec(["dispatch", taskId(id), "--backend", backend, "--json"])).stdout),
+    // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
+    collect: async (id) => JSON.parse((await exec(["collect", taskId(id), "--json"])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
     done: async (id, actor = null) => exec(["done", taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(["govern", taskId(id), "--workflow", governance.workflowRunId, "--lead", governance.leadId, "--record", governance.recordPath]),
@@ -31350,12 +31352,15 @@ async function context(options) {
   const store = options.store || await taskStore(options);
   return { root, path: path3, store, identity, env, home };
 }
-function ownClaim(claim, owner) {
-  invariant2(claim && claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.");
+function ownClaim(claim, owner, task, { released = false, holders = [] } = {}) {
+  if (!claim && released) return;
+  if (claim && holders.includes(claim.session)) return;
+  invariant2(claim, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `Task claim for ${task} was released (the task was parked, blocked or collected), so its admission owner ${owner} holds nothing. Re-claim it with \`ao-topology manage admit --task ${task}\`, which resumes the same admission, then retry.`);
+  invariant2(claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `Task claim for ${task} is held by ${claim.session ?? "an unowned session"}, not the admission owner ${owner}; reconcile ownership without stealing, or record a handoff with \`ao-topology manage transfer --task ${task}\`.`);
 }
-async function ownedTask(ctx, task, owner) {
+async function ownedTask(ctx, task, owner, claimRule = {}) {
   const doc = await ctx.store.show(task);
-  ownClaim(await ctx.store.claim(task), owner);
+  ownClaim(await ctx.store.claim(task), owner, task, claimRule);
   invariant2(doc.worktree && doc.branch, "TOPOLOGY_MANAGEMENT_WORKTREE", "tm must provision and record the task worktree and branch.");
   invariant2((await canonicalRepoId(doc.worktree)).id === ctx.identity.id && await (0, import_promises41.realpath)(doc.worktree) !== await (0, import_promises41.realpath)(ctx.store.root), "TOPOLOGY_MANAGEMENT_WORKTREE", "Task worktree must be isolated within this repository.");
   invariant2(await gitText(doc.worktree, ["symbolic-ref", "--short", "HEAD"]) === doc.branch, "TOPOLOGY_MANAGEMENT_BRANCH", "Task worktree branch differs from the task store.");
@@ -31378,8 +31383,8 @@ function processGone(pid) {
     return error51.code === "ESRCH";
   }
 }
-async function registeredWorker(ctx, doc, owner) {
-  ownClaim(await ctx.store.claim(doc.id), owner);
+async function registeredWorker(ctx, doc, owner, claimRule = {}) {
+  ownClaim(await ctx.store.claim(doc.id), owner, doc.id, claimRule);
   invariant2(doc.dispatched?.run && doc.dispatched.session === owner, "TOPOLOGY_MANAGEMENT_WORKER", "Task dispatch must name the claim owner and worker run.");
   invariant2(typeof ctx.store.workers === "function", "TOPOLOGY_MANAGEMENT_WORKER", "Task store has no worker registry adapter.");
   const rows = (await ctx.store.workers()).filter((row) => row.session === owner && row.runId === doc.dispatched.run && row.backend === doc.dispatched.backend);
@@ -31445,45 +31450,49 @@ async function idleShell(pid) {
 async function taskWorkerState(options, record2) {
   const ctx = await context(options);
   try {
-    const doc = await ownedTask(ctx, options.task, record2?.owner), worker = record2.worker;
-    const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record2.owner);
-    invariant2(worker && worker.owner === record2.owner && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
-    invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
-    if (row.backend === "topology") {
-      invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
-      const { observation, identity } = await observedNativeWorker(ctx, doc);
-      invariant2(
-        worker.native_run_id === observation.runId && worker.native_fingerprint === observation.fingerprint && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
-        "TOPOLOGY_MANAGEMENT_WORKER",
-        "Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish."
-      );
-      return {
-        owned: true,
-        active: observation.hasLiveWriters,
-        alive: observation.hasLiveWriters,
-        proof: observation.hasLiveWriters ? "observed-native-writers-live" : "observed-native-workflow-exited",
-        worker,
-        ...observation.hasLiveWriters ? { reason: "An exact native workflow member or child is still alive; stop every task writer before integration." } : {}
-      };
-    }
-    if (worker.kind === "process") {
-      invariant2(row.pid === worker.pid, "TOPOLOGY_MANAGEMENT_WORKER", "Registered worker PID changed.");
-      if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: "observed-process-exited", worker };
-      const current = await processStart(worker.pid);
-      invariant2(current && current.start === worker.process_start && current.boot === worker.boot, "TOPOLOGY_MANAGEMENT_WORKER", "Worker PID identity is unknown or was reused.");
-      return { owned: true, active: true, alive: true, reason: "Observed worker is still alive; finish its process before integration." };
-    }
-    const panes = await listServerPanes({ tmuxServer: worker.binding.serverKey, env: ctx.env });
-    const pane = panes.find((p) => bindingKeys.every((key) => p[key] === worker.binding[key]));
-    if (!pane || !pane.alive) {
-      invariant2(!panes.some((p) => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || (0, import_node_path51.resolve)(p.cwd) === (0, import_node_path51.resolve)(doc.worktree))), "TOPOLOGY_MANAGEMENT_WORKER", "Worker session contains a replacement live pane.");
-      return { owned: true, active: false, alive: false, proof: "observed-pane-exited", worker };
-    }
-    if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: "observed-pane-idle-shell", worker };
-    return { owned: true, active: true, alive: true, reason: "Observed worker pane is still alive; its activity is not safely known." };
+    const doc = await ownedTask(ctx, options.task, record2?.owner);
+    return await observeLiveness(ctx, doc, record2, { finished: true });
   } catch (error51) {
     return { owned: false, active: true, alive: null, reason: error51.message };
   }
+}
+async function observeLiveness(ctx, doc, record2, { finished, claimRule = {} }) {
+  const worker = record2.worker;
+  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record2.owner, claimRule);
+  invariant2(worker && worker.owner === record2.owner && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  if (finished) invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
+  if (row.backend === "topology") {
+    invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
+    const { observation, identity } = await observedNativeWorker(ctx, doc);
+    invariant2(
+      worker.native_run_id === observation.runId && (!finished || worker.native_fingerprint === observation.fingerprint) && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
+      "TOPOLOGY_MANAGEMENT_WORKER",
+      "Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish."
+    );
+    return {
+      owned: true,
+      active: observation.hasLiveWriters,
+      alive: observation.hasLiveWriters,
+      proof: observation.hasLiveWriters ? "observed-native-writers-live" : "observed-native-workflow-exited",
+      worker,
+      ...observation.hasLiveWriters ? { reason: "An exact native workflow member or child is still alive; stop every task writer before integration." } : {}
+    };
+  }
+  if (worker.kind === "process") {
+    invariant2(row.pid === worker.pid, "TOPOLOGY_MANAGEMENT_WORKER", "Registered worker PID changed.");
+    if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: "observed-process-exited", worker };
+    const current = await processStart(worker.pid);
+    invariant2(current && current.start === worker.process_start && current.boot === worker.boot, "TOPOLOGY_MANAGEMENT_WORKER", "Worker PID identity is unknown or was reused.");
+    return { owned: true, active: true, alive: true, reason: "Observed worker is still alive; finish its process before integration." };
+  }
+  const panes = await listServerPanes({ tmuxServer: worker.binding.serverKey, env: ctx.env });
+  const pane = panes.find((p) => bindingKeys.every((key) => p[key] === worker.binding[key]));
+  if (!pane || !pane.alive) {
+    invariant2(!panes.some((p) => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || (0, import_node_path51.resolve)(p.cwd) === (0, import_node_path51.resolve)(doc.worktree))), "TOPOLOGY_MANAGEMENT_WORKER", "Worker session contains a replacement live pane.");
+    return { owned: true, active: false, alive: false, proof: "observed-pane-exited", worker };
+  }
+  if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: "observed-pane-idle-shell", worker };
+  return { owned: true, active: true, alive: true, reason: "Observed worker pane is still alive; its activity is not safely known." };
 }
 function refuseSelfAssertion(options, managed) {
   const asserted = [...options.authorized === true ? ["--authorized"] : [], ...nonempty(options.actor) ? ["--actor"] : []];
@@ -77708,10 +77717,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  return false ? null : "d047cb85e6a11b19019e6dedf9dae27425d80f2080b3a07fcc307c3d4afb23fc";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  const fingerprint2 = false ? null : "d047cb85e6a11b19019e6dedf9dae27425d80f2080b3a07fcc307c3d4afb23fc";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78136,7 +78145,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871",
+  sourceFingerprint: false ? null : "d047cb85e6a11b19019e6dedf9dae27425d80f2080b3a07fcc307c3d4afb23fc",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -4,6 +4,19 @@
 
 ### Added
 
+- **A governed worker that died before its finish report can be retired and replaced (TM-247, EP-028).**
+  `manage stop-worker` now retires a bound worker whose pane or process is observed gone (or is an
+  idle shell) and that never sent a finish. The dead incarnation moves to `previous_workers` with
+  the observation and what it left behind (a `tm block` reason or a blocker report). `tm collect`
+  records the dispatch as ended. The worktree and its uncommitted changes are untouched. A live or
+  unproven worker is still refused. `manage start-worker` then binds a successor to the same
+  admission and base revision. Start-worker and a resumed `manage admit` re-claim a released claim
+  for the admission owner through `tm start`. A blocked task waits for `tm unblock`. A claim held by
+  another session is still refused. `manage report` accepts a report from the admission owner or
+  from the bound worker's own dispatch session. The ownership refusal for a released claim now names
+  the recovery: `manage admit`. A refused `tm dispatch` in start-worker is now
+  `TOPOLOGY_MANAGEMENT_DISPATCH` carrying tm's message, not a Node stack trace.
+
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
   `failover` restarts one, and when `session open` starts a durable session, ao copies each named

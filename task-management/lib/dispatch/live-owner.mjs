@@ -18,6 +18,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { claimant } from "../claims.mjs";
+import { priorCollection } from "./collect.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
 
 /** The ao-topology binary, or null. Explicit caps are authoritative (tests pass `{}`). */
@@ -50,7 +51,9 @@ export function aoAssignment(id, { root, caps = null, spawnImpl = spawnSync, env
 export function liveOwner(task, p, { caps = null, spawnImpl = spawnSync, env = process.env } = {}) {
   const id = task.id;
   const claim = claimant(id, p);
-  if (task.dispatched && claim) {
+  // TM-247: a dispatch whose result tm already collected has no worker in flight. Its record stays
+  // (history, the review path), so without this a re-claimed task could never dispatch a successor.
+  if (task.dispatched && claim && !priorCollection(task)) {
     const as = task.dispatched.run ? ` as ${task.dispatched.run}` : "";
     const by = claim.session ?? claim.actor ?? null;
     return {
