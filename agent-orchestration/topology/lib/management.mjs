@@ -806,13 +806,22 @@ export async function recordLanding(options) {
   });
 }
 
-/** Cleanup fails closed with a recovery path; it never force-removes a tree or remote branch. */
+/** TM-251: branches cleanup never deletes, whatever a record says: develop, main, master, release/*
+ * and the configured integration branch. One predicate, so any future deletion path shares it. */
+export function protectedBranch(name, target = null) {
+  return ['develop', 'main', 'master'].includes(name) || /^release\//.test(name) || (nonempty(target) && name === target);
+}
+
+/** Cleanup fails closed with a recovery path; it never force-removes a tree. It deletes only the
+ * local task branch (`git branch -d`, never -D); remote branch deletion is out of scope (TM-251). */
 export async function cleanupTask(options) {
   const ctx = await context(options);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const record = await loadRecord(ctx.path);
     try {
       invariant(record?.merge && record.collected, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Verified merge and collected results are required.');
+      // Checked before anything is observed or removed: a protected branch is refused by name.
+      invariant(!protectedBranch(record.branch, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Refusing to clean up protected branch ${record.branch}: cleanup never touches develop, main, master, release/* or the integration branch.`);
       const doc = await ownedTask(ctx, options.task, record.owner);
       invariant(record.worktree === doc.worktree && record.branch === doc.branch, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task worktree ownership changed.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');

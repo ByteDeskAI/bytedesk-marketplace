@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`manage cleanup` refuses protected branches by name (TM-251, EP-028).** Cleanup removes a
+  merged task's worktree and its LOCAL branch only (`git branch -d`). Before it observes or removes
+  anything, it refuses a record naming `develop`, `main`, `master`, any `release/*` branch or the
+  configured integration branch, with `TOPOLOGY_MANAGEMENT_CLEANUP` and the branch named. Remote
+  branch deletion stays out of scope: a test proves the remote copy of a cleaned branch survives.
+  `protectedBranch()` in `topology/lib/management.mjs` is the one predicate.
+
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
   `failover` restarts one, and when `session open` starts a durable session, ao copies each named

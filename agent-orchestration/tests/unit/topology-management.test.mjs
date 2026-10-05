@@ -1526,3 +1526,34 @@ test('TM-360: manage assignment reports a live bound worker, and start-worker su
   await writeJson(path, { ...record, worker: { kind: 'tmux', run: 'tmux:lead-worker', stopped_at: '2026-10-05T00:00:00Z' } });
   assert.equal((await assignmentResult(opts)).worker, undefined, 'a stopped worker is history, not a holder');
 });
+
+// ── TM-251: cleanup never touches develop, main or release/*, and never a remote branch ─────────
+const recordPath = async opts => join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+for (const branch of ['develop', 'main', 'release/v1.2.0']) {
+  test(`TM-251 cleanup refuses the protected branch ${branch} by name and removes nothing`, async t => {
+    const { opts, finish, calls, git } = await fixture(t);
+    await admitTask(opts); await finish(); await integrateTask(opts);
+    // A record naming a protected branch (a corrupted or hand-edited record): cleanup must refuse it.
+    if (branch !== 'main') await git(opts.consumer, ['branch', branch]);
+    const path = await recordPath(opts), record = await readJson(path);
+    await writeJson(path, { ...record, branch });
+    const result = await cleanupTask(opts);
+    assert.equal(result.cleaned, false);
+    assert.match(result.reason, new RegExp(`protected branch ${branch.replace('/', '\\/')}`));
+    assert.equal(calls.includes('remove'), false); assert.equal(calls.includes('done'), false);
+    assert.equal((await git(opts.consumer, ['branch', '--list', branch])).stdout.trim().replace(/^[*+] /, ''), branch, `${branch} still exists`);
+  });
+}
+
+test('TM-251 cleanup deletes only the local task branch; the remote branch stays', async t => {
+  const { opts, finish, git } = await fixture(t);
+  const origin = join(opts.home, '..', 'origin.git');
+  await run('git', ['init', '-q', '--bare', origin]);
+  await git(opts.consumer, ['remote', 'add', 'origin', origin]);
+  await admitTask(opts); await finish();
+  await git(opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
+  await integrateTask(opts);
+  assert.equal((await cleanupTask(opts)).cleaned, true);
+  assert.equal((await git(opts.consumer, ['branch', '--list', 'tm/TM-1'])).stdout.trim(), '', 'the local branch is gone');
+  assert.match((await run('git', ['-C', origin, 'branch', '--list', 'tm/TM-1'])).stdout, /tm\/TM-1/, 'the remote branch is untouched');
+});
