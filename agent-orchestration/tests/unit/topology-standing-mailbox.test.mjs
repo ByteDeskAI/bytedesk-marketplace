@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { sendStandingMessage, resumeStandingMessages, readStandingInbox, readStandingOutbox, readStandingMessage, standingMailboxRoot, wakeStandingMessages } from '../../topology/lib/standing-mailbox.mjs';
 import { leadRecoveryStatus, recoverLead, requestLeadRecovery } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
@@ -258,4 +258,91 @@ test('the supervisor that proves its lead responsive wakes the mail that asked, 
  assert.equal((await leadRecoveryStatus({consumer:source,env,home})).pending_requests,1,'the source repository request is its own supervisor\'s to consume');
  const [delivered]=await resumeStandingMessages({consumer,...opts});
  assert.equal(delivered.status,'delivered','woken mail is due without waiting out its backoff');
+});
+
+// TM-384 / ADR-0041. No test here touches tmux: the bell is injected (wake), so no server, real or
+// isolated, is ever addressed.
+const NL = String.fromCharCode(10);
+const LEAD_BINDING = { serverKey: 'tm384-test-socket', serverPid: 11, sessionId: 's7', sessionCreated: 1700000000, paneId: 'p9', panePid: 12 };
+function leadRing(rings, outcome = { rang: true }) {
+  return {
+    readiness: async ({ consumer: repo }) => repo.endsWith('destination') ? { status: 'unresponsive', record: { agent_id: 'lead0001' }, library_lead: 'lead0001' } : READY,
+    readLead: async () => ({ record: { agent_id: 'lead0001', pane: 'p9', provider: 'claude', binding: LEAD_BINDING } }),
+    loadAdapters: async () => new Map([['claude', { id: 'claude', composer: { empty_tmux_pattern: '^>' }, submit_keys: ['Enter'] }]]),
+    wake: async (args) => { rings.push(args); return outcome; },
+  };
+}
+
+test('held leads_not_ready mail rings an alive lead after one backoff, once per window, and records the outcome', async (t) => {
+  const { consumer, opts, message, clock } = await fixture(t);
+  const rings = []; const ring = { ...opts, ...leadRing(rings) };
+  const held = await sendStandingMessage(message, ring);
+  assert.deepEqual([held.status, held.reason, held.readiness.destination], ['held', 'leads_not_ready', 'unresponsive']);
+  assert.equal(rings.length, 0, 'the first hold has not yet survived a recovery backoff');
+  assert.equal(held.lead_ring, undefined);
+  clock.t += 10_000;
+  const [first] = await resumeStandingMessages({ consumer, ...ring });
+  assert.equal(rings.length, 1, 'rang after one backoff');
+  assert.equal(rings[0].pane, 'p9'); assert.deepEqual(rings[0].binding, LEAD_BINDING);
+  assert.match(rings[0].text, /stable-id/); assert.match(rings[0].text, /mailbox inbox --consumer [^ ]+ --agent lead0001/);
+  assert.deepEqual([first.status, first.lead_ring.rang, first.lead_ring.at, first.lead_ring.attempt], ['held', true, new Date(clock.t).toISOString(), 2]);
+  assert.equal((await readStandingMessage({ id: message.id, ...opts })).lead_ring.rang, true, 'the outcome is durable on the record');
+  const [again] = await resumeStandingMessages({ consumer, ...ring, force: true });
+  assert.equal(rings.length, 1, 'at most once per backoff window, even when forced');
+  assert.equal(again.lead_ring.at, first.lead_ring.at);
+  clock.t += 120_000; // the forced resume was attempt 3, so the next resume is due 2m later
+  await resumeStandingMessages({ consumer, ...ring });
+  assert.equal(rings.length, 2, 'a new window may ring again');
+});
+
+test('a ring the bell refuses is recorded with its reason, and a lead not alive is never rung', async (t) => {
+  const { consumer, opts, message, clock } = await fixture(t);
+  const rings = []; const refused = { ...opts, ...leadRing(rings, { rang: false, reason: 'composer is not empty' }) };
+  await sendStandingMessage(message, refused); clock.t += 10_000;
+  const [result] = await resumeStandingMessages({ consumer, ...refused });
+  assert.deepEqual([result.lead_ring.rang, result.lead_ring.reason], [false, 'composer is not empty']);
+  const dead = [];
+  const notAlive = { ...opts, ...leadRing(dead), readiness: async ({ consumer: repo }) => repo.endsWith('destination') ? { status: 'registered' } : READY };
+  await sendStandingMessage({ ...message, id: 'dead-lead' }, notAlive); clock.t += 10_000;
+  await resumeStandingMessages({ consumer, ...notAlive }); clock.t += 30_000;
+  await resumeStandingMessages({ consumer, ...notAlive });
+  assert.equal(dead.length, 0, 'only a lead whose record is alive is rung');
+});
+
+async function bindWorker({ consumer, opts }, task, worker) {
+  const id = (await canonicalRepoId(consumer)).id;
+  const state = dirname(standingMailboxRoot({ env: opts.env, home: opts.home }));
+  await writeJson(join(state, 'management', repoKey(id), task + '.json'), { task, repo_id: id, started: true, worker });
+}
+const CODEX_WORKER = { name: 'codex-tm7', run: 'tmux:tm-TM-7', backend: 'tmux', kind: 'tmux', session_name: 'tm-TM-7', binding: LEAD_BINDING };
+
+test('task address reaches the bound non-roster Codex worker instead of unknown_recipient', async (t) => {
+  const f = await fixture(t); const { consumer, opts, message } = f;
+  await bindWorker(f, 'TM-7', CODEX_WORKER);
+  const same = { ...message, id: 'task-mail', fromProject: consumer, to: 'task:TM-7', task: 'TM-7' };
+  const result = await sendStandingMessage(same, opts);
+  assert.deepEqual([result.status, result.delivered_to, result.decision.task_address], ['delivered', 'codex-tm7', 'TM-7']);
+  assert.equal((await readStandingInbox({ consumer, agent: 'codex-tm7', ...opts })).length, 1);
+  const unbound = await sendStandingMessage({ ...same, id: 'task-unbound', to: 'task:TM-8', task: 'TM-8' }, opts);
+  assert.deepEqual([unbound.status, unbound.reason, unbound.permanent], ['held', 'task_worker_unbound', false], 'no bound worker is a clear, retryable hold');
+  await bindWorker(f, 'TM-9', { ...CODEX_WORKER, name: 'codex-tm9', stopped_at: '2026-10-05T00:00:00.000Z' });
+  const stopped = await sendStandingMessage({ ...same, id: 'task-stopped', to: 'task:TM-9', task: 'TM-9' }, opts);
+  assert.equal(stopped.reason, 'task_worker_unbound', 'a stopped worker is history');
+});
+
+test('cross-repo task address mail reaches the worker only under a delegation, otherwise the lead', async (t) => {
+  const f = await fixture(t); const { consumer, opts, message } = f;
+  await bindWorker(f, 'TM-7', CODEX_WORKER);
+  const cross = { ...message, id: 'cross-task', to: 'task:TM-7', task: 'TM-7' };
+  const redirected = await sendStandingMessage(cross, opts);
+  assert.deepEqual([redirected.status, redirected.delivered_to, redirected.decision.redirected], ['delivered', 'lead0001', true]);
+  const unbound = await sendStandingMessage({ ...cross, id: 'cross-unbound', to: 'task:TM-8', task: 'TM-8' }, opts);
+  assert.equal(unbound.delivered_to, 'lead0001', 'cross-repo with no bound worker still goes to the lead');
+  const frontmatter = ['---', 'id: TM-7', 'status: in_progress', 'assignee: codex-tm7', '---', ''].join(NL);
+  await writeText(join(consumer, '.bytedesk/task-management/tasks/TM-7-work.md'), frontmatter);
+  await issueDelegation(consumer, { task: 'TM-7', external_agent: message.from, local_agent: 'codex-tm7', issued_by: 'lead0001' });
+  const direct = await sendStandingMessage({ ...cross, id: 'cross-delegated' }, opts);
+  assert.deepEqual([direct.status, direct.delivered_to, direct.decision.redirected], ['delivered', 'codex-tm7', false]);
+  const otherTask = await sendStandingMessage({ ...cross, id: 'cross-other-task', task: 'TM-1' }, opts);
+  assert.equal(otherTask.delivered_to, 'lead0001', 'a delegation for TM-7 does not cover mail naming another task');
 });

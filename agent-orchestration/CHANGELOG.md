@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Held standing mail rings an alive lead, and `task:<TM-id>` reaches its bound worker (TM-384,
+  ADR-0041).** Mail held `leads_not_ready` for a destination lead whose record is alive is now,
+  once it has survived one recovery backoff, rung into the lead pane through the safe bell probes
+  use (`wakeForProbe`) with a pointer naming the message id and the `mailbox inbox` command. At
+  most one ring per message per backoff window; the outcome (`rang`, `at`, or the refusal
+  `reason`) is kept on the record as `lead_ring`. The ring never delivers: admission still waits
+  for proven readiness. The address `task:<TM-id>` resolves to the worker the management record
+  binds to that task (`record.worker`, written by `manage bind`), so a non-roster Codex worker
+  receives task mail instead of `unknown_recipient`. Same-repo senders reach it directly;
+  cross-repo senders reach it only when `delegationAllows` covers that task for that worker, and
+  otherwise go to the lead as before. With no live bound worker, same-repo mail is held
+  `task_worker_unbound` (retryable).
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
