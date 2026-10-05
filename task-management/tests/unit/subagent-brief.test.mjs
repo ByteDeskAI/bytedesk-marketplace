@@ -206,6 +206,10 @@ describe("the dispatched worker", () => {
     assert.match(out, new RegExp(`tm block ${t.id} "reason"`));
     assert.match(out, /Never leave the task in_progress/);
     assert.match(out, /touches/, "the worker should know its edits are recorded");
+    // No human and no later turn: the same rules handoff() renders (TM-246).
+    assert.match(out, /Do the task in your own session/);
+    assert.match(out, /Never end your turn while a background agent or command you started is still running/);
+    assert.match(out, new RegExp(`Block instead: \\S+tm block ${t.id} "<the question>"`));
   });
 
   it("carries the unmet criteria and drops the met ones, same as the classic brief", () => {
@@ -233,6 +237,10 @@ describe("the dispatched worker", () => {
     });
     const out = workerBrief(t.id, p);
     assert.ok(out.length <= 1200, `brief was ${out.length} chars`);
+    // The cap must not cut the endings or the no-later-turn rules (TM-246).
+    assert.match(out, new RegExp(`tm done ${t.id}`));
+    assert.match(out, new RegExp(`tm block ${t.id} "reason"`));
+    assert.match(out, /Never end your turn while a background agent/);
     assert.ok(out.split("- [ ]").length - 1 <= 5);
   });
 });

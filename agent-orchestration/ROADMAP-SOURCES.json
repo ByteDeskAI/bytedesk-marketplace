@@ -3,8 +3,8 @@
   "hashAlgorithm": "sha256",
   "files": {
     "src/cli.mjs": {
-      "sha256": "8d3c04cfdc2a94592a0c566dcb5a4d4030ad9b5a86c1ce3442a9e620e375e229",
-      "lineCount": 94,
+      "sha256": "6eceaaa9ede82ccfadd5d9ec963e3303dd3d8b7632dcf576cb5d4e23822b76ba",
+      "lineCount": 101,
       "anchors": [
         "Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]"
       ]

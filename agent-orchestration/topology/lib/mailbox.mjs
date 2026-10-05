@@ -400,12 +400,12 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       ? `\n> This message was addressed to ${decision.intended_display || requested} and routed to you because it came from outside this project with no open delegation. Handle it or delegate it.\n`
       : "";
     const instructions = replySubject
-      ? `\n\n<!-- Reply on NATS subject ${replySubject} with: ao-topology reply --message ${id} -->\n`
+      ? `\n\n<!-- Reply on NATS subject ${replySubject} with: ao-topology reply --message ${id}, or write your complete reply to: ${outbox} -->\n`
       : `\n\n<!-- Write your complete reply to: ${outbox} -->\n`;
     const rendered = `${header}${redirectNote}\n${body.trim()}\n${instructions}`;
     const messageId = wireMessageId(runDir, run, id);
     const pendingDelivery = { agent: recipient, requested, redirected: Boolean(decision.redirected), via: hops,
-      inbox: activeTransport.kind === 'file' ? inbox : null, outbox: activeTransport.kind === 'file' ? outbox : null,
+      inbox, outbox,
       transport: activeTransport.kind, ...(activeTransport.kind === 'nats' ? { messageId, publication: 'pending' } : {}) };
     if (activeTransport.kind === 'nats') await withLock(join(runDir, '.mailbox-sequence.lock'), async () => {
       const current = await loadRun(runDir); current.message_deliveries ??= {};
@@ -424,13 +424,17 @@ export async function sendMessage({ runDir, from, to, stage, body, contract, rou
       body: rendered,
       inboxPath: activeTransport.kind === 'file' ? inbox : undefined,
     });
+    // TM-409: NATS delivery also materializes the inbox file, so a file-only reviewer (one that
+    // reads its inbox directory and writes its outbox) receives NATS-delivered run mail too.
+    // Written after the publish succeeds, so a failed publish leaves no orphan obligation.
+    if (activeTransport.kind === 'nats') await writeText(inbox, rendered);
     deliveries.push({
       agent: recipient,
       requested,
       redirected: Boolean(decision.redirected),
       via: hops,
-      inbox: activeTransport.kind === 'file' ? inbox : null,
-      outbox: activeTransport.kind === 'file' ? outbox : null,
+      inbox,
+      outbox,
       subject: published.subject,
       transport: activeTransport.kind,
       ...(activeTransport.kind === 'nats' ? { messageId, publication: 'published' } : {}),
@@ -536,9 +540,11 @@ async function obligations(runDir, run, agentId, transport = null) {
         repo,
         replyAgent: run.message_envelopes?.[id]?.from ?? null,
         replyToId: delivery.messageId ?? id,
-        inbox: null,
-        outbox: null,
-        addressee_outbox: null,
+        // TM-410: a NATS-delivered message is also answerable by a file reply (TM-409 gives the
+        // recipient this outbox path), so the barrier checks both.
+        inbox: join(agentDir(runDir, agentId), "inbox", `${id}.md`),
+        outbox: join(agentDir(runDir, agentId), "outbox", replyFileNameFor(id)),
+        addressee_outbox: join(agentDir(runDir, agentId), "outbox", replyFileNameFor(id)),
       });
     }
   }
@@ -593,7 +599,7 @@ export async function pendingReplies(runDir, agentIds, { addressing = {}, transp
       // The outbox reported is the one the answer must actually appear in. Naming the addressee's
       // box on a redirected message sends whoever is debugging the wait to an empty directory.
       if (item.transport === 'nats') {
-        if (await readNatsReply(runDir, item, active)) continue;
+        if (await hasAnswer(item.outbox) || await readNatsReply(runDir, item, active)) continue;
       } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
@@ -632,7 +638,7 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
           if (messageId && item.id !== messageId) continue;
           const answerKey = item.standingId ?? item.outbox ?? `${item.transport}:${item.id}:${item.answerer}`;
           if (seen.has(answerKey)) continue;
-          if (item.transport === 'nats') {
+          if (item.transport === 'nats' && !(await hasAnswer(item.outbox))) {
             const reply = await readNatsReply(runDir, item, active);
             if (!reply) continue;
             seen.add(answerKey);

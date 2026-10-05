@@ -26,14 +26,14 @@
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { toolFailureReason } from "./backend.mjs";
-import { releaseClaim } from "../claims.mjs";
+import { claimant, releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { rpcSession } from "./mcp-client.mjs";
 import { failureScope } from "./failure.mjs";
-import { managementIdentity } from "../governance-check.mjs";
+import { managementIdentity, readManagementRecord } from "../governance-check.mjs";
 
 /** A collection is a quick query, not the 120s launch handshake. */
 export const COLLECT_TIMEOUT_MS = 30_000;
@@ -50,7 +50,7 @@ const OUTCOMES = new Set(["done", "ready-for-review", "blocked", "failed"]);
  * `dispatched.at` (every record has it) plus `run` when present, so a dispatch with no run handle
  * is de-duplicated too, and a re-dispatch — a new record — is collected again.
  */
-function priorCollection(task) {
+export function priorCollection(task) {
   const d = task?.dispatched;
   const c = d?.collected;
   return c && c.dispatchedAt === (d.at ?? null) && c.run === (d.run ?? null) ? c : null;
@@ -94,6 +94,27 @@ function recordPullRequest(task, p, exec) {
 }
 
 /**
+ * The uncommitted paths a failed worker left in its worktree (TM-246), or [].
+ *
+ * "worker exited without closing" said nothing about whether work was lost; TM-240 was parked
+ * with four uncommitted files and no commit, and nobody could tell from the board. Every
+ * collector's failure goes through recordResult, so the paths are read once here, for all of
+ * them. Bounded and never throws: no worktree, no git, or a removed checkout records nothing.
+ */
+function dirtyPaths(worktree) {
+  if (!worktree || !isAbsolute(String(worktree))) return [];
+  try {
+    const res = spawnSync("git", ["-C", worktree, "status", "--porcelain", "--untracked-files=all"], {
+      shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000,
+    });
+    if (res.error || res.status !== 0) return [];
+    return String(res.stdout || "").split("\n").filter(Boolean).map((line) => line.slice(3));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Whether a failed worker earns another attempt instead of parking (TM-363), as
  * { attempt, retries, retryAt }, or null.
  *
@@ -109,6 +130,21 @@ function retryPlan(task, final, scope, reviewReady, p) {
   const attempt = (Number(task.dispatchRetries) || 0) + 1;
   if (!(attempt <= retries)) return null;
   return { attempt, retries, retryAt: new Date(Date.now() + 4 ** (attempt - 1) * 60_000).toISOString() };
+}
+
+/**
+ * TM-247: a governed task whose live claim belongs to its admission owner is that lead's to recover.
+ * The collector records what the worker did and leaves the task, claim and status alone; parking
+ * here dropped a lead's re-claim between ticks (TM-242) and forced a manual TM_SESSION_ID tm start.
+ */
+function heldByAdmissionOwner(task, p) {
+  if (!task.governance) return false;
+  try {
+    const owner = readManagementRecord(task, p).record.owner;
+    return Boolean(owner) && claimant(task.id, p)?.session === owner;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -156,8 +192,16 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
 
     let parked = false;
     const scope = failureScope({ ...result, summary: note });
-    const retry = retryPlan(task, final, scope, reviewReady, p);
-    if (retry) {
+    // After the scope is read, so a file name cannot change how the failure is classified (TM-246).
+    if (final === "failed") {
+      const dirty = dirtyPaths(task.worktree);
+      if (dirty.length) note = `${note || "worker failed"}\n\nuncommitted in ${task.worktree}: ${dirty.slice(0, 20).join(", ")}${dirty.length > 20 ? ` (+${dirty.length - 20} more)` : ""}`;
+    }
+    const leadHeld = heldByAdmissionOwner(task, p);
+    const retry = leadHeld ? null : retryPlan(task, final, scope, reviewReady, p);
+    if (leadHeld) {
+      /* the admission owner recovers it: manage stop-worker retires the worker, start-worker replaces it */
+    } else if (retry) {
       // Reopened, not parked: the claim goes so the pool can pick it up once retryAt passes.
       update(id, { status: "open", dispatchRetries: retry.attempt, retryAt: retry.retryAt }, p);
       releaseClaim(id, p);
@@ -177,7 +221,7 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     // `pr` rides on the event so a ticket's origin hears "PR opened" (TM-359, lib/ticket.mjs).
     logEvent("task_result", { id, run: task.dispatched.run ?? null, outcome: final, ...(pr ? { pr } : {}) }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
-    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: scope, ...(retry ? { retry } : {}), ...(pr ? { pr } : {}) };
+    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, ...(leadHeld ? { heldByLead: true } : {}), summary: note, failureScope: scope, ...(retry ? { retry } : {}), ...(pr ? { pr } : {}) };
   } catch (err) {
     return { ok: false, reason: `recordResult failed for ${id}: ${err.message}` };
   }
@@ -307,11 +351,21 @@ function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync } = {}
     if (after.status === "in_progress") {
       return recordResult(id, { run: handle, outcome: "failed", summary: "worker exited without closing" }, p);
     }
+    if (after.status === "blocked") return recordBlocked(id, handle, after, `${backend} worker`, p);
     // Parked/blocked/reopened already — the board was told by another path.
     return { ok: true, pending: false, skipped: `task is ${after.status}; nothing to collect` };
   } catch (err) {
     return { ok: false, reason: `collect${backend[0].toUpperCase()}${backend.slice(1)} failed for ${id}: ${err.message}` };
   }
+}
+
+/**
+ * TM-247: a worker that ran `tm block` and exited reported a blocker, not nothing. Its reason is the
+ * collected result, once per dispatch, so the board and the duplicate-dispatch guard both see it ended.
+ */
+function recordBlocked(id, run, task, who, p) {
+  if (priorCollection(task)?.outcome === "blocked") return { ok: true, pending: false, duplicate: true, outcome: "blocked" };
+  return recordResult(id, { run, outcome: "blocked", summary: `${who} exited blocked: ${task.blockedReason || "no reason given"}` }, p);
 }
 
 /** The raw-tmux collector: `tmux:tm-<id>`. */
@@ -381,6 +435,7 @@ export function collectTopology(id, { p = paths(), caps = null, spawnImpl = spaw
     if (after.governance?.state === "ready-for-review") return recordResult(id, { run: dispatched.run, outcome: "ready-for-review", summary: "native worker ended after submitting its exact revision; independent review and integration remain required" }, p);
     if (after.status === "done") return recordResult(id, { run: dispatched.run, outcome: "done", summary: "native worker ended; task completion was already verified" }, p);
     if (after.status === "in_progress") return recordResult(id, { run: dispatched.run, outcome: "failed", summary: "native worker ended without completing its task protocol" }, p);
+    if (after.status === "blocked") return recordBlocked(id, dispatched.run, after, "native worker", p);
     return { ok: true, pending: false, skipped: `task is ${after.status}; nothing to collect` };
   } catch (error) { return hold(`native workflow observation failed: ${error.message}`); }
 }

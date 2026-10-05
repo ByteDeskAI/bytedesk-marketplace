@@ -6,7 +6,7 @@
  *
  * Usage: tm <verb> [args]        tm help
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,7 +59,7 @@ import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
 import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks, typeOf } from "../lib/issue.mjs";
-import { EVENT_KINDS, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
+import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -1097,9 +1097,22 @@ const VERBS = {
   doctor(...args) {
     requireInit();
     const fixed = args.includes("--fix") ? repairAll(P) : null;
+    // TM-379: `--all` is the combined doctor. When agent-orchestration is installed its doctor is the
+    // one command (AO, this store through `tm doctor --json`, services); run it and keep its exit.
+    // Without AO, this store alone answers and says what it could not check.
+    let peer = null;
+    if (args.includes("--all")) {
+      const topology = aoTopologyBin();
+      const cli = topology && join(dirname(topology), "agent-orchestration");
+      if (cli && existsSync(cli)) {
+        const res = spawnSync(cli, ["doctor", "--consumer-cwd", P.root], { stdio: "inherit", env: process.env });
+        process.exit(res.status ?? 1);
+      }
+      peer = { agentOrchestration: { present: false, note: "agent-orchestration is not installed: AO and services health not checked" } };
+    }
     // Re-read after repairing: what is reported as remaining must be what remains.
     const after = diagnose(P);
-    emit({ findings: after.map(({ fix, ...f }) => f), fixed }, () => renderDoctor(after, { fixed }));
+    emit({ findings: after.map(({ fix, ...f }) => f), fixed, reviewCoverage: after.reviewCoverage, ...peer }, () => renderDoctor(after, { fixed }) + (peer ? `\n${peer.agentOrchestration.note}` : ""));
     if (after.some((f) => f.level === "error")) process.exit(1);
   },
 
@@ -1937,7 +1950,7 @@ const VERBS = {
         "  events [n] [--follow] [--since <iso>]   the raw event stream; --json gives JSONL",
         "  why <id>                      what is actually holding a task up, to the root",
         "  graph [--epic EP-1] [--all]   the dependency graph as Mermaid",
-        "  doctor [--fix]                what is inconsistent in the store; exits 1 on an error",
+        "  doctor [--fix] [--all]        what is inconsistent in the store; exits 1 on an error. --all: with agent-orchestration installed, its combined doctor (AO, this store, services)",
         "  export [md|csv|json]          the board out; --epic, --status, --open, --out <file>",
         "  reindex | override <reason> | override --clear | config [key [value]] | config --with-revision | config --set-file <json> [--if-revision <rev>] | context",
         "  where                         project launcher and resolved plugin runtime",

@@ -7,7 +7,7 @@ import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readStandingInbox, recordStandingReply, ringStandingMail, sendStandingMessage, waitForStandingReply } from '../../topology/lib/standing-mailbox.mjs';
-import { listMailboxReceipts } from '../../topology/lib/mailbox-receipts.mjs';
+import { listMailboxReceipts, setMailboxDisposition } from '../../topology/lib/mailbox-receipts.mjs';
 import { loadAdapters } from '../../topology/lib/providers.mjs';
 import { agentsRoot } from '../../topology/lib/agents.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
@@ -17,7 +17,7 @@ import { initTempRepo } from '../helpers/temp-repo.mjs';
 const READY = { status: 'responsive', record: { agent_id: 'lead0001' }, library_lead: 'lead0001' };
 const BINDING = { serverKey: '/tmp/ao-test-never-a-real-socket', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%9', panePid: 2 };
 
-async function fixture(t) {
+async function fixture(t, { seed = true } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'standing-ring-')); t.after(() => rm(root, { recursive: true, force: true }));
   const source = join(root, 'source'), consumer = join(root, 'destination'), home = join(root, 'home');
   await Promise.all([source, consumer, home].map(p => mkdir(p, { recursive: true })));
@@ -28,6 +28,9 @@ async function fixture(t) {
   const send = id => sendStandingMessage({ id, consumer, fromProject: source, from: 'send0001', to: 'lead0001', body: 'SECRET full request body' }, opts);
   const adapters = await loadAdapters([join(process.cwd(), 'providers')]);
   const panes = [{ agentId: 'lead0001', command: 'claude', ...BINDING }];
+  // TM-419: the ring only rings mail delivered after it first ran here, so seed it unless a test
+  // wants the backlog case.
+  if (seed) assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), []);
   return { consumer, env, home, opts, send, adapters, panes };
 }
 
@@ -111,6 +114,7 @@ test('TM-351: the supervisor tick rings delivered standing mail (wiring, no tmux
   const env = { ...process.env, TMUX: '', TMUX_TMPDIR: join(root, 'tmux'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), XDG_CONFIG_HOME: join(home, '.config') };
   await initTempRepo(repo);
   await writeJson(join(agentsRoot(repo), 'lead0001', 'agent.json'), { id: 'lead0001', role: 'lead', full_name: 'lead0001' });
+  await ringStandingMail({ consumer: repo, env, home, panes: [] }); // TM-419 seed: m-tick is new mail, not backlog
   const sent = await sendStandingMessage({ id: 'm-tick', consumer: repo, fromProject: repo, from: 'lead0001', to: 'lead0001', body: 'body' }, { env, home });
   assert.equal(sent.status, 'delivered');
   const report = await superviseRepository({ consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` }, { once: true });
@@ -141,4 +145,49 @@ test('TM-351: the ring pointer never carries control characters from the sender'
   const { standingRingPointer } = await import('../../topology/lib/standing-mailbox.mjs');
   const pointer = standingRingPointer({ envelope: { id: 'm1', from: 'evil\x1b[2J\rrm -rf ~\n' }, delivered_to: 'a1' }, '/repo');
   assert.doesNotMatch(pointer, /[\x00-\x1f\x7f]/);
+});
+
+// TM-419: on 2026-10-05 the first live tick rang a lead about 20 times for mail it had handled weeks
+// earlier, or that its inbox could not show (records from before NATS publication existed).
+test('TM-419: a replayed backlog of old handled mail rings nothing; one new unread message rings once across a restart', async t => {
+  const { consumer, env, home, send, adapters, panes } = await fixture(t, { seed: false });
+  for (const id of ['old-1', 'old-2', 'old-3']) assert.equal((await send(id)).status, 'delivered');
+  await readStandingInbox({ consumer, agent: 'lead0001', env, home });
+  await setMailboxDisposition({ consumer, agent: 'lead0001', messageId: 'old-1', disposition: 'handled', env, home });
+  await setMailboxDisposition({ consumer, agent: 'lead0001', messageId: 'old-2', disposition: 'deferred', env, home });
+  await send('old-unread'); // never read, but it predates the ring: backlog, not news
+  assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), [], 'the backlog rang');
+  assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), [], 'the backlog rang on a second tick');
+  await send('m-new');
+  const bell = pane();
+  const rung = await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: bell.deps });
+  assert.deepEqual(rung.map(r => [r.id, r.state]), [['m-new', 'submitted']]);
+  assert.equal(bell.typed.length, 1);
+  // A restarted supervisor is a fresh call over the same disk state.
+  assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), []);
+});
+
+test('TM-419: mail delivered after the seed is still not rung once handled or deferred, or when the inbox cannot show it', async t => {
+  const { consumer, env, home, send, adapters, panes } = await fixture(t);
+  for (const id of ['h-1', 'd-1', 'f-1']) await send(id);
+  // Under NATS the inbox is fed by the broker; a record never published there is invisible to it.
+  assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, transport: { kind: 'nats' }, ringDeps: forbidden }), []);
+  await readStandingInbox({ consumer, agent: 'lead0001', env, home });
+  await setMailboxDisposition({ consumer, agent: 'lead0001', messageId: 'h-1', disposition: 'handled', env, home });
+  await setMailboxDisposition({ consumer, agent: 'lead0001', messageId: 'd-1', disposition: 'deferred', env, home });
+  const results = await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden });
+  assert.deepEqual(results.map(r => [r.id, r.state]).sort(), [['d-1', 'read'], ['f-1', 'read'], ['h-1', 'read']]);
+});
+
+test('TM-419: the inbox and the ring share one membership predicate', async () => {
+  const { standingInboxShows, standingUnread } = await import('../../topology/lib/standing-mailbox.mjs');
+  const record = { status: 'delivered', delivered_to: 'a1', envelope: { destinationRepoId: 'r' }, publication: { status: 'file' } };
+  const scope = { repoId: 'r', agent: 'a1', transportKind: 'file' };
+  assert.equal(standingInboxShows(record, scope), true);
+  assert.equal(standingInboxShows(record, { ...scope, agent: 'a2' }), false, 'mail for another agent');
+  assert.equal(standingInboxShows(record, { ...scope, transportKind: 'nats' }), false, 'unpublished under NATS');
+  assert.equal(standingInboxShows({ ...record, publication: { status: 'published' } }, { ...scope, transportKind: 'nats' }), true);
+  assert.equal(standingUnread(record, { ...scope, receipt: null }), true);
+  assert.equal(standingUnread(record, { ...scope, receipt: { status: 'deferred' } }), false);
+  assert.equal(standingUnread({ ...record, reply: { body: 'x' } }, { ...scope, receipt: null }), false);
 });

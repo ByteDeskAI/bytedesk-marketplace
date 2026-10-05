@@ -1,8 +1,8 @@
 ---
 name: setup-agent-orchestration
-description: Prepare a machine for tmux-hosted multi-agent orchestrations — verify or install tmux for the OS, inventory installed agent CLIs against the provider adapters, create the user workflow and adapter folders, and register any extra CLI as an adapter. Use on a new machine, when `ao-topology doctor` reports problems, or when the user wants to add a CLI as an agent.
+description: Prepare a machine for tmux-hosted multi-agent orchestrations — verify or install tmux for the OS, inventory installed agent CLIs against the provider adapters, create the user workflow and adapter folders, and register any extra CLI as an adapter, and wire Claude Code, Codex, Grok Build or Kimi as an orchestration host (formerly the install-orchestration-host skill). Use on a new machine, when `ao-topology doctor` reports problems, when the user wants to add a CLI as an agent, or when enabling Grok or Kimi as the orchestrator, installing host MCP and skills, or making Codex or Claude load the same control plane.
 user-invokable: true
-argument-hint: "[--add-cli <command>]"
+argument-hint: "[--add-cli <command>] [--host grok|kimi|codex|claude|all] [--dry-run]"
 ---
 
 # Set up agent orchestration on this machine
@@ -107,6 +107,37 @@ environment or any argv. A name the launching environment lacks is warned about 
 launch continues. Never use `tmux set-environment -g` for a secret: every pane on the server
 inherits it.
 
-## 7. Confirm
+## 7. Wire another host (`--host`)
+
+This step was the `install-orchestration-host` skill until TM-377.
+
+Claude Code and Codex already load this plugin from their manifests. Grok Build and Kimi Code need
+explicit host wiring so they can call `orchestration_*` and spawn the other CLIs. Delegates are
+still trusted catalog IDs only: `claude`, `codex`, `grok-build`, `kimi`. Do not spawn an arbitrary
+PATH command; add a new CLI through `docs/EXTENDING.md`.
+
+1. Resolve the installed plugin root (this skill's `../../`). Do not assume the marketplace source
+   checkout unless that is the installed copy.
+2. Preview first:
+
+   ```sh
+   node skills/setup-agent-orchestration/scripts/install-host.mjs --dry-run --all
+   ```
+
+3. Apply the hosts the user named (`--host grok`, `--host kimi`, or `--all`).
+4. Confirm:
+   - Grok: `grok plugin details agent-orchestration` lists skills and MCP servers.
+   - Kimi: `~/.kimi-code/mcp.json` contains `agent-orchestration` pointing at `bin/agent-orchestration-mcp`.
+   - Codex: `~/.codex/config.toml` has `[plugins."agent-orchestration@bytedesk"] enabled = true`.
+   - Claude: project or user plugin enablement includes `agent-orchestration@bytedesk`.
+5. The script ends by refreshing every OLDER installed copy (Codex cache, Grok install, the root
+   Kimi's `mcp.json` names) from this plugin root, so every host runs one ao build. It refuses a
+   source with uncommitted changes, a copy inside a git checkout, and a copy whose `node_modules`
+   does not satisfy the new `package.json`; report any such line to the user with its fix.
+6. Tell the user to start a **fresh** host session. Existing sessions will not see new MCP servers.
+
+Do not print tokens, rewrite unrelated MCP servers, or edit Orca-managed Kimi hook blocks.
+
+## 8. Confirm
 
 Run `AO doctor` again and report the line `OK — ready to launch.` or the remaining problems.

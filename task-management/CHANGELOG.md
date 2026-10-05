@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
+  that went stale every time a tool was added. It now compares the sorted name set and prints which
+  names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
+- **The governed worker brief asks for check runs in the finish report (TM-418, EP-028).** It tells
+  the worker to run each `management.required_checks` entry at the finish commit and list every run
+  as `{name, command, exit_code, revision}`, and never to list a check it did not run. The review
+  request carries those runs as check evidence.
+- **enhance-mine no longer counts its own report or source code it read (EP-028).** A tool result
+  from `tm enhance-mine` itself, or a successful read of source (`grep`, `cat`, `sed -n`, `git diff`,
+  Read, Grep), is not evidence of the codes it quotes. Before this, its top themes were partly its
+  own earlier output. Errors from those commands still count.
+- **`tm why` no longer says a blocked task can be picked up (EP-028).** A ready-for-agent task that
+  cannot start yet reads "ready for an agent once its blockers clear — the pool skips it until
+  then", matching what the pool does.
+- **`tm doctor --all` is the combined doctor (TM-379, EP-028).** With agent-orchestration
+  installed it runs `agent-orchestration doctor --consumer-cwd <this repo>`, which checks AO, this
+  store (through `tm doctor --json`) and the managed services, and keeps its exit status. Without
+  agent-orchestration it checks this store alone and says that AO and services were not checked
+  (`agentOrchestration.present: false` with `--json`). Plain `tm doctor` is unchanged and never
+  calls AO. Test: `tests/test-doctor-all.sh`.
+
+- **`route` points at `/agent-orchestration:orchestrate` (TM-376, EP-028)** for work that goes to
+  another agent or repository; `route` itself still picks a task-management flow.
+- **`tm doctor` lists finished work with no review for its current revision (TM-244, EP-028).** A
+  new `unreviewed` warning lists each task that has commits, is done within 7 days or is ready for
+  review, and has no review for its current revision. The warning names the reason: no admission
+  record, `review_blocked: <refusal>`, or never requested. A governed review request that is filed
+  and still outstanding is not listed. The detector is shared with `tm review-sweep`
+  (`unreviewedTasks` in `lib/review-sweep.mjs`), and sweep findings now carry `review` and
+  `reason`. A clean doctor run states how many tasks the review check scanned, and `--json` returns
+  this as `reviewCoverage`. The check reads only task-management's own records, so it works when
+  agent-orchestration is absent.
+
+- **A dispatched worker is told it has no later turn, and a failed one names the work it left
+  behind (TM-246, EP-028).** The handoff and the SubagentStart worker brief now render the same
+  three rules: do the task in your own session, never end your turn while a background agent or
+  command you started is still running, and never ask a question and wait — `tm block` with the
+  question instead. When a worker fails (for example, exits without closing) and its worktree has
+  uncommitted changes, the failure reason, parked reason and comment now list those paths
+  (`uncommitted in <worktree>: …`), for every collector.
+- **Governed completion accepts a merge-in of the integration branch on the reviewed revision
+  (TM-247, EP-028).** The worktree head may be exactly one two-parent merge whose first parent is
+  the reviewed revision and whose second parent is on the target branch, when the merge's own
+  change has the reviewed revision's patch-id. `governance-check.mjs` `mergeInOf` mirrors
+  agent-orchestration's check, and a conformance test runs both. Any other head still reads as
+  "task worktree changed after review".
+
+- **Governed workers keep one identity, and a dead one no longer strands its lead (TM-247, EP-028).**
+  `tm dispatch` of an admitted task now claims under the admission owner, not under the
+  dispatching session. The worker inherits that id. When a governed task's live claim belongs to
+  its admission owner, the collector records a dead worker's result but never parks the task or
+  releases the claim. The lead retires the worker with `ao-topology manage stop-worker` and starts
+  a successor. A worker that ran `tm block` and exited has its block reason collected as a
+  `blocked` result, once. The duplicate-dispatch guard (`liveOwner`) treats a dispatch tm has
+  already collected as having no worker in flight, so a successor dispatch needs no `--steal`.
+
 - **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
   heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
   exit and the claim expired after 240 minutes under a worker that was still running. Each pool

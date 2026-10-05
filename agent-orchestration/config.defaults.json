@@ -30,6 +30,7 @@
     "passEnv": []
   },
   "management": {
+    "autonomy": "pr",
     "auto_merge": true,
     "require_reviewer": true,
     "reviewer_providers": ["claude", "codex"]

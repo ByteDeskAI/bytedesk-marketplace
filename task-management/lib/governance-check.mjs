@@ -109,6 +109,35 @@ export function governanceMode(task, p) {
   return explicit === false ? { mode: "opted-out" } : { mode: "required" };
 }
 
+/**
+ * TM-247 (AC9): `head` is a merge-in of the integration branch on top of the approved `revision`:
+ * a two-parent merge whose first parent IS the revision, whose second parent is on `target` (local or
+ * origin), and whose own change against that parent has the revision's patch-id. Mirrors
+ * agent-orchestration topology/lib/management.mjs `mergeInOf` without importing it; a conformance test
+ * in agent-orchestration runs both on one repository.
+ */
+export function mergeInOf(root, revision, head, target) {
+  if (!head || !revision || head === revision || !target) return false;
+  const parents = (governanceGit(root, "rev-list", "--parents", "-n", "1", head) || "").split(" ").slice(1);
+  if (parents.length !== 2 || parents[0] !== revision) return false;
+  const integration = parents[1];
+  const onTarget = (ref) => governanceGit(root, "merge-base", "--is-ancestor", integration, ref) !== null;
+  if (!onTarget(`refs/heads/${target}`) && !onTarget(`refs/remotes/origin/${target}`)) return false;
+  const base = governanceGit(root, "merge-base", revision, integration);
+  if (!base) return false;
+  const patchId = (from, to) => {
+    const diff = execFileSync("git", ["-C", root, "diff", "--binary", from, to], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+    return diff ? execFileSync("git", ["-C", root, "patch-id", "--stable"], { input: diff, encoding: "utf8" }).split(" ")[0] : "";
+  };
+  try { return patchId(base, revision) === patchId(integration, head); } catch { return false; }
+}
+
+/** The worktree still holds the reviewed revision, or only merged the integration branch into it. */
+function reviewedHead(worktree, revision, target) {
+  const head = governanceGit(worktree, "rev-parse", "HEAD");
+  return head === revision || mergeInOf(worktree, revision, head, target);
+}
+
 /** This gate is also called inside update(), after surface-specific acceptance gates. */
 export function governedCompletion(task, p) {
   if (!task?.governance) return { allow: true };
@@ -122,7 +151,7 @@ export function governedCompletion(task, p) {
     if (!fullRevision(revision) || g.revision !== revision) return refuse("the completed revision has not been submitted for review");
     if (task.worktree && existsSync(task.worktree)) {
       if (real(task.worktree) !== real(record.worktree) || task.branch !== record.branch ||
-        governanceGit(task.worktree, "symbolic-ref", "--short", "HEAD") !== task.branch || governanceGit(task.worktree, "rev-parse", "HEAD") !== revision ||
+        governanceGit(task.worktree, "symbolic-ref", "--short", "HEAD") !== task.branch || !reviewedHead(task.worktree, revision, merge?.target_branch) ||
         governanceGit(task.worktree, "status", "--porcelain") !== "") return refuse("task worktree changed after review");
     }
     if (!review || review.task !== task.id || review.repo_id !== record.repo_id || review.revision !== revision || review.verified_commit !== revision ||

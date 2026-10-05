@@ -278,10 +278,24 @@ export function subagentBrief(session, p = paths()) {
  * surfaces agree, because the worker may read either and will act on the one it saw.
  */
 const quoteArg = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
+/**
+ * A dispatched worker has no human and no later turn: ending the turn ends the session, and every
+ * background agent or command it started dies with it (TM-246 — TM-240 was parked with four
+ * uncommitted files after its worker handed the task to a background agent and stopped). Both the
+ * hook brief and handoff() render this one list, so the two surfaces cannot drift.
+ */
+function sessionRules(id) {
+  return [
+    "- Do the task in your own session. Do not hand it to a background agent and wait: you have no later turn, so ending your turn ends the work.",
+    "- Never end your turn while a background agent or command you started is still running; wait for it to finish first.",
+    `- Never ask a question and wait for an answer; nobody will reply. Block instead: .bytedesk/task-management/bin/tm block ${id} "<the question>"`,
+  ];
+}
 function governedFinishSteps(task, p) {
   return [
     `- Submit the finish report: ao-topology manage report --consumer ${quoteArg(p.root)} --task ${task.id} --file <absolute finish-report.json path>`,
-    '- Write that JSON outside the task worktree: {"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":["<check and result>"],"risks":[],"evidence":"<evidence path>"}}.',
+    '- Write that JSON outside the task worktree: {"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":[{"name":"<check>","command":"<cmd>","exit_code":0,"revision":"<SHA>"}],"risks":[],"evidence":"<evidence path>"}}.',
+    "- First run each management.required_checks entry at that commit and list every run: review cannot approve without them. Never list a check you did not run.",
     "- The producer records the finish, runs tm review-ready, and queues independent review. Report any review_blocked reason to the lead; keep the claim and stop before integration.",
   ];
 }
@@ -297,6 +311,7 @@ export function workerBrief(id, p = paths()) {
   ];
   // Put the producer protocol before variable-length criteria so a bounded hook brief
   // cannot leave a governed worker with only a task-store state change to perform.
+  out.push(...sessionRules(t.id));
   if (t.governance) out.push(...governedFinishSteps(t, p));
   const unmet = acceptanceOpen(t).slice(0, BRIEF_CRITERIA);
   if (unmet.length) out.push("Not yet met:", ...unmet.map((a) => `- [ ] ${a.text}`));
@@ -383,6 +398,9 @@ export function handoff(id, p = paths()) {
     const base = String(t.integrationBranch || resolveIntegrationBranch(p, config(p)) || "").trim();
     const prBase = base ? ` --base ${base}` : "";
     out.push(
+      "## You are on your own",
+      ...sessionRules(t.id),
+      "",
       "## When you finish",
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",

@@ -2,6 +2,7 @@
 // orchestration owns communication and the review/check/landing evidence it contributes.
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
@@ -11,7 +12,7 @@ import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from 
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
-import { githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { finishCheckEvidence, githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -38,6 +39,29 @@ export async function foreignDirtyPaths(cwd) {
     if (/^[RC]/.test(entry)) paths.push(fields[++i]);
   }
   return paths.filter(path => path && !storePath(path));
+}
+
+/** TM-247 (AC9): is `head` a merge-in of the integration branch on top of the approved `revision`?
+ * Exactly: a two-parent merge whose first parent IS the revision, whose second parent is on the
+ * integration branch (local or origin), and whose own change against that parent has the same
+ * patch-id as the revision's change against its merge base, so the merge added nothing of its own.
+ * Returns { head, integration } or null. task-management governance-check.mjs mirrors it (no import
+ * crosses the plugins); a conformance test runs both on one repository.
+ * ponytail: one merge-in commit; a chain of merge-ins needs a walk down first parents. */
+export async function mergeInOf(cwd, revision, head, target) {
+  if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
+  const parents = (await git(cwd, ['rev-list', '--parents', '-n', '1', head], true)).stdout.trim().split(' ').slice(1);
+  if (parents.length !== 2 || parents[0] !== revision) return null;
+  const integration = parents[1];
+  const onTarget = async ref => (await git(cwd, ['merge-base', '--is-ancestor', integration, ref], true)).code === 0;
+  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
+  const base = (await git(cwd, ['merge-base', revision, integration], true)).stdout.trim();
+  if (!base) return null;
+  const patchId = async (from, to) => {
+    const diff = (await git(cwd, ['diff', '--binary', from, to])).stdout;
+    return diff ? execFileSync('git', ['-C', cwd, 'patch-id', '--stable'], { input: diff, encoding: 'utf8' }).split(' ')[0] : '';
+  };
+  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
 }
 
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */
@@ -70,12 +94,18 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     // TM-218: the lead's one launcher. tm claims under TM_SESSION_ID=owner, reuses the admitted
     // worktree, spawns the backend, and writes the dispatch + registry row observeWorker reads.
     dispatch: async (id, backend) => JSON.parse((await exec(['dispatch', taskId(id), '--backend', backend, '--json'])).stdout),
+    // TM-247 (AC7): move the claim to a new admission owner; --steal only from the recorded owner.
+    claimFor: async (id, session, cwd, steal) => exec(['claim', taskId(id), ...(steal ? ['--steal'] : [])], cwd, { TM_SESSION_ID: session }),
+    // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
+    collect: async id => JSON.parse((await exec(['collect', taskId(id), '--json'])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
     done: async (id, actor = null) => exec(['done', taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async epic => JSON.parse((await exec(['find', `epic:${epic}`, 'kind:task', '--json'])).stdout).filter(t => t.epic === epic).map(t => t.id),
+    // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
+    ticketEvent: async (id, kind, detail) => exec(['ticket', 'event', taskId(id), kind, detail]),
   };
 }
 
@@ -96,12 +126,26 @@ async function recordEvent(ctx, task, prior, event, details) {
   await writeJson(ctx.path, next);
   return next;
 }
-function ownClaim(claim, owner) {
-  invariant(claim && claim.session === owner, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', 'Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.');
+/** TM-368: append one event to a task's management record (comment first, as recordEvent does) and
+ * merge `patch` into the record. Refuses a task with no record: there is nothing to attach it to. */
+export async function recordTaskEvent(options, event, details, patch = {}) {
+  const ctx = await context(options), record = await loadRecord(ctx.path);
+  invariant(record, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${options.task} has no management record to attach ${event} to.`);
+  const next = Object.assign(await recordEvent(ctx, options.task, record, event, details), patch);
+  await writeJson(ctx.path, next);
+  return next;
 }
-async function ownedTask(ctx, task, owner) {
+/** TM-247: the refusal names the step that recovers. `released` admits a claim nobody holds (a retire
+ * of a dead worker whose task was parked or blocked); a claim held by another session never passes. */
+function ownClaim(claim, owner, task, { released = false, holders = [] } = {}) {
+  if (!claim && released) return;
+  if (claim && holders.includes(claim.session)) return;
+  invariant(claim, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `Task claim for ${task} was released (the task was parked, blocked or collected), so its admission owner ${owner} holds nothing. Re-claim it with \`ao-topology manage admit --task ${task}\`, which resumes the same admission, then retry.`);
+  invariant(claim.session === owner, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `Task claim for ${task} is held by ${claim.session ?? 'an unowned session'}, not the admission owner ${owner}; reconcile ownership without stealing, or record a handoff with \`ao-topology manage transfer --task ${task}\`.`);
+}
+async function ownedTask(ctx, task, owner, claimRule = {}) {
   const doc = await ctx.store.show(task);
-  ownClaim(await ctx.store.claim(task), owner);
+  ownClaim(await ctx.store.claim(task), owner, task, claimRule);
   invariant(doc.worktree && doc.branch, 'TOPOLOGY_MANAGEMENT_WORKTREE', 'tm must provision and record the task worktree and branch.');
   invariant((await canonicalRepoId(doc.worktree)).id === ctx.identity.id && await realpath(doc.worktree) !== await realpath(ctx.store.root), 'TOPOLOGY_MANAGEMENT_WORKTREE', 'Task worktree must be isolated within this repository.');
   invariant(await gitText(doc.worktree, ['symbolic-ref', '--short', 'HEAD']) === doc.branch, 'TOPOLOGY_MANAGEMENT_BRANCH', 'Task worktree branch differs from the task store.');
@@ -119,8 +163,8 @@ async function processStart(pid) {
 function processGone(pid) {
   try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
 }
-async function registeredWorker(ctx, doc, owner) {
-  ownClaim(await ctx.store.claim(doc.id), owner);
+async function registeredWorker(ctx, doc, owner, claimRule = {}) {
+  ownClaim(await ctx.store.claim(doc.id), owner, doc.id, claimRule);
   invariant(doc.dispatched?.run && doc.dispatched.session === owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task dispatch must name the claim owner and worker run.');
   invariant(typeof ctx.store.workers === 'function', 'TOPOLOGY_MANAGEMENT_WORKER', 'Task store has no worker registry adapter.');
   const rows = (await ctx.store.workers()).filter(row => row.session === owner && row.runId === doc.dispatched.run && row.backend === doc.dispatched.backend);
@@ -267,9 +311,12 @@ export async function startTaskWorker(options) {
     const prior = await loadRecord(ctx.path);
     invariant(prior?.started && prior.owner === options.owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Admit the task with manage admit before starting its worker.');
     invariant(!prior.worker || prior.worker.stopped_at, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task already has a bound worker; a second writer is refused. Stop it with manage stop-worker first.');
-    await ownedTask(ctx, options.task, options.owner);
+    await reclaimAdmission(ctx, options.task, prior);
     invariant(typeof ctx.store.dispatch === 'function', 'TOPOLOGY_MANAGEMENT_WORKER', 'Task store has no dispatch adapter.');
-    const result = await ctx.store.dispatch(options.task, backend);
+    let result;
+    // TM-247: tm's refusal is the answer the lead needs, as a TOPOLOGY_* error, never a Node stack.
+    try { result = await ctx.store.dispatch(options.task, backend); }
+    catch (error) { fail('TOPOLOGY_MANAGEMENT_DISPATCH', `tm dispatch ${options.task} failed: ${tmMessage(error)}`, { task: options.task, backend }); }
     await recordEvent(ctx, options.task, prior, 'worker-started', { backend: result.backend ?? backend, run: result.run ?? null, workflow_run_id: prior.workflow_run_id ?? null });
     return result;
   });
@@ -282,6 +329,23 @@ export async function startTaskWorker(options) {
   }
 }
 
+/** The text tm printed when it refused, without execFile's "Command failed: <argv>" preamble. */
+const tmMessage = error => (error?.stderr || error?.stdout || '').trim() || String(error?.message || error);
+
+/** TM-247 (AC13-15): an admission whose claim was released (tm block, a park, a collect) is re-claimed
+ * for its owner through tm start, never stolen: a claim another session holds still refuses. A
+ * blocked task stays blocked until someone runs tm unblock; that is a person's call, not this verb's. */
+async function reclaimAdmission(ctx, task, record) {
+  if (!await ctx.store.claim(task)) {
+    const doc = await ctx.store.show(task);
+    invariant(doc.status !== 'blocked', 'TOPOLOGY_MANAGEMENT_BLOCKED', `${task} is blocked${doc.blockedReason ? ` (${doc.blockedReason})` : ''}; run tm unblock ${task} once the blocker is resolved, then retry.`);
+    invariant(doc.worktree && resolve(doc.worktree) === resolve(record.worktree), 'TOPOLOGY_MANAGEMENT_WORKTREE', 'Task worktree differs from the admission record; reconcile it before re-claiming.');
+    try { await ctx.store.start(task, record.worktree); }
+    catch (error) { fail('TOPOLOGY_MANAGEMENT_OWNERSHIP', `Re-claiming ${task} for its admission owner ${record.owner} failed: ${tmMessage(error)}`); }
+  }
+  return ownedTask(ctx, task, record.owner);
+}
+
 /** Close exactly the bound tmux pane, on its recorded server. */
 async function closeOwnedPane(record, env) {
   const binding = record.worker?.binding;
@@ -289,19 +353,29 @@ async function closeOwnedPane(record, env) {
   await tmux(['kill-pane', '-t', binding.paneId], { tmuxServer: binding.serverKey, env });
 }
 
-/** TM-218: stop the bound worker only when owned, idle and its finish collected; otherwise refuse. */
+/** TM-218: stop the bound worker only when owned, idle and its finish collected; otherwise refuse.
+ * TM-247: a worker observed gone (or an idle shell) with NO finish is retired instead: its incarnation
+ * moves to previous_workers with the observation and what it left behind (a tm block reason, a blocker
+ * report), tm collects its dispatch, and the worktree is untouched. A live or unproven worker is never
+ * touched by either path. */
 export async function stopTaskWorker(options) {
   const ctx = await context(options);
   return withLock(`${ctx.path}.lock`, async () => {
     const record = await loadRecord(ctx.path);
     const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
+    const close = options.closeWorker || (value => closeOwnedPane(value, ctx.env));
     try {
       invariant(record?.worker && record.owner === options.owner, 'TOPOLOGY_MANAGEMENT_STOP', 'No worker binding owned by this session; start it with manage start-worker or adopt it with manage bind. A session this lead did not start or bind is never closed.');
       const state = await observe(record);
-      invariant(state.owned, 'TOPOLOGY_MANAGEMENT_STOP', state.reason || 'Worker ownership is unproven.');
+      if (!state.owned) {
+        const dead = await (options.deadWorkerState || deadWorkerState)(options, record);
+        if (dead.owned && dead.active === false) return await retireWorker(ctx, options, record, dead, close);
+        // The dead-worker path names the more specific reason (a released claim, a live pane).
+        invariant(false, 'TOPOLOGY_MANAGEMENT_STOP', dead.owned ? state.reason || 'Worker ownership is unproven.' : dead.reason || state.reason || 'Worker ownership is unproven.');
+      }
       invariant(state.active === false, 'TOPOLOGY_MANAGEMENT_STOP', state.reason || 'Worker is still active.');
       if (state.alive) {
-        await (options.closeWorker || (value => closeOwnedPane(value, ctx.env)))(record);
+        await close(record);
         invariant((await observe(record)).alive === false, 'TOPOLOGY_MANAGEMENT_STOP', 'Owned worker did not stop.');
       }
       const next = await recordEvent(ctx, options.task, record, 'worker-stopped', { worker: record.worker, proof: state.proof, closed: state.alive === true });
@@ -309,11 +383,42 @@ export async function stopTaskWorker(options) {
       await writeJson(ctx.path, next);
       return { stopped: true, closed: state.alive === true, proof: state.proof };
     } catch (error) {
-      const recovery = 'Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker.';
+      const released = /claim for TM-[0-9]+ was released/.test(error.message);
+      const recovery = released ? `Re-claim the task as its admission owner with ao-topology manage admit --task ${options.task} (it resumes the same admission), then retry stop-worker.`
+        : 'Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker.';
       if (record && record.owner === options.owner) await recordEvent(ctx, options.task, record, 'worker-stop-refused', { reason: error.message, recovery });
       return { stopped: false, reason: error.message, recovery };
     }
   });
+}
+
+/** TM-247: what a dead worker left behind, from the task store and its own reports. */
+function retiredResult(record, doc) {
+  const boundAt = [...(record.events || [])].reverse().find(e => e.event === 'worker-bound')?.at || '';
+  const blocker = [...(record.events || [])].reverse().find(e => e.event === 'blocker' && e.at >= boundAt);
+  if (doc.status === 'blocked' || blocker) return { outcome: 'blocked', reason: doc.blockedReason || blocker?.report?.message || null };
+  return { outcome: 'exited-without-finish', reason: `worker ended (task ${doc.status}) without a finish report` };
+}
+
+async function retireWorker(ctx, options, record, dead, close) {
+  if (dead.alive) {
+    await close(record);
+    invariant((await (options.deadWorkerState || deadWorkerState)(options, record)).alive === false, 'TOPOLOGY_MANAGEMENT_STOP', 'Owned worker did not stop.');
+  }
+  const result = retiredResult(record, dead.doc);
+  // tm records the dispatch's result, so its duplicate-dispatch guard sees the worker as ended. A
+  // refusal here is kept, not fatal: the retire is true, and start-worker then names tm's reason.
+  let collected = null;
+  if (dead.doc.dispatched && ctx.store.collect) {
+    try { collected = await ctx.store.collect(options.task); } catch (error) { collected = { ok: false, reason: (error.stderr || error.message || '').trim() }; }
+  }
+  const next = await recordEvent(ctx, options.task, record, 'worker-retired', { worker: record.worker, proof: dead.proof, closed: dead.alive === true, result, collected,
+    recovery: `Start a successor with ao-topology manage start-worker --task ${options.task}; the admission, base revision and worktree are unchanged.` });
+  next.previous_workers = [...(next.previous_workers || []), { ...record.worker, stopped_at: next.updated_at, retired: { proof: dead.proof, observed_at: next.updated_at, result } }];
+  delete next.worker;
+  if (next.state === 'blocked') next.state = 'working';
+  await writeJson(ctx.path, next);
+  return { stopped: true, retired: true, closed: dead.alive === true, proof: dead.proof, result, collected };
 }
 
 /** Default production proof. An observed exited process plus a collected finish report is safe;
@@ -322,37 +427,61 @@ export async function stopTaskWorker(options) {
 export async function taskWorkerState(options, record) {
   const ctx = await context(options);
   try {
-    const doc = await ownedTask(ctx, options.task, record?.owner), worker = record.worker;
-    // An adopted worker (TM-218) has no tm dispatch; its binding in this record is the registry.
-    const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record.owner);
-    invariant(worker && worker.owner === record.owner && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
-    invariant(record.finish && record.events?.some(event => event.event === 'finish' && event.report?.revision === record.finish.revision), 'TOPOLOGY_MANAGEMENT_WORKER', 'Task worker result has not been collected through the finish protocol.');
-    if (row.backend === 'topology') {
-      invariant(worker.kind === 'topology' && worker.native_identity, 'TOPOLOGY_MANAGEMENT_WORKER', 'Legacy native ownership must be reconciled through a new verified finish report.');
-      const { observation, identity } = await observedNativeWorker(ctx, doc);
-      invariant(worker.native_run_id === observation.runId && worker.native_fingerprint === observation.fingerprint && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
-        'TOPOLOGY_MANAGEMENT_WORKER', 'Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish.');
-      return { owned: true, active: observation.hasLiveWriters, alive: observation.hasLiveWriters,
-        proof: observation.hasLiveWriters ? 'observed-native-writers-live' : 'observed-native-workflow-exited', worker,
-        ...(observation.hasLiveWriters ? { reason: 'An exact native workflow member or child is still alive; stop every task writer before integration.' } : {}) };
-    }
-    if (worker.kind === 'process') {
-      invariant(row.pid === worker.pid, 'TOPOLOGY_MANAGEMENT_WORKER', 'Registered worker PID changed.');
-      if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: 'observed-process-exited', worker };
-      const current = await processStart(worker.pid);
-      invariant(current && current.start === worker.process_start && current.boot === worker.boot, 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker PID identity is unknown or was reused.');
-      return { owned: true, active: true, alive: true, reason: 'Observed worker is still alive; finish its process before integration.' };
-    }
-    const panes = await listServerPanes({ tmuxServer: worker.binding.serverKey, env: ctx.env });
-    const pane = panes.find(p => bindingKeys.every(key => p[key] === worker.binding[key]));
-    if (!pane || !pane.alive) {
-      // A replacement in the same session is another writer, not evidence the task is idle.
-      invariant(!panes.some(p => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || resolve(p.cwd) === resolve(doc.worktree))), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker session contains a replacement live pane.');
-      return { owned: true, active: false, alive: false, proof: 'observed-pane-exited', worker };
-    }
-    if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: 'observed-pane-idle-shell', worker };
-    return { owned: true, active: true, alive: true, reason: 'Observed worker pane is still alive; its activity is not safely known.' };
+    // TM-247 (AC8): tm done releases the claim, so a task with a recorded landing may be stopped and
+    // cleaned up afterwards; a claim another session holds still refuses.
+    const claimRule = record?.merge ? { released: true } : {};
+    const doc = await ownedTask(ctx, options.task, record?.owner, claimRule);
+    return await observeLiveness(ctx, doc, record, { finished: true, claimRule });
   } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
+}
+
+/** TM-247: the same observation without the finish requirement, for retiring a worker that died
+ * before reporting. The claim may be released (a parked or blocked task) but never foreign. */
+export async function deadWorkerState(options, record) {
+  const ctx = await context(options);
+  try {
+    const doc = await ownedTask(ctx, options.task, record?.owner, { released: true });
+    return { ...await observeLiveness(ctx, doc, record, { finished: false, claimRule: { released: true } }), doc };
+  } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
+}
+
+async function observeLiveness(ctx, doc, record, { finished, claimRule = {} }) {
+  const worker = record.worker;
+  // TM-247 (AC7): a worker started before an ownership transfer keeps its own owner's identity; the
+  // claim may then sit with the new owner. Only an owner the record transferred from is accepted.
+  const workerOwner = worker?.owner ?? record.owner;
+  invariant(workerOwner === record.owner || (record.transfers || []).some(t => t.from === workerOwner), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
+  const rule = workerOwner === record.owner ? claimRule : { ...claimRule, holders: [...(claimRule.holders || []), record.owner] };
+  // An adopted worker (TM-218) has no tm dispatch; its binding in this record is the registry.
+  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant(worker && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
+  if (finished) invariant(record.finish && record.events?.some(event => event.event === 'finish' && event.report?.revision === record.finish.revision), 'TOPOLOGY_MANAGEMENT_WORKER', 'Task worker result has not been collected through the finish protocol.');
+  if (row.backend === 'topology') {
+    invariant(worker.kind === 'topology' && worker.native_identity, 'TOPOLOGY_MANAGEMENT_WORKER', 'Legacy native ownership must be reconciled through a new verified finish report.');
+    const { observation, identity } = await observedNativeWorker(ctx, doc);
+    // Without a finish there is no post-finish fingerprint to hold; the writer identity must still match.
+    invariant(worker.native_run_id === observation.runId && (!finished || worker.native_fingerprint === observation.fingerprint) && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
+      'TOPOLOGY_MANAGEMENT_WORKER', 'Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish.');
+    return { owned: true, active: observation.hasLiveWriters, alive: observation.hasLiveWriters,
+      proof: observation.hasLiveWriters ? 'observed-native-writers-live' : 'observed-native-workflow-exited', worker,
+      ...(observation.hasLiveWriters ? { reason: 'An exact native workflow member or child is still alive; stop every task writer before integration.' } : {}) };
+  }
+  if (worker.kind === 'process') {
+    invariant(row.pid === worker.pid, 'TOPOLOGY_MANAGEMENT_WORKER', 'Registered worker PID changed.');
+    if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: 'observed-process-exited', worker };
+    const current = await processStart(worker.pid);
+    invariant(current && current.start === worker.process_start && current.boot === worker.boot, 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker PID identity is unknown or was reused.');
+    return { owned: true, active: true, alive: true, reason: 'Observed worker is still alive; finish its process before integration.' };
+  }
+  const panes = await listServerPanes({ tmuxServer: worker.binding.serverKey, env: ctx.env });
+  const pane = panes.find(p => bindingKeys.every(key => p[key] === worker.binding[key]));
+  if (!pane || !pane.alive) {
+    // A replacement in the same session is another writer, not evidence the task is idle.
+    invariant(!panes.some(p => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || resolve(p.cwd) === resolve(doc.worktree))), 'TOPOLOGY_MANAGEMENT_WORKER', 'Worker session contains a replacement live pane.');
+    return { owned: true, active: false, alive: false, proof: 'observed-pane-exited', worker };
+  }
+  if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: 'observed-pane-idle-shell', worker };
+  return { owned: true, active: true, alive: true, reason: 'Observed worker pane is still alive; its activity is not safely known.' };
 }
 
 /** New admission requires readiness before tm start (which enforces dependencies/claim/WIP).
@@ -368,8 +497,8 @@ export async function admitTask(options) {
       await recordEvent(ctx, task, prior, 'ownership-review-required', { owner, existing_owner: held?.session || null, worktree: doc.worktree || null, recovery: 'Preserve the live worker and its work; review ownership and schedule migration at a safe boundary.' });
       return { admitted: false, state: 'ownership-review-required' };
     }
-    if (held) ownClaim(held, owner); // TTL expiry never authorizes silent reassignment here.
-    if (prior?.owner === owner && prior.started) { await ownedTask(ctx, task, owner); return { admitted: true, resumed: true, record: prior }; }
+    if (held) ownClaim(held, owner, task); // TTL expiry never authorizes silent reassignment here.
+    if (prior?.owner === owner && prior.started) { await reclaimAdmission(ctx, task, prior); return { admitted: true, resumed: true, record: prior }; }
     invariant(doc.labels?.includes('ready-for-agent') && list(doc.touches) && doc.touches.length, 'TOPOLOGY_MANAGEMENT_SCOPE', 'Task needs approved ready-for-agent scope and declared files/touches.');
     const available = await (options.reviewerReady || reviewerAvailability)(options);
     invariant(available.available, 'TOPOLOGY_MANAGEMENT_REVIEWER', available.reason || 'Designated reviewer is not ready.');
@@ -395,17 +524,23 @@ export async function workerReport(options) {
   const ctx = await context(options), { task, owner, kind, report } = options;
   return withLock(`${ctx.path}.lock`, async () => {
     const prior = await loadRecord(ctx.path);
-    invariant(prior?.started && prior.owner === owner, 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'Worker must be admitted and send its start report before reporting work.');
-    const doc = await ownedTask(ctx, task, owner);
+    invariant(prior?.started, 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'Worker must be admitted and send its start report before reporting work.');
+    // TM-247 (AC13): one identity. The admission owner may report, and so may the bound worker's own
+    // dispatch session; the claim may sit with either (a claim minted by an older tm dispatch).
+    const dispatchedSession = (await ctx.store.show(task)).dispatched?.session;
+    const holders = prior.worker && !prior.worker.stopped_at && nonempty(dispatchedSession) ? [dispatchedSession] : [];
+    invariant(owner === prior.owner || holders.includes(owner), 'TOPOLOGY_MANAGEMENT_PROTOCOL', `Only the admission owner ${prior.owner} or its bound worker may report on ${task}.`);
+    const doc = await ownedTask(ctx, task, prior.owner, { holders });
     invariant(['blocker', 'scope-change', 'ownership-conflict', 'stale-activity', 'failed-check', 'finish'].includes(kind), 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'Unknown worker report kind.');
     if (kind === 'finish') {
-      invariant(report && list(report.artifacts) && report.artifacts.length && list(report.checks) && report.checks.length && list(report.risks) && nonempty(report.evidence), 'TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL', 'Finish requires artifacts, checks/evidence, remaining risks and exact revision.');
+      invariant(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every(check => nonempty(check) || (check && typeof check === 'object')) && report.checks.length && list(report.risks) && nonempty(report.evidence), 'TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL', 'Finish requires artifacts, checks/evidence, remaining risks and exact revision.');
       invariant(report.revision === await gitText(doc.worktree, ['rev-parse', 'HEAD']), 'TOPOLOGY_MANAGEMENT_REVISION', 'Finish must name the current exact task commit.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_DIRTY', 'Commit or preserve outstanding changes before readiness for review.');
+      finishCheckEvidence(report); // TM-418: a malformed check run is refused here, where the worker can still fix it.
     } else invariant(nonempty(report?.message), 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'A during-work report requires a visible reason.');
     // The same native workflow can undergo a producer-controlled fallback. A new finish
     // records its newly verified member set; a change after this point blocks integration.
-    if (kind === 'finish' && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === 'topology')) prior.worker = await observeWorker(ctx, doc, owner);
+    if (kind === 'finish' && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === 'topology')) prior.worker = await observeWorker(ctx, doc, prior.owner);
     const next = await recordEvent(ctx, task, prior, kind, { owner, report, state: kind === 'finish' ? 'ready-for-review' : 'blocked' });
     next.state = kind === 'finish' ? 'ready-for-review' : 'blocked';
     if (kind === 'finish') { next.finish = report; next.collected = false; }
@@ -413,13 +548,55 @@ export async function workerReport(options) {
     if (kind === 'finish') {
       await ctx.store.reviewReady?.(task,report.revision);
       try {
-        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [owner] });
+        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [...new Set([prior.owner, owner])], checkEvidence: finishCheckEvidence(report) });
         next.review_request = request;
-      } catch (error) { next.review_blocked = error.message; }
+      } catch (error) {
+        next.review_blocked = error.message;
+        // TM-244: before the task-store comment, so the lead hears it even when task-management is absent or failing.
+        next.review_blocked_notice = await noticeReviewBlocked(ctx, options, next, report.revision, error);
+      }
       await writeJson(ctx.path, next);
       await ctx.store.comment(task, JSON.stringify({ event: 'review-queued', request: next.review_request || null, blocked: next.review_blocked || null }));
     }
     return next;
+  });
+}
+
+export const RETRY_REVIEW_VERB = 'ao-topology manage retry-review --task';
+/**
+ * TM-244: a finish whose review request was refused tells the owning lead, once per task revision,
+ * through standing mail (agent-orchestration's own channel, so it works with task-management
+ * absent). Never throws: the finish is already recorded, and a failed notice is reported on it.
+ */
+async function noticeReviewBlocked(ctx, options, record, revision, error) {
+  const to = record.lead_id;
+  if (!to) return { status: 'skipped', reason: 'no lead recorded on the management record' };
+  const id = createHash('sha256').update(`review-blocked:v1:${repoKey(ctx.identity.id)}:${options.task}:${revision}`).digest('hex').slice(0, 32);
+  const body = [
+    `REVIEW NOT FILED: ${options.task} finished at ${revision} but its review request was refused.`,
+    `Refusal: ${error.code ? `${error.code}: ` : ''}${error.message}`,
+    `Fix the cause, then retry: ${RETRY_REVIEW_VERB} ${options.task}`,
+  ].join('\n');
+  try {
+    const sent = await (options.notifyLead || sendStandingMessage)({ id, consumer: options.consumer, fromProject: options.consumer, from: 'ao-management', to,
+      subject: `review blocked: ${options.task}`, body, task: options.task, provenance: { source: 'ao-topology manage report' } }, { env: ctx.env, home: ctx.home });
+    return { to, message_id: id, status: sent?.status ?? 'unknown', ...(sent?.reason ? { reason: sent.reason } : {}) };
+  } catch (failure) { return { to, message_id: id, status: 'failed', reason: failure?.code ?? String(failure?.message ?? failure) }; }
+}
+
+/** TM-244: the lead's one retry for a refused review request. Re-files it for the recorded finish revision. */
+export async function retryReview(options) {
+  const ctx = await context(options), { task } = options;
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record = await loadRecord(ctx.path);
+    invariant(record?.state === 'ready-for-review' && record.finish?.revision, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${task} has no finish report awaiting review.`);
+    try {
+      record.review_request = await (options.queueReview || requestReview)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner], checkEvidence: finishCheckEvidence(record.finish) });
+      delete record.review_blocked; delete record.review_blocked_notice;
+    } catch (error) { record.review_blocked = error.message; await writeJson(ctx.path, record); throw error; }
+    await writeJson(ctx.path, record);
+    await ctx.store.comment(task, JSON.stringify({ event: 'review-queued', request: record.review_request, blocked: null }));
+    return record;
   });
 }
 
@@ -528,7 +705,8 @@ export async function integrationEligibility(options) {
   if (!nonempty(policy.target_branch)) refuse('config', 'configure management.target_branch before integration');
   if (doc && record?.finish) {
     if (!doc.labels?.includes('ready-for-agent')) refuse('scope', 'task scope is no longer approved');
-    if (await gitText(doc.worktree, ['rev-parse', 'HEAD']) !== record.finish.revision) refuse('head', 'task changed after finish; send a new report and obtain a new review');
+    const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
+    if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch)) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ['status', '--porcelain'])) refuse('dirty', 'task worktree has uncommitted work');
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     for (const reason of review.reasons) refuse('review', reason);
@@ -700,12 +878,18 @@ async function integrateViaPullRequest(options, ctx) {
       if (!pr) refuse('pr', `no open PR has head branch ${doc.branch}`);
     }
   }
+  let mergeIn = null;
   if (pr) {
     const merged = pr.state === 'MERGED', reviewed = approved?.verified_commit || approved?.revision;
     const at = merged ? `PR #${pr.number} was already merged at ${pr.headRefOid}` : `PR #${pr.number} head ${pr.headRefOid}`;
     if (pr.baseRefName !== policy.target_branch) refuse('base', `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
-    if (reviewed && pr.headRefOid !== reviewed) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}`);
-    if (revision && pr.headRefOid !== revision) refuse('head', `${at}, not the task's recorded finish revision ${revision}`);
+    // TM-247 (AC9): a head that only merged the integration branch into the approved revision lands that revision.
+    if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
+      await git(ctx.store.root, ['fetch', 'origin', policy.target_branch, `refs/pull/${pr.number}/head`], true);
+      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch);
+    }
+    if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
+    if (revision && pr.headRefOid !== revision && !mergeIn) refuse('head', `${at}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
     if (!merged) {
       if (pr.mergeable !== 'MERGEABLE') refuse('mergeable', `PR #${pr.number} is ${pr.mergeable || 'UNKNOWN'}, not MERGEABLE`);
       ci = await ciStatus(gh, repo, pr.number);
@@ -721,20 +905,20 @@ async function integrateViaPullRequest(options, ctx) {
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
     // The only merge this verb performs. Exactly these flags; nothing forces, bypasses or defers.
-    const result = await gh(['pr', 'merge', String(pr.number), '--repo', repo, '--merge', '--match-head-commit', revision]);
+    const result = await gh(['pr', 'merge', String(pr.number), '--repo', repo, '--merge', '--match-head-commit', pr.headRefOid]);
     invariant(result.code === 0, 'TOPOLOGY_INTEGRATE_MERGE_FAILED', `gh pr merge #${pr.number} failed (exit ${result.code}); nothing was recorded: ${(result.stderr || result.stdout || '').trim()}`, { pull_request: pr.number, merged: false });
   }
   let next;
   try {
     const view = await ghJson(gh, ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'state,headRefOid,baseRefName,mergeCommit']);
     const v = view.value;
-    invariant(v?.state === 'MERGED' && v.headRefOid === revision && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${revision} into ${policy.target_branch}` : ghFailure('gh pr view', view));
+    invariant(v?.state === 'MERGED' && v.headRefOid === pr.headRefOid && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${pr.headRefOid} into ${policy.target_branch}` : ghFailure('gh pr view', view));
     const landed = v.mergeCommit.oid;
     await syncTarget(ctx.store.root, policy.target_branch, landed);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
-      pull_request: { number: pr.number, head: revision, already_merged: pr.state === 'MERGED' }, authorization });
+      pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === 'MERGED' }, ...(mergeIn ? { merge_in: mergeIn } : {}), authorization });
   } catch (error) {
     fail('TOPOLOGY_INTEGRATE_UNRECORDED', `PR #${pr.number} is merged, but its landing was not recorded: ${error.message}. Do not merge again; rerun manage integrate, which records an already-merged PR.`, { pull_request: pr.number, merged: true, recorded: false });
   }
@@ -783,7 +967,13 @@ export async function recordLanding(options) {
     const landed = resolved.stdout.trim();
     const ancestor = async (a, b) => (await git(ctx.store.root, ['merge-base', '--is-ancestor', a, b], true)).code === 0;
     invariant(await ancestor(revision, landed), 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of ${landed}.`);
-    invariant(await ancestor(landed, `refs/heads/${policy.target_branch}`), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch}.`);
+    // TM-247 (AC10): resolve the target on the server after a fetch, not the local ref an operator may
+    // not have pulled; then bring the local branch forward so governed completion can verify it too.
+    const fetched = await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
+    const remote = `refs/remotes/origin/${policy.target_branch}`;
+    const targetRef = fetched.code === 0 && (await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', remote], true)).code === 0 ? remote : `refs/heads/${policy.target_branch}`;
+    invariant(await ancestor(landed, targetRef), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} (checked ${targetRef}${fetched.code === 0 ? ' after a fetch' : `; fetching origin failed: ${fetched.stderr.trim()}`}).`);
+    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');
     if (lead && !delegation) {
@@ -806,17 +996,28 @@ export async function recordLanding(options) {
   });
 }
 
-/** Cleanup fails closed with a recovery path; it never force-removes a tree or remote branch. */
+/** TM-251: branches cleanup never deletes, whatever a record says: develop, main, master, release/*
+ * and the configured integration branch. One predicate, so any future deletion path shares it. */
+export function protectedBranch(name, target = null) {
+  return ['develop', 'main', 'master'].includes(name) || /^release\//.test(name) || (nonempty(target) && name === target);
+}
+
+/** Cleanup fails closed with a recovery path; it never force-removes a tree. It deletes only the
+ * local task branch (`git branch -d`, never -D); remote branch deletion is out of scope (TM-251). */
 export async function cleanupTask(options) {
   const ctx = await context(options);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const record = await loadRecord(ctx.path);
     try {
       invariant(record?.merge && record.collected, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Verified merge and collected results are required.');
-      const doc = await ownedTask(ctx, options.task, record.owner);
+      // Checked before anything is observed or removed: a protected branch is refused by name.
+      invariant(!protectedBranch(record.branch, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Refusing to clean up protected branch ${record.branch}: cleanup never touches develop, main, master, release/* or the integration branch.`);
+      // TM-247 (AC8): a landed task's claim may already be released by tm done (integrate closes first).
+      const doc = await ownedTask(ctx, options.task, record.owner, { released: true });
       invariant(record.worktree === doc.worktree && record.branch === doc.branch, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task worktree ownership changed.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');
-      invariant(await gitText(doc.worktree, ['rev-parse', 'HEAD']) === record.merge.revision, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task branch changed after integration.');
+      const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
+      invariant(head === record.merge.revision || await mergeInOf(doc.worktree, record.merge.revision, head, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Task branch changed after integration (landed ${record.merge.revision}, now ${head}).`);
       invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.merge.revision, `refs/heads/${record.merge.target_branch}`], true)).code === 0, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Merge ancestry is no longer established.');
       const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
       const worker = await observe(record);
@@ -831,7 +1032,7 @@ export async function cleanupTask(options) {
       next.state = 'cleaned';
       await writeJson(ctx.path, next);
       await ctx.store.evidence(options.task, ctx.path);
-      await ctx.store.done(options.task);
+      if (doc.status !== 'done') await ctx.store.done(options.task);
       return { cleaned: true, record: next };
     } catch (error) {
       const recovery = 'Preserve the task, results and worktree; resolve the named ownership, writer or landing gate, then retry cleanup.';
@@ -839,6 +1040,63 @@ export async function cleanupTask(options) {
       return { cleaned: false, reason: error.message, recovery };
     }
   });
+}
+
+/** TM-247 (AC7): hand a governed admission to another lead session, recorded where both can see it
+ * (a management-record event and a task comment). The owner may hand off to --to at any time; any
+ * other session may take over only once the owner's claim is no longer live (released or expired),
+ * so a lead that left does not strand its review rounds. A live bound worker refuses either way: its
+ * identity names the old owner, so stop or retire it first. The admission, base, worktree, branch and
+ * lead id are unchanged; only the owner and the claim move. */
+export async function transferTask(options) {
+  const ctx = await context(options);
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record = await loadRecord(ctx.path), caller = options.owner;
+    invariant(record?.started, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${options.task} has no admission to transfer.`);
+    invariant(nonempty(options.reason), 'TOPOLOGY_MANAGEMENT_TRANSFER', 'transfer requires a non-empty --reason.');
+    invariant(nonempty(caller), 'TOPOLOGY_MANAGEMENT_TRANSFER', 'The caller has no session id (TM_SESSION_ID or AO_AGENT_ID).');
+    const from = record.owner, to = nonempty(options.to) ? options.to.trim() : caller;
+    invariant(to !== from, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${options.task} is already owned by ${from}.`);
+    invariant(caller === from || caller === to, 'TOPOLOGY_MANAGEMENT_TRANSFER', `Only the owner ${from} can hand ${options.task} to another session; another session can only take it over for itself.`);
+    invariant(!record.worker || record.worker.stopped_at, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${options.task} has a bound worker that is not stopped; stop or retire it with manage stop-worker first.`);
+    const claim = await ctx.store.claim(options.task);
+    invariant(!claim || claim.session === from || claim.session === to, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `${options.task} is claimed by ${claim?.session}, neither the owner ${from} nor ${to}; reconcile that claim first.`);
+    invariant(caller === from || claim?.session !== from, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${from} still holds a live claim on ${options.task}; ask it to run manage transfer --task ${options.task} --to ${to}, or wait for its claim to expire.`);
+    const doc = await ctx.store.show(options.task);
+    invariant(doc.worktree && resolve(doc.worktree) === resolve(record.worktree), 'TOPOLOGY_MANAGEMENT_WORKTREE', 'Task worktree differs from the admission record; reconcile it before transferring.');
+    try { await ctx.store.claimFor(options.task, to, record.worktree, claim?.session === from); }
+    catch (error) { fail('TOPOLOGY_MANAGEMENT_OWNERSHIP', `Moving the claim on ${options.task} to ${to} failed: ${tmMessage(error)}`); }
+    const next = await recordEvent(ctx, options.task, record, 'ownership-transfer', { from, to, by: caller, reason: options.reason.trim() });
+    next.owner = to;
+    next.transfers = [...(next.transfers || []), { from, to, by: caller, at: next.updated_at }];
+    await writeJson(ctx.path, next);
+    return { transferred: true, from, to, record: next };
+  });
+}
+
+/** TM-247 (AC8): close a landed governed task in the one order that cannot strand a bound worker:
+ * record the landing (only when none is recorded, from --landed and --reason), stop the worker, then
+ * clean up, which removes the worktree and closes the task. Each step is the existing verb with its
+ * own gates; the first refusal ends the sequence and is returned with its recovery. */
+export async function closeTask(options) {
+  const steps = [];
+  let record = (await managementStatus(options)).management;
+  if (!record?.merge) {
+    invariant(nonempty(options.landed), 'TOPOLOGY_MANAGEMENT_CLOSE', `${options.task} has no recorded landing; pass --landed <commit> --reason <text> so close records it, or land it with manage integrate.`);
+    record = await recordLanding(options);
+    steps.push('recorded-landing');
+  }
+  if (record.worker && !record.worker.stopped_at) {
+    const stopped = await stopTaskWorker(options);
+    if (!stopped.stopped) return { closed: false, steps, refused: 'stop-worker', reason: stopped.reason, recovery: stopped.recovery };
+    steps.push(stopped.retired ? 'worker-retired' : 'worker-stopped');
+  }
+  if (record.state !== 'cleaned') {
+    const cleaned = await cleanupTask(options);
+    if (!cleaned.cleaned) return { closed: false, steps, refused: 'cleanup', reason: cleaned.reason, recovery: cleaned.recovery };
+    steps.push('cleaned');
+  }
+  return { closed: true, steps, record: (await managementStatus(options)).management };
 }
 
 export async function managementStatus(options) {

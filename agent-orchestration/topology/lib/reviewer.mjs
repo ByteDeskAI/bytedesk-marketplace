@@ -85,7 +85,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch, or a CHANGELOG.md>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch, or a CHANGELOG.md>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Each request also names a packet_path directory (files.txt, files/, task.md, checks.json, checklist.md): follow its checklist.md, and when checks.json lists unsatisfied required checks you cannot approve; submit blocked and name the missing evidence. Never execute code or change files.`;
 }
 
 /**
@@ -954,8 +954,10 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
   const between = COMMIT_SHA.test(String(candidate)) && candidate !== revision && await ancestor(admittedBase, candidate) && await ancestor(candidate, revision);
   if (recorded) invariant(between, 'TOPOLOGY_REVIEWER_RANGE', 'Recorded effective review base is not between the admitted base and the revision.');
   else {
-    const patch = between ? await git(['diff', '--no-ext-diff', '--no-textconv', '--binary', candidate, revision, '--']) : null;
-    invariant(patch?.code === 0 && createHash('sha256').update(patch.stdout).digest('hex') === reviewed.patch_sha256, 'TOPOLOGY_REVIEWER_REREVIEW',
+    // TM-260: reproduced with the same builder as the review range, so a binary range's manifest matches;
+    // an approval stored in an older format does not reproduce, and asks for a re-review.
+    const patch = between ? await reviewPatch(repoDir, candidate, revision).catch(() => null) : null;
+    invariant(patch?.patch_sha256 === reviewed.patch_sha256, 'TOPOLOGY_REVIEWER_REREVIEW',
       'The landed task\'s review request predates TM-257 and its reviewed base cannot be verified against the reviewed patch; a re-review is required.');
   }
   let onDefault;
@@ -971,8 +973,19 @@ export async function reviewRangeBase({ consumer, task, revision, admittedBase, 
   const taskKey = segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task'), revisionKey = segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision');
   // TM-325: the integration branch is read from the producer-owned admission record, never the mutable task
   // file; none recorded = the default branch. The task PR's base, when the server can name it, must agree.
-  const management = await readJson(join(stateRoot(env, home), 'management', repoKey((await canonicalRepoId(consumer)).id), `${taskKey}.json`)).catch(() => null);
+  const managementDir = join(stateRoot(env, home), 'management', repoKey((await canonicalRepoId(consumer)).id));
+  const management = await readJson(join(managementDir, `${taskKey}.json`)).catch(() => null);
   const branch = typeof management?.integration_branch === 'string' && management.integration_branch ? management.integration_branch : null;
+  // TM-259: a base the server verified for this exact (task, revision) is recorded in host state and reused,
+  // so supervision and eligibility sweeps make no GitHub call for it, and a rate limit or network blip
+  // cannot fall back to the admitted base and flip an approved review to "does not cover the range".
+  // Only a server-verified derivation is recorded; a fallback never is, so first derivation still fails closed.
+  const basesPath = join(managementDir, `${taskKey}.bases.json`);
+  const bases = await readJson(basesPath).catch(() => ({}));
+  const hit = bases?.[revisionKey];
+  if (hit && hit.admitted_base === admittedBase && hit.branch === branch && COMMIT_SHA.test(String(hit.base))
+    && (hit.base === admittedBase || await isAncestor(consumer, admittedBase, hit.base) && await isAncestor(consumer, hit.base, revision)))
+    return { admitted_base: admittedBase, effective_base: hit.base, range_note: null };
   if (branch && typeof management.branch === 'string' && management.branch) {
     const bases = await serverPullBase(consumer, management.branch).catch(() => []); // ponytail: unanswerable = unconfirmed, not refused
     const other = Array.isArray(bases) ? bases.find(base => base !== branch) : undefined;
@@ -981,8 +994,12 @@ export async function reviewRangeBase({ consumer, task, revision, admittedBase, 
   const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson(join(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
   const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
+  // ponytail: unlocked read-modify-write; two writers record the same verified value for a revision.
+  if (note === null) await writeJson(basesPath, { ...bases, [revisionKey]: { base, admitted_base: admittedBase, branch, verified_at: nowIso() } });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
+
+const isAncestor = async (dir, a, b) => (await run('git', ['-C', dir, 'merge-base', '--is-ancestor', a, b], { allowFailure: true })).code === 0;
 
 /**
  * TM-366: the tree a review reads, the worker's task worktree from the admission record. The main
@@ -1013,69 +1030,98 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   const ancestor = await run('git', ['-C', tree, 'merge-base', '--is-ancestor', admitted, revision], { allowFailure: true });
   invariant(ancestor.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Task admission base must be an ancestor of the finished revision.');
   const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, serverPullBase, env, home });
-  // No --binary: git renders a binary change as a one-line "Binary files ... differ" marker instead
-  // of embedding its bytes, so a range with large binary files (screenshots, etc.) never inflates
-  // this buffer. The manifest below adds path + blob sha256 + size for those files. No --full-index
-  // either: --binary only widened the index line of BINARY files, so a text-only range hashes exactly
-  // as it did before TM-241 (the text-only hash test holds this).
-  const diff = await run('git', ['-C', tree, 'diff', '--no-ext-diff', '--no-textconv', base, revision, '--'], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
-  if (diff.code === 'ERR_CHILD_PROCESS_STDOUT_MAXBUFFER') {
-    fail('TOPOLOGY_REVIEWER_RANGE', `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
-  }
-  invariant(diff.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` — ${diff.stderr.trim()}` : ''}.`);
-  const binaryFiles = await binaryFileManifest(tree, base, revision);
-  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
-  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256: createHash('sha256').update(patch).digest('hex'), owner: management.owner, binaryFiles, worktree: tree };
+  const { patch, patch_sha256, binaryFiles } = await reviewPatch(tree, base, revision, Number(env.AO_REVIEW_PATCH_MAX_BYTES) || REVIEW_PATCH_MAX_BYTES);
+  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256, owner: management.owner, binaryFiles, worktree: tree };
 }
 
-/** path + old/new blob sha256 + size for every binary file in the range, in place of its bytes. */
-async function binaryFileManifest(consumer, base, revision) {
-  const numstat = await run('git', ['-C', consumer, 'diff', '--numstat', '-z', '--no-renames', base, revision, '--'], { allowFailure: true });
-  invariant(numstat.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot list binary files in the task diff: git exited ${numstat.code}${numstat.stderr?.trim() ? ` — ${numstat.stderr.trim()}` : ''}.`);
-  const binaryPaths = new Set(numstat.stdout.split('\0').filter(Boolean)
-    .map(entry => entry.split('\t')).filter(([added, removed]) => added === '-' && removed === '-').map(([, , path]) => path));
-  if (binaryPaths.size === 0) return [];
-  const raw = await run('git', ['-C', consumer, 'diff', '--raw', '-z', '--no-renames', '--no-abbrev', base, revision, '--'], { allowFailure: true });
-  invariant(raw.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot resolve binary blob identities: git exited ${raw.code}${raw.stderr?.trim() ? ` — ${raw.stderr.trim()}` : ''}.`);
+/**
+ * The reviewed patch for base..revision, and its hash: the one builder for a review range and for the
+ * TM-257 legacy reproduction, so the two can never disagree about the format.
+ * No --binary: a binary file's bytes never enter the buffer. Binary files are classified by CONTENT
+ * (TM-260: a NUL in the first 8000 bytes, git's own test), not by the range's .gitattributes, which the
+ * author controls; they are left out of the text diff and listed in a manifest of path, old/new blob
+ * sha256 and size. Every other file is diffed with --text, so a `-diff` or `binary` attribute cannot turn
+ * source into a manifest row. No --full-index: a text-only range hashes exactly as it did before TM-241.
+ */
+async function reviewPatch(tree, base, revision, maxBytes = REVIEW_PATCH_MAX_BYTES) {
+  const binaryFiles = await binaryFileManifest(tree, base, revision);
+  // ponytail: one exclude pathspec per binary file on the command line; batch through --pathspec-from-file if a range ever holds thousands.
+  const excluded = binaryFiles.map(file => `:(exclude,literal)${file.path}`);
+  const diff = await run('git', ['-C', tree, 'diff', '--no-ext-diff', '--no-textconv', '--text', base, revision, '--', ...excluded], { allowFailure: true, maxBuffer: maxBytes });
+  // Node names this ERR_CHILD_PROCESS_STDIO_MAXBUFFER; the TM-241 check named a code that never occurs.
+  if (/MAXBUFFER$/.test(String(diff.code))) {
+    fail('TOPOLOGY_REVIEWER_RANGE', `Task diff exceeds the ${maxBytes} byte cap (at least ${Buffer.byteLength(diff.stdout)} bytes read before the cap stopped it).`);
+  }
+  invariant(diff.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` — ${diff.stderr.trim()}` : ''}.`);
+  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
+  return { patch, patch_sha256: createHash('sha256').update(patch).digest('hex'), binaryFiles };
+}
+
+/** path + old/new blob sha256 + size for every file in the range whose content is binary, in place of its bytes. */
+async function binaryFileManifest(tree, base, revision) {
+  const raw = await run('git', ['-C', tree, 'diff', '--raw', '-z', '--no-renames', '--no-abbrev', base, revision, '--'], { allowFailure: true });
+  invariant(raw.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot list the files in the task diff: git exited ${raw.code}${raw.stderr?.trim() ? ` — ${raw.stderr.trim()}` : ''}.`);
   const fields = raw.stdout.split('\0').filter(Boolean);
   const entries = [];
   for (let i = 0; i < fields.length; i += 2) {
-    const [, , oldSha, newSha] = fields[i].split(' ');
+    const [oldMode, newMode, oldSha, newSha] = fields[i].replace(/^:/, '').split(' ');
     const path = fields[i + 1];
-    if (!binaryPaths.has(path)) continue;
-    const old_size = await blobSize(consumer, oldSha, path), new_size = await blobSize(consumer, newSha, path);
-    entries.push({ path, old_sha256: await blobSha256(consumer, oldSha, path, old_size), new_sha256: await blobSha256(consumer, newSha, path, new_size), old_size, new_size });
+    let binary = false;
+    for (const [mode, sha] of [[oldMode, oldSha], [newMode, newSha]]) {
+      if (!binary && !ZERO_BLOB.test(sha) && mode !== GITLINK_MODE) binary = await readBlob(tree, sha, path, { peek: true });
+    }
+    if (!binary) continue;
+    const old_size = await blobSize(tree, oldSha, path), new_size = await blobSize(tree, newSha, path);
+    entries.push({ path, old_sha256: await blobSha256(tree, oldSha, path), new_sha256: await blobSha256(tree, newSha, path), old_size, new_size });
   }
   return entries;
 }
 
 const ZERO_BLOB = /^0+$/;
+const GITLINK_MODE = '160000'; // a submodule commit, not a blob in this repository
+const BINARY_PEEK_BYTES = 8000; // git's own binary heuristic looks this far for a NUL
 
 /** An all-zero blob id means the file is absent on that side; any other unreadable blob refuses the range. */
-async function blobSize(consumer, sha, path) {
+async function blobSize(tree, sha, path) {
   if (ZERO_BLOB.test(sha)) return 0;
-  const result = await run('git', ['-C', consumer, 'cat-file', '-s', sha], { allowFailure: true });
-  invariant(result.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot read the size of binary file ${path} (blob ${sha}): git exited ${result.code}${result.stderr?.trim() ? ` — ${result.stderr.trim()}` : ''}.`);
+  const result = await run('git', ['-C', tree, 'cat-file', '-s', sha], { allowFailure: true });
+  invariant(result.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot read the size of file ${path} (blob ${sha}): git exited ${result.code}${result.stderr?.trim() ? ` — ${result.stderr.trim()}` : ''}.`);
   return Number(result.stdout.trim());
 }
 
 /** git's blob id is not sha256; stream the blob's bytes into the hash so no size cap applies. */
-function blobSha256(consumer, sha, path, size) {
-  if (ZERO_BLOB.test(sha)) return Promise.resolve(null);
-  return new Promise((resolve, reject) => {
-    const hash = createHash('sha256');
-    let stderr = '';
-    const child = spawn('git', ['-C', consumer, 'cat-file', 'blob', sha], { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout.on('data', chunk => hash.update(chunk));
-    child.stderr.on('data', chunk => { stderr += chunk; });
-    child.on('error', error => reject(new TopologyError('TOPOLOGY_REVIEWER_RANGE', `Cannot hash binary file ${path} (${size} bytes): ${error.message}.`)));
-    child.on('close', code => code === 0 ? resolve(hash.digest('hex'))
-      : reject(new TopologyError('TOPOLOGY_REVIEWER_RANGE', `Cannot hash binary file ${path} (${size} bytes, blob ${sha}): git exited ${code}${stderr.trim() ? ` — ${stderr.trim()}` : ''}.`)));
-  });
+function blobSha256(tree, sha, path) {
+  return ZERO_BLOB.test(sha) ? Promise.resolve(null) : readBlob(tree, sha, path);
+}
+
+/** Streams a blob: the sha256 of all its bytes, or with `peek`, whether its first 8000 bytes hold a NUL. */
+async function readBlob(tree, sha, path, { peek = false } = {}) {
+  try {
+    return await new Promise((resolve, reject) => {
+      const hash = createHash('sha256');
+      let stderr = '', seen = 0, nul = false, stopped = false;
+      const child = spawn('git', ['-C', tree, 'cat-file', 'blob', sha], { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.on('data', chunk => {
+        if (stopped) return;
+        if (!peek) { hash.update(chunk); return; }
+        nul ||= chunk.subarray(0, Math.max(0, BINARY_PEEK_BYTES - seen)).includes(0);
+        seen += chunk.length;
+        if (nul || seen >= BINARY_PEEK_BYTES) { stopped = true; child.kill(); }
+      });
+      child.stderr.on('data', chunk => { stderr += chunk; });
+      child.on('error', reject);
+      child.on('close', code => stopped || code === 0 ? resolve(peek ? nul : hash.digest('hex'))
+        : reject(new Error(`git exited ${code}${stderr.trim() ? ` — ${stderr.trim()}` : ''}`)));
+    });
+  } catch (error) {
+    const size = await blobSize(tree, sha, path).catch(() => 'unknown');
+    fail('TOPOLOGY_REVIEWER_RANGE', `Cannot read file ${path} (${size} bytes, blob ${sha}): ${error.message}.`);
+  }
 }
 
 function renderBinaryManifest(binaryFiles) {
-  const rows = binaryFiles.map(f => `${f.path}\told sha256=${f.old_sha256 ?? '(absent)'} size=${f.old_size}\tnew sha256=${f.new_sha256 ?? '(absent)'} size=${f.new_size}`);
+  // TM-260: the path is JSON-encoded, so a newline or tab in a filename cannot forge a row.
+  const rows = binaryFiles.map(f => `${JSON.stringify(f.path)}\told sha256=${f.old_sha256 ?? '(absent)'} size=${f.old_size}\tnew sha256=${f.new_sha256 ?? '(absent)'} size=${f.new_size}`);
   return `\n--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---\n${rows.join('\n')}\n`;
 }
 
@@ -1120,8 +1166,10 @@ export function approvable(findings) {
 }
 
 /** One schema for a verdict, applied at submit and again at record: structured findings in the diff, and the severity rules. */
-function checkVerdict(verdict, findings, files) {
+function checkVerdict(verdict, findings, files, unsatisfied = []) {
   const structured = validateFindings(findings, files);
+  // TM-216: a packet without passing evidence for every required check is reviewed as blocked, never approved.
+  invariant(verdict !== "approve" || !unsatisfied.length, "TOPOLOGY_REVIEWER_VERDICT", `The review packet lacks passing evidence for required checks (${unsatisfied.join("; ")}); approval is refused. Submit blocked and name the missing evidence.`);
   invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
   invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   return structured;
@@ -1131,7 +1179,7 @@ function checkVerdict(verdict, findings, files) {
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
  */
-export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant(!expectedBinding || sameIncarnation(expectedBinding,registered.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed before recording the verdict.');
@@ -1157,7 +1205,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
-  const structured = checkVerdict(verdict, findings, await reviewedFiles(range.worktree, range.base, revision));
+  const structured = checkVerdict(verdict, findings, await reviewedFiles(range.worktree, range.base, revision), uncheckedChecks);
   const record = {
     base_revision: range.base,
     admitted_base: range.admitted_base,
@@ -1243,11 +1291,26 @@ export async function reviewEligibility({ consumer, task, revision, env = proces
   if (status.state === "missing") reasons.push(`no review of ${task} exists — a satisfied review of revision ${revision} is required`);
   else if (status.state === "stale") reasons.push(`the latest review covers revision ${status.review.revision}, not the current revision ${revision} — a re-review is required`);
   else if (status.state !== "satisfied") reasons.push(`review of revision ${revision} is "${status.state}", not satisfied`);
+  if (status.review) reasons.push(...await checkEvidenceReasons({ consumer, task, revision, env, home, pluginRoot }));
   if (status.state === 'satisfied') {
     const collected = await independentReviewStatus({ consumer, task, env, home, pluginRoot, serverCompare, serverPullBase });
     if (collected.status !== 'approved' || collected.sourceRevision !== revision) reasons.push(`independent review is not collected for this revision: ${collected.reason ?? collected.status}`);
   }
   return { eligible: reasons.length === 0, reasons, availability, status };
+}
+
+/**
+ * TM-216: every required check needs evidence in this revision's (unchanged) review packet, recorded at
+ * this revision with exit 0. Required checks come from the current config, not from the packet.
+ */
+async function checkEvidenceReasons({ consumer, task, revision, env, home, pluginRoot }) {
+  const required = await requiredCheckNames({ consumer, home, pluginRoot, env });
+  if (!required.length) return [];
+  const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`)).catch(() => null);
+  if (!request?.packet_sha256) return [`no check evidence is recorded for revision ${revision}; request the review with --checks`];
+  if (await packetDigest(request.packet_path).catch(() => null) !== request.packet_sha256) return ['the review packet changed after the request'];
+  const recorded = await readJson(join(request.packet_path, 'checks.json')).catch(() => null);
+  return unsatisfiedChecks(required, recorded?.checks, revision).map(line => `required check ${line}`);
 }
 
 /** Historical review projection. It validates evidence without waking or probing a provider. */
@@ -1283,19 +1346,138 @@ export async function independentReviewStatus({ consumer, task, env = process.en
   } catch(error) { return {...result,status:'invalid',reason:error.message}; }
 }
 
+// ── Review packet (TM-216) ───────────────────────────────────────────────────
+// Beside the .patch, every request gets a packet directory the reviewer reads with its read-only
+// tools: files.txt (name-status and stat), files/<path> (each changed text file at the revision),
+// task.md (the task's acceptance criteria and touches), checks.json (the lead's check evidence) and
+// checklist.md (required checks plus the repository's own checklist). Its digest is recorded on the
+// request and verified at collection, exactly like the patch hash.
+
+/** The repository's own review checklist, read from the consumer checkout (never the author's worktree). */
+export const REVIEW_CHECKLIST_PATH = join('.bytedesk', 'agent-orchestration', 'review-checklist.md');
+const LOG_TAIL_MAX = 4000;
+
+/** Check evidence as the lead passes it: [{name, command, exit_code, revision, log_tail}]. */
+export function normalizeChecks(checks) {
+  if (checks == null) return [];
+  invariant(Array.isArray(checks), 'TOPOLOGY_REVIEWER_CHECKS', 'Check evidence must be an array of {name, command, exit_code, revision, log_tail}.');
+  return checks.map((check, index) => {
+    const at = `Check ${index + 1}`;
+    invariant(check && typeof check === 'object' && typeof check.name === 'string' && check.name.trim(), 'TOPOLOGY_REVIEWER_CHECKS', `${at} must name the check.`);
+    invariant(Number.isInteger(check.exit_code), 'TOPOLOGY_REVIEWER_CHECKS', `${at} (${check.name}) must carry an integer exit_code.`);
+    invariant(COMMIT_SHA.test(String(check.revision)), 'TOPOLOGY_REVIEWER_CHECKS', `${at} (${check.name}) must name the full commit it ran at.`);
+    const command = Array.isArray(check.command) ? check.command.map(String).join(' ') : String(check.command ?? '');
+    return { name: check.name.trim(), command, exit_code: check.exit_code, revision: check.revision, log_tail: String(check.log_tail ?? '').slice(-LOG_TAIL_MAX) };
+  });
+}
+
+/**
+ * TM-418: the check evidence a worker's finish report carries, for every automatic review request
+ * (manage report, retry-review, the supervisor review sweep). Only structured runs count:
+ * {name, command, exit_code, revision, log_tail}. A prose string such as "npm test passed" is a
+ * description, not evidence, and is never turned into a run. unsatisfiedChecks still binds each run
+ * to the reviewed revision, so a run recorded at another commit satisfies nothing.
+ */
+export function finishCheckEvidence(report) {
+  return normalizeChecks((Array.isArray(report?.checks) ? report.checks : []).filter(check => check && typeof check === 'object'));
+}
+
+/** Names of config.management.required_checks; none configured = nothing is required. */
+export async function requiredCheckNames({ consumer, home = homedir(), pluginRoot = null, env = process.env }) {
+  const checks = (await loadConfig({ consumer, home, pluginRoot, env })).config.management?.required_checks;
+  return Array.isArray(checks) ? checks.map(check => check?.name).filter(name => typeof name === 'string' && name) : [];
+}
+
+/**
+ * The one predicate for check evidence, used by the packet, by submit/record and by eligibility: every
+ * required check needs evidence recorded at exactly `revision`, and every run there exited 0.
+ */
+export function unsatisfiedChecks(required, checks, revision) {
+  return required.flatMap(name => {
+    const runs = (Array.isArray(checks) ? checks : []).filter(check => check?.name === name);
+    if (!runs.length) return [`${name}: no evidence`];
+    const here = runs.filter(check => check.revision === revision);
+    if (!here.length) return [`${name}: evidence recorded at ${runs[0].revision}, not ${revision}`];
+    const failed = here.find(check => check.exit_code !== 0);
+    return failed ? [`${name}: exited ${failed.exit_code} at ${revision}`] : [];
+  });
+}
+
+/** sha256 over every packet file's relative path and content hash, in sorted order. */
+export async function packetDigest(dir) {
+  const hash = createHash('sha256');
+  const walk = async rel => {
+    const entries = (await readdir(join(dir, rel), { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const entry of entries) {
+      const path = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(path);
+      else hash.update(`${JSON.stringify(path)} ${createHash('sha256').update(await readFile(join(dir, path))).digest('hex')}\n`);
+    }
+  };
+  await walk('');
+  return hash.digest('hex');
+}
+
+/** The task's criteria and touches, through the repository's tm launcher when it exists (AO never imports tm). */
+async function readTaskDoc({ consumer, task, env }) {
+  const { taskStore } = await import('./management.mjs');
+  return (await taskStore({ consumer, env })).show(task);
+}
+
+function renderTaskBrief(task, doc, reason) {
+  if (!doc) return `# ${task}\n\nThe task record could not be read (${reason}). Review against the request, patch and checklist.\n`;
+  const criteria = (Array.isArray(doc.acceptance) ? doc.acceptance : []).map((ac, i) => `${i + 1}. ${typeof ac === 'string' ? ac : ac?.text ?? ''}`);
+  const touches = (Array.isArray(doc.touches) ? doc.touches : []).map(path => `- ${path}`);
+  return [`# ${task}: ${doc.title ?? ''}`, '', String(doc.body ?? '').trim(), '', '## Acceptance criteria', ...(criteria.length ? criteria : ['(none recorded)']), '', '## Touches (approved file scope)', ...(touches.length ? touches : ['(none recorded)']), ''].join('\n');
+}
+
+async function writeReviewPacket({ dir, consumer, task, revision, range, checks, required, unsatisfied, taskDoc, env }) {
+  await rm(dir, { recursive: true, force: true });
+  const git = args => run('git', ['-C', range.worktree, ...args], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
+  const status = await git(['diff', '--name-status', '--no-renames', range.base, revision, '--']);
+  const stat = await git(['diff', '--stat', '--no-renames', range.base, revision, '--']);
+  invariant(status.code === 0 && stat.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot list the changed files for the review packet: git exited ${status.code || stat.code}.`);
+  await writeText(join(dir, 'files.txt'), `${status.stdout}\n${stat.stdout}`);
+  const binary = new Set(range.binaryFiles.map(file => file.path));
+  for (const path of await reviewedFiles(range.worktree, range.base, revision)) {
+    if (binary.has(path)) continue; // the patch manifest records it
+    const shown = await git(['show', `${revision}:${path}`]);
+    if (shown.code === 0) await writeText(join(dir, 'files', path), shown.stdout); // deleted or a gitlink: nothing to show
+  }
+  let doc = null, reason = null;
+  try { doc = await taskDoc({ consumer, task, env }); } catch (error) { reason = error.code ?? error.message; }
+  await writeText(join(dir, 'task.md'), renderTaskBrief(task, doc, reason));
+  await writeJson(join(dir, 'checks.json'), { revision, required, checks, unsatisfied });
+  const repoChecklist = await readFile(join(consumer, REVIEW_CHECKLIST_PATH), 'utf8').catch(() => null);
+  await writeText(join(dir, 'checklist.md'), [
+    `# Review checklist: ${task} at ${revision}`, '',
+    '## Required checks (checks.json)',
+    ...(required.length ? required.map(name => `- ${name}: ${unsatisfied.find(line => line.startsWith(`${name}:`)) ? `UNSATISFIED (${unsatisfied.find(line => line.startsWith(`${name}:`))})` : 'passed at this revision'}`) : ['- none configured']),
+    '', unsatisfied.length ? 'Check evidence is missing or failing, so this revision cannot be approved: submit blocked and name the missing evidence (or changes_requested with blocker/major findings).' : 'Check evidence covers every required check at this revision.',
+    '', `## Repository checklist (${REVIEW_CHECKLIST_PATH})`, '',
+    repoChecklist?.trim() || 'None configured.', '',
+  ].join('\n'));
+  return packetDigest(dir);
+}
+
 /** Queue an independent exact-revision review without requiring an idle input composer. */
-export async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = homedir(), wake = wakeReviewRequest }) {
+export async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, checkEvidence = null, pluginRoot = null, taskDoc = readTaskDoc, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = homedir(), wake = wakeReviewRequest }) {
   const record = await readReviewerRecord(consumer, env, home);
   invariant(record, 'TOPOLOGY_REVIEWER_UNAVAILABLE', 'No designated reviewer; preserve the finished task until one is available.');
   invariant(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(revision)), 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'Review request requires a full commit SHA.');
   invariant(Array.isArray(authorAgentIds) && authorAgentIds.length && !authorAgentIds.includes(record.agent_id), 'TOPOLOGY_REVIEWER_CONFLICT', 'Review request must identify independent authors.');
+  const evidence = normalizeChecks(checkEvidence);
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant(authorAgentIds.includes(range.owner), 'TOPOLOGY_REVIEWER_AUTHORS', 'Review authors must include the admitted task owner.');
+  const required = await requiredCheckNames({ consumer, home, pluginRoot, env });
+  const unsatisfied = unsatisfiedChecks(required, evidence, revision);
   const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
   const key = `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${revision}`;
   const { lockPath: reviewerLock } = await reviewerPaths(consumer, env, home);
   return withLock(join(dir, `${key}.lock`), async () => {
     const path = join(dir, `${key}.json`);
+    const packetPath = join(dir, `${key}.packet`);
+    const packetSha = await writeReviewPacket({ dir: packetPath, consumer, task, revision, range, checks: evidence, required, unsatisfied, taskDoc, env });
     // TM-302: the record is re-read and the request written under the reviewer lock, so restartReviewer
     // either sees this request (and refuses) or this request sees its `restarting` mark (and is refused).
     const written = await withLock(reviewerLock, async () => {
@@ -1306,10 +1488,10 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
     invariant(!authorAgentIds.includes(record.agent_id), 'TOPOLOGY_REVIEWER_CONFLICT', 'Review request must identify independent authors.');
     const prior = await readJson(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     invariant(incarnationOf(record.binding), 'TOPOLOGY_REVIEWER_BINDING_REQUIRED', 'Review requires the exact designated reviewer incarnation.');
-    if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path } };
+    if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.packet_sha256 === packetSha && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path } };
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
-    const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), worktree: range.worktree, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+    const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), worktree: range.worktree, patch_path: patchPath, patch_sha256: range.patch_sha256, packet_path: packetPath, packet_sha256: packetSha, checks_unsatisfied: unsatisfied, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
     await writeJson(path, request);
     return { record, request };
     });
@@ -1334,7 +1516,7 @@ async function wakeReviewRequest({consumer,record,request,path,env,home}) {
   const loaded=await loadAdapters(providerDirs({consumer,home,env}));
   const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
   return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
-    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch; its range_note says what the range excludes. Read changed files under its worktree (${request.worktree ?? consumer}), not the main checkout. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision using read tools only, then submit your verdict with the review_submit tool (request ${request.nonce}).`});
+    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch; its range_note says what the range excludes. Read changed files under its worktree (${request.worktree ?? consumer}), not the main checkout. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Read its packet directory (${request.packet_path ?? 'none'}): files.txt, files/, task.md, checks.json and checklist.md; follow checklist.md, and if checks.json lists unsatisfied required checks, do not approve: submit blocked naming the missing evidence. Review the requested revision using read tools only, then submit your verdict with the review_submit tool (request ${request.nonce}).`});
 }
 
 const B64_PREFIX = 'b64:';
@@ -1412,7 +1594,7 @@ export async function submitReviewVerdict({ consumer, request: id, verdict, find
     invariant(current.nonce === request.nonce && !current.collected_at, 'TOPOLOGY_REVIEWER_RESPONSE', 'This review request was already collected; its verdict cannot change.');
     invariant(current.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request failed (${current.failure?.reason ?? 'no reason recorded'}); the lead must request the review again.`);
     invariant(VERDICTS.has(verdict), 'TOPOLOGY_REVIEWER_VERDICT', `Verdict must be one of ${[...VERDICTS].join(', ')}; got ${JSON.stringify(verdict)}.`);
-    const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision));
+    const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision), current.checks_unsatisfied ?? []);
     const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
     submitted.mirror = await mirrorVerdict({ consumer, record, submitted, env, transport });
     await writeJson(verdictPath(path), submitted);
@@ -1466,13 +1648,15 @@ export async function collectReview({ consumer, task, revision, env = process.en
   // TM-220: a failed request is final; collecting it again would escalate a second time.
   invariant(request.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request already failed (${request.failure?.reason ?? 'no reason recorded'}); request the review again for a fresh nonce.`);
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
+  // TM-216: the packet is evidence the reviewer read; a changed one is refused like a changed patch.
+  invariant(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review packet changed after the request.');
   const submitted = await readSubmittedVerdict(path, request);
   invariant(submitted || sameIncarnation(request.binding, record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
   invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
   let review;
   try {
     invariant(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'The submitted verdict is not bound to the reviewer incarnation the request was sent to.');
-    review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
+    review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
   } catch (error) {
     // TM-215 review 1: a refused verdict fails its request once, the lead is told, and requestReview
     // mints a fresh nonce. submitReviewVerdict applies the same schema first, so this is rare.
