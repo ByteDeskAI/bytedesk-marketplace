@@ -95,7 +95,7 @@ fi
 if step 9; then
   title 9 "Doctor: is my installed plugin stale?" "Compares the installed plugin with origin/main and names the update command."
   (HOME="$REAL_HOME" node "$AO/bin/agent-orchestration" doctor --json 2>/dev/null || true) \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const f=j.pluginFreshness??j.freshness??j;console.log(JSON.stringify(f,null,2).split("\n").slice(0,14).map(l=>"    "+l).join("\n"))}catch{console.log("    (doctor output not JSON on this build)")}})'
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const f=j.diagnostics?.pluginFreshness??j.pluginFreshness;const c=j.combined??{};console.log(`    plugin:       ${f?.status ?? "unknown"}  (installed ${String(f?.installed??"?").slice(0,12)}, origin/main ${String(f?.originMain??"?").slice(0,12)})`);if(f?.advice)console.log(`    advice:       ${f.advice}`);console.log(`    combined ok:  ${c.ok}  (agent-orchestration ${c.agentOrchestration?.ok}, task-management ${c.taskManagement?.ok}, services ${c.services?.ok ?? "not managed"})`)}catch{console.log("    (doctor output not JSON on this build)")}})'
 fi
 
 printf '\n%sDone.%s Sandbox removed; nothing outside it was changed.\n' "$B" "$N"
