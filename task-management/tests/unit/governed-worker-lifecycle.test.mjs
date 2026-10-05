@@ -54,13 +54,47 @@ describe("TM-247 governed worker lifecycle (task-management)", () => {
   it("AC12: collecting a dead worker of a lead-held governed task records it and never parks or drops the claim", async () => {
     const { p, id } = admitted();
     assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
-    const res = collectTmux(id, { p, spawnImpl: GONE });
+    await new Promise((r) => setTimeout(r, 5));
+    claimTask(id, { session: "lead-session", p }); // TM-460: the lead re-claims after the dispatch
+    const res = collectTmux(id, { p, spawnImpl: GONE, caps: {} });
     assert.equal(res.ok, true, res.reason);
     assert.equal(res.outcome, "failed");
     assert.equal(res.parked, false);
     assert.equal(res.heldByLead, true);
     assert.equal(read(id, p).status, "in_progress");
     assert.equal(state(p).claims[id]?.session, "lead-session", "the lead's claim survives the tick");
+  });
+
+  it("TM-460: a crashed worker whose owner is absent is parked or retried, though the dispatch claimed under the owner", async () => {
+    const { p, id } = admitted();
+    assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
+    assert.equal(state(p).claims[id].session, "lead-session", "the claim is the owner's, by AC13 alone");
+    const res = collectTmux(id, { p, spawnImpl: GONE, caps: {} }); // no ao: nothing proves the lead alive
+    assert.equal(res.ok, true, res.reason);
+    assert.notEqual(res.heldByLead, true);
+    assert.ok(res.parked || res.retry, "parked, or reopened for a retry");
+    assert.notEqual(read(id, p).status, "in_progress");
+  });
+
+  it("TM-460: the owner proven responsive by ao's cached lead status still holds the task", async () => {
+    const { p, id } = admitted();
+    assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
+    const caps = { backends: { topology: { available: true, path: "/fake/ao-topology" } } };
+    const asked = [];
+    const exec = (bin, args) => {
+      asked.push([bin, ...args].join(" "));
+      if (bin === "gh") return { status: 1 };
+      return { status: 0, stdout: JSON.stringify({ status: "responsive", record: { agent_id: "lead-1" } }) };
+    };
+    const res = recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, p, { exec, caps });
+    assert.equal(res.heldByLead, true, asked.join("\n"));
+    assert.ok(asked.includes("/fake/ao-topology lead status --cached"));
+    assert.equal(read(id, p).status, "in_progress");
+    // A different responsive lead is not this task's owner.
+    const other = (bin) => (bin === "gh" ? { status: 1 } : { status: 0, stdout: JSON.stringify({ status: "responsive", record: { agent_id: "lead-2" } }) });
+    const { p: p2, id: id2 } = admitted();
+    assert.equal((await dispatch(id2, { p: p2, backend: fake, caps: {} })).ok, true);
+    assert.notEqual(recordResult(id2, { outcome: "failed", summary: "x" }, p2, { exec: other, caps }).heldByLead, true);
   });
 
   it("AC12 control: a governed task whose claim is NOT the owner's is still parked or retried as before", async () => {

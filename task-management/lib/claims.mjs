@@ -67,7 +67,10 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     }
 
     const stolenFrom = owned && held.session !== session ? held.session : null;
-    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: now(), ...(gateway ? { gateway } : {}) };
+    // `ts` moves with every heartbeat; `since` is when this claim was TAKEN, which is what
+    // collect asks when it decides whether a lead re-claimed after a dispatch (TM-460).
+    const at = now();
+    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since: at, ...(gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);
     else logEvent("claim", { id, session }, p);

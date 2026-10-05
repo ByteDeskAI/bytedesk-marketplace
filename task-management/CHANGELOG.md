@@ -29,6 +29,13 @@
 
 ### Changed
 
+- **A crashed governed worker whose lead is gone is parked or retried again (TM-460, EP-028).**
+  Because a governed dispatch claims under its admission owner, collect treated every governed
+  task as "held by the lead" and left a dead worker's task in progress until the claim expired.
+  The owner's claim now counts only when the owner claimed again after the dispatch started (a
+  claim records `since` when it is taken; heartbeats leave it alone) or `ao-topology lead status
+  --cached` shows that owner's lead responsive. Without agent-orchestration, nothing proves the
+  lead alive, so the task is parked or retried.
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
