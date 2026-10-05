@@ -4,7 +4,7 @@
     {
       "id": 1,
       "prompt": "bytedesk-emote-gateway has been sitting at high CPU on this box. Find out which plugin and function is responsible and leave the host as you found it.",
-      "expected_output": "Lists profiling state first, records which plugins were already on, captures CPU for the gateway (or the suspect plugin after switching it on) while load is present, summarizes hot functions with the culprit plugin, then switches off only what it switched on and confirms with profiling_list.",
+      "expected_output": "Lists profiling state first, records which plugins were already on, captures CPU for the gateway (or the suspect plugin after switching it on) while load is present, summarizes hot functions and traces them to the owning plugin, then switches off only the applied ids it switched on and confirms with profiling_list.",
       "files": [],
       "expectations": [
         "The run called profiling_list or GET /profiling/api/plugins before switching anything",

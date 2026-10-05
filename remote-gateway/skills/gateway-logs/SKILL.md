@@ -49,8 +49,12 @@ and prints JSON with `url` and `cookieJar`; it never prints the password.
 LOGIN="${CLAUDE_PLUGIN_ROOT:-<remote-gateway plugin dir>}/skills/remote-gateway-login/scripts/login.sh"
 OUT=$(bash "$LOGIN") || { echo "$OUT"; exit 1; }   # stop on exit 2-5; see remote-gateway-login
 U=$(jq -r .url <<<"$OUT"); J=$(jq -r .cookieJar <<<"$OUT")
-gw() { curl -sS -m 30 -b "$J" "$U$@"; }      # gw /logs/api/stats
+gw() { curl -sS --fail-with-body -m 30 -b "$J" "$U$@"; }   # gw /logs/api/stats
 ```
+
+Shell state does not survive between Bash calls, so run this block at the start
+of every call that uses `gw`. Rerunning is cheap: the login script reuses a
+valid cookie and sends no password.
 
 For another host, pass that gateway's `--url --method --username --password`
 to the login script, or use the infrastructure repo's `infra run <service> --`
@@ -73,14 +77,17 @@ Filter parameters (MCP arguments, or HTTP query string):
 `logger`, `tree` (`exact` | `deps` = plus what it requires | `callers` = plus
 plugins that depend on it), `levels` (HTTP: `level=ERROR,WARN`), `text`
 (case-insensitive substring), `correlation_id`, `since` / `until` (RFC3339 or
-unix ms), `limit` (default 50, maximum 500). Check timestamps rather than
+unix ms), `limit` (MCP: default 50, maximum 500; HTTP query: default 200, maximum
+5000; HTTP export: up to 5000; `logs_get`: default 100). Check timestamps rather than
 assuming the order of returned records.
 
 ## 2. Diagnose
 
-1. **Confirm the store is healthy.** `logs_stats`. If `ingestEnabled` is false
-   or the ring is dropping records, say so: missing logs are a finding, not
-   proof that nothing happened.
+1. **Confirm the store is healthy.** Read `ingestEnabled` from
+   `logs_get_storage` (HTTP: `.settings.ingestEnabled` in `/logs/api/stats`),
+   and `suppressedRows` and `mutedDrops` from `logs_stats` (HTTP: `.stats`).
+   If ingest is off or lines were suppressed or muted, say so: missing logs
+   are a finding, not proof that nothing happened.
 2. **Find the logger.** `logs_list_loggers` shows counts, suppressed counts,
    last activity and muted state. A logger whose `last` time stops at the
    incident points at the component that stopped. A high `suppressed` count
@@ -97,8 +104,8 @@ assuming the order of returned records.
    one request.
 6. **Tail while reproducing.** HTTP only:
    `curl -sS -N -m 60 -b "$J" "$U/logs/api/tail?logger=kernel&level=ERROR,WARN"`.
-   The stream closes after about 55 seconds idle; reconnect with `since=` set
-   to the last record's time.
+   The stream closes after 55 seconds whatever the activity; reconnect with
+   `since=` set to the last record's `time`.
 7. **Recent lines missing?** `logs_flush_now` drains the ring to disk. It is
    safe and changes no settings.
 
@@ -110,7 +117,7 @@ gateway-profiling for CPU, memory, lock or goroutine symptoms, or to the fix.
 Export the slice you relied on, not the whole store:
 
 ```bash
-mkdir -p "$EVIDENCE_DIR"
+: "${EVIDENCE_DIR:?set EVIDENCE_DIR first}"; mkdir -p "$EVIDENCE_DIR"
 gw "/logs/api/export?logger=kernel&level=ERROR,WARN&since=2026-10-05T03:20:00-04:00&until=2026-10-05T03:40:00-04:00" \
   > "$EVIDENCE_DIR/gateway-logs-kernel.ndjson"
 ```
