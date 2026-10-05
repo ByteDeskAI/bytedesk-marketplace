@@ -89,8 +89,10 @@ For another host, give the login script that gateway's flags, or use
 2. **Switch on only what you need.** A CPU capture of one plugin needs that
    plugin switched on: `profiling_set {"id":"x","enabled":true}`. Add
    `levels: N` or `all: true` to include what it depends on, or
-   `callers: true` to include what depends on it. Record the `applied` ids in
-   the response: those are the switches you own. Profiling adds overhead, so
+   `callers: true` to include what depends on it. The response's `applied`
+   list (`applied[].id`) includes every plugin in the chain, even ones that
+   were already on. The switches you own are the `applied[].id` values that
+   were not `enabled` in your starting inventory. Profiling adds overhead, so
    on a production host say what you are switching on and for how long.
    Snapshots (`heap`, `goroutine`, …) cover the whole gateway process and do
    not need a switch.
@@ -119,8 +121,8 @@ deltas.
 
 ## 5. Clean up — always
 
-- Switch off only the `applied` ids from your "on" calls, one at a time, with
-  no `levels`, `all` or `callers`:
+- Switch off only the switches you own (`applied[].id` not enabled at the
+  start), one at a time, with no `levels`, `all` or `callers`:
   `profiling_set {"id":"x","enabled":false}`. Off is always allowed. A
   propagated off would also switch off plugins that were on before you
   started.
