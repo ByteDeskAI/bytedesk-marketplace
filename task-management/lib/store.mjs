@@ -1389,8 +1389,10 @@ export const foreignRef = (ref) => {
 };
 
 /**
- * The stored and compared form of a foreign ref: board lowercased and the number unpadded, so
- * `A/B#TM-01` and `a/b#TM-1` are one blocker. Null for anything that is not a foreign ref.
+ * The MATCHING form of a foreign ref: board lowercased and the number compared numerically, so
+ * `A/B#TM-01` and `a/b#TM-1` are one blocker. Never stored: the ref is kept as written, because
+ * real boards pad their ids and a lookup of the upstream file (`TM-010-...`) needs the padding.
+ * Null for anything that is not a foreign ref.
  */
 export const foreignKey = (ref) => {
   const f = foreignRef(ref);

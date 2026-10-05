@@ -84,22 +84,31 @@ describe("tm dep with a foreign ref", () => {
     assert.deepEqual(why(a, p).reasons.filter((r) => r.kind === "foreign").map((r) => r.ref), ["other/repo#TM-9"]);
   });
 
-  it("normalises the ref: case and zero padding name one blocker in dep, upstream-resolved and unblock", () => {
+  it("stores the ref as written (padding kept) and matches across case and padding", () => {
     const p = store();
     const a = task(p, "waits upstream");
-    dependencies(a, { add: ["A/B#TM-01", "a/b#TM-1", "a/b#TM-001"] }, p);
-    assert.deepEqual(read(a, p).foreignBlockers.map((f) => f.ref), ["a/b#TM-1"]);
-    const res = resolveForeign("a/B#TM-0001", { landed: SHA }, p);
+    dependencies(a, { add: ["A/B#TM-010"] }, p);
+    dependencies(a, { add: ["a/b#TM-10", "a/b#TM-0010"] }, p);
+    assert.deepEqual(read(a, p).foreignBlockers.map((f) => f.ref), ["a/b#TM-010"], "padding kept, duplicates refused");
+    const res = resolveForeign("a/B#TM-10", { landed: SHA }, p);
+    assert.equal(res.ref, "a/b#TM-10");
     assert.deepEqual(res.resolved, [a]);
     assert.deepEqual(res.freed, [a]);
     assert.equal(read(a, p).status, "open");
+    assert.equal(read(a, p).foreignBlockers[0].ref, "a/b#TM-010", "resolving does not rewrite the stored ref");
 
-    // A padded ref stored before normalisation still matches, and still removes.
-    const b = task(p, "legacy padded", { status: "blocked", foreignBlockers: [{ ref: "a/b#TM-02", added: "x", resolved: null }] });
-    assert.deepEqual(resolveForeign("a/b#TM-2", { landed: SHA }, p).freed, [b]);
-    const c = task(p, "legacy remove", { foreignBlockers: [{ ref: "a/b#TM-03", added: "x", resolved: null }] });
-    dependencies(c, { remove: ["a/b#TM-3"] }, p);
-    assert.equal(read(c, p).foreignBlockers, undefined);
+    // An existing unpadded entry makes a padded add a duplicate, and keeps the existing entry.
+    const b = task(p, "unpadded first");
+    dependencies(b, { add: ["a/b#TM-1"] }, p);
+    dependencies(b, { add: ["a/b#TM-01"] }, p);
+    assert.deepEqual(read(b, p).foreignBlockers.map((f) => f.ref), ["a/b#TM-1"]);
+
+    // The unblock pass matches across padding too, and so does removal.
+    const c = task(p, "padded", { status: "blocked", foreignBlockers: [{ ref: "a/b#TM-02", added: "x", resolved: null }] });
+    assert.deepEqual(resolveForeign("a/b#TM-2", { landed: SHA }, p).freed, [c]);
+    const d = task(p, "remove", { foreignBlockers: [{ ref: "a/b#TM-03", added: "x", resolved: null }] });
+    dependencies(d, { remove: ["a/b#TM-3"] }, p);
+    assert.equal(read(d, p).foreignBlockers, undefined);
   });
 
   it("doctor does not call a task held by an unresolved foreign blocker stuck", () => {

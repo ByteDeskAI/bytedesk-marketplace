@@ -193,6 +193,12 @@ export function addComment(id, text, { author, p = paths() } = {}) {
  */
 export { foreignRef };
 
+/** A foreign ref as stored and shown: board lowercased, id exactly as written (padding kept). */
+const asWritten = (ref) => {
+  const f = foreignRef(ref);
+  return f ? `${f.board}#${f.id}` : null;
+};
+
 export function addLink(fromId, type, toId, p = paths()) {
   if (fromId === toId) throw new Error("a task cannot link to itself");
   const mirror = LINK_TYPES[type];
@@ -359,8 +365,9 @@ export function dependencies(id, { add: addAll = [], remove: removeAll = [] } = 
   // `owner/repo#TM-n` is a task on another board (ADR-0041). It goes in foreignBlockers[], NEVER
   // blockedBy: dependenciesMet reads a blockedBy id this store cannot find as resolved, so a
   // foreign id there would unblock the task the moment it was added.
-  const addForeign = addAll.map(foreignKey).filter(Boolean);
-  const removeForeign = removeAll.map(foreignKey).filter(Boolean);
+  const addForeign = addAll.map(asWritten).filter(Boolean);
+  const removeForeign = removeAll.map(asWritten).filter(Boolean);
+  const removeKeys = removeForeign.map(foreignKey);
   const add = addAll.filter((d) => !foreignKey(d));
   const remove = removeAll.filter((d) => !foreignKey(d));
 
@@ -387,8 +394,10 @@ export function dependencies(id, { add: addAll = [], remove: removeAll = [] } = 
       for (const d of add) next.add(d);
       for (const d of remove) next.delete(d);
       blockedBy = [...next];
-      const held = (doc.foreignBlockers || []).filter((f) => !removeForeign.includes(foreignKey(f?.ref)));
-      for (const ref of addForeign) if (!held.some((f) => foreignKey(f?.ref) === ref)) held.push({ ref, added: now(), resolved: null });
+      const held = (doc.foreignBlockers || []).filter((f) => !removeKeys.includes(foreignKey(f?.ref)));
+      // Matched by key, stored as written: an existing TM-1 makes TM-01 a duplicate, and the
+      // padding a later lookup of the upstream file needs (TM-010-...) is kept.
+      for (const ref of addForeign) if (!held.some((f) => foreignKey(f?.ref) === foreignKey(ref))) held.push({ ref, added: now(), resolved: null });
       const waiting = blockedBy.length || unresolvedForeign({ foreignBlockers: held }).length;
       return {
         blockedBy,
@@ -427,6 +436,7 @@ export function dependencies(id, { add: addAll = [], remove: removeAll = [] } = 
  */
 export function resolveForeign(ref, { landed } = {}, p = paths()) {
   const key = foreignKey(ref);
+  const written = asWritten(ref);
   if (!key) throw new Error(`not a foreign ref: "${ref}" (expected owner/repo#TM-n)`);
   const sha = String(landed || "").trim();
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw new Error(`--landed needs the landing commit sha, got "${landed ?? ""}"`);
@@ -436,10 +446,10 @@ export function resolveForeign(ref, { landed } = {}, p = paths()) {
     if (!(task.foreignBlockers || []).some(waiting)) continue;
     const mark = (b) => (waiting(b) ? { ...b, resolved: { sha, at: now() } } : b);
     mutate(task.id, (doc) => ({ foreignBlockers: (doc.foreignBlockers || []).map(mark) }), p);
-    logEvent("upstream_resolved", { id: task.id, ref: key, sha }, p);
+    logEvent("upstream_resolved", { id: task.id, ref: written, sha }, p);
     resolved.push(task.id);
   }
-  return { ref: key, sha, resolved, freed: unblockDependents(key, p) };
+  return { ref: written, sha, resolved, freed: unblockDependents(key, p) };
 }
 
 /**
