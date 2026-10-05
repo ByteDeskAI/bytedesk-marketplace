@@ -11,6 +11,10 @@
   required check at the finish commit, the reviewer can approve without a lead re-requesting with
   `--checks`. Prose strings in `checks` stay notes and never count; a run at another commit still
   satisfies nothing; a malformed run is refused when the finish is reported.
+- **One process-ancestry walk (TM-416, EP-028).** `delegation.mjs` `ancestorProcesses` now names
+  the pids from `heartbeat.mjs` `ancestorPids` instead of walking the tree itself. The shared walk
+  gained the `ps` fallback delegation had, so the heartbeat and prompt lifecycle also see the full
+  chain where `/proc` is absent (macOS).
 - **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`
   gains a "Keep work moving: no stalled agents" section. Agents talk to each other through the
   mailbox within and across repositories, and terminal typing or a human relay is a filed defect.
