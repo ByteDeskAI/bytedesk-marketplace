@@ -16,7 +16,7 @@ import { leadRegistryDir } from "../../topology/lib/lead.mjs";
 import { canonicalRepoId, repoKey } from "../../topology/lib/repoid.mjs";
 import { loadAdapters } from "../../topology/lib/providers.mjs";
 import { materializeSpec, validateSpec } from "../../topology/lib/spec.mjs";
-import { ROLE_TITLE_FORMAT, roleDisplayArgs, sessionTitleArgs, tmuxText } from "../../topology/lib/tmux.mjs";
+import { ROLE_STATUS_FORMAT, ROLE_TITLE_FORMAT, roleDisplayArgs, sessionTitleArgs, tmuxText } from "../../topology/lib/tmux.mjs";
 import { shellQuote, terminalText, writeJson } from "../../topology/lib/util.mjs";
 
 const exec = promisify(execFile);
@@ -70,8 +70,9 @@ test("pane display options are four pane-scoped set-options whose values cannot 
   assert.equal(commands[3][5], UNKNOWN_ROLE_ICON);
 
   // Session-scoped, never -g: the server is shared with every other session on the machine.
-  assert.deepEqual(sessionTitleArgs("s1"), [";", "set-option", "-t", "s1", "set-titles", "on", ";", "set-option", "-t", "s1", "set-titles-string", ROLE_TITLE_FORMAT]);
-  assert.ok(ROLE_TITLE_FORMAT.includes("#{@ao_role_icon} #{@ao_agent} · #{@ao_role_label}"), ROLE_TITLE_FORMAT);
+  assert.deepEqual(sessionTitleArgs("s1"), [";", "set-option", "-t", "s1", "set-titles", "on", ";", "set-option", "-t", "s1", "set-titles-string", ROLE_TITLE_FORMAT,
+    ";", "set-option", "-t", "s1", "status-left", ROLE_STATUS_FORMAT, ";", "set-option", "-t", "s1", "status-left-length", "100"]);
+  for (const format of [ROLE_TITLE_FORMAT, ROLE_STATUS_FORMAT]) assert.ok(format.includes("#{@ao_role_icon} #{@ao_agent} · #{@ao_role_label}"), format);
 });
 
 test("the launcher's OSC 2 title keeps its text for an ordinary role and cannot carry an escape for a hostile one", () => {

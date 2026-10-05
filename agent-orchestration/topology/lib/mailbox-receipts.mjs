@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
-import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { canonicalRepoId, repoKey, repoSlug, stateRoot } from './repoid.mjs';
 import { withLock } from './lockfile.mjs';
 import { invariant, nowIso } from './util.mjs';
 
@@ -201,7 +201,7 @@ export async function publishMailboxEnvelope({ envelope, transport, ...options }
     await write(path, record);
     try {
       const publish = envelope.kind === 'reply' ? transport.publishReply.bind(transport) : transport.publishMail.bind(transport);
-      const result = await publish({ repo: repoKey(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
+      const result = await publish({ repo: repoKey(envelope.repositoryId), slug: repoSlug(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
       const next = { ...record, status: 'published', publishedAt: nowIso(), result, lastError: null };
       await write(path, next); return next;
     } catch (error) {

@@ -101,6 +101,33 @@ export function heartbeatClaim(id, { session = null, p = paths() } = {}) {
   });
 }
 
+/**
+ * TM-397: "a live worker of this session is doing this task" — the marker the Stop gate honours.
+ *
+ * A lead that hands claimed tasks to worker subagents was told at every stop to done/block/park
+ * them, and parking releases the claim mid-work so the pool re-dispatches it. The lead (or the
+ * worker) records `{ worker, until }` on the claim instead; it also re-stamps the claim, so it doubles
+ * as a heartbeat. Only the claim's own session may write it. Returns the claim, or null when the
+ * task is not claimed by this session.
+ */
+export function noteClaimWorker(id, { session = null, worker, ttlMs = 60 * 60_000, p = paths() } = {}) {
+  return withLock(p, () => {
+    const claims = { ...state(p).claims };
+    const held = claims[id];
+    if (!held || expired(held, p) || held.session !== session) return null;
+    claims[id] = { ...held, ts: now(), worker: { name: String(worker), until: new Date(Date.now() + ttlMs).toISOString() } };
+    writeState({ claims }, p);
+    logEvent("claim_worker_noted", { id, worker: String(worker), until: claims[id].worker.until }, p);
+    return claims[id];
+  });
+}
+
+/** The claim's worker marker while it is fresh, else null. */
+export function liveWorkerNote(claim, nowMs = Date.now()) {
+  const until = claim?.worker?.until ? new Date(claim.worker.until).getTime() : NaN;
+  return until > nowMs ? claim.worker : null;
+}
+
 export function releaseClaim(id, p = paths()) {
   return withLock(p, () => {
     const claims = { ...state(p).claims };

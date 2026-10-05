@@ -155,7 +155,7 @@ No mode can remove the generated identity and protocol layer, so the statement t
 no permissions is always present. Role protocol is protected the same way: the `lead` and
 `reviewer` templates and the bundled `common_by_role` variant (for example the reviewer's) survive a
 `replace`, which then replaces only the operator-authored text in that slot. `prompt preview` and
-`agent set-instructions` report each such kept layer in `warnings`, so the reviewer's `AO_REVIEW`
+`agent set-instructions` report each such kept layer in `warnings`, so the reviewer's `review_submit`
 verdict format cannot be configured away by accident.
 
 ### Global prefix
@@ -257,7 +257,13 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    rule.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
-review. `reviewer collect` accepts the challenge-bound response from the registered reviewer.
+review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a
+shell, `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
+--findings @file.json`). The submission is checked at once, written to
+`<state>/reviewers/inboxes/<repo>/verdicts/<task>-<revision>.json` and mirrored to the NATS
+`ORCH_REVIEWS` object store when NATS is live. `reviewer collect` reads that record; nothing reads
+a verdict off the reviewer pane (TM-365). A verdict submitted before a reviewer restart is still
+collected.
 Findings, a changed revision, wrong identity, or an unavailable reviewer block integration.
 Restricted reviewer providers must offer an enforced read-only launch; unsupported configurations
 fail closed instead of substituting another provider. Review role alone grants no merge authority.

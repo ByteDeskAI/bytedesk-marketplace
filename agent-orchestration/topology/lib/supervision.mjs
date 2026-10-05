@@ -59,6 +59,7 @@ import { exists, sleep, writeJson, readJson, run } from './util.mjs';
 import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
 import { absorbTransportFailure, describeTransport } from './orch-transport.mjs';
 import { natsOutageTick } from './nats-outage.mjs';
+import { reviewSweepTick } from './review-sweep.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
@@ -251,6 +252,9 @@ export async function superviseRepository(options, { signal, once = false, inter
      // TM-276 / ADR-0031: tell this repository's lead once when the configured NATS goes away and
      // once when it is back. Absorbed like lead recovery: a mail failure is reported, never fatal.
      const natsOutage=await natsOutageTick({...options,env,home}).catch(error=>({status:'failed',reason:error?.code ?? String(error)}));
+     // TM-361: unreviewed finished tasks and idle PRs reach a reviewer or the lead, once each. tm owns
+     // the finding and its marker; absent tm, this is null. Absorbed: a sweep failure never stops supervision.
+     const reviewSweep=await reviewSweepTick({...options,env,home}).catch(error=>({status:'failed',reason:error?.code ?? String(error)}));
      const transport=await describeTransport(env,home).catch(()=>null);
      const goalLoops=await reconcileGoalLoops({...options,supervisorTick:true}).catch(error=>[{state:'blocked',diagnostic:{code:error.code??'GOAL_LOOP_RECONCILE',message:String(error.message).slice(0,1000)}}]);
      const launched=['created','restarted'].includes(recovery.action);
@@ -265,7 +269,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {}),
-       transport,...(natsOutage ? {nats_outage:natsOutage} : {})};
+       transport,...(natsOutage ? {nats_outage:natsOutage} : {}),...(reviewSweep ? {review_sweep:reviewSweep} : {})};
      report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
      await writeJson(join(root,`${key}.json`),report);
      if(!once) await promoteRecord(join(root,`${key}.process.json`));

@@ -1,3 +1,32 @@
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+// TM-355: run mail, reply and session handoff are ONE implementation, the `ao-topology` verb.
+// Re-implementing their ringing and routing here would be a second caller to keep in step, so the
+// MCP tool runs the verb. `../topology/cli.mjs` resolves from src/ and from the dist/ bundle alike.
+const TOPOLOGY_CLI = fileURLToPath(new URL('../topology/cli.mjs', import.meta.url));
+export function runTopologyCli(args, { env, cwd, input = '' }) {
+  return new Promise((done, reject) => {
+    const child = spawn(process.execPath, [TOPOLOGY_CLI, ...args, '--json'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', async code => {
+      const { fail } = await import('../topology/lib/util.mjs');
+      let value;
+      try { value = JSON.parse(stdout); } catch {
+        return reject(Object.assign(new Error(`ao-topology ${args[0]} exited ${code}: ${(stderr || stdout).trim().slice(-2000)}`), { code: 'TOPOLOGY_CLI_FAILED' }));
+      }
+      if (value?.ok === false && value.code) {
+        try { fail(value.code, value.message, value.details); } catch (error) { return reject(error); }
+      }
+      done({ exitCode: code, value });
+    });
+    child.stdin.end(input);
+  });
+}
+
 // MCP adapters share the topology domain services. Consumer admission stays at the
 // public boundary; neither the plugin cwd nor an earlier request supplies identity.
 export function createTopologyApi(service) {
@@ -12,7 +41,46 @@ export function createTopologyApi(service) {
     const { sessionIdentity } = await import('../topology/lib/standing-mailbox.mjs');
     return sessionIdentity({ env, agent, consumer: options.consumer });
   };
+  const runArgs = (input, options) => ['--run', input.runDir, '--consumer', options.consumer];
   return {
+    async runMailSend(input) {
+      const options = await context(input);
+      const sender = await me(input.from, options);
+      const args = ['send', ...runArgs(input, options), '--from', sender.agent, '--to', input.to.join(','), '--stage', input.stage ?? 'message'];
+      for (const key of ['subject', 'task']) if (input[key]) args.push(`--${key}`, input[key]);
+      const { exitCode, value } = await runTopologyCli(args, { env, cwd: options.consumer, input: input.body });
+      // Exit 3 is a sent message whose pointer did not land in a pane; the caller is told, not failed.
+      return { ...value, undelivered: exitCode === 3 };
+    },
+    async runMailReply(input) {
+      const options = await context(input);
+      const { agent } = await me(input.agent, options);
+      return (await runTopologyCli(['reply', ...runArgs(input, options), '--agent', agent, '--message', input.messageId],
+        { env, cwd: options.consumer, input: input.body })).value;
+    },
+    async runMailWait(input) {
+      const options = await context(input);
+      const args = ['wait', ...runArgs(input, options), '--timeout', `${input.timeoutMs ?? 55_000}ms`, '--poll', `${input.pollIntervalMs ?? 2000}ms`, '--quiet'];
+      if (input.from?.length) args.push('--from', input.from.join(','));
+      if (input.messageId) args.push('--message', input.messageId);
+      const { value } = await runTopologyCli(args, { env, cwd: options.consumer });
+      if (!value.ok) { const { fail } = await import('../topology/lib/util.mjs'); fail('TOPOLOGY_WAIT_TIMEOUT', `No reply within ${input.timeoutMs ?? 55_000}ms; still pending: ${(value.pending ?? []).map(item => `${item.agent}:${item.id}`).join(', ')}`, value); }
+      return value;
+    },
+    async leadStatus(input) {
+      const options = await context(input);
+      const { leadState } = await import('../topology/lib/lead.mjs');
+      const { leadRecoveryStatus } = await import('../topology/lib/lead-recovery.mjs');
+      // `cached` answers from proof already on disk and mints no probe; otherwise the probe is bounded.
+      const state = await leadState({ consumer: options.consumer, env, pluginRoot: options.pluginRoot,
+        ...(input.cached ? { readOnly: true, ackTimeoutMs: 0 } : { ackTimeoutMs: input.ackTimeoutMs ?? 30_000 }) });
+      return { ...state, recovery: await leadRecoveryStatus({ consumer: options.consumer, env }) };
+    },
+    async sessionHandoff(input) {
+      const options = await context(input);
+      return (await runTopologyCli(['session', 'handoff', input.agent, '--file', input.file, '--consumer', options.consumer],
+        { env, cwd: options.consumer })).value;
+    },
     async mailboxSend(input) {
       const options = await context(input);
       const sender = await me(input.from, options);

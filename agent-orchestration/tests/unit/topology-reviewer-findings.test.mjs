@@ -1,4 +1,6 @@
 // TM-215: structured reviewer findings and the request/collect fixes. One test per change.
+// TM-365: verdicts are submitted through submitReviewVerdict (the review_submit tool) and collected
+// from that record; the pane-parsing tests this file used to hold went with the pane parser.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -6,30 +8,17 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 import { composePrompt } from '../../topology/lib/prompts.mjs';
 import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewStatus, ensureReviewer, independentReviewStatus, latestReview,
-  parseReviewResponse, recordReview, requestReview, reviewEligibility, reviewerInboxRoot, reviewsRoot, validateFindings } from '../../topology/lib/reviewer.mjs';
+  recordReview, requestReview, reviewEligibility, reviewerInboxRoot, reviewsRoot, submitReviewVerdict, validateFindings } from '../../topology/lib/reviewer.mjs';
+import { submitVerdict } from '../helpers/review-submit.mjs';
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 20 };
 const finding = (extra = {}) => ({ severity: 'minor', file: 'src/a.js', line: 2, claim: 'Name is unclear.', evidence: 'Line 2 adds `x`.', fix: 'Rename it.', ...extra });
-const say = (nonce, response) => `AO_REVIEW ${nonce} ${JSON.stringify(response)}`;
-
-// Captured read-only from the live reviewer pane %289 (TM-214 round 3) with
-// `tmux capture-pane -p -J -S -3000`, kept verbatim: the first verdict row fills the 2000-column pane
-// and ends with the space it wrapped at; the continuation is indented two spaces.
-const LIVE_WRAPPED_VERDICT = [
-  "",
-  "● AO_REVIEW 9168d438-f7ab-4b16-9b94-46328896f3c6 {\"verdict\":\"approve\",\"revision\":\"8965c3a55f4e620b66dbea1b6d426315f2af998f\",\"base_revision\":\"7f15ac95745d8028bc2b2553367eeb03b393526c\",\"task\":\"TM-214\",\"findings\":[{\"id\":1,\"severity\":\"note\",\"file\":\"agent-orchestration/tests/live/two-projects.sh:146\",\"summary\":\"The edited live tmux assertion is still unrun. Its expected text 'auto_approve is on for boss' matches the warning in launch.mjs.\",\"resolve\":\"Run it before merge, or record in the gate that it was not run.\"},{\"id\":2,\"severity\":\"note\",\"file\":\"agent-orchestration/topology/lib/spec.mjs:347\",\"summary\":\"Behaviour change: a spec that references the stored reviewer with an agent entry is now refused with TOPOLOGY_REVIEWER_READ_ONLY. Before, it launched a prompting pane. No shipped workflow uses an agent entry. agentAddress also goes through expandAgentRefs, so it fails early with the same code. The CHANGELOG covers this.\",\"resolve\":\"None required.\"}],\"previous_findings\":{\"reviewed_revision\":\"6c93e69fee0e82d78e86784bcbba7d471912b7ff\",\"1_spec_reference_to_reviewer\":\"resolved: expandAgentRefs refuses any stored agent with role reviewer before the inline merge, so an inline auto_approve true cannot override the stored false (spec.mjs:344-349, invariant is imported at line 7). The new test covers an id reference with inline auto_approve true and a full-name reference, plus a worker control case. The existing library-reference test is moved to a worker role, and its assertions still hold.\",\"2_live_test\":\"still open, see finding 1\"},\"verified\":[\"Reviewed the whole base..revision patch, 19 files, all under agent-orchestration/. The only change from 6c93e69 is the spec.mjs reviewer-reference refusal, its test, the adjusted library test and the CHANGELOG line.\",\"AC1: a missing key is on and explicit false opts out, in validateSpec and createAgent. A library agent's stored false wins when the entry omits the key.\",\"AC2: the consent gate is removed, --allow-auto-approve is a no-op  ",
-  "  and the TM-090 tests are rewritten. The dead error-code check is removed.\",\"AC3: buildReviewerArgv is unchanged (--restricted --safe-mode, empty auto_approve_args). The reviewer is stored with auto_approve false when created and when assigned. session open refuses it, and so does a spec agent reference. Tests assert each of these.\",\"AC4: CHANGELOG, README, topology.md, ADR 0001 supersession note, EP-018-DEMO, claude.json notes and the workflow text are updated. The dist createAgent and assignReviewer match source.\",\"Limit: I did not run any tests, by read-only policy. I relied on the author's reported checks and read the worktree assuming its HEAD is 8965c3a.\"]}",
-  "",
-  "✻ Baked for 20s · done 1:39 PM",
-  "",
-  "❯",
-  "",
-].join('\n');
+const requestPath = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+const verdictFile = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'verdicts', `TM-1-${f.revision}.json`);
 
 // A task whose admitted range changes src/a.js, so findings have a real file to point at.
 async function fixture(t, reviewerBinding = binding, changed = ['src/a.js'], cli = 'codex') {
@@ -79,7 +68,8 @@ test('approve stands with minor and nit findings; blocker and major findings blo
   }
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   const findings = [finding(), finding({ severity: 'nit', line: 1 })];
-  await collectReview({ ...f.args, output: async () => say(request.nonce, { verdict: 'approve', findings }) });
+  await submitVerdict(f, request, 'approve', findings);
+  await collectReview(f.args);
   assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
   assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
   assert.equal((await reviewEligibility({ ...f.args, probes: { alive: async () => true, responsive: async () => true } })).eligible, true);
@@ -89,7 +79,8 @@ test('changes_requested is its own review state, and needs at least one finding'
   const f = await fixture(t);
   await assert.rejects(recordReview({ ...f.args, verdict: 'changes_requested', findings: [] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  await collectReview({ ...f.args, output: async () => say(request.nonce, { verdict: 'changes_requested', findings: [finding({ severity: 'major' })] }) });
+  await submitVerdict(f, request, 'changes_requested', [finding({ severity: 'major' })]);
+  await collectReview(f.args);
   assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'changes_requested');
   assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'changes-requested');
   const gate = await reviewEligibility({ ...f.args, probes: { alive: async () => true, responsive: async () => true } });
@@ -111,90 +102,6 @@ test('a re-review keeps the earlier record in history and the current one resolv
   assert.equal((await latestReview(f.consumer, 'TM-1', f.env, f.home)).verdict, 'approve');
 });
 
-test('repeated identical verdicts and output after the verdict are accepted; disagreeing copies are not', () => {
-  const nonce = '11111111-2222-3333-4444-555555555555';
-  const response = { verdict: 'approve', findings: [] };
-  const screen = [`● ${say(nonce, response)}`, 'some later text', `● ${say(nonce, response)}`, '', '> '].join('\n');
-  assert.deepEqual(parseReviewResponse(screen, nonce), response);
-  assert.throws(() => parseReviewResponse(`${say(nonce, response)}\n${say(nonce, { verdict: 'blocked', findings: [] })}`, nonce), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
-  assert.throws(() => parseReviewResponse(say('other', response), nonce), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
-  assert.throws(() => parseReviewResponse(`AO_REVIEW ${nonce} {"verdict":`, nonce), { message: /must be JSON/ });
-});
-
-// Wrap `text` the way Claude Code's renderer (wrap-ansi, hard) does: a "● " bullet, continuations
-// indented two spaces, word wrap at a space (the space is dropped), and a word too long for any row
-// started on the current row and cut mid-token at the full width.
-function claudeWrap(text, width) {
-  const w = width - 2, rows = [''];
-  for (const word of text.split(' ')) {
-    const row = rows.at(-1), sep = row ? ' ' : '';
-    if (row.length + sep.length + word.length <= w) { rows[rows.length - 1] = row + sep + word; continue; }
-    if (word.length > w && row.length + sep.length < w) rows[rows.length - 1] = row + sep; else rows.push('');
-    let rest = word;
-    while (rows.at(-1).length + rest.length > w) {
-      const take = w - rows.at(-1).length;
-      rows[rows.length - 1] += rest.slice(0, take); rest = rest.slice(take); rows.push('');
-    }
-    rows[rows.length - 1] += rest;
-  }
-  return rows.map((row, i) => (i ? '  ' : '● ') + row);
-}
-
-test('a verdict Claude Code hard-wrapped across indented pane lines is rejoined', () => {
-  const nonce = 'a6a2f0a4-3c1e-4f55-9d0b-0c3b7e6f1d22';
-  // As seen live: the first line ends mid-JSON after "findings":, and continuations start with two spaces.
-  const observed = [
-    '● Reviewed the complete patch against the admission base.',
-    '',
-    `● AO_REVIEW ${nonce} {"verdict":"changes_requested","findings":`,
-    '  [{"severity":"major","file":"src/a.js","line":2,"claim":"Approval is',
-    '  refused for any finding.","evidence":"Line 2 checks','  length.","fix":"Allow minor findings."}]}',
-    '',
-    '> ',
-  ].join('\n');
-  assert.deepEqual(parseReviewResponse(observed, nonce), { verdict: 'changes_requested', findings: [
-    { severity: 'major', file: 'src/a.js', line: 2, claim: 'Approval is refused for any finding.', evidence: 'Line 2 checks length.', fix: 'Allow minor findings.' }] });
-  // Generated at several widths: a long path and compact JSON are cut mid-token, prose is word-wrapped.
-  const response = { verdict: 'changes_requested', findings: [
-    { severity: 'major', file: 'agent-orchestration/topology/lib/some/deeply/nested/directory/reviewer-collection.mjs', line: 651,
-      claim: 'Approval is refused for any finding, including a nit, so a clean review with advice cannot pass.',
-      evidence: 'Line 651 compares findings.length to zero before the verdict is considered.', fix: 'Allow minor and nit findings on approve.' },
-    finding({ severity: 'nit', line: 1 })] };
-  for (const width of [60, 80, 100, 133]) {
-    const screen = ['● Done.', ...claudeWrap(say(nonce, response), width), '', '> '].join('\n');
-    assert.ok(screen.split('\n').length > 4, `width ${width} actually wraps`);
-    assert.deepEqual(parseReviewResponse(screen, nonce), response, `width ${width}`);
-  }
-});
-
-test('a live verdict wrapped by Claude Code in a 2000-column pane parses (TM-214 round 3, pane %289)', async () => {
-  const screen = LIVE_WRAPPED_VERDICT;
-  const response = parseReviewResponse(screen, '9168d438-f7ab-4b16-9b94-46328896f3c6');
-  assert.equal(response.verdict, 'approve');
-  assert.deepEqual(response.findings.map(f => f.severity), ['note', 'note']);
-  assert.ok(response.verified.some(line => line.includes('--allow-auto-approve is a no-op and the TM-090 tests are rewritten')));
-  // That reviewer predates the structured schema: `file:line` in one field, summary/resolve instead
-  // of claim/fix. It is refused rather than guessed at; the updated prompt asks for the new shape.
-  assert.throws(() => validateFindings(response.findings, new Set(['agent-orchestration/tests/live/two-projects.sh', 'agent-orchestration/topology/lib/spec.mjs'])), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
-});
-
-test('the live TM-214 round-3 verdict (approve, two notes) records as satisfied once its findings use the schema fields', async t => {
-  const nonce = '9168d438-f7ab-4b16-9b94-46328896f3c6';
-  const live = parseReviewResponse(LIVE_WRAPPED_VERDICT, nonce);
-  const paths = live.findings.map(finding => finding.file.replace(/:\d+$/, ''));
-  const f = await fixture(t, binding, paths);
-  // The live notes carry `file:line`, summary and resolve. The same notes in the schema's fields:
-  const findings = live.findings.map(({ severity, file, summary, resolve }) => ({ severity, file: file.replace(/:\d+$/, ''), line: Number(file.split(':').at(-1)), claim: summary, fix: resolve }));
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const screen = LIVE_WRAPPED_VERDICT
-    .replace(nonce, request.nonce).replace(JSON.stringify(live.findings), JSON.stringify(findings));
-  const review = await collectReview({ ...f.args, output: async () => screen });
-  assert.equal(review.verdict, 'approve');
-  assert.deepEqual(review.findings.map(x => [x.severity, x.file, x.line]), [['note', paths[0], 146], ['note', paths[1], 347]]);
-  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
-  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
-});
-
 test('a note is informational: it may omit evidence and fix, never blocks approve, and still needs a file and line in the diff', async t => {
   const f = await fixture(t);
   const note = { severity: 'note', file: 'src/a.js', line: 1, claim: 'The live test is still unrun.' };
@@ -204,28 +111,11 @@ test('a note is informational: it may omit evidence and fix, never blocks approv
   await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [{ ...note, fix: '' }] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
   await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [finding({ severity: 'minor', fix: undefined })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' }, 'only a note may omit fix');
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const review = await collectReview({ ...f.args, output: async () => say(request.nonce, { verdict: 'approve', findings: [note, { ...note, line: 2, fix: 'None required.' }] }) });
+  await submitVerdict(f, request, 'approve', [note, { ...note, line: 2, fix: 'None required.' }]);
+  const review = await collectReview(f.args);
   assert.deepEqual(review.findings, [note, { ...note, line: 2, fix: 'None required.' }]);
   assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
   assert.equal((await reviewEligibility({ ...f.args, probes: { alive: async () => true, responsive: async () => true } })).eligible, true);
-});
-
-test('collection reads a verdict that has scrolled far above the bottom of the pane', async t => {
-  const iso = isolatedTmux(t), socket = iso.socket;
-  const signal = join(iso.dir, 'verdict.txt');
-  await iso.tmux(['new-session', '-d', '-x', '200', '-y', '40', '-s', 'review', `sh -c 'while [ ! -f ${signal} ]; do sleep 0.1; done; cat ${signal}; seq 1 400; echo DONE; sleep 60'`]);
-  const { listServerPanes } = await import('../../topology/lib/tmux.mjs');
-  const observed = (await listServerPanes({ tmuxServer: socket }))[0];
-  const f = await fixture(t, observed);
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  await writeFile(signal, `● ${say(request.nonce, { verdict: 'approve', findings: [] })}\n`);
-  for (let i = 0; i < 100; i++) {
-    const shown = (await iso.tmux(['capture-pane', '-p', '-t', observed.paneId])).stdout;
-    if (shown.includes('DONE')) break;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  const review = await collectReview(f.args);
-  assert.equal(review.verdict, 'approve');
 });
 
 test('after the last failed wake a request is marked failed, the lead is told once, and a new request replaces it', async t => {
@@ -233,7 +123,7 @@ test('after the last failed wake a request is marked failed, the lead is told on
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: false, reason: 'composer-busy' }) });
   const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
   const sent = [];
-  const options = { ...f, output: async () => '', lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+  const options = { ...f, lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
   await writeJson(path, { ...JSON.parse(await readFile(path, 'utf8')), delivery: { rang: false, reason: 'composer-busy', attempts: 5, at: new Date().toISOString() } });
   const [result] = await collectPendingReviews(options);
   assert.equal(result.state, 'failed');
@@ -242,142 +132,6 @@ test('after the last failed wake a request is marked failed, the lead is told on
   assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead'); assert.match(sent[0].body, /REVIEW REQUEST FAILED: TM-1/);
   assert.deepEqual(await collectPendingReviews(options), [], 'a failed request is not retried');
   assert.equal(sent.length, 1);
-  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
-  const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  assert.notEqual(fresh.nonce, request.nonce);
-});
-
-test('a refused verdict fails its request once; a corrected verdict on the fresh request records', async t => {
-  const f = await fixture(t);
-  const sent = [];
-  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
-  const first = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const refused = say(first.nonce, { verdict: 'approve', findings: [finding({ severity: 'major' })] });
-  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => refused }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const stored = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_FINDINGS');
-  assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead'); assert.match(sent[0].body, /response was refused/);
-  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
-  const [pending] = await collectPendingReviews({ ...f, ...mail, output: async () => refused });
-  assert.equal(pending, undefined, 'a failed request is not collected again');
-  assert.equal(sent.length, 1, 'and the lead is told once');
-  const second = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  assert.notEqual(second.nonce, first.nonce);
-  // The refused copy is still on screen above the corrected one; it carries the old nonce.
-  const screen = [refused, say(second.nonce, { verdict: 'approve', findings: [finding()] })].join('\n');
-  const review = await collectReview({ ...f.args, ...mail, output: async () => screen });
-  assert.equal(review.request_nonce, second.nonce);
-  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
-  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
-});
-
-test('unparseable and disagreeing responses are refusals too; no response yet is not', async t => {
-  const f = await fixture(t);
-  const mail = { lead: async () => null, deliver: async () => assert.fail('no lead registered') };
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => 'still reading the patch' }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
-  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', 'waiting for an answer is not a refusal');
-  const twice = [say(request.nonce, { verdict: 'blocked', findings: [] }), say(request.nonce, { verdict: 'approve', findings: [] })].join('\n');
-  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => twice }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
-  const stored = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(stored.state, 'failed'); assert.equal(stored.escalation.status, 'skipped');
-});
-
-test('a verdict captured while it is still printing waits for a later capture instead of failing', async t => {
-  const f = await fixture(t);
-  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async () => assert.fail('an incomplete answer is not escalated') };
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
-  for (const partial of [full.slice(0, full.indexOf('"claim"')), `${full.slice(0, 120)}\n> `]) {
-    await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => partial }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-    assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed');
-  }
-  const [tick] = await collectPendingReviews({ ...f, ...mail, output: async () => full.slice(0, 150) });
-  assert.equal(tick.state, 'awaiting-review'); assert.equal(tick.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
-  const [done] = await collectPendingReviews({ ...f, ...mail, output: async () => full });
-  assert.equal(done.state, 'collected');
-  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
-  // Closed but invalid is still a refusal.
-  const other = await fixture(t);
-  const second = await requestReview({ ...other.args, wake: async () => ({ rang: true }) });
-  await assert.rejects(collectReview({ ...other.args, lead: async () => null, output: async () => `AO_REVIEW ${second.nonce} {"verdict":approve}` }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
-  assert.equal(JSON.parse(await readFile(join(await reviewerInboxRoot(other.consumer, other.env, other.home), 'requests', `TM-1-${other.revision}.json`), 'utf8')).state, 'failed');
-});
-
-test('an incomplete verdict older than the bound fails the request once and notifies the lead; a fresh request mints a new nonce', async t => {
-  const f = await fixture(t);
-  const incompleteBoundMs = 2000;
-  const sent = [];
-  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
-  const partial = full.slice(0, full.indexOf('"claim"'));
-  await assert.rejects(collectReview({ ...f.args, ...mail, incompleteBoundMs, output: async () => partial }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', 'first sighting only records when it was first seen incomplete');
-  assert.equal(sent.length, 0, 'not aged out yet, so not escalated');
-  // Back-date the first sighting past the bound instead of sleeping for it.
-  const stale = JSON.parse(await readFile(path, 'utf8'));
-  await writeJson(path, { ...stale, incomplete_since: new Date(Date.now() - 10_000).toISOString() });
-  await assert.rejects(collectReview({ ...f.args, ...mail, incompleteBoundMs, output: async () => partial }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-  const stored = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
-  assert.match(stored.failure.reason, /incomplete for over/);
-  assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead'); assert.match(sent[0].body, /REVIEW REQUEST FAILED: TM-1/);
-  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
-  const [pending] = await collectPendingReviews({ ...f, ...mail, incompleteBoundMs, output: async () => partial });
-  assert.equal(pending, undefined, 'a failed request is not collected again');
-  assert.equal(sent.length, 1, 'a failed request is not escalated again');
-  const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  assert.notEqual(fresh.nonce, request.nonce);
-});
-
-test('a Claude verdict still printing above its empty input box is not failed, even across polls (TM-217 review 1)', async t => {
-  const f = await fixture(t, binding, ['src/a.js'], 'claude');
-  assert.equal(f.record.provider, 'claude');
-  const sent = [];
-  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
-  // Claude Code draws its empty `❯` box below a turn that is still streaming; only the spinner and
-  // the verdict text move between captures. Each of these matches claude.json's composer.empty_pattern.
-  const claudeScreen = (cut, secs) => `● ${full.slice(0, cut)}\n\n✻ Brewing… (${secs}s · esc to interrupt)\n\n╭────╮\n│ ❯\u00a0 │\n╰────╯`;
-  const cuts = [full.indexOf('"file"'), full.indexOf('"claim"'), full.indexOf('"fix"')];
-  for (const [i, cut] of cuts.entries()) {
-    await assert.rejects(collectReview({ ...f.args, ...mail, pluginRoot: PLUGIN, output: async () => claudeScreen(cut, 10 + i) }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-    // Back-date every sighting past the stall window: a changing screen still is not stalled.
-    const stored = JSON.parse(await readFile(path, 'utf8'));
-    assert.notEqual(stored.state, 'failed', `poll ${i + 1}: an empty composer is not idle while Claude prints`);
-    await writeJson(path, { ...stored, incomplete_screen: { ...stored.incomplete_screen, at: new Date(Date.now() - 60_000).toISOString() } });
-  }
-  assert.equal(sent.length, 0);
-  const review = await collectReview({ ...f.args, ...mail, pluginRoot: PLUGIN, output: async () => `● ${full}\n\n✻ Baked for 14s\n\n│ ❯\u00a0 │` });
-  assert.equal(review.verdict, 'approve', 'the verdict records once it closes');
-});
-
-test('an incomplete verdict whose pane capture stops changing fails once the stall window passes, within the bound', async t => {
-  const f = await fixture(t);
-  const sent = [];
-  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const full = say(request.nonce, { verdict: 'approve', findings: [finding()] });
-  const frozen = `● ${full.slice(0, full.indexOf('"claim"'))}\n\n│ ❯\u00a0 │`;
-  const collect = () => collectReview({ ...f.args, ...mail, output: async () => frozen });
-  await assert.rejects(collect(), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-  await assert.rejects(collect(), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', 'identical polls inside the stall window are not stalled yet');
-  const stored = JSON.parse(await readFile(path, 'utf8'));
-  await writeJson(path, { ...stored, incomplete_screen: { ...stored.incomplete_screen, at: new Date(Date.now() - 60_000).toISOString() } });
-  await assert.rejects(collect(), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-  const failed = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(failed.state, 'failed'); assert.equal(failed.failure.code, 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE');
-  assert.match(failed.failure.reason, /has not changed for over/);
-  assert.equal(sent.length, 1); assert.equal(sent[0].to, 'the-lead');
   assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'failed');
   const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   assert.notEqual(fresh.nonce, request.nonce);
@@ -418,115 +172,10 @@ test('the reviewer prompt asks for evidence from the request instead of checks i
 test('reviewer argv stays restricted and never auto-approves', () => {
   const adapter = { id: 'claude', command: 'claude', args: [], model_args: [], system_prompt_args: [], add_dir_args: ['--add-dir', '{{dir}}'], auto_approve_args: ['--dangerously-skip-permissions'] };
   const argv = buildReviewerArgv(adapter, { args: [], env: {}, mcp: [], auto_approve: true }, {}, { consumer: '/repo' });
-  assert.ok(argv.includes('--restricted')); assert.ok(argv.includes('--safe-mode'));
+  assert.ok(argv.includes('--restricted')); assert.ok(argv.includes('--setting-sources'));
   assert.ok(!argv.includes('--dangerously-skip-permissions'));
   assert.throws(() => buildReviewerArgv(adapter, { args: ['--dangerously-skip-permissions'] }, {}, {}), { code: 'TOPOLOGY_REVIEWER_READ_ONLY' });
 });
-
-// TM-195: the reviewer's pane is its one channel, and a b64: payload survives the TUI's wrapping.
-const b64 = response => `b64:${Buffer.from(JSON.stringify(response)).toString('base64')}`;
-// A TUI word-wraps at the last space before `width`, dropping it, and hard-cuts a longer word;
-// continuation rows are indented two spaces. This is what the pane holds before tmux reads it.
-function tuiWrap(text, width) {
-  const rows = [];
-  let rest = text;
-  while (rest.length > width) {
-    const space = rest.lastIndexOf(' ', width);
-    const cut = space > 0 ? space : width;
-    rows.push(rest.slice(0, cut));
-    rest = rest.slice(space > 0 ? cut + 1 : cut);
-  }
-  rows.push(rest);
-  return `● ${rows[0]}\n${rows.slice(1).map(row => `  ${row}`).join('\n')}\n\n✻ Baked for 9s\n\n❯`;
-}
-const quoting = finding({ severity: 'major', evidence: 'It runs rm -f "$GW_TMPDIR_LINK" before the ln, and sets GOMAXPROCS="${GOMAXPROCS:-1}".', fix: 'Quote it: "x" — then a TeamCity build cancelled  twice.' });
-const REQUEST_FAILED = { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' };
-
-for (const transport of ['file', 'nats']) {
-  test(`a b64 verdict quoting shell code arrives intact through a wrapping pane under the ${transport} transport`, async t => {
-    const f = await fixture(t);
-    // A NATS URL nothing listens on: collection must not depend on a verdict the reviewer cannot publish.
-    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1', AO_NATS_AUTOSTART: '0' };
-    const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-    const response = { verdict: 'changes_requested', findings: [quoting, finding({ severity: 'note', line: 3 })] };
-    for (const width of [50, 61, 80, 120]) {
-      assert.deepEqual(parseReviewResponse(tuiWrap(`AO_REVIEW ${request.nonce} ${b64(response)}`, width), request.nonce), response, `width ${width}`);
-    }
-    const review = await collectReview({ ...f.args, env, lead: async () => null, output: async () => tuiWrap(`AO_REVIEW ${request.nonce} ${b64(response)}`, 50) });
-    assert.equal(review.verdict, 'changes_requested');
-    assert.equal(review.findings[0].evidence, quoting.evidence);
-    assert.equal(review.findings[0].fix, quoting.fix, 'a double space and an em dash survive');
-  });
-}
-
-test('a malformed b64 verdict is refused and fails its request; one still printing waits', async t => {
-  const f = await fixture(t);
-  const mail = { lead: async () => null, deliver: async () => assert.fail('no lead registered') };
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const good = b64({ verdict: 'approve', findings: [finding()] });
-  let request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good.slice(0, 60)}` }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' });
-  assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed');
-  const malformed = [
-    [`${good.slice(0, 40)}!${good.slice(41)}`, 'TOPOLOGY_REVIEWER_RESPONSE'],
-    [`${good.slice(0, -6)}=`, 'TOPOLOGY_REVIEWER_RESPONSE'],
-    [b64('not an object'), 'TOPOLOGY_REVIEWER_RESPONSE'],
-    [`b64:${Buffer.from('{"verdict":"approve","findings":[}').toString('base64')}`, 'TOPOLOGY_REVIEWER_RESPONSE'],
-    [b64({ verdict: 'approve' }), 'TOPOLOGY_REVIEWER_FINDINGS'],
-    [b64({ verdict: 'lgtm', findings: [] }), 'TOPOLOGY_REVIEWER_VERDICT'],
-  ];
-  for (const [payload, code] of malformed) {
-    await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${payload}` }), { code }, payload);
-    assert.equal(JSON.parse(await readFile(path, 'utf8')).state, 'failed', payload);
-    request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  }
-  assert.equal((await collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good}` })).verdict, 'approve');
-});
-
-// TM-295: a capture taken just after the prefix was printed is still printing, not a refusal.
-test('a b64 verdict captured right after its prefix waits instead of failing its request', async t => {
-  const f = await fixture(t);
-  const mail = { lead: async () => null, deliver: async () => assert.fail('no lead registered') };
-  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
-  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  for (const tail of ['b64:', 'b64: ', 'b64:e', 'b64:ey', 'b64:eyJ']) {
-    await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${tail}` }), { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE' }, tail);
-    assert.notEqual(JSON.parse(await readFile(path, 'utf8')).state, 'failed', tail);
-  }
-  const good = b64({ verdict: 'approve', findings: [finding()] });
-  assert.equal((await collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${request.nonce} ${good}` })).verdict, 'approve');
-});
-
-// TM-295: a closed payload takes no more rows, even one made only of base64-alphabet characters.
-test('a complete b64 verdict followed by a one-word row decodes intact', () => {
-  const nonce = 'n0nce';
-  for (const response of [{ verdict: 'approve', findings: [] }, { verdict: 'changes_requested', findings: [quoting] }]) {
-    for (const width of [50, 80, 400]) {
-      const pane = tuiWrap(`AO_REVIEW ${nonce} ${b64(response)}`, width).replace('\n\n✻', '\n  Done\n\n✻');
-      assert.match(pane, /\n  Done\n/);
-      assert.deepEqual(parseReviewResponse(pane, nonce), response, `width ${width}`);
-    }
-  }
-});
-
-for (const transport of ['file', 'nats']) {
-  test(`a failed request is refused without escalating again under the ${transport} transport (TM-220)`, async t => {
-    const f = await fixture(t);
-    const env = { ...f.args.env, AO_TRANSPORT: transport, AO_NATS_URL: 'nats://127.0.0.1:1', AO_NATS_AUTOSTART: '0' };
-    const sent = [];
-    const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
-    const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-    const refused = `AO_REVIEW ${request.nonce} ${b64({ verdict: 'approve', findings: [finding({ severity: 'major' })] })}`;
-    await assert.rejects(collectReview({ ...f.args, env, ...mail, output: async () => refused }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /minor, nit or note/ });
-    assert.equal(sent.length, 1);
-    const corrected = `${refused}\nAO_REVIEW ${request.nonce} ${b64({ verdict: 'approve', findings: [] })}`;
-    for (const output of [async () => refused, async () => corrected]) {
-      await assert.rejects(collectReview({ ...f.args, env, ...mail, output }), REQUEST_FAILED);
-    }
-    assert.equal(sent.length, 1, 'the lead was told once');
-    assert.equal(await latestReview(f.consumer, 'TM-1', f.env, f.home), null, 'no verdict recorded under the failed nonce');
-  });
-}
 
 test('review publish carries the whole response, findings included, and refuses a malformed one', async t => {
   const { createFileTransport } = await import('../../topology/lib/orch-transport.mjs');
@@ -534,6 +183,7 @@ test('review publish carries the whole response, findings included, and refuses 
   const transport = createFileTransport();
   t.after(() => transport.close());
   const response = { verdict: 'changes_requested', findings: [quoting] };
+  const b64 = value => `b64:${Buffer.from(JSON.stringify(value)).toString('base64')}`;
   for (const sent of [b64(response), JSON.stringify(response)]) {
     const wait = await awaitReviewerVerdict({ repo: 'r', nonce: 'n1', transport });
     await publishReviewerVerdict({ repo: 'r', nonce: 'n1', response: sent, transport });
@@ -542,4 +192,154 @@ test('review publish carries the whole response, findings included, and refuses 
   for (const [sent, code] of [[undefined, 'TOPOLOGY_REVIEWER_RESPONSE'], ['b64:!!', 'TOPOLOGY_REVIEWER_RESPONSE'], [b64({ verdict: 'approve' }), 'TOPOLOGY_REVIEWER_FINDINGS']]) {
     await assert.rejects(publishReviewerVerdict({ repo: 'r', nonce: 'n2', response: sent, transport }), { code });
   }
+});
+
+const quoting = finding({ severity: 'major', evidence: 'It runs rm -f "$GW_TMPDIR_LINK" before the ln, and sets GOMAXPROCS="${GOMAXPROCS:-1}".', fix: 'Quote it: "x" — then a TeamCity build cancelled  twice.' });
+
+test('TM-365 a verdict travels as JSON: quotes, backslashes and double spaces arrive intact', async t => {
+  const f = await fixture(t);
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const findings = [quoting, finding({ severity: 'note', line: 3, claim: 'A literal \\u{2014} and {"enabled": true} survive.' })];
+  const submitted = await submitVerdict(f, request, 'changes_requested', findings);
+  assert.equal(submitted.ok, true); assert.equal(submitted.findings, 2);
+  const review = await collectReview(f.args);
+  assert.equal(review.verdict, 'changes_requested');
+  assert.equal(review.findings[0].evidence, quoting.evidence);
+  assert.equal(review.findings[0].fix, quoting.fix, 'a double space and an em dash survive');
+  assert.equal(review.findings[1].claim, findings[1].claim);
+});
+
+test('TM-365 a refused submission tells the reviewer why and leaves the request open; a corrected one records', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => null, deliver: async () => assert.fail('a refused submission is not escalated') };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  await assert.rejects(submitVerdict(f, request, 'approve', [finding({ severity: 'major' })]), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /minor, nit or note/ });
+  await assert.rejects(submitVerdict(f, request, 'lgtm', []), { code: 'TOPOLOGY_REVIEWER_VERDICT' });
+  await assert.rejects(submitVerdict(f, request, 'approve', [finding({ file: 'src/elsewhere.js' })]), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  await assert.rejects(collectReview({ ...f.args, ...mail }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' });
+  assert.notEqual(JSON.parse(await readFile(await requestPath(f), 'utf8')).state, 'failed', 'nothing was submitted, so nothing failed');
+  // Resubmitting before collection replaces the earlier verdict.
+  await submitVerdict(f, request, 'blocked', []);
+  await submitVerdict(f, request, 'approve', [finding()]);
+  const review = await collectReview({ ...f.args, ...mail });
+  assert.equal(review.verdict, 'approve'); assert.equal(review.request_nonce, request.nonce);
+  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'satisfied');
+});
+
+test('TM-365 the pending queue waits for a submission, then collects it on the next tick', async t => {
+  const f = await fixture(t);
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const [waiting] = await collectPendingReviews(f);
+  assert.equal(waiting.state, 'awaiting-review'); assert.equal(waiting.code, 'TOPOLOGY_REVIEWER_NO_VERDICT');
+  await submitVerdict(f, request, 'approve', []);
+  const [done] = await collectPendingReviews(f);
+  assert.equal(done.state, 'collected'); assert.equal(done.verdict, 'approve');
+});
+
+test('TM-365 a submitted verdict is mirrored to the ORCH_REVIEWS object store when NATS is live', async t => {
+  const f = await fixture(t);
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const objects = new Map(), published = [];
+  const transport = { kind: 'nats',
+    putReview: async ({ bytes }) => { const name = `obj-${objects.size}`; objects.set(name, String(bytes)); return { via: 'nats', bucket: 'ORCH_REVIEWS', name }; },
+    publishVerdict: async ({ repo, nonce, body }) => { published.push({ nonce, body }); return { subject: `orch.${repo}.review.${nonce}` }; } };
+  const result = await submitVerdict(f, request, 'approve', [finding()], { transport });
+  assert.deepEqual(result.mirror, { bucket: 'ORCH_REVIEWS', name: 'obj-0' });
+  assert.equal(JSON.parse(objects.get('obj-0')).nonce, request.nonce);
+  assert.equal(published[0].nonce, request.nonce);
+  assert.equal(JSON.parse(await readFile(await verdictFile(f), 'utf8')).mirror.name, 'obj-0', 'the durable record names its mirror');
+  // A NATS failure never loses the verdict: the file is the record.
+  const broken = { kind: 'nats', putReview: async () => { throw new Error('NATS down'); } };
+  assert.equal((await submitVerdict(f, request, 'approve', [], { transport: broken })).mirror, null);
+  assert.equal((await collectReview(f.args)).verdict, 'approve');
+});
+
+test('TM-365 a verdict file that fails the schema at collection fails its request once and tells the lead', async t => {
+  const f = await fixture(t);
+  const sent = [];
+  const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  // Written past submitReviewVerdict, as an older or hand-edited record would be.
+  await writeJson(await verdictFile(f), { nonce: request.nonce, task: 'TM-1', revision: f.revision, reviewer_id: f.record.agent_id, binding, verdict: 'approve', findings: [finding({ severity: 'major' })] });
+  await assert.rejects(collectReview({ ...f.args, ...mail }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  const stored = JSON.parse(await readFile(await requestPath(f), 'utf8'));
+  assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_FINDINGS');
+  assert.equal(sent.length, 1); assert.match(sent[0].body, /verdict was refused/);
+  await assert.rejects(collectReview({ ...f.args, ...mail }), { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' });
+  await assert.rejects(submitVerdict(f, request, 'approve', []), { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' });
+  assert.equal(sent.length, 1, 'the lead was told once');
+  assert.equal(await latestReview(f.consumer, 'TM-1', f.env, f.home), null, 'no verdict recorded under the failed nonce');
+  const fresh = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  assert.notEqual(fresh.nonce, request.nonce);
+  await submitVerdict(f, fresh, 'approve', [finding()]);
+  assert.equal((await collectReview({ ...f.args, ...mail })).request_nonce, fresh.nonce, 'the stale verdict file does not answer the fresh nonce');
+});
+
+test('TM-365 no code path reads a verdict off the reviewer pane', async () => {
+  const reviewer = await import('../../topology/lib/reviewer.mjs');
+  for (const gone of ['parseReviewResponse', 'reviewResponsesOnScreen', 'REVIEW_INCOMPLETE_BOUND_MS']) assert.equal(reviewer[gone], undefined, gone);
+  const source = await readFile(join(PLUGIN, 'topology', 'lib', 'reviewer.mjs'), 'utf8');
+  const collect = source.slice(source.indexOf('export async function collectReview'), source.indexOf('/** A repository tick collects'));
+  assert.ok(collect.length > 500, 'found collectReview');
+  assert.doesNotMatch(collect, /output\(|capture-pane|reviewerOutput/);
+});
+
+test('TM-365 the review_submit MCP tool lists one tool and submits through the same check', async t => {
+  const { handleMessage } = await import('../../topology/review-mcp.mjs');
+  const init = await handleMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } });
+  assert.equal(init.result.serverInfo.name, 'ao-review');
+  assert.equal(await handleMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+  const listed = await handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+  assert.deepEqual(listed.result.tools.map(tool => tool.name), ['review_submit']);
+  const f = await fixture(t);
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  const env = { ...f.env, AO_AGENT_ID: f.record.agent_id, AO_CONSUMER: f.consumer };
+  const submit = options => submitReviewVerdict({ ...options, home: f.home, alive: async () => true });
+  const refused = await handleMessage({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve', findings: [finding({ severity: 'blocker' })] } } }, { env, submit });
+  assert.equal(refused.result.isError, true); assert.match(refused.result.content[0].text, /TOPOLOGY_REVIEWER_FINDINGS/);
+  const ok = await handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve', findings: [] } } }, { env, submit });
+  assert.equal(ok.result.isError, undefined); assert.match(ok.result.content[0].text, /approve submitted for TM-1/);
+  assert.equal((await collectReview(f.args)).verdict, 'approve');
+});
+
+test('TM-365 the reviewer argv grants the review_submit server and its one tool, and nothing else', async () => {
+  const adapter = { id: 'claude', command: 'claude', args: [], model_args: [], system_prompt_args: [], add_dir_args: ['--add-dir', '{{dir}}'] };
+  const argv = buildReviewerArgv(adapter, { id: 'rev1', args: [], env: {}, mcp: [] }, {}, { consumer: '/repo' });
+  const config = JSON.parse(argv[argv.indexOf('--mcp-config') + 1]);
+  assert.deepEqual(Object.keys(config.mcpServers), ['ao-review']);
+  assert.match(config.mcpServers['ao-review'].args[0], /topology\/review-mcp\.mjs$/);
+  const serverEnv = config.mcpServers['ao-review'].env;
+  assert.equal(serverEnv.AO_AGENT_ID, 'rev1'); assert.equal(serverEnv.AO_CONSUMER, '/repo');
+  const { reviewSubmitMcpConfig } = await import('../../topology/lib/reviewer.mjs');
+  const pinned = JSON.parse(reviewSubmitMcpConfig({ agentId: 'rev1', env: { AGENT_ORCHESTRATION_STATE_HOME: '/state', AO_NATS_URL: 'nats://user:secret@host', AO_ORCH_CREDS: '/creds' } })).mcpServers['ao-review'].env;
+  assert.deepEqual(pinned, { AGENT_ORCHESTRATION_STATE_HOME: '/state', AO_AGENT_ID: 'rev1' }, 'state root pinned; no NATS URL or credentials in the launcher');
+  assert.equal(argv[argv.indexOf('--allowed-tools') + 1], 'mcp__ao-review__review_submit');
+  assert.ok(argv.includes('--strict-mcp-config') && argv.includes('--restricted') && argv[argv.indexOf('--setting-sources') + 1] === '');
+});
+
+test('TM-365 the reviewer is told to submit through the tool, never to print the verdict', async () => {
+  const text = await readFile(join(PLUGIN, 'prompts', 'reviewer.md'), 'utf8');
+  assert.match(text, /review_submit/); assert.doesNotMatch(text, /AO_REVIEW <nonce>|b64:/);
+  const { reviewerProtocolPrompt } = await import('../../topology/lib/reviewer.mjs');
+  const protocol = reviewerProtocolPrompt({ id: 'rev1', full_name: 'Rae Vance', role: 'reviewer', _dir: '/agents/rev1' }, '/repo', '/inbox');
+  assert.match(protocol, /mcp__ao-review__review_submit/); assert.doesNotMatch(protocol, /b64:/);
+});
+
+test('TM-367 every finding carries a severity; minor and nit ride an approval; a CHANGELOG.md finding is accepted', async t => {
+  const f = await fixture(t);
+  // No severity, or one outside the four plus note, is refused.
+  await assert.rejects(submitVerdict(f, await requestReview({ ...f.args, wake: async () => ({ rang: true }) }), 'approve', [finding({ severity: undefined })]), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /severity must be one of blocker, major, minor, nit/ });
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  // CHANGELOG.md is not in this diff (only src/a.js is), at the root or in a plugin directory.
+  const changelog = [finding({ file: 'CHANGELOG.md', line: 3, claim: 'No entry for this change.' }), finding({ severity: 'nit', file: 'agent-orchestration/CHANGELOG.md', line: 1 })];
+  await submitVerdict(f, request, 'approve', [finding({ severity: 'nit' }), ...changelog]);
+  const review = await collectReview(f.args);
+  assert.equal(review.verdict, 'approve');
+  assert.deepEqual(review.findings.map(x => [x.severity, x.file]), [['nit', 'src/a.js'], ['minor', 'CHANGELOG.md'], ['nit', 'agent-orchestration/CHANGELOG.md']]);
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
+  assert.equal((await reviewEligibility({ ...f.args, probes: { alive: async () => true, responsive: async () => true } })).eligible, true);
+  // A major CHANGELOG finding requests changes; other files outside the diff are still refused.
+  assert.equal((await recordReview({ ...f.args, verdict: 'changes_requested', findings: [finding({ severity: 'major', file: 'CHANGELOG.md' })] })).verdict, 'changes_requested');
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [finding({ file: 'README.md' })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /README\.md, which is not in the reviewed diff/ });
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [finding({ file: 'CHANGELOG.md.bak' })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
 });

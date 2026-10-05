@@ -70,6 +70,7 @@ the same `lib/` function; the full HTTP contract is [`dashboard-api.md`](dashboa
 | `tm_handoff` | `tm handoff <id>` | `GET /api/task/:id/handoff` |
 | `tm_worktree` | `tm worktree new\|rm\|list` | `POST /api/task/:id/worktree`, `GET /api/worktrees` |
 | `tm_link` | `tm link <id> <type> <id>` | `POST /api/task/:id/link` |
+| `tm_ticket` | `tm ticket <repo\|slug> "<title>" --ac …` | — |
 | `tm_graph` | `tm graph` | `GET /api/graph` |
 | `tm_parallel` | `tm parallel` | `GET /api/parallel` |
 | `tm_doctor` | `tm doctor [--fix]` | `GET /api/doctor`, `POST /api/doctor/fix` |

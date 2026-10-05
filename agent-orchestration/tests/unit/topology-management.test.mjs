@@ -1503,3 +1503,26 @@ test('TM-263 (j) record-landing: a server lead_autonomy policy naming another le
   const agreed = await leadServer(t, 'landed');
   assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1'), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
 });
+
+// ── TM-360: tm owns the one duplicate-dispatch guard; ao reports what tm cannot see ─────────────
+test('TM-360: manage assignment reports a live bound worker, and start-worker surfaces tm dispatch refusing', async t => {
+  const { opts } = await fixture(t);
+  const { assignmentResult, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  const { stateRoot } = await import('../../topology/lib/repoid.mjs');
+  await admitTask(opts);
+  const dispatched = [];
+  // tm's refusal, as taskStore's run() raises it on exit 2: a pool worker already holds the task.
+  opts.store.dispatch = async (task, backend) => { dispatched.push([task, backend]); throw new Error(`${task} is already dispatched to fake as fake:run-1, claimed by author — confirm the existing worker has ended and collect it first with \`tm collect ${task}\`.`); };
+  await assert.rejects(startTaskWorker(opts), /already dispatched to fake/);
+  assert.deepEqual(dispatched, [['TM-1', 'tmux']], 'start-worker asked tm, once, and did not launch around it');
+  const status = (await managementStatus(opts)).management;
+  assert.ok(!status.events.some(e => e.event === 'worker-started'), 'a refused dispatch records no worker');
+  assert.equal((await assignmentResult(opts)).worker, undefined, 'no bound worker yet');
+  const path = join(stateRoot(opts.env, opts.home), 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+  const record = await readJson(path);
+  await writeJson(path, { ...record, worker: { kind: 'tmux', backend: 'tmux', run: 'tmux:lead-worker', binding: { paneId: '%1' } } });
+  const live = await assignmentResult(opts);
+  assert.deepEqual([live.assigned, live.worker, live.owner], [false, { kind: 'tmux', backend: 'tmux', run: 'tmux:lead-worker' }, 'author']);
+  await writeJson(path, { ...record, worker: { kind: 'tmux', run: 'tmux:lead-worker', stopped_at: '2026-10-05T00:00:00Z' } });
+  assert.equal((await assignmentResult(opts)).worker, undefined, 'a stopped worker is history, not a holder');
+});
