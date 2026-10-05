@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Graph Why details now use a centered, scrollable dialog. Keyboard selection stays on the graph; Space opens details, Escape restores selection and focus, and the Edges menu remains usable inside the dialog.
+
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool
   collected it again on every tick: 575 identical comments and `task_result` events on TM-290. The
