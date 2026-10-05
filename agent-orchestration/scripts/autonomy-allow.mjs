@@ -24,7 +24,7 @@ const heredocHead = (command) => {
 const TM = /^(?:tm|(?:\.\/|\/(?:[^\s/]+\/)*)?\.bytedesk\/task-management\/bin\/tm)$/;
 // Gated verbs stay with the normal permission flow: landing and merging (PR-level, ADR-0001 in fleet/docs),
 // worktree/branch cleanup, standing delegations and permission rules (operator-only by design).
-const AO_GATED = { manage: ['integrate', 'record-landing', 'cleanup'], delegate: ['grant', 'revoke'], permissions: null };
+const AO_GATED = { manage: ['integrate', 'record-landing', 'cleanup', 'cutover', 'cut-release'], delegate: ['grant', 'revoke'], permissions: null };
 const AO_CLI_VERBS = { doctor: null, status: null, 'session-open': null, services: ['status', 'ensure', 'probe', 'wait'] };
 const TMUX_READ = new Set(['capture-pane', 'capturep', 'list-panes', 'lsp', 'list-sessions', 'ls', 'list-windows', 'lsw', 'display-message', 'display', 'has-session', 'has']);
 

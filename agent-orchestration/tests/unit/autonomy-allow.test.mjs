@@ -34,6 +34,9 @@ const REFUSED = [
   'ao-topology manage integrate --task TM-1',
   'ao-topology manage record-landing --task TM-1 --landed abc --authorized',
   'ao-topology manage cleanup --task TM-1',
+  // TM-250: External class (deploy, release) is never hook-approved.
+  'ao-topology manage cutover --epic EP-1',
+  'ao-topology manage cut-release --epic EP-1',
   'ao-topology delegate grant --to lead --repo . --scope integrate',
   'ao-topology permissions install',
   'agent-orchestration services uninstall',

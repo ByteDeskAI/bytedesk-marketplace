@@ -4,6 +4,19 @@
 
 ### Added
 
+- **`manage cutover` and `manage cut-release` wrap deploy-safe and /release behind guardrails
+  (TM-250, EP-028).** Both are External-class verbs (ADR-0001). They run only the repository's own
+  argv from `management.cutover` / `management.release` (for example `deploy-safe.sh deploy`,
+  `release-gitflow.sh start` then `verify`), without a shell. Each refuses by name, running nothing,
+  unless every condition holds: `config` (argv set, and argv[0] is never `systemctl`, `git`, `gh`,
+  a shell, `sudo`, `env` or `ssh`), `authority`, `branch` (default `develop`), `dirty`, `sync` (HEAD
+  equals `origin/<branch>` after a fetch) and `plan` (every task of `--epic` is done). `cutover`
+  proves the running binary switched: `identity_argv` must answer before and answer differently
+  after, and a failed postflight stops it. `cut-release` fails unless its verify step passes. Each
+  run writes a record, with its authorization, under the management state directory. The
+  autonomy hook never approves either verb. `manage release` keeps its existing meaning (release an
+  idle assignment), so the release wrapper is named `cut-release`.
+
 - **`manage cleanup` refuses protected branches by name (TM-251, EP-028).** Cleanup removes a
   merged task's worktree and its LOCAL branch only (`git branch -d`). Before it observes or removes
   anything, it refuses a record naming `develop`, `main`, `master`, any `release/*` branch or the

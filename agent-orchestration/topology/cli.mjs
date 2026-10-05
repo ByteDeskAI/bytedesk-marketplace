@@ -188,6 +188,14 @@ Standing repository services
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
   manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
+  manage cutover|cut-release --epic <EP-id> [--authorized]
+                                               TM-250, External class (ADR-0001): run the repository's
+                                               own management.cutover / management.release argv (e.g.
+                                               deploy-safe.sh, release-gitflow.sh), never a shell, git,
+                                               gh or systemctl. Refused by name unless config, authority,
+                                               branch (develop), clean, synced with origin and every
+                                               task of the epic done all hold. cutover proves the
+                                               running binary switched; cut-release runs verify.
   manage <verb> ... --summary             one line instead of JSON (no pipe to jq needed)
   permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run]
                                                OPERATOR-ONLY: allow rules for the lead's governed verbs in
@@ -789,11 +797,18 @@ const commands = {
       landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
       authorized: flags.authorized === true || supplied.authorized === true,
       // TM-218 worker start/adopt. Adoption is fail-closed; flags never assert idleness or ownership.
-      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null };
+      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null,
+      epic: flags.epic || supplied.epic || null };
+    // TM-250: the External-class verbs live in release.mjs; they take a plan (--epic), not a task.
+    const external = { cutover: 'cutover', 'cut-release': 'cutRelease' };
+    if (external[verb]) {
+      const result = await (await import('./lib/release.mjs'))[external[verb]](options);
+      return out(flags.summary ? `${verb} ${result.kind === 'cutover' ? `switched ${result.identity.before} -> ${result.identity.after}` : 'published and verified'} at ${result.revision} (${result.authorization.channel}); record ${result.path}` : result);
+    }
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
       assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release|cutover|cut-release.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
