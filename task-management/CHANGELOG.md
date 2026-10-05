@@ -69,6 +69,31 @@
   are reported with `tm ticket event <id> review|published|merged <detail>`. Each event is sent at
   most once (`originNotified` markers on the ticket). Sandbox test: `tests/test-ticket.sh`. Demo:
   `scripts/demo-cross-repo-ticket.sh`.
+- **The Stop hook leaves alone a task a live worker subagent owns (TM-397, EP-028).** A lead with
+  claimed tasks out to Agent-tool workers was told at every stop to done, block or park them, and
+  parking released the claim mid-work so the pool could re-dispatch it.
+  `tm claim note <id> --worker <name> [--ttl 60m]` records `{ worker, until }` on this session's
+  claim (and re-stamps it). The Stop gate skips that task while the marker is fresh. A task with no
+  marker, an expired one, or another session's claim still blocks as before, and the refusal now
+  names the verb.
+
+- **`tm review-sweep [--apply] [--json]` finds finished work nobody reviewed (TM-361, EP-028).**
+  Findings are done tasks (closed in the last `--since` days, default 7) or governed tasks at
+  ready-for-review that have commits and no reviewer verdict, and open non-draft PRs idle past
+  `--idle-hours` (default 24, read with `gh pr list`; offline it reports `skipped: <why>`). The
+  output carries coverage counts, so a clean board reads as zero findings over N scanned tasks.
+  `--apply` fires each finding once: a marker in the machine-local `review-sweep.json` and a task
+  comment. A PR that moves and goes idle again fires again. agent-orchestration's supervisor
+  runs it each ten minutes when tm is installed.
+
+- **One duplicate-dispatch guard for the pool and a lead (TM-360, EP-028).** On 2026-10-05 the
+  pool started a second TM-010 worker the lead knew nothing about. `dispatch()` now asks one
+  function, `liveOwner()` in `lib/dispatch/live-owner.mjs`, before it claims anything. A task is
+  refused when tm's own dispatch record has a live claim, or when agent-orchestration (if
+  installed) reports an unreleased assignment or a bound, unstopped worker through
+  `ao-topology manage assignment`. The pool and a lead's `manage start-worker` both reach
+  `dispatch()`, so both are covered. `tm dispatch-check <id> [--json]` gives the same answer
+  read-only (exit 2 when held). A missing or failing `ao-topology` is skipped, never an accusation.
 
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads

@@ -21,6 +21,19 @@
   answers and every managed process is Running and not "Not Ready". The common prompt and the
   setup skill now name `services wait` and `mailbox wait` and tell agents never to `sleep N`,
   which the harness blocks. The autonomy hook allows `services wait`, as it does `services status`.
+- **The supervisor sweeps for unreviewed work (TM-361, EP-028).** When the repository has a tm
+  launcher, each supervisor reconcile (at most every ten minutes, `AO_REVIEW_SWEEP_MS`) runs
+  `tm review-sweep --apply --json`. Each fresh finding is delivered once: a governed task with a
+  finish revision gets `requestReview`; anything else, or a refused request, becomes one standing
+  notice to the lead, with an id derived from the finding so a retry never mails twice. The tick
+  report carries `review_sweep`. With tm absent the tick skips it.
+
+- **`manage assignment` reports a live bound worker (TM-360, EP-028).** Besides the idle-dispatch
+  assignee, the result now carries `worker` (kind, backend, run) and `owner` while a worker this
+  lead started or adopted is bound and not stopped. task-management's one duplicate-dispatch
+  guard reads it through the CLI, so the pool no longer starts a second worker for a task a lead
+  adopted with `manage bind --pane`. `manage start-worker` already runs `tm dispatch`, which now
+  refuses a task the pool holds.
 
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine

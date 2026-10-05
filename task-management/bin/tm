@@ -56,7 +56,7 @@ import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } fro
 import { upsertDecision } from "../lib/adr.mjs";
 import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
-import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
+import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
 import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { EVENT_KINDS, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
@@ -74,6 +74,8 @@ import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
 import { getPath, readConfigDocument, setPath, writeConfigDocument } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
+import { liveOwner } from "../lib/dispatch/live-owner.mjs";
+import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
@@ -1503,7 +1505,7 @@ const VERBS = {
   },
 
   /** Explicit lock handling for parallel sessions. */
-  async claim(id) {
+  async claim(id, ...rest) {
     requireInit();
     /**
      * `claim renew --live` (TM-362): renew every dispatched worker's claim that its collector
@@ -1517,6 +1519,19 @@ const VERBS = {
           ? rows.map((r) => `${r.id}: ${r.renewed ? "renewed (worker alive)" : r.pending ? "alive, claim not held by its dispatch" : r.reason ? `not renewed — ${r.reason}` : `not renewed — worker ended (${r.outcome ?? "collected"})`}`).join("\n")
           : "(no dispatched workers)",
       );
+    }
+    // TM-397: `tm claim note <id> --worker <name> [--ttl 60m]` — a live worker subagent of this
+    // session owns the task; the Stop gate honours it until the TTL runs out.
+    if (id === "note") {
+      const task = rest[0];
+      const at = (name) => { const i = rest.indexOf(name); return i < 0 ? null : rest[i + 1]; };
+      const worker = at("--worker");
+      const ttl = String(at("--ttl") ?? "60m").match(/^(\d+)([smh]?)$/);
+      if (!task || task.startsWith("--") || !worker || worker.startsWith("--") || !ttl) die("usage: tm claim note <id> --worker <name> [--ttl <n>[s|m|h]]   (default 60m)");
+      const ttlMs = Number(ttl[1]) * { s: 1000, m: 60_000, h: 3_600_000, "": 60_000 }[ttl[2]];
+      const claim = noteClaimWorker(task, { session: sessionId(), worker, ttlMs, p: P });
+      if (!claim) die(`${task} is not claimed by this session (${sessionId() || "no session id"}) — claim or start it first.`, 2);
+      return out(JSON_OUT ? JSON.stringify(claim, null, 2) : `${task}: worker ${worker} noted until ${claim.worker.until}`);
     }
     const res = claimTask(id, {
       session: sessionId(),
@@ -1566,6 +1581,42 @@ const VERBS = {
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.
     if (res.backend === "manual" && res.detail?.commands) out(res.detail.commands.join("\n"));
+  },
+
+  /**
+   * TM-360: would `tm dispatch` refuse this task because a worker is already live? Read-only;
+   * the same liveOwner() dispatch() consults, so the pool and a lead's start-worker agree.
+   * Exit 0 when free, 2 when held.
+   */
+  "dispatch-check"(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm dispatch-check <id> [--json]");
+    const task = read(id, P);
+    if (!task) die(`not found: ${id}`, 2);
+    const owner = liveOwner(task, P);
+    if (JSON_OUT) out(JSON.stringify({ id, free: !owner, ...(owner ? { owner } : {}) }, null, 2));
+    else out(owner ? owner.reason : `${id}: no live worker; dispatch may proceed`);
+    if (owner) process.exitCode = 2;
+  },
+
+  /**
+   * TM-361: done or ready-for-review tasks with no reviewer verdict, and open PRs idle past
+   * --idle-hours (default 24). Read-only without --apply; --apply fires each finding exactly once
+   * (marker + task comment). agent-orchestration's supervisor runs `review-sweep --apply --json`.
+   */
+  "review-sweep"(...args) {
+    requireInit();
+    const num = (name, fallback) => {
+      const at = args.indexOf(name);
+      if (at < 0) return fallback;
+      const v = Number(args[at + 1]);
+      return Number.isFinite(v) && v >= 0 ? v : die(`usage: tm review-sweep [--apply] [--since <days>] [--idle-hours <n>] [--json]`);
+    };
+    const res = reviewSweep({ p: P, apply: args.includes("--apply"), sinceDays: num("--since", 7), idleHours: num("--idle-hours", 24) });
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    const c = res.coverage;
+    out(`review-sweep: ${res.findings.length} finding(s), ${res.fresh.length} new — scanned ${c.tasks} task(s), ${c.candidates} finished with commits in ${c.sinceDays}d; PRs: ${c.prs ?? c.prSource}`);
+    for (const f of res.findings) out(`  ${f.fresh ? (res.applied ? "fired" : "new  ") : "seen "}  ${f.detail}${f.pr ? ` (${f.pr})` : ""}`);
   },
 
   /** Collect a dispatched worker's result into the store (park-on-failure, comment, task_result). */
@@ -1862,6 +1913,7 @@ const VERBS = {
         "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
@@ -1891,6 +1943,8 @@ const VERBS = {
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
+        "  review-sweep [--apply] [--since <days>] [--idle-hours <n>]   unreviewed finished tasks and idle open PRs",
+        "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
         "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
