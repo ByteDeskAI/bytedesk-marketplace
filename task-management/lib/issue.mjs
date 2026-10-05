@@ -11,7 +11,7 @@
  */
 import { actor, actorLabel } from "./actor.mjs";
 import { DECISION_INTAKE, DECISION_KIND, DECISION_MAP, TRIAGE_LABELS } from "./completeness.mjs";
-import { PRIORITIES, RANK_STEP, config, kindOf, list, logEvent, mutate, now, read, unblockDependents, update } from "./store.mjs";
+import { PRIORITIES, RANK_STEP, config, foreignKey, foreignRef, kindOf, list, logEvent, mutate, now, read, unblockDependents, unresolvedForeign, update } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
 /**
@@ -191,17 +191,7 @@ export function addComment(id, text, { author, p = paths() } = {}) {
  * happened to pick, which is how one repo's PRs ended up stapled to another repo's task. Naming
  * the board makes the reference honest and un-resolvable by accident.
  */
-const FOREIGN = /^([\w.-]+\/[\w.-]+)#([A-Z]+-\d+)$/;
-export const foreignRef = (ref) => {
-  const m = FOREIGN.exec(String(ref || ""));
-  return m ? { board: m[1].toLowerCase(), id: m[2] } : null;
-};
-
-/** The stored form of a foreign ref: board lowercased, so two spellings are one blocker. */
-const foreignKey = (ref) => {
-  const f = foreignRef(ref);
-  return f ? `${f.board}#${f.id}` : null;
-};
+export { foreignRef };
 
 export function addLink(fromId, type, toId, p = paths()) {
   if (fromId === toId) throw new Error("a task cannot link to itself");
@@ -397,9 +387,9 @@ export function dependencies(id, { add: addAll = [], remove: removeAll = [] } = 
       for (const d of add) next.add(d);
       for (const d of remove) next.delete(d);
       blockedBy = [...next];
-      const held = (doc.foreignBlockers || []).filter((f) => !removeForeign.includes(f?.ref));
-      for (const ref of addForeign) if (!held.some((f) => f?.ref === ref)) held.push({ ref, added: now(), resolved: null });
-      const waiting = blockedBy.length || held.some((f) => !f?.resolved);
+      const held = (doc.foreignBlockers || []).filter((f) => !removeForeign.includes(foreignKey(f?.ref)));
+      for (const ref of addForeign) if (!held.some((f) => foreignKey(f?.ref) === ref)) held.push({ ref, added: now(), resolved: null });
+      const waiting = blockedBy.length || unresolvedForeign({ foreignBlockers: held }).length;
       return {
         blockedBy,
         ...(addForeign.length || removeForeign.length ? { foreignBlockers: held.length ? held : undefined } : {}),
@@ -442,8 +432,9 @@ export function resolveForeign(ref, { landed } = {}, p = paths()) {
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw new Error(`--landed needs the landing commit sha, got "${landed ?? ""}"`);
   const resolved = [];
   for (const task of list("task", { includeDeleted: true }, p)) {
-    if (!(task.foreignBlockers || []).some((b) => b?.ref === key && !b.resolved)) continue;
-    const mark = (b) => (b?.ref === key && !b.resolved ? { ...b, resolved: { sha, at: now() } } : b);
+    const waiting = (b) => foreignKey(b?.ref) === key && unresolvedForeign({ foreignBlockers: [b] }).length;
+    if (!(task.foreignBlockers || []).some(waiting)) continue;
+    const mark = (b) => (waiting(b) ? { ...b, resolved: { sha, at: now() } } : b);
     mutate(task.id, (doc) => ({ foreignBlockers: (doc.foreignBlockers || []).map(mark) }), p);
     logEvent("upstream_resolved", { id: task.id, ref: key, sha }, p);
     resolved.push(task.id);

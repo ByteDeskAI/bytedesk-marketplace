@@ -1374,14 +1374,44 @@ function blockedByDependency(task) {
 }
 
 /**
+ * `owner/repo#TM-007`: a task on another board.
+ *
+ * Cross-repo work is real: a persona ticket genuinely does relate to a marketplace pull request.
+ * What it must not be is a bare id, because a bare id resolves against whichever store the cwd
+ * happened to pick, which is how one repo's PRs ended up stapled to another repo's task. Naming
+ * the board makes the reference honest and un-resolvable by accident. Lives here, not in
+ * issue.mjs, because the unblock pass matches foreign blockers and store.mjs cannot import issue.mjs.
+ */
+const FOREIGN = /^([\w.-]+\/[\w.-]+)#([A-Z]+-\d+)$/;
+export const foreignRef = (ref) => {
+  const m = FOREIGN.exec(String(ref || ""));
+  return m ? { board: m[1].toLowerCase(), id: m[2] } : null;
+};
+
+/**
+ * The stored and compared form of a foreign ref: board lowercased and the number unpadded, so
+ * `A/B#TM-01` and `a/b#TM-1` are one blocker. Null for anything that is not a foreign ref.
+ */
+export const foreignKey = (ref) => {
+  const f = foreignRef(ref);
+  if (!f) return null;
+  const [prefix, n] = f.id.split("-");
+  return `${f.board}#${prefix}-${Number.parseInt(n, 10)}`;
+};
+
+/** Foreign blockers (ADR-0041) still holding a task: anything without a recorded landing sha. */
+export function unresolvedForeign(task) {
+  return (task?.foreignBlockers || []).filter((f) => !f?.resolved?.sha);
+}
+
+/**
  * A local blocker this store cannot find counts as resolved (doctor reports the dangling ref), but
  * a foreign one (ADR-0041) is met only once `tm upstream-resolved` recorded its landing sha.
  * Missing, malformed or unresolved is unmet: another board's silence is not its permission.
  */
 export function dependenciesMet(task, byId) {
-  const foreignMet = (task.foreignBlockers || []).every((f) => Boolean(f?.resolved?.sha));
   return (
-    foreignMet &&
+    unresolvedForeign(task).length === 0 &&
     (task.blockedBy || []).every((d) => {
       const blocker = byId.get(d);
       return !blocker || RESOLVED.has(blocker.status);
@@ -1415,11 +1445,12 @@ export function nextTasks(p = paths()) {
  * or a normalised foreign ref (`owner/repo#TM-n`), which `resolveForeign` passes after marking it.
  */
 export function unblockDependents(id, p = paths()) {
+  const key = foreignKey(id);
   const all = list("task", { includeDeleted: true }, p);
   const byId = new Map(all.map((t) => [t.id, t]));
   const freed = [];
   for (const task of all) {
-    if (!(task.blockedBy || []).includes(id) && !(task.foreignBlockers || []).some((f) => f?.ref === id)) continue;
+    if (!(task.blockedBy || []).includes(id) && !(key && (task.foreignBlockers || []).some((f) => foreignKey(f?.ref) === key))) continue;
     if (!blockedByDependency(task) || !dependenciesMet(task, byId)) continue;
     update(task.id, { status: "open" }, p);
     logEvent("unblocked", { id: task.id, by: id }, p);

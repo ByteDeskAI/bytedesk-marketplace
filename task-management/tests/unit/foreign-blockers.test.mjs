@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempStore } from "./helpers.mjs";
-import { create, nextTasks, read, readEvents, unblockDependents, update, writeState } from "../../lib/store.mjs";
+import { create, dependenciesMet, nextTasks, read, readEvents, unblockDependents, update, writeState } from "../../lib/store.mjs";
+import { why } from "../../lib/graph.mjs";
 import { dependencies, resolveForeign } from "../../lib/issue.mjs";
 import { agentReadiness } from "../../lib/completeness.mjs";
 import { diagnose } from "../../lib/doctor.mjs";
@@ -57,12 +58,48 @@ describe("tm dep with a foreign ref", () => {
 
   it("a missing or unreadable foreign blocker entry does not unblock", () => {
     const p = store();
-    for (const bad of [[{ ref: KEY }], [null], ["acme/upstream#TM-7"], [{ ref: KEY, resolved: {} }], [{ ref: KEY, resolved: true }]]) {
+    // Entries that still name the ref reach dependenciesMet through the unblock pass.
+    for (const bad of [[{ ref: KEY }], [{ ref: KEY, resolved: {} }], [{ ref: KEY, resolved: true }]]) {
       const a = task(p, `bad ${JSON.stringify(bad)}`, { status: "blocked", foreignBlockers: bad });
       assert.deepEqual(unblockDependents(KEY, p), [], JSON.stringify(bad));
       assert.equal(read(a, p).status, "blocked", JSON.stringify(bad));
+    }
+    // Every malformed shape, including ones the unblock pass cannot match by ref, is unmet to the
+    // predicate itself and to tm next, which evaluates it for every dependency-blocked task.
+    for (const bad of [[{ ref: KEY }], [null], ["acme/upstream#TM-7"], [{ ref: KEY, resolved: {} }], [{ ref: KEY, resolved: true }]]) {
+      assert.equal(dependenciesMet({ foreignBlockers: bad }, new Map()), false, JSON.stringify(bad));
+      const a = task(p, `next ${JSON.stringify(bad)}`, { status: "blocked", foreignBlockers: bad });
       assert.equal(nextTasks(p).some((t) => t.id === a), false, JSON.stringify(bad));
     }
+  });
+
+  it("tm why names each unresolved foreign blocker and does not call the task startable", () => {
+    const p = store();
+    const a = task(p, "waits upstream");
+    dependencies(a, { add: [REF, "other/repo#TM-9"] }, p);
+    const w = why(a, p);
+    assert.equal(w.startable, false);
+    assert.deepEqual(w.reasons.filter((r) => r.kind === "foreign").map((r) => r.ref), [KEY, "other/repo#TM-9"]);
+    resolveForeign(REF, { landed: SHA }, p);
+    assert.deepEqual(why(a, p).reasons.filter((r) => r.kind === "foreign").map((r) => r.ref), ["other/repo#TM-9"]);
+  });
+
+  it("normalises the ref: case and zero padding name one blocker in dep, upstream-resolved and unblock", () => {
+    const p = store();
+    const a = task(p, "waits upstream");
+    dependencies(a, { add: ["A/B#TM-01", "a/b#TM-1", "a/b#TM-001"] }, p);
+    assert.deepEqual(read(a, p).foreignBlockers.map((f) => f.ref), ["a/b#TM-1"]);
+    const res = resolveForeign("a/B#TM-0001", { landed: SHA }, p);
+    assert.deepEqual(res.resolved, [a]);
+    assert.deepEqual(res.freed, [a]);
+    assert.equal(read(a, p).status, "open");
+
+    // A padded ref stored before normalisation still matches, and still removes.
+    const b = task(p, "legacy padded", { status: "blocked", foreignBlockers: [{ ref: "a/b#TM-02", added: "x", resolved: null }] });
+    assert.deepEqual(resolveForeign("a/b#TM-2", { landed: SHA }, p).freed, [b]);
+    const c = task(p, "legacy remove", { foreignBlockers: [{ ref: "a/b#TM-03", added: "x", resolved: null }] });
+    dependencies(c, { remove: ["a/b#TM-3"] }, p);
+    assert.equal(read(c, p).foreignBlockers, undefined);
   });
 
   it("doctor does not call a task held by an unresolved foreign blocker stuck", () => {

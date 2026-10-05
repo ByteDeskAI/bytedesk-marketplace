@@ -10,7 +10,9 @@
   commit. That verb marks the blocker on every local task holding it, then reopens a task through
   the usual unblock pass (emitting `unblocked`) only when all its blockers, local and foreign, are
   met. A missing, malformed or unresolved foreign entry is unmet in `tm next`, the unblock pass and
-  `tm doctor`'s stuck-blocked check. `tm dep` now refuses an unknown `--flag`; it used to read one
+  `tm doctor`'s stuck-blocked check, and `tm why` (and MCP `tm_why`) names each one as a blocking
+  reason. Refs are normalised (board lowercased, number unpadded), so `A/B#TM-01` and `a/b#TM-1`
+  are one blocker. `tm dep` now refuses an unknown `--flag`; it used to read one
   as removing a blocker named `-flag`.
 - **`tm task new --filed-by <owner/repo>/<agent>/<task>` (TM-382).** Writes
   `filedBy {board, agent, task}` and the new `decision:intake` label. That label vetoes
