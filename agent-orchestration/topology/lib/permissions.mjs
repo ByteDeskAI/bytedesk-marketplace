@@ -19,7 +19,7 @@ import { requireNoAgentSession } from './delegation.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { invariant, fail, readJson, writeJson } from './util.mjs';
 
-export const GOVERNED_VERBS = Object.freeze(['record-landing', 'integrate', 'start-worker', 'stop-worker', 'admit', 'report']);
+export const GOVERNED_VERBS = Object.freeze(['record-landing', 'integrate', 'start-worker', 'stop-worker', 'admit', 'report', 'close']);
 export const BASE_RULES = Object.freeze([...GOVERNED_VERBS.map(verb => `Bash(ao-topology manage ${verb} *)`), 'Bash(tm *)']);
 const MCP_NAME = /^mcp__[A-Za-z0-9_-]+$/;
 export const RESTART_NOTE = 'Restart the lead\'s Claude Code session: permission rules and MCP tools load at startup. An allow rule for an MCP server does not load it; a standing lead runs with --strict-mcp-config, so the server must also be in the lead\'s agent.json "mcp" field.';

@@ -1661,3 +1661,113 @@ test('TM-247 AC13: a finish is accepted from the admission owner or the bound wo
   assert.equal((await workerReport({ ...l.actual, ...blocker, owner: 'dispatch-shell' })).state, 'blocked', 'the bound worker reports');
   assert.equal((await workerReport({ ...l.actual, ...blocker })).state, 'blocked', 'the admission owner reports');
 });
+
+// ── TM-247 AC8-AC10: closing a landed task, merge-in heads, record-landing against origin ──────────
+const COMMIT = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q'];
+// main advances with an unrelated file, then the task worktree merges main in on top of its finish.
+async function mergeInFixture(t, { evil = false } = {}) {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const report = await f.finish(); const revision = report.finish.revision;
+  await writeFile(join(f.opts.consumer, 'sibling.txt'), 'landed elsewhere'); await f.git(f.opts.consumer, ['add', 'sibling.txt']);
+  await f.git(f.opts.consumer, [...COMMIT, '-m', 'sibling on main']);
+  await f.git(f.doc.worktree, ['merge', '--no-ff', '--no-commit', 'main']);
+  if (evil) { await writeFile(join(f.doc.worktree, 'code.txt'), 'implemented, then changed inside the merge'); await f.git(f.doc.worktree, ['add', 'code.txt']); }
+  await f.git(f.doc.worktree, [...COMMIT, '-m', 'merge main into task']);
+  const head = (await f.git(f.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  return { ...f, admitted, revision, head };
+}
+
+test('TM-247 AC9 conformance: both plugins agree on what a merge-in of the approved revision is', async t => {
+  const { mergeInOf } = await import('../../topology/lib/management.mjs');
+  const tmCheck = (await import('../../../task-management/lib/governance-check.mjs')).mergeInOf;
+  const clean = await mergeInFixture(t);
+  assert.ok(await mergeInOf(clean.doc.worktree, clean.revision, clean.head, 'main'));
+  assert.equal(tmCheck(clean.doc.worktree, clean.revision, clean.head, 'main'), true);
+  const evil = await mergeInFixture(t, { evil: true });
+  assert.equal(await mergeInOf(evil.doc.worktree, evil.revision, evil.head, 'main'), null, 'a merge that changes the task diff is not a merge-in');
+  assert.equal(tmCheck(evil.doc.worktree, evil.revision, evil.head, 'main'), false);
+  // A second parent that is not on the integration branch is not a merge-in either.
+  await clean.git(clean.opts.consumer, ['checkout', '-q', '-b', 'stray', 'main~1']);
+  await writeFile(join(clean.opts.consumer, 'stray.txt'), 'x'); await clean.git(clean.opts.consumer, ['add', 'stray.txt']);
+  await clean.git(clean.opts.consumer, [...COMMIT, '-m', 'stray']); await clean.git(clean.opts.consumer, ['checkout', '-q', 'main']);
+  await clean.git(clean.doc.worktree, ['reset', '-q', '--hard', clean.revision]);
+  await clean.git(clean.doc.worktree, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'merge stray', 'stray']);
+  const strayHead = (await clean.git(clean.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  assert.equal(await mergeInOf(clean.doc.worktree, clean.revision, strayHead, 'main'), null);
+  assert.equal(tmCheck(clean.doc.worktree, clean.revision, strayHead, 'main'), false);
+});
+
+test('TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion', async t => {
+  const m = await mergeInFixture(t);
+  assert.ok(!(await integrationEligibility(m.opts)).reasons.some(r => /changed after finish/.test(r)), 'a merge-in is the approved revision');
+  await m.git(m.opts.consumer, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'land TM-1', m.head]); // the operator's merge of the PR head
+  const landed = (await m.git(m.opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const recorded = await recordLanding({ ...m.opts, actor: 'operator', reason: 'PR merged after a develop merge-in', landed, reviewGate: fullReview(m.admitted.record, m.revision) });
+  assert.equal(recorded.merge.revision, m.revision);
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = m.opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const task = { id: 'TM-1', worktree: recorded.worktree, branch: recorded.branch,
+    governance: { version: 1, runtime: 'topology', workflowRunId: recorded.workflow_run_id, leadId: recorded.lead_id, revision: m.revision, state: 'ready-for-review' } };
+  const gate = governedCompletion(task, { root: m.opts.consumer });
+  assert.equal(gate.allow, true, gate.reason);
+  const cleaned = await cleanupTask(m.opts);
+  assert.equal(cleaned.cleaned, true, cleaned.reason);
+});
+
+test('TM-247 AC9: a merge that changed the approved diff is refused, naming the approved and current revisions', async t => {
+  const m = await mergeInFixture(t, { evil: true });
+  const reasons = (await integrationEligibility(m.opts)).reasons.join('; ');
+  assert.match(reasons, new RegExp(`approved ${m.revision}, now ${m.head}`));
+});
+
+test('TM-247 AC10: record-landing resolves the target against origin after a fetch and brings the local branch forward', async t => {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  const origin = join(f.opts.home, 'origin.git');
+  await mkdir(f.opts.home, { recursive: true });
+  await run('git', ['init', '-q', '--bare', origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
+  // Somebody else merges the task on the server; the local main never hears of it.
+  const elsewhere = join(f.opts.home, 'elsewhere');
+  await run('git', ['clone', '-q', '-b', 'main', origin, elsewhere]);
+  await f.git(elsewhere, ['fetch', '-q', f.opts.consumer, revision]);
+  await f.git(elsewhere, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'server merge of TM-1', revision]);
+  await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
+  const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+  await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
+  const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
+  assert.equal(recorded.merge.landed, landed);
+  assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
+});
+
+test('TM-247 AC8: manage close records the landing, stops the worker, cleans up and closes, in that order', async t => {
+  const { opts, finish, git, calls } = await fixture(t);
+  const { closeTask } = await import('../../topology/lib/management.mjs');
+  const admitted = await admitTask(opts); const revision = (await finish()).finish.revision;
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  const path = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+  await writeJson(path, { ...await readJson(path), worker: { kind: 'tmux', backend: 'tmux', run: 'tmux:w', owner: 'author', binding: { paneId: '%1', serverKey: '/x' } } });
+  await assert.rejects(closeTask(opts), { code: 'TOPOLOGY_MANAGEMENT_CLOSE' }, 'no landing and no --landed');
+  const closed = await closeTask({ ...opts, landed: 'main', actor: 'operator', reason: 'merged by hand', reviewGate: fullReview(admitted.record, revision) });
+  assert.equal(closed.closed, true, closed.reason);
+  assert.deepEqual(closed.steps, ['recorded-landing', 'worker-stopped', 'cleaned']);
+  const order = ['recorded-landing', 'worker-stopped', 'cleanup', 'done'].map(e => calls.indexOf(e));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), `order: ${calls.join(',')}`);
+  assert.deepEqual((await closeTask(opts)).steps, [], 'a closed task has nothing left to do');
+});
+
+test('TM-247 AC8: after integrate closes the task and releases the claim, stop-worker and cleanup still finish it', async t => {
+  const { opts, finish, calls, setClaim, doc } = await fixture(t);
+  const { stopTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(opts); await finish(); await integrateTask(opts);
+  doc.status = 'done'; setClaim(null); // tm done released the claim
+  const path = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+  await writeJson(path, { ...await readJson(path), worker: { kind: 'tmux', backend: 'tmux', run: 'tmux:w', owner: 'author', binding: { paneId: '%1', serverKey: '/x' } } });
+  assert.equal((await stopTaskWorker(opts)).stopped, true);
+  const cleaned = await cleanupTask(opts);
+  assert.equal(cleaned.cleaned, true, cleaned.reason);
+  assert.equal(calls.filter(c => c === 'done').length, 0, 'an already-done task is not closed twice');
+  setClaim({ session: 'someone-else' });
+});

@@ -31302,6 +31302,21 @@ var init_delegation = __esm({
 });
 
 // topology/lib/management.mjs
+async function mergeInOf(cwd, revision, head, target) {
+  if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
+  const parents = (await git2(cwd, ["rev-list", "--parents", "-n", "1", head], true)).stdout.trim().split(" ").slice(1);
+  if (parents.length !== 2 || parents[0] !== revision) return null;
+  const integration = parents[1];
+  const onTarget = async (ref) => (await git2(cwd, ["merge-base", "--is-ancestor", integration, ref], true)).code === 0;
+  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
+  const base = (await git2(cwd, ["merge-base", revision, integration], true)).stdout.trim();
+  if (!base) return null;
+  const patchId = async (from, to) => {
+    const diff = (await git2(cwd, ["diff", "--binary", from, to])).stdout;
+    return diff ? (0, import_node_child_process14.execFileSync)("git", ["-C", cwd, "patch-id", "--stable"], { input: diff, encoding: "utf8" }).split(" ")[0] : "";
+  };
+  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
+}
 async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
   invariant2(identity.kind === "git-common-dir", "TOPOLOGY_MANAGEMENT_REPO", "Management requires a Git repository.");
@@ -31450,8 +31465,9 @@ async function idleShell(pid) {
 async function taskWorkerState(options, record2) {
   const ctx = await context(options);
   try {
-    const doc = await ownedTask(ctx, options.task, record2?.owner);
-    return await observeLiveness(ctx, doc, record2, { finished: true });
+    const claimRule = record2?.merge ? { released: true } : {};
+    const doc = await ownedTask(ctx, options.task, record2?.owner, claimRule);
+    return await observeLiveness(ctx, doc, record2, { finished: true, claimRule });
   } catch (error51) {
     return { owned: false, active: true, alive: null, reason: error51.message };
   }
@@ -31580,7 +31596,8 @@ async function integrationEligibility(options) {
   if (!nonempty(policy.target_branch)) refuse("config", "configure management.target_branch before integration");
   if (doc && record2?.finish) {
     if (!doc.labels?.includes("ready-for-agent")) refuse("scope", "task scope is no longer approved");
-    if (await gitText(doc.worktree, ["rev-parse", "HEAD"]) !== record2.finish.revision) refuse("head", "task changed after finish; send a new report and obtain a new review");
+    const head = await gitText(doc.worktree, ["rev-parse", "HEAD"]);
+    if (head !== record2.finish.revision && !await mergeInOf(doc.worktree, record2.finish.revision, head, policy.target_branch)) refuse("head", `task changed after finish (approved ${record2.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ["status", "--porcelain"])) refuse("dirty", "task worktree has uncommitted work");
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
     for (const reason of review.reasons) refuse("review", reason);
@@ -31612,10 +31629,11 @@ async function managementStatus(options) {
   const ctx = await context(options);
   return { task: await ctx.store.show(options.task), management: await loadRecord(ctx.path), claim: await ctx.store.claim(options.task) };
 }
-var import_node_os23, import_node_path51, import_promises41, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, loadRecord, bindingKeys, SHELLS, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, GH_TIMEOUT_MS, defaultGh;
+var import_node_os23, import_node_child_process14, import_node_path51, import_promises41, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, loadRecord, bindingKeys, SHELLS, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, GH_TIMEOUT_MS, defaultGh;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os23 = require("node:os");
+    import_node_child_process14 = require("node:child_process");
     import_node_path51 = require("node:path");
     import_promises41 = require("node:fs/promises");
     init_tmux();
@@ -38335,7 +38353,7 @@ async function startRepositorySupervision(options) {
     const log = await (0, import_promises53.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
-      const child = (0, import_node_child_process14.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
+      const child = (0, import_node_child_process15.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
       await new Promise((resolve23, reject) => {
         child.once("spawn", resolve23);
         child.once("error", reject);
@@ -38366,12 +38384,12 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path64, import_node_crypto36, import_node_child_process14, import_node_url7, import_node_os34, import_promises53, import_promises54, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path64, import_node_crypto36, import_node_child_process15, import_node_url7, import_node_os34, import_promises53, import_promises54, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path64 = require("node:path");
     import_node_crypto36 = require("node:crypto");
-    import_node_child_process14 = require("node:child_process");
+    import_node_child_process15 = require("node:child_process");
     import_node_url7 = require("node:url");
     import_node_os34 = require("node:os");
     import_promises53 = require("node:fs/promises");
@@ -77478,7 +77496,7 @@ init_nats_local();
 init_orch_transport();
 
 // src/services/os-registration.mjs
-var import_node_child_process15 = require("node:child_process");
+var import_node_child_process16 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
 var import_promises55 = require("node:fs/promises");
 var import_node_os35 = __toESM(require("node:os"), 1);
@@ -77634,7 +77652,7 @@ async function start({ mode, argv, logPath, run: run2 = defaultRun, uid = proces
 function defaultSpawnDetached(argv, logPath) {
   const log = (0, import_node_fs11.openSync)(logPath, "a", 384);
   try {
-    const child = (0, import_node_child_process15.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
+    const child = (0, import_node_child_process16.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
     child.unref();
     return { pid: child.pid };
   } finally {
@@ -77717,10 +77735,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d047cb85e6a11b19019e6dedf9dae27425d80f2080b3a07fcc307c3d4afb23fc";
+  return false ? null : "4571ecbc3cf6989407fe1538d253580caf7446bfd1fa608664da13c4f831da1f";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d047cb85e6a11b19019e6dedf9dae27425d80f2080b3a07fcc307c3d4afb23fc";
+  const fingerprint2 = false ? null : "4571ecbc3cf6989407fe1538d253580caf7446bfd1fa608664da13c4f831da1f";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78039,11 +78057,11 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
 }
 
 // src/services/self-heal.mjs
-var import_node_child_process16 = require("node:child_process");
+var import_node_child_process17 = require("node:child_process");
 var import_node_fs14 = require("node:fs");
 var import_node_path68 = require("node:path");
 var import_node_util5 = require("node:util");
-var execFileP = (0, import_node_util5.promisify)(import_node_child_process16.execFile);
+var execFileP = (0, import_node_util5.promisify)(import_node_child_process17.execFile);
 function parseEtime(text) {
   const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(String(text).trim());
   if (!m) return null;
@@ -78145,7 +78163,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d047cb85e6a11b19019e6dedf9dae27425d80f2080b3a07fcc307c3d4afb23fc",
+  sourceFingerprint: false ? null : "4571ecbc3cf6989407fe1538d253580caf7446bfd1fa608664da13c4f831da1f",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -78954,12 +78972,12 @@ var OrchestrationService = class {
 };
 
 // src/topology-api.mjs
-var import_node_child_process17 = require("node:child_process");
+var import_node_child_process18 = require("node:child_process");
 var import_node_url8 = require("node:url");
 var TOPOLOGY_CLI = (0, import_node_url8.fileURLToPath)(new URL("../topology/cli.mjs", __aoImportMetaUrl));
 function runTopologyCli(args, { env, cwd, input = "" }) {
   return new Promise((done, reject) => {
-    const child = (0, import_node_child_process17.spawn)(process.execPath, [TOPOLOGY_CLI, ...args, "--json"], { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const child = (0, import_node_child_process18.spawn)(process.execPath, [TOPOLOGY_CLI, ...args, "--json"], { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {

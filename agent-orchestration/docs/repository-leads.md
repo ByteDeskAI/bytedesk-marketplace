@@ -404,12 +404,14 @@ integration writes. Record that landing with:
 ao-topology manage record-landing --task TM-123 --landed <commit> --actor <name> --reason "<why>" [--authorized]
 ```
 
-The command never merges, pushes or changes a branch. It accepts the landing only when all of
-these hold:
+The command never merges or pushes. It fetches `origin/<target>` first and checks the landing
+against it (TM-247), so an operator who has not pulled is not refused. When the landing is only on
+the server, it fast-forwards the local target branch, exactly as `manage integrate` does after a
+merge. It accepts the landing only when all of these hold:
 
 - The task has a finished worker revision in `ready-for-review` and no recorded landing yet.
 - The finish revision is an ancestor of `<commit>`.
-- `<commit>` is on `management.target_branch`.
+- `<commit>` is on `management.target_branch` (on `origin` after a fetch, else the local branch).
 - An eligible independent review of that exact finish revision exists. This is the same review
   gate integration uses, so the designated reviewer must be available and unchanged.
 - `--actor` and `--reason` are non-empty.
@@ -425,6 +427,31 @@ It collects the management record as task evidence. It then writes the same `mer
 integration writes, with `authorization.channel` set to `recorded-landing` and the reason
 attached, and it logs a `recorded-landing` event. The task's normal completion (`tm done`, or
 `manage cleanup`) then passes the governed completion gate unchanged. That gate has no override.
+
+**A merge-in of the integration branch counts as the approved revision (TM-247).** A PR updated
+with the target branch after review (GitHub's "Update branch", or `git merge develop`) has a new
+head. `eligible`, `integrate`, `cleanup` and governed completion accept that head only when all of
+these hold:
+
+- It is exactly one merge commit with two parents.
+- Its first parent is the approved revision.
+- Its second parent is on the target branch.
+- Its own change has the same patch-id as the approved revision's change.
+
+Any other head is refused, and the refusal names both revisions. A conflict resolution or any edit
+inside the merge changes the patch-id, so it needs a new finish report and a new review.
+
+**Closing a landed task with one verb (TM-247).**
+`ao-topology manage close --task TM-123 [--landed <commit> --reason "<why>"]` runs these steps in
+order:
+
+1. If no landing is recorded, it records one from `--landed` and `--reason`.
+2. It stops the bound worker.
+3. It runs `cleanup`, which removes the worktree and closes the task.
+
+Each step keeps its own gates. The first refusal ends the sequence and returns its recovery.
+`stop-worker` and `cleanup` also accept a task whose landing is already recorded and whose claim
+`tm done` has released. So closing the task first no longer strands the worker.
 
 ### Standing delegation of integration authority
 
@@ -610,7 +637,7 @@ self-approval, and the same command may pass one minute and be refused the next.
 ship a settings allow rule. Since TM-369, the plugin ships a `PreToolUse` allowlist hook instead
 (README, "Lead and worker autonomy"). It covers routine `ao-topology` verbs, including
 `manage admit|start-worker|stop-worker|report`, plus `tm` and read-only `tmux`. It deliberately
-leaves out `manage integrate`, `manage record-landing` and `manage cleanup`. For those verbs, the
+leaves out `manage integrate`, `manage record-landing`, `manage cleanup` and `manage close`. For those verbs, the
 operator installs the per-lead rules once per repository:
 
 ```bash
@@ -624,7 +651,8 @@ ao-topology permissions uninstall [--dry-run]
   covers the proven caller, this repository, the scope and the task's frozen plan (see above). A
   bare verb named by its pane binding is a managed session, so this holds even under
   `management.auto_merge: true` (TM-248).
-- `admit`, `start-worker` and `stop-worker` keep their claim-owner checks.
+- `admit`, `start-worker` and `stop-worker` keep their claim-owner checks. `close` (TM-247) runs
+  `record-landing`, `stop-worker` and `cleanup` in that order, each with its own gates.
 - A dispatched worker session (`TM_DISPATCH_WORKER` set by `tm dispatch`) is refused every
   `manage` verb except `report`, `status`, `eligible` and `assignment`, and a worker never reads
   the file the rules live in.
@@ -638,6 +666,7 @@ Bash(ao-topology manage start-worker *)
 Bash(ao-topology manage stop-worker *)
 Bash(ao-topology manage admit *)
 Bash(ao-topology manage report *)
+Bash(ao-topology manage close *)
 Bash(tm *)
 ```
 

@@ -2,6 +2,7 @@
 // orchestration owns communication and the review/check/landing evidence it contributes.
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
@@ -38,6 +39,29 @@ export async function foreignDirtyPaths(cwd) {
     if (/^[RC]/.test(entry)) paths.push(fields[++i]);
   }
   return paths.filter(path => path && !storePath(path));
+}
+
+/** TM-247 (AC9): is `head` a merge-in of the integration branch on top of the approved `revision`?
+ * Exactly: a two-parent merge whose first parent IS the revision, whose second parent is on the
+ * integration branch (local or origin), and whose own change against that parent has the same
+ * patch-id as the revision's change against its merge base, so the merge added nothing of its own.
+ * Returns { head, integration } or null. task-management governance-check.mjs mirrors it (no import
+ * crosses the plugins); a conformance test runs both on one repository.
+ * ponytail: one merge-in commit; a chain of merge-ins needs a walk down first parents. */
+export async function mergeInOf(cwd, revision, head, target) {
+  if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
+  const parents = (await git(cwd, ['rev-list', '--parents', '-n', '1', head], true)).stdout.trim().split(' ').slice(1);
+  if (parents.length !== 2 || parents[0] !== revision) return null;
+  const integration = parents[1];
+  const onTarget = async ref => (await git(cwd, ['merge-base', '--is-ancestor', integration, ref], true)).code === 0;
+  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
+  const base = (await git(cwd, ['merge-base', revision, integration], true)).stdout.trim();
+  if (!base) return null;
+  const patchId = async (from, to) => {
+    const diff = (await git(cwd, ['diff', '--binary', from, to])).stdout;
+    return diff ? execFileSync('git', ['-C', cwd, 'patch-id', '--stable'], { input: diff, encoding: 'utf8' }).split(' ')[0] : '';
+  };
+  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
 }
 
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */
@@ -390,8 +414,11 @@ async function retireWorker(ctx, options, record, dead, close) {
 export async function taskWorkerState(options, record) {
   const ctx = await context(options);
   try {
-    const doc = await ownedTask(ctx, options.task, record?.owner);
-    return await observeLiveness(ctx, doc, record, { finished: true });
+    // TM-247 (AC8): tm done releases the claim, so a task with a recorded landing may be stopped and
+    // cleaned up afterwards; a claim another session holds still refuses.
+    const claimRule = record?.merge ? { released: true } : {};
+    const doc = await ownedTask(ctx, options.task, record?.owner, claimRule);
+    return await observeLiveness(ctx, doc, record, { finished: true, claimRule });
   } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
 }
 
@@ -617,7 +644,8 @@ export async function integrationEligibility(options) {
   if (!nonempty(policy.target_branch)) refuse('config', 'configure management.target_branch before integration');
   if (doc && record?.finish) {
     if (!doc.labels?.includes('ready-for-agent')) refuse('scope', 'task scope is no longer approved');
-    if (await gitText(doc.worktree, ['rev-parse', 'HEAD']) !== record.finish.revision) refuse('head', 'task changed after finish; send a new report and obtain a new review');
+    const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
+    if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch)) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ['status', '--porcelain'])) refuse('dirty', 'task worktree has uncommitted work');
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     for (const reason of review.reasons) refuse('review', reason);
@@ -789,12 +817,18 @@ async function integrateViaPullRequest(options, ctx) {
       if (!pr) refuse('pr', `no open PR has head branch ${doc.branch}`);
     }
   }
+  let mergeIn = null;
   if (pr) {
     const merged = pr.state === 'MERGED', reviewed = approved?.verified_commit || approved?.revision;
     const at = merged ? `PR #${pr.number} was already merged at ${pr.headRefOid}` : `PR #${pr.number} head ${pr.headRefOid}`;
     if (pr.baseRefName !== policy.target_branch) refuse('base', `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
-    if (reviewed && pr.headRefOid !== reviewed) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}`);
-    if (revision && pr.headRefOid !== revision) refuse('head', `${at}, not the task's recorded finish revision ${revision}`);
+    // TM-247 (AC9): a head that only merged the integration branch into the approved revision lands that revision.
+    if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
+      await git(ctx.store.root, ['fetch', 'origin', policy.target_branch, `refs/pull/${pr.number}/head`], true);
+      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch);
+    }
+    if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
+    if (revision && pr.headRefOid !== revision && !mergeIn) refuse('head', `${at}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
     if (!merged) {
       if (pr.mergeable !== 'MERGEABLE') refuse('mergeable', `PR #${pr.number} is ${pr.mergeable || 'UNKNOWN'}, not MERGEABLE`);
       ci = await ciStatus(gh, repo, pr.number);
@@ -810,20 +844,20 @@ async function integrateViaPullRequest(options, ctx) {
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
     // The only merge this verb performs. Exactly these flags; nothing forces, bypasses or defers.
-    const result = await gh(['pr', 'merge', String(pr.number), '--repo', repo, '--merge', '--match-head-commit', revision]);
+    const result = await gh(['pr', 'merge', String(pr.number), '--repo', repo, '--merge', '--match-head-commit', pr.headRefOid]);
     invariant(result.code === 0, 'TOPOLOGY_INTEGRATE_MERGE_FAILED', `gh pr merge #${pr.number} failed (exit ${result.code}); nothing was recorded: ${(result.stderr || result.stdout || '').trim()}`, { pull_request: pr.number, merged: false });
   }
   let next;
   try {
     const view = await ghJson(gh, ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'state,headRefOid,baseRefName,mergeCommit']);
     const v = view.value;
-    invariant(v?.state === 'MERGED' && v.headRefOid === revision && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${revision} into ${policy.target_branch}` : ghFailure('gh pr view', view));
+    invariant(v?.state === 'MERGED' && v.headRefOid === pr.headRefOid && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${pr.headRefOid} into ${policy.target_branch}` : ghFailure('gh pr view', view));
     const landed = v.mergeCommit.oid;
     await syncTarget(ctx.store.root, policy.target_branch, landed);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
-      pull_request: { number: pr.number, head: revision, already_merged: pr.state === 'MERGED' }, authorization });
+      pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === 'MERGED' }, ...(mergeIn ? { merge_in: mergeIn } : {}), authorization });
   } catch (error) {
     fail('TOPOLOGY_INTEGRATE_UNRECORDED', `PR #${pr.number} is merged, but its landing was not recorded: ${error.message}. Do not merge again; rerun manage integrate, which records an already-merged PR.`, { pull_request: pr.number, merged: true, recorded: false });
   }
@@ -872,7 +906,13 @@ export async function recordLanding(options) {
     const landed = resolved.stdout.trim();
     const ancestor = async (a, b) => (await git(ctx.store.root, ['merge-base', '--is-ancestor', a, b], true)).code === 0;
     invariant(await ancestor(revision, landed), 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of ${landed}.`);
-    invariant(await ancestor(landed, `refs/heads/${policy.target_branch}`), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch}.`);
+    // TM-247 (AC10): resolve the target on the server after a fetch, not the local ref an operator may
+    // not have pulled; then bring the local branch forward so governed completion can verify it too.
+    const fetched = await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
+    const remote = `refs/remotes/origin/${policy.target_branch}`;
+    const targetRef = fetched.code === 0 && (await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', remote], true)).code === 0 ? remote : `refs/heads/${policy.target_branch}`;
+    invariant(await ancestor(landed, targetRef), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} (checked ${targetRef}${fetched.code === 0 ? ' after a fetch' : `; fetching origin failed: ${fetched.stderr.trim()}`}).`);
+    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');
     if (lead && !delegation) {
@@ -902,10 +942,12 @@ export async function cleanupTask(options) {
     const record = await loadRecord(ctx.path);
     try {
       invariant(record?.merge && record.collected, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Verified merge and collected results are required.');
-      const doc = await ownedTask(ctx, options.task, record.owner);
+      // TM-247 (AC8): a landed task's claim may already be released by tm done (integrate closes first).
+      const doc = await ownedTask(ctx, options.task, record.owner, { released: true });
       invariant(record.worktree === doc.worktree && record.branch === doc.branch, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task worktree ownership changed.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');
-      invariant(await gitText(doc.worktree, ['rev-parse', 'HEAD']) === record.merge.revision, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task branch changed after integration.');
+      const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
+      invariant(head === record.merge.revision || await mergeInOf(doc.worktree, record.merge.revision, head, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Task branch changed after integration (landed ${record.merge.revision}, now ${head}).`);
       invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.merge.revision, `refs/heads/${record.merge.target_branch}`], true)).code === 0, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Merge ancestry is no longer established.');
       const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
       const worker = await observe(record);
@@ -920,7 +962,7 @@ export async function cleanupTask(options) {
       next.state = 'cleaned';
       await writeJson(ctx.path, next);
       await ctx.store.evidence(options.task, ctx.path);
-      await ctx.store.done(options.task);
+      if (doc.status !== 'done') await ctx.store.done(options.task);
       return { cleaned: true, record: next };
     } catch (error) {
       const recovery = 'Preserve the task, results and worktree; resolve the named ownership, writer or landing gate, then retry cleanup.';
@@ -928,6 +970,31 @@ export async function cleanupTask(options) {
       return { cleaned: false, reason: error.message, recovery };
     }
   });
+}
+
+/** TM-247 (AC8): close a landed governed task in the one order that cannot strand a bound worker:
+ * record the landing (only when none is recorded, from --landed and --reason), stop the worker, then
+ * clean up, which removes the worktree and closes the task. Each step is the existing verb with its
+ * own gates; the first refusal ends the sequence and is returned with its recovery. */
+export async function closeTask(options) {
+  const steps = [];
+  let record = (await managementStatus(options)).management;
+  if (!record?.merge) {
+    invariant(nonempty(options.landed), 'TOPOLOGY_MANAGEMENT_CLOSE', `${options.task} has no recorded landing; pass --landed <commit> --reason <text> so close records it, or land it with manage integrate.`);
+    record = await recordLanding(options);
+    steps.push('recorded-landing');
+  }
+  if (record.worker && !record.worker.stopped_at) {
+    const stopped = await stopTaskWorker(options);
+    if (!stopped.stopped) return { closed: false, steps, refused: 'stop-worker', reason: stopped.reason, recovery: stopped.recovery };
+    steps.push(stopped.retired ? 'worker-retired' : 'worker-stopped');
+  }
+  if (record.state !== 'cleaned') {
+    const cleaned = await cleanupTask(options);
+    if (!cleaned.cleaned) return { closed: false, steps, refused: 'cleanup', reason: cleaned.reason, recovery: cleaned.recovery };
+    steps.push('cleaned');
+  }
+  return { closed: true, steps, record: (await managementStatus(options)).management };
 }
 
 export async function managementStatus(options) {

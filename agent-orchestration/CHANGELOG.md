@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Closing a landed governed task no longer has an order trap (TM-247, EP-028).**
+  - `manage close --task <id> [--landed <sha> --reason <text>]` records the landing if none is
+    recorded, stops the worker, then cleans up and closes the task, in that order.
+  - `stop-worker` and `cleanup` also accept a task whose landing is recorded after `tm done`
+    released its claim.
+  - `record-landing` checks the target on `origin/<target>` after a fetch, then fast-forwards the
+    local branch.
+  - Eligibility, integrate, cleanup and governed completion accept a PR head that merged the
+    integration branch into the approved revision, when the merge's own change has the approved
+    revision's patch-id. Any other head is refused, and the refusal names both revisions.
+  - `permissions install` now also writes `Bash(ao-topology manage close *)`.
+
 - **A governed worker that died before its finish report can be retired and replaced (TM-247, EP-028).**
   `manage stop-worker` now retires a bound worker whose pane or process is observed gone (or is an
   idle shell) and that never sent a finish. The dead incarnation moves to `previous_workers` with

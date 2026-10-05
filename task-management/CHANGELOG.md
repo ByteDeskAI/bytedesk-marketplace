@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Governed completion accepts a merge-in of the integration branch on the reviewed revision
+  (TM-247, EP-028).** The worktree head may be exactly one two-parent merge whose first parent is
+  the reviewed revision and whose second parent is on the target branch, when the merge's own
+  change has the reviewed revision's patch-id. `governance-check.mjs` `mergeInOf` mirrors
+  agent-orchestration's check, and a conformance test runs both. Any other head still reads as
+  "task worktree changed after review".
+
 - **Governed workers keep one identity, and a dead one no longer strands its lead (TM-247, EP-028).**
   `tm dispatch` of an admitted task now claims under the admission owner, not under the
   dispatching session. The worker inherits that id. When a governed task's live claim belongs to
