@@ -62510,11 +62510,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "a34e4d2f9031c6ac25d3e7bae4f79a8abeee40f1a79c94383017f22b83cfd3b5";
+  return false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "a34e4d2f9031c6ac25d3e7bae4f79a8abeee40f1a79c94383017f22b83cfd3b5";
-  let version2 = false ? null : "0.15.4";
+  const fingerprint2 = false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path67.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -63130,8 +63130,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "a34e4d2f9031c6ac25d3e7bae4f79a8abeee40f1a79c94383017f22b83cfd3b5",
-  version: false ? null : "0.15.4"
+  sourceFingerprint: false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b",
+  version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises60.readFile)(path3).then((bytes) => (0, import_node_crypto39.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);

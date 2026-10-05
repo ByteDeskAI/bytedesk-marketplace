@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-05
+
 ### Changed
 
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
