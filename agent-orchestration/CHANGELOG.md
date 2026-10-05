@@ -60,6 +60,12 @@
   `ao-supervisor` from the repository itself, like the NATS outage notice, under `v2` message ids
   so the old held records do not raise `TOPOLOGY_MESSAGE_ID_CONFLICT`. `notifyGrants` reports a
   held grant with its reason. Every `sendStandingMessage` caller was audited for a sender.
+- **`mailbox send --dry-run` previews instead of sending (TM-278, EP-028).** The flag was ignored
+  and a real envelope was queued. A dry run now validates, resolves and routes, and prints the
+  would-be envelope, the destination repository and its lead, and `would: deliver` with the
+  recipient or `would: hold` with the reason. It writes, publishes, rings and recovers nothing.
+  Every other send verb (`mailbox forward|reply|dispose|…`, `send`, `reply`) refuses the flag with
+  `TOPOLOGY_DRY_RUN_UNSUPPORTED` instead of ignoring it.
 
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default

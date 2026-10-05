@@ -16,7 +16,7 @@ import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { leadState } from './lead.mjs';
+import { leadState, readLeadRegistration } from './lead.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
 import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
@@ -192,6 +192,21 @@ async function attempt(record, opts) {
   }
 }
 
+/** TM-278: the admission a send would get, computed and reported, with nothing written, published,
+ * rung or recovered. Readiness is cached proof read-only, exactly as a real attempt reads it. */
+async function dryRunVerdict(envelope, p, opts) {
+  const existing = await read(p.file);
+  const verdict = await attempt({ version: 1, envelope, status: 'held', attempts: 0 }, { ...opts, readOnly: true });
+  const lead = await readLeadRegistration({ consumer: envelope.consumer, env: opts.env, home: opts.home }).catch(() => null);
+  return { dry_run: true, written: false, envelope,
+    destination: { consumer: envelope.consumer, repo_id: envelope.destinationRepoId, lead: lead?.record?.agent_id ?? null },
+    would: verdict.status === 'delivered' ? 'deliver' : 'hold',
+    delivered_to: verdict.delivered_to ?? null, reason: verdict.reason ?? null,
+    permanent: PERMANENT_HOLDS.has(verdict.reason), readiness: verdict.readiness ?? null,
+    // The same id already on disk is what a real send would dedupe to, or refuse as a conflict.
+    existing: existing ? { status: existing.status, same_content: isDeepStrictEqual({ context: {}, ...existing.envelope }, envelope) } : null };
+}
+
 /** Caller-generated IDs provide retry identity. Reusing an ID with changed
  * content, source, destination, or forwarding ancestry is rejected. */
 export async function sendStandingMessage(input, options = {}) {
@@ -215,6 +230,7 @@ export async function sendStandingMessage(input, options = {}) {
     assignment: input.assignment === undefined ? isAssignmentStage(input.stage) : input.assignment === true,
   }));
   const p = paths(id, opts);
+  if (opts.dryRun) return dryRunVerdict(envelope, p, opts);
   await mkdir(join(p.root, 'messages'), { recursive: true, mode: 0o700 });
   const settled = await withLock(p.lock, async () => {
     let record = await read(p.file);
