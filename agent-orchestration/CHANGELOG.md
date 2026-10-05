@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
+  hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
+  orchestration commands. These are `ao-topology` verbs, `agent-orchestration`
+  doctor/status/session-open/services status, `tm`, and read-only `tmux`
+  (`capture-pane`, `list-panes`, `display-message -p` and similar). Leads can therefore spawn
+  workers, file tasks and read panes with no prompt, no classifier round and no global rule edits.
+  A plugin cannot ship permission allow rules, so this hook is the mechanism. We verified it live
+  on Claude Code 2.1.289 in `default` and `auto` modes. It approves only a single simple command.
+  It never approves `manage integrate|record-landing|cleanup`, `delegate grant|revoke`,
+  `permissions`, or any `git`, `gh`, deploy or secrets command. It never blocks, and the user's
+  `deny` and `ask` rules still apply. The README section "Lead and worker autonomy" documents it.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
@@ -17,6 +29,15 @@
 
 ### Fixed
 
+- **The commit guard allows the plugin declaration that AGENTS.md requires (TM-370, EP-028).**
+  `guard-project-install`, the `git-hook` pre-commit hook and the SessionStart warning blocked
+  every commit in a repository whose `.claude/settings.json` enabled `task-management@bytedesk`,
+  even when it followed the `~/.agents/AGENTS.md` rule to register the marketplace by relative
+  path and declare `enabledPlugins`. That form now passes. Still blocked, as per-project
+  installs: an enabled plugin whose `bytedesk` marketplace the repository does not register
+  (what `claude plugin install --scope project` writes), a `bytedesk` marketplace registered by
+  absolute or `~` path, and a plugin cache committed under `.claude/plugins/`. Each refusal names
+  the problem, the exact fix and the AGENTS.md rule.
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)

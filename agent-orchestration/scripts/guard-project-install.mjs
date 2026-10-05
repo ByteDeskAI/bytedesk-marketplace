@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// PreToolUse(Bash): block `git commit` in a repository whose .claude/settings.json enables agent-orchestration or
-// task-management at project scope. Both are user-scope installs; a project entry makes a per-project install record.
+// PreToolUse(Bash): block `git commit` in a repository that makes a per-project install of agent-orchestration or
+// task-management (the predicate is src/services/project-scope.mjs). The AGENTS.md-mandated declaration, the
+// marketplace registered by relative path in extraKnownMarketplaces plus enabledPlugins, is allowed (TM-370).
 // Per-repo data (.bytedesk/task-management/tasks, plans, ...) is not settings and is never checked.
 // Hygiene gate, not a safety gate: any internal error allows the commit (exit 0) rather than blocking work.
 import { spawnSync } from 'node:child_process';
@@ -19,7 +20,8 @@ try {
   const check = join(dirname(fileURLToPath(import.meta.url)), 'check-no-project-plugin-installs.mjs');
   const result = spawnSync(process.execPath, [check, repo], { encoding: 'utf8' });
   if (result.status === 1) {
-    process.stderr.write(`${result.stderr}\nCommit blocked: remove the entry named above from ${join(repo, '.claude', 'settings.json')}.\nThese plugins are enabled in ~/.claude/settings.json; a project-level entry creates a per-project install.\n`);
+    process.stderr.write(`${result.stderr}\nCommit blocked: ${repo} makes a per-project bytedesk plugin install. Apply the Fix named above, then commit again.\n`
+      + 'Rule: ~/.agents/AGENTS.md, "Claude Code plugins from a local marketplace". Registering the marketplace by relative path under "extraKnownMarketplaces" and declaring "enabledPlugins" is allowed. An enabled plugin with no registered marketplace, an absolute marketplace path, or a committed .claude/plugins/ cache is not.\n');
     process.exit(2);
   }
 } catch { /* fail open */ }

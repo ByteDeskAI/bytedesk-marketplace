@@ -387,6 +387,16 @@ test("TM-285: SessionStart warns with the exact fix when the repo enables an ao/
   const guard = spawnSync(process.execPath, [join(pluginRoot, "scripts", "check-no-project-plugin-installs.mjs"), repo], { encoding: "utf8" });
   assert.equal(guard.status, 1, "the commit guard blocks the same repository");
 
+  assert.match(warning, /AGENTS\.md/, "the warning names the rule");
+
+  // TM-370: the AGENTS.md-mandated form (relative-path marketplace + enabledPlugins) is not an install.
+  const market = (path) => ({ bytedesk: { source: { source: "directory", path } } });
+  await writeFile(settings, JSON.stringify({ extraKnownMarketplaces: market("../bytedesk-marketplace"), enabledPlugins: { "agent-orchestration@bytedesk": true } }));
+  assert.equal(sessionStartWarning(repo), null);
+  assert.equal(spawnSync(process.execPath, [join(pluginRoot, "scripts", "check-no-project-plugin-installs.mjs"), repo]).status, 0, "the guard allows the mandated declaration");
+  await writeFile(settings, JSON.stringify({ extraKnownMarketplaces: market("/home/x/bytedesk-marketplace"), enabledPlugins: { "agent-orchestration@bytedesk": true } }));
+  assert.match(sessionStartWarning(repo) ?? "", /machine-specific path/, "an absolute marketplace path is still an install");
+
   await writeFile(settings, JSON.stringify({ enabledPlugins: { "agent-orchestration@bytedesk": false, "other@elsewhere": true } }));
   assert.equal(sessionStartWarning(repo), null);
   assert.equal(spawnSync(process.execPath, [join(pluginRoot, "scripts", "check-no-project-plugin-installs.mjs"), repo]).status, 0, "and passes it once the fix is applied");

@@ -586,9 +586,12 @@ The backstop is the independent reviewer's verdict, CI, and GitHub branch protec
 ### Permission rules for the lead
 
 Claude Code's auto mode can refuse a lead running `manage record-landing` or `manage admit` as
-self-approval, and the same command may pass one minute and be refused the next. Only a settings
-allow rule stops that check; a plugin cannot ship one. So the operator installs the rules once per
-repository:
+self-approval, and the same command may pass one minute and be refused the next. A plugin cannot
+ship a settings allow rule. Since TM-369, the plugin ships a `PreToolUse` allowlist hook instead
+(README, "Lead and worker autonomy"). It covers routine `ao-topology` verbs, including
+`manage admit|start-worker|stop-worker|report`, plus `tm` and read-only `tmux`. It deliberately
+leaves out `manage integrate`, `manage record-landing` and `manage cleanup`. For those verbs, the
+operator installs the per-lead rules once per repository:
 
 ```bash
 ao-topology permissions install [--mcp mcp__plugin_teamcity-mcp_teamcity] [--dry-run]
