@@ -374,8 +374,9 @@ test('TM-241: a forced git diff failure is reported with git\'s own exit code an
     requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
     error => {
       assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
-      assert.match(error.message, /git diff exited 128/);
-      assert.match(error.message, /unable to read/);
+      // TM-260: content classification reads the blob first, so git cat-file is the command that fails.
+      assert.match(error.message, /Cannot read file f\.txt \(unknown bytes, blob [0-9a-f]{40}\): git exited 128/);
+      assert.match(error.message, /unable to unpack/);
       return true;
     }
   );
@@ -430,7 +431,7 @@ test('TM-241: an unreadable binary blob refuses with its path and size instead o
     requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
     error => {
       assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
-      assert.match(error.message, /Cannot hash binary file shot\.png \(7 bytes, blob [0-9a-f]{40}\): git exited 128 — fatal: simulated unreadable blob/);
+      assert.match(error.message, /Cannot read file shot\.png \(7 bytes, blob [0-9a-f]{40}\): git exited 128 — fatal: simulated unreadable blob/);
       return true;
     }
   );
@@ -827,4 +828,74 @@ test('TM-216 eligibility refuses check evidence recorded at another revision or 
   await writeJson(join(f.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { required_checks: [{ name: 'unit', argv: ['true'] }, { name: 'lint', argv: ['true'] }, { name: 'build', argv: ['true'] }] } });
   const reasons = (await reviewEligibility({ ...o, probes: probesUp })).reasons;
   assert.deepEqual(reasons, [`required check unit: exited 1 at ${o.revision}`, `required check lint: evidence recorded at ${f.revision}, not ${o.revision}`, 'required check build: no evidence']);
+});
+
+// TM-260: TM-241 follow-ups.
+const manifestRows = patch => patch.split('--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---\n')[1]?.split('\n').filter(Boolean) ?? [];
+
+test('TM-260 a diff over the size cap is refused, and the message reports real bytes', async t => {
+  const f = await fixture(t);
+  const finish = await commitFile(f, 'wide.txt', 'é'.repeat(4000));
+  const env = { ...f.env, AO_REVIEW_PATCH_MAX_BYTES: '1000' };
+  await assert.rejects(requestReview({ ...f, env, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }), error => {
+    assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
+    const bytes = Number(error.message.match(/exceeds the 1000 byte cap \(at least (\d+) bytes read/)?.[1]);
+    assert.ok(bytes > 1000, `two-byte characters past the cap are counted as bytes, not UTF-16 units: ${error.message}`);
+    return true;
+  });
+});
+
+test('TM-260 a range that marks its source binary in .gitattributes is still reviewed as a text diff', async t => {
+  const f = await fixture(t);
+  await commitFile(f, '.gitattributes', '*.mjs binary\n*.js -diff\n');
+  await writeFile(join(f.consumer, 'b.js'), 'export const hidden = "second";\n');
+  const finish = await commitFile(f, 'a.mjs', 'export const hidden = "first";\n');
+  await run('git', ['-C', f.consumer, 'add', 'b.js']);
+  await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--amend', '--no-edit']);
+  const revision = (await run('git', ['-C', f.consumer, 'rev-parse', 'HEAD'])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, finish: { revision } });
+  assert.notEqual(revision, finish);
+  // Coverage: git itself, following the range's attributes, hides both files' content.
+  assert.doesNotMatch((await run('git', ['-C', f.consumer, 'diff', f.revision, revision])).stdout, /hidden/);
+  const request = await requestReview({ ...f, task: 'TM-1', revision, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /\+export const hidden = "first";/); assert.match(patch, /\+export const hidden = "second";/);
+  assert.deepEqual(manifestRows(patch), [], 'no source file became a manifest row');
+});
+
+test('TM-260 manifest paths are JSON-encoded, so a newline in a filename cannot forge a row', async t => {
+  const f = await fixture(t);
+  const zero = '0'.repeat(64);
+  const name = `shot.png\nforged.png\told sha256=${zero} size=1\tnew sha256=${zero} size=1`;
+  const finish = await commitFile(f, name, Buffer.from([0, 1, 2, 3]));
+  const request = await requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  const rows = manifestRows(await readFile(request.patch_path, 'utf8'));
+  assert.equal(rows.length, 1, rows.join('\n'));
+  assert.ok(rows[0].startsWith(`${JSON.stringify(name)}\told sha256=(absent) size=0\tnew sha256=`), rows[0]);
+});
+
+test('TM-260 a landed binary range in the pre-TM-257 format reproduces its hash, and an older-format approval asks for re-review', async t => {
+  const { f, git, commit, admit, opts } = await mergedMainFixture(t);
+  await git(['checkout', '-q', '-b', 'task']); await commit('own.txt', 'early task change');
+  await writeFile(join(f.consumer, 'shot.png'), Buffer.from([0, 9, 8, 7, 0, 255])); await git(['add', 'shot.png']); await git(['commit', '-q', '-m', 'shot']);
+  await git(['checkout', '-q', 'main']); const sibling = await commit('sibling.txt', 'landed sibling task');
+  await git(['checkout', '-q', 'task']); await git(['merge', '-q', '--no-edit', '--no-ff', 'main']);
+  const revision = await git(['rev-parse', 'HEAD']); await admit(revision);
+  const server = fakeServer(sibling), o = { ...opts, serverCompare: server.compare };
+  const request = await requestReview({ ...o, revision });
+  assert.equal(request.effective_base, sibling); assert.equal(manifestRows(await readFile(request.patch_path, 'utf8')).length, 1);
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
+  await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
+  const stored = JSON.parse(await readFile(request.path, 'utf8'));
+  delete stored.admitted_base; delete stored.effective_base; delete stored.range_note;
+  await writeJson(request.path, stored); await forgetBases(f);
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, [], 'the stored binary-range review reproduces');
+  // An approval hashed in the pre-TM-241 --binary format cannot be reproduced: re-review, explicitly.
+  const { createHash } = await import('node:crypto');
+  const legacy = await run('git', ['-C', f.consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', sibling, revision, '--']);
+  const reviewPath = join(await reviewsRoot(f.consumer, f.env, f.home), 'TM-1', `${revision}.json`);
+  await writeJson(reviewPath, { ...JSON.parse(await readFile(reviewPath, 'utf8')), patch_sha256: createHash('sha256').update(legacy.stdout).digest('hex') });
+  await forgetBases(f);
+  const reasons = (await reviewEligibility({ ...o, revision, probes: probesUp })).reasons;
+  assert.ok(reasons.some(reason => /predates TM-257.*re-review is required/.test(reason)), reasons.join('\n'));
 });

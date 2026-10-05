@@ -954,8 +954,10 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
   const between = COMMIT_SHA.test(String(candidate)) && candidate !== revision && await ancestor(admittedBase, candidate) && await ancestor(candidate, revision);
   if (recorded) invariant(between, 'TOPOLOGY_REVIEWER_RANGE', 'Recorded effective review base is not between the admitted base and the revision.');
   else {
-    const patch = between ? await git(['diff', '--no-ext-diff', '--no-textconv', '--binary', candidate, revision, '--']) : null;
-    invariant(patch?.code === 0 && createHash('sha256').update(patch.stdout).digest('hex') === reviewed.patch_sha256, 'TOPOLOGY_REVIEWER_REREVIEW',
+    // TM-260: reproduced with the same builder as the review range, so a binary range's manifest matches;
+    // an approval stored in an older format does not reproduce, and asks for a re-review.
+    const patch = between ? await reviewPatch(repoDir, candidate, revision).catch(() => null) : null;
+    invariant(patch?.patch_sha256 === reviewed.patch_sha256, 'TOPOLOGY_REVIEWER_REREVIEW',
       'The landed task\'s review request predates TM-257 and its reviewed base cannot be verified against the reviewed patch; a re-review is required.');
   }
   let onDefault;
@@ -1028,69 +1030,98 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   const ancestor = await run('git', ['-C', tree, 'merge-base', '--is-ancestor', admitted, revision], { allowFailure: true });
   invariant(ancestor.code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'Task admission base must be an ancestor of the finished revision.');
   const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, serverPullBase, env, home });
-  // No --binary: git renders a binary change as a one-line "Binary files ... differ" marker instead
-  // of embedding its bytes, so a range with large binary files (screenshots, etc.) never inflates
-  // this buffer. The manifest below adds path + blob sha256 + size for those files. No --full-index
-  // either: --binary only widened the index line of BINARY files, so a text-only range hashes exactly
-  // as it did before TM-241 (the text-only hash test holds this).
-  const diff = await run('git', ['-C', tree, 'diff', '--no-ext-diff', '--no-textconv', base, revision, '--'], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
-  if (diff.code === 'ERR_CHILD_PROCESS_STDOUT_MAXBUFFER') {
-    fail('TOPOLOGY_REVIEWER_RANGE', `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
-  }
-  invariant(diff.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` — ${diff.stderr.trim()}` : ''}.`);
-  const binaryFiles = await binaryFileManifest(tree, base, revision);
-  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
-  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256: createHash('sha256').update(patch).digest('hex'), owner: management.owner, binaryFiles, worktree: tree };
+  const { patch, patch_sha256, binaryFiles } = await reviewPatch(tree, base, revision, Number(env.AO_REVIEW_PATCH_MAX_BYTES) || REVIEW_PATCH_MAX_BYTES);
+  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256, owner: management.owner, binaryFiles, worktree: tree };
 }
 
-/** path + old/new blob sha256 + size for every binary file in the range, in place of its bytes. */
-async function binaryFileManifest(consumer, base, revision) {
-  const numstat = await run('git', ['-C', consumer, 'diff', '--numstat', '-z', '--no-renames', base, revision, '--'], { allowFailure: true });
-  invariant(numstat.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot list binary files in the task diff: git exited ${numstat.code}${numstat.stderr?.trim() ? ` — ${numstat.stderr.trim()}` : ''}.`);
-  const binaryPaths = new Set(numstat.stdout.split('\0').filter(Boolean)
-    .map(entry => entry.split('\t')).filter(([added, removed]) => added === '-' && removed === '-').map(([, , path]) => path));
-  if (binaryPaths.size === 0) return [];
-  const raw = await run('git', ['-C', consumer, 'diff', '--raw', '-z', '--no-renames', '--no-abbrev', base, revision, '--'], { allowFailure: true });
-  invariant(raw.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot resolve binary blob identities: git exited ${raw.code}${raw.stderr?.trim() ? ` — ${raw.stderr.trim()}` : ''}.`);
+/**
+ * The reviewed patch for base..revision, and its hash: the one builder for a review range and for the
+ * TM-257 legacy reproduction, so the two can never disagree about the format.
+ * No --binary: a binary file's bytes never enter the buffer. Binary files are classified by CONTENT
+ * (TM-260: a NUL in the first 8000 bytes, git's own test), not by the range's .gitattributes, which the
+ * author controls; they are left out of the text diff and listed in a manifest of path, old/new blob
+ * sha256 and size. Every other file is diffed with --text, so a `-diff` or `binary` attribute cannot turn
+ * source into a manifest row. No --full-index: a text-only range hashes exactly as it did before TM-241.
+ */
+async function reviewPatch(tree, base, revision, maxBytes = REVIEW_PATCH_MAX_BYTES) {
+  const binaryFiles = await binaryFileManifest(tree, base, revision);
+  // ponytail: one exclude pathspec per binary file on the command line; batch through --pathspec-from-file if a range ever holds thousands.
+  const excluded = binaryFiles.map(file => `:(exclude,literal)${file.path}`);
+  const diff = await run('git', ['-C', tree, 'diff', '--no-ext-diff', '--no-textconv', '--text', base, revision, '--', ...excluded], { allowFailure: true, maxBuffer: maxBytes });
+  // Node names this ERR_CHILD_PROCESS_STDIO_MAXBUFFER; the TM-241 check named a code that never occurs.
+  if (/MAXBUFFER$/.test(String(diff.code))) {
+    fail('TOPOLOGY_REVIEWER_RANGE', `Task diff exceeds the ${maxBytes} byte cap (at least ${Buffer.byteLength(diff.stdout)} bytes read before the cap stopped it).`);
+  }
+  invariant(diff.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` — ${diff.stderr.trim()}` : ''}.`);
+  const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
+  return { patch, patch_sha256: createHash('sha256').update(patch).digest('hex'), binaryFiles };
+}
+
+/** path + old/new blob sha256 + size for every file in the range whose content is binary, in place of its bytes. */
+async function binaryFileManifest(tree, base, revision) {
+  const raw = await run('git', ['-C', tree, 'diff', '--raw', '-z', '--no-renames', '--no-abbrev', base, revision, '--'], { allowFailure: true });
+  invariant(raw.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot list the files in the task diff: git exited ${raw.code}${raw.stderr?.trim() ? ` — ${raw.stderr.trim()}` : ''}.`);
   const fields = raw.stdout.split('\0').filter(Boolean);
   const entries = [];
   for (let i = 0; i < fields.length; i += 2) {
-    const [, , oldSha, newSha] = fields[i].split(' ');
+    const [oldMode, newMode, oldSha, newSha] = fields[i].replace(/^:/, '').split(' ');
     const path = fields[i + 1];
-    if (!binaryPaths.has(path)) continue;
-    const old_size = await blobSize(consumer, oldSha, path), new_size = await blobSize(consumer, newSha, path);
-    entries.push({ path, old_sha256: await blobSha256(consumer, oldSha, path, old_size), new_sha256: await blobSha256(consumer, newSha, path, new_size), old_size, new_size });
+    let binary = false;
+    for (const [mode, sha] of [[oldMode, oldSha], [newMode, newSha]]) {
+      if (!binary && !ZERO_BLOB.test(sha) && mode !== GITLINK_MODE) binary = await readBlob(tree, sha, path, { peek: true });
+    }
+    if (!binary) continue;
+    const old_size = await blobSize(tree, oldSha, path), new_size = await blobSize(tree, newSha, path);
+    entries.push({ path, old_sha256: await blobSha256(tree, oldSha, path), new_sha256: await blobSha256(tree, newSha, path), old_size, new_size });
   }
   return entries;
 }
 
 const ZERO_BLOB = /^0+$/;
+const GITLINK_MODE = '160000'; // a submodule commit, not a blob in this repository
+const BINARY_PEEK_BYTES = 8000; // git's own binary heuristic looks this far for a NUL
 
 /** An all-zero blob id means the file is absent on that side; any other unreadable blob refuses the range. */
-async function blobSize(consumer, sha, path) {
+async function blobSize(tree, sha, path) {
   if (ZERO_BLOB.test(sha)) return 0;
-  const result = await run('git', ['-C', consumer, 'cat-file', '-s', sha], { allowFailure: true });
-  invariant(result.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot read the size of binary file ${path} (blob ${sha}): git exited ${result.code}${result.stderr?.trim() ? ` — ${result.stderr.trim()}` : ''}.`);
+  const result = await run('git', ['-C', tree, 'cat-file', '-s', sha], { allowFailure: true });
+  invariant(result.code === 0, 'TOPOLOGY_REVIEWER_RANGE', `Cannot read the size of file ${path} (blob ${sha}): git exited ${result.code}${result.stderr?.trim() ? ` — ${result.stderr.trim()}` : ''}.`);
   return Number(result.stdout.trim());
 }
 
 /** git's blob id is not sha256; stream the blob's bytes into the hash so no size cap applies. */
-function blobSha256(consumer, sha, path, size) {
-  if (ZERO_BLOB.test(sha)) return Promise.resolve(null);
-  return new Promise((resolve, reject) => {
-    const hash = createHash('sha256');
-    let stderr = '';
-    const child = spawn('git', ['-C', consumer, 'cat-file', 'blob', sha], { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout.on('data', chunk => hash.update(chunk));
-    child.stderr.on('data', chunk => { stderr += chunk; });
-    child.on('error', error => reject(new TopologyError('TOPOLOGY_REVIEWER_RANGE', `Cannot hash binary file ${path} (${size} bytes): ${error.message}.`)));
-    child.on('close', code => code === 0 ? resolve(hash.digest('hex'))
-      : reject(new TopologyError('TOPOLOGY_REVIEWER_RANGE', `Cannot hash binary file ${path} (${size} bytes, blob ${sha}): git exited ${code}${stderr.trim() ? ` — ${stderr.trim()}` : ''}.`)));
-  });
+function blobSha256(tree, sha, path) {
+  return ZERO_BLOB.test(sha) ? Promise.resolve(null) : readBlob(tree, sha, path);
+}
+
+/** Streams a blob: the sha256 of all its bytes, or with `peek`, whether its first 8000 bytes hold a NUL. */
+async function readBlob(tree, sha, path, { peek = false } = {}) {
+  try {
+    return await new Promise((resolve, reject) => {
+      const hash = createHash('sha256');
+      let stderr = '', seen = 0, nul = false, stopped = false;
+      const child = spawn('git', ['-C', tree, 'cat-file', 'blob', sha], { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.on('data', chunk => {
+        if (stopped) return;
+        if (!peek) { hash.update(chunk); return; }
+        nul ||= chunk.subarray(0, Math.max(0, BINARY_PEEK_BYTES - seen)).includes(0);
+        seen += chunk.length;
+        if (nul || seen >= BINARY_PEEK_BYTES) { stopped = true; child.kill(); }
+      });
+      child.stderr.on('data', chunk => { stderr += chunk; });
+      child.on('error', reject);
+      child.on('close', code => stopped || code === 0 ? resolve(peek ? nul : hash.digest('hex'))
+        : reject(new Error(`git exited ${code}${stderr.trim() ? ` — ${stderr.trim()}` : ''}`)));
+    });
+  } catch (error) {
+    const size = await blobSize(tree, sha, path).catch(() => 'unknown');
+    fail('TOPOLOGY_REVIEWER_RANGE', `Cannot read file ${path} (${size} bytes, blob ${sha}): ${error.message}.`);
+  }
 }
 
 function renderBinaryManifest(binaryFiles) {
-  const rows = binaryFiles.map(f => `${f.path}\told sha256=${f.old_sha256 ?? '(absent)'} size=${f.old_size}\tnew sha256=${f.new_sha256 ?? '(absent)'} size=${f.new_size}`);
+  // TM-260: the path is JSON-encoded, so a newline or tab in a filename cannot forge a row.
+  const rows = binaryFiles.map(f => `${JSON.stringify(f.path)}\told sha256=${f.old_sha256 ?? '(absent)'} size=${f.old_size}\tnew sha256=${f.new_sha256 ?? '(absent)'} size=${f.new_size}`);
   return `\n--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---\n${rows.join('\n')}\n`;
 }
 

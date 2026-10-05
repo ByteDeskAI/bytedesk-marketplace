@@ -98,6 +98,22 @@
 
 ### Fixed
 
+- **TM-241 review-patch follow-ups (TM-260, EP-028).** Four fixes to how the reviewed patch is
+  built, all in `reviewPatch`, which the review range and the TM-257 legacy check now share:
+  - **Size cap.** The over-cap refusal never fired: it matched `ERR_CHILD_PROCESS_STDOUT_MAXBUFFER`,
+    but Node reports `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. It now fires and reports bytes, not UTF-16
+    units. `AO_REVIEW_PATCH_MAX_BYTES` lowers the 64 MiB cap.
+  - **Binary classification.** A file is binary when its own first 8000 bytes hold a NUL (git's
+    own test). The range's `.gitattributes` no longer decides, because the author controls it. Text
+    files are diffed with `--text`, so `*.mjs binary` cannot hide source in the manifest.
+  - **Legacy hash path.** A landed pre-TM-257 request is reproduced with the same builder. A
+    binary range in the current format verifies, and an approval in an older format asks for a
+    re-review (`TOPOLOGY_REVIEWER_REREVIEW`).
+  - **Manifest paths.** Paths are JSON-encoded, so a newline or tab in a filename cannot forge a
+    row.
+
+  Binary ranges now hash differently from TM-241, so their approvals need a re-review. Text-only
+  ranges hash exactly as before.
 - **A network blip no longer flips an approved review (TM-259, EP-028).** Once the server has
   verified a task revision's effective review base, the host records it in
   `<state>/management/<repo>/<task>.bases.json` and reuses it for that exact (task, revision). So

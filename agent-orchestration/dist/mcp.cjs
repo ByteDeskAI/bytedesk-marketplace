@@ -32765,9 +32765,9 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
   const between = COMMIT_SHA.test(String(candidate)) && candidate !== revision && await ancestor(admittedBase, candidate) && await ancestor(candidate, revision);
   if (recorded) invariant2(between, "TOPOLOGY_REVIEWER_RANGE", "Recorded effective review base is not between the admitted base and the revision.");
   else {
-    const patch = between ? await git3(["diff", "--no-ext-diff", "--no-textconv", "--binary", candidate, revision, "--"]) : null;
+    const patch = between ? await reviewPatch(repoDir, candidate, revision).catch(() => null) : null;
     invariant2(
-      patch?.code === 0 && (0, import_node_crypto28.createHash)("sha256").update(patch.stdout).digest("hex") === reviewed.patch_sha256,
+      patch?.patch_sha256 === reviewed.patch_sha256,
       "TOPOLOGY_REVIEWER_REREVIEW",
       "The landed task's review request predates TM-257 and its reviewed base cannot be verified against the reviewed patch; a re-review is required."
     );
@@ -32823,55 +32823,79 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   const ancestor = await run("git", ["-C", tree, "merge-base", "--is-ancestor", admitted, revision], { allowFailure: true });
   invariant2(ancestor.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Task admission base must be an ancestor of the finished revision.");
   const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, serverPullBase, env, home });
-  const diff = await run("git", ["-C", tree, "diff", "--no-ext-diff", "--no-textconv", base, revision, "--"], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
-  if (diff.code === "ERR_CHILD_PROCESS_STDOUT_MAXBUFFER") {
-    fail("TOPOLOGY_REVIEWER_RANGE", `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
+  const { patch, patch_sha256, binaryFiles } = await reviewPatch(tree, base, revision, Number(env.AO_REVIEW_PATCH_MAX_BYTES) || REVIEW_PATCH_MAX_BYTES);
+  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256, owner: management.owner, binaryFiles, worktree: tree };
+}
+async function reviewPatch(tree, base, revision, maxBytes = REVIEW_PATCH_MAX_BYTES) {
+  const binaryFiles = await binaryFileManifest(tree, base, revision);
+  const excluded = binaryFiles.map((file2) => `:(exclude,literal)${file2.path}`);
+  const diff = await run("git", ["-C", tree, "diff", "--no-ext-diff", "--no-textconv", "--text", base, revision, "--", ...excluded], { allowFailure: true, maxBuffer: maxBytes });
+  if (/MAXBUFFER$/.test(String(diff.code))) {
+    fail("TOPOLOGY_REVIEWER_RANGE", `Task diff exceeds the ${maxBytes} byte cap (at least ${Buffer.byteLength(diff.stdout)} bytes read before the cap stopped it).`);
   }
   invariant2(diff.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` \u2014 ${diff.stderr.trim()}` : ""}.`);
-  const binaryFiles = await binaryFileManifest(tree, base, revision);
   const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
-  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256: (0, import_node_crypto28.createHash)("sha256").update(patch).digest("hex"), owner: management.owner, binaryFiles, worktree: tree };
+  return { patch, patch_sha256: (0, import_node_crypto28.createHash)("sha256").update(patch).digest("hex"), binaryFiles };
 }
-async function binaryFileManifest(consumer, base, revision) {
-  const numstat = await run("git", ["-C", consumer, "diff", "--numstat", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
-  invariant2(numstat.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot list binary files in the task diff: git exited ${numstat.code}${numstat.stderr?.trim() ? ` \u2014 ${numstat.stderr.trim()}` : ""}.`);
-  const binaryPaths = new Set(numstat.stdout.split("\0").filter(Boolean).map((entry) => entry.split("	")).filter(([added, removed]) => added === "-" && removed === "-").map(([, , path3]) => path3));
-  if (binaryPaths.size === 0) return [];
-  const raw = await run("git", ["-C", consumer, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, revision, "--"], { allowFailure: true });
-  invariant2(raw.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot resolve binary blob identities: git exited ${raw.code}${raw.stderr?.trim() ? ` \u2014 ${raw.stderr.trim()}` : ""}.`);
+async function binaryFileManifest(tree, base, revision) {
+  const raw = await run("git", ["-C", tree, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, revision, "--"], { allowFailure: true });
+  invariant2(raw.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot list the files in the task diff: git exited ${raw.code}${raw.stderr?.trim() ? ` \u2014 ${raw.stderr.trim()}` : ""}.`);
   const fields = raw.stdout.split("\0").filter(Boolean);
   const entries2 = [];
   for (let i = 0; i < fields.length; i += 2) {
-    const [, , oldSha, newSha] = fields[i].split(" ");
+    const [oldMode, newMode, oldSha, newSha] = fields[i].replace(/^:/, "").split(" ");
     const path3 = fields[i + 1];
-    if (!binaryPaths.has(path3)) continue;
-    const old_size = await blobSize(consumer, oldSha, path3), new_size = await blobSize(consumer, newSha, path3);
-    entries2.push({ path: path3, old_sha256: await blobSha256(consumer, oldSha, path3, old_size), new_sha256: await blobSha256(consumer, newSha, path3, new_size), old_size, new_size });
+    let binary = false;
+    for (const [mode, sha2] of [[oldMode, oldSha], [newMode, newSha]]) {
+      if (!binary && !ZERO_BLOB.test(sha2) && mode !== GITLINK_MODE) binary = await readBlob(tree, sha2, path3, { peek: true });
+    }
+    if (!binary) continue;
+    const old_size = await blobSize(tree, oldSha, path3), new_size = await blobSize(tree, newSha, path3);
+    entries2.push({ path: path3, old_sha256: await blobSha256(tree, oldSha, path3), new_sha256: await blobSha256(tree, newSha, path3), old_size, new_size });
   }
   return entries2;
 }
-async function blobSize(consumer, sha2, path3) {
+async function blobSize(tree, sha2, path3) {
   if (ZERO_BLOB.test(sha2)) return 0;
-  const result2 = await run("git", ["-C", consumer, "cat-file", "-s", sha2], { allowFailure: true });
-  invariant2(result2.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot read the size of binary file ${path3} (blob ${sha2}): git exited ${result2.code}${result2.stderr?.trim() ? ` \u2014 ${result2.stderr.trim()}` : ""}.`);
+  const result2 = await run("git", ["-C", tree, "cat-file", "-s", sha2], { allowFailure: true });
+  invariant2(result2.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot read the size of file ${path3} (blob ${sha2}): git exited ${result2.code}${result2.stderr?.trim() ? ` \u2014 ${result2.stderr.trim()}` : ""}.`);
   return Number(result2.stdout.trim());
 }
-function blobSha256(consumer, sha2, path3, size) {
-  if (ZERO_BLOB.test(sha2)) return Promise.resolve(null);
-  return new Promise((resolve23, reject) => {
-    const hash4 = (0, import_node_crypto28.createHash)("sha256");
-    let stderr = "";
-    const child = (0, import_node_child_process13.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout.on("data", (chunk) => hash4.update(chunk));
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
+function blobSha256(tree, sha2, path3) {
+  return ZERO_BLOB.test(sha2) ? Promise.resolve(null) : readBlob(tree, sha2, path3);
+}
+async function readBlob(tree, sha2, path3, { peek = false } = {}) {
+  try {
+    return await new Promise((resolve23, reject) => {
+      const hash4 = (0, import_node_crypto28.createHash)("sha256");
+      let stderr = "", seen = 0, nul = false, stopped = false;
+      const child = (0, import_node_child_process13.spawn)("git", ["-C", tree, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
+      child.stdout.on("data", (chunk) => {
+        if (stopped) return;
+        if (!peek) {
+          hash4.update(chunk);
+          return;
+        }
+        nul ||= chunk.subarray(0, Math.max(0, BINARY_PEEK_BYTES - seen)).includes(0);
+        seen += chunk.length;
+        if (nul || seen >= BINARY_PEEK_BYTES) {
+          stopped = true;
+          child.kill();
+        }
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.on("error", reject);
+      child.on("close", (code) => stopped || code === 0 ? resolve23(peek ? nul : hash4.digest("hex")) : reject(new Error(`git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}`)));
     });
-    child.on("error", (error51) => reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes): ${error51.message}.`)));
-    child.on("close", (code) => code === 0 ? resolve23(hash4.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
-  });
+  } catch (error51) {
+    const size = await blobSize(tree, sha2, path3).catch(() => "unknown");
+    fail("TOPOLOGY_REVIEWER_RANGE", `Cannot read file ${path3} (${size} bytes, blob ${sha2}): ${error51.message}.`);
+  }
 }
 function renderBinaryManifest(binaryFiles) {
-  const rows = binaryFiles.map((f) => `${f.path}	old sha256=${f.old_sha256 ?? "(absent)"} size=${f.old_size}	new sha256=${f.new_sha256 ?? "(absent)"} size=${f.new_size}`);
+  const rows = binaryFiles.map((f) => `${JSON.stringify(f.path)}	old sha256=${f.old_sha256 ?? "(absent)"} size=${f.old_size}	new sha256=${f.new_sha256 ?? "(absent)"} size=${f.new_size}`);
   return `
 --- Binary files (bytes omitted; path, old and new blob sha256 and size) ---
 ${rows.join("\n")}
@@ -33409,7 +33433,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process13, import_node_crypto28, import_promises42, import_node_os24, import_node_path52, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process13, import_node_crypto28, import_promises42, import_node_os24, import_node_path52, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process13 = require("node:child_process");
@@ -33462,6 +33486,8 @@ var init_reviewer = __esm({
     INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
     isAncestor = async (dir, a, b) => (await run("git", ["-C", dir, "merge-base", "--is-ancestor", a, b], { allowFailure: true })).code === 0;
     ZERO_BLOB = /^0+$/;
+    GITLINK_MODE = "160000";
+    BINARY_PEEK_BYTES = 8e3;
     REVIEW_CHECKLIST_PATH = (0, import_node_path52.join)(".bytedesk", "agent-orchestration", "review-checklist.md");
     LOG_TAIL_MAX = 4e3;
     B64_PREFIX = "b64:";
@@ -78493,10 +78519,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "83eb6c84469a3b2e71deec6724409116563e6da7d31744fc860a55057f81ee86";
+  return false ? null : "a6c85e38ab2b2100514529ec8f472e77eeb0a8192d173bf6731fa165082d819b";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "83eb6c84469a3b2e71deec6724409116563e6da7d31744fc860a55057f81ee86";
+  const fingerprint2 = false ? null : "a6c85e38ab2b2100514529ec8f472e77eeb0a8192d173bf6731fa165082d819b";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78921,7 +78947,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "83eb6c84469a3b2e71deec6724409116563e6da7d31744fc860a55057f81ee86",
+  sourceFingerprint: false ? null : "a6c85e38ab2b2100514529ec8f472e77eeb0a8192d173bf6731fa165082d819b",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
