@@ -43,7 +43,7 @@ shellcheck fleet/bin/* fleet/hooks/*.sh
 fleet/install.sh
 ```
 
-Plugin changes reach the installed Claude/Codex/Grok caches automatically: `git config core.hooksPath scripts/git-hooks` (once per machine) makes every commit or merge in the main checkout rsync the touched plugins via `plugin-rsync`. Log: `.git/plugin-rsync.log`.
+Plugin changes reach the installed Claude/Codex/Grok caches automatically: a SessionStart hook in `.claude/settings.json` sets `core.hooksPath=scripts/git-hooks` on any machine where it is unset, so every commit, merge or rebase in the main checkout rsyncs the touched plugins via `plugin-rsync`. Log: `.git/plugin-rsync.log`.
 
 After editing any of `fleet/bin/claude-sessions`, `fleet/bin/spawn-claude-feature`, or the systemd units, re-run `fleet/install.sh` to re-link / re-copy. Symlinks for the bin scripts are stable across edits; systemd unit copies are not, so install.sh's `daemon-reload` is required.
 
