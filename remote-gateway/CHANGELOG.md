@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **gateway-logs skill.** Diagnose a gateway from its own log index through the `logs` plugin: find the logger, query by window, level, text or correlation id, tail, export an NDJSON evidence slice, and mute a noisy logger reversibly. Uses the `logs_*` MCP tools when the session has them, otherwise `/logs/api/*` with the `remote-gateway-login` cookie jar.
+- **gateway-profiling skill.** Diagnose CPU, memory, goroutine and lock problems through the `profiling` plugin: switch per-plugin profiling, capture, summarize hot functions, compare before and after a fix, and switch profiling off afterwards. Same MCP-first, HTTP-fallback access.
 - **remote-gateway plugin (BDM-76).** Operator skills copied from the gateway repo, plus `/remote-gateway-login`. Bare login reads `~/.bytedesk/remote-gateway/agent-login.yaml` (`url`, `method` `vault|local`, `user`, `pass`). The other path is `--url`, `--method`, `--username`, and `--password` together. The session cookie is stored for later gateway calls. Credentials stay in the home-directory file.
 - **Codex install surface.** `.codex-plugin/plugin.json` and a `remote-gateway` entry in `.agents/plugins/marketplace.json`, so Codex can install the same login skill. The plugin stays unversioned.
 
