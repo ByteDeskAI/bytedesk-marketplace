@@ -4,6 +4,17 @@
 
 ### Changed
 
+- **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
+  may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
+  `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to
+  the review request through one helper, `finishCheckEvidence`. With a passing run of every
+  required check at the finish commit, the reviewer can approve without a lead re-requesting with
+  `--checks`. Prose strings in `checks` stay notes and never count; a run at another commit still
+  satisfies nothing; a malformed run is refused when the finish is reported.
+- **One process-ancestry walk (TM-416, EP-028).** `delegation.mjs` `ancestorProcesses` now names
+  the pids from `heartbeat.mjs` `ancestorPids` instead of walking the tree itself. The shared walk
+  gained the `ps` fallback delegation had, so the heartbeat and prompt lifecycle also see the full
+  chain where `/proc` is absent (macOS).
 - **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`
   gains a "Keep work moving: no stalled agents" section. Agents talk to each other through the
   mailbox within and across repositories, and terminal typing or a human relay is a filed defect.

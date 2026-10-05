@@ -294,7 +294,8 @@ function sessionRules(id) {
 function governedFinishSteps(task, p) {
   return [
     `- Submit the finish report: ao-topology manage report --consumer ${quoteArg(p.root)} --task ${task.id} --file <absolute finish-report.json path>`,
-    '- Write that JSON outside the task worktree: {"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":["<check and result>"],"risks":[],"evidence":"<evidence path>"}}.',
+    '- Write that JSON outside the task worktree: {"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":[{"name":"<check>","command":"<cmd>","exit_code":0,"revision":"<SHA>"}],"risks":[],"evidence":"<evidence path>"}}.',
+    "- First run each management.required_checks entry at that commit and list every run: review cannot approve without them. Never list a check you did not run.",
     "- The producer records the finish, runs tm review-ready, and queues independent review. Report any review_blocked reason to the lead; keep the claim and stop before integration.",
   ];
 }

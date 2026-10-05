@@ -1371,6 +1371,17 @@ export function normalizeChecks(checks) {
   });
 }
 
+/**
+ * TM-418: the check evidence a worker's finish report carries, for every automatic review request
+ * (manage report, retry-review, the supervisor review sweep). Only structured runs count:
+ * {name, command, exit_code, revision, log_tail}. A prose string such as "npm test passed" is a
+ * description, not evidence, and is never turned into a run. unsatisfiedChecks still binds each run
+ * to the reviewed revision, so a run recorded at another commit satisfies nothing.
+ */
+export function finishCheckEvidence(report) {
+  return normalizeChecks((Array.isArray(report?.checks) ? report.checks : []).filter(check => check && typeof check === 'object'));
+}
+
 /** Names of config.management.required_checks; none configured = nothing is required. */
 export async function requiredCheckNames({ consumer, home = homedir(), pluginRoot = null, env = process.env }) {
   const checks = (await loadConfig({ consumer, home, pluginRoot, env })).config.management?.required_checks;

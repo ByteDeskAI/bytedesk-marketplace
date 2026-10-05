@@ -18,6 +18,7 @@ import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { agentDirs, findLead, listAgents } from './agents.mjs';
 import { readCensus } from './census.mjs';
+import { ancestorPids } from './heartbeat.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { callerRunsInPane, resolveBinding, sameBinding } from './slots.mjs';
@@ -61,23 +62,23 @@ async function registeredAgentPane(env, home) {
   return null;
 }
 
-/** Names of the caller's ancestor processes (nearest first). Linux reads /proc; elsewhere `ps`. */
+/** A process's name plus its first two argv words: /proc on Linux, `ps` elsewhere. */
+async function processName(pid) {
+  const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => null);
+  if (stat) {
+    const argv0 = (await readFile(`/proc/${pid}/cmdline`, 'utf8').catch(() => '')).split('\0').filter(Boolean);
+    return [stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')), ...argv0.slice(0, 2)].join(' ');
+  }
+  try { return execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim() || null; } catch { return null; }
+}
+
+/** Names of the caller's ancestor processes (nearest first), over the shared ancestorPids walk (TM-416). */
 export async function ancestorProcesses(pid = process.pid) {
   const names = [];
-  for (let i = 0; i < 64 && pid > 1; i++) {
-    let ppid, name;
-    try {
-      const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
-      name = stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')'));
-      ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
-      const argv0 = (await readFile(`/proc/${pid}/cmdline`, 'utf8').catch(() => '')).split('\0').filter(Boolean);
-      name = [name, ...argv0.slice(0, 2)].join(' ');
-    } catch {
-      try { [ppid, name] = execFileSync('ps', ['-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8' }).trim().split(/\s+(.*)/); ppid = Number(ppid); }
-      catch { break; }
-    }
-    if (i > 0) names.push(name);
-    pid = ppid;
+  for (const ancestor of (await ancestorPids(pid)).slice(1)) {
+    const name = await processName(ancestor);
+    if (name === null) break;
+    names.push(name);
   }
   return names;
 }
