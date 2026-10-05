@@ -113,7 +113,7 @@ async function defaultPane(record) {
  * pointer naming the ack command, and wait for the ack file. A send failure or a timeout both mean
  * "unresponsive" — they never mean "dead", so nothing here kills anything.
  */
-async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false, readOnly = false }) {
+async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false, readOnly = false, onProof = () => {} }) {
   const binding = incarnationOf(record?.binding);
   const current = async () => sameIncarnation(binding, record?.binding) && await alive(record) && sameIncarnation(binding, record?.binding);
   if (!record?.pane || !binding || !await current()) return false;
@@ -128,13 +128,13 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // the six-tuple, so a respawned pane invalidates it, and `alive` is checked separately on every
   // call — this caches "it answered", never "it is up".
   const cached = await recentAck(dir, record);
-  if (cached && await current()) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); return true; }
+  if (cached && await current()) { log(`lead answered ${cached.age_ms}ms ago; proof reused`); onProof({ source: "cached", age_ms: cached.age_ms }); return true; }
   // TM-161. AN ANSWER THAT ARRIVED AFTER WE STOPPED WAITING IS STILL AN ANSWER. Before minting a
   // new nonce, look for an ack against a probe still inside its own expiry — that is a lead which
   // was MID-TURN when the last ring landed, read it at its next boundary, and ran the command
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
   const late = await lateAck(dir, record, log, { readOnly });
-  if (late && await current()) { if (!readOnly) await rememberAck(dir, record); log(`lead acknowledged probe ${late} after the previous wait returned`); return true; }
+  if (late && await current()) { if (!readOnly) await rememberAck(dir, record); log(`lead acknowledged probe ${late.nonce} after the previous wait returned`); onProof({ source: "late", age_ms: late.age_ms }); return true; }
   // TM-161. `ackTimeoutMs <= 0` means READ ONLY: answer from proof already on disk, mint nothing.
   //
   // A fast readiness SCREEN — `startupCheck`, which runs on a SessionStart hook for every Claude
@@ -184,6 +184,7 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   }
   else await sweepExpired(dir, log);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
+  if (acked) onProof({ source: "probe", age_ms: 0 });
   return acked;
 }
 
@@ -191,7 +192,7 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
  * An ack sitting against a probe that has not expired, left by a lead that answered after the
  * previous wait gave up. Returns the nonce it found, or null.
  */
-export async function lateAckForTest(dir, record, log = () => {}) { return lateAck(dir, record, log); }
+export async function lateAckForTest(dir, record, log = () => {}) { return (await lateAck(dir, record, log))?.nonce ?? null; }
 
 /** The real probe-minting path, so a test can assert which files survive the wait. */
 export async function responsiveForTest(record, ackTimeoutMs, opts) { return defaultResponsive(record, ackTimeoutMs, opts); }
@@ -208,7 +209,8 @@ async function lateAck(dir, record, log = () => {}, { readOnly = false } = {}) {
     const bound = probe?.nonce === nonce && probe.repo_id === record.repo_id && probe.agent_id === record.agent_id && probe.session === record.session && ack.session === record.session && sameIncarnation(probe.binding, record.binding) && sameIncarnation(ack.binding, record.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
       if (!readOnly) await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
-      return nonce;
+      const at = Date.parse(ack.created_at);
+      return { nonce, age_ms: Number.isFinite(at) ? Math.max(0, Date.now() - at) : null };
     }
     // TM-187. Discarding is right — with the probe expired or swept, timeliness cannot be proven —
     // but a SILENT discard is indistinguishable from a lead that never answered, and that is the
@@ -275,7 +277,7 @@ function resolveProbes(probes, { registryDir, log }) {
   const alive = probes?.alive ?? defaultAlive;
   return {
     alive,
-    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true, readOnly: options.readOnly === true })),
+    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true, readOnly: options.readOnly === true, onProof: options.onProof })),
     open: probes?.open ?? ((args) => openRoleSession(args)),
     pane: probes?.pane ?? defaultPane,
     kill: probes?.kill ?? (async (record) => {
@@ -306,13 +308,17 @@ export async function leadState({ consumer, home = homedir(), env = process.env,
   if (!registration) return { identity, record: null, status: "none", library_lead: libraryLead?.id ?? null };
   const p = resolveProbes(probes, { registryDir: leadRegistryDir(env, home), log });
   const { record } = registration;
-  let status;
+  let status, proof = null;
   if (!(await p.alive(record))) {
     status = "registered";
   } else {
-    status = (await p.responsive(record, ackTimeoutMs, { readOnly })) ? "responsive" : "unresponsive";
+    status = (await p.responsive(record, ackTimeoutMs, { readOnly, onProof: (found) => { proof = found; } })) ? "responsive" : "unresponsive";
   }
-  return { identity, record, status, library_lead: libraryLead?.id ?? null };
+  // TM-209: say where the verdict came from and how old its proof is. An injected probe reports
+  // nothing, so its source stays null rather than being guessed.
+  const verdict = status === "responsive" ? { verdict_source: proof?.source ?? null, proof_age_ms: proof?.age_ms ?? null, ...(proof?.busy !== undefined ? { busy: proof.busy } : {}) }
+    : status === "unresponsive" ? { verdict_source: "none", proof_age_ms: null } : {};
+  return { identity, record, status, library_lead: libraryLead?.id ?? null, ...verdict };
 }
 
 // ── Creation and launch helpers ──────────────────────────────────────────────

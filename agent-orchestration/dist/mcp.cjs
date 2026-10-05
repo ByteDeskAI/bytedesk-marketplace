@@ -35584,7 +35584,8 @@ async function defaultPane(record2) {
   return panes.find((pane) => pane.alive)?.id ?? panes[0]?.id ?? null;
 }
 async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () => {
-}, alive: alive2 = defaultAlive, wake = wakeLead, assignment = false, readOnly = false }) {
+}, alive: alive2 = defaultAlive, wake = wakeLead, assignment = false, readOnly = false, onProof = () => {
+} }) {
   const binding = incarnationOf(record2?.binding);
   const current = async () => sameIncarnation(binding, record2?.binding) && await alive2(record2) && sameIncarnation(binding, record2?.binding);
   if (!record2?.pane || !binding || !await current()) return false;
@@ -35592,12 +35593,14 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
   const cached2 = await recentAck(dir, record2);
   if (cached2 && await current()) {
     log(`lead answered ${cached2.age_ms}ms ago; proof reused`);
+    onProof({ source: "cached", age_ms: cached2.age_ms });
     return true;
   }
   const late2 = await lateAck(dir, record2, log, { readOnly });
   if (late2 && await current()) {
     if (!readOnly) await rememberAck(dir, record2);
-    log(`lead acknowledged probe ${late2} after the previous wait returned`);
+    log(`lead acknowledged probe ${late2.nonce} after the previous wait returned`);
+    onProof({ source: "late", age_ms: late2.age_ms });
     return true;
   }
   if (readOnly || !(ackTimeoutMs > 0)) {
@@ -35628,11 +35631,12 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
     if (acked) await rememberAck(dir, record2);
   } else await sweepExpired(dir, log);
   log(acked ? `lead acknowledged probe ${nonce}` : `lead probe ${nonce} timed out after ${ackTimeoutMs}ms`);
+  if (acked) onProof({ source: "probe", age_ms: 0 });
   return acked;
 }
 async function lateAckForTest(dir, record2, log = () => {
 }) {
-  return lateAck(dir, record2, log);
+  return (await lateAck(dir, record2, log))?.nonce ?? null;
 }
 async function responsiveForTest(record2, ackTimeoutMs, opts) {
   return defaultResponsive(record2, ackTimeoutMs, opts);
@@ -35649,7 +35653,8 @@ async function lateAck(dir, record2, log = () => {
     const bound = probe?.nonce === nonce && probe.repo_id === record2.repo_id && probe.agent_id === record2.agent_id && probe.session === record2.session && ack.session === record2.session && sameIncarnation(probe.binding, record2.binding) && sameIncarnation(ack.binding, record2.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
       if (!readOnly) await Promise.all([(0, import_promises47.rm)((0, import_node_path57.join)(dir, `${nonce}.json`), { force: true }), (0, import_promises47.rm)((0, import_node_path57.join)(dir, name), { force: true })]);
-      return nonce;
+      const at = Date.parse(ack.created_at);
+      return { nonce, age_ms: Number.isFinite(at) ? Math.max(0, Date.now() - at) : null };
     }
     log(`${readOnly ? "ignored" : "discarded"} ack for probe ${nonce}: ${!probe ? "the probe was already swept" : !bound ? "the probe or acknowledgement names another or unrecorded incarnation" : "the probe had expired"} \u2014 not proof of a timely answer`);
     if (!readOnly) await Promise.all([(0, import_promises47.rm)((0, import_node_path57.join)(dir, `${nonce}.json`), { force: true }), (0, import_promises47.rm)((0, import_node_path57.join)(dir, name), { force: true })]);
@@ -35697,7 +35702,7 @@ function resolveProbes(probes, { registryDir, log }) {
   const alive2 = probes?.alive ?? defaultAlive;
   return {
     alive: alive2,
-    responsive: probes?.responsive ?? ((record2, ackTimeoutMs, options = {}) => defaultResponsive(record2, ackTimeoutMs, { registryDir, log, alive: alive2, assignment: options.assignment === true, readOnly: options.readOnly === true })),
+    responsive: probes?.responsive ?? ((record2, ackTimeoutMs, options = {}) => defaultResponsive(record2, ackTimeoutMs, { registryDir, log, alive: alive2, assignment: options.assignment === true, readOnly: options.readOnly === true, onProof: options.onProof })),
     open: probes?.open ?? ((args) => openRoleSession(args)),
     pane: probes?.pane ?? defaultPane,
     kill: probes?.kill ?? (async (record2) => {
@@ -35714,13 +35719,16 @@ async function leadState({ consumer, home = (0, import_node_os29.homedir)(), env
   if (!registration) return { identity, record: null, status: "none", library_lead: libraryLead?.id ?? null };
   const p = resolveProbes(probes, { registryDir: leadRegistryDir(env, home), log });
   const { record: record2 } = registration;
-  let status;
+  let status, proof = null;
   if (!await p.alive(record2)) {
     status = "registered";
   } else {
-    status = await p.responsive(record2, ackTimeoutMs, { readOnly }) ? "responsive" : "unresponsive";
+    status = await p.responsive(record2, ackTimeoutMs, { readOnly, onProof: (found) => {
+      proof = found;
+    } }) ? "responsive" : "unresponsive";
   }
-  return { identity, record: record2, status, library_lead: libraryLead?.id ?? null };
+  const verdict = status === "responsive" ? { verdict_source: proof?.source ?? null, proof_age_ms: proof?.age_ms ?? null, ...proof?.busy !== void 0 ? { busy: proof.busy } : {} } : status === "unresponsive" ? { verdict_source: "none", proof_age_ms: null } : {};
+  return { identity, record: record2, status, library_lead: libraryLead?.id ?? null, ...verdict };
 }
 async function createLeadAgent({ consumer, home, pluginRoot, env }) {
   const loaded = await loadConfig({ consumer, home, pluginRoot, env });
@@ -76705,10 +76713,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "aa2514ee2c755d2d4bc141358fa11b22d5ba949ab0780cd32c0469bc8bba5e36";
+  return false ? null : "431a102bcce713d3844e4d137ed88a5bfe87de95f1b3c34c9b640f93aa26311f";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "aa2514ee2c755d2d4bc141358fa11b22d5ba949ab0780cd32c0469bc8bba5e36";
+  const fingerprint2 = false ? null : "431a102bcce713d3844e4d137ed88a5bfe87de95f1b3c34c9b640f93aa26311f";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77133,7 +77141,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "aa2514ee2c755d2d4bc141358fa11b22d5ba949ab0780cd32c0469bc8bba5e36",
+  sourceFingerprint: false ? null : "431a102bcce713d3844e4d137ed88a5bfe87de95f1b3c34c9b640f93aa26311f",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

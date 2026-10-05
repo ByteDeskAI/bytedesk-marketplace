@@ -56,6 +56,11 @@
   mail to a name the library does not know, from the same repository, now resolves to a live
   presence entry (a Codex pane, by agent id or session name) or to a minted session identity
   before it is held as `unknown_recipient`. The library still wins.
+- **`lead status --cached`: a non-blocking lead read (TM-209, EP-028).** It answers from proof
+  already on disk, mints no probe, rings nothing and returns in under a second. Every `lead status`
+  result now carries `verdict_source` (`cached`, `late`, `probe`, or `none`) and `proof_age_ms`.
+  Plain `lead status` still rings the lead and waits up to `--ack-timeout` (default 30s) when no
+  proof is stored; the CLI help says so.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

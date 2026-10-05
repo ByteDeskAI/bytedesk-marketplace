@@ -137,6 +137,10 @@ Standing repository services
        grant <name> --to <agent>                LEAD-ONLY override that jumps the queue; the
                                                 ordinary handover is mechanical and needs no verb
   lead status|ensure|assign <agent>|detach|probes|ack <nonce>
+       status --cached                          answer from proof already on disk (ack memo, late ack,
+                                                hook heartbeat): no probe minted, no ring, no wait.
+                                                Without --cached, status with no stored proof rings the
+                                                lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
        |reassign <role> [<agent>] [--force]|detach <role> [<agent>] [--kill]|history <role>
@@ -821,6 +825,9 @@ const commands = {
     // that a change reached one of two callers, and it is now written down in
     // `.claude/rules/verification-that-can-fail.md`.
     const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
+    // TM-209: --cached is the non-blocking read. ackTimeoutMs 0 alone would still consume a late ack
+    // and write the memo; readOnly makes it a pure read, so nothing under probes/ changes.
+    if (sub === 'status' && flags.cached === true) return out({ ...await api.leadState({ ...options, ackTimeoutMs: 0, readOnly: true }), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
     if (sub === 'status') return out({ ...await api.leadState(options), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
     // `activate`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
