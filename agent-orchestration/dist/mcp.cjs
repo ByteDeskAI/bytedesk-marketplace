@@ -25934,6 +25934,7 @@ __export(orch_transport_exports, {
   resolveTransport: () => resolveTransport,
   retireStaleOutage: () => retireStaleOutage,
   selectLiveTransport: () => selectLiveTransport,
+  selectedTransportEnv: () => selectedTransportEnv,
   selectionView: () => selectionView,
   settleOutage: () => settleOutage,
   touchFallback: () => touchFallback,
@@ -25966,6 +25967,9 @@ function fail2(code, message) {
 function transportMode(env = process.env) {
   return env.AO_TRANSPORT === "file" ? "file" : "nats";
 }
+function selectedTransportEnv(env = process.env) {
+  return env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+}
 function useTransportOpener(open14) {
   const previous = openTransport;
   openTransport = open14 ?? openNatsTransport;
@@ -25975,7 +25979,7 @@ function useTransportOpener(open14) {
 }
 async function resolveTransport({ env = process.env, transport, home } = {}) {
   if (transport) return transport;
-  const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+  const selected2 = selectedTransportEnv(env);
   if (transportMode(selected2) === "file") return createFileTransport();
   const key = `${selected2.AO_NATS_URL || ""}|${selected2.AO_ORCH_SOCKET || ""}|${selected2.AO_ORCH_CREDS || ""}|${orchSocketPath(selected2)}|${selected2.AO_NATS_JS_DOMAIN || ""}`;
   const existing = liveTransports.get(key);
@@ -36186,8 +36190,10 @@ __export(standing_mailbox_exports, {
   ringStandingMail: () => ringStandingMail,
   sendStandingMessage: () => sendStandingMessage,
   sessionIdentity: () => sessionIdentity2,
+  standingInboxShows: () => standingInboxShows,
   standingMailboxRoot: () => standingMailboxRoot,
   standingRingPointer: () => standingRingPointer,
+  standingUnread: () => standingUnread,
   waitForStandingReply: () => waitForStandingReply,
   wakeStandingMessages: () => wakeStandingMessages
 });
@@ -36538,6 +36544,12 @@ async function sessionIdentity2({ env = process.env, agent = null, consumer = nu
   }
   return { agent: caller.agentId, consumer: (0, import_node_path57.resolve)(caller.consumer), source: caller.source };
 }
+function standingInboxShows(record2, { repoId, agent, transportKind }) {
+  return record2.status === "delivered" && record2.envelope.destinationRepoId === repoId && Boolean(agent) && record2.delivered_to === agent && (transportKind !== "nats" || record2.publication?.status === "published");
+}
+function standingUnread(record2, { receipt: receipt2, ...scope }) {
+  return standingInboxShows(record2, scope) && !record2.reply && !receipt2;
+}
 async function readStandingInbox({ consumer, agent, transport = null, env = process.env, limit = 100, ...options }) {
   invariant2(agent, "TOPOLOGY_AGENT_REQUIRED", "Inbox requires an agent.");
   const { resolveTransport: resolveTransport2, orchName: orchName2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
@@ -36560,7 +36572,8 @@ async function readStandingInbox({ consumer, agent, transport = null, env = proc
   }
   const identity = await canonicalRepoId(consumer);
   const received = [];
-  for (const record2 of (await records({ ...options, env })).filter((r) => r.status === "delivered" && r.envelope.destinationRepoId === identity.id && r.delivered_to === agent)) {
+  const scope = { repoId: identity.id, agent, transportKind: active.kind };
+  for (const record2 of (await records({ ...options, env })).filter((r) => standingInboxShows(r, scope))) {
     const receipt2 = await acceptMailboxDelivery({
       consumer,
       agent,
@@ -36667,11 +36680,23 @@ async function ringStandingMail({ consumer, panes = [], adapters = null, windowM
   const { deliverPointer: deliverPointer2, tmuxFailureTrigger: tmuxFailureTrigger2 } = await Promise.resolve().then(() => (init_launch(), launch_exports));
   const { adapterForPane: adapterForPane2 } = await Promise.resolve().then(() => (init_census(), census_exports));
   const { withServer: withServer2 } = await Promise.resolve().then(() => (init_tmux(), tmux_exports));
+  const { selectedTransportEnv: selectedTransportEnv2, transportMode: transportMode2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
   const ringsDir = (0, import_node_path57.join)(standingMailboxRoot(options), "rings");
+  const env = options.env ?? process.env;
+  const transportKind = options.transport?.kind ?? transportMode2(selectedTransportEnv2(env));
+  const seedFile = (0, import_node_path57.join)(ringsDir, `seed-${(0, import_node_crypto32.createHash)("sha256").update(identity.id).digest("hex")}.json`);
+  let seed = await read2(seedFile);
+  if (!seed) {
+    seed = { repoId: identity.id, since: nowIso() };
+    await (0, import_promises48.mkdir)(ringsDir, { recursive: true, mode: 448 });
+    await atomicWrite(seedFile, seed);
+  }
+  const since = Date.parse(seed.since);
   const busy = /* @__PURE__ */ new Set(), results = [];
   for (const record2 of await records(options)) {
     const id = record2.envelope.id, agent = record2.delivered_to;
-    if (record2.status !== "delivered" || record2.envelope.destinationRepoId !== identity.id || !agent || busy.has(agent)) continue;
+    const scope = { repoId: identity.id, agent, transportKind };
+    if (!standingInboxShows(record2, scope) || !(Date.parse(record2.delivered_at) >= since) || busy.has(agent)) continue;
     const marker = (0, import_node_path57.join)(ringsDir, `${(0, import_node_crypto32.createHash)("sha256").update(id).digest("hex")}.json`);
     const prior = await read2(marker);
     if (prior?.done) continue;
@@ -36682,8 +36707,8 @@ async function ringStandingMail({ consumer, panes = [], adapters = null, windowM
       await atomicWrite(marker, next);
       results.push(next);
     };
-    const seen = record2.reply || await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
-    if (seen) {
+    const receipt2 = await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    if (!standingUnread(record2, { ...scope, receipt: receipt2 })) {
       await settle({ state: "read", done: true, reason: "the recipient already read or answered it" });
       continue;
     }
@@ -78803,10 +78828,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "f011dfcea48b05d55107425ca2458fed1108c2d812b72f447abee422242149e3";
+  return false ? null : "a34e4d2f9031c6ac25d3e7bae4f79a8abeee40f1a79c94383017f22b83cfd3b5";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "f011dfcea48b05d55107425ca2458fed1108c2d812b72f447abee422242149e3";
+  const fingerprint2 = false ? null : "a34e4d2f9031c6ac25d3e7bae4f79a8abeee40f1a79c94383017f22b83cfd3b5";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -79231,7 +79256,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "f011dfcea48b05d55107425ca2458fed1108c2d812b72f447abee422242149e3",
+  sourceFingerprint: false ? null : "a34e4d2f9031c6ac25d3e7bae4f79a8abeee40f1a79c94383017f22b83cfd3b5",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
