@@ -27,7 +27,8 @@ MCP: `tm_collect` `{ "id": "TM-014" }`.
 HTTP: `POST /api/task/TM-014/collect`.
 
 Returns `{ ok, outcome, downgraded?, parked? }` or `{ ok, pending: true }` while
-the worker still runs.
+the worker still runs. To wait for it, run `tm pool wait --until done TM-014 --timeout 1800`
+instead of a `sleep` loop around `collect`; exit 0 when done, 2 on timeout.
 
 ## Invariants
 

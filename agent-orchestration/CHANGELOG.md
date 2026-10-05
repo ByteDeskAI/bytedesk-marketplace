@@ -4,6 +4,14 @@
 
 ### Added
 
+- **`services wait` replaces sleep-polling around `services status` (TM-374, EP-028).**
+  `agent-orchestration services wait --until healthy|<process> [running] [--timeout <s>]` re-reads
+  status at a bounded interval and prints one JSON line: exit 0 when the condition holds, 2 on
+  timeout (naming what is not running yet), 1 on a bad argument. `healthy` means process-compose
+  answers and every managed process is Running and not "Not Ready". The common prompt and the
+  setup skill now name `services wait` and `mailbox wait` and tell agents never to `sleep N`,
+  which the harness blocks. The autonomy hook allows `services wait`, as it does `services status`.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`

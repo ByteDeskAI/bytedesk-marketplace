@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`tm pool wait` replaces sleep-polling around `tm pool status` (TM-374, EP-028).**
+  `tm pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]` polls
+  internally and prints one JSON result: exit 0 when the condition holds, 2 on timeout (with the
+  last state seen), 1 on a bad argument. The pool and collect skills point to it instead of a
+  `sleep` loop, which the harness blocks.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:

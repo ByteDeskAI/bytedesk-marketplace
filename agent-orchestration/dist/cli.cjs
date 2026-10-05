@@ -60946,10 +60946,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "18f93681708f4e2c38763306597ea354f9435e71c5874207adcc7dc588d2eb61";
+  return false ? null : "6399133481b73cdff2aef0356661444c1ab10c50c704367b9d253c358a12de74";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "18f93681708f4e2c38763306597ea354f9435e71c5874207adcc7dc588d2eb61";
+  const fingerprint2 = false ? null : "6399133481b73cdff2aef0356661444c1ab10c50c704367b9d253c358a12de74";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61344,6 +61344,32 @@ async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoo
   }
   return { ok: true, ...removed, stopped };
 }
+function servicesCondition(report, until) {
+  invariant(typeof until === "string" && until.length > 0, "AO_SERVICES_WAIT_ARG", "services wait needs --until healthy or --until <process> running.");
+  const rows = report.processes ?? [];
+  const alive2 = Boolean(report.processCompose?.alive);
+  const notRunning = rows.filter((p) => p.state !== "Running" || p.ready === "Not Ready").map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""}`);
+  if (until === "healthy") return { met: alive2 && rows.length > 0 && notRunning.length === 0, detail: { alive: alive2, processes: rows.length, notRunning } };
+  const row2 = rows.find((p) => p.name === until);
+  return { met: alive2 && row2?.state === "Running", detail: { alive: alive2, process: until, state: row2?.state ?? null, pid: row2?.pid ?? null } };
+}
+async function waitForServices({ until, timeoutSeconds = 120, intervalMs = 1e3, status }) {
+  servicesCondition({}, until);
+  const started = Date.now();
+  const interval = Math.min(5e3, Math.max(100, intervalMs));
+  for (; ; ) {
+    let result;
+    try {
+      result = servicesCondition(await status(), until);
+    } catch (error51) {
+      result = { met: false, detail: { error: error51.message } };
+    }
+    const waitedSeconds = Math.round((Date.now() - started) / 100) / 10;
+    if (result.met) return { ok: true, until, waitedSeconds, ...result.detail };
+    if (Date.now() - started >= timeoutSeconds * 1e3) return { ok: false, timedOut: true, until, waitedSeconds, ...result.detail };
+    await (0, import_promises57.setTimeout)(interval);
+  }
+}
 
 // src/services/self-heal.mjs
 var import_node_child_process17 = require("node:child_process");
@@ -61540,7 +61566,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "18f93681708f4e2c38763306597ea354f9435e71c5874207adcc7dc588d2eb61",
+  sourceFingerprint: false ? null : "6399133481b73cdff2aef0356661444c1ab10c50c704367b9d253c358a12de74",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -62380,7 +62406,7 @@ function projectScopeWarning(repoDir) {
 
 // src/services/cli.mjs
 init_lockfile();
-var USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
+var USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
 function summary(report) {
   if (report.processCompose) {
     const rows = report.processes.map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
@@ -62433,7 +62459,7 @@ async function registerRepository(cwd, stateRoot3) {
   return addServiceRepo(await repositoryConsumer(cwd), { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } });
 }
 var WORKER_REFUSED = /* @__PURE__ */ new Set(["ensure", "restart", "stop"]);
-async function runServicesCommand(sub, values, positionals, env = process.env) {
+async function runServicesCommand(sub, values, positionals, env = process.env, statusOptions = {}) {
   if (WORKER_REFUSED.has(sub) && env.TM_DISPATCH_WORKER) {
     if (values.detach) return 0;
     process.stderr.write(`agent-orchestration services ${sub}: refused inside a dispatched worker session (TM_DISPATCH_WORKER is set). The managed services belong to the operator; ask the lead or operator to run it from the installed plugin or the source checkout.
@@ -62486,6 +62512,26 @@ async function runServicesCommand(sub, values, positionals, env = process.env) {
       print(report);
       return report.ok ? 0 : 1;
     }
+    case "wait": {
+      const until = values.until ?? "healthy";
+      const timeoutSeconds = values.timeout === void 0 ? 120 : Number(values.timeout);
+      const extra = positionals.filter((p) => p !== "running");
+      const bad = !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0 ? `--timeout must be a number of seconds, got: ${values.timeout}` : extra.length ? `unexpected argument: ${extra.join(" ")} (${USAGE})` : until === "healthy" && positionals.length ? "--until healthy takes no process state" : null;
+      if (bad) {
+        process.stderr.write(`${JSON.stringify({ ok: false, code: "AO_SERVICES_WAIT_ARG", message: bad })}
+`);
+        return 1;
+      }
+      const result = await waitForServices({
+        until,
+        timeoutSeconds,
+        intervalMs: Number(env.AO_SERVICES_WAIT_INTERVAL_MS) || 1e3,
+        status: () => servicesStatus({ stateRoot: stateRoot3, env, ...statusOptions })
+      });
+      process.stdout.write(`${JSON.stringify(result)}
+`);
+      return result.ok ? 0 : 2;
+    }
     case "restart":
     case "stop": {
       try {
@@ -62521,7 +62567,9 @@ async function main() {
       "consumer-cwd": { type: "string" },
       "no-browser": { type: "boolean" },
       json: { type: "boolean" },
-      detach: { type: "boolean" }
+      detach: { type: "boolean" },
+      until: { type: "string" },
+      timeout: { type: "string" }
     },
     allowPositionals: true
   });
@@ -62587,7 +62635,7 @@ async function main() {
 `);
     return;
   }
-  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe|uninstall");
+  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe|uninstall");
 }
 main().catch((error51) => {
   process.stderr.write(`${JSON.stringify(serializeError(error51))}

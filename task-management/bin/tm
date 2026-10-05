@@ -76,7 +76,7 @@ import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -1567,7 +1567,25 @@ const VERBS = {
       const line = `${head} — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
       return emit(res, () => (res.paused ? `${line}\npaused: ${res.pausedReason} (since ${res.pausedAt}) — tm pool resume` : line));
     }
-    die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume [--dry-run])`);
+    if (action === "wait") {
+      // TM-374: the verb an agent runs instead of `sleep N; tm pool status`. One JSON result
+      // always; exit 0 met, 2 timed out, 1 bad argument.
+      const at = rest.indexOf("--until");
+      const until = at >= 0 ? rest[at + 1] : "idle";
+      const id = at >= 0 && rest[at + 2] && !rest[at + 2].startsWith("--") ? rest[at + 2] : undefined;
+      const ti = rest.indexOf("--timeout");
+      const timeoutSeconds = ti >= 0 ? Number(rest[ti + 1]) : 300;
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) die(`--timeout must be a number of seconds, got: ${rest[ti + 1]}`);
+      let res;
+      try {
+        res = await poolWait({ until, id, timeoutSeconds, intervalMs: Number(process.env.TM_POOL_WAIT_INTERVAL_MS) || 1000, p: P });
+      } catch (e) {
+        die(e.message);
+      }
+      out(JSON.stringify(res));
+      process.exit(res.ok ? 0 : 2);
+    }
+    die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume | wait [--dry-run])`);
   },
 
   /** Drop claims whose sessions or worktrees are gone. */
@@ -1787,6 +1805,7 @@ const VERBS = {
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
+        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0) or timeout (exit 2); never sleep-poll",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",

@@ -76,6 +76,9 @@ Act on them only through their names:
 
 - `agent-orchestration services status --json` — every managed process with its pid, state,
   restart count and readiness.
+- `agent-orchestration services wait --until healthy` (or `--until <name> running`) `[--timeout <s>]` —
+  blocks until the condition holds, then prints one JSON line; exit 0 met, 2 timed out, 1 bad
+  argument. Use it after `ensure` or `restart` instead of a `sleep` loop around `status`.
 - `agent-orchestration services restart <name>` / `agent-orchestration services stop <name>` —
   exactly that process, through the process-compose API; an unknown name is refused.
 
