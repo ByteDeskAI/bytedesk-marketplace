@@ -437,11 +437,9 @@ var init_incarnation = __esm({
 var config_exports = {};
 __export(config_exports, {
   ABSENT_REVISION: () => ABSENT_REVISION,
-  AUTONOMY_LEVELS: () => AUTONOMY_LEVELS,
   CONFIG_SCOPES: () => CONFIG_SCOPES,
   PRECEDENCE: () => PRECEDENCE,
   PROMPT_MODES: () => PROMPT_MODES,
-  autonomyOf: () => autonomyOf,
   configLayerPath: () => configLayerPath,
   defaultsConfigPath: () => defaultsConfigPath,
   findTemplate: () => findTemplate,
@@ -496,14 +494,6 @@ function promptEntryErrors(value, where, { mode = true } = {}) {
 function layerWarnings(raw, scope, label = scope) {
   return scope !== "global" && raw?.prompts?.prefix !== void 0 ? [`${label}: "prompts.prefix" is honoured only in the global config layer; ignored here`] : [];
 }
-function autonomyOf(loaded) {
-  for (const scope of PRECEDENCE) {
-    const layer = loaded.layers.find((l) => l.scope === scope && l.ok && l.present);
-    const level = layer?.raw?.management?.autonomy;
-    if (level !== void 0) return { level, scope, path: layer.path };
-  }
-  return { level: "pr", scope: "built-in", path: null };
-}
 function validateConfigShape(raw, label) {
   const errors = [];
   if (!isPlainObject(raw)) return [`${label}: top level must be a JSON object`];
@@ -555,9 +545,6 @@ function validateConfigShape(raw, label) {
     if (raw.prompts.prefix !== void 0) errors.push(...promptEntryErrors(raw.prompts.prefix, `${label}: prompt "prefix"`, { mode: false }));
   }
   if (raw.management !== void 0 && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
-  if (isPlainObject(raw.management) && raw.management.autonomy !== void 0 && !AUTONOMY_LEVELS.includes(raw.management.autonomy)) {
-    errors.push(`${label}: "management.autonomy" must be one of ${AUTONOMY_LEVELS.join(", ")}`);
-  }
   if (raw.workers !== void 0 && (!isPlainObject(raw.workers) || raw.workers.passEnv !== void 0 && !(Array.isArray(raw.workers.passEnv) && raw.workers.passEnv.every((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))))) {
     errors.push(`${label}: "workers.passEnv" must be an array of environment variable names (names only, never values)`);
   }
@@ -666,7 +653,7 @@ async function writeConfigLayer(scope, document, { ifRevision = null, ...options
     return { ok: true, scope, path: path3, previous_revision: before.revision, revision: after.revision, warnings: after.warnings };
   });
 }
-var import_node_crypto7, import_promises7, import_node_os5, import_node_path10, isPlainObject, TEMPLATE_KEYS, PROMPT_MODES, AUTONOMY_LEVELS, PRECEDENCE, ABSENT_REVISION, CONFIG_SCOPES;
+var import_node_crypto7, import_promises7, import_node_os5, import_node_path10, isPlainObject, TEMPLATE_KEYS, PROMPT_MODES, PRECEDENCE, ABSENT_REVISION, CONFIG_SCOPES;
 var init_config = __esm({
   "topology/lib/config.mjs"() {
     import_node_crypto7 = require("node:crypto");
@@ -678,7 +665,6 @@ var init_config = __esm({
     isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
     TEMPLATE_KEYS = /* @__PURE__ */ new Set(["role", "cli", "candidates", "model", "prompt", "instructions", "skills", "mcp", "args", "env", "auto_approve", "reports_to", "name"]);
     PROMPT_MODES = ["append", "replace"];
-    AUTONOMY_LEVELS = Object.freeze(["pr", "merge", "publish"]);
     PRECEDENCE = ["repo", "global", "defaults"];
     ABSENT_REVISION = "absent";
     CONFIG_SCOPES = ["global", "repo"];
@@ -24352,6 +24338,21 @@ var init_delegation = __esm({
 });
 
 // topology/lib/management.mjs
+async function mergeInOf(cwd, revision, head, target) {
+  if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
+  const parents = (await git2(cwd, ["rev-list", "--parents", "-n", "1", head], true)).stdout.trim().split(" ").slice(1);
+  if (parents.length !== 2 || parents[0] !== revision) return null;
+  const integration = parents[1];
+  const onTarget = async (ref) => (await git2(cwd, ["merge-base", "--is-ancestor", integration, ref], true)).code === 0;
+  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
+  const base = (await git2(cwd, ["merge-base", revision, integration], true)).stdout.trim();
+  if (!base) return null;
+  const patchId = async (from, to) => {
+    const diff = (await git2(cwd, ["diff", "--binary", from, to])).stdout;
+    return diff ? (0, import_node_child_process14.execFileSync)("git", ["-C", cwd, "patch-id", "--stable"], { input: diff, encoding: "utf8" }).split(" ")[0] : "";
+  };
+  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
+}
 async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
   invariant2(identity.kind === "git-common-dir", "TOPOLOGY_MANAGEMENT_REPO", "Management requires a Git repository.");
@@ -24384,14 +24385,16 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     // TM-218: the lead's one launcher. tm claims under TM_SESSION_ID=owner, reuses the admitted
     // worktree, spawns the backend, and writes the dispatch + registry row observeWorker reads.
     dispatch: async (id, backend) => JSON.parse((await exec(["dispatch", taskId(id), "--backend", backend, "--json"])).stdout),
+    // TM-247 (AC7): move the claim to a new admission owner; --steal only from the recorded owner.
+    claimFor: async (id, session, cwd, steal) => exec(["claim", taskId(id), ...steal ? ["--steal"] : []], cwd, { TM_SESSION_ID: session }),
+    // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
+    collect: async (id) => JSON.parse((await exec(["collect", taskId(id), "--json"])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
     done: async (id, actor = null) => exec(["done", taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(["govern", taskId(id), "--workflow", governance.workflowRunId, "--lead", governance.leadId, "--record", governance.recordPath]),
     reviewReady: async (id, revision) => exec(["review-ready", taskId(id), "--revision", revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
-    epicTasks: async (epic) => JSON.parse((await exec(["find", `epic:${epic}`, "kind:task", "--json"])).stdout).filter((t) => t.epic === epic).map((t) => t.id),
-    // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
-    ticketEvent: async (id, kind, detail) => exec(["ticket", "event", taskId(id), kind, detail])
+    epicTasks: async (epic) => JSON.parse((await exec(["find", `epic:${epic}`, "kind:task", "--json"])).stdout).filter((t) => t.epic === epic).map((t) => t.id)
   };
 }
 async function context(options) {
@@ -24402,12 +24405,15 @@ async function context(options) {
   const store = options.store || await taskStore(options);
   return { root, path: path3, store, identity, env, home };
 }
-function ownClaim(claim, owner) {
-  invariant2(claim && claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.");
+function ownClaim(claim, owner, task, { released = false, holders = [] } = {}) {
+  if (!claim && released) return;
+  if (claim && holders.includes(claim.session)) return;
+  invariant2(claim, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `Task claim for ${task} was released (the task was parked, blocked or collected), so its admission owner ${owner} holds nothing. Re-claim it with \`ao-topology manage admit --task ${task}\`, which resumes the same admission, then retry.`);
+  invariant2(claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `Task claim for ${task} is held by ${claim.session ?? "an unowned session"}, not the admission owner ${owner}; reconcile ownership without stealing, or record a handoff with \`ao-topology manage transfer --task ${task}\`.`);
 }
-async function ownedTask(ctx, task, owner) {
+async function ownedTask(ctx, task, owner, claimRule = {}) {
   const doc = await ctx.store.show(task);
-  ownClaim(await ctx.store.claim(task), owner);
+  ownClaim(await ctx.store.claim(task), owner, task, claimRule);
   invariant2(doc.worktree && doc.branch, "TOPOLOGY_MANAGEMENT_WORKTREE", "tm must provision and record the task worktree and branch.");
   invariant2((await canonicalRepoId(doc.worktree)).id === ctx.identity.id && await (0, import_promises41.realpath)(doc.worktree) !== await (0, import_promises41.realpath)(ctx.store.root), "TOPOLOGY_MANAGEMENT_WORKTREE", "Task worktree must be isolated within this repository.");
   invariant2(await gitText(doc.worktree, ["symbolic-ref", "--short", "HEAD"]) === doc.branch, "TOPOLOGY_MANAGEMENT_BRANCH", "Task worktree branch differs from the task store.");
@@ -24430,8 +24436,8 @@ function processGone(pid) {
     return error51.code === "ESRCH";
   }
 }
-async function registeredWorker(ctx, doc, owner) {
-  ownClaim(await ctx.store.claim(doc.id), owner);
+async function registeredWorker(ctx, doc, owner, claimRule = {}) {
+  ownClaim(await ctx.store.claim(doc.id), owner, doc.id, claimRule);
   invariant2(doc.dispatched?.run && doc.dispatched.session === owner, "TOPOLOGY_MANAGEMENT_WORKER", "Task dispatch must name the claim owner and worker run.");
   invariant2(typeof ctx.store.workers === "function", "TOPOLOGY_MANAGEMENT_WORKER", "Task store has no worker registry adapter.");
   const rows = (await ctx.store.workers()).filter((row2) => row2.session === owner && row2.runId === doc.dispatched.run && row2.backend === doc.dispatched.backend);
@@ -24497,45 +24503,53 @@ async function idleShell(pid) {
 async function taskWorkerState(options, record2) {
   const ctx = await context(options);
   try {
-    const doc = await ownedTask(ctx, options.task, record2?.owner), worker = record2.worker;
-    const row2 = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record2.owner);
-    invariant2(worker && worker.owner === record2.owner && (worker.adopted ? !doc.dispatched : worker.name === row2.name && worker.run === row2.runId && worker.backend === row2.backend && worker.registered_at === row2.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
-    invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
-    if (row2.backend === "topology") {
-      invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
-      const { observation, identity } = await observedNativeWorker(ctx, doc);
-      invariant2(
-        worker.native_run_id === observation.runId && worker.native_fingerprint === observation.fingerprint && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
-        "TOPOLOGY_MANAGEMENT_WORKER",
-        "Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish."
-      );
-      return {
-        owned: true,
-        active: observation.hasLiveWriters,
-        alive: observation.hasLiveWriters,
-        proof: observation.hasLiveWriters ? "observed-native-writers-live" : "observed-native-workflow-exited",
-        worker,
-        ...observation.hasLiveWriters ? { reason: "An exact native workflow member or child is still alive; stop every task writer before integration." } : {}
-      };
-    }
-    if (worker.kind === "process") {
-      invariant2(row2.pid === worker.pid, "TOPOLOGY_MANAGEMENT_WORKER", "Registered worker PID changed.");
-      if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: "observed-process-exited", worker };
-      const current = await processStart(worker.pid);
-      invariant2(current && current.start === worker.process_start && current.boot === worker.boot, "TOPOLOGY_MANAGEMENT_WORKER", "Worker PID identity is unknown or was reused.");
-      return { owned: true, active: true, alive: true, reason: "Observed worker is still alive; finish its process before integration." };
-    }
-    const panes = await listServerPanes({ tmuxServer: worker.binding.serverKey, env: ctx.env });
-    const pane = panes.find((p) => bindingKeys.every((key) => p[key] === worker.binding[key]));
-    if (!pane || !pane.alive) {
-      invariant2(!panes.some((p) => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || (0, import_node_path51.resolve)(p.cwd) === (0, import_node_path51.resolve)(doc.worktree))), "TOPOLOGY_MANAGEMENT_WORKER", "Worker session contains a replacement live pane.");
-      return { owned: true, active: false, alive: false, proof: "observed-pane-exited", worker };
-    }
-    if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: "observed-pane-idle-shell", worker };
-    return { owned: true, active: true, alive: true, reason: "Observed worker pane is still alive; its activity is not safely known." };
+    const claimRule = record2?.merge ? { released: true } : {};
+    const doc = await ownedTask(ctx, options.task, record2?.owner, claimRule);
+    return await observeLiveness(ctx, doc, record2, { finished: true, claimRule });
   } catch (error51) {
     return { owned: false, active: true, alive: null, reason: error51.message };
   }
+}
+async function observeLiveness(ctx, doc, record2, { finished, claimRule = {} }) {
+  const worker = record2.worker;
+  const workerOwner = worker?.owner ?? record2.owner;
+  invariant2(workerOwner === record2.owner || (record2.transfers || []).some((t) => t.from === workerOwner), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  const rule = workerOwner === record2.owner ? claimRule : { ...claimRule, holders: [...claimRule.holders || [], record2.owner] };
+  const row2 = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant2(worker && (worker.adopted ? !doc.dispatched : worker.name === row2.name && worker.run === row2.runId && worker.backend === row2.backend && worker.registered_at === row2.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  if (finished) invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
+  if (row2.backend === "topology") {
+    invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
+    const { observation, identity } = await observedNativeWorker(ctx, doc);
+    invariant2(
+      worker.native_run_id === observation.runId && (!finished || worker.native_fingerprint === observation.fingerprint) && JSON.stringify(worker.native_identity) === JSON.stringify(identity),
+      "TOPOLOGY_MANAGEMENT_WORKER",
+      "Native workflow membership or incarnation changed after the finish report; preserve it and submit a new verified finish."
+    );
+    return {
+      owned: true,
+      active: observation.hasLiveWriters,
+      alive: observation.hasLiveWriters,
+      proof: observation.hasLiveWriters ? "observed-native-writers-live" : "observed-native-workflow-exited",
+      worker,
+      ...observation.hasLiveWriters ? { reason: "An exact native workflow member or child is still alive; stop every task writer before integration." } : {}
+    };
+  }
+  if (worker.kind === "process") {
+    invariant2(row2.pid === worker.pid, "TOPOLOGY_MANAGEMENT_WORKER", "Registered worker PID changed.");
+    if (processGone(worker.pid)) return { owned: true, active: false, alive: false, proof: "observed-process-exited", worker };
+    const current = await processStart(worker.pid);
+    invariant2(current && current.start === worker.process_start && current.boot === worker.boot, "TOPOLOGY_MANAGEMENT_WORKER", "Worker PID identity is unknown or was reused.");
+    return { owned: true, active: true, alive: true, reason: "Observed worker is still alive; finish its process before integration." };
+  }
+  const panes = await listServerPanes({ tmuxServer: worker.binding.serverKey, env: ctx.env });
+  const pane = panes.find((p) => bindingKeys.every((key) => p[key] === worker.binding[key]));
+  if (!pane || !pane.alive) {
+    invariant2(!panes.some((p) => p.alive && (p.sessionId === worker.binding.sessionId || p.sessionName === worker.session_name || (0, import_node_path51.resolve)(p.cwd) === (0, import_node_path51.resolve)(doc.worktree))), "TOPOLOGY_MANAGEMENT_WORKER", "Worker session contains a replacement live pane.");
+    return { owned: true, active: false, alive: false, proof: "observed-pane-exited", worker };
+  }
+  if (await idleShell(pane.panePid)) return { owned: true, active: false, alive: true, proof: "observed-pane-idle-shell", worker };
+  return { owned: true, active: true, alive: true, reason: "Observed worker pane is still alive; its activity is not safely known." };
 }
 function refuseSelfAssertion(options, managed) {
   const asserted = [...options.authorized === true ? ["--authorized"] : [], ...nonempty(options.actor) ? ["--actor"] : []];
@@ -24623,7 +24637,8 @@ async function integrationEligibility(options) {
   if (!nonempty(policy.target_branch)) refuse("config", "configure management.target_branch before integration");
   if (doc && record2?.finish) {
     if (!doc.labels?.includes("ready-for-agent")) refuse("scope", "task scope is no longer approved");
-    if (await gitText(doc.worktree, ["rev-parse", "HEAD"]) !== record2.finish.revision) refuse("head", "task changed after finish; send a new report and obtain a new review");
+    const head = await gitText(doc.worktree, ["rev-parse", "HEAD"]);
+    if (head !== record2.finish.revision && !await mergeInOf(doc.worktree, record2.finish.revision, head, policy.target_branch)) refuse("head", `task changed after finish (approved ${record2.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ["status", "--porcelain"])) refuse("dirty", "task worktree has uncommitted work");
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
     for (const reason of review.reasons) refuse("review", reason);
@@ -24655,10 +24670,11 @@ async function managementStatus(options) {
   const ctx = await context(options);
   return { task: await ctx.store.show(options.task), management: await loadRecord(ctx.path), claim: await ctx.store.claim(options.task) };
 }
-var import_node_os23, import_node_path51, import_promises41, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, loadRecord, bindingKeys, SHELLS, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, GH_TIMEOUT_MS, defaultGh;
+var import_node_os23, import_node_child_process14, import_node_path51, import_promises41, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, loadRecord, bindingKeys, SHELLS, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, GH_TIMEOUT_MS, defaultGh;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os23 = require("node:os");
+    import_node_child_process14 = require("node:child_process");
     import_node_path51 = require("node:path");
     import_promises41 = require("node:fs/promises");
     init_tmux();
@@ -31378,7 +31394,7 @@ async function startRepositorySupervision(options) {
     const log = await (0, import_promises53.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
-      const child = (0, import_node_child_process14.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
+      const child = (0, import_node_child_process15.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
       await new Promise((resolve24, reject) => {
         child.once("spawn", resolve24);
         child.once("error", reject);
@@ -31409,12 +31425,12 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path64, import_node_crypto36, import_node_child_process14, import_node_url7, import_node_os34, import_promises53, import_promises54, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path64, import_node_crypto36, import_node_child_process15, import_node_url7, import_node_os34, import_promises53, import_promises54, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path64 = require("node:path");
     import_node_crypto36 = require("node:crypto");
-    import_node_child_process14 = require("node:child_process");
+    import_node_child_process15 = require("node:child_process");
     import_node_url7 = require("node:url");
     import_node_os34 = require("node:os");
     import_promises53 = require("node:fs/promises");
@@ -60943,7 +60959,7 @@ init_nats_local();
 init_orch_transport();
 
 // src/services/os-registration.mjs
-var import_node_child_process15 = require("node:child_process");
+var import_node_child_process16 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
 var import_promises55 = require("node:fs/promises");
 var import_node_os35 = __toESM(require("node:os"), 1);
@@ -61099,7 +61115,7 @@ async function start({ mode, argv, logPath, run: run2 = defaultRun, uid = proces
 function defaultSpawnDetached(argv, logPath) {
   const log = (0, import_node_fs11.openSync)(logPath, "a", 384);
   try {
-    const child = (0, import_node_child_process15.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
+    const child = (0, import_node_child_process16.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
     child.unref();
     return { pid: child.pid };
   } finally {
@@ -61137,7 +61153,7 @@ async function registrationState({ mode, home, env, servicesDir: servicesDir2, r
 }
 
 // src/services/host-copies.mjs
-var import_node_child_process16 = require("node:child_process");
+var import_node_child_process17 = require("node:child_process");
 var import_node_fs12 = require("node:fs");
 var import_promises56 = require("node:fs/promises");
 var import_node_path66 = require("node:path");
@@ -61248,7 +61264,7 @@ function uncommitted(dir, git3 = defaultGit) {
   return result.stdout.split("\n").filter(Boolean);
 }
 function defaultGit(args) {
-  const result = (0, import_node_child_process16.spawnSync)("git", args, { encoding: "utf8", windowsHide: true, timeout: 1e4 });
+  const result = (0, import_node_child_process17.spawnSync)("git", args, { encoding: "utf8", windowsHide: true, timeout: 1e4 });
   return { status: result.error ? 1 : result.status, stdout: result.stdout ?? "" };
 }
 function satisfies(range, version2) {
@@ -61406,10 +61422,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d2ff05a094438ee80d2739ae22f044d6c19aefa3c1a6e56a7de8b49aaa386261";
+  return false ? null : "5cf6d31e410d89f71bed32165f7f641fdd682396901ab1ae2dd0c53488707317";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d2ff05a094438ee80d2739ae22f044d6c19aefa3c1a6e56a7de8b49aaa386261";
+  const fingerprint2 = false ? null : "5cf6d31e410d89f71bed32165f7f641fdd682396901ab1ae2dd0c53488707317";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61832,11 +61848,11 @@ async function waitForServices({ until, timeoutSeconds = 120, intervalMs = 1e3, 
 }
 
 // src/services/self-heal.mjs
-var import_node_child_process17 = require("node:child_process");
+var import_node_child_process18 = require("node:child_process");
 var import_node_fs14 = require("node:fs");
 var import_node_path68 = require("node:path");
 var import_node_util5 = require("node:util");
-var execFileP = (0, import_node_util5.promisify)(import_node_child_process17.execFile);
+var execFileP = (0, import_node_util5.promisify)(import_node_child_process18.execFile);
 function parseEtime(text) {
   const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(String(text).trim());
   if (!m) return null;
@@ -62026,7 +62042,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d2ff05a094438ee80d2739ae22f044d6c19aefa3c1a6e56a7de8b49aaa386261",
+  sourceFingerprint: false ? null : "5cf6d31e410d89f71bed32165f7f641fdd682396901ab1ae2dd0c53488707317",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -62835,7 +62851,7 @@ var OrchestrationService = class {
 };
 
 // src/services/cli.mjs
-var import_node_child_process19 = require("node:child_process");
+var import_node_child_process20 = require("node:child_process");
 var import_node_fs16 = require("node:fs");
 var import_promises61 = require("node:fs/promises");
 var import_node_os39 = __toESM(require("node:os"), 1);
@@ -62844,7 +62860,7 @@ init_services_client();
 init_repoid();
 
 // src/services/project-scope.mjs
-var import_node_child_process18 = require("node:child_process");
+var import_node_child_process19 = require("node:child_process");
 var import_node_fs15 = require("node:fs");
 var import_node_path71 = require("node:path");
 var DEFAULT_PLUGINS = Object.freeze(["agent-orchestration", "task-management"]);
@@ -62882,7 +62898,7 @@ function projectPluginViolations(repoDir, names2 = DEFAULT_PLUGINS) {
       });
     }
   }
-  const tracked = (0, import_node_child_process18.spawnSync)("git", ["-C", root, "ls-files", "--", ".claude/plugins"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
+  const tracked = (0, import_node_child_process19.spawnSync)("git", ["-C", root, "ls-files", "--", ".claude/plugins"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
   if (tracked.status === 0 && tracked.stdout.trim()) {
     found.push({
       file: (0, import_node_path71.join)(root, ".claude", "plugins"),
@@ -62945,7 +62961,7 @@ function healLines(heal) {
   return lines;
 }
 function sessionStartWarning(cwd) {
-  const top = (0, import_node_child_process19.spawnSync)("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
+  const top = (0, import_node_child_process20.spawnSync)("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
   return projectScopeWarning(top.status === 0 ? top.stdout.trim() : cwd);
 }
 function detach(stateRoot3, consumerCwd) {
@@ -62954,7 +62970,7 @@ function detach(stateRoot3, consumerCwd) {
     (0, import_node_fs16.mkdirSync)(logs, { recursive: true, mode: 448 });
     const log = (0, import_node_fs16.openSync)((0, import_node_path72.join)(logs, "ensure.log"), "a", 384);
     try {
-      (0, import_node_child_process19.spawn)(process.execPath, [process.argv[1], "services", "ensure", "--state-root", stateRoot3, ...consumerCwd ? ["--consumer-cwd", consumerCwd] : []], {
+      (0, import_node_child_process20.spawn)(process.execPath, [process.argv[1], "services", "ensure", "--state-root", stateRoot3, ...consumerCwd ? ["--consumer-cwd", consumerCwd] : []], {
         detached: true,
         stdio: ["ignore", log, log],
         windowsHide: true

@@ -172,6 +172,11 @@ Standing repository services
                                                the restricted reviewer uses its review_submit tool
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
+  manage close --task <TM-id> [--landed <sha> --reason <text>]   record the landing if none, stop the
+                                               worker, clean up and close, in that order (TM-247)
+  manage transfer --task <TM-id> [--to <session>] --reason <text>   hand the admission to another
+                                               lead (owner), or take over one whose owner's claim
+                                               is no longer live (TM-247)
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
@@ -190,7 +195,8 @@ Standing repository services
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
-  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
+  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected;
+                                        retire one observed dead without a finish (TM-247)
   manage cutover|cut-release --epic <EP-id> [--authorized]
                                                TM-250, External class (ADR-0001): run the repository's
                                                own management.cutover / management.release argv (e.g.
@@ -227,11 +233,13 @@ function manageSummary(verb, task, r) {
   switch (verb) {
     case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
     case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
-    case 'stop-worker': return r.stopped ? `${task} worker stopped (${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
+    case 'stop-worker': return r.stopped ? `${task} worker ${r.retired ? `retired (${r.result?.outcome}${r.result?.reason ? `: ${r.result.reason}` : ''}; ` : 'stopped ('}${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
     case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}; lead notified: ${r.review_blocked_notice?.status ?? 'no'}; retry: ao-topology manage retry-review --task ${task}` : ''}`;
     case 'retry-review': return `${task} review re-filed for ${r.finish?.revision} (request ${r.review_request?.nonce ?? '?'})`;
     case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
+    case 'transfer': return `${task} transferred from ${r.from} to ${r.to}`;
+    case 'close': return r.closed ? `${task} closed (${r.steps.join(', ') || 'nothing left to do'})` : `${task} NOT closed at ${r.refused} after [${r.steps.join(', ')}]: ${r.reason} — ${r.recovery}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
   }
@@ -866,7 +874,7 @@ const commands = {
     const options = { ...supplied, ...ctx, env, task: flags.task || supplied.task, owner: env.TM_SESSION_ID || env.AO_AGENT_ID,
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
-      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
+      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null, to: flags.to || supplied.to || null,
       authorized: flags.authorized === true || supplied.authorized === true,
       // TM-218 worker start/adopt. Adoption is fail-closed; flags never assert idleness or ownership.
       backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null,
@@ -879,10 +887,10 @@ const commands = {
         task: flags.task || null, epic: flags.epic || null, authorized: flags.authorized === true, owner: options.owner });
       return out(flags.summary ? externalSummary(verb, result) : result);
     }
-    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
+    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|retry-review|eligible|integrate|record-landing|cleanup|assign|assignment|release|cutover|cut-release|land.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },

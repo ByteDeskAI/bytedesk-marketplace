@@ -105,6 +105,39 @@
   configured integration branch, with `TOPOLOGY_MANAGEMENT_CLEANUP` and the branch named. Remote
   branch deletion stays out of scope: a test proves the remote copy of a cleaned branch survives.
   `protectedBranch()` in `topology/lib/management.mjs` is the one predicate.
+- **`manage transfer` hands a governed admission to another lead (TM-247, EP-028).**
+  `manage transfer --task <id> [--to <session>] --reason <text>`:
+  - The owner can hand off to `--to`.
+  - Any other session can take over for itself once the owner's claim is no longer live.
+  - A bound worker that is not stopped refuses the transfer.
+  - The transfer is an `ownership-transfer` event plus a task comment. The claim moves through
+    `tm claim`.
+  - A worker stopped before the transfer still satisfies integration under its original owner.
+
+- **Closing a landed governed task no longer has an order trap (TM-247, EP-028).**
+  - `manage close --task <id> [--landed <sha> --reason <text>]` records the landing if none is
+    recorded, stops the worker, then cleans up and closes the task, in that order.
+  - `stop-worker` and `cleanup` also accept a task whose landing is recorded after `tm done`
+    released its claim.
+  - `record-landing` checks the target on `origin/<target>` after a fetch, then fast-forwards the
+    local branch.
+  - Eligibility, integrate, cleanup and governed completion accept a PR head that merged the
+    integration branch into the approved revision, when the merge's own change has the approved
+    revision's patch-id. Any other head is refused, and the refusal names both revisions.
+  - `permissions install` now also writes `Bash(ao-topology manage close *)`.
+
+- **A governed worker that died before its finish report can be retired and replaced (TM-247, EP-028).**
+  `manage stop-worker` now retires a bound worker whose pane or process is observed gone (or is an
+  idle shell) and that never sent a finish. The dead incarnation moves to `previous_workers` with
+  the observation and what it left behind (a `tm block` reason or a blocker report). `tm collect`
+  records the dispatch as ended. The worktree and its uncommitted changes are untouched. A live or
+  unproven worker is still refused. `manage start-worker` then binds a successor to the same
+  admission and base revision. Start-worker and a resumed `manage admit` re-claim a released claim
+  for the admission owner through `tm start`. A blocked task waits for `tm unblock`. A claim held by
+  another session is still refused. `manage report` accepts a report from the admission owner or
+  from the bound worker's own dispatch session. The ownership refusal for a released claim now names
+  the recovery: `manage admit`. A refused `tm dispatch` in start-worker is now
+  `TOPOLOGY_MANAGEMENT_DISPATCH` carrying tm's message, not a Node stack trace.
 
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when

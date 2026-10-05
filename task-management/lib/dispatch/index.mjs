@@ -136,7 +136,13 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (gm.mode === "admitted" || gm.mode === "required") {
     const gate = governedAdmission(task, p);
     if (!gate.allow) return { ok: false, ...gate, failureScope: "task" };
-    session ||= gate.owner;
+    /**
+     * TM-247: the claim and the admission agree on ONE persistent identity — the admission owner —
+     * not whichever transient process ran `tm dispatch`. A claim minted under a dispatching shell's
+     * session left neither the worker nor the admitting lead able to report (TM-240, TM-242,
+     * design-system TM-143). The worker inherits the same id, so its reports name the owner.
+     */
+    session = gate.owner;
   } else if (gm.mode === "opted-out") {
     ungoverned = `${id}: dispatch.governed is explicitly false — this repo has a standing ao-topology reviewer, but independent review via \`ao-topology reviewer request\` will be UNAVAILABLE for this task.`;
     update(id, { governanceOptOut: { at: now(), reason: "dispatch.governed=false" } }, p);
