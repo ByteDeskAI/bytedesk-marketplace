@@ -55,7 +55,7 @@ test('install writes exactly the approved rules plus opted-in MCP servers, print
   await writeFile(settings, JSON.stringify(original, null, 2));
   const first = await installPermissions({ ...opts, mcp: ['mcp__plugin_teamcity-mcp_teamcity'] });
   assert.deepEqual(BASE_RULES, ['Bash(ao-topology manage record-landing *)', 'Bash(ao-topology manage integrate *)', 'Bash(ao-topology manage start-worker *)',
-    'Bash(ao-topology manage stop-worker *)', 'Bash(ao-topology manage admit *)', 'Bash(ao-topology manage report *)', 'Bash(ao-topology manage close *)', 'Bash(tm *)']);
+    'Bash(ao-topology manage stop-worker *)', 'Bash(ao-topology manage admit *)', 'Bash(ao-topology manage report *)', 'Bash(ao-topology manage retry-review *)', 'Bash(ao-topology manage close *)', 'Bash(tm *)']);
   assert.equal(first.path, settings); assert.equal(first.changed, true); assert.match(first.restart, /Restart the lead/);
   assert.deepEqual(first.added, [...BASE_RULES, 'mcp__plugin_teamcity-mcp_teamcity']);
   for (const rule of first.added) assert.match(first.diff, new RegExp(`^\\+ +"${rule.replace(/[()*]/g, '\\$&')}",?$`, 'm'));
