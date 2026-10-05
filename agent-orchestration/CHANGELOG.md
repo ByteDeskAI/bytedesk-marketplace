@@ -185,6 +185,54 @@
   that is not between the admitted base and the revision is ignored. The GitHub repository itself
   was already pinned by TM-263.
 
+### Security
+
+- **Run `send` checks a named sender (TM-462 part A, EP-028).** `ao-topology send --run` took
+  `--from` and `--from-project` verbatim, so `--from ao-supervisor --from-project /other` reached
+  `sendStandingMessage` as that sender. A named `--from` or `--from-project` now goes through the
+  same `sessionIdentity()` as `mailbox send`; a value that differs from this session's identity is
+  refused with `TOPOLOGY_SENDER_MISMATCH`, and a session with no identity gets
+  `TOPOLOGY_SOURCE_IDENTITY_REQUIRED`. Unnamed, the launcher defaults are unchanged. A grep-audit
+  test checks that every standing-mail entry point (CLI `send` and `mailbox`, the MCP mailbox and
+  run-mail tools) resolves its actor through that one check. Reserved system senders and env trust
+  (part B) are TM-427's.
+- **`session handoff` is restricted (TM-463, EP-028).** Any session could type a file pointer into
+  any agent's live pane. The CLI verb now accepts only the target agent itself or this repository's
+  lead proven by `requireLeadCaller` (pane binding plus process ancestry; a session without
+  `AO_AGENT_ID` is named from its census binding first, as `manage` does). Anyone else gets
+  `TOPOLOGY_HANDOFF_UNAUTHORIZED` and nothing is typed. `orchestration_session_handoff` runs the
+  verb, so it shares the check.
+- **`mailbox wait` answers only the sender (TM-465, EP-028).** `orchestration_mailbox_wait` and CLI
+  `mailbox wait` returned any message's reply to anyone who knew or guessed its id.
+  `waitForStandingReply` now requires the caller's session identity and refuses, with
+  `TOPOLOGY_SENDER_MISMATCH` and no status or body, unless the caller is the envelope's `from` in
+  its `sourceRepoId`.
+- **CLI mailbox verbs act only as the session (TM-464, EP-028).** `mailbox inbox`, `outbox`,
+  `receipts`, `dispose` and `reply` took `--agent` (or `AO_AGENT_ID`) as given. They now resolve the
+  agent with `sessionIdentity()`, as the MCP tools do: `--agent` and `--consumer` may only repeat
+  it, and without `--consumer` the mailbox is the session's own repository. MCP
+  `orchestration_mailbox_list` is bound the same way.
+- **MCP run-mail arguments cannot become flags (TM-464, EP-028).** The adapter passed `subject` and
+  `task` as separate argv entries, so a subject of `--from-project=/x` parsed as a flag. Every value
+  now goes to `ao-topology` as one `--key=value` token.
+
+### Fixed
+
+- **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
+  sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
+  with `source_identity_required`. The adapter now reads the record SessionStart wrote for its
+  `CLAUDE_CODE_SESSION_ID` (`<state>/sessions/<id>.json`, checked against that session id) on each
+  call and supplies `AO_SESSION_AGENT_ID`/`AO_SESSION_CONSUMER`. A launcher identity still wins.
+
+### Tests
+
+- **Hermetic mailbox and MCP parity suites (TM-464, EP-028).** `topology-mailbox-send.test.mjs`
+  and `mcp-parity.test.mjs` clear inherited `AO_AGENT_ID`, `AO_CONSUMER`, `AO_SESSION_*` and
+  `CLAUDE_CODE_SESSION_ID`, use the file transport with `AO_NATS_AUTOSTART=0`, and close live
+  transports, so they pass and exit inside an agent session and without the preload. The
+  `register-file-transport.mjs` preload also scrubs `AO_SESSION_AGENT_ID`, `AO_SESSION_CONSUMER`
+  and `CLAUDE_CODE_SESSION_ID`.
+
 ## [0.16.0] — 2026-10-05
 
 ### Changed

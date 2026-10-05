@@ -29778,11 +29778,18 @@ async function ringStandingMail({ consumer, panes = [], adapters = null, windowM
   }
   return results;
 }
-async function waitForStandingReply({ id, timeoutMs = 20 * 6e4, pollMs = 2e3, ...options }) {
+async function waitForStandingReply({ id, caller, timeoutMs = 20 * 6e4, pollMs = 2e3, ...options }) {
+  invariant2(caller?.agent && caller?.consumer, "TOPOLOGY_SOURCE_IDENTITY_REQUIRED", "Waiting on a standing reply requires the waiting session's identity. Nothing was read.");
+  const callerRepo = (await canonicalRepoId(caller.consumer)).id;
   const started = Date.now();
   for (; ; ) {
     const record2 = await readStandingMessage({ id, ...options });
     invariant2(record2, "TOPOLOGY_MESSAGE_NOT_FOUND", `No standing message ${id} exists on this host.`);
+    invariant2(
+      record2.envelope.from === caller.agent && record2.envelope.sourceRepoId === callerRepo,
+      "TOPOLOGY_SENDER_MISMATCH",
+      `This session is ${caller.agent}; only the sender of standing message ${id} may wait on its reply. Nothing was read.`
+    );
     const base = { id, status: record2.status, delivered_to: record2.delivered_to ?? null, elapsed_ms: Date.now() - started };
     if (record2.reply) return { ok: true, ...base, reply: record2.reply };
     if (record2.permanent) return {
@@ -62510,10 +62517,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  return false ? null : "2f26e764624c7a5bb8f231a4073c3f3225d8040d6d5aae389658ac9b0386d85f";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  const fingerprint2 = false ? null : "2f26e764624c7a5bb8f231a4073c3f3225d8040d6d5aae389658ac9b0386d85f";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63130,7 +63137,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b",
+  sourceFingerprint: false ? null : "2f26e764624c7a5bb8f231a4073c3f3225d8040d6d5aae389658ac9b0386d85f",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -80,8 +80,9 @@ nothing when it refuses.
 RUN=$(ls -dt "$REPO"/.bytedesk/agent-orchestration/runs/*/ | head -1)
 
 # --from-project is REQUIRED. Without it the send is external, admission holds it, and the reply is
-# `source_identity_required` rather than a delivery.
-node $PLUG/bin/ao-topology send --run "$RUN" --from conductor --to scribe --stage describe \
+# `source_identity_required` rather than a delivery. Since TM-462 a named --from/--from-project must
+# be the calling session's identity, so a demo shell sending as the conductor says so in its env.
+AO_AGENT_ID=conductor AO_CONSUMER="$REPO" node $PLUG/bin/ao-topology send --run "$RUN" --from conductor --to scribe --stage describe \
   --from-project "$REPO" --json \
   --body "In one sentence: what is this repository? Read README.md in your cwd and reply in the same turn."
 

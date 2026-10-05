@@ -273,8 +273,12 @@ test("launch of a live library agent re-spawns it under the SAME name and return
   const [pane] = await iso.within(() => sessionPanes(second.session));
   assert.equal(pane.meta.predecessor, record.predecessor.id);
 
-  // The lead passes it explicitly.
-  const passed = await ao("session", "handoff", agent.id, "--file", record.handoff.path);
+  // TM-463: an unidentified caller (neither the proven lead nor the agent) is refused and types nothing.
+  await assert.rejects(ao("session", "handoff", agent.id, "--file", record.handoff.path), (error) => /TOPOLOGY_HANDOFF_UNAUTHORIZED/.test(error.message));
+  assert.ok((await freshLines()).every((entry) => !entry.line.includes(record.handoff.path)), "a refused handoff typed nothing");
+  // The lead, or as here the agent itself, passes it explicitly.
+  const passed = JSON.parse((await exec(process.execPath, [cli, "session", "handoff", agent.id, "--file", record.handoff.path, "--consumer", consumer, "--json"],
+    { env: { ...iso.env, AO_AGENT_ID: agent.id, AO_CONSUMER: consumer }, timeout: 180_000 })).stdout);
   assert.equal(passed.delivered, true);
   assert.ok((await freshLines()).some((entry) => entry.line.includes(record.handoff.path)), "after session handoff, the new session has the pointer");
 

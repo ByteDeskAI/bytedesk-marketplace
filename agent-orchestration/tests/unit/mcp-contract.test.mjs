@@ -179,13 +179,17 @@ test("concrete output schemas preserve serialized operation errors", async () =>
 });
 
 test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an unknown id", async () => {
-  const fx = await fixture();
+  const { initTempRepo } = await import("../helpers/temp-repo.mjs");
+  const repoRoot = await mkdtemp(join(os.tmpdir(), "ao-mcp-contract-repo-"));
+  const repo = await initTempRepo(join(repoRoot, "repo"), { commit: true });
+  // TM-465: only the sender may wait, so this server's session identity is the sender, lead0001.
+  const saved = { AO_AGENT_ID: process.env.AO_AGENT_ID, AO_CONSUMER: process.env.AO_CONSUMER };
+  Object.assign(process.env, { AO_AGENT_ID: "lead0001", AO_CONSUMER: repo });
+  const fx = await fixture().finally(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
   try {
-    const { initTempRepo } = await import("../helpers/temp-repo.mjs");
     const { sendStandingMessage, recordStandingReply } = await import("../../topology/lib/standing-mailbox.mjs");
     const { writeJson } = await import("../../topology/lib/util.mjs");
     const { agentsRoot } = await import("../../topology/lib/agents.mjs");
-    const repo = await initTempRepo(join(fx.root, "repo"), { commit: true });
     const home = join(fx.root, "home");
     const env = { AGENT_ORCHESTRATION_STATE_HOME: fx.stateRoot };
     await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "lead", full_name: "lead0001" });
@@ -203,5 +207,6 @@ test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an
     assert.equal(answered.structuredContent.data.reply.body, "answer");
   } finally {
     await fx.cleanup();
+    await rm(repoRoot, { recursive: true, force: true });
   }
 });

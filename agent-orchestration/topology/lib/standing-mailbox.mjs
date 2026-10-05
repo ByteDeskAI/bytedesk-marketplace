@@ -532,11 +532,18 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
 
 // TM-352. Block until a standing message has a reply. Unknown ids are an error, never ok:true; a
 // permanent hold returns at once, since no reply can ever come. Polls; KV watch is TM-311.
-export async function waitForStandingReply({ id, timeoutMs = 20 * 60_000, pollMs = 2000, ...options }) {
+// TM-465: `caller` is the waiter's sessionIdentity() and is required. Only the message's own sender,
+// in its own source repository, is told anything about it; anyone else gets TOPOLOGY_SENDER_MISMATCH
+// and no status, recipient or body. Message ids are often guessable (caller-chosen --id, nonces).
+export async function waitForStandingReply({ id, caller, timeoutMs = 20 * 60_000, pollMs = 2000, ...options }) {
+  invariant(caller?.agent && caller?.consumer, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED', 'Waiting on a standing reply requires the waiting session\'s identity. Nothing was read.');
+  const callerRepo = (await canonicalRepoId(caller.consumer)).id;
   const started = Date.now();
   for (;;) {
     const record = await readStandingMessage({ id, ...options });
     invariant(record, 'TOPOLOGY_MESSAGE_NOT_FOUND', `No standing message ${id} exists on this host.`);
+    invariant(record.envelope.from === caller.agent && record.envelope.sourceRepoId === callerRepo, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session is ${caller.agent}; only the sender of standing message ${id} may wait on its reply. Nothing was read.`);
     const base = { id, status: record.status, delivered_to: record.delivered_to ?? null, elapsed_ms: Date.now() - started };
     if (record.reply) return { ok: true, ...base, reply: record.reply };
     if (record.permanent) return { ok: false, code: 'TOPOLOGY_MESSAGE_UNDELIVERABLE', ...base, reason: record.reason,
