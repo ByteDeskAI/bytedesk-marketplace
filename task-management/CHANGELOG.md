@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **Repo resolution fails closed, and `--repo <dir>` names a repo outright (TM-320, EP-027).**
+  A global install runs from anywhere, so a guess about which repo you mean writes a store in the
+  wrong place. `resolveRoot` now takes an explicit repo first (`tm --repo <dir> ...`, also
+  `tm-dashboard --repo` and `tm-mcp --repo`, or a per-call `repo` argument on every MCP tool), then
+  `TM_ROOT`, then the hook payload cwd, `CLAUDE_PROJECT_DIR` and cwd. It refuses, with an error that
+  names `--repo`, when: cwd is not in a git work tree and has no store (a bare cwd is no longer
+  accepted as a root); cwd is inside a submodule (its store would land in the parent's
+  `.git/modules`; `--repo` accepts a submodule as its own repo); `CLAUDE_PROJECT_DIR` and cwd are
+  different repositories and nothing authoritative says which; `TM_ROOT` names a directory that is
+  missing. Inside a repo nothing changes and no flag is needed. This replaces the old rule that
+  `CLAUDE_PROJECT_DIR` silently beats a cwd in another repo.
+- **Store, branch and actor now come from one directory (TM-320; TM-190).** `currentCheckout()`
+  and `CHECKOUT` read the same inputs as `resolveRoot`, including the hook payload's cwd, and a
+  hook rebinds the module's store instead of shadowing it, so helpers called from a hook no longer
+  read a different store than the hook itself. The worker release guard in `bin/tm-hook` resolves
+  its store through `resolveRoot` too (a worktree payload cwd now reaches the main checkout's store).
+- **A repo is opted in by `config.json`, not by a directory (TM-320).** `isInitialized` means
+  `.bytedesk/task-management/config.json` exists, the file only `tm init` writes. `ensureDirs`
+  will not create the store from nothing (only `tm init` passes `{ init: true }`), `ensurePool`
+  reports `uninitialized` and writes nothing, every MCP tool call is refused with "not initialized"
+  in such a repo, and `tm-dashboard`/`tm pool ensure` exit quietly in a repo with no store or no
+  repository at all. `tm doctor` reports a store directory with no `config.json` (`store-no-config`)
+  instead of the board silently going quiet; stores in this repo and its siblings already have one.
+
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool
   collected it again on every tick: 575 identical comments and `task_result` events on TM-290. The

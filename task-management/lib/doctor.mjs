@@ -124,6 +124,25 @@ export function diagnose(p = paths()) {
   const out = [];
 
   /**
+   * A store directory with no config.json.
+   *
+   * config.json is what makes a store opted in (isInitialized): `tm init` is its only writer. A
+   * directory without one is either a half-made store or a leftover from before that rule, and
+   * every command, hook, monitor and the pool treat it as absent. Said here, not left silent —
+   * otherwise a real board quietly stops working. Not auto-fixed: writing it IS opting in.
+   */
+  if (p.base && existsSync(p.base) && !existsSync(p.config)) {
+    out.push(
+      finding(
+        "error",
+        "store-no-config",
+        null,
+        `${p.base} exists but has no config.json, so task-management treats this repo as not initialized and every command, hook and monitor skips it — run \`tm init\` to adopt the store (it keeps what is there)`,
+      ),
+    );
+  }
+
+  /**
    * Governed dispatch turned off with a reviewer standing.
    *
    * governanceMode (governance-check.mjs) is the one predicate dispatch, the pool and this

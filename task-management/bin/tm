@@ -10,7 +10,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths, resolveRoot } from "../lib/paths.mjs";
+import { boardId, currentCheckout, ensureDirs, gitUser, isInitialized, legacyStore, paths, resolveRoot, setHint, takeRepoFlag } from "../lib/paths.mjs";
 import {
   kindOf,
   config,
@@ -81,8 +81,16 @@ import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, p
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
 
-const P = paths();
-const rawArgs = process.argv.slice(2);
+// Global --repo <dir>: parsed and stripped BEFORE paths(), so the store, the branch and the actor
+// below all resolve from the one directory. (`let`: a hook rebinds the store from its payload.)
+let rawArgs;
+try {
+  rawArgs = takeRepoFlag(process.argv.slice(2));
+} catch (err) {
+  process.stderr.write(`${err.message}\n`);
+  process.exit(2);
+}
+let P = paths();
 const JSON_OUT = rawArgs.includes("--json");
 const argv = rawArgs.filter((a) => a !== "--json");
 const verb = argv[0];
@@ -172,7 +180,7 @@ const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --
 const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human]';
 
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
-const CHECKOUT = P.root ? currentCheckout() : process.cwd();
+let CHECKOUT = P.root ? currentCheckout() : process.cwd();
 
 function git(args, cwd = CHECKOUT) {
   try {
@@ -233,7 +241,7 @@ function matchOpenTask(prompt) {
 const VERBS = {
   init() {
     if (!P.root) die(P.unavailable);
-    ensureDirs(P);
+    ensureDirs(P, { init: true });
     // The board goes in the committed config, not derived per-machine: a clone into a differently
     // named directory is the same board, and a store that knows its own name is what lets a write
     // from elsewhere be refused instead of silently accepted.
@@ -1048,8 +1056,10 @@ const VERBS = {
    * Exits 1 on an error-level finding so it can gate a commit or a CI step.
    */
   doctor(...args) {
-    requireInit();
-    const fixed = args.includes("--fix") ? repairAll(P) : null;
+    // A store directory with no config.json is exactly what doctor must be able to report, so it
+    // is the one verb that reads past isInitialized — read-only: nothing is repaired there.
+    if (!(P.root && P.base && existsSync(P.base) && !isInitialized(P))) requireInit();
+    const fixed = args.includes("--fix") && isInitialized(P) ? repairAll(P) : null;
     // Re-read after repairing: what is reported as remaining must be what remains.
     const after = diagnose(P);
     emit({ findings: after.map(({ fix, ...f }) => f), fixed }, () => renderDoctor(after, { fixed }));
@@ -1479,7 +1489,8 @@ const VERBS = {
   async pool(action, ...rest) {
     // `ensure` is the per-session monitor trigger: in an uninitialized project it has nothing to
     // ensure, and must say nothing rather than fail every session.
-    if ((action === "ensure" || (action === "run" && rest.includes("--auto"))) && P.root && !isInitialized(P)) return;
+    // A refused root (no repository here, ambiguous repo) is the same non-event for the monitor.
+    if ((action === "ensure" || (action === "run" && rest.includes("--auto"))) && (!P.root || !isInitialized(P))) return;
     requireInit();
     if (!action || action.startsWith("--")) {
       rest = [action, ...rest].filter(Boolean);
@@ -2009,8 +2020,15 @@ function hook(event) {
    * finds no store is indistinguishable from a project that has none.
    *
    * No payload cwd (a bare CLI-style invocation) resolves exactly as before.
+   *
+   * It REBINDS the module-level P rather than shadowing it: the helpers below (matchOpenTask,
+   * tryEnsurePool, ...) close over the module's P, and a shadow left them on the other store.
+   * The hint is also what currentCheckout() reads, so CHECKOUT — and with it the branch, the
+   * ref and the actor stamp — comes from the payload's directory, the same one the store did (TM-190).
    */
-  const P = paths(resolveRoot(typeof input?.cwd === "string" ? input.cwd : undefined));
+  setHint(typeof input?.cwd === "string" && input.cwd ? input.cwd : null);
+  P = paths(resolveRoot());
+  CHECKOUT = P.root ? currentCheckout() : process.cwd();
 
   if (!isInitialized(P) && event !== "session-start") {
     // Codex validates this hook's stdout and rejects empty output as

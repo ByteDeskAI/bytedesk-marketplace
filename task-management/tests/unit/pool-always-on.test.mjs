@@ -47,7 +47,7 @@ async function until(fn, ms = 5000, step = 20) {
 function repoStore(cfg = {}) {
   const root = tempRepo();
   const p = paths(root);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
   seedGitContract(p);
   const { dispatch: dcfg, ...rest } = cfg;
   writeConfig({ ...rest, dispatch: { backends: ["fake"], ...(dcfg || {}) } }, p);

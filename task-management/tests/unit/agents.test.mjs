@@ -28,7 +28,7 @@ function store() {
 function repoStore() {
   const root = tempRepo();
   const p = paths(root);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
   seedGitContract(p);
   trash.push(root);
   return p;

@@ -33,7 +33,7 @@ function fixture() {
   trash.push(p.root, host.root);
   process.env.AGENT_ORCHESTRATION_STATE_HOME = host.root;
   delete process.env.TM_DISPATCH_WORKER;
-  ensureDirs(p); seedGitContract(p);
+  ensureDirs(p, { init: true }); seedGitContract(p);
   writeConfig({ enforce: false, dispatch: { enabled: false, governed: true, backends: ["fake"] } }, p);
   const task = create("task", { title: "governed implementation", status: "in_progress", labels: ["ready-for-agent"], touches: ["result.txt"], acceptance: [{ text: "verified", done: true }] }, "scope", p);
   const placed = provision(task, { session: "worker-1", p });

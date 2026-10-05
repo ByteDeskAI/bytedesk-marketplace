@@ -31,7 +31,7 @@ const shares = (...list) => ({ worktreeShare: list });
 describe("recorded task placement and evidence retention", () => {
   function taskStore() {
     const repo = tempRepo(); trash.push(repo);
-    const p = paths(repo); ensureDirs(p); seedGitContract(p);
+    const p = paths(repo); ensureDirs(p, { init: true }); seedGitContract(p);
     return p;
   }
 

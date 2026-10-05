@@ -341,7 +341,8 @@ test("tm_worktree new claims and provisions, rm releases and removes, list reads
   const repo = tempRepo();
   parityTrash.push(repo);
   const p = paths(repo);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
+  writeFileSync(p.config, "{}\n"); // initialized, as `tm init` leaves it
   seedGitContract(p);
   call("tm_epic", { action: "new", title: "Parity" }, p);
   const made = call("tm_task_create", { title: "isolated work", body: "worktree fixture", acceptance: ["the checkout exists"] }, p);

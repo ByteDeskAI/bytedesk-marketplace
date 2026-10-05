@@ -25,7 +25,7 @@ function store() {
   const dir = mkdtempSync(join(tmpdir(), "tm-adr-"));
   created.push(dir);
   const p = paths(dir);
-  ensureDirs(p);
+  ensureDirs(p, { init: true });
   return p;
 }
 

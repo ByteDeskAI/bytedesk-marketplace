@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { currentCheckout, paths } from "./paths.mjs";
+import { currentCheckout, isInitialized, paths, resolveRoot } from "./paths.mjs";
 import { claimTask, claimant, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId, stamp } from "./actor.mjs";
 import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, readEvents, removeCriterion, setCriterion, staleTasks, state, update, writeState } from "./store.mjs";
@@ -1209,6 +1209,10 @@ export function callTool(name, args = {}, p = paths()) {
   const tool = plannerTools().find((t) => t.name === name);
   if (!tool) return fail(`Unknown tool name: ${name}`);
   if (!p.root) return fail(p.unavailable);
+  // One gate for every tool, reads included: several tools create directories as a side effect
+  // (planner, templates, worktrees), and a server that answers in a repo nobody opted in would
+  // be the one path that still opts it in.
+  if (!isInitialized(p)) return fail(`task-management is not initialized in ${p.root} — run \`tm init\` there, or pass repo to name another repository`);
   try {
     const out = tool.run(args, p);
     /**
@@ -1227,6 +1231,13 @@ const reply = (id, result) => ({ jsonrpc: "2.0", id, result });
 const error = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
 /** The spec's own code for an unknown resource, with the uri in `data` so a client can say which. */
 const notFound = (id, uri) => ({ jsonrpc: "2.0", id, error: { code: -32002, message: "Resource not found", data: { uri } } });
+
+/**
+ * Every tool takes an optional `repo`. Declared on the schema because most schemas close with
+ * additionalProperties:false, and an undeclared argument is one a model never learns to send.
+ */
+const REPO_PROP = { type: "string", description: "Absolute path of the repository whose .bytedesk/task-management to use. Required when this server was not started inside that repository; refused with an error naming --repo when none can be established." };
+const withRepo = (schema = { type: "object" }) => ({ ...schema, properties: { ...(schema.properties || {}), repo: REPO_PROP } });
 
 /** Pure: one request object in, one response object (or null for notifications) out. */
 export function handleRequest(request, { p = paths() } = {}) {
@@ -1249,7 +1260,7 @@ export function handleRequest(request, { p = paths() } = {}) {
   }
   if (method === "notifications/initialized") return null;
   if (method === "tools/list") {
-    return reply(id, { tools: plannerTools().map(({ run, ...def }) => def) });
+    return reply(id, { tools: plannerTools().map(({ run, ...def }) => ({ ...def, inputSchema: withRepo(def.inputSchema) })) });
   }
   if (method === "resources/list") {
     // Must not throw: an error on a discovery call is retried and then abandoned, taking the
@@ -1276,7 +1287,12 @@ export function handleRequest(request, { p = paths() } = {}) {
   }
   if (method === "tools/call") {
     const params = request.params || {};
-    const result = callTool(String(params.name || ""), params.arguments || {}, p);
+    // A per-call repo beats the server's own resolution, which for a user-scope server is the spawn
+    // cwd and may not be the repo the calling session is in. Taken out of the arguments so the
+    // tool (and its strict schema) never sees it.
+    const { repo, ...args } = params.arguments || {};
+    if (typeof repo === "string" && repo) p = paths(resolveRoot(undefined, repo));
+    const result = callTool(String(params.name || ""), args, p);
     const wrap = (r) => reply(id, { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] });
     // An async tool answers with a promise of the response; everything else stays inline.
     return result && typeof result.then === "function" ? result.then(wrap) : wrap(result);

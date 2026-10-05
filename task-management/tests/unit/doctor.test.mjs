@@ -480,7 +480,7 @@ describe("evidence, natives and the cache", () => {
     const repo = tempRepo();
     stores.push(repo);
     const p = paths(repo);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
     seedGitContract(p);
     writeFileSync(join(p.base, "dashboard.pid"), "1\n");
     writeFileSync(join(p.base, "dashboard.port"), "45001\n");
@@ -532,7 +532,7 @@ describe("evidence, natives and the cache", () => {
     const repo = tempRepo();
     stores.push(repo);
     const p = paths(repo);
-    ensureDirs(p);
+    ensureDirs(p, { init: true });
     seedGitContract(p);
     // The pre-0.13 shape: events.jsonl was the shared record, so adopters committed it.
     writeFileSync(p.events, '{"ts":"1","event":"init"}\n');
