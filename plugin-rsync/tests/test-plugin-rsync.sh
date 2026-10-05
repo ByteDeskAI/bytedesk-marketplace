@@ -108,6 +108,19 @@ out=$(run install-cli 2>&1); rc=$?
 [[ $rc -ne 0 ]] && echo "$out" | grep -q 'not overwriting' && ok "install-cli refuses a foreign wrapper" || bad "foreign wrapper" "$out rc=$rc"
 teardown
 
+setup
+mkdir -p "$SANDBOX/fakebin"
+printf '#!/bin/sh\necho "$*" >> "%s/grok.calls"\n' "$SANDBOX" > "$SANDBOX/fakebin/grok"; chmod +x "$SANDBOX/fakebin/grok"
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
+calls=$(cat "$SANDBOX/grok.calls" 2>/dev/null)
+[[ "$calls" == *"plugin uninstall alpha"* && "$calls" == *"plugin install --trust $BYTEDESK_MARKETPLACE/alpha"* && ! -d "$HOME/.grok/.plugin-rsync-fix.lock" ]] \
+  && ok "fix-grok-installs reinstalls a marketplace-root Grok install from its folder" || bad "fix-grok-installs" "$out | $calls"
+rm -f "$SANDBOX/grok.calls"
+printf '%s\n' '{"version":1,"repos":{"bd-alpha":{"kind":{"type":"Local","source_path":"'"$BYTEDESK_MARKETPLACE/alpha"'"},"plugins":{"alpha":{}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
+[[ ! -e "$SANDBOX/grok.calls" && "$out" == *"none needed"* ]] && ok "fix-grok-installs leaves a per-plugin install alone" || bad "fix-grok-installs no-op" "$out"
+teardown
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
