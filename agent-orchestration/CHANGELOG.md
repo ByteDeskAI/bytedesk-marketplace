@@ -217,6 +217,14 @@
 
 ### Fixed
 
+- **The standing-mail arrival ring rings only unread mail the inbox would show (TM-419, EP-028).**
+  On its first live tick the TM-351 ring sent a lead about 20 pointers for mail it had handled
+  weeks earlier, or that `mailbox inbox` could not show: records from before NATS publication
+  existed. The ring and the inbox listing now share one predicate (`standingInboxShows` /
+  `standingUnread`): under NATS only broker-published records count, and any receipt (accepted,
+  deferred, handled, rejected) or reply means the mail is not unread. The first run for a
+  repository also writes a watermark under `standing-mailbox/rings/`, so mail delivered before it
+  never rings. `dist/` is rebuilt.
 - **Run mail delivered over NATS also lands as an inbox file (TM-409, EP-028).** `send` with the
   NATS transport now writes the message into the recipient's inbox directory after the publish
   succeeds, and the delivery names an outbox path. The message tells the recipient it may reply

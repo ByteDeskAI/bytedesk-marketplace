@@ -83,6 +83,12 @@ export function transportMode(env = process.env) {
   return env.AO_TRANSPORT === 'file' ? 'file' : 'nats';
 }
 
+// The env transport selection reads: a partial env inherits AO_TRANSPORT from the process. Shared by
+// resolveTransport and by callers that need the mode without opening a connection (TM-419).
+export function selectedTransportEnv(env = process.env) {
+  return env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+}
+
 const liveTransports = new Map();
 // Test seam (TM-277): lets a unit test count opens and hand out failing transports.
 let openTransport = openNatsTransport;
@@ -97,7 +103,7 @@ export async function resolveTransport({ env = process.env, transport, home } = 
   // Callers pass a partial env for the repo under test. Transport selection still
   // inherits AO_TRANSPORT from the process when that partial env does not set it,
   // so the file double stays selected for the existing suite.
-  const selected = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+  const selected = selectedTransportEnv(env);
   if (transportMode(selected) === 'file') return createFileTransport();
   const key = `${selected.AO_NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}|${selected.AO_NATS_JS_DOMAIN || ''}`;
   const existing = liveTransports.get(key);
