@@ -401,7 +401,9 @@ export const STANDING_RING_WINDOW_MS = Number(process.env.AO_STANDING_RING_WINDO
 
 export function standingRingPointer(record, consumer) {
   const e = record.envelope;
-  return `[ao] Standing message ${e.id} from ${e.from}: read it with ao-topology mailbox inbox --consumer ${shellQuote(consumer)} --agent ${shellQuote(record.delivered_to)}`;
+  // The sender is caller-asserted text typed into a terminal: keep printable characters only.
+  const from = String(e.from ?? 'unknown').replace(/[^\x20-\x7e]/g, '?').slice(0, 80);
+  return `[ao] Standing message ${e.id} from ${from}: read it with ao-topology mailbox inbox --consumer ${shellQuote(consumer)} --agent ${shellQuote(record.delivered_to)}`;
 }
 
 /** `panes`: live panes of this repository, `{ agentId, command, ...binding }`. One ring per agent

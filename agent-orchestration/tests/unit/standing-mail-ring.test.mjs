@@ -136,3 +136,9 @@ test('TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 
   assert.equal(answered.status, 0, answered.stderr);
   assert.equal(JSON.parse(answered.stdout).reply.body, 'cli answer');
 });
+
+test('TM-351: the ring pointer never carries control characters from the sender', async () => {
+  const { standingRingPointer } = await import('../../topology/lib/standing-mailbox.mjs');
+  const pointer = standingRingPointer({ envelope: { id: 'm1', from: 'evil\x1b[2J\rrm -rf ~\n' }, delivered_to: 'a1' }, '/repo');
+  assert.doesNotMatch(pointer, /[\x00-\x1f\x7f]/);
+});
