@@ -48,6 +48,20 @@ export function sessionId(env = process.env) {
   return null;
 }
 
+/**
+ * TM-447: agent-orchestration variables a detached or cross-repo child may keep — machine
+ * configuration only. Every other `AO_*` is identity or authority (AO_AGENT_ID, AO_CONSUMER,
+ * AO_SESSION_*, AO_AGENT_TOKEN, AO_RUN_*, AO_REPLY_*, AO_ORCH_*, …): inherited, a pool or a
+ * cross-repo write would act and mail as whichever agent happened to start it. An allowlist, so a
+ * variable AO adds later is dropped until someone decides it is configuration.
+ */
+const AO_CONFIG = /^AO_(HOME|HOME_LEGACY|TRANSPORT|TOPOLOGY_BIN|TMUX_COMMAND|NATS_[A-Z_]+|NTFY_[A-Z_]+|SERVICES_[A-Z_]+|[A-Z_]+_MS)$/;
+
+/** `env` without agent-orchestration identity — one rule for runTm children and the pool. */
+export function withoutAoIdentity(env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("AO_") || AO_CONFIG.test(k)));
+}
+
 export function actor(env = process.env) {
   const named = env.TM_ACTOR || env.CLAUDE_AGENT_NAME || null;
   const session = sessionId(env);

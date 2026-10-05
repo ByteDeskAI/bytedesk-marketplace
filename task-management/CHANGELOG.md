@@ -11,6 +11,11 @@
   plugin's own `bin/tm` with `TM_ROOT` set to the other store. The other repo must also be
   registered with agent-orchestration or be a sibling of this one; anything else is refused and
   logged as `ticket_refused`.
+- **A woken pool and a cross-repo `tm` child no longer inherit agent-orchestration identity
+  (TM-447, EP-028).** `tm ticket` ran the target's `pool ensure` with the filer's environment, so
+  the target's pool claimed and mailed as the filing worker. `runTm` children and the detached pool
+  now drop every `AO_*` variable except machine configuration (`AO_HOME`, `AO_TRANSPORT`,
+  `AO_NATS_*`, `AO_NTFY_*`, `AO_SERVICES_*`, `AO_TOPOLOGY_BIN`, `AO_TMUX_COMMAND`, `AO_*_MS`).
 
 ### Changed
 

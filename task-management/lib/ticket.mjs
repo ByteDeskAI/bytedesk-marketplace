@@ -17,7 +17,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } fr
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { actor, actorLabel } from "./actor.mjs";
+import { actor, actorLabel, withoutAoIdentity } from "./actor.mjs";
 import { detectHostCaps } from "./hostcaps.mjs";
 import { addLink } from "./issue.mjs";
 import { paths } from "./paths.mjs";
@@ -108,16 +108,25 @@ export function resolveTarget(spec, p = paths(), env = process.env) {
 }
 
 /**
+ * A runTm child's environment. TM_ROOT names the store; CLAUDE_PROJECT_DIR is inherited and would
+ * outrank cwd; agent-orchestration identity is dropped (TM-447) — the child works for that store,
+ * and `pool ensure` there would otherwise start a pool that claims and mails as the filer.
+ */
+export function runTmEnv(root, env = process.env) {
+  const childEnv = { ...withoutAoIdentity(env), TM_ROOT: root };
+  delete childEnv.CLAUDE_PROJECT_DIR;
+  return childEnv;
+}
+
+/**
  * Run THIS plugin's `tm` against another repo's store. Never the target's own launcher (TM-446):
  * `<repo>/.bytedesk/task-management/bin/tm` is a file in a directory a task or a worker chose, and
  * running it would hand this caller's environment — a lead's, a pool's — to whoever wrote it.
  */
 export function runTm(root, args, { env = process.env } = {}) {
-  const childEnv = { ...env, TM_ROOT: root };
-  delete childEnv.CLAUDE_PROJECT_DIR; // inherited, and would outrank cwd — TM_ROOT already decides
   const res = spawnSync(process.execPath, [SELF_TM, ...args], {
     cwd: root,
-    env: childEnv,
+    env: runTmEnv(root, env),
     encoding: "utf8",
     timeout: 60_000,
     stdio: ["ignore", "pipe", "pipe"],
