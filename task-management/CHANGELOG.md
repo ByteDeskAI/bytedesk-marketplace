@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`tm review-sweep [--apply] [--json]` finds finished work nobody reviewed (TM-361, EP-028).**
+  Findings are done tasks (closed in the last `--since` days, default 7) or governed tasks at
+  ready-for-review that have commits and no reviewer verdict, and open non-draft PRs idle past
+  `--idle-hours` (default 24, read with `gh pr list`; offline it reports `skipped: <why>`). The
+  output carries coverage counts, so a clean board reads as zero findings over N scanned tasks.
+  `--apply` fires each finding once: a marker in the machine-local `review-sweep.json` and a task
+  comment. A PR that moves and goes idle again fires again. agent-orchestration's supervisor
+  runs it each ten minutes when tm is installed.
+
 - **One duplicate-dispatch guard for the pool and a lead (TM-360, EP-028).** On 2026-10-05 the
   pool started a second TM-010 worker the lead knew nothing about. `dispatch()` now asks one
   function, `liveOwner()` in `lib/dispatch/live-owner.mjs`, before it claims anything. A task is

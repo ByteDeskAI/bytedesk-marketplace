@@ -1098,6 +1098,9 @@ pool.log
 # enhance-mine's last-seen evidence per signature. Derived from this machine's transcripts.
 enhance-mine.json
 
+# review-sweep's fired-finding markers (TM-361). One machine's notices.
+review-sweep.json
+
 # In-flight planning conversations, and the untrusted files attached to them. evidence/ is
 # the shared record and belongs in git; this is the opposite of that — one machine's unfinished
 # thinking, plus bytes that arrived from outside and were never reviewed by anyone.
@@ -1237,6 +1240,7 @@ export const NOT_FOR_GIT = [
   "pool.state.json",
   "pool.log",
   "enhance-mine.json",
+  "review-sweep.json",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",

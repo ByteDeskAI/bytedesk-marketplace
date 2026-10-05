@@ -4,6 +4,13 @@
 
 ### Added
 
+- **The supervisor sweeps for unreviewed work (TM-361, EP-028).** When the repository has a tm
+  launcher, each supervisor reconcile (at most every ten minutes, `AO_REVIEW_SWEEP_MS`) runs
+  `tm review-sweep --apply --json`. Each fresh finding is delivered once: a governed task with a
+  finish revision gets `requestReview`; anything else, or a refused request, becomes one standing
+  notice to the lead, with an id derived from the finding so a retry never mails twice. The tick
+  report carries `review_sweep`. With tm absent the tick skips it.
+
 - **`manage assignment` reports a live bound worker (TM-360, EP-028).** Besides the idle-dispatch
   assignee, the result now carries `worker` (kind, backend, run) and `owner` while a worker this
   lead started or adopted is bound and not stopped. task-management's one duplicate-dispatch

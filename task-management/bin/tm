@@ -74,6 +74,7 @@ import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../li
 import { getPath, readConfigDocument, setPath, writeConfigDocument } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { liveOwner } from "../lib/dispatch/live-owner.mjs";
+import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
@@ -1498,6 +1499,26 @@ const VERBS = {
     if (owner) process.exitCode = 2;
   },
 
+  /**
+   * TM-361: done or ready-for-review tasks with no reviewer verdict, and open PRs idle past
+   * --idle-hours (default 24). Read-only without --apply; --apply fires each finding exactly once
+   * (marker + task comment). agent-orchestration's supervisor runs `review-sweep --apply --json`.
+   */
+  "review-sweep"(...args) {
+    requireInit();
+    const num = (name, fallback) => {
+      const at = args.indexOf(name);
+      if (at < 0) return fallback;
+      const v = Number(args[at + 1]);
+      return Number.isFinite(v) && v >= 0 ? v : die(`usage: tm review-sweep [--apply] [--since <days>] [--idle-hours <n>] [--json]`);
+    };
+    const res = reviewSweep({ p: P, apply: args.includes("--apply"), sinceDays: num("--since", 7), idleHours: num("--idle-hours", 24) });
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    const c = res.coverage;
+    out(`review-sweep: ${res.findings.length} finding(s), ${res.fresh.length} new — scanned ${c.tasks} task(s), ${c.candidates} finished with commits in ${c.sinceDays}d; PRs: ${c.prs ?? c.prSource}`);
+    for (const f of res.findings) out(`  ${f.fresh ? (res.applied ? "fired" : "new  ") : "seen "}  ${f.detail}${f.pr ? ` (${f.pr})` : ""}`);
+  },
+
   /** Collect a dispatched worker's result into the store (park-on-failure, comment, task_result). */
   async collect(id) {
     requireInit();
@@ -1801,6 +1822,7 @@ const VERBS = {
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
+        "  review-sweep [--apply] [--since <days>] [--idle-hours <n>]   unreviewed finished tasks and idle open PRs",
         "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
