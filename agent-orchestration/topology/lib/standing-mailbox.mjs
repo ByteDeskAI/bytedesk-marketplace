@@ -16,7 +16,13 @@ import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { leadState } from './lead.mjs';
+import { leadState, readLeadRegistration } from './lead.mjs';
+import { composerFormat, ringCapability, wakeForProbe } from './delivery.mjs';
+import { incarnationOf } from './incarnation.mjs';
+import { tmuxFailureTrigger } from './launch.mjs';
+import { adapterFor, loadAdapters, providerDirs } from './providers.mjs';
+import { withServer } from './tmux.mjs';
+import { shellQuote } from './util.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
 import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
@@ -95,9 +101,57 @@ async function scheduleRecovery(record, opts) {
   }
   return sides;
 }
-async function withRecovery(record, opts) {
+async function withRecovery(record, opts, { ring = false } = {}) {
   if (record.status !== 'held' || record.reason !== 'leads_not_ready') return record;
-  return { ...record, recovery: await scheduleRecovery(record, opts) };
+  const recovery = await scheduleRecovery(record, opts);
+  return { ...(ring ? await ringHeldLead(record, opts) : record), recovery };
+}
+
+// TM-384 / ADR-0041. Recovery proves a lead by probe, and a probe that never lands leaves mail held
+// with nothing on the screen of a lead that is alive and could read it. So once a hold has
+// survived one recovery backoff (attempt 2 or later, reached only through resume), ring the
+// destination lead pane with a pointer naming the message and the inbox command, through the same
+// safe bell probes use. At most once per message per backoff window; the outcome is kept on the
+// record as lead_ring. The ring never delivers: admission still waits for proven readiness.
+const pointerText = value => String(value ?? '').replace(/[^A-Za-z0-9._:@\/+=-]/g, '?').slice(0, 128);
+
+function ringDue(record, now) {
+  if (record?.status !== 'held' || record.reason !== 'leads_not_ready' || record.readiness?.destination !== 'unresponsive') return false;
+  if ((record.attempts ?? 0) < 2) return false;
+  const prior = record.lead_ring;
+  return !prior?.at || now >= Date.parse(prior.at) + retryDelayMs(prior.attempt);
+}
+
+async function ringDestinationLead(record, opts) {
+  const e = record.envelope;
+  const registration = await (opts.readLead ?? readLeadRegistration)({ consumer: e.consumer, env: opts.env, home: opts.home });
+  const lead = registration?.record, binding = incarnationOf(lead?.binding);
+  if (!lead?.pane || !binding) return { rang: false, reason: 'the destination lead has no registered pane incarnation' };
+  const adapters = await (opts.loadAdapters ?? loadAdapters)(providerDirs({ consumer: e.consumer, home: opts.home, pluginRoot: opts.pluginRoot, env: opts.env }));
+  const adapter = adapterFor({ cli: lead.provider, model: null, args: [], skills: [] }, adapters);
+  if (ringCapability(adapter) !== 'supported') return { rang: false, agent: lead.agent_id, reason: 'the lead provider has no measured safe composer' };
+  const consumer = shellQuote(e.consumer);
+  const text = '[ao] Standing mail ' + pointerText(e.id) + ' from ' + pointerText(e.from) + ' is held for you: your readiness is not proven. '
+    + 'Answer any pending probe (ao-topology lead probes --consumer ' + consumer + '), then read it with: ao-topology mailbox inbox --consumer ' + consumer + ' --agent ' + shellQuote(lead.agent_id) + '.';
+  const result = await withServer(binding.serverKey, () => (opts.wake ?? wakeForProbe)({ pane: lead.pane, adapter, binding,
+    format: composerFormat(adapter, tmuxFailureTrigger(adapter)), text }));
+  return result?.rang ? { rang: true, agent: lead.agent_id, pane: lead.pane } : { rang: false, agent: lead.agent_id, pane: lead.pane, reason: result?.reason ?? 'the lead composer cannot safely receive a pointer' };
+}
+
+async function ringHeldLead(record, opts) {
+  const now = (opts.now ?? Date.now)();
+  if (!ringDue(record, now)) return record;
+  const p = paths(record.envelope.id, opts);
+  // Under the message lock, so two resumers cannot both ring for one window. The bell is one look
+  // and one keystroke batch; it never waits for a model turn.
+  return withLock(p.lock, async () => {
+    const current = await read(p.file);
+    if (!ringDue(current, now)) return current ?? record;
+    const outcome = await ringDestinationLead(current, opts).catch(error => ({ rang: false, reason: error?.code ?? 'ERROR' }));
+    const next = { ...current, lead_ring: { ...outcome, reason: outcome.reason ?? null, at: new Date(now).toISOString(), attempt: current.attempts } };
+    await atomicWrite(p.file, next);
+    return next;
+  });
 }
 
 function standingEnvelope(record) {
@@ -174,7 +228,7 @@ async function attempt(record, opts) {
     // This is intentionally rerun, including delegationAllows/verifyAgainstStore,
     // for EACH resume. A held record contains no cached grant.
     const decision = await (opts.router ?? routeMessage)({
-      consumer: e.consumer, pluginRoot: opts.pluginRoot, home: opts.home,
+      consumer: e.consumer, pluginRoot: opts.pluginRoot, home: opts.home, env: opts.env,
       from: e.from, fromProject: sameRepo ? e.consumer : e.fromProject,
       to: e.to, task: e.task, token: e.token, via: e.via,
     });
@@ -264,7 +318,7 @@ export async function resumeStandingMessages({ consumer, force = false, ...optio
       const next = current.status === 'publishing' ? current : await advance(current, { ...options, now });
       return publishAdmitted(next, p, { ...options, now });
     });
-    if (settled) resumed.push(await withRecovery(settled, options));
+    if (settled) resumed.push(await withRecovery(settled, { ...options, now }, { ring: true }));
   }
   await resumeMailboxPublications({ consumer, ...options });
   return resumed;

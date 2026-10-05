@@ -19921,9 +19921,52 @@ async function sameProject(a, b) {
   if (!a || !b) return false;
   return (await canonicalRepoId(a)).id === (await canonicalRepoId(b)).id;
 }
-async function routeMessage({ consumer, pluginRoot, home, from, fromProject, to, task, token, via = [] }) {
+function taskAddress(to) {
+  return TASK_ADDRESS.exec(String(to ?? ""))?.[1] ?? null;
+}
+async function boundTaskWorker(consumer, taskId2, { env = process.env, home } = {}) {
+  if (!consumer || !taskId2) return null;
+  const identity = await canonicalRepoId(consumer);
+  const file2 = (0, import_node_path35.join)(stateRoot2(env, home), "management", repoKey(identity.id), taskId2 + ".json");
+  const record2 = await readJson3(file2).catch(() => null);
+  const worker = record2?.worker;
+  if (!worker?.name || worker.stopped_at || record2.state === "cleaned") return null;
+  return worker;
+}
+async function routeTaskAddress({ consumer, home, env, from, task, token, external, taskId: taskId2, toLead, decision }) {
+  decision.task_address = taskId2;
+  const worker = await boundTaskWorker(consumer, taskId2, { env, home });
+  if (worker) {
+    decision.worker = { name: worker.name, kind: worker.kind ?? null, run: worker.run ?? null, session_name: worker.session_name ?? null };
+  }
+  if (!external) {
+    if (!worker) {
+      decision.blocked = "task_worker_unbound";
+      decision.reason = "no worker is bound to " + taskId2 + " in the management record of this repository";
+      return decision;
+    }
+    decision.resolved = worker.name;
+    decision.deliver_to = worker.name;
+    decision.reason = "same project; " + taskId2 + " is bound to " + worker.name;
+    return decision;
+  }
+  if (!worker) return toLead("external contact for " + taskId2 + ", which has no bound worker", null);
+  if (task && String(task) !== taskId2) return toLead("external contact for " + taskId2 + " while naming task " + task, null);
+  const allowed = await delegationAllows(consumer, { from, to: worker.name, task: taskId2, token });
+  if (allowed.ok) {
+    decision.resolved = worker.name;
+    decision.deliver_to = worker.name;
+    decision.delegation = allowed.delegation.token;
+    decision.reason = "delegation " + allowed.delegation.token + " covers task " + taskId2 + " - " + allowed.delegation.verified;
+    return decision;
+  }
+  if (allowed.rejected.length > 0) decision.delegation_rejected = allowed.rejected;
+  return toLead("external contact for the worker " + worker.name + " bound to " + taskId2 + " with no open delegation", null);
+}
+async function routeMessage({ consumer, pluginRoot, home, env = process.env, from, fromProject, to, task, token, via = [] }) {
   const dirs = agentDirs({ pluginRoot, consumer, home });
-  const target = await resolveAgentRef(to, dirs);
+  const taskId2 = taskAddress(to);
+  const target = taskId2 ? null : await resolveAgentRef(to, dirs);
   const decision = {
     requested: to,
     resolved: target ? target.id : null,
@@ -19956,6 +19999,7 @@ async function routeMessage({ consumer, pluginRoot, home, from, fromProject, to,
     decision.reason = `${because}; routed to ${displayName(lead)}`;
     return decision;
   };
+  if (taskId2) return routeTaskAddress({ consumer, home, env, from, task, token, external, taskId: taskId2, toLead, decision });
   if (!external) {
     decision.reason = "same project";
     return decision;
@@ -19999,7 +20043,7 @@ function coordinatesOnly(agent) {
   if (typeof agent.coordinates_only === "boolean") return agent.coordinates_only;
   return agent.role === "lead";
 }
-var import_promises28, import_node_path35, DELEGATIONS_KIND, DEFAULT_TTL_MS, TASK_STORE, TERMINAL2, MAX_HOPS, ASSIGNMENT_STAGES;
+var import_promises28, import_node_path35, DELEGATIONS_KIND, DEFAULT_TTL_MS, TASK_STORE, TERMINAL2, TASK_ADDRESS, MAX_HOPS, ASSIGNMENT_STAGES;
 var init_routing = __esm({
   "topology/lib/routing.mjs"() {
     import_promises28 = require("node:fs/promises");
@@ -20012,6 +20056,7 @@ var init_routing = __esm({
     DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
     TASK_STORE = ".bytedesk/task-management";
     TERMINAL2 = /* @__PURE__ */ new Set(["done", "closed", "cancelled", "canceled", "dropped", "wontfix", "rejected"]);
+    TASK_ADDRESS = /^task:(TM-[0-9]+)$/;
     MAX_HOPS = 4;
     ASSIGNMENT_STAGES = /* @__PURE__ */ new Set([
       "assign",
@@ -21730,9 +21775,48 @@ async function scheduleRecovery(record2, opts) {
   }
   return sides;
 }
-async function withRecovery(record2, opts) {
+async function withRecovery(record2, opts, { ring = false } = {}) {
   if (record2.status !== "held" || record2.reason !== "leads_not_ready") return record2;
-  return { ...record2, recovery: await scheduleRecovery(record2, opts) };
+  const recovery = await scheduleRecovery(record2, opts);
+  return { ...ring ? await ringHeldLead(record2, opts) : record2, recovery };
+}
+function ringDue(record2, now) {
+  if (record2?.status !== "held" || record2.reason !== "leads_not_ready" || record2.readiness?.destination !== "unresponsive") return false;
+  if ((record2.attempts ?? 0) < 2) return false;
+  const prior = record2.lead_ring;
+  return !prior?.at || now >= Date.parse(prior.at) + retryDelayMs(prior.attempt);
+}
+async function ringDestinationLead(record2, opts) {
+  const e = record2.envelope;
+  const registration = await (opts.readLead ?? readLeadRegistration)({ consumer: e.consumer, env: opts.env, home: opts.home });
+  const lead = registration?.record, binding = incarnationOf(lead?.binding);
+  if (!lead?.pane || !binding) return { rang: false, reason: "the destination lead has no registered pane incarnation" };
+  const adapters = await (opts.loadAdapters ?? loadAdapters)(providerDirs({ consumer: e.consumer, home: opts.home, pluginRoot: opts.pluginRoot, env: opts.env }));
+  const adapter = adapterFor({ cli: lead.provider, model: null, args: [], skills: [] }, adapters);
+  if (ringCapability(adapter) !== "supported") return { rang: false, agent: lead.agent_id, reason: "the lead provider has no measured safe composer" };
+  const consumer = shellQuote(e.consumer);
+  const text = "[ao] Standing mail " + pointerText(e.id) + " from " + pointerText(e.from) + " is held for you: your readiness is not proven. Answer any pending probe (ao-topology lead probes --consumer " + consumer + "), then read it with: ao-topology mailbox inbox --consumer " + consumer + " --agent " + shellQuote(lead.agent_id) + ".";
+  const result = await withServer(binding.serverKey, () => (opts.wake ?? wakeForProbe)({
+    pane: lead.pane,
+    adapter,
+    binding,
+    format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
+    text
+  }));
+  return result?.rang ? { rang: true, agent: lead.agent_id, pane: lead.pane } : { rang: false, agent: lead.agent_id, pane: lead.pane, reason: result?.reason ?? "the lead composer cannot safely receive a pointer" };
+}
+async function ringHeldLead(record2, opts) {
+  const now = (opts.now ?? Date.now)();
+  if (!ringDue(record2, now)) return record2;
+  const p = paths(record2.envelope.id, opts);
+  return withLock(p.lock, async () => {
+    const current = await read2(p.file);
+    if (!ringDue(current, now)) return current ?? record2;
+    const outcome = await ringDestinationLead(current, opts).catch((error51) => ({ rang: false, reason: error51?.code ?? "ERROR" }));
+    const next = { ...current, lead_ring: { ...outcome, reason: outcome.reason ?? null, at: new Date(now).toISOString(), attempt: current.attempts } };
+    await atomicWrite(p.file, next);
+    return next;
+  });
 }
 function standingEnvelope(record2) {
   const e = record2.envelope;
@@ -21833,6 +21917,7 @@ async function attempt(record2, opts) {
       consumer: e.consumer,
       pluginRoot: opts.pluginRoot,
       home: opts.home,
+      env: opts.env,
       from: e.from,
       fromProject: sameRepo ? e.consumer : e.fromProject,
       to: e.to,
@@ -21935,7 +22020,7 @@ async function resumeStandingMessages({ consumer, force = false, ...options }) {
       const next = current.status === "publishing" ? current : await advance(current, { ...options, now });
       return publishAdmitted(next, p, { ...options, now });
     });
-    if (settled) resumed.push(await withRecovery(settled, options));
+    if (settled) resumed.push(await withRecovery(settled, { ...options, now }, { ring: true }));
   }
   await resumeMailboxPublications({ consumer, ...options });
   return resumed;
@@ -22072,7 +22157,7 @@ async function recordStandingReply({ consumer, messageId: messageId2, agentId, b
   }
   return settled.reply;
 }
-var import_node_crypto21, import_promises36, import_node_os17, import_node_path45, import_node_util4, PERMANENT_HOLDS;
+var import_node_crypto21, import_promises36, import_node_os17, import_node_path45, import_node_util4, PERMANENT_HOLDS, pointerText;
 var init_standing_mailbox = __esm({
   "topology/lib/standing-mailbox.mjs"() {
     import_node_crypto21 = require("node:crypto");
@@ -22081,6 +22166,12 @@ var init_standing_mailbox = __esm({
     import_node_path45 = require("node:path");
     import_node_util4 = require("node:util");
     init_lead();
+    init_delivery();
+    init_incarnation();
+    init_launch();
+    init_providers();
+    init_tmux();
+    init_util();
     init_lead_recovery();
     init_repo_enrollment();
     init_lockfile();
@@ -22089,6 +22180,7 @@ var init_standing_mailbox = __esm({
     init_util();
     init_mailbox_receipts();
     PERMANENT_HOLDS = /* @__PURE__ */ new Set(["source_identity_required", "repository_identity_changed", "hop_limit", "loop", "coordinator_not_worker"]);
+    pointerText = (value) => String(value ?? "").replace(/[^A-Za-z0-9._:@\/+=-]/g, "?").slice(0, 128);
   }
 });
 
@@ -60437,10 +60529,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1c04ea80016cb2089f4c4bc82ee14823c6863430387445642fd1a16e200e6fbc";
+  return false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1c04ea80016cb2089f4c4bc82ee14823c6863430387445642fd1a16e200e6fbc";
+  const fingerprint2 = false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61031,7 +61123,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1c04ea80016cb2089f4c4bc82ee14823c6863430387445642fd1a16e200e6fbc",
+  sourceFingerprint: false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
