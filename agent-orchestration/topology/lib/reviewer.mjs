@@ -32,7 +32,8 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, rm, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
 import { readLeadRegistration } from "./lead.mjs";
 import { sendStandingMessage } from "./standing-mailbox.mjs";
@@ -43,7 +44,7 @@ import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs"
 import { openRoleSession, recordedRoleSession, roleSessionFor, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
-import { refreshPrompt, protocolOutputLine } from "./prompt-lifecycle.mjs";
+import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from "./repoid.mjs";
@@ -70,15 +71,7 @@ const MAX_REVIEW_WAKES = 5;
 const RESTART_MARK_STALE_MS = 15 * 60_000;
 // ponytail: the mark covers only kill + relaunch; one older than the bound is a crashed restart, not a live one.
 const restartMarked = record => Boolean(record?.restarting) && Date.now() - Date.parse(record.restarting.at) <= RESTART_MARK_STALE_MS;
-/** An unclosed verdict this old is stuck rather than pending (TM-217). */
-export const REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 120_000);
-/**
- * An unclosed verdict on a capture that has not changed by one byte for this long has stopped
- * printing (TM-217 review 1). Supervision ticks every 2-15s, so this spans at least two polls; a
- * busy Claude pane redraws its spinner timer every second, so it never stays identical this long.
- */
-export const REVIEW_INCOMPLETE_STALL_MS = Number(process.env.AO_REVIEW_INCOMPLETE_STALL_MS ?? 30_000);
-/** Scrollback captured when collecting a verdict; the reviewer may keep printing after it (TM-215 a). */
+/** Scrollback captured when looking for the readiness answer on the pane. */
 const REVIEW_CAPTURE_LINES = 5000;
 
 /** Host-local reviewer registry, one record per canonical repository. */
@@ -92,7 +85,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 
 /**
@@ -168,6 +161,29 @@ async function defaultOpen({ agent, consumer, home, pluginRoot, provider, model,
   });
 }
 
+/**
+ * TM-365: the reviewer's one write channel. A stdio MCP server with exactly one tool, review_submit,
+ * which writes the verdict record through submitReviewVerdict. It is the only MCP server the
+ * reviewer gets (--strict-mcp-config), and the identity it runs under is fixed here by the host.
+ */
+export const REVIEW_SUBMIT_SERVER = "ao-review";
+export const REVIEW_SUBMIT_TOOL = `mcp__${REVIEW_SUBMIT_SERVER}__review_submit`;
+// Source runs from topology/lib/; the bundle runs from dist/, a sibling of topology/.
+const HERE = dirname(fileURLToPath(import.meta.url));
+export const REVIEW_MCP_SCRIPT = basename(HERE) === "lib" ? join(dirname(HERE), "review-mcp.mjs") : join(dirname(HERE), "topology", "review-mcp.mjs");
+
+// The state-root and transport-mode keys only: the server must find the same host state as the
+// host, and an MCP server need not inherit its parent's environment. No NATS URL or credentials:
+// this config lands in the launcher script, and the mirror falls back to the local server.
+const REVIEW_MCP_ENV_KEYS = ["AGENT_ORCHESTRATION_STATE_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "AO_TRANSPORT"];
+
+export function reviewSubmitMcpConfig({ agentId = null, consumer = null, env: hostEnv = process.env } = {}) {
+  const env = Object.fromEntries(REVIEW_MCP_ENV_KEYS.filter(key => hostEnv[key]).map(key => [key, hostEnv[key]]));
+  if (agentId) env.AO_AGENT_ID = agentId;
+  if (consumer) env.AO_CONSUMER = consumer;
+  return JSON.stringify({ mcpServers: { [REVIEW_SUBMIT_SERVER]: { type: "stdio", command: process.execPath, args: [REVIEW_MCP_SCRIPT], env } } });
+}
+
 /** Restricted Claude explicitly removes code execution and ambient MCP/configs. Custom
  * agent args, environment and MCP would undo that trust boundary and are refused.
  * Other providers need an independently verified equivalent, never a silent downgrade.
@@ -176,15 +192,15 @@ export function buildReviewerArgv(adapter, agent, vars, { consumer, model = null
   invariant(!(agent.args?.length) && !(agent.mcp?.length) && !Object.keys(agent.env || {}).length && !agent.command, "TOPOLOGY_REVIEWER_READ_ONLY", "Reviewer custom args, environment, command and MCP are not allowed to override the read-only policy.");
   invariant(adapter.id === "claude", "TOPOLOGY_REVIEWER_READ_ONLY", "This adapter has no verified reviewer isolation covering ambient MCP. Configure a supported restricted reviewer; no provider substitution was made.");
   /**
-   * TM-150. WHAT ENFORCES READ-ONLY HERE IS `--restricted` AND `--safe-mode`, NOT THIS LIST.
+   * TM-150. WHAT ENFORCES READ-ONLY HERE IS `--restricted`, NOT THIS LIST.
    *
    * Measured, because the list looks like the enforcement and is not: an agent given
    * `--disallowed-tools Write,Edit` refused to Write and then CREATED THE FILE WITH BASH. The deny
-   * list removes named tools; it does not remove the shell. `--restricted`/`--safe-mode` remove
+   * list removes named tools; it does not remove the shell. `--restricted` removes
    * Bash entirely, and that is why a reviewer under this argv answers "no file-writing tool is
    * available to me (no Write/Edit/Bash…)".
    *
-   * So do not "simplify" this by dropping those two flags and trusting the deny list plus
+   * So do not "simplify" this by dropping that flag and trusting the deny list plus
    * TOPOLOGY_REVIEWER_READ_ONLY. Isolation would fail SILENTLY — every test still green, the
    * invariant still passing — which is precisely what the "never a silent downgrade" note above
    * fears, arriving through the door that note is not watching.
@@ -192,8 +208,19 @@ export function buildReviewerArgv(adapter, agent, vars, { consumer, model = null
    * `MultiEdit` was removed from the list: the CLI reports "Permission deny rule 'MultiEdit'
    * matches no known tool", and a rule that matches nothing is noise in the one place a reader
    * most needs to trust what they see.
+   *
+   * TM-365 replaced `--safe-mode` with `--setting-sources ''`, because safe mode also turns off
+   * every MCP server, including one passed with --mcp-config, and the review_submit tool is the
+   * reviewer's only verdict channel. Measured 2026-10-05 against claude 2.1.289 with `claude -p
+   * ... "list every tool"`: `--restricted --safe-mode` and `--restricted --setting-sources ''`
+   * give the SAME tool list (Read, Glob, Grep and other non-writing tools; no Bash, Write or Edit),
+   * except that the second one adds mcp__ao-review__review_submit. With no setting sources, no user,
+   * project or local settings load, so no plugins, plugin skills or hooks run; only the built-in
+   * skills remain. `--restricted` is what removes Bash, so it stays.
    */
-  const restricted = { ...adapter, args: ["--restricted", "--safe-mode", "--strict-mcp-config", "--disallowed-tools", "Write,Edit,NotebookEdit,Agent,Task", "--permission-prompts", "none"], coordinator_args: [], auto_approve_args: [] };
+  // --mcp-config adds the review_submit server and nothing else (--strict-mcp-config), and the allow
+  // rule lets that one tool run without a permission prompt nobody would answer.
+  const restricted = { ...adapter, args: ["--restricted", "--setting-sources", "", "--strict-mcp-config", "--mcp-config", reviewSubmitMcpConfig({ agentId: agent.id ?? null, consumer }), "--allowed-tools", REVIEW_SUBMIT_TOOL, "--disallowed-tools", "Write,Edit,NotebookEdit,Agent,Task", "--permission-prompts", "none"], coordinator_args: [], auto_approve_args: [] };
   return buildArgv(restricted, { ...agent, args: [], auto_approve: false, coordinates_only: false, model, add_dirs: [consumer, inboxRoot].filter(Boolean) }, vars);
 }
 
@@ -212,7 +239,7 @@ const defaultProbes = () => ({ alive: (_session, record) => bindingAlive(record)
 
 /**
  * The readiness challenge: a nonce file the reviewer answers with `AO_REVIEWER_READY <nonce>` on
- * its own pane, which is why this needs no shell and works under `--restricted --safe-mode`.
+ * its own pane, which is why this needs no shell and works under `--restricted`.
  *
  * TM-157. It used to be file-ONLY, with a one-second window, and the comment here said "agents poll
  * at safe boundaries; no typing into active composers". The instinct is right and is kept — but an
@@ -270,8 +297,8 @@ export async function publishReviewerVerdict({ consumer, repo, nonce, response, 
   return publishReviewVerdict({ repo: name, nonce, verdict, transport: active, env });
 }
 
-/** Wait for a verdict published with publishReviewerVerdict (`review await`). Collection does not:
- * the write-free reviewer cannot publish, so its pane is its one channel on every transport. */
+/** Wait for a verdict published on the verdict subject (`review await`). Collection does not wait:
+ * it reads the durable record submitReviewVerdict wrote (TM-365). */
 export async function awaitReviewerVerdict({ consumer, repo, nonce, timeoutMs = 2000, env = process.env, transport = null }) {
   const { resolveTransport } = await import('./orch-transport.mjs');
   const { repoKey } = await import('./repoid.mjs');
@@ -700,20 +727,23 @@ export async function detachReviewer({ consumer, env = process.env, home = homed
  * Review requests to THIS reviewer incarnation that are still in flight: no collected verdict, not
  * failed, and no terminal collection outcome. A recorded collection code is an outcome — the
  * request was withdrawn (TOPOLOGY_REVIEWER_RANGE: the range moved), or its reviewer changed — except
- * TOPOLOGY_REVIEWER_RESPONSE ("no answer on the pane yet") and TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE
- * (verdict still printing, not yet aged out to failed), which are both still pending.
+ * TOPOLOGY_REVIEWER_NO_VERDICT ("no verdict submitted yet"), which is still pending.
  * A request bound to an earlier incarnation can never be collected (collectReview refuses it), so it
  * cannot be orphaned by a restart either.
  */
-const PENDING_COLLECTION_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE']);
+const PENDING_COLLECTION_CODES = new Set(['TOPOLOGY_REVIEWER_NO_VERDICT']);
 
 async function uncollectedReviewRequests(consumer, record, env, home) {
   const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
   const names = (await readdir(dir).catch(() => [])).filter(name => name.endsWith('.json'));
   const requests = await Promise.all(names.map(name => readJson(join(dir, name)).catch(() => null)));
-  return requests.filter(request => request && request.reviewer_id === record.agent_id && !request.collected_at && request.state !== 'failed'
+  const open = requests.filter(request => request && request.reviewer_id === record.agent_id && !request.collected_at && request.state !== 'failed'
     && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code))
     && sameIncarnation(request.binding, record.binding));
+  // TM-365: a request whose verdict is already submitted survives a restart (it is on disk, bound to
+  // the incarnation it was sent to), so only a request still waiting for its verdict holds one off.
+  const waiting = await Promise.all(open.map(async request => !await readSubmittedVerdict(join(dir, `${request.task}-${request.revision}.json`), request)));
+  return open.filter((_, i) => waiting[i]);
 }
 
 async function assertNoReviewInFlight(consumer, record, env, home) {
@@ -1044,14 +1074,25 @@ export function approvable(findings) {
   return Array.isArray(findings) && findings.every(finding => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
 }
 
+/** One schema for a verdict, applied at submit and again at record: structured findings in the diff, and the severity rules. */
+function checkVerdict(verdict, findings, files) {
+  const structured = validateFindings(findings, files);
+  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
+  invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  return structured;
+}
+
 /**
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
  */
-export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant(!expectedBinding || sameIncarnation(expectedBinding,registered.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed before recording the verdict.');
+  // TM-365: a submitted verdict was proved at submit time to come from this incarnation; it is
+  // recorded against that incarnation even when the reviewer has restarted since.
+  invariant(!submittedBinding || incarnationOf(submittedBinding), 'TOPOLOGY_REVIEWER_IDENTITY', 'A submitted verdict must name the reviewer incarnation it came from.');
   const lead = await findLead(agentDirs({ consumer: registered.consumer || consumer, home, pluginRoot }));
   assertIndependent(reviewerId, { lead, notAgentIds: authorAgentIds });
   invariant(Array.isArray(authorAgentIds) && authorAgentIds.length > 0, "TOPOLOGY_REVIEWER_AUTHORS", "Name the author identities for independent review.");
@@ -1071,9 +1112,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
-  const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
-  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
-  invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  const structured = checkVerdict(verdict, findings, await reviewedFiles(consumer, range.base, revision));
   const record = {
     base_revision: range.base,
     admitted_base: range.admitted_base,
@@ -1084,7 +1123,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
     verdict,
     findings: structured,
     reviewer_id: reviewerId,
-    binding: incarnationOf(registered.binding),
+    binding: incarnationOf(submittedBinding ?? registered.binding),
     request_nonce: requestNonce,
     author_agent_ids: authorAgentIds,
     repo_id: registered.repo_id,
@@ -1250,62 +1289,7 @@ async function wakeReviewRequest({consumer,record,request,path,env,home}) {
   const loaded=await loadAdapters(providerDirs({consumer,home,env}));
   const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
   return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
-    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
-}
-
-// Values whose text must never gain a space at a wrap: a cut inside them is always a cut.
-const STRICT_VALUE_KEYS = new Set(["verdict", "severity", "file"]);
-
-/**
- * The first JSON object in `text`, repaired for what Claude Code's renderer does to it.
- *
- * TM-233. The renderer treats the reply as Markdown, and Markdown's backslash escape turns `\"`
- * into a bare `"`. So a claim quoting `{"enabled": true}` reaches the pane with unescaped quotes,
- * and a reviewer's `\u{2014}` is not a JSON escape at all. Every long verdict with a quote in it
- * was refused as "Review response must be JSON".
- *
- * A key closes at its first quote. A value quote closes the string only where JSON continues after
- * it (`,"key":`, `,"` in an array, `]`, or a `}` followed by more structure); any other quote is
- * prose and is re-escaped. A backslash that starts no valid escape is kept as a literal backslash.
- *
- * `glueAt(i, strict)` returns what to insert before `text[i]` when a wrap boundary falls there;
- * `strict` is true outside strings and inside verdict, severity and file values.
- *
- * ponytail: prose that itself contains `","key":` or `"]` is read as structure. That shape does
- * not occur in review prose; the schema check after parsing refuses the rare mis-split.
- */
-function lenientJson(text, glueAt = () => "") {
-  let out = "", depth = 0, key = null, lastKey = null, inString = false, before = "";
-  const stack = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (!inString) {
-      out += glueAt(i, true) + c;
-      if (c === '"') { inString = true; key = stack.at(-1) === "{" && (before === "{" || before === ",") ? "" : null; }
-      else if (c === "{" || c === "[") { stack.push(c); depth++; }
-      else if ((c === "}" || c === "]") && depth > 0) { stack.pop(); if (--depth === 0) return { text: out, closed: true }; }
-      if (!/\s/.test(c)) before = c;
-      continue;
-    }
-    out += glueAt(i, key !== null || STRICT_VALUE_KEYS.has(lastKey));
-    if (c === "\\") {
-      const unicode = /^u\{([0-9a-fA-F]{1,6})\}/.exec(text.slice(i + 1));
-      if (/^u[0-9a-fA-F]{4}/.test(text.slice(i + 1, i + 6))) { out += text.slice(i, i + 6); i += 5; }
-      else if (unicode && Number.parseInt(unicode[1], 16) <= 0x10ffff) { out += JSON.stringify(String.fromCodePoint(Number.parseInt(unicode[1], 16))).slice(1, -1); i += unicode[0].length; }
-      else if (/["\\/bfnrt]/.test(text[i + 1] ?? "")) { out += c + text[++i]; }
-      else out += "\\\\";
-      continue;
-    }
-    if (c !== '"') { out += c; if (key !== null) key += c; continue; }
-    const rest = text.slice(i + 1);
-    const closes = key !== null
-      || (stack.at(-1) === "[" ? /^\s*(?:,\s*"|\])/.test(rest)
-        : /^\s*(?:,\s*"[^"\\]*"\s*:|\}\s*(?:[,\]}]|$))/.test(rest) || (depth === 1 && /^\s*\}/.test(rest)));
-    if (!closes) { out += '\\"'; continue; }
-    out += c; inString = false; before = c;
-    if (key !== null) { lastKey = key; key = null; } else lastKey = null;
-  }
-  return { text: out, closed: false };
+    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision using read tools only, then submit your verdict with the review_submit tool (request ${request.nonce}).`});
 }
 
 const B64_PREFIX = 'b64:';
@@ -1341,132 +1325,86 @@ export function decodeReviewPayload(text) {
   return response;
 }
 
-/**
- * A `b64:` response is complete once its decoded JSON closes. A capture taken mid-print decodes to
- * an unclosed prefix and is retried; one that decodes to something that is not JSON at all, or that
- * ends in padding, is complete and goes to the decoder to be refused.
- */
-function b64Closed(data) {
-  const base64 = data.slice(B64_PREFIX.length);
-  // TM-295: under one base64 quantum nothing has decoded yet, so a capture taken just after the
-  // prefix was printed waits like an unclosed JSON prefix instead of being refused.
-  if (base64.length < 4) return false;
-  if (/=$/.test(base64)) return true;
-  const text = Buffer.from(base64, 'base64').toString('utf8');
-  if (!text.trim()) return false;
-  return !text.trimStart().startsWith('{') || lenientJson(text).closed;
-}
+// ── Verdict submission (TM-365) ──────────────────────────────────────────────
+// The verdict is a JSON record the reviewer SUBMITS, never text the host reads off its pane. Screen
+// scraping was the most common reviewer failure (TOPOLOGY_REVIEWER_RESPONSE: wrapped rows, eaten
+// backslashes, a verdict that scrolled away or died with its pane). The restricted reviewer has no
+// shell and no Write tool, so its one way out is the `review_submit` MCP tool that buildReviewerArgv
+// grants it (topology/review-mcp.mjs); a reviewer with a shell may run `ao-topology review submit`.
+// Both call submitReviewVerdict, which writes <inbox>/verdicts/<task>-<revision>.json (durable on
+// disk, so neither a collector restart nor a reviewer restart loses it) and mirrors it to the NATS
+// ORCH_REVIEWS object store when NATS is live. collectReview reads that record and nothing else.
 
-/**
- * Every AO_REVIEW response for `nonce` on the pane, as candidate JSON texts, oldest first.
- *
- * TM-215 h. Claude Code's renderer wraps a long line into several pane lines, indenting the
- * continuations, and `capture-pane -J` does not rejoin them. So an unbalanced response keeps
- * absorbing the following indented lines until its braces close.
- *
- * TM-233. Where a break falls decides the join. Outside strings and inside verdict, severity and
- * file values, nothing is lost at a break, so the rows join with nothing: those are the fields the
- * schema checks exactly. Inside prose a word wrap drops a space and a cut through a word longer
- * than a row drops nothing; TM-215's width estimate tells the two apart, and when it is wrong the
- * claim differs by one space at the break, never in a field the schema checks.
- */
-export function reviewResponsesOnScreen(screen, nonce) {
-  const prefix = `AO_REVIEW ${nonce} `;
-  const lines = String(screen ?? "").split(/\r?\n/);
-  const responses = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = protocolOutputLine(lines[i]);
-    if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
-    // TM-195: a b64: payload rejoins with nothing between rows. It has no space to lose, and its
-    // alphabet tells a continuation row from anything printed after it.
-    const next = () => i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) ? protocolOutputLine(lines[i + 1]) : null;
-    let payload = line.slice(prefix.length).trim();
-    if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
-    if (payload.startsWith(B64_PREFIX)) {
-      // TM-295: a closed payload takes no more rows, so a word printed after the verdict is not appended.
-      while (!b64Closed(payload) && /^[A-Za-z0-9+/=]+$/.test(next() ?? '')) payload += protocolOutputLine(lines[++i]);
-      const texts = [payload];
-      texts.closed = b64Closed(payload);
-      responses.push(texts);
-      continue;
-    }
-    const raw = [lines[i]], parts = [line.slice(prefix.length)];
-    while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
-      raw.push(lines[++i]); parts.push(protocolOutputLine(lines[i]));
-    }
-    const width = Math.max(...raw.slice(0, -1).map(text => text.trimEnd().length));
-    const prose = k => {
-      if (raw[k - 1].trimEnd().length < width) return " ";
-      // A full row is a cut only when the word across the break could not fit on a row of its own.
-      const word = parts[k - 1].split(" ").at(-1) + parts[k].split(" ")[0];
-      return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
-    };
-    const breaks = new Map();
-    parts.reduce((offset, part, k) => { if (k) breaks.set(offset, k); return offset + part.length; }, 0);
-    const fitted = lenientJson(parts.join(""), (at, strict) => !breaks.has(at) || strict ? "" : prose(breaks.get(at)));
-    const texts = [fitted.text, lenientJson(parts.join(" ")).text, lenientJson(parts.join("")).text];
-    // Braces that never close before the capture ends (or before the next unindented line) are a
-    // verdict still being printed, not a malformed one.
-    texts.closed = fitted.closed;
-    responses.push(texts);
+/** The request file for a submit target: its nonce, or its `<task>-<revision>` key. */
+async function findReviewRequest(consumer, id, env, home) {
+  const text = String(id ?? '').trim();
+  invariant(/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(text), 'TOPOLOGY_REVIEWER_NONCE', 'Name the review request by its nonce (or <task>-<revision>).');
+  const dir = join(await reviewerInboxRoot(consumer, env, home), 'requests');
+  const direct = await readJson(join(dir, `${text}.json`)).catch(() => null);
+  if (direct?.nonce) return { request: direct, path: join(dir, `${text}.json`) };
+  for (const name of (await readdir(dir).catch(() => [])).filter(name => name.endsWith('.json'))) {
+    const request = await readJson(join(dir, name)).catch(() => null);
+    if (request?.nonce === text) return { request, path: join(dir, name) };
   }
-  return responses;
+  fail('TOPOLOGY_REVIEWER_NONCE', `No review request ${text} exists for this repository.`, { request: text });
 }
 
-/** The reviewer's one verdict for `nonce`. Repeats are fine when they agree; the last one is taken. */
-export function parseReviewResponse(screen, nonce) {
-  const candidates = reviewResponsesOnScreen(screen, nonce);
-  invariant(candidates.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
-  const parsed = candidates.map(texts => {
-    let refusal = null;
-    for (const text of texts) { try { return decodeReviewPayload(text); } catch (error) { refusal ??= error; } }
-    throw refusal;
-  });
-  const last = parsed[parsed.length - 1];
-  invariant(parsed.every(response => JSON.stringify(response) === JSON.stringify(last)), 'TOPOLOGY_REVIEWER_RESPONSE', 'The pane shows different review responses for one nonce.');
-  return last;
-}
+const verdictPath = (requestPath) => join(dirname(dirname(requestPath)), 'verdicts', basename(requestPath));
 
-/** Host collects a restricted reviewer's explicit response from its verified pane. The reviewer
- * writes no files and receives no execution tool just to deliver a verdict.
+/**
+ * The designated reviewer submits its verdict for one request. Checked here, so a reviewer learns
+ * at once what is wrong and can submit again: the caller is the request's reviewer at the request's
+ * incarnation, the request is still open, and the verdict and findings pass the same schema
+ * recordReview applies. Resubmitting before collection replaces the earlier verdict.
  */
+export async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = homedir(), transport = null, alive = bindingAlive }) {
+  const { request, path } = await findReviewRequest(consumer, id, env, home);
+  return withLock(path.replace(/\.json$/, '.lock'), async () => {
+    const current = await readJson(path);
+    const record = await readReviewerRecord(consumer, env, home);
+    invariant(record && env.AO_AGENT_ID === record.agent_id && current.reviewer_id === record.agent_id && sameIncarnation(current.binding, record.binding) && await alive(record),
+      'TOPOLOGY_REVIEWER_IDENTITY', 'Only the designated reviewer, at the incarnation the request was sent to, can submit its verdict.');
+    invariant(current.nonce === request.nonce && !current.collected_at, 'TOPOLOGY_REVIEWER_RESPONSE', 'This review request was already collected; its verdict cannot change.');
+    invariant(current.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request failed (${current.failure?.reason ?? 'no reason recorded'}); the lead must request the review again.`);
+    invariant(VERDICTS.has(verdict), 'TOPOLOGY_REVIEWER_VERDICT', `Verdict must be one of ${[...VERDICTS].join(', ')}; got ${JSON.stringify(verdict)}.`);
+    const structured = checkVerdict(verdict, findings, await reviewedFiles(consumer, current.base_revision, current.revision));
+    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
+    submitted.mirror = await mirrorVerdict({ consumer, record, submitted, env, transport });
+    await writeJson(verdictPath(path), submitted);
+    return { ok: true, nonce: submitted.nonce, task: submitted.task, revision: submitted.revision, verdict, findings: structured.length, mirror: submitted.mirror };
+  });
+}
+
+/** Best effort: the ORCH_REVIEWS object store copy, and the verdict subject `review await` listens on. */
+async function mirrorVerdict({ consumer, record, submitted, env, transport }) {
+  try {
+    const { resolveTransport, publishReviewVerdict } = await import('./orch-transport.mjs');
+    const active = transport ?? await resolveTransport({ env });
+    if (active.kind !== 'nats') return null;
+    const stored = await active.putReview({ bytes: JSON.stringify(submitted) });
+    const body = JSON.stringify({ verdict: submitted.verdict, findings: submitted.findings });
+    await publishReviewVerdict({ repo: repoKey(record.repo_id || (await canonicalRepoId(consumer)).id), nonce: submitted.nonce, verdict: body, transport: active, env }).catch(() => {});
+    return { bucket: stored.bucket, name: stored.name };
+  } catch { return null; }
+}
+
+/** The submitted verdict for a request, or null when the reviewer has not submitted one. */
+async function readSubmittedVerdict(requestPath, request) {
+  const submitted = await readJson(verdictPath(requestPath)).catch(() => null);
+  return submitted?.nonce === request.nonce ? submitted : null;
+}
+
 /** A response the reviewer DID give that collection refuses. Not "no answer yet", not a changed identity. */
 const REFUSED_RESPONSE_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_FINDINGS', 'TOPOLOGY_REVIEWER_VERDICT']);
 
 /**
- * TM-217. An unclosed verdict is retried, never failed, right up until it is stuck: either it has
- * been incomplete longer than `REVIEW_INCOMPLETE_BOUND_MS`, or the captured pane has not changed at
- * all for `REVIEW_INCOMPLETE_STALL_MS`, which means output has stopped.
- *
- * Review 1 of b65c48c: idleness is NOT read from an empty composer. Claude Code (the default
- * reviewer) draws its empty input box below a turn that is still streaming, so "composer empty"
- * failed a verdict mid-print — the TM-215 review 2 bug again. An unchanged capture is true only
- * once nothing is being drawn, for every provider.
- *
- * The first-seen time (`incomplete_since`) and the last distinct capture (`incomplete_screen`) are
- * persisted on the request so they survive across the ticks `collectPendingReviews` makes.
+ * Collect the verdict the reviewer submitted for this request and record it. No verdict yet is
+ * TOPOLOGY_REVIEWER_NO_VERDICT, which leaves the request pending. A verdict submitted before the
+ * reviewer restarted is still collected: the submit proved it came from the incarnation the request
+ * was sent to, so a restart does not orphan it. (Eligibility still asks the CURRENT incarnation for
+ * approval, so an approve collected that way needs a re-review; changes_requested reaches the author.)
  */
-async function ageOutIncompleteReview({ consumer, request, path, screen, env, home, boundMs, stallMs, deliver, lead }) {
-  const now = Date.now();
-  const since = request.incomplete_since ?? new Date(now).toISOString();
-  const sha256 = createHash('sha256').update(screen).digest('hex');
-  const seen = request.incomplete_screen?.sha256 === sha256 ? request.incomplete_screen : { sha256, at: new Date(now).toISOString() };
-  const overBound = now - Date.parse(since) >= boundMs;
-  const stalled = !overBound && now - Date.parse(seen.at) >= stallMs;
-  if (!overBound && !stalled) {
-    await writeJson(path, { ...request, incomplete_since: since, incomplete_screen: seen });
-    return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', 'The review response is still being printed; collect it again later.');
-  }
-  const reason = stalled
-    ? `The reviewer pane has not changed for over ${Math.round(stallMs / 1000)}s with an unclosed verdict; nothing more will be printed.`
-    : `The review response stayed incomplete for over ${Math.round(boundMs / 1000)}s without closing.`;
-  const failed = { ...request, incomplete_since: since, incomplete_screen: seen, state: 'failed', failure: { at: nowIso(), code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason } };
-  failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
-  await writeJson(path, failed);
-  return fail('TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason);
-}
-
-export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+export async function collectReview({ consumer, task, revision, env = process.env, home = homedir(), pluginRoot = null, deliver = sendStandingMessage, lead = readLeadRegistration, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
   return withLock(path.replace(/\.json$/,'.lock'),async()=>{
   const record = await readReviewerRecord(consumer, env, home);
@@ -1475,40 +1413,26 @@ export async function collectReview({ consumer, task, revision, env = process.en
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, serverCompare, serverPullBase, env, home });
   invariant(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
   invariant(request.reviewer_id === record.agent_id && request.repo_id === record.repo_id && request.revision === revision, 'TOPOLOGY_REVIEWER_IDENTITY', 'Request belongs to a different reviewer or revision.');
-  invariant(sameIncarnation(request.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
   if(request.collected_at) {
     const prior=await latestReview(consumer,task,env,home);
-    invariant(prior?.revision===revision && prior.request_nonce===request.nonce && sameIncarnation(prior.binding,record.binding), 'TOPOLOGY_REVIEWER_RESPONSE', 'Collected review evidence is missing or differs from this request.');
+    invariant(prior?.revision===revision && prior.request_nonce===request.nonce && sameIncarnation(prior.binding,request.binding), 'TOPOLOGY_REVIEWER_RESPONSE', 'Collected review evidence is missing or differs from this request.');
     return prior;
   }
-  // TM-220: a failed request is final. Collecting it again would escalate a second time or, once
-  // the refused copy scrolls out, record a verdict under a nonce the lead was told had failed.
+  // TM-220: a failed request is final; collecting it again would escalate a second time.
   invariant(request.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request already failed (${request.failure?.reason ?? 'no reason recorded'}); request the review again for a fresh nonce.`);
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
-  // TM-195: one channel on every transport. The reviewer has no shell, so it cannot publish on NATS;
-  // under NATS this used to wait two seconds for a verdict nothing could send. Its pane is the
-  // channel it has, whichever transport carries the rest of the topology.
-  const screen = await output(record);
-  const shown = reviewResponsesOnScreen(screen, request.nonce);
-  invariant(shown.length > 0, 'TOPOLOGY_REVIEWER_RESPONSE', 'Expected a nonce-bound review response from the designated pane.');
-  // TM-215 review 2: Claude Code prints a long line gradually. A capture taken mid-line is not a
-  // refusal; it is collected on a later tick, so it throws a code that does not fail the request.
-  // TM-217: but a verdict that stays unclosed forever (the reviewer truncated, crashed, or was
-  // never going to finish) must not retry forever either. Age it out once it has been incomplete
-  // longer than the bound, or once the pane capture has stopped changing.
-  if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
+  const submitted = await readSubmittedVerdict(path, request);
+  invariant(submitted || sameIncarnation(request.binding, record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
+  invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
   let review;
   try {
-  const response = parseReviewResponse(screen, request.nonce);
-  const current = await readReviewerRecord(consumer,env,home);
-  invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
-  review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, expectedBinding:record.binding, verdict: response.verdict, findings: response.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
+    invariant(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'The submitted verdict is not bound to the reviewer incarnation the request was sent to.');
+    review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
   } catch (error) {
-    // TM-215 review 1: a refused answer used to leave the request pending forever — retried under
-    // the same nonce, and a corrected answer then disagreed with the refused copy still on screen.
-    // Now the request fails, the lead is told once, and requestReview mints a fresh nonce.
+    // TM-215 review 1: a refused verdict fails its request once, the lead is told, and requestReview
+    // mints a fresh nonce. submitReviewVerdict applies the same schema first, so this is rare.
     if (REFUSED_RESPONSE_CODES.has(error.code)) {
-      const failed = { ...request, state: 'failed', failure: { at: nowIso(), code: error.code, reason: `The reviewer's response was refused: ${error.message}` } };
+      const failed = { ...request, state: 'failed', failure: { at: nowIso(), code: error.code, reason: `The reviewer's verdict was refused: ${error.message}` } };
       failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
       await writeJson(path, failed);
     }
@@ -1561,7 +1485,7 @@ export async function collectPendingReviews(options) {
       if(!current || current.nonce!==request.nonce || current.collected_at) return;
       Object.assign(request,current);
       if(request.state==='failed') { state='failed'; await writeJson(path,{...request,collection}); return; }
-      if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)<MAX_REVIEW_WAKES && Date.now()-Date.parse(request.delivery?.at??0)>=10_000) {
+      if(error.code==='TOPOLOGY_REVIEWER_NO_VERDICT' && !request.delivery?.rang && (request.delivery?.attempts??0)<MAX_REVIEW_WAKES && Date.now()-Date.parse(request.delivery?.at??0)>=10_000) {
         const record=await readReviewerRecord(options.consumer,options.env,options.home);
         if(record && sameIncarnation(record.binding,request.binding)) {
           const delivery=await wakeReviewRequest({...options,record,request,path}).catch(error=>({rang:false,reason:error.code??error.message}));
@@ -1570,7 +1494,7 @@ export async function collectPendingReviews(options) {
       }
       // TM-215 f: a request no wake could deliver used to stay awaiting-review forever. After the
       // last attempt it is failed, the lead is told once, and requestReview mints a fresh one.
-      if(error.code==='TOPOLOGY_REVIEWER_RESPONSE' && !request.delivery?.rang && (request.delivery?.attempts??0)>=MAX_REVIEW_WAKES) {
+      if(error.code==='TOPOLOGY_REVIEWER_NO_VERDICT' && !request.delivery?.rang && (request.delivery?.attempts??0)>=MAX_REVIEW_WAKES) {
         state='failed';
         request.state='failed';
         request.failure={at:nowIso(),reason:`The review request could not be delivered to the reviewer after ${MAX_REVIEW_WAKES} wake attempts (${request.delivery?.reason??'no reason reported'}).`};

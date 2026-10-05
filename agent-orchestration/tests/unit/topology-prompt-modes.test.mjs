@@ -141,7 +141,7 @@ test("CLI: config get/set/validate, prompt preview --role/--agent, agent set-ins
   assert.equal((await fails("agent", "set-instructions", created.id, "--text", "x", "--file", own)).code, "TOPOLOGY_INSTRUCTIONS_SOURCE");
 });
 
-test("replace never drops role protocol: a reviewer keeps AO_REVIEW after global, repo and agent replaces", async (t) => {
+test("replace never drops role protocol: a reviewer keeps its review_submit protocol after global, repo and agent replaces", async (t) => {
   const s = await scratch(t);
   const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
   await writeJson(join(s.gdir, "config.json"), { prompts: { common: { text: "GLOBAL COMMON", mode: "replace" }, roles: { reviewer: { text: "GLOBAL REVIEWER", mode: "replace" } } } });
@@ -150,7 +150,7 @@ test("replace never drops role protocol: a reviewer keeps AO_REVIEW after global
   const reviewer = { id: "rev00001", full_name: "Re View", title: "Reviewer", role: "reviewer", instructions: "OWN", instructions_mode: "replace" };
   const composed = await composePrompt({ agent: reviewer, consumer: s.consumer, dir: "/d", loaded, templateName: "reviewer-default" });
   assert.equal(composed.ok, true);
-  assert.match(composed.text, /AO_REVIEW <nonce> b64:/, "the reviewer template's verdict protocol survives");
+  assert.match(composed.text, /review_submit/, "the reviewer template's verdict protocol survives");
   const layers = composed.sources.map((x) => x.layer);
   assert.ok(layers.includes("template") && layers.includes("defaults common"), layers.join(","));
   for (const operator of ["GLOBAL COMMON", "GLOBAL REVIEWER", "OWN"]) assert.ok(composed.text.includes(operator), operator);

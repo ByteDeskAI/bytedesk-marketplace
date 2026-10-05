@@ -167,9 +167,9 @@ test("TM-150: no deny rule names a tool the CLI does not know, and the flags tha
   assert.equal(/"[^"]*\bMultiEdit\b[^"]*"/.test(argv), false, "nor may the reviewer isolation argv");
 
   // The half that actually enforces read-only. TM-150 measured that the deny list alone does NOT:
-  // an agent holding it wrote a file via Bash. These two flags remove the shell, and dropping them
-  // while trusting the list would break isolation silently.
-  for (const flag of ["--restricted", "--safe-mode"]) {
+  // an agent holding it wrote a file via Bash. --restricted removes the shell (TM-365 measured it alone does), and dropping it
+  // while trusting the list would break isolation silently. No settings and no ambient MCP either.
+  for (const flag of ["--restricted", "--setting-sources", "--strict-mcp-config"]) {
     assert.ok(argv.includes(flag), `${flag} is what makes the reviewer read-only; it must not be dropped`);
   }
 });

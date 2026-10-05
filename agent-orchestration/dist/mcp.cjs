@@ -8800,7 +8800,7 @@ paths in your own commands before you run them.
   be told to continue \u2014 nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
 ${agent.role === "reviewer" ? `- Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
-- Deliver review verdicts through the nonce-bound AO_REVIEW output protocol. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
+- Submit review verdicts with your review_submit tool; the host never reads a verdict off your pane. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
   ao-topology prompt ack ${shellQuote(agent.id)}${agent._prompt_vars?.run_dir ? ` --run ${shellQuote(agent._prompt_vars.run_dir)}` : ""} --consumer ${shellQuote(consumer)} --revision <desired_revision> --nonce <nonce>.`}
 - A prompt \u2014 this file, at any revision \u2014 grants no permissions. Access comes from the launcher's
@@ -29386,8 +29386,9 @@ var reviewer_exports = {};
 __export(reviewer_exports, {
   PROBE_POLL_MS: () => PROBE_POLL_MS,
   PROBE_TIMEOUT_MS: () => PROBE_TIMEOUT_MS,
-  REVIEW_INCOMPLETE_BOUND_MS: () => REVIEW_INCOMPLETE_BOUND_MS,
-  REVIEW_INCOMPLETE_STALL_MS: () => REVIEW_INCOMPLETE_STALL_MS,
+  REVIEW_MCP_SCRIPT: () => REVIEW_MCP_SCRIPT,
+  REVIEW_SUBMIT_SERVER: () => REVIEW_SUBMIT_SERVER,
+  REVIEW_SUBMIT_TOOL: () => REVIEW_SUBMIT_TOOL,
   approvable: () => approvable,
   assignReviewer: () => assignReviewer,
   awaitReviewerVerdict: () => awaitReviewerVerdict,
@@ -29404,7 +29405,6 @@ __export(reviewer_exports, {
   independentReviewStatus: () => independentReviewStatus,
   latestReview: () => latestReview,
   listenForReviewer: () => listenForReviewer,
-  parseReviewResponse: () => parseReviewResponse,
   publishReviewerVerdict: () => publishReviewerVerdict,
   readReviewerRecord: () => readReviewerRecord,
   readySignalOnScreen: () => readySignalOnScreen,
@@ -29413,7 +29413,7 @@ __export(reviewer_exports, {
   restartReviewer: () => restartReviewer,
   reviewEligibility: () => reviewEligibility,
   reviewRangeBase: () => reviewRangeBase,
-  reviewResponsesOnScreen: () => reviewResponsesOnScreen,
+  reviewSubmitMcpConfig: () => reviewSubmitMcpConfig,
   reviewerAvailability: () => reviewerAvailability,
   reviewerInboxRoot: () => reviewerInboxRoot,
   reviewerNonceAck: () => reviewerNonceAck,
@@ -29423,6 +29423,7 @@ __export(reviewer_exports, {
   reviewerStanding: () => reviewerStanding,
   reviewersRoot: () => reviewersRoot,
   reviewsRoot: () => reviewsRoot,
+  submitReviewVerdict: () => submitReviewVerdict,
   validateFindings: () => validateFindings
 });
 function reviewersRoot(env = process.env, home = (0, import_node_os20.homedir)()) {
@@ -29432,7 +29433,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path48.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -29486,10 +29487,16 @@ async function defaultOpen({ agent, consumer, home, pluginRoot, provider: provid
     log
   });
 }
+function reviewSubmitMcpConfig({ agentId = null, consumer = null, env: hostEnv = process.env } = {}) {
+  const env = Object.fromEntries(REVIEW_MCP_ENV_KEYS.filter((key) => hostEnv[key]).map((key) => [key, hostEnv[key]]));
+  if (agentId) env.AO_AGENT_ID = agentId;
+  if (consumer) env.AO_CONSUMER = consumer;
+  return JSON.stringify({ mcpServers: { [REVIEW_SUBMIT_SERVER]: { type: "stdio", command: process.execPath, args: [REVIEW_MCP_SCRIPT], env } } });
+}
 function buildReviewerArgv(adapter, agent, vars, { consumer, model = null, inboxRoot = null }) {
   invariant2(!agent.args?.length && !agent.mcp?.length && !Object.keys(agent.env || {}).length && !agent.command, "TOPOLOGY_REVIEWER_READ_ONLY", "Reviewer custom args, environment, command and MCP are not allowed to override the read-only policy.");
   invariant2(adapter.id === "claude", "TOPOLOGY_REVIEWER_READ_ONLY", "This adapter has no verified reviewer isolation covering ambient MCP. Configure a supported restricted reviewer; no provider substitution was made.");
-  const restricted = { ...adapter, args: ["--restricted", "--safe-mode", "--strict-mcp-config", "--disallowed-tools", "Write,Edit,NotebookEdit,Agent,Task", "--permission-prompts", "none"], coordinator_args: [], auto_approve_args: [] };
+  const restricted = { ...adapter, args: ["--restricted", "--setting-sources", "", "--strict-mcp-config", "--mcp-config", reviewSubmitMcpConfig({ agentId: agent.id ?? null, consumer }), "--allowed-tools", REVIEW_SUBMIT_TOOL, "--disallowed-tools", "Write,Edit,NotebookEdit,Agent,Task", "--permission-prompts", "none"], coordinator_args: [], auto_approve_args: [] };
   return buildArgv(restricted, { ...agent, args: [], auto_approve: false, coordinates_only: false, model, add_dirs: [consumer, inboxRoot].filter(Boolean) }, vars);
 }
 async function bindingAlive(record2) {
@@ -29852,7 +29859,9 @@ async function uncollectedReviewRequests(consumer, record2, env, home) {
   const dir = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "requests");
   const names2 = (await (0, import_promises37.readdir)(dir).catch(() => [])).filter((name) => name.endsWith(".json"));
   const requests = await Promise.all(names2.map((name) => readJson3((0, import_node_path48.join)(dir, name)).catch(() => null)));
-  return requests.filter((request) => request && request.reviewer_id === record2.agent_id && !request.collected_at && request.state !== "failed" && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code)) && sameIncarnation(request.binding, record2.binding));
+  const open14 = requests.filter((request) => request && request.reviewer_id === record2.agent_id && !request.collected_at && request.state !== "failed" && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code)) && sameIncarnation(request.binding, record2.binding));
+  const waiting = await Promise.all(open14.map(async (request) => !await readSubmittedVerdict((0, import_node_path48.join)(dir, `${request.task}-${request.revision}.json`), request)));
+  return open14.filter((_, i) => waiting[i]);
 }
 async function assertNoReviewInFlight(consumer, record2, env, home) {
   const agentId = record2.agent_id;
@@ -30116,10 +30125,17 @@ function validateFindings(findings, files) {
 function approvable(findings) {
   return Array.isArray(findings) && findings.every((finding) => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
 }
-async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+function checkVerdict(verdict, findings, files) {
+  const structured = validateFindings(findings, files);
+  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
+  invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  return structured;
+}
+async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant2(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant2(!expectedBinding || sameIncarnation(expectedBinding, registered.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed before recording the verdict.");
+  invariant2(!submittedBinding || incarnationOf(submittedBinding), "TOPOLOGY_REVIEWER_IDENTITY", "A submitted verdict must name the reviewer incarnation it came from.");
   const lead = await findLead(agentDirs({ consumer: registered.consumer || consumer, home, pluginRoot }));
   assertIndependent(reviewerId, { lead, notAgentIds: authorAgentIds });
   invariant2(Array.isArray(authorAgentIds) && authorAgentIds.length > 0, "TOPOLOGY_REVIEWER_AUTHORS", "Name the author identities for independent review.");
@@ -30139,9 +30155,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
-  const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
-  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
-  invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  const structured = checkVerdict(verdict, findings, await reviewedFiles(consumer, range.base, revision));
   const record2 = {
     base_revision: range.base,
     admitted_base: range.admitted_base,
@@ -30152,7 +30166,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
     verdict,
     findings: structured,
     reviewer_id: reviewerId,
-    binding: incarnationOf(registered.binding),
+    binding: incarnationOf(submittedBinding ?? registered.binding),
     request_nonce: requestNonce,
     author_agent_ids: authorAgentIds,
     repo_id: registered.repo_id,
@@ -30312,63 +30326,8 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     adapter,
     format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
     binding: record2.binding,
-    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
+    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision using read tools only, then submit your verdict with the review_submit tool (request ${request.nonce}).`
   });
-}
-function lenientJson(text, glueAt = () => "") {
-  let out = "", depth = 0, key = null, lastKey = null, inString = false, before = "";
-  const stack = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (!inString) {
-      out += glueAt(i, true) + c;
-      if (c === '"') {
-        inString = true;
-        key = stack.at(-1) === "{" && (before === "{" || before === ",") ? "" : null;
-      } else if (c === "{" || c === "[") {
-        stack.push(c);
-        depth++;
-      } else if ((c === "}" || c === "]") && depth > 0) {
-        stack.pop();
-        if (--depth === 0) return { text: out, closed: true };
-      }
-      if (!/\s/.test(c)) before = c;
-      continue;
-    }
-    out += glueAt(i, key !== null || STRICT_VALUE_KEYS.has(lastKey));
-    if (c === "\\") {
-      const unicode = /^u\{([0-9a-fA-F]{1,6})\}/.exec(text.slice(i + 1));
-      if (/^u[0-9a-fA-F]{4}/.test(text.slice(i + 1, i + 6))) {
-        out += text.slice(i, i + 6);
-        i += 5;
-      } else if (unicode && Number.parseInt(unicode[1], 16) <= 1114111) {
-        out += JSON.stringify(String.fromCodePoint(Number.parseInt(unicode[1], 16))).slice(1, -1);
-        i += unicode[0].length;
-      } else if (/["\\/bfnrt]/.test(text[i + 1] ?? "")) {
-        out += c + text[++i];
-      } else out += "\\\\";
-      continue;
-    }
-    if (c !== '"') {
-      out += c;
-      if (key !== null) key += c;
-      continue;
-    }
-    const rest = text.slice(i + 1);
-    const closes = key !== null || (stack.at(-1) === "[" ? /^\s*(?:,\s*"|\])/.test(rest) : /^\s*(?:,\s*"[^"\\]*"\s*:|\}\s*(?:[,\]}]|$))/.test(rest) || depth === 1 && /^\s*\}/.test(rest));
-    if (!closes) {
-      out += '\\"';
-      continue;
-    }
-    out += c;
-    inString = false;
-    before = c;
-    if (key !== null) {
-      lastKey = key;
-      key = null;
-    } else lastKey = null;
-  }
-  return { text: out, closed: false };
 }
 function decodeReviewPayload(text) {
   const raw = String(text ?? "").trim();
@@ -30395,90 +30354,57 @@ function decodeReviewPayload(text) {
   invariant2(Array.isArray(response.findings), "TOPOLOGY_REVIEWER_FINDINGS", "Review response must carry a findings array, empty when there are none.");
   return response;
 }
-function b64Closed(data) {
-  const base643 = data.slice(B64_PREFIX.length);
-  if (base643.length < 4) return false;
-  if (/=$/.test(base643)) return true;
-  const text = Buffer.from(base643, "base64").toString("utf8");
-  if (!text.trim()) return false;
-  return !text.trimStart().startsWith("{") || lenientJson(text).closed;
-}
-function reviewResponsesOnScreen(screen, nonce) {
-  const prefix = `AO_REVIEW ${nonce} `;
-  const lines = String(screen ?? "").split(/\r?\n/);
-  const responses = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = protocolOutputLine(lines[i]);
-    if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
-    const next = () => i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) ? protocolOutputLine(lines[i + 1]) : null;
-    let payload = line.slice(prefix.length).trim();
-    if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
-    if (payload.startsWith(B64_PREFIX)) {
-      while (!b64Closed(payload) && /^[A-Za-z0-9+/=]+$/.test(next() ?? "")) payload += protocolOutputLine(lines[++i]);
-      const texts2 = [payload];
-      texts2.closed = b64Closed(payload);
-      responses.push(texts2);
-      continue;
-    }
-    const raw = [lines[i]], parts = [line.slice(prefix.length)];
-    while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
-      raw.push(lines[++i]);
-      parts.push(protocolOutputLine(lines[i]));
-    }
-    const width = Math.max(...raw.slice(0, -1).map((text) => text.trimEnd().length));
-    const prose = (k) => {
-      if (raw[k - 1].trimEnd().length < width) return " ";
-      const word = parts[k - 1].split(" ").at(-1) + parts[k].split(" ")[0];
-      return word.length > width - (raw[k].length - raw[k].trimStart().length) ? "" : " ";
-    };
-    const breaks = /* @__PURE__ */ new Map();
-    parts.reduce((offset, part, k) => {
-      if (k) breaks.set(offset, k);
-      return offset + part.length;
-    }, 0);
-    const fitted = lenientJson(parts.join(""), (at, strict) => !breaks.has(at) || strict ? "" : prose(breaks.get(at)));
-    const texts = [fitted.text, lenientJson(parts.join(" ")).text, lenientJson(parts.join("")).text];
-    texts.closed = fitted.closed;
-    responses.push(texts);
+async function findReviewRequest(consumer, id, env, home) {
+  const text = String(id ?? "").trim();
+  invariant2(/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(text), "TOPOLOGY_REVIEWER_NONCE", "Name the review request by its nonce (or <task>-<revision>).");
+  const dir = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "requests");
+  const direct = await readJson3((0, import_node_path48.join)(dir, `${text}.json`)).catch(() => null);
+  if (direct?.nonce) return { request: direct, path: (0, import_node_path48.join)(dir, `${text}.json`) };
+  for (const name of (await (0, import_promises37.readdir)(dir).catch(() => [])).filter((name2) => name2.endsWith(".json"))) {
+    const request = await readJson3((0, import_node_path48.join)(dir, name)).catch(() => null);
+    if (request?.nonce === text) return { request, path: (0, import_node_path48.join)(dir, name) };
   }
-  return responses;
+  fail("TOPOLOGY_REVIEWER_NONCE", `No review request ${text} exists for this repository.`, { request: text });
 }
-function parseReviewResponse(screen, nonce) {
-  const candidates = reviewResponsesOnScreen(screen, nonce);
-  invariant2(candidates.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
-  const parsed2 = candidates.map((texts) => {
-    let refusal = null;
-    for (const text of texts) {
-      try {
-        return decodeReviewPayload(text);
-      } catch (error51) {
-        refusal ??= error51;
-      }
-    }
-    throw refusal;
+async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = (0, import_node_os20.homedir)(), transport = null, alive: alive2 = bindingAlive }) {
+  const { request, path: path3 } = await findReviewRequest(consumer, id, env, home);
+  return withLock(path3.replace(/\.json$/, ".lock"), async () => {
+    const current = await readJson3(path3);
+    const record2 = await readReviewerRecord(consumer, env, home);
+    invariant2(
+      record2 && env.AO_AGENT_ID === record2.agent_id && current.reviewer_id === record2.agent_id && sameIncarnation(current.binding, record2.binding) && await alive2(record2),
+      "TOPOLOGY_REVIEWER_IDENTITY",
+      "Only the designated reviewer, at the incarnation the request was sent to, can submit its verdict."
+    );
+    invariant2(current.nonce === request.nonce && !current.collected_at, "TOPOLOGY_REVIEWER_RESPONSE", "This review request was already collected; its verdict cannot change.");
+    invariant2(current.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request failed (${current.failure?.reason ?? "no reason recorded"}); the lead must request the review again.`);
+    invariant2(VERDICTS.has(verdict), "TOPOLOGY_REVIEWER_VERDICT", `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}.`);
+    const structured = checkVerdict(verdict, findings, await reviewedFiles(consumer, current.base_revision, current.revision));
+    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
+    submitted.mirror = await mirrorVerdict({ consumer, record: record2, submitted, env, transport });
+    await writeJson(verdictPath(path3), submitted);
+    return { ok: true, nonce: submitted.nonce, task: submitted.task, revision: submitted.revision, verdict, findings: structured.length, mirror: submitted.mirror };
   });
-  const last = parsed2[parsed2.length - 1];
-  invariant2(parsed2.every((response) => JSON.stringify(response) === JSON.stringify(last)), "TOPOLOGY_REVIEWER_RESPONSE", "The pane shows different review responses for one nonce.");
-  return last;
 }
-async function ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs, stallMs, deliver, lead }) {
-  const now = Date.now();
-  const since = request.incomplete_since ?? new Date(now).toISOString();
-  const sha2562 = (0, import_node_crypto24.createHash)("sha256").update(screen).digest("hex");
-  const seen = request.incomplete_screen?.sha256 === sha2562 ? request.incomplete_screen : { sha256: sha2562, at: new Date(now).toISOString() };
-  const overBound = now - Date.parse(since) >= boundMs;
-  const stalled = !overBound && now - Date.parse(seen.at) >= stallMs;
-  if (!overBound && !stalled) {
-    await writeJson(path3, { ...request, incomplete_since: since, incomplete_screen: seen });
-    return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", "The review response is still being printed; collect it again later.");
+async function mirrorVerdict({ consumer, record: record2, submitted, env, transport }) {
+  try {
+    const { resolveTransport: resolveTransport2, publishReviewVerdict: publishReviewVerdict2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
+    const active = transport ?? await resolveTransport2({ env });
+    if (active.kind !== "nats") return null;
+    const stored = await active.putReview({ bytes: JSON.stringify(submitted) });
+    const body = JSON.stringify({ verdict: submitted.verdict, findings: submitted.findings });
+    await publishReviewVerdict2({ repo: repoKey(record2.repo_id || (await canonicalRepoId(consumer)).id), nonce: submitted.nonce, verdict: body, transport: active, env }).catch(() => {
+    });
+    return { bucket: stored.bucket, name: stored.name };
+  } catch {
+    return null;
   }
-  const reason = stalled ? `The reviewer pane has not changed for over ${Math.round(stallMs / 1e3)}s with an unclosed verdict; nothing more will be printed.` : `The review response stayed incomplete for over ${Math.round(boundMs / 1e3)}s without closing.`;
-  const failed = { ...request, incomplete_since: since, incomplete_screen: seen, state: "failed", failure: { at: nowIso(), code: "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason } };
-  failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
-  await writeJson(path3, failed);
-  return fail("TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE", reason);
 }
-async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, output = reviewerOutput, deliver = sendStandingMessage, lead = readLeadRegistration, incompleteBoundMs = REVIEW_INCOMPLETE_BOUND_MS, incompleteStallMs = REVIEW_INCOMPLETE_STALL_MS, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+async function readSubmittedVerdict(requestPath, request) {
+  const submitted = await readJson3(verdictPath(requestPath)).catch(() => null);
+  return submitted?.nonce === request.nonce ? submitted : null;
+}
+async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, deliver = sendStandingMessage, lead = readLeadRegistration, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const path3 = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
@@ -30487,27 +30413,23 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     const range = await trustedReviewRange({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, serverCompare, serverPullBase, env, home });
     invariant2(request.patch_sha256 === range.patch_sha256, "TOPOLOGY_REVIEWER_RANGE", "Review request no longer covers the admitted task range.");
     invariant2(request.reviewer_id === record2.agent_id && request.repo_id === record2.repo_id && request.revision === revision, "TOPOLOGY_REVIEWER_IDENTITY", "Request belongs to a different reviewer or revision.");
-    invariant2(sameIncarnation(request.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed after the request; queue a new independent review.");
     if (request.collected_at) {
       const prior = await latestReview(consumer, task, env, home);
-      invariant2(prior?.revision === revision && prior.request_nonce === request.nonce && sameIncarnation(prior.binding, record2.binding), "TOPOLOGY_REVIEWER_RESPONSE", "Collected review evidence is missing or differs from this request.");
+      invariant2(prior?.revision === revision && prior.request_nonce === request.nonce && sameIncarnation(prior.binding, request.binding), "TOPOLOGY_REVIEWER_RESPONSE", "Collected review evidence is missing or differs from this request.");
       return prior;
     }
     invariant2(request.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request already failed (${request.failure?.reason ?? "no reason recorded"}); request the review again for a fresh nonce.`);
     invariant2((0, import_node_crypto24.createHash)("sha256").update(await (0, import_promises37.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
-    const screen = await output(record2);
-    const shown = reviewResponsesOnScreen(screen, request.nonce);
-    invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
-    if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
+    const submitted = await readSubmittedVerdict(path3, request);
+    invariant2(submitted || sameIncarnation(request.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed after the request; queue a new independent review.");
+    invariant2(submitted, "TOPOLOGY_REVIEWER_NO_VERDICT", `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
     let review;
     try {
-      const response = parseReviewResponse(screen, request.nonce);
-      const current = await readReviewerRecord(consumer, env, home);
-      invariant2(current?.agent_id === record2.agent_id && sameIncarnation(current.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer changed while collecting output.");
-      review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
+      invariant2(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), "TOPOLOGY_REVIEWER_IDENTITY", "The submitted verdict is not bound to the reviewer incarnation the request was sent to.");
+      review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, submittedBinding: request.binding, verdict: submitted.verdict, findings: submitted.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
     } catch (error51) {
       if (REFUSED_RESPONSE_CODES.has(error51.code)) {
-        const failed = { ...request, state: "failed", failure: { at: nowIso(), code: error51.code, reason: `The reviewer's response was refused: ${error51.message}` } };
+        const failed = { ...request, state: "failed", failure: { at: nowIso(), code: error51.code, reason: `The reviewer's verdict was refused: ${error51.message}` } };
         failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
         await writeJson(path3, failed);
       }
@@ -30557,14 +30479,14 @@ async function collectPendingReviews(options) {
           await writeJson(path3, { ...request, collection });
           return;
         }
-        if (error51.code === "TOPOLOGY_REVIEWER_RESPONSE" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) < MAX_REVIEW_WAKES && Date.now() - Date.parse(request.delivery?.at ?? 0) >= 1e4) {
+        if (error51.code === "TOPOLOGY_REVIEWER_NO_VERDICT" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) < MAX_REVIEW_WAKES && Date.now() - Date.parse(request.delivery?.at ?? 0) >= 1e4) {
           const record2 = await readReviewerRecord(options.consumer, options.env, options.home);
           if (record2 && sameIncarnation(record2.binding, request.binding)) {
             const delivery = await wakeReviewRequest({ ...options, record: record2, request, path: path3 }).catch((error52) => ({ rang: false, reason: error52.code ?? error52.message }));
             request.delivery = { ...delivery, attempts: (request.delivery?.attempts ?? 0) + 1, at: nowIso() };
           }
         }
-        if (error51.code === "TOPOLOGY_REVIEWER_RESPONSE" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) >= MAX_REVIEW_WAKES) {
+        if (error51.code === "TOPOLOGY_REVIEWER_NO_VERDICT" && !request.delivery?.rang && (request.delivery?.attempts ?? 0) >= MAX_REVIEW_WAKES) {
           state = "failed";
           request.state = "failed";
           request.failure = { at: nowIso(), reason: `The review request could not be delivered to the reviewer after ${MAX_REVIEW_WAKES} wake attempts (${request.delivery?.reason ?? "no reason reported"}).` };
@@ -30600,7 +30522,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process12, import_node_crypto24, import_promises37, import_node_os20, import_node_path48, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_INCOMPLETE_BOUND_MS, REVIEW_INCOMPLETE_STALL_MS, REVIEW_CAPTURE_LINES, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, ZERO_BLOB, STRICT_VALUE_KEYS, B64_PREFIX, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process12, import_node_crypto24, import_promises37, import_node_os20, import_node_path48, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, ZERO_BLOB, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process12 = require("node:child_process");
@@ -30608,6 +30530,7 @@ var init_reviewer = __esm({
     import_promises37 = require("node:fs/promises");
     import_node_os20 = require("node:os");
     import_node_path48 = require("node:path");
+    import_node_url5 = require("node:url");
     init_agents();
     init_lead();
     init_standing_mailbox();
@@ -30635,21 +30558,24 @@ var init_reviewer = __esm({
     MAX_REVIEW_WAKES = 5;
     RESTART_MARK_STALE_MS = 15 * 6e4;
     restartMarked = (record2) => Boolean(record2?.restarting) && Date.now() - Date.parse(record2.restarting.at) <= RESTART_MARK_STALE_MS;
-    REVIEW_INCOMPLETE_BOUND_MS = Number(process.env.AO_REVIEW_INCOMPLETE_BOUND_MS ?? 12e4);
-    REVIEW_INCOMPLETE_STALL_MS = Number(process.env.AO_REVIEW_INCOMPLETE_STALL_MS ?? 3e4);
     REVIEW_CAPTURE_LINES = 5e3;
+    REVIEW_SUBMIT_SERVER = "ao-review";
+    REVIEW_SUBMIT_TOOL = `mcp__${REVIEW_SUBMIT_SERVER}__review_submit`;
+    HERE = (0, import_node_path48.dirname)((0, import_node_url5.fileURLToPath)(__aoImportMetaUrl));
+    REVIEW_MCP_SCRIPT = (0, import_node_path48.basename)(HERE) === "lib" ? (0, import_node_path48.join)((0, import_node_path48.dirname)(HERE), "review-mcp.mjs") : (0, import_node_path48.join)((0, import_node_path48.dirname)(HERE), "topology", "review-mcp.mjs");
+    REVIEW_MCP_ENV_KEYS = ["AGENT_ORCHESTRATION_STATE_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "AO_TRANSPORT"];
     defaultProbes = () => ({ alive: (_session, record2) => bindingAlive(record2), open: defaultOpen });
     PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 2e4);
     PROBE_POLL_MS = Number(process.env.AO_PROBE_POLL_MS ?? 500);
     reviewerListeners = /* @__PURE__ */ new Set();
     RESPONSIVE_TTL_MS = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
     reviewerAckMemo = (dir, record2) => (0, import_node_path48.join)(dir, `${record2.agent_id}.answered.json`);
-    PENDING_COLLECTION_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE"]);
+    PENDING_COLLECTION_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_NO_VERDICT"]);
     COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
     INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
     ZERO_BLOB = /^0+$/;
-    STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
     B64_PREFIX = "b64:";
+    verdictPath = (requestPath) => (0, import_node_path48.join)((0, import_node_path48.dirname)((0, import_node_path48.dirname)(requestPath)), "verdicts", (0, import_node_path48.basename)(requestPath));
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
@@ -34216,7 +34142,7 @@ async function launchRunNative({
   if (!dryRun && spec.agents.some((agent) => !agent.workflow && agent.candidates.some((candidate) => adapters.get(candidate.cli)?.requires_repository_readiness === true))) {
     const { leadState: leadState2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
     const { reviewerAvailability: reviewerAvailability2 } = await Promise.resolve().then(() => (init_reviewer(), reviewer_exports));
-    const options = { consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_url5.fileURLToPath)(__aoImportMetaUrl)))) };
+    const options = { consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl)))) };
     const lead = await leadState2(options), reviewer = await reviewerAvailability2(options);
     invariant2(lead.status === "responsive" && reviewer.available, "TOPOLOGY_STARTUP_NOT_READY", "Governed workflow launch requires a responsive repository lead and independent reviewer. Create or assign the lead first; no workflow panes were created.");
   }
@@ -34296,7 +34222,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     await (0, import_promises45.mkdir)((0, import_node_path55.join)(item.dir, "inbox"), { recursive: true });
     await (0, import_promises45.mkdir)((0, import_node_path55.join)(item.dir, "outbox"), { recursive: true });
     if (item.participant) continue;
-    const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_url5.fileURLToPath)(__aoImportMetaUrl)))) });
+    const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl)))) });
     const promptAgent = { ...Object.fromEntries(["id", "role", "full_name", "title", "template", "coordinates_only", "instructions_file", "instructions_mode", "_agent_dir", "_prompt_vars"].map((key) => [key, item.agent[key]])), instructions: item.agent._inline_instructions ?? item.agent.instructions ?? "", _dir: item.dir };
     if (item.agent._instruction_source) {
       promptAgent.instructions_file = (0, import_node_path55.join)(item.dir, "instructions-source.md");
@@ -34559,7 +34485,7 @@ async function openRoleSession({
   if (env.AO_CONSUMER && roleSessionNeedsGovernance({ role, coordinatesOnly: coordinatesOnly2 })) {
     const { leadState: leadState2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
     const { reviewerAvailability: reviewerAvailability2 } = await Promise.resolve().then(() => (init_reviewer(), reviewer_exports));
-    const options = { consumer: env.AO_CONSUMER, pluginRoot: (0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_url5.fileURLToPath)(__aoImportMetaUrl)))), env: { ...process.env, ...env } };
+    const options = { consumer: env.AO_CONSUMER, pluginRoot: (0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_path55.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl)))), env: { ...process.env, ...env } };
     const lead = await leadState2(options), reviewer = await reviewerAvailability2(options);
     invariant2(lead.status === "responsive" && reviewer.available, "TOPOLOGY_STARTUP_NOT_READY", "A responsive repository lead and independent reviewer are required before starting governed work. Use lead ensure or lead assign; the existing session is preserved.");
   }
@@ -34793,14 +34719,14 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     ...quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, announced: announced?.status ?? null } : {}
   };
 }
-var import_node_crypto30, import_promises45, import_node_os27, import_node_path55, import_node_url5, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ROLE_SESSION_NAME;
+var import_node_crypto30, import_promises45, import_node_os27, import_node_path55, import_node_url6, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ROLE_SESSION_NAME;
 var init_launch = __esm({
   "topology/lib/launch.mjs"() {
     import_node_crypto30 = require("node:crypto");
     import_promises45 = require("node:fs/promises");
     import_node_os27 = require("node:os");
     import_node_path55 = require("node:path");
-    import_node_url5 = require("node:url");
+    import_node_url6 = require("node:url");
     init_prompts();
     init_config();
     init_mailbox();
@@ -37731,8 +37657,8 @@ __export(supervision_exports, {
   supervisionStatus: () => supervisionStatus
 });
 async function sourceIdentity() {
-  const implementation = (0, import_node_url6.fileURLToPath)(__aoImportMetaUrl);
-  const source_entrypoint = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
+  const implementation = (0, import_node_url7.fileURLToPath)(__aoImportMetaUrl);
+  const source_entrypoint = (0, import_node_url7.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
   const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises53.readFile)(source_entrypoint), (0, import_promises53.readFile)(implementation)]);
   return { source_entrypoint, source_fingerprint: (0, import_node_crypto35.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
 }
@@ -38101,7 +38027,7 @@ async function startRepositorySupervision(options) {
       if (error51.code === "ENOENT") return null;
       throw error51;
     });
-    const cli = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
+    const cli = (0, import_node_url7.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
     await (0, import_promises53.mkdir)(root, { recursive: true });
     const log = await (0, import_promises53.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
@@ -38137,13 +38063,13 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path63, import_node_crypto35, import_node_child_process14, import_node_url6, import_node_os33, import_promises53, import_promises54, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path63, import_node_crypto35, import_node_child_process14, import_node_url7, import_node_os33, import_promises53, import_promises54, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path63 = require("node:path");
     import_node_crypto35 = require("node:crypto");
     import_node_child_process14 = require("node:child_process");
-    import_node_url6 = require("node:url");
+    import_node_url7 = require("node:url");
     import_node_os33 = require("node:os");
     import_promises53 = require("node:fs/promises");
     import_promises54 = require("node:timers/promises");
@@ -62267,7 +62193,7 @@ var StdioServerTransport = class {
 
 // src/mcp.mjs
 var import_node_path70 = require("node:path");
-var import_node_url7 = require("node:url");
+var import_node_url8 = require("node:url");
 
 // src/service.mjs
 var import_promises59 = require("node:fs/promises");
@@ -77486,10 +77412,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  return false ? null : "730d7e16166fe1c70b9983e84b1fb345ecf96ca5dae49273269dd9490657c11b";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  const fingerprint2 = false ? null : "730d7e16166fe1c70b9983e84b1fb345ecf96ca5dae49273269dd9490657c11b";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77914,7 +77840,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6",
+  sourceFingerprint: false ? null : "730d7e16166fe1c70b9983e84b1fb345ecf96ca5dae49273269dd9490657c11b",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -79121,7 +79047,7 @@ process.stdout.on("error", (error51) => {
   if (error51?.code === "EPIPE") process.exit(0);
   throw error51;
 });
-if (process.argv[1] && (0, import_node_path70.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path70.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path70.resolve)((0, import_node_url8.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path70.resolve)(process.argv[1])) {
   main().catch((error51) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error51))}
 `);

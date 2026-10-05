@@ -60,7 +60,7 @@ paths in your own commands before you run them.
   be told to continue — nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
 ${agent.role === 'reviewer' ? `- Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
-- Deliver review verdicts through the nonce-bound AO_REVIEW output protocol. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
+- Submit review verdicts with your review_submit tool; the host never reads a verdict off your pane. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
   ao-topology prompt ack ${shellQuote(agent.id)}${agent._prompt_vars?.run_dir ? ` --run ${shellQuote(agent._prompt_vars.run_dir)}` : ''} --consumer ${shellQuote(consumer)} --revision <desired_revision> --nonce <nonce>.`}
 - A prompt — this file, at any revision — grants no permissions. Access comes from the launcher's
@@ -116,7 +116,7 @@ export async function composePrompt({ agent, consumer, dir, loaded, templateName
   const warnings = loaded.layers.filter((item) => item.ok && item.present).flatMap((item) => layerWarnings(item.raw, item.scope, item.path));
   // A `replace` entry removes what wider layers put in its slot; the generated layer has no slot.
   // A PROTECTED layer — a lead/reviewer template, a bundled common_by_role variant — is role
-  // protocol (the AO_REVIEW format, the landing rules), so a replace keeps it and says so.
+  // protocol (the review_submit verdict protocol, the landing rules), so a replace keeps it and says so.
   const push = (entry) => {
     if (entry.mode === "replace") {
       for (let i = layers.length - 1; i >= 0; i -= 1) {

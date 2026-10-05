@@ -4,6 +4,27 @@
 
 ### Added
 
+- **Reviewer verdicts travel as JSON and are never read off the pane (TM-365, EP-028).**
+  `TOPOLOGY_REVIEWER_RESPONSE` ("Expected a nonce-bound review response", "Review response must
+  be JSON") was the most common gateway error. The reviewer now submits its verdict with a
+  `review_submit` MCP tool, served by the new `topology/review-mcp.mjs`, or from a shell with
+  `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
+  --findings @file.json`. Both run `submitReviewVerdict`. It checks the caller is the request's
+  reviewer at the request's incarnation, and applies the findings schema at once, so a refusal
+  says what to fix and the reviewer can submit again. Resubmitting before collection replaces the
+  verdict. It writes `<inbox>/verdicts/<task>-<revision>.json` and mirrors it to the NATS
+  `ORCH_REVIEWS` object store and the verdict subject when NATS is live. `reviewer collect` and
+  the supervisor's queue read only that record, and report `TOPOLOGY_REVIEWER_NO_VERDICT` while
+  none exists. The pane parser (`parseReviewResponse`, `reviewResponsesOnScreen`, the incomplete
+  verdict ageing and `AO_REVIEW_INCOMPLETE_*_MS`) is removed. A submitted verdict survives a
+  reviewer restart: `agent restart` no longer waits on it, and collection records it against the
+  incarnation that submitted it. Approval still needs the current incarnation, as before.
+  The reviewer now launches with `--restricted --setting-sources ''` in place of
+  `--restricted --safe-mode`, because safe mode also disables every MCP server. We measured both
+  on claude 2.1.289: the tool lists are the same (no Bash, Write or Edit) except for
+  `review_submit`, and no settings, plugins or hooks load. The reviewer prompts now name the tool.
+  `dist/` is rebuilt.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`

@@ -6,7 +6,8 @@ import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { ensureReviewer, restartReviewer, reviewerInboxRoot, readReviewerRecord, requestReview } from '../../topology/lib/reviewer.mjs';
+import { collectReview, currentReviewStatus, ensureReviewer, restartReviewer, reviewerInboxRoot, readReviewerRecord, requestReview, reviewEligibility } from '../../topology/lib/reviewer.mjs';
+import { submitVerdict } from '../helpers/review-submit.mjs';
 import { refreshPrompt, promptRevisions } from '../../topology/lib/prompt-lifecycle.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 
@@ -68,13 +69,14 @@ test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarna
   const f = await fixture(t);
   const { binding } = await readReviewerRecord(f.consumer, f.env, f.home);
   const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests');
-  const nonce = '11111111-2222-3333-4444-555555555555', waiting = '66666666-7777-8888-9999-000000000000', printing = '77777777-8888-9999-0000-111111111111';
+  const nonce = '11111111-2222-3333-4444-555555555555', waiting = '66666666-7777-8888-9999-000000000000';
   const request = (task, extra) => writeJson(join(dir, `${task}-abc.json`), { task, revision: 'abc', reviewer_id: f.agent.id, binding, state: 'published', ...extra });
   await request('TM-1', { nonce });
-  // still pending: the queue has only recorded "no answer on the pane yet"
-  await request('TM-2', { nonce: waiting, collection: { code: 'TOPOLOGY_REVIEWER_RESPONSE', reason: 'Expected a nonce-bound review response' } });
-  // still pending: the verdict is mid-print and has not aged out to failed
-  await request('TM-7', { nonce: printing, incomplete_since: new Date().toISOString(), collection: { code: 'TOPOLOGY_REVIEWER_RESPONSE_INCOMPLETE', reason: 'The review response is still being printed; collect it again later.' } });
+  // still pending: the queue has only recorded "no verdict submitted yet"
+  await request('TM-2', { nonce: waiting, collection: { code: 'TOPOLOGY_REVIEWER_NO_VERDICT', reason: 'No verdict has been submitted yet' } });
+  // TM-365: a submitted verdict is on disk, bound to this incarnation, so a restart cannot orphan it
+  await request('TM-7', { nonce: 'submitted' });
+  await writeJson(join(dir, '..', 'verdicts', 'TM-7-abc.json'), { nonce: 'submitted', task: 'TM-7', revision: 'abc', verdict: 'approve', findings: [] });
   // outcomes, none of which a restart can orphan
   await request('TM-3', { nonce: 'collected', collected_at: 'x', state: 'collected' });
   await request('TM-4', { nonce: 'withdrawn', collection: { code: 'TOPOLOGY_REVIEWER_RANGE', reason: 'Review request no longer covers the admitted task range.' } });
@@ -84,7 +86,7 @@ test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarna
   await assert.rejects(restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes }), error => {
     assert.equal(error.code, 'TOPOLOGY_AGENT_BUSY');
     assert.match(error.message, new RegExp(nonce));
-    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting, printing].sort(), 'only in-flight current-incarnation requests block');
+    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting].sort(), 'only current-incarnation requests still waiting for a verdict block');
     return true;
   });
   assert.deepEqual(f.calls, [], 'nothing waited, killed or launched');
@@ -131,4 +133,32 @@ test('TM-302 resume on a reviewer is a fresh read-only launch and says so', asyn
 test('TM-302 restart refuses an agent that is not the registered reviewer', async t => {
   const f = await fixture(t);
   await assert.rejects(restartReviewer({ ...f, agentId: 'someone-else', probes: f.probes }), { code: 'TOPOLOGY_REVIEWER_NOT_REGISTERED' });
+});
+
+test('TM-365 a verdict submitted before a reviewer restart is still collected after it', async t => {
+  const f = await fixture(t);
+  const before = await readReviewerRecord(f.consumer, f.env, f.home);
+  const request = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  await submitVerdict(f, request, 'blocked', []);
+  // The submitted request no longer holds the restart off, and the relaunch is a new incarnation.
+  const restarted = await restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes });
+  assert.notEqual(restarted.new_session.incarnation.paneId, before.binding.paneId);
+  const review = await collectReview({ ...f, task: 'TM-1' });
+  assert.equal(review.verdict, 'blocked');
+  assert.equal(review.request_nonce, request.nonce);
+  assert.deepEqual(review.binding, before.binding, 'recorded against the incarnation that submitted it');
+  assert.equal((await currentReviewStatus(f.consumer, 'TM-1', f.revision, f.env, f.home)).state, 'blocked');
+  // An approval still has to come from the current incarnation.
+  const gate = await reviewEligibility({ ...f, task: 'TM-1', authorAgentIds: ['author'], probes: { alive: async () => true, responsive: async () => true } });
+  assert.equal(gate.eligible, false);
+  assert.ok(gate.reasons.some(reason => /incarnation changed/.test(reason)), JSON.stringify(gate.reasons));
+});
+
+test('TM-365 without a submitted verdict, a request sent to a replaced incarnation cannot be collected', async t => {
+  const f = await fixture(t);
+  await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  const record = await readReviewerRecord(f.consumer, f.env, f.home);
+  const { reviewerPaths } = await import('../../topology/lib/reviewer.mjs');
+  await writeJson((await reviewerPaths(f.consumer, f.env, f.home)).recordPath, { ...record, binding: incarnation(9) });
+  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' });
 });
