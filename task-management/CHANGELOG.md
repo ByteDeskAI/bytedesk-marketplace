@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The Stop hook leaves alone a task a live worker subagent owns (TM-397, EP-028).** A lead with
+  claimed tasks out to Agent-tool workers was told at every stop to done, block or park them, and
+  parking released the claim mid-work so the pool could re-dispatch it.
+  `tm claim note <id> --worker <name> [--ttl 60m]` records `{ worker, until }` on this session's
+  claim (and re-stamps it). The Stop gate skips that task while the marker is fresh. A task with no
+  marker, an expired one, or another session's claim still blocks as before, and the refusal now
+  names the verb.
+
 - **`tm review-sweep [--apply] [--json]` finds finished work nobody reviewed (TM-361, EP-028).**
   Findings are done tasks (closed in the last `--since` days, default 7) or governed tasks at
   ready-for-review that have commits and no reviewer verdict, and open non-draft PRs idle past

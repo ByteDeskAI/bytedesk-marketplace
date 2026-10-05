@@ -56,7 +56,7 @@ import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } fro
 import { upsertDecision } from "../lib/adr.mjs";
 import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
-import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
+import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
 import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
@@ -1431,8 +1431,21 @@ const VERBS = {
   },
 
   /** Explicit lock handling for parallel sessions. */
-  claim(id) {
+  claim(id, ...rest) {
     requireInit();
+    // TM-397: `tm claim note <id> --worker <name> [--ttl 60m]` — a live worker subagent of this
+    // session owns the task; the Stop gate honours it until the TTL runs out.
+    if (id === "note") {
+      const task = rest[0];
+      const at = (name) => { const i = rest.indexOf(name); return i < 0 ? null : rest[i + 1]; };
+      const worker = at("--worker");
+      const ttl = String(at("--ttl") ?? "60m").match(/^(\d+)([smh]?)$/);
+      if (!task || task.startsWith("--") || !worker || worker.startsWith("--") || !ttl) die("usage: tm claim note <id> --worker <name> [--ttl <n>[s|m|h]]   (default 60m)");
+      const ttlMs = Number(ttl[1]) * { s: 1000, m: 60_000, h: 3_600_000, "": 60_000 }[ttl[2]];
+      const claim = noteClaimWorker(task, { session: sessionId(), worker, ttlMs, p: P });
+      if (!claim) die(`${task} is not claimed by this session (${sessionId() || "no session id"}) — claim or start it first.`, 2);
+      return out(JSON_OUT ? JSON.stringify(claim, null, 2) : `${task}: worker ${worker} noted until ${claim.worker.until}`);
+    }
     const res = claimTask(id, {
       session: sessionId(),
       actor: actorLabel(actor()),
@@ -1795,6 +1808,7 @@ const VERBS = {
         "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
