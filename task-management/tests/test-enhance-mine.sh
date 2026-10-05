@@ -42,20 +42,19 @@ cp "$FIXTURE" "$PROJ/sub/subagents/agent-fixture.jsonl"
 TOKEN="gh""p_ABCDEFghijkl0123456789MNOPqrstuvWX99"
 printf '{"type":"user","timestamp":"2026-10-01T10:18:30.000Z","message":{"role":"user","content":"still failing with token %s"}}\n' "$TOKEN" \
   >> "$PROJ/sub/subagents/agent-fixture.jsonl"
-# TM-435: every secret shape the review found, planted twice (minCount 2) so each probe cluster is
-# filed with its line as the sample. Lines stay under the 160-character sample cut, so an unredacted
-# secret WOULD reach the board. Values are assembled here so no committed line looks like a credential.
-B="Bea""rer"; A="Authori""zation"
-PROBES=(
-  "REDACT_PROBE_ONE: $A: $B bearerVAL9x $A: Basic basicVAL9x $A: token tokenVAL9x"
-  "REDACT_PROBE_TWO: https://alice:urlPASS9x@example.com postgres://app:pgURL9x@db/x mysql -u root -pmysqlPW9x"
-  "REDACT_PROBE_THREE: PGPASS=envVAL9x X=shortVAL9x curl -H '$B standaloneVAL9x'"
-)
-for line in "${PROBES[@]}" "${PROBES[@]}"; do
-  printf '{"type":"user","timestamp":"2026-10-01T10:19:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tuR","is_error":true,"content":"Exit code 1\\n%s"}]}}\n' "$line" \
-    >> "$PROJ/sub/subagents/agent-fixture.jsonl"
-done
-PLANTED=(bearerVAL9x basicVAL9x tokenVAL9x urlPASS9x pgURL9x mysqlPW9x envVAL9x shortVAL9x standaloneVAL9x)
+# TM-435: every shape in tests/fixtures/redaction-shapes.mjs, planted twice (minCount 2) so each probe
+# cluster is filed with its line as the sample. Each line is under the 160-character sample cut, so an
+# unredacted secret WOULD reach the board.
+SHAPES="$PLUGIN_ROOT/tests/fixtures/redaction-shapes.mjs"
+node --input-type=module -e "
+import { probeLines } from '$SHAPES';
+const lines = probeLines();
+for (const line of [...lines, ...lines]) console.log(JSON.stringify({ type: 'user', timestamp: '2026-10-01T10:19:00.000Z',
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tuR', is_error: true, content: 'Exit code 1\n' + line }] } }));" \
+  >> "$PROJ/sub/subagents/agent-fixture.jsonl"
+mapfile -t PLANTED < <(node --input-type=module -e "import { SHAPES } from '$SHAPES'; for (const [, s] of SHAPES) console.log(s);")
+mapfile -t PROBE_TAGS < <(node --input-type=module -e "import { probeLines } from '$SHAPES'; for (const l of probeLines()) console.log(l.split(':')[0]);")
+[[ "${#PLANTED[@]}" -ge 30 && "${#PROBE_TAGS[@]}" -ge 5 ]] && ok "planted ${#PLANTED[@]} shapes on ${#PROBE_TAGS[@]} probe lines" || no "the shape fixture loaded" "${#PLANTED[@]} / ${#PROBE_TAGS[@]}"
 touch -d '30 days ago' "$PROJ/sub/subagents/agent-fixture.jsonl"
 OUT="$(tm enhance-mine)"
 has "$OUT" "transcripts  0 file(s)" "an old transcript is scanned-and-empty, not skipped"
@@ -71,8 +70,9 @@ tm start TM-002 >/dev/null 2>&1
 sleep 1
 
 # ── dry-run finds everything and writes nothing ────────────────────────────────
+# --top 100: the TM-435 probe clusters must not push the issues below out of the default top 15.
 BEFORE="$(items)"
-DRY="$(tm enhance-mine)"
+DRY="$(tm enhance-mine --top 100)"
 for sig in "error-code:TOPOLOGY_LAUNCH_FAILED" "error-code:unknown_recipient" "tool-error:Bash: fatal not a git repository" \
            "workaround:tmux-send-keys" "user:repeating-myself" "board:stale-in-progress:TM-002"; do
   has "$DRY" "$sig" "dry-run finds $sig"
@@ -88,7 +88,7 @@ lacks "$DRY" "user:feature-request" "a long task brief is not a complaint"
 [[ ! -e "$STORE/enhance-mine.json" ]] && ok "dry-run writes no state" || no "dry-run writes no state"
 
 # ── apply ──────────────────────────────────────────────────────────────────────
-A1="$(tm enhance-mine --apply)"
+A1="$(tm enhance-mine --apply --top 100)"
 has "$A1" "filed task" "apply files bugs as tasks"
 has "$A1" "filed CAP" "apply files enhancements as CAPs"
 has "$A1" "commented TM-001" "apply comments on the matched hand-filed task"
@@ -100,18 +100,18 @@ AFTER1="$(items)"
 C1="$(comments)"
 
 # ── secrets never reach output, state or the board ─────────────────────────────
-ALL="$DRY$A1$(tm enhance-mine --json)$(cat "$STORE"/tasks/*.md "$STORE"/capabilities/*.md "$STORE/enhance-mine.json")"
+ALL="$DRY$A1$(tm enhance-mine --json --top 100)$(cat "$STORE"/tasks/*.md "$STORE"/capabilities/*.md "$STORE/enhance-mine.json")"
 lacks "$ALL" "hunter2SECRET" "a password in a tool result never reaches output or the board"
 lacks "$ALL" "ghp_ABCDEF" "a GitHub token in a user message never reaches output or the board"
 has "$ALL" "[REDACTED" "the redaction is visible where the secret was"
 BOARD="$(cat "$STORE"/tasks/*.md "$STORE"/capabilities/*.md)"
-for probe in REDACT_PROBE_ONE REDACT_PROBE_TWO REDACT_PROBE_THREE; do
+for probe in "${PROBE_TAGS[@]}"; do
   has "$BOARD" "$probe" "the $probe cluster reached the board (so its secrets could have)"
 done
 for secret in "${PLANTED[@]}"; do lacks "$ALL" "$secret" "TM-435: $secret never reaches output or the board"; done
 
 # ── re-run: nothing new, nothing filed, nothing commented ──────────────────────
-A2="$(tm enhance-mine --apply)"
+A2="$(tm enhance-mine --apply --top 100)"
 [[ "$(items)" == "$AFTER1" ]] && ok "a re-run files 0 new items" || no "a re-run files 0 new items" "$AFTER1 -> $(items)"
 [[ "$(comments)" == "$C1" ]] && ok "a re-run adds 0 comments" || no "a re-run adds 0 comments" "$C1 -> $(comments)"
 lacks "$A2" "filed" "the re-run report files nothing"
@@ -120,7 +120,7 @@ has "$A2" "no new evidence" "the re-run report says why"
 # ── new evidence: one comment on the matched item, nothing filed ───────────────
 printf '%s\n' '{"type":"user","timestamp":"2026-10-04T09:00:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tuX","is_error":true,"content":"TOPOLOGY_LAUNCH_FAILED: again"}]}}' \
   >> "$PROJ/sub/subagents/agent-fixture.jsonl"
-A3="$(tm enhance-mine --apply)"
+A3="$(tm enhance-mine --apply --top 100)"
 [[ "$(items)" == "$AFTER1" ]] && ok "new evidence files nothing" || no "new evidence files nothing" "$AFTER1 -> $(items)"
 [[ "$(comments)" == "$((C1 + 1))" ]] && ok "new evidence adds exactly one comment" || no "new evidence adds exactly one comment" "$C1 -> $(comments)"
 has "$(cat "$STORE"/tasks/TM-001-*.md)" "1 occurrence(s)" "the comment counts only the new evidence"
@@ -138,32 +138,20 @@ for s in sk-abcdef xoxb-1234 AKIAABCD eyJhbGci swordfish tr0ub4dor letmein deadb
 done
 has "$RED" "bytedesk-marketplace stays" "redact leaves an ordinary path alone"
 
-# TM-435 table: each shape must lose its whole value, not just a scheme word.
+# TM-435 table: each shape in the fixture must lose its whole value, not just a scheme word or the
+# first word of a quoted value. One line per shape, so a leak names itself.
 TABLE="$(node --input-type=module -e "
 import { redact } from '$PLUGIN_ROOT/lib/enhance-mine.mjs';
-const B = 'Bea' + 'rer';
-const rows = [
-  ['Authorization: ' + B + ' abcVAL9xyz', 'abcVAL9xyz'],
-  ['authorization: \"' + B + ' quotedVAL9x\"', 'quotedVAL9x'],
-  ['Authorization: Basic dXNlcjpwYXNz9x==', 'dXNlcjpwYXNz9x'],
-  ['Authorization: token tokVAL9xyz', 'tokVAL9xyz'],
-  ['curl -H \"X-Api: ' + B + ' bareVAL9xyz\"', 'bareVAL9xyz'],
-  ['https://alice:httpPW9x@example.com/repo.git', 'httpPW9x'],
-  ['postgres://app:pgPW9x@db:5432/app', 'pgPW9x'],
-  ['redis://:onlyPW9x@cache:6379', 'onlyPW9x'],
-  ['mysql -u root -pmyPW9x mydb', 'myPW9x'],
-  ['PGPASSWORD=envPW9x psql', 'envPW9x'],
-  ['X=shortPW9x', 'shortPW9x'],
-  ['DEPLOY_KEY=deployPW9x make deploy', 'deployPW9x'],
-  ['DB_PASSWORD: \"letmeinPW9x\"', 'letmeinPW9x'],
-  ['the password is swordfishPW9x', 'swordfishPW9x'],
-];
-for (const [input, secret] of rows) console.log((redact(input).includes(secret) ? 'LEAK ' : 'ok ') + secret + ' -> ' + redact(input));
-console.log('rows ' + rows.length);
-console.log(redact('tmux capture-pane -p -t %3 and mkdir -p /tmp/x stay'));")"
-[[ "$(grep -c '^ok ' <<<"$TABLE")" -ge 8 && "$TABLE" == *"rows 14"* ]] && ok "the redaction table ran 14 shapes" || no "the redaction table ran 14 shapes" "$TABLE"
+import { SHAPES } from '$SHAPES';
+for (const [input, secret] of SHAPES) console.log((redact(input).includes(secret) ? 'LEAK ' : 'ok ') + secret + ' -> ' + redact(input));
+console.log('rows ' + SHAPES.length);
+console.log(redact('tmux capture-pane -p -t %3 and mkdir -p /tmp/x and git checkout -b feature and monkey=1 sort_key=name stay'));")"
+ROWS="$(grep -c '^ok \|^LEAK ' <<<"$TABLE")"
+[[ "$ROWS" -ge 8 && "$TABLE" == *"rows $ROWS"* ]] && ok "the redaction table ran $ROWS shapes" || no "the redaction table ran every shape" "$TABLE"
 lacks "$TABLE" "LEAK " "every shape in the table is fully redacted"
-has "$TABLE" "capture-pane -p -t %3 and mkdir -p /tmp/x stay" "a bare -p flag is left alone"
+grep '^LEAK ' <<<"$TABLE" | sed 's/^/     /'
+has "$TABLE" "capture-pane -p -t %3 and mkdir -p /tmp/x and git checkout -b feature and monkey=1 sort_key=name stay" "bare -p and -b flags, monkey= and sort_key= are left alone"
+
 
 echo "  $PASS passed, $FAIL failed"
 [[ "$FAIL" == 0 ]]

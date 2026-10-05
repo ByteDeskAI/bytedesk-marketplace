@@ -28,30 +28,47 @@ const MARK = "enhance-mine:"; // stamped into filed bodies so a re-run matches b
 
 // ── redaction ────────────────────────────────────────────────────────────────
 
+// A secret's value: a whole quoted string (spaces and all), or an unquoted run. Every rule below that
+// redacts "the value after X" uses this one definition, so a quoted value is never half-redacted.
+const VALUE = String.raw`(?:"[^"\n]*"|'[^'\n]*'|[^\s"',;}]+)`;
+const FRESH = String.raw`(?!["']?\[REDACTED)`;
+const rule = (source, flags, to) => [new RegExp(source, flags), to];
+
 const SECRET_RULES = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, "[REDACTED:private-key]"],
+  [/-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|$)/g, "[REDACTED:private-key]"],
   [/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})/g, "[REDACTED:token]"],
   [/\bsk-[A-Za-z0-9_-]{16,}/g, "[REDACTED:token]"],
   [/\bxox[abposr]-[A-Za-z0-9-]{10,}/g, "[REDACTED:token]"],
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, "[REDACTED:aws-key]"],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[REDACTED:jwt]"],
-  // TM-435. These run before the key rule below, which would otherwise redact only the scheme word
-  // ("Authorization: [REDACTED] <the actual token>").
-  [/\b(authorization["']?\s*[:=]\s*["']?)(bearer|basic|token)\s+(?!\[REDACTED)[^\s"',;}]+/gi, "$1$2 [REDACTED]"],
+  // TM-435: GitLab, npm, Stripe live secret and restricted keys, Google API keys.
+  [/\b(?:glpat-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{36}|[sr]k_live_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{35})/g, "[REDACTED:token]"],
+  // Cookie headers carry sessions: everything after the header name, to the end of the line.
+  [/\b((?:set-)?cookie\s*:)[^\n]*/gi, "$1 [REDACTED]"],
+  // curl's cookie argument (`-b` only after curl: elsewhere it is a branch or a buffer name).
+  rule(String.raw`(\bcurl\b[^\n]*?\s-b(?:\s+|=))${FRESH}${VALUE}`, "g", "$1[REDACTED]"),
+  rule(String.raw`(--cookie(?:\s+|=))${FRESH}${VALUE}`, "gi", "$1[REDACTED]"),
+  // Authorization: <any scheme> <value>. Before the key rule, which would redact only the scheme word.
+  rule(String.raw`\b(authorization["']?\s*[:=]\s*["']?)([A-Za-z][\w-]*)\s+${FRESH}${VALUE}`, "gi", "$1$2 [REDACTED]"),
   [/\b(bearer|basic)\s+(?!\[REDACTED)(?=[A-Za-z0-9._~+/-]*[0-9])[A-Za-z0-9._~+/-]{8,}=*/gi, "$1 [REDACTED]"],
   // scheme://user:pass@host
   [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s:/@]*:[^\s/@]+@/gi, "$1[REDACTED]@"],
-  // mysql -p<password> (attached; a bare `-p` flag has nothing to redact).
+  // A secret as the next argument: --token x, --with-token x, --secret x, --api-key x, --password x.
+  rule(String.raw`(--[A-Za-z0-9-]*(?:token|secret|password|passwd|api-?key)(?:\s+|=))${FRESH}${VALUE}`, "gi", "$1[REDACTED]"),
+  // sshpass -p <password> (separate); mysql -p<password> (attached; a bare `-p` flag has nothing to redact).
+  rule(String.raw`(\bsshpass\b[^\n]*?\s-p\s+)${FRESH}${VALUE}`, "g", "$1[REDACTED]"),
   [/(^|\s)-p(?!\[REDACTED)\S+/g, "$1-p[REDACTED]"],
   // NAME=value with an ALLCAPS name: env assignments carry credentials whatever the name says.
-  [/\b([A-Z][A-Z0-9_]*)=(?!\[REDACTED)[^\s"',;}]+/g, "$1=[REDACTED]"],
-  // key: value / key=value / "key": "value" where the key names a secret.
-  [
-    /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?!\[REDACTED)[^\s"',;}]+/gi,
-    "$1$2[REDACTED]",
-  ],
-  // Prose: "the password is hunter2", "pwd hunter2".
-  [/\b(password|passwd|pwd)(\s+(?:is\s+|was\s+)?)(?!\[REDACTED)\S+/gi, "$1$2[REDACTED]"],
+  rule(String.raw`\b([A-Z][A-Z0-9_]*)=${FRESH}${VALUE}`, "g", "$1=[REDACTED]"),
+  // key: value / key=value / "key": "value" where the key names a secret, or is an X-Auth* header.
+  rule(
+    String.raw`\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|x-auth)[A-Za-z0-9_.-]*["']?\s*[:=]\s*)${FRESH}${VALUE}`,
+    "gi", "$1[REDACTED]",
+  ),
+  // Bare `pass` and `key` names, whole-word only, so `monkey=` and `sort_key=` survive.
+  rule(String.raw`(^|[^A-Za-z0-9_.-])((?:pass|key)["']?\s*[:=]\s*)${FRESH}${VALUE}`, "gi", "$1$2[REDACTED]"),
+  // Prose: "the password is hunter2", "pwd hunter2", "secret hunter2".
+  [/\b(password|passwd|pwd|secret)(\s+(?:is\s+|was\s+)?)(?!\[REDACTED)\S+/gi, "$1$2[REDACTED]"],
   [/\b[a-f0-9]{32,}\b/gi, "[REDACTED:hex]"],
   // ponytail: mixed-case-plus-digit runs of 40+ are treated as base64 secrets; paths survive
   // because they rarely mix all three without a '.' breaking the run.

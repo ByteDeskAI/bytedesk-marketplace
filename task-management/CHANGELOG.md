@@ -6,9 +6,19 @@
   (TM-435, EP-028).** `Authorization: Bearer|Basic|token <value>` now loses the value, not just the
   scheme word, and so does a standalone `Bearer <token>`. `scheme://user:pass@host` (including an
   empty user), an attached `-p<password>` and `NAME=value` with an ALLCAPS name are redacted too.
-  A bare `-p` flag is left alone. `test-enhance-mine.sh` checks a 14-row redaction table. It also
-  plants nine of these secrets in the fixture transcript and asserts that none of them reaches the
-  report, the state file or the board. Before this fix, all nine reached it.
+  A bare `-p` flag is left alone. After review, it also redacts these shapes:
+  - a whole quoted value, spaces and all (`{"token": "a b"}`, `DB_PASSWORD='hunter two'`);
+  - cookie headers to the end of the line, plus `curl -b` and `--cookie`;
+  - a secret given as the next argument (`--token`, `--with-token`, `--secret`, `--api-key`,
+    `--password`, `sshpass -p`);
+  - `glpat-`, `npm_`, `sk_live_`/`rk_live_` and `AIza` keys, and PGP private key blocks;
+  - `Authorization: <any scheme> <value>`, `X-Auth*` headers, whole-word `pass=` and `key=`, and
+    the prose `secret <value>`.
+
+  The shapes live in one fixture, `tests/fixtures/redaction-shapes.mjs` (39 shapes).
+  `test-enhance-mine.sh` uses it twice. It runs each shape through `redact`. It also plants every
+  shape in the fixture transcript and asserts that no secret reaches the report, the state file or
+  the board.
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
