@@ -541,9 +541,9 @@ export async function waitForStandingReply({ id, caller, timeoutMs = 20 * 60_000
   const started = Date.now();
   for (;;) {
     const record = await readStandingMessage({ id, ...options });
-    invariant(record, 'TOPOLOGY_MESSAGE_NOT_FOUND', `No standing message ${id} exists on this host.`);
-    invariant(record.envelope.from === caller.agent && record.envelope.sourceRepoId === callerRepo, 'TOPOLOGY_SENDER_MISMATCH',
-      `This session is ${caller.agent}; only the sender of standing message ${id} may wait on its reply. Nothing was read.`);
+    // F4: an unknown id and another sender's id are one answer, so waiting cannot probe which ids exist.
+    invariant(record && record.envelope.from === caller.agent && record.envelope.sourceRepoId === callerRepo, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session (${caller.agent}) sent no standing message ${id}; only its sender may wait on its reply. Nothing was read.`);
     const base = { id, status: record.status, delivered_to: record.delivered_to ?? null, elapsed_ms: Date.now() - started };
     if (record.reply) return { ok: true, ...base, reply: record.reply };
     if (record.permanent) return { ok: false, code: 'TOPOLOGY_MESSAGE_UNDELIVERABLE', ...base, reason: record.reason,

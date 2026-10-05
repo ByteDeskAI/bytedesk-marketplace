@@ -7,6 +7,8 @@ import { appendJournal, loadRun, readJournal, saveRun, sendMessage } from './mai
 import { durableTopologyRoot, readWorkflowIndex, reconcileWorkflows, registeredWorktrees, workflowRepository } from './discovery.mjs';
 import { incarnationOf, sameIncarnation } from './incarnation.mjs';
 import { stateRoot } from './repoid.mjs';
+import { agentDirs, findLead } from './agents.mjs';
+import { callerIdentity } from './session-identity.mjs';
 import { childrenFile } from './lineage.mjs';
 import { invariant, isInside, newRunId, nowIso, readJson, writeJson } from './util.mjs';
 import { withLock } from './lockfile.mjs';
@@ -216,6 +218,8 @@ export async function indexedWorkflow({ consumer, workflowId, ...options }) {
 }
 
 export async function workflowDetail({ consumer, workflowId, ...options }) {
+  // TM-464 F1: refused before the workflow is even looked up, so a non-operator learns nothing.
+  await assertOperatorReader({ consumer, env: { ...process.env, ...(options.env || {}) } });
   const { entry, run, runDir, loop } = await indexedWorkflow({ consumer, workflowId, ...options });
   if (loop) {
     const { goalLoopSummary } = await import('./goal-loop.mjs');
@@ -260,9 +264,22 @@ export async function workflowDetail({ consumer, workflowId, ...options }) {
 
 // Reading diagnostics must never pull or acknowledge a broker message. These are
 // retained producer/recipient facts, not task ownership or completion evidence.
+/** TM-464 F1: the workflow console shows every agent's mail, so it is the operator's view only.
+ * A dispatched worker, or a launched agent other than this repository's lead, is refused. A
+ * same-user limit as elsewhere: unsetting the variables is not prevented here. */
+export async function assertOperatorReader({ consumer, env = process.env }) {
+  invariant(!env.TM_DISPATCH_WORKER, 'TOPOLOGY_OPERATOR_ONLY', 'A dispatched worker session (TM_DISPATCH_WORKER) cannot read every agent\'s mail in the workflow console. Nothing was read.');
+  const caller = callerIdentity(env);
+  if (caller?.source !== 'launcher') return;
+  const lead = await findLead(agentDirs({ consumer })).catch(() => null);
+  invariant(lead?.id && lead.id === caller.agentId, 'TOPOLOGY_OPERATOR_ONLY',
+    `Agent ${caller.agentId} is not this repository's lead, so it cannot read every agent's mail in the workflow console. Nothing was read.`);
+}
+
 async function workflowMessages(options) {
+  await assertOperatorReader({ consumer: options.consumer, env: { ...process.env, ...(options.env || {}) } });
   const { listMailboxReceipts, listMailboxPublications } = await import('./mailbox-receipts.mjs');
-  const query = { ...options, env: { ...process.env, ...(options.env || {}), AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot(options.env) } };
+  const query = { ...options, allAgents: true, env: { ...process.env, ...(options.env || {}), AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot(options.env) } };
   const receipts = await listMailboxReceipts(query);
   const publications = await listMailboxPublications(query);
   const displayBody = envelope => options.workflowId.startsWith('goal-loop:') && envelope.context.stage === 'goal-phase'

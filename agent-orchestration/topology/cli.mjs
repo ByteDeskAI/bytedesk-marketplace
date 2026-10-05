@@ -272,21 +272,6 @@ function inputPairs(value) {
   return pairs;
 }
 
-/** TM-463: the caller of `session handoff` is the target agent itself, or this repository's lead
- * proven by requireLeadCaller (pane binding plus process ancestry). As `manage` does (TM-243), a
- * session without AO_AGENT_ID is named from its pane's census binding before that proof. */
-async function requireHandoffCaller({ agentId, ctx, env = process.env }) {
-  const { sessionIdentity: standingIdentity } = await import("./lib/standing-mailbox.mjs");
-  const self = await standingIdentity({ env, consumer: ctx.consumer }).catch(() => null);
-  if (self?.agent === agentId) return { caller: agentId, as: "self" };
-  const { bindingAgentId, requireLeadCaller } = await import("./lib/delegation.mjs");
-  const named = env.AO_AGENT_ID ? env : { ...env, AO_AGENT_ID: await bindingAgentId({ consumer: ctx.consumer, env, home: ctx.home }) ?? undefined };
-  const lead = await requireLeadCaller({ consumer: ctx.consumer, env: named, home: ctx.home });
-  invariant(lead, "TOPOLOGY_HANDOFF_UNAUTHORIZED",
-    `Only this repository's lead or ${agentId} itself may hand off to ${agentId}; this session is ${self?.agent ?? named.AO_AGENT_ID ?? "unidentified"}. Nothing was typed.`, { agent_id: agentId });
-  return { caller: lead, as: "lead" };
-}
-
 function context(flags) {
   const consumer = absolutize(flags.consumer && flags.consumer !== true ? flags.consumer : process.cwd());
   const home = homedir();
@@ -1562,7 +1547,8 @@ const commands = {
       // TM-280: the lead's explicit, later way to give a re-spawned agent its predecessor's handoff.
       // TM-463: it types into a live pane, so only the repository's proven lead, or the target agent
       // itself (its sessionIdentity), may do it. The MCP tool runs this verb, so it shares the check.
-      await requireHandoffCaller({ agentId: agent.id, ctx });
+      const { requireHandoffCaller } = await import("./lib/respawn.mjs");
+      await requireHandoffCaller({ agentId: agent.id, consumer: ctx.consumer, home: ctx.home });
       invariant(flags.file && flags.file !== true, "TOPOLOGY_HANDOFF_FILE_REQUIRED", "Pass --file <handoff.md>.");
       const file = absolutize(String(flags.file));
       invariant(await exists(file), "TOPOLOGY_HANDOFF_FILE_MISSING", `No handoff file at ${file}.`);

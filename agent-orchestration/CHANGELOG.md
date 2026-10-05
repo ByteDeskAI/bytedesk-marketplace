@@ -212,6 +212,19 @@
   agent with `sessionIdentity()`, as the MCP tools do: `--agent` and `--consumer` may only repeat
   it, and without `--consumer` the mailbox is the session's own repository. MCP
   `orchestration_mailbox_list` is bound the same way.
+- **Mailbox readers fail closed; the workflow console is operator-only (TM-464 F1, EP-028).**
+  `console show` returned every agent's receipt bodies because `listMailboxReceipts` and
+  `listMailboxPublications` read a missing `agent` as "all agents". Both now require a bound
+  `agent`, or an explicit `allAgents: true`, which only the workflow console and the publication
+  resume loop pass. The console (`workflowDetail`) refuses a dispatched worker, or a launched agent
+  other than the repository's lead, with `TOPOLOGY_OPERATOR_ONLY` before any lookup. MCP
+  `mailbox_list` passes named fields only, so a tool input cannot carry `allAgents`. The audit test
+  now checks every reader and actor call site in `topology/lib`, `cli.mjs` and `topology-api.mjs`.
+- **Handoff "self" must be proven (TM-463 F2, EP-028).** `AO_AGENT_ID=<target>` alone passed as the
+  target. `requireHandoffCaller` (now in `respawn.mjs`) requires `requireGranteeCaller` for self:
+  the caller's pane is census-bound to the target and is the caller's ancestor process.
+- **`mailbox wait` cannot probe ids (TM-465 F4, EP-028).** An unknown id and another sender's id
+  now give the same `TOPOLOGY_SENDER_MISMATCH`.
 - **MCP run-mail arguments cannot become flags (TM-464, EP-028).** The adapter passed `subject` and
   `task` as separate argv entries, so a subject of `--from-project=/x` parsed as a flag. Every value
   now goes to `ao-topology` as one `--key=value` token.

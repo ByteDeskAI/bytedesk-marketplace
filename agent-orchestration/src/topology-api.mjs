@@ -141,7 +141,9 @@ export function createTopologyApi(service) {
       const options = await context(input);
       const { agent } = await me(input.agent, options);
       const { listMailboxReceipts } = await import('../topology/lib/mailbox-receipts.mjs');
-      return { receipts: await listMailboxReceipts({ ...input, ...options, agent }) };
+      // Named fields only: a tool input can never carry allAgents through to the reader.
+      return { receipts: await listMailboxReceipts({ ...options, agent, kind: input.kind, status: input.status,
+        workflowId: input.workflowId, runId: input.runId, taskId: input.taskId }) };
     },
     async mailboxDispose(input) {
       const options = await context(input);

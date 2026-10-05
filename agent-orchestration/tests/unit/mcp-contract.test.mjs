@@ -195,7 +195,7 @@ test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an
     await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "lead", full_name: "lead0001" });
     const unknown = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "no-such-id", timeoutMs: 100 } });
     assert.equal(unknown.isError, true, JSON.stringify(unknown.structuredContent));
-    assert.equal(unknown.structuredContent.data.code, "TOPOLOGY_MESSAGE_NOT_FOUND");
+    assert.equal(unknown.structuredContent.data.code, "TOPOLOGY_SENDER_MISMATCH");
     assert.equal((await sendStandingMessage({ id: "m-mcp", consumer: repo, fromProject: repo, from: "lead0001", to: "lead0001", body: "question" }, { env, home })).status, "delivered");
     const timedOut = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "m-mcp", timeoutMs: 100, pollIntervalMs: 20 } });
     assert.equal(timedOut.isError, true);

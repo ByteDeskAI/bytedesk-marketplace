@@ -226,7 +226,7 @@ test("launch of a live library agent re-spawns it under the SAME name and return
   await optOutOfEnrollment(consumer); // TM-290: launch self-starts a supervisor, whose lead would be real
   const log = join(root, "agent.log");
   const iso = isolatedTmux(t, { extraEnv: { AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file", AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"),
-    XDG_CONFIG_HOME: join(root, ".cfg"), AO_NODE_NAME: "agents1", FAKE_TURN_LOG: log, FAKE_TURN_BUSY_MS: "3000", FAKE_TURN_HANDOFF: "1" } });
+    XDG_CONFIG_HOME: join(root, ".cfg"), AO_NODE_NAME: "agents1", FAKE_TURN_LOG: log, FAKE_TURN_BUSY_MS: "3000", FAKE_TURN_HANDOFF: "1", FAKE_TURN_EXEC: "1" } });
   assert.equal(iso.env.TMUX, "", "never inherit an operator tmux server");
   const cli = join(HERE, "../../topology/cli.mjs");
   const ao = async (...args) => {
@@ -276,10 +276,33 @@ test("launch of a live library agent re-spawns it under the SAME name and return
   // TM-463: an unidentified caller (neither the proven lead nor the agent) is refused and types nothing.
   await assert.rejects(ao("session", "handoff", agent.id, "--file", record.handoff.path), (error) => /TOPOLOGY_HANDOFF_UNAUTHORIZED/.test(error.message));
   assert.ok((await freshLines()).every((entry) => !entry.line.includes(record.handoff.path)), "a refused handoff typed nothing");
-  // The lead, or as here the agent itself, passes it explicitly.
-  const passed = JSON.parse((await exec(process.execPath, [cli, "session", "handoff", agent.id, "--file", record.handoff.path, "--consumer", consumer, "--json"],
-    { env: { ...iso.env, AO_AGENT_ID: agent.id, AO_CONSUMER: consumer }, timeout: 180_000 })).stdout);
-  assert.equal(passed.delivered, true);
+  // TM-463 F2: naming the agent in the env is a claim, not proof. This process is not in its pane.
+  await assert.rejects(exec(process.execPath, [cli, "session", "handoff", agent.id, "--file", record.handoff.path, "--consumer", consumer, "--json"],
+    { env: { ...iso.env, AO_AGENT_ID: agent.id, AO_CONSUMER: consumer }, timeout: 180_000 }), (error) => /TOPOLOGY_DELEGATION_ACTOR/.test(`${error.stdout}`));
+  assert.ok((await freshLines()).every((entry) => !entry.line.includes(record.handoff.path)), "an env-only self claim typed nothing");
+
+  // The agent itself, proven: the census binds its live pane, and the handoff runs as a child of the
+  // agent's own pane process (the fixture's `!run`), so requireGranteeCaller's ancestry walk holds.
+  const [live] = await iso.within(() => tmux.listServerPanes({ tmuxServer: iso.socket, env: iso.env }))
+    .then((rows) => rows.filter((row) => row.paneId === pane.paneId));
+  assert.ok(live, `pane ${pane.paneId} is listed on the test server`);
+  const { canonicalRepoId, repoKey } = await import("../../topology/lib/repoid.mjs");
+  const { censusPath } = await import("../../topology/lib/census.mjs");
+  const { PRESENCE_BINDING_FIELDS } = await import("../../topology/lib/presence.mjs");
+  const binding = Object.fromEntries(PRESENCE_BINDING_FIELDS.map((field) => [field, live[field]]));
+  const census = censusPath({ env: { AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") }, key: repoKey((await canonicalRepoId(consumer)).id) });
+  await mkdir(dirname(census), { recursive: true });
+  await writeFile(census, JSON.stringify({ at: new Date().toISOString(), agents: [{ agentId: agent.id, binding }] }));
+  const outFile = join(root, "handoff-from-pane.json");
+  const script = join(root, "handoff-from-pane.sh");
+  const q = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
+  await writeFile(script, `export AGENT_ORCHESTRATION_STATE_HOME=${q(join(root, "state"))} AO_TRANSPORT=file AGENT_ORCHESTRATION_SERVICES=0\n`
+    + `${q(process.execPath)} ${q(cli)} session handoff ${q(agent.id)} --file ${q(record.handoff.path)} --consumer ${q(consumer)} --json > ${q(`${outFile}.tmp`)} 2>&1; mv ${q(`${outFile}.tmp`)} ${q(outFile)}\n`);
+  await iso.within(() => tmux.sendText(pane.paneId, `!run ${script}`));
+  await until(async () => (await readFile(outFile, "utf8").catch(() => null)) !== null, 60_000, "the in-pane handoff");
+  const output = await readFile(outFile, "utf8");
+  const passed = JSON.parse(output.slice(output.indexOf("{")));
+  assert.equal(passed.delivered, true, output);
   assert.ok((await freshLines()).some((entry) => entry.line.includes(record.handoff.path)), "after session handoff, the new session has the pointer");
 
   // --no-respawn keeps the old answer for scripts.

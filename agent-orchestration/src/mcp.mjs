@@ -290,7 +290,7 @@ export async function createServer(options = {}) {
     z.object({ envelope: record, status: z.string() }).passthrough(), topology.mailboxSend);
   register(server, topology, 'orchestration_mailbox_receive', 'Receive mail into a durable recipient inbox before broker ACK. This accepts an obligation but does not claim or complete a task. Use mailbox_list for nondestructive inspection.',
     { consumerCwd, agent: agent.optional(), limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
-  register(server, topology, 'orchestration_mailbox_wait', 'Wait up to 55 seconds for the reply to a standing message this session sent; anyone else is refused with TOPOLOGY_SENDER_MISMATCH. An unknown id, a timeout or a permanently held message is an error naming the message.',
+  register(server, topology, 'orchestration_mailbox_wait', 'Wait up to 55 seconds for the reply to a standing message this session sent; anyone else is refused with TOPOLOGY_SENDER_MISMATCH. An unknown id is the same refusal (ids cannot be probed); a timeout or a permanently held message is an error naming the message.',
     { consumerCwd, id: z.string().min(1).max(256), timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(5_000).optional() },
     z.object({ ok: z.literal(true), id: z.string(), reply: record }).passthrough(), topology.mailboxWait);
   register(server, topology, 'orchestration_mailbox_list', 'Inspect this session\'s own retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',

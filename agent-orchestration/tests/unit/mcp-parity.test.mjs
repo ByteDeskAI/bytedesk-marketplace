@@ -123,9 +123,8 @@ test("TM-355/TM-463: session handoff runs the session handoff verb, and only for
     // TM-463: the conductor is neither the repository's lead nor worker01, so nothing is typed.
     const refused = await call(server.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file });
     assert.equal(refused.structuredContent.data.code, "TOPOLOGY_HANDOFF_UNAUTHORIZED");
-    const missing = await call(target.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file: join(fx.root, "nope.md") });
-    assert.equal(missing.structuredContent.data.code, "TOPOLOGY_HANDOFF_FILE_MISSING");
-    const notLive = await call(target.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file });
-    assert.equal(notLive.structuredContent.data.code, "TOPOLOGY_AGENT_NOT_LIVE");
+    // F2: a server whose env names worker01 has claimed, not proven, to be it (no pane, no ancestry).
+    const claimed = await call(target.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file });
+    assert.equal(claimed.structuredContent.data.code, "TOPOLOGY_DELEGATION_ACTOR");
   } finally { await server.close(); await target.close(); await fx.cleanup(); }
 });

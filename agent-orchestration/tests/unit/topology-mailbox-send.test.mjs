@@ -296,41 +296,104 @@ test('TM-462: run send checks a named --from/--from-project with the same sessio
   assert.deepEqual([envelope.from, envelope.fromProject], ['work-a', w.alpha]);
 });
 
-test('TM-462: every standing-mail entry point resolves its actor through the one sessionIdentity check', async () => {
-  const read = (rel) => readFile(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-  const [cli, api, mcp] = await Promise.all([read('../../topology/cli.mjs'), read('../../src/topology-api.mjs'), read('../../src/mcp.mjs')]);
-  const mailCall = /\b(sendStandingMessage|forwardStandingMessage|recordStandingReply|readStandingInbox|readStandingOutbox|waitForStandingReply|setMailboxDisposition|listMailboxReceipts)\(/;
-  // CLI: find the `commands` verb enclosing every standing-mail call.
-  const verbs = [...cli.matchAll(/^ {2}(?:async )?['"]?([\w-]+)['"]?\(\{[^)]*\}\) \{$/gm)].map((m) => ({ name: m[1], start: m.index }));
-  const bodyOf = (start) => cli.slice(start, cli.indexOf('\n  },\n', start));
-  const callers = new Set();
-  let offset = 0;
-  for (const line of cli.split('\n')) {
-    if (mailCall.test(line) && !/^\s*(\/\/|\*)/.test(line)) callers.add(verbs.filter((verb) => verb.start <= offset).at(-1)?.name);
-    offset += line.length + 1;
+/** The text of a call's argument list, from `name(` to its matching `)`. */
+function callArgs(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === '(') depth += 1;
+    else if (src[i] === ')' && --depth === 0) return src.slice(open + 1, i);
   }
-  assert.ok(callers.has('mailbox'), 'the audit found the mailbox verb (it can see a call site)');
-  // `observer report` sends as the observer service itself: a system sender, which TM-427 governs.
-  callers.delete('observer');
-  assert.deepEqual([...callers].sort(), ['mailbox'], 'only `mailbox` touches standing mail directly in the CLI');
-  for (const name of ['mailbox', 'send']) {
-    const verb = verbs.find((entry) => entry.name === name);
-    assert.ok(verb, `CLI verb ${name} exists`);
-    assert.match(bodyOf(verb.start), /\bsessionIdentity\(\{/, `CLI ${name} resolves its sender with sessionIdentity()`);
+  return '';
+}
+
+test('TM-462/F1: every call that reads or sends standing mail is bound, call site by call site', async () => {
+  const { readdir: ls } = await import('node:fs/promises');
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const files = [
+    ...(await ls(join(root, 'topology', 'lib'))).filter((f) => f.endsWith('.mjs')).map((f) => join('topology', 'lib', f)),
+    join('topology', 'cli.mjs'), join('src', 'topology-api.mjs'),
+  ];
+  // Readers return bodies; actors send or act as an agent. Each call must carry its binding.
+  const READERS = ['listMailboxReceipts', 'listMailboxPublications', 'readStandingInbox', 'readStandingOutbox', 'waitForStandingReply'];
+  const ACTORS = ['sendStandingMessage', 'forwardStandingMessage', 'recordStandingReply', 'setMailboxDisposition'];
+  // allAgents: true is allowed only here: the operator console (gated by assertOperatorReader) and
+  // the publication resume loop (returns no body).
+  const OPERATOR_ONLY = new Set(['topology/lib/workflow-control.mjs#workflowMessages', 'topology/lib/mailbox-receipts.mjs#resumeMailboxPublications']);
+  // Library actors that send as a SYSTEM sender, not as a caller-named agent: TM-427 governs them.
+  const SYSTEM_SENDERS = new Set(['topology/lib/mailbox.mjs', 'topology/lib/slots.mjs', 'topology/lib/standing-mailbox.mjs', 'topology/lib/observer.mjs', 'topology/lib/management.mjs',
+    'topology/lib/release.mjs', 'topology/lib/reviewer.mjs', 'topology/lib/goal-loop.mjs', 'topology/lib/goal-loop-notify.mjs', 'topology/lib/review-sweep.mjs',
+    'topology/lib/supervision.mjs', 'topology/lib/lead-recovery.mjs', 'topology/lib/roles.mjs', 'topology/cli.mjs#observer']);
+  const ENTRY = new Set(['topology/cli.mjs', 'src/topology-api.mjs']);
+  const enclosing = (src, at) => [...src.slice(0, at).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?(?:function\s+([\w$]+)|['"]?([\w$-]+)['"]?\s*\(\{[^)\n]*\}\)\s*\{|([\w$]+)\s*\(input\)\s*\{)/g)].map((m) => m[1] || m[2] || m[3]).at(-1);
+  const seen = { reader: 0, actor: 0 };
+  const problems = [];
+  for (const rel of files) {
+    const src = await readFile(join(root, rel), 'utf8');
+    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\(`, 'g'))) {
+      const at = match.index, name = match[1];
+      const line = src.slice(src.lastIndexOf('\n', at) + 1, src.indexOf('\n', at));
+      if (/^\s*(\/\/|\*)/.test(line) || /export async function/.test(line) || /import\(|import \{/.test(line) && !/\)\(/.test(line)) continue;
+      const args = callArgs(src, at + name.length);
+      const fn = enclosing(src, at);
+      const where = `${rel}:${src.slice(0, at).split('\n').length} ${name} in ${fn}`;
+      // Before the call, in its enclosing function: where the bound value came from.
+      const before = src.slice(Math.max(src.lastIndexOf('\n', at - 1) - 600, 0), at);
+      if (READERS.includes(name)) {
+        seen.reader += 1;
+        // An operator read names allAgents: true in the call, or in the `query` it builds just before.
+        const all = /allAgents:\s*true/.test(args) || args.trim() === 'query' && /const query = \{[^\n]*allAgents:\s*true/.test(before);
+        if (all) { if (!OPERATOR_ONLY.has(`${rel}#${fn}`)) problems.push(`${where}: allAgents outside an operator-only path`); continue; }
+        if (!/\b(agent|caller)\b/.test(args)) problems.push(`${where}: no bound agent`);
+        if (ENTRY.has(rel) && !/const (\{ agent \}|caller) = await (self|me)\(/.test(before)) problems.push(`${where}: entry-point reader not bound by self()/me() (sessionIdentity)`);
+      } else {
+        seen.actor += 1;
+        if (SYSTEM_SENDERS.has(rel) || SYSTEM_SENDERS.has(`${rel}#${fn}`)) continue;
+        if (!ENTRY.has(rel)) { problems.push(`${where}: an actor outside the entry points and the system-sender list`); continue; }
+        if (!/\b(sender|me|agent)\b/.test(args) && !/\.\.\.input\b/.test(args)) problems.push(`${where}: actor call carries no bound sender`);
+        if (!/=\s*await (self|me|api\.sessionIdentity)\(/.test(before) && !/const me = await api\.sessionIdentity\(/.test(src.slice(src.lastIndexOf('async mailbox(', at), at))) problems.push(`${where}: actor not bound by sessionIdentity`);
+      }
+    }
   }
-  // MCP: every mailbox and run-mail tool is an adapter method that goes through me(), and me() is sessionIdentity().
-  const tools = [...mcp.matchAll(/register\(server, topology, '(orchestration_(?:mailbox|run_mail)_\w+)'[\s\S]*?topology\.(\w+)\);/g)];
-  assert.ok(tools.length >= 8, `found the mail tools (${tools.length})`);
-  const methodBody = (name) => {
-    const start = api.indexOf(`    async ${name}(input) {`);
-    assert.ok(start >= 0, `adapter method ${name} exists`);
-    return api.slice(start, api.indexOf('\n    },\n', start));
-  };
-  for (const [, tool, method] of tools) {
-    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory, not standing mail
-    assert.match(methodBody(method), /\bme\(/, `${tool} (${method}) resolves its actor through me()`);
+  // Coverage, so an empty scan cannot pass: the known entry and library call sites were seen.
+  assert.ok(seen.reader >= 10 && seen.actor >= 6, `the audit saw the call sites (${JSON.stringify(seen)})`);
+  assert.deepEqual(problems, []);
+  // me() is sessionIdentity(), and the CLI's send verb names its sender through sessionIdentity().
+  const [api, cli] = await Promise.all([readFile(join(root, 'src/topology-api.mjs'), 'utf8'), readFile(join(root, 'topology/cli.mjs'), 'utf8')]);
+  assert.match(api.slice(api.indexOf('const me = async'), api.indexOf('const runArgs')), /sessionIdentity\(\{/);
+  assert.match(cli.slice(cli.indexOf('  async send({ flags }) {'), cli.indexOf('const fromProject =', cli.indexOf('  async send({ flags }) {'))), /\.sessionIdentity\(\{/);
+  // Every MCP mailbox/run-mail tool lands on an adapter method that calls me().
+  const mcp = await readFile(join(root, 'src/mcp.mjs'), 'utf8');
+  for (const [, tool, method] of mcp.matchAll(/register\(server, topology, '(orchestration_(?:mailbox|run_mail)_\w+)'[\s\S]*?topology\.(\w+)\);/g)) {
+    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory
+    const start = api.indexOf(`    async ${method}(input) {`);
+    assert.match(api.slice(start, api.indexOf('\n    },\n', start)), /\bme\(/, `${tool} resolves its actor through me()`);
   }
-  assert.match(api.slice(api.indexOf('const me = async'), api.indexOf('const runArgs')), /sessionIdentity\(\{/, 'me() is sessionIdentity()');
+});
+
+test('TM-464 F1: receipt and publication readers fail closed without a bound agent; the console is operator-only', async (t) => {
+  const w = await world(t);
+  const { listMailboxReceipts, listMailboxPublications } = await import('../../topology/lib/mailbox-receipts.mjs');
+  const { workflowDetail } = await import('../../topology/lib/workflow-control.mjs');
+  const env = w.env;
+  for (const read of [listMailboxReceipts, listMailboxPublications]) {
+    await assert.rejects(read({ consumer: w.alpha, env }), { code: 'TOPOLOGY_MAILBOX_SCOPE_REQUIRED' }, `${read.name} with no agent`);
+    await assert.rejects(read({ consumer: w.alpha, env, agent: 'lead-a', allAgents: true }), { code: 'TOPOLOGY_MAILBOX_SCOPE_REQUIRED' }, `${read.name} with both`);
+    assert.ok(Array.isArray(await read({ consumer: w.alpha, env, agent: 'lead-a' })));
+  }
+  // Mail in a workflow, then the console as a worker: refused before any body is read.
+  assert.equal((await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'lead-a', '--id', 'c-1', '--body', 'console secret'], w.as('work-a', w.alpha))).json?.status, 'delivered');
+  await ao(['mailbox', 'inbox'], w.as('lead-a', w.alpha));
+  const show = (extra) => ao(['console', 'show', '--consumer', w.alpha, '--workflow-id', 'topology:none'], { ...env, ...extra });
+  for (const extra of [{ TM_DISPATCH_WORKER: '1' }, { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha }]) {
+    const refused = await show(extra);
+    assert.deepEqual([refused.code, refused.json?.code], [1, 'TOPOLOGY_OPERATOR_ONLY'], refused.stdout);
+    assert.doesNotMatch(refused.stdout, /console secret/);
+  }
+  await assert.rejects(workflowDetail({ consumer: w.alpha, workflowId: 'topology:none', stateHome: env.AGENT_ORCHESTRATION_STATE_HOME, env: { AO_AGENT_ID: 'work-a' } }), { code: 'TOPOLOGY_OPERATOR_ONLY' });
+  // The MCP list tool cannot smuggle allAgents through its input.
+  const mcp = await mcpAs(w, { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha });
+  const listed = await mcp.mailboxList({ consumerCwd: w.alpha, allAgents: true });
+  assert.ok(listed.receipts.every((receipt) => receipt.agent === 'work-a'), JSON.stringify(listed));
 });
 
 test('TM-464: CLI mailbox inbox, outbox, receipts, dispose and reply act only as the session identity', async (t) => {
@@ -388,6 +451,19 @@ test('TM-465: mailbox wait returns a reply only to the message sender, via CLI a
   assert.equal((await mcpWorker.mailboxWait({ consumerCwd: w.alpha, id: 'w-1', timeoutMs: 500 })).reply.body, 'secret answer');
 });
 
+test('TM-465 F4: mailbox wait gives one answer for an unknown id and another sender\'s id', async (t) => {
+  const w = await world(t);
+  assert.equal((await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'lead-a', '--id', 'exists', '--body', 'q'], w.as('work-a', w.alpha))).json?.status, 'delivered');
+  const lead = w.as('lead-a', w.alpha);
+  const [real, absent] = await Promise.all(['exists', 'never-sent'].map((id) => ao(['mailbox', 'wait', id, '--timeout', '1s'], lead)));
+  assert.deepEqual([real.code, real.json?.code], [absent.code, absent.json?.code], `${real.stdout} vs ${absent.stdout}`);
+  assert.deepEqual([real.code, real.json?.code], [1, 'TOPOLOGY_SENDER_MISMATCH']);
+  assert.equal(real.json.message.replace('exists', 'ID'), absent.json.message.replace('never-sent', 'ID'), 'the messages differ only by the id asked about');
+  const mcpLead = await mcpAs(w, { AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha });
+  const codes = await Promise.all(['exists', 'never-sent'].map((id) => mcpLead.mailboxWait({ consumerCwd: w.alpha, id, timeoutMs: 200 }).then(() => 'ok', (e) => e.code)));
+  assert.deepEqual(codes, ['TOPOLOGY_SENDER_MISMATCH', 'TOPOLOGY_SENDER_MISMATCH']);
+});
+
 test('TM-466: an MCP session with no launcher identity acts as its SessionStart-minted identity', async (t) => {
   const w = await world(t);
   const { mintSessionIdentity } = await import('../../topology/lib/session-identity.mjs');
@@ -416,6 +492,33 @@ test('TM-463: session handoff is refused unless the caller is the proven lead or
     const refused = await handoff(agent, env);
     assert.deepEqual([refused.code, refused.json?.code], [1, code], refused.stdout);
   }
+  // F2: naming the target agent in the env is a claim, not proof: it is refused like the lead claim.
   const self = await handoff('work-a', w.as('work-a', w.alpha));
-  assert.equal(self.json?.code, 'TOPOLOGY_AGENT_NOT_LIVE', 'the target itself passes the check and reaches the liveness check');
+  assert.deepEqual([self.code, self.json?.code], [1, 'TOPOLOGY_DELEGATION_ACTOR'], self.stdout);
+});
+
+test('TM-463 F2: handoff self and lead are proven by pane binding and process ancestry, never by env', async (t) => {
+  const w = await world(t);
+  const { requireHandoffCaller } = await import('../../topology/lib/respawn.mjs');
+  // An injected tmux and /proc, as topology-delegation.test.mjs does: pane %7 runs pid 5151.
+  const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+  const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
+  const proof = (boundTo, leaf = 5151) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
+    readCensusFn: async () => ({ agents: [{ agentId: boundTo, binding: { ...PANE } }] }), callerProc: tree(leaf) });
+  const inPane = { TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: PANE.paneId };
+  const check = (env, p) => requireHandoffCaller({ agentId: 'work-a', consumer: w.alpha, env, home: w.env.HOME, proof: p });
+  // Env-only self claim (no pane): refused.
+  await assert.rejects(check({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha }, proof('work-a')), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  // Claims self from a pane bound to work-a, but the caller is not a descendant of that pane: refused.
+  await assert.rejects(check({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha, ...inPane }, proof('work-a', 6161)), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  // Claims self from a pane the census binds to someone else: refused.
+  await assert.rejects(check({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a')), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  // The real own pane: accepted, by env name or by census binding alone.
+  assert.deepEqual(await check({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha, ...inPane }, proof('work-a')), { caller: 'work-a', as: 'self' });
+  assert.deepEqual(await check({ ...inPane }, proof('work-a')), { caller: 'work-a', as: 'self' });
+  // The lead in its own proven pane, including an assigned lead with only a minted session id.
+  assert.deepEqual(await check({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a')), { caller: 'lead-a', as: 'lead' });
+  assert.deepEqual(await check({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha, ...inPane }, proof('lead-a')), { caller: 'lead-a', as: 'lead' });
+  // Any other agent, even in its own proven pane: refused.
+  await assert.rejects(check({ AO_AGENT_ID: 'other', AO_CONSUMER: w.alpha, ...inPane }, proof('other')), { code: 'TOPOLOGY_HANDOFF_UNAUTHORIZED' });
 });

@@ -63,7 +63,7 @@ test('TM-351: delivered standing mail rings an idle recipient once, with no inbo
   assert.match(bell.typed[0], /m-idle/);
   assert.match(bell.typed[0], /ao-topology mailbox inbox --consumer \S+ --agent lead0001/);
   assert.doesNotMatch(bell.typed[0], /SECRET/, 'the ring is a pointer, never the body');
-  assert.deepEqual(await listMailboxReceipts({ consumer, env, home }), [], 'the recipient never read its inbox');
+  assert.deepEqual(await listMailboxReceipts({ consumer, env, home , allAgents: true }), [], 'the recipient never read its inbox');
   // Idempotent across ticks and across a supervisor restart: the marker is on disk.
   assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), []);
 });
@@ -100,7 +100,7 @@ test('TM-352: wait returns the reply, times out naming the message, and refuses 
   assert.equal(timeout.ok, false);
   assert.equal(timeout.code, 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT');
   assert.match(timeout.message, /m-wait/);
-  await assert.rejects(waitForStandingReply({ id: 'no-such-id', caller, timeoutMs: 50, env, home }), { code: 'TOPOLOGY_MESSAGE_NOT_FOUND' });
+  await assert.rejects(waitForStandingReply({ id: 'no-such-id', caller, timeoutMs: 50, env, home }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
   const waiting = waitForStandingReply({ id: 'm-wait', caller, timeoutMs: 5000, pollMs: 20, env, home });
   await recordStandingReply({ consumer, messageId: 'm-wait', agentId: 'lead0001', body: 'the answer', home,
     env: { ...env, AO_AGENT_ID: 'lead0001', AO_CONSUMER: consumer } });
@@ -137,7 +137,7 @@ test('TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 
   const unknown = cli('no-such-id', '--timeout', '100ms');
   assert.equal(unknown.status, 1);
   assert.equal(JSON.parse(unknown.stdout).ok, false);
-  assert.equal(JSON.parse(unknown.stdout).code, 'TOPOLOGY_MESSAGE_NOT_FOUND');
+  assert.equal(JSON.parse(unknown.stdout).code, 'TOPOLOGY_SENDER_MISMATCH');
   await recordStandingReply({ consumer, messageId: 'm-cli', agentId: 'lead0001', body: 'cli answer', home, env: { ...env, AO_AGENT_ID: 'lead0001', AO_CONSUMER: consumer } });
   const answered = cli('m-cli', '--timeout', '5s');
   assert.equal(answered.status, 0, answered.stderr);
