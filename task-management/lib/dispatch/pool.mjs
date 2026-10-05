@@ -63,7 +63,7 @@ import { batches } from "../parallel.mjs";
 import { config, list, logEvent, mutate, nextTasks, now, queueOrder, read, withLock } from "../store.mjs";
 import { agentReadiness } from "../completeness.mjs";
 import { paths } from "../paths.mjs";
-import { dispatch } from "./index.mjs";
+import { dispatch, heartbeatOnce } from "./index.mjs";
 import { collect } from "./collect.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
@@ -343,6 +343,37 @@ export function poolable(p = paths()) {
 }
 
 /**
+ * Renew a dispatched task's claim when its collector just proved the worker alive (TM-362).
+ *
+ * dispatch()'s own heartbeat is a setInterval in the dispatching process, so a one-shot
+ * `tm dispatch` takes it with it when it exits and the claim ages out at claimTtlMinutes under a
+ * worker that is still running. `pending` from collect() is the liveness proof every backend
+ * already gives — a tmux session that answers has-session, a topology run observed alive, an
+ * orchestration run not yet terminal — so that, and only that, renews. A dead worker collects as
+ * not-pending and is never renewed; heartbeatClaim refuses a claim held by another session.
+ */
+export function renewIfLive(task, res, p = paths()) {
+  if (!res?.ok || !res.pending || !task.dispatched?.session) return null;
+  return heartbeatOnce(task.id, task.dispatched.session, p);
+}
+
+/**
+ * `tm claim renew --live`: one collect-and-renew pass over every dispatched in_progress task,
+ * for a supervisor (an AO supervisor, cron) that is not the pool. It runs collect(), the one
+ * liveness probe, so a worker found dead is recorded the way the pool would record it.
+ * Returns [{ id, renewed, pending, outcome?, reason? }].
+ */
+export async function renewLiveClaims({ p = paths(), impls = {} } = {}) {
+  const out = [];
+  for (const t of poolWorkers(p)) {
+    const res = await collect(t.id, p, impls);
+    const renewed = Boolean(renewIfLive(t, res, p));
+    out.push({ id: t.id, renewed, pending: Boolean(res?.pending), ...(res?.outcome ? { outcome: res.outcome } : {}), ...(res?.ok ? {} : { reason: res?.reason }) });
+  }
+  return out;
+}
+
+/**
  * The workers the pool is charged for: in_progress tasks with a dispatch record.
  *
  * Counted from the board, not the agent registry (TM-175 B4). tmux and topology
@@ -420,6 +451,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
     }
     try {
       const res = await collect(t.id, p, impls);
+      renewIfLive(t, res, p);
       collected.push({ id: t.id, ...res });
       if (res.ok && !res.pending && !res.duplicate) {
         // Registry hygiene only — capacity is read from the board below.

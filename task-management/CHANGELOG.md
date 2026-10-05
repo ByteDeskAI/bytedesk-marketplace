@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
+  heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
+  exit and the claim expired after 240 minutes under a worker that was still running. Each pool
+  tick now renews the claim of every dispatched worker that its collector proves alive (a tmux
+  session that answers, a topology run observed alive, an orchestration run not yet finished). A
+  dead or unprovable worker is not renewed. A supervisor that is not the pool can run
+  `tm claim renew --live` (or `--json`) for the same pass; it also records any worker it finds
+  dead, the way the pool does.
+
 - **A failed worker is retried with backoff before it parks (TM-363, EP-028).** A task-scoped
   worker failure (for example, a worker that exited without closing) now reopens the task instead
   of parking it, up to the new `dispatch.retries` (default 2; 0 parks at once). The pool picks it

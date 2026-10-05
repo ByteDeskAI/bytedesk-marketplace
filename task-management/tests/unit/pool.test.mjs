@@ -13,12 +13,12 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
-import { claimTask } from "../../lib/claims.mjs";
+import { claimTask, claimant } from "../../lib/claims.mjs";
 import { listAgents, registerAgent } from "../../lib/agents.mjs";
-import { create, read, seedGitContract, state, update, writeConfig } from "../../lib/store.mjs";
+import { create, read, seedGitContract, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { dispatch } from "../../lib/dispatch/index.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolable, readPoolPid, readPoolState, releasePoolPid, runPool, writePoolPid } from "../../lib/dispatch/pool.mjs";
+import { livePool, poolTick, poolable, readPoolPid, readPoolState, releasePoolPid, renewLiveClaims, runPool, writePoolPid } from "../../lib/dispatch/pool.mjs";
 
 // The kill-switch tests set this themselves; nothing else may inherit it.
 delete process.env.TM_ENFORCE;
@@ -300,6 +300,53 @@ describe("pool.pid — one loop per store", () => {
     const p = store();
     const { readFileSync } = await import("node:fs");
     assert.match(readFileSync(p.gitignore, "utf8"), /^pool\.pid$/m, "the seeded .gitignore covers it");
+  });
+});
+
+describe("claim renewal for live workers (TM-362)", () => {
+  const FIVE_HOURS_AGO = () => new Date(Date.now() - 300 * 60_000).toISOString();
+  /** Dispatched, then the dispatching process is gone: no heartbeat, and the claim aged past the 240-minute TTL. */
+  async function orphaned(p, title) {
+    const id = ready(p, title);
+    const fake = fakeBackend();
+    assert.equal((await dispatch(id, { backend: fake, session: `pool-${id}`, actor: "pool", p })).ok, true);
+    writeState({ claims: { ...state(p).claims, [id]: { ...state(p).claims[id], ts: FIVE_HOURS_AGO() } } }, p);
+    assert.equal(claimant(id, p), null, "precondition: the claim has expired");
+    return id;
+  }
+
+  it("the pool tick renews a live worker's claim past the expiry, with no dispatching process", async () => {
+    const p = repoStore({ dispatch: { heartbeatSeconds: 0 } }); // no in-process heartbeat at all
+    const id = await orphaned(p, "long-running");
+    await poolTick({ p, registry: { fake: fakeBackend() }, caps: {}, impls: { fake: () => ({ ok: true, pending: true }) } });
+    const held = claimant(id, p);
+    assert.ok(held, "renewed: the claim is live again");
+    assert.equal(held.session, `pool-${id}`, "still the dispatch's own claim");
+    assert.ok(Date.now() - Date.parse(held.ts) < 60_000);
+  });
+
+  it("a dead worker's claim is not renewed", async () => {
+    const p = repoStore({ dispatch: { heartbeatSeconds: 0 } });
+    const unknown = await orphaned(p, "collector cannot tell");
+    const ended = await orphaned(p, "worker exited");
+    const impls = {
+      fake: (tid, { p: pp }) => (tid === unknown ? { ok: false, reason: "backend unreachable" } : { ok: true, pending: false, skipped: "session gone" }),
+    };
+    await poolTick({ p, registry: { fake: fakeBackend() }, caps: {}, impls });
+    assert.equal(claimant(unknown, p), null, "no proof of life, no renewal");
+    assert.equal(claimant(ended, p), null);
+    assert.equal(Date.parse(state(p).claims[ended].ts) < Date.now() - 200 * 60_000, true, "the stale timestamp was left alone");
+  });
+
+  it("renewLiveClaims (tm claim renew --live) renews only the proven-alive worker", async () => {
+    const p = repoStore({ dispatch: { heartbeatSeconds: 0 } });
+    const live = await orphaned(p, "alive");
+    const dead = await orphaned(p, "dead");
+    const impls = { fake: (tid) => (tid === live ? { ok: true, pending: true } : { ok: true, pending: false, skipped: "gone" }) };
+    const rows = await renewLiveClaims({ p, impls });
+    assert.deepEqual(rows.map((r) => [r.id, r.renewed]), [[live, true], [dead, false]]);
+    assert.ok(claimant(live, p));
+    assert.equal(claimant(dead, p), null);
   });
 });
 
