@@ -18,8 +18,10 @@ plugin-rsync --json --dry-run task-management  # preview (rsync -n); copies noth
 
 `--json` reports, per plugin, every cache refreshed (`host`, `path`, `changed`) and each changed
 path classified as `live` (runs fresh: `bin/` CLIs and the code they load), `needs-reload` (`hooks/`,
-`skills/`, `commands/`, `agents/`, `monitors/`, plugin manifests, `.mcp.json`/`.codex-mcp.json`, the
-MCP entry point they name, and `lib/`/`src/`/`dist/` when the plugin declares an MCP server), or a
+`skills/`, `commands/`, `agents/`, `monitors/`, plugin manifests, `.mcp.json`/`.codex-mcp.json`, every
+file a long-running process starts from — the MCP server entry and each `monitors/monitors.json`
+command, such as `bin/tm-dashboard` — and `lib/`/`src/`/`dist/` when the plugin declares an MCP
+server or a monitor), or a
 `skipped` cache entry for a host with no install. `reloads_required` lists, per host, the plugins
 that need a session reload. It is a report only; it never reloads anything. Default output is
 unchanged. The full rule is in `plugin-rsync --help`.

@@ -97,6 +97,8 @@ setup
 out=$(run --dry-run alpha)
 echo "$out" | grep -q 'rsync' && [[ ! -f "$HOME/.claude/plugins/cache/bytedesk/alpha/sha1/marker.txt" ]] \
   && ok "--dry-run prints rsync and copies nothing" || bad "dry-run" "$out"
+want="         rsync -a --delete --exclude node_modules --exclude .git --exclude .vite --exclude *.tsbuildinfo $BYTEDESK_MARKETPLACE/alpha/ $HOME/.claude/plugins/cache/bytedesk/alpha/sha1/"
+echo "$out" | grep -qxF -- "$want" && ok "--dry-run prints the exact default rsync command line" || bad "default rsync argv" "$out"
 teardown
 
 setup

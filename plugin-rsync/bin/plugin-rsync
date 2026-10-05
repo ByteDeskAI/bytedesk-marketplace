@@ -166,33 +166,48 @@ function runRsync(src, dest, dry, extra = []) {
 export const HOSTS = ["claude", "grok", "codex"];
 const RELOAD_DIRS = new Set(["hooks", "skills", "commands", "agents", "monitors", ".claude-plugin", ".codex-plugin", ".grok-plugin"]);
 const RELOAD_FILES = new Set([".mcp.json", ".codex-mcp.json"]);
-const MCP_CODE_DIRS = new Set(["lib", "src", "dist"]);
+const PROC_CODE_DIRS = new Set(["lib", "src", "dist"]);
 
-/** Plugin-relative files a declared MCP server is launched from (.mcp.json / .codex-mcp.json). */
-export function mcpEntries(pluginDir) {
+/** `./x`, `${CLAUDE_PLUGIN_ROOT}/x`, `${CODEX_PLUGIN_ROOT}/x` or `${PLUGIN_ROOT}/x` → `x`; anything else → null. */
+export function pluginRel(v) {
+  const m = typeof v === "string" && v.match(/^(?:\$\{(?:CLAUDE_PLUGIN_ROOT|CODEX_PLUGIN_ROOT|PLUGIN_ROOT)\}\/|\.\/)(.+)$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Plugin-relative files a long-running process is launched from: MCP servers
+ * (.mcp.json / .codex-mcp.json command + args) and monitors (monitors/monitors.json command
+ * strings, split on whitespace).
+ */
+export function processEntries(pluginDir) {
   const out = new Set();
+  const add = (v) => {
+    const rel = pluginRel(v);
+    if (rel) out.add(rel);
+  };
   for (const f of RELOAD_FILES) {
     const doc = readJson(join(pluginDir, f), null);
     const servers = doc?.mcpServers || doc || {};
     for (const s of Object.values(servers)) {
-      for (const v of [s?.command, ...(Array.isArray(s?.args) ? s.args : [])]) {
-        const m = typeof v === "string" && v.match(/^\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}\/(.+)$/);
-        if (m) out.add(m[1]);
-      }
+      [s?.command, ...(Array.isArray(s?.args) ? s.args : [])].forEach(add);
     }
+  }
+  const monitors = readJson(join(pluginDir, "monitors", "monitors.json"), []);
+  for (const m of Array.isArray(monitors) ? monitors : []) {
+    if (typeof m?.command === "string") m.command.trim().split(/\s+/).forEach(add);
   }
   return out;
 }
 
 /**
- * live | needs-reload for one plugin-relative changed path. `mcp` is mcpEntries() of the plugin.
- * ponytail: lib/src/dist are reload-worthy for any plugin with an MCP server, since we cannot
- * tell which modules the server imported; a per-import graph would be the upgrade.
+ * live | needs-reload for one plugin-relative changed path. `procs` is processEntries() of the plugin.
+ * ponytail: lib/src/dist are reload-worthy for any plugin with an MCP server or monitor, since we
+ * cannot tell which modules the process imported; a per-import graph would be the upgrade.
  */
-export function classify(rel, mcp = new Set()) {
+export function classify(rel, procs = new Set()) {
   const top = rel.split("/")[0];
-  if (RELOAD_DIRS.has(top) || RELOAD_FILES.has(rel) || mcp.has(rel)) return "needs-reload";
-  if (mcp.size && MCP_CODE_DIRS.has(top)) return "needs-reload";
+  if (RELOAD_DIRS.has(top) || RELOAD_FILES.has(rel) || procs.has(rel)) return "needs-reload";
+  if (procs.size && PROC_CODE_DIRS.has(top)) return "needs-reload";
   return "live";
 }
 
@@ -230,9 +245,12 @@ directory-source bytedesk marketplace in ~/.claude/plugins/known_marketplaces.js
 --json classifies each changed path (plugin-relative) by what a running session needs:
   needs-reload  hooks/ skills/ commands/ agents/ monitors/, manifests
                 (.claude-plugin/ .codex-plugin/ .grok-plugin/), .mcp.json, .codex-mcp.json,
-                the MCP entry point those name (e.g. bin/tm-mcp), and lib/ src/ dist/ when
-                the plugin declares an MCP server (the server loaded them once at start)
-  live          everything else: bin/ CLIs and the code they load run fresh per call
+                every file a long-running process starts from: the MCP server entry those
+                name (e.g. bin/tm-mcp) and each monitor command in monitors/monitors.json
+                (e.g. bin/tm-dashboard, bin/claude-sessions), and lib/ src/ dist/ when the
+                plugin declares an MCP server or a monitor (loaded once at process start)
+  live          everything else: bin/ CLIs that are not a server or monitor entry, and
+                code that only they load, run fresh per call
   skipped       a host (claude, grok, codex) with no install of that plugin
 reloads_required lists, per host, the plugins with at least one needs-reload path.
 `;
@@ -362,7 +380,7 @@ function mainJson(argv, dry) {
 
   for (const name of selected) {
     const src = sources[name];
-    const mcp = mcpEntries(src);
+    const procs = processEntries(src);
     const rows = (dests.get(name) || []).filter((d) => d.real !== real(src) && d.real !== srcReal);
     const caches = [];
     for (const row of rows) {
@@ -381,7 +399,7 @@ function mainJson(argv, dry) {
       }
       if (dry) cache.status = "dry-run";
       copies += 1;
-      cache.paths = parseItemized(r.stdout).map((p) => ({ ...p, class: classify(p.path, mcp) }));
+      cache.paths = parseItemized(r.stdout).map((p) => ({ ...p, class: classify(p.path, procs) }));
       cache.changed = cache.paths.length > 0;
       if (cache.paths.some((p) => p.class === "needs-reload") && !reloads[row.host].includes(name)) {
         reloads[row.host].push(name);
