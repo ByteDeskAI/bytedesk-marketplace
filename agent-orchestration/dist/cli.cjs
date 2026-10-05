@@ -60745,6 +60745,7 @@ async function defaultOpenLog(stateRoot3) {
 // src/diagnostics.mjs
 var import_node_crypto37 = require("node:crypto");
 var import_promises59 = require("node:fs/promises");
+init_util();
 var import_node_path68 = require("node:path");
 var import_node_os36 = require("node:os");
 init_repoid();
@@ -61233,10 +61234,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b64af8e5e1038243b8873da3b393e03936c9cf9245fc647e1713d34f1e32bc4f";
+  return false ? null : "acdbc1f59010202a43cfb169aaa55ab021121086886c252dc032780f8b10dbcf";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b64af8e5e1038243b8873da3b393e03936c9cf9245fc647e1713d34f1e32bc4f";
+  const fingerprint2 = false ? null : "acdbc1f59010202a43cfb169aaa55ab021121086886c252dc032780f8b10dbcf";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61827,7 +61828,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b64af8e5e1038243b8873da3b393e03936c9cf9245fc647e1713d34f1e32bc4f",
+  sourceFingerprint: false ? null : "acdbc1f59010202a43cfb169aaa55ab021121086886c252dc032780f8b10dbcf",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -61848,6 +61849,41 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   result.current = state?.status === "current" && state.repo_id === repositoryId && state.desired_session === record2.session && state.desired_revision === composed.revision && state.applied_revision === composed.revision && !state.nonce && sameIncarnation(state.desired_binding, record2.binding) && sameIncarnation(state.applied_binding, record2.binding) && Number.isFinite(acknowledgedAt) && acknowledgedAt <= Date.now() + 5e3;
   if (result.state === "current" && !result.current) result.state = "stale";
   return result;
+}
+async function pluginFreshness({ pluginRoot, home = (0, import_node_os36.homedir)(), env = process.env, timeoutMs = 5e3, deps = {} }) {
+  const exec = deps.run ?? run;
+  const root = await (0, import_promises59.realpath)(pluginRoot).catch(() => pluginRoot);
+  const cached2 = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
+  let installed = null, source = null;
+  if (cached2) {
+    source = "cache";
+    const record2 = (await json4((0, import_node_path68.join)(home, ".claude", "plugins", "installed_plugins.json")))?.plugins?.[`${cached2[2]}@${cached2[1]}`];
+    installed = (Array.isArray(record2) ? record2 : []).find((entry) => entry.installPath === root)?.gitCommitSha ?? (/^[0-9a-f]{7,40}$/.test(cached2[3]) ? cached2[3] : null);
+  } else {
+    const head = await exec("git", ["-C", root, "rev-parse", "HEAD"], { allowFailure: true, timeoutMs });
+    if (head.code === 0) {
+      installed = head.stdout.trim() || null;
+      source = "checkout";
+    }
+  }
+  const manifest2 = await json4((0, import_node_path68.join)(pluginRoot, ".claude-plugin", "plugin.json"));
+  const repository = typeof manifest2?.repository === "string" ? manifest2.repository : manifest2?.repository?.url ?? null;
+  let remote = null, remoteError = null;
+  if (repository) {
+    const listed = await exec("git", ["ls-remote", repository, "refs/heads/main"], { allowFailure: true, timeoutMs, env: { ...env, GIT_TERMINAL_PROMPT: "0" } });
+    remote = listed.code === 0 ? /^([0-9a-f]{40})\s/.exec(listed.stdout)?.[1] ?? null : null;
+    if (!remote) remoteError = listed.code === 124 ? `git ls-remote timed out after ${timeoutMs}ms` : (listed.stderr || "no refs/heads/main").trim().slice(0, 300);
+  } else remoteError = "plugin.json names no repository";
+  const status = !installed || !remote ? "unknown" : remote.startsWith(installed) || installed.startsWith(remote) ? "current" : "stale";
+  return {
+    status,
+    source,
+    installed,
+    originMain: remote,
+    repository,
+    ...remoteError ? { error: remoteError } : {},
+    ...status === "stale" ? { advice: source === "cache" ? `Installed ${installed.slice(0, 12)} is behind origin/main ${remote.slice(0, 12)}. Run \`claude plugin update ${cached2[2]}@${cached2[1]}\` and restart.` : `Checkout HEAD ${installed.slice(0, 12)} differs from origin/main ${remote.slice(0, 12)}.` } : {}
+  };
 }
 async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
@@ -61891,8 +61927,10 @@ async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoo
     sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
     repositorySupervision: null,
     roles: [],
-    setup: await setupDiagnostics({ stateRoot: stateRoot3, env, home })
+    setup: await setupDiagnostics({ stateRoot: stateRoot3, env, home }),
+    pluginFreshness: await pluginFreshness({ pluginRoot, home, env })
   };
+  if (diagnostics.pluginFreshness.status === "stale") diagnostics.setup.problems.push(`stale plugin: ${diagnostics.pluginFreshness.advice}`);
   if (!consumer) return diagnostics;
   const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
   diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));

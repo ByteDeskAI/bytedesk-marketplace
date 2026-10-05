@@ -22,6 +22,14 @@
   orch.<key>.>`, and `orchestration_doctor` reports `repositorySlug` and `natsSubjects` under
   `consumerAdmission`.
 
+- **Doctor reports plugin freshness against origin/main (TM-373, EP-028).**
+  `orchestration_doctor` now includes `diagnostics.pluginFreshness`: the installed SHA (the
+  `plugins/cache/<marketplace>/<plugin>/<sha>` entry from `installed_plugins.json`, or `HEAD` for a
+  checkout), `origin/main` from `git ls-remote` with a 5-second deadline, and `status`
+  `current`, `stale` or `unknown`. A stale cache adds a setup problem naming
+  `claude plugin update <plugin>@<marketplace>`. Offline or timed out reports `unknown` and never
+  fails doctor.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`

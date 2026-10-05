@@ -40,6 +40,7 @@ test('diagnostics separate admission, loaded build, missing services and mismatc
   assert.equal(report.consumerAdmission.admitted,true);
   assert.equal(report.consumerAdmission.repositorySlug,'repo'); // TM-371
   assert.match(report.consumerAdmission.natsSubjects,/^orch\.[0-9a-f]{16}\.>$/);
+  assert.equal(report.pluginFreshness.status,'unknown'); // TM-373: no repository named, no git: reported, not failed
   assert.equal(report.loadedBuild.mode,'source');assert.equal(report.loadedBuild.diskVersion,'test');
   assert.equal(report.stateRoots.aligned,false);assert.equal(report.sessionHost.healthy,false);
   assert.equal(report.roles.length,2);assert.ok(report.roles.every(role=>!role.ready));

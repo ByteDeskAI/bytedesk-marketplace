@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
+import { run } from '../topology/lib/util.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveConsumerRepository } from './workspace/repository.mjs';
@@ -48,6 +49,40 @@ async function rolePromptEvidence(options, record, role, repositoryId) {
 }
 
 /**
+ * TM-373: is the plugin this process runs from the marketplace's origin/main? A versionless plugin's
+ * cache directory (`plugins/cache/<marketplace>/<plugin>/<sha12>`) IS its version; a plugin run from
+ * a checkout reports HEAD. The remote answer comes from `git ls-remote` with a deadline and is
+ * `unknown` offline: freshness is information, never a reason for doctor to fail. Any newer main
+ * commit reads as behind, even one that did not touch this plugin, because that is what an update
+ * would install.
+ */
+export async function pluginFreshness({pluginRoot,home=homedir(),env=process.env,timeoutMs=5000,deps={}}) {
+  const exec=deps.run??run;
+  const root=await realpath(pluginRoot).catch(()=>pluginRoot);
+  const cached=/[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
+  let installed=null,source=null;
+  if(cached) {
+    source='cache';
+    const record=(await json(join(home,'.claude','plugins','installed_plugins.json')))?.plugins?.[`${cached[2]}@${cached[1]}`];
+    installed=(Array.isArray(record)?record:[]).find(entry=>entry.installPath===root)?.gitCommitSha ?? (/^[0-9a-f]{7,40}$/.test(cached[3])?cached[3]:null);
+  } else {
+    const head=await exec('git',['-C',root,'rev-parse','HEAD'],{allowFailure:true,timeoutMs});
+    if(head.code===0) { installed=head.stdout.trim()||null; source='checkout'; }
+  }
+  const manifest=await json(join(pluginRoot,'.claude-plugin','plugin.json'));
+  const repository=typeof manifest?.repository==='string'?manifest.repository:manifest?.repository?.url??null;
+  let remote=null,remoteError=null;
+  if(repository) {
+    const listed=await exec('git',['ls-remote',repository,'refs/heads/main'],{allowFailure:true,timeoutMs,env:{...env,GIT_TERMINAL_PROMPT:'0'}});
+    remote=listed.code===0?(/^([0-9a-f]{40})\s/.exec(listed.stdout)?.[1]??null):null;
+    if(!remote) remoteError=listed.code===124?`git ls-remote timed out after ${timeoutMs}ms`:(listed.stderr||'no refs/heads/main').trim().slice(0,300);
+  } else remoteError='plugin.json names no repository';
+  const status=!installed||!remote?'unknown':remote.startsWith(installed)||installed.startsWith(remote)?'current':'stale';
+  return {status,source,installed,originMain:remote,repository,...(remoteError?{error:remoteError}:{}),
+    ...(status==='stale'?{advice:source==='cache'?`Installed ${installed.slice(0,12)} is behind origin/main ${remote.slice(0,12)}. Run \`claude plugin update ${cached[2]}@${cached[1]}\` and restart.`:`Checkout HEAD ${installed.slice(0,12)} differs from origin/main ${remote.slice(0,12)}.`}:{})};
+}
+
+/**
  * TM-285: machine setup problems the doctor flags. Read-only: the stale-server scan reports and
  * never signals; the last ensure's self-heal report is read, not re-run.
  */
@@ -80,7 +115,8 @@ export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=p
   const diagnostics={consumerAdmission:admission,loadedBuild:{...loadedBuild,diskVersion:pkg?.version??null,disk:{mcp,cli}},
     runtimeModes:['acp','topology'],stateRoots:{acp:stateRoot,topology:effectiveTopologyRoot,aligned:stateRoot===effectiveTopologyRoot},
     sessionHost:{healthy:Boolean(host),port:host?.port??null,pid:host?.pid??null},repositorySupervision:null,roles:[],
-    setup:await setupDiagnostics({stateRoot,env,home})};
+    setup:await setupDiagnostics({stateRoot,env,home}),pluginFreshness:await pluginFreshness({pluginRoot,home,env})};
+  if(diagnostics.pluginFreshness.status==='stale') diagnostics.setup.problems.push(`stale plugin: ${diagnostics.pluginFreshness.advice}`);
   if(!consumer) return diagnostics;
   // The ACP caller's selected state root is explicit. Report any topology
   // mismatch without reading a different repository's role records.
