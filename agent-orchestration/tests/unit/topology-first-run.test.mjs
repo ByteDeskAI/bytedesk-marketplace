@@ -7,9 +7,9 @@
 // path over the kernel's limit and on a template override whose refusal named neither the template
 // nor the file.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 
 import { socketPathProblem } from "../../topology/lib/tmux.mjs";
@@ -107,6 +107,9 @@ test("doctor says nothing about trust once the repository is trusted", async () 
 
   assert.equal(report.problems.find((problem) => problem.code === "CLAUDE_FOLDER_UNTRUSTED"), undefined);
   assert.equal(report.trust.trusted, true);
+  // TM-371: doctor names the readable repository behind the `orch.<key>` NATS subjects.
+  assert.equal(report.repository.slug, basename(await realpath(consumer)));
+  assert.match(report.repository.subjects, /^orch\.[0-9a-f]{16}\.>$/);
 });
 
 test("a subdirectory of a trusted repository is trusted — the mistake this check first reproduced", async () => {

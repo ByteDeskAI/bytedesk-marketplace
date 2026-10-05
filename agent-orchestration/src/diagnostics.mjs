@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveConsumerRepository } from './workspace/repository.mjs';
 import { probeSessionHost } from './session/host.mjs';
-import { canonicalRepoId, repoKey, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
+import { canonicalRepoId, repoKey, repoSlug, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
 import { supervisionStatus } from '../topology/lib/supervision.mjs';
 import { describeTransport } from '../topology/lib/orch-transport.mjs';
 import { incarnationOf, sameIncarnation } from '../topology/lib/incarnation.mjs';
@@ -70,7 +70,9 @@ export async function setupDiagnostics({stateRoot,env=process.env,home=homedir()
 export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=process.env,home=homedir()}) {
   let consumer=null,admission={provided:Boolean(consumerCwd),admitted:null};
   if(consumerCwd) {
-    try { consumer=await resolveConsumerRepository({consumerCwd,pluginRoot,stateRoot}); admission={provided:true,admitted:true,checkoutRoot:consumer.checkoutRoot,repositoryId:consumer.commonGitDir}; }
+    try { consumer=await resolveConsumerRepository({consumerCwd,pluginRoot,stateRoot}); admission={provided:true,admitted:true,checkoutRoot:consumer.checkoutRoot,repositoryId:consumer.commonGitDir,
+      // TM-371: the readable name behind the digest in this repository's `orch.<key>` NATS subjects.
+      repositorySlug:repoSlug(consumer.commonGitDir),natsSubjects:`orch.${repoKey(consumer.commonGitDir)}.>`}; }
     catch(error) { admission={provided:true,admitted:false,code:error.code??'AO_CONSUMER_DIAGNOSIS_FAILED',message:error.message}; }
   }
   const [mcp,cli,host,pkg]=await Promise.all([fingerprint(join(pluginRoot,'dist/mcp.cjs')),fingerprint(join(pluginRoot,'dist/cli.cjs')),probeSessionHost(stateRoot),json(join(pluginRoot,'package.json'))]);

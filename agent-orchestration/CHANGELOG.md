@@ -14,6 +14,14 @@
   `orchestration_wait` remain as documented aliases. The closure-contract handoff of TM-311 is not
   on main and has no tool yet.
 
+- **Agent identity is visible (TM-371, EP-028).** Sessions that ao creates now put the agent's
+  icon, name and role on the tmux status line (`status-left`, session-scoped) ahead of the
+  session name, matching the existing terminal title. Mailbox mail and replies published on NATS
+  carry an `Orch-Repo-Slug` header naming the repository; subjects stay `orch.<key>.…`, so
+  deployed peers are unaffected. `ao-topology doctor` prints `Repository: <slug> · NATS
+  orch.<key>.>`, and `orchestration_doctor` reports `repositorySlug` and `natsSubjects` under
+  `consumerAdmission`.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`

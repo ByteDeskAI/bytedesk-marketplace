@@ -214,9 +214,16 @@ export function roleDisplayArgs(pane, { agent, role, roleLabel, roleIcon }) {
   return Object.entries(values).flatMap(([name, value]) => [";", "set-option", "-p", "-t", pane, name, tmuxText(value)]);
 }
 
-/** Session-scoped (never -g): only sessions this layer creates or owns get a title bar. */
+/**
+ * TM-371: the same name and role on the tmux status line, ahead of the session name, so "who is this
+ * pane?" is answered without a title-capable terminal. A pane without our options shows tmux's `[#S]`.
+ */
+export const ROLE_STATUS_FORMAT = '#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} · #{@ao_role_label} ,}[#S] ';
+
+/** Session-scoped (never -g): only sessions this layer creates or owns get a title bar and status label. */
 export function sessionTitleArgs(session) {
-  return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT];
+  return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT,
+    ";", "set-option", "-t", session, "status-left", ROLE_STATUS_FORMAT, ";", "set-option", "-t", session, "status-left-length", "100"];
 }
 
 /** The pane display options in one invocation. Setting options is not a listing: no server lookup. */

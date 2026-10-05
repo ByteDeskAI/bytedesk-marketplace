@@ -7158,6 +7158,7 @@ __export(repoid_exports, {
   canonicalRepoId: () => canonicalRepoId,
   pinnedGithubRepo: () => pinnedGithubRepo,
   repoKey: () => repoKey,
+  repoSlug: () => repoSlug,
   repositoryConsumer: () => repositoryConsumer,
   stateRoot: () => stateRoot2
 });
@@ -7183,6 +7184,11 @@ async function repositoryConsumer(consumer) {
 }
 function repoKey(id) {
   return (0, import_node_crypto5.createHash)("sha256").update(String(id)).digest("hex").slice(0, 16);
+}
+function repoSlug(id) {
+  const path3 = String(id ?? "");
+  const name = (0, import_node_path8.basename)((0, import_node_path8.basename)(path3) === ".git" ? (0, import_node_path8.dirname)(path3) : path3).replace(/\.git$/, "");
+  return name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "repo";
 }
 function stateRoot2(env = process.env, home = (0, import_node_os4.homedir)()) {
   if (env.AGENT_ORCHESTRATION_STATE_HOME) return (0, import_node_path8.resolve)(env.AGENT_ORCHESTRATION_STATE_HOME);
@@ -7734,6 +7740,7 @@ var tmux_exports = {};
 __export(tmux_exports, {
   ControlClient: () => ControlClient,
   MIN_PANE_ROWS: () => MIN_PANE_ROWS,
+  ROLE_STATUS_FORMAT: () => ROLE_STATUS_FORMAT,
   ROLE_TITLE_FORMAT: () => ROLE_TITLE_FORMAT,
   SOCKET_PATH_MAX: () => SOCKET_PATH_MAX,
   SUBMIT_SETTLE_MS: () => SUBMIT_SETTLE_MS,
@@ -7878,7 +7885,32 @@ function roleDisplayArgs(pane, { agent, role, roleLabel, roleIcon }) {
   return Object.entries(values).flatMap(([name, value]) => [";", "set-option", "-p", "-t", pane, name, tmuxText(value)]);
 }
 function sessionTitleArgs(session) {
-  return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT];
+  return [
+    ";",
+    "set-option",
+    "-t",
+    session,
+    "set-titles",
+    "on",
+    ";",
+    "set-option",
+    "-t",
+    session,
+    "set-titles-string",
+    ROLE_TITLE_FORMAT,
+    ";",
+    "set-option",
+    "-t",
+    session,
+    "status-left",
+    ROLE_STATUS_FORMAT,
+    ";",
+    "set-option",
+    "-t",
+    session,
+    "status-left-length",
+    "100"
+  ];
 }
 async function setRoleDisplay(pane, display) {
   const [, ...args] = roleDisplayArgs(pane, display);
@@ -8045,7 +8077,7 @@ async function listServerPanes({ tmuxServer, session, env = process.env } = {}) 
     return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId: paneId2, panePid: Number(panePid), sessionName, command, cwd, alive: dead2 === "0", title, identity: parseIdentityFields(identity) };
   });
 }
-var import_node_child_process3, import_node_events, import_node_async_hooks, import_node_path12, IDENTITY_WIDTH, TMUX, selectedServer, LAUNCH_SHELL, MIN_PANE_ROWS, SUBMIT_SETTLE_MS, ROLE_TITLE_FORMAT, SOCKET_PATH_MAX, SUBSCRIPTION_LINE, ControlClient;
+var import_node_child_process3, import_node_events, import_node_async_hooks, import_node_path12, IDENTITY_WIDTH, TMUX, selectedServer, LAUNCH_SHELL, MIN_PANE_ROWS, SUBMIT_SETTLE_MS, ROLE_TITLE_FORMAT, ROLE_STATUS_FORMAT, SOCKET_PATH_MAX, SUBSCRIPTION_LINE, ControlClient;
 var init_tmux = __esm({
   "topology/lib/tmux.mjs"() {
     import_node_child_process3 = require("node:child_process");
@@ -8061,6 +8093,7 @@ var init_tmux = __esm({
     MIN_PANE_ROWS = 12;
     SUBMIT_SETTLE_MS = Number(process.env.AO_SUBMIT_SETTLE_MS ?? 500);
     ROLE_TITLE_FORMAT = '#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} \xB7 #{@ao_role_label},#S:#I:#W - "#T"}';
+    ROLE_STATUS_FORMAT = "#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} \xB7 #{@ao_role_label} ,}[#S] ";
     SOCKET_PATH_MAX = 104;
     SUBSCRIPTION_LINE = /^%subscription-changed\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(%\d+)\s+:\s?(.*)$/;
     ControlClient = class extends import_node_events.EventEmitter {
@@ -26311,6 +26344,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     StringCodec,
     connect,
     credsAuthenticator,
+    headers,
     nanos
   } = await Promise.resolve().then(() => __toESM(require_nats2(), 1)).catch(async (error51) => {
     if (error51?.code !== "ERR_MODULE_NOT_FOUND") throw error51;
@@ -26322,6 +26356,15 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     }
   });
   const sc = StringCodec();
+  const publishOptions = (msgID, slug2) => {
+    if (!msgID && !slug2) return void 0;
+    const options = msgID ? { msgID } : {};
+    if (slug2) {
+      options.headers = headers();
+      options.headers.set(ORCH_LAYOUT.repoSlugHeader, String(slug2));
+    }
+    return options;
+  };
   const url2 = servers || env.AO_NATS_URL || "";
   const configuredSource = servers ? "servers" : env.AO_NATS_URL ? "AO_NATS_URL" : null;
   let selection = { kind: "nats", source: configuredSource, url: redactUrl(url2), fallback: null };
@@ -26467,12 +26510,12 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         ensured.add(replyKey);
       }
     },
-    async publishMail({ repo, agent, messageId: messageId2, body }) {
+    async publishMail({ repo, agent, messageId: messageId2, body, slug: slug2 = null }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, agents: [nameAgent] });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId2 ? { msgID: `${nameRepo}.${nameAgent}.${messageId2}` } : void 0);
+      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId2 && `${nameRepo}.${nameAgent}.${messageId2}`, slug2));
       return { via: "nats", subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullMail({ repo, agent, timeoutMs = 1e3 }) {
@@ -26487,6 +26530,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         via: "nats",
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.("Nats-Msg-Id") ?? null,
+        repoSlug: msg.headers?.get?.(ORCH_LAYOUT.repoSlugHeader) || null,
         body: sc.decode(msg.data),
         ack: async () => {
           msg.ack();
@@ -26497,12 +26541,12 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         }
       };
     },
-    async publishReply({ repo, agent, messageId: messageId2, body }) {
+    async publishReply({ repo, agent, messageId: messageId2, body, slug: slug2 = null }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
       const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId2 ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId2}` } : void 0);
+      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId2 && `${nameRepo}.${nameAgent}.reply.${messageId2}`, slug2));
       return { via: "nats", subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullReply({ repo, agent, replyTo, from, timeoutMs = 1e3 }) {
@@ -26768,6 +26812,8 @@ var init_orch_transport = __esm({
       personasBucket: "ORCH_PERSONAS",
       presenceTtlMs: 45e3,
       duplicateWindowMs: 12e4,
+      // TM-371: a header, not a subject change, so deployed peers keep matching `orch.<key>.…`.
+      repoSlugHeader: "Orch-Repo-Slug",
       mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
       replySubject: (repo, agent) => `orch.${repo}.mail.${agent}.reply`,
       tasksSubject: (repo) => `orch.${repo}.tasks.ready`,
@@ -27269,7 +27315,7 @@ async function publishMailboxEnvelope({ envelope, transport, ...options }) {
     await write(path3, record2);
     try {
       const publish3 = envelope.kind === "reply" ? transport.publishReply.bind(transport) : transport.publishMail.bind(transport);
-      const result2 = await publish3({ repo: repoKey(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
+      const result2 = await publish3({ repo: repoKey(envelope.repositoryId), slug: repoSlug(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
       const next = { ...record2, status: "published", publishedAt: nowIso(), result: result2, lastError: null };
       await write(path3, next);
       return next;
@@ -77505,10 +77551,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73";
+  return false ? null : "b64af8e5e1038243b8873da3b393e03936c9cf9245fc647e1713d34f1e32bc4f";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73";
+  const fingerprint2 = false ? null : "b64af8e5e1038243b8873da3b393e03936c9cf9245fc647e1713d34f1e32bc4f";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77933,7 +77979,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73",
+  sourceFingerprint: false ? null : "b64af8e5e1038243b8873da3b393e03936c9cf9245fc647e1713d34f1e32bc4f",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -77974,7 +78020,15 @@ async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, state
   if (consumerCwd2) {
     try {
       consumer = await resolveConsumerRepository({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3 });
-      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
+      admission = {
+        provided: true,
+        admitted: true,
+        checkoutRoot: consumer.checkoutRoot,
+        repositoryId: consumer.commonGitDir,
+        // TM-371: the readable name behind the digest in this repository's `orch.<key>` NATS subjects.
+        repositorySlug: repoSlug(consumer.commonGitDir),
+        natsSubjects: `orch.${repoKey(consumer.commonGitDir)}.>`
+      };
     } catch (error51) {
       admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
     }
