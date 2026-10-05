@@ -94,6 +94,27 @@ function recordPullRequest(task, p, exec) {
 }
 
 /**
+ * The uncommitted paths a failed worker left in its worktree (TM-246), or [].
+ *
+ * "worker exited without closing" said nothing about whether work was lost; TM-240 was parked
+ * with four uncommitted files and no commit, and nobody could tell from the board. Every
+ * collector's failure goes through recordResult, so the paths are read once here, for all of
+ * them. Bounded and never throws: no worktree, no git, or a removed checkout records nothing.
+ */
+function dirtyPaths(worktree) {
+  if (!worktree || !isAbsolute(String(worktree))) return [];
+  try {
+    const res = spawnSync("git", ["-C", worktree, "status", "--porcelain", "--untracked-files=all"], {
+      shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000,
+    });
+    if (res.error || res.status !== 0) return [];
+    return String(res.stdout || "").split("\n").filter(Boolean).map((line) => line.slice(3));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Whether a failed worker earns another attempt instead of parking (TM-363), as
  * { attempt, retries, retryAt }, or null.
  *
@@ -156,6 +177,11 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
 
     let parked = false;
     const scope = failureScope({ ...result, summary: note });
+    // After the scope is read, so a file name cannot change how the failure is classified (TM-246).
+    if (final === "failed") {
+      const dirty = dirtyPaths(task.worktree);
+      if (dirty.length) note = `${note || "worker failed"}\n\nuncommitted in ${task.worktree}: ${dirty.slice(0, 20).join(", ")}${dirty.length > 20 ? ` (+${dirty.length - 20} more)` : ""}`;
+    }
     const retry = retryPlan(task, final, scope, reviewReady, p);
     if (retry) {
       // Reopened, not parked: the claim goes so the pool can pick it up once retryAt passes.

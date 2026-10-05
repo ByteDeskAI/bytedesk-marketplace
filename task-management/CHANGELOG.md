@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A dispatched worker is told it has no later turn, and a failed one names the work it left
+  behind (TM-246, EP-028).** The handoff and the SubagentStart worker brief now render the same
+  three rules: do the task in your own session, never end your turn while a background agent or
+  command you started is still running, and never ask a question and wait — `tm block` with the
+  question instead. When a worker fails (for example, exits without closing) and its worktree has
+  uncommitted changes, the failure reason, parked reason and comment now list those paths
+  (`uncommitted in <worktree>: …`), for every collector.
+
 - **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
   heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
   exit and the claim expired after 240 minutes under a worker that was still running. Each pool

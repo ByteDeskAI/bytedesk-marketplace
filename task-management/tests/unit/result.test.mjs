@@ -10,7 +10,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addWorktree, cleanup, tempRepo, tempStore } from "./helpers.mjs";
@@ -207,6 +207,29 @@ describe("collectTmux — the session is the liveness signal", () => {
     assert.equal(read(id, p).status, "parked");
     assert.equal(read(id, p).parkedReason, "worker exited without closing");
     assert.equal(claimed(p, id), false);
+  });
+
+  it("session gone + uncommitted work = the dirty paths are in the reason (TM-246)", () => {
+    const p = store();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "README.md"), "# edited\n");
+    writeFileSync(join(repo, "new-file.mjs"), "export {};\n");
+    const id = dispatched(p, { backend: "tmux", worktree: repo });
+    const res = collectTmux(id, { p, spawnImpl: spawnReturning({ status: 1 }) });
+
+    assert.equal(res.outcome, "failed");
+    const reason = read(id, p).parkedReason;
+    assert.match(reason, /^worker exited without closing\n\nuncommitted in /);
+    assert.match(reason, /README\.md/);
+    assert.match(reason, /new-file\.mjs/);
+    assert.match(lastComment(p, id), /new-file\.mjs/);
+  });
+
+  it("session gone + clean worktree = the reason stays as it was", () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux", worktree: tempRepo() });
+    collectTmux(id, { p, spawnImpl: spawnReturning({ status: 1 }) });
+    assert.equal(read(id, p).parkedReason, "worker exited without closing");
   });
 
   it("a tmux that cannot run is a reason, not a throw", () => {
@@ -453,6 +476,15 @@ describe("collect — the dispatched record is the routing table", () => {
 });
 
 describe("the handoff's completion contract", () => {
+  it("tells a dispatched worker it has no later turn (TM-246)", () => {
+    const p = store();
+    const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
+    const out = handoff(t.id, p);
+    assert.match(out, /Do the task in your own session/);
+    assert.match(out, /Never end your turn while a background agent or command you started is still running/);
+    assert.match(out, new RegExp(`Never ask a question and wait for an answer; nobody will reply\\. Block instead: \\S+tm block ${t.id} "<the question>"`));
+  });
+
   it("tells a ready-for-agent worker exactly how to finish", () => {
     const p = store();
     const t = create(
