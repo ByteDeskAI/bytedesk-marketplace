@@ -1,0 +1,11 @@
+TM-276 AC3 evidence (Bastion lead, 2026-10-02 ~23:05Z)
+PR #154 merged (5ecbf649) -> fix branch -> main via #164 (9ce66223).
+plugin-rsync agent-orchestration,task-management from source 37918336; dist/cli.cjs sha256:
+  98aa5bd44627bcff /home/ryan/.codex/plugins/cache/bytedesk/agent-orchestration/local
+  98aa5bd44627bcff /home/ryan/.grok/installed-plugins/agent-orchestration-3e6932c4
+  98aa5bd44627bcff /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/agent-orchestration
+services status selfHeal.hostCopies: codex 'same build', grok 'same build', kimi 'is the services plugin root'
+all 8 managed processes restarted on that build (nats, session-host, 6 supervisors): Running
+/home/ryan/.codex/plugins/cache/bytedesk/agent-orchestration/local/topology/lib/nats-outage.mjs
+/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/agent-orchestration/topology/lib/nats-outage.mjs
+/home/ryan/.grok/installed-plugins/agent-orchestration-3e6932c4/topology/lib/nats-outage.mjs

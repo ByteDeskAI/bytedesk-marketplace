@@ -1,0 +1,26 @@
+TM-296 round 2 — revision d019e0c869becdcf7c8df951ac27c4c2b0fdaac2 (clean tree)
+== new tests on UNFIXED code (HEAD~ sources): 2 fail ==
+not ok 6 CLI ... set-instructions; not ok 7 replace never drops role protocol
+== topology-prompt-modes ==
+ok 1 - plain-string configs compose byte-identically to the pre-TM-296 golden
+ok 2 - the global prefix composes first, changes the revision, and is ignored with a warning elsewhere
+ok 3 - replace drops the same slot from wider layers at global, repo, role and agent
+ok 4 - validateConfigShape accepts entry objects and names every malformed one
+ok 5 - config layers: get reports the revision, set validates first and refuses a stale revision
+ok 6 - CLI: config get/set/validate, prompt preview --role/--agent, agent set-instructions
+ok 7 - replace never drops role protocol: a reviewer keeps AO_REVIEW after global, repo and agent replaces
+# pass 7
+# fail 0
+== build/build:check: exit 0 ==
+== test:unit ==
+not ok 523 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 530 - governed completion accepts a delegated integration record unchanged
+not ok 554 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 570 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1004
+# pass 996
+# fail 4
+== test:contract ==
+# tests 19
+# pass 19
+# fail 0

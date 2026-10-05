@@ -1,0 +1,491 @@
+{
+  "task": "TM-325",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-03T06:07:10.734Z",
+      "owner": "dc778cb2",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-325-agent-orchestration-effectivebase-excludes-merge",
+      "branch": "tm/TM-325-agent-orchestration-effectivebase-excludes-merge",
+      "intent": "effectiveBase resolves against the PR base / integration branch so review range and scope exclude other merged tasks",
+      "boundaries": [
+        "only the declared touches",
+        "keep merge-base safety invariant",
+        "no version bump; PR base fix/ao-local-nats-autostart"
+      ],
+      "dependencies": [],
+      "checks": [
+        "ao build + build:check + test:unit + test:contract"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist/cli.cjs",
+        "agent-orchestration/dist/mcp.cjs",
+        "agent-orchestration/docs",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/lib/management.mjs",
+        "agent-orchestration/topology/lib/reviewer.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-03T06:07:13.313Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-325",
+      "workflow_run_id": "tm-TM-325"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-03T06:07:13.886Z",
+      "worker": {
+        "name": "agent:TM-325-dc778cb2",
+        "run": "tmux:tm-TM-325",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-03T06:07:13.286Z",
+        "observed_at": "2026-10-03T06:07:13.881Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-325",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$172",
+          "sessionCreated": 1791007633,
+          "paneId": "%298",
+          "panePid": 163971
+        }
+      },
+      "workflow_run_id": "tm-TM-325"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-03T06:24:43.662Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "afa9b9099c61c82852f2026f80aadd4988c462eb",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/177",
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "npm ci: pass",
+          "build: pass",
+          "build:check: pass, tree clean",
+          "test:contract: 19/19 pass",
+          "test:unit: all pass except 4 landing/governed-completion tests that fail identically on unmodified HEAD (TM-293)",
+          "4 new TM-325 tests fail on unfixed reviewer.mjs, pass with fix",
+          "task-management unit: 1589/1589 with worker TM_* env stripped"
+        ],
+        "risks": [
+          "integrationBranch read from the task file is same-uid editable; a branch the server lacks only widens the range",
+          "reviewer range note still says 'default branch' for integration-branch exclusions (wording)"
+        ],
+        "evidence": "/tmp/tm325/TM-325-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-03T06:24:52.089Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "afa9b9099c61c82852f2026f80aadd4988c462eb",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/177",
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "npm ci: pass",
+          "build: pass",
+          "build:check: pass, tree clean",
+          "test:contract: 19/19 pass",
+          "test:unit: all pass except 4 landing/governed-completion tests that fail identically on unmodified HEAD (TM-293)",
+          "4 new TM-325 tests fail on unfixed reviewer.mjs, pass with fix",
+          "task-management unit: 1589/1589 with worker TM_* env stripped"
+        ],
+        "risks": [
+          "integrationBranch read from the task file is same-uid editable; a branch the server lacks only widens the range",
+          "reviewer range note still says 'default branch' for integration-branch exclusions (wording)"
+        ],
+        "evidence": "/tmp/tm325/TM-325-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-03T06:25:26.833Z",
+      "worker": {
+        "name": "agent:TM-325-dc778cb2",
+        "run": "tmux:tm-TM-325",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-03T06:07:13.286Z",
+        "observed_at": "2026-10-03T06:07:13.881Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-325",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$172",
+          "sessionCreated": 1791007633,
+          "paneId": "%298",
+          "panePid": 163971
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-03T06:29:21.534Z",
+      "worker": {
+        "name": "agent:TM-325-dc778cb2",
+        "run": "tmux:tm-TM-325",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-03T06:07:13.286Z",
+        "observed_at": "2026-10-03T06:07:13.881Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-325",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$172",
+          "sessionCreated": 1791007633,
+          "paneId": "%298",
+          "panePid": 163971
+        },
+        "stopped_at": "2026-10-03T06:25:26.833Z"
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rebuild-round-reopened",
+      "at": "2026-10-03T06:29:22.664Z",
+      "previous_state": "ready-for-review",
+      "previous_finish_revision": "afa9b9099c61c82852f2026f80aadd4988c462eb",
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02: TM-247 criterion-5 repair for rebuild and changes-requested rounds of TM-287 (#153) and TM-276 (#154); operator autonomous mandate 2026-10-02",
+        "reason": "start the next round after a finish report; no public verb reopens a ready-for-review admission (TM-247 AC5)"
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-03T06:29:28.670Z",
+      "worker": {
+        "name": "agent:TM-325-dc778cb2",
+        "run": "tmux:tm-TM-325",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-03T06:07:13.286Z",
+        "observed_at": "2026-10-03T06:29:28.664Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-325",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$173",
+          "sessionCreated": 1791008964,
+          "paneId": "%299",
+          "panePid": 687464
+        }
+      },
+      "workflow_run_id": "tm-TM-325"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-03T06:55:58.167Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+        "artifacts": [
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "npm ci: exit 0",
+          "npm run build: exit 0",
+          "npm run build:check: exit 0, git status clean",
+          "npm run test:unit: 1039/1047 pass; 4 fail, identical on clean base 1926ebb0 (TM-293)",
+          "TMUX= npm run test:contract: 19/19 pass",
+          "task-management node --test tests/unit/*.test.mjs: 1580/1589 pass; 9 fail, identical on clean base 1926ebb0",
+          "all 7 TM-325 tests fail on round-1 libs (afa9b909)"
+        ],
+        "risks": [
+          "PR-base confirmation is skipped (not refused) when gh cannot answer",
+          "tasks admitted before this change have no integration_branch and keep default-branch behaviour until re-admitted"
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-325-round2-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-03T06:56:04.193Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+        "artifacts": [
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "npm ci: exit 0",
+          "npm run build: exit 0",
+          "npm run build:check: exit 0, git status clean",
+          "npm run test:unit: 1039/1047 pass; 4 fail, identical on clean base 1926ebb0 (TM-293)",
+          "TMUX= npm run test:contract: 19/19 pass",
+          "task-management node --test tests/unit/*.test.mjs: 1580/1589 pass; 9 fail, identical on clean base 1926ebb0",
+          "all 7 TM-325 tests fail on round-1 libs (afa9b909)"
+        ],
+        "risks": [
+          "PR-base confirmation is skipped (not refused) when gh cannot answer",
+          "tasks admitted before this change have no integration_branch and keep default-branch behaviour until re-admitted"
+        ],
+        "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-325-round2-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-03T06:57:03.365Z",
+      "worker": {
+        "name": "agent:TM-325-dc778cb2",
+        "run": "tmux:tm-TM-325",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-03T06:07:13.286Z",
+        "observed_at": "2026-10-03T06:29:28.664Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-325",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$173",
+          "sessionCreated": 1791008964,
+          "paneId": "%299",
+          "panePid": 687464
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-03T07:32:16.159Z",
+      "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+      "landed": "2f37fcbb63992f6624d1267c2c97dc7529c8c411",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #177 merged; faro approved df0c0511; main via #178 (2f37fcbb)",
+        "policy_auto_merge": true,
+        "at": "2026-10-03T07:32:15.730Z"
+      }
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-03T07:32:35.153Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-325-agent-orchestration-effectivebase-excludes-merge",
+      "branch": "tm/TM-325-agent-orchestration-effectivebase-excludes-merge",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-03T07:32:35.153Z",
+  "base_revision": "1926ebb0d40e092403a1145bab829b029951de35",
+  "owner": "dc778cb2",
+  "workflow_run_id": "tm-TM-325",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-325-agent-orchestration-effectivebase-excludes-merge",
+  "branch": "tm/TM-325-agent-orchestration-effectivebase-excludes-merge",
+  "started": true,
+  "state": "cleaned",
+  "finish": {
+    "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+    "artifacts": [
+      "agent-orchestration/topology/lib/reviewer.mjs",
+      "agent-orchestration/topology/lib/management.mjs",
+      "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/CHANGELOG.md",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs"
+    ],
+    "checks": [
+      "npm ci: exit 0",
+      "npm run build: exit 0",
+      "npm run build:check: exit 0, git status clean",
+      "npm run test:unit: 1039/1047 pass; 4 fail, identical on clean base 1926ebb0 (TM-293)",
+      "TMUX= npm run test:contract: 19/19 pass",
+      "task-management node --test tests/unit/*.test.mjs: 1580/1589 pass; 9 fail, identical on clean base 1926ebb0",
+      "all 7 TM-325 tests fail on round-1 libs (afa9b909)"
+    ],
+    "risks": [
+      "PR-base confirmation is skipped (not refused) when gh cannot answer",
+      "tasks admitted before this change have no integration_branch and keep default-branch behaviour until re-admitted"
+    ],
+    "evidence": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/task-management/evidence/TM-325-round2-evidence.txt"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "1926ebb0d40e092403a1145bab829b029951de35",
+    "admitted_base": "1926ebb0d40e092403a1145bab829b029951de35",
+    "effective_base": "1926ebb0d40e092403a1145bab829b029951de35",
+    "range_note": "The range 1926ebb0d40e092403a1145bab829b029951de35..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-325-df0c051125b79b728abee3b1d86e5f17cd248157.patch",
+    "patch_sha256": "ea869dd1fbad2cbf1d4153f1ea92bd1104e4d82748bb5deae15f7be4bcc005e3",
+    "nonce": "8446df5d-1b97-47f5-916d-cd32f491a0c3",
+    "task": "TM-325",
+    "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$165",
+      "sessionCreated": 1790992932,
+      "paneId": "%286",
+      "panePid": 3743216
+    },
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "created_at": "2026-10-03T06:56:00.114Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-03T06:56:00.663Z"
+    },
+    "state": "published",
+    "collection": {
+      "at": "2026-10-03T06:56:05.277Z",
+      "code": "TOPOLOGY_REVIEWER_RESPONSE",
+      "reason": "Expected a nonce-bound review response from the designated pane."
+    },
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-325-df0c051125b79b728abee3b1d86e5f17cd248157.json"
+  },
+  "previous_workers": [
+    {
+      "name": "agent:TM-325-dc778cb2",
+      "run": "tmux:tm-TM-325",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-03T06:07:13.286Z",
+      "observed_at": "2026-10-03T06:07:13.881Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-325",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$172",
+        "sessionCreated": 1791007633,
+        "paneId": "%298",
+        "panePid": 163971
+      },
+      "stopped_at": "2026-10-03T06:29:21.534Z"
+    }
+  ],
+  "worker": {
+    "name": "agent:TM-325-dc778cb2",
+    "run": "tmux:tm-TM-325",
+    "backend": "tmux",
+    "owner": "dc778cb2",
+    "registered_at": "2026-10-03T06:07:13.286Z",
+    "observed_at": "2026-10-03T06:29:28.664Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-325",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$173",
+      "sessionCreated": 1791008964,
+      "paneId": "%299",
+      "panePid": 687464
+    },
+    "stopped_at": "2026-10-03T06:57:03.365Z"
+  },
+  "review": {
+    "base_revision": "1926ebb0d40e092403a1145bab829b029951de35",
+    "admitted_base": "1926ebb0d40e092403a1145bab829b029951de35",
+    "effective_base": "1926ebb0d40e092403a1145bab829b029951de35",
+    "patch_sha256": "ea869dd1fbad2cbf1d4153f1ea92bd1104e4d82748bb5deae15f7be4bcc005e3",
+    "task": "TM-325",
+    "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/topology/lib/reviewer.mjs",
+        "line": 919,
+        "claim": "A worker that can push to an unprotected integration branch can still move the merge-base and shrink its own range.",
+        "evidence": "effectiveBase trusts the server merge-base of the recorded branch with the revision.",
+        "fix": "Require branch protection on integration branches, or document it as the backstop."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$165",
+      "sessionCreated": 1790992932,
+      "paneId": "%286",
+      "panePid": 3743216
+    },
+    "request_nonce": "8446df5d-1b97-47f5-916d-cd32f491a0c3",
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "df0c051125b79b728abee3b1d86e5f17cd248157",
+    "created_at": "2026-10-03T06:57:13.257Z"
+  },
+  "merge": {
+    "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+    "landed": "2f37fcbb63992f6624d1267c2c97dc7529c8c411",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "df0c051125b79b728abee3b1d86e5f17cd248157",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #177 merged; faro approved df0c0511; main via #178 (2f37fcbb)",
+      "policy_auto_merge": true,
+      "at": "2026-10-03T07:32:15.730Z"
+    }
+  }
+}

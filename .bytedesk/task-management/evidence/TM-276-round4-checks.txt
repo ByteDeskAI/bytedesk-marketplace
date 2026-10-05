@@ -1,0 +1,69 @@
+TM-276 round 4 — revision 618d38816ddab2ab76243eda8ee8cfa2b16cfb3d (tree clean at measurement)
+
+== nats-outage.test.mjs (new tests 3-5) ==
+TAP version 13
+# Subtest: redactUrl drops credentials and keeps host and port
+ok 1 - redactUrl drops credentials and keeps host and port
+  ---
+  duration_ms: 0.638726
+  type: 'test'
+  ...
+# Subtest: a dead ambient NATS_URL falls back to managed local and mails the lead once, then once on recovery
+ok 2 - a dead ambient NATS_URL falls back to managed local and mails the lead once, then once on recovery
+  ---
+  duration_ms: 377.63352
+  type: 'test'
+  ...
+# Subtest: an open from an env without NATS_URL does not close the dead NATS_URL outage: one outage mail, no recovery mail
+ok 3 - an open from an env without NATS_URL does not close the dead NATS_URL outage: one outage mail, no recovery mail
+  ---
+  duration_ms: 171.9903
+  type: 'test'
+  ...
+# Subtest: openNatsTransport records the selection under the caller's home, not the process home
+ok 4 - openNatsTransport records the selection under the caller's home, not the process home
+  ---
+  duration_ms: 124.680042
+  type: 'test'
+  ...
+# Subtest: a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+ok 5 - a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+  ---
+  duration_ms: 35.575797
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 788.531702
+
+== mutation check: new tests on unfixed code ==
+orch-transport.mjs reverted to HEAD~: tests 3 and 4 not ok; nats-outage.mjs reverted: test 5 not ok
+
+== build / build:check ==
+npm run build exit 0; npm run build:check exit 0
+
+== test:unit summary ==
+not ok 474 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 481 - governed completion accepts a delegated integration record unchanged
+not ok 505 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 521 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 946
+# pass 938
+# fail 4
+# cancelled 0
+# skipped 4
+
+== test:contract summary ==
+# TM-290 provider guard: 5 real provider CLI spawn(s) from tests:
+not ok 8 - tests/contract/topology-tmux.test.mjs
+# tests 20
+# pass 19
+# fail 1
+# cancelled 0
+# skipped 0

@@ -1,0 +1,398 @@
+{
+  "task": "TM-300",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-02T20:52:04.470Z",
+      "owner": "dc778cb2",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-300-task-management-tmux-dispatched-workers-receive-",
+      "branch": "tm/TM-300-task-management-tmux-dispatched-workers-receive-",
+      "intent": "Prepend ao's global prefix to tmux/manual dispatch handoffs (best effort, no double prefix) and add the tm config JSON get/set contract with validation and revisions (EP-003 D).",
+      "boundaries": [
+        "task-management only",
+        "tests use a fake ao on PATH; never real config, services or workers",
+        "no version bump; PR base fix/ao-local-nats-autostart"
+      ],
+      "dependencies": [
+        "PR #159 (TM-296) merged"
+      ],
+      "checks": [
+        "task-management unit tests",
+        "claude plugin validate ./task-management",
+        "agent-orchestration test:unit unchanged"
+      ],
+      "files": [
+        "task-management/CHANGELOG.md",
+        "task-management/README.md",
+        "task-management/bin/tm",
+        "task-management/docs",
+        "task-management/lib",
+        "task-management/tests"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-02T20:52:07.423Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-300",
+      "workflow_run_id": "tm-TM-300"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T20:52:08.098Z",
+      "worker": {
+        "name": "agent:TM-300-dc778cb2",
+        "run": "tmux:tm-TM-300",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T20:52:07.384Z",
+        "observed_at": "2026-10-02T20:52:08.091Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-300",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$135",
+          "sessionCreated": 1790974327,
+          "paneId": "%251",
+          "panePid": 1749429
+        }
+      },
+      "workflow_run_id": "tm-TM-300"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T21:05:43.180Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "dd2aada7364a9af659b64d24e35c2abf8ae2308d",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/161"
+        ],
+        "checks": [
+          "task-management node --test tests/unit/*.test.mjs: 1579/1579 pass (dispatch-worker env scrubbed)",
+          "claude plugin validate ./task-management: passed with warnings",
+          "agent-orchestration npm ci && npm run test:unit: 1004 tests, 1000 pass, 0 fail, 4 skipped",
+          "live aoGlobalPrefix vs real bin/ao-topology with temp XDG_CONFIG_HOME: prefix text returned"
+        ],
+        "risks": [
+          "Inside a dispatched worker, 9 task-management tests fail unless TM_SESSION_ID/TM_ROOT/TM_DISPATCH_* are scrubbed; identical on base d3a52d3e, not introduced here",
+          "TM-240 independence test relaxed to allow exactly the ao-missing prefix warning (TM-300 requires it); governance warnings still forbidden",
+          "--set-file does not schema-check free-form nested sections (dispatch.tmuxCommand, board.views)"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-300-tm300-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T21:06:32.800Z",
+      "worker": {
+        "name": "agent:TM-300-dc778cb2",
+        "run": "tmux:tm-TM-300",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T20:52:07.384Z",
+        "observed_at": "2026-10-02T20:52:08.091Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-300",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$135",
+          "sessionCreated": 1790974327,
+          "paneId": "%251",
+          "panePid": 1749429
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rebuild-round-reopened",
+      "at": "2026-10-02T21:07:12.090Z",
+      "previous_state": "ready-for-review",
+      "previous_finish_revision": "dd2aada7364a9af659b64d24e35c2abf8ae2308d",
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02: TM-247 criterion-5 repair for rebuild and changes-requested rounds of TM-287 (#153) and TM-276 (#154); operator autonomous mandate 2026-10-02",
+        "reason": "start the next round after a finish report; no public verb reopens a ready-for-review admission (TM-247 AC5)"
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T21:07:17.843Z",
+      "worker": {
+        "name": "agent:TM-300-dc778cb2",
+        "run": "tmux:tm-TM-300",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T20:52:07.384Z",
+        "observed_at": "2026-10-02T21:07:17.834Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-300",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$138",
+          "sessionCreated": 1790975234,
+          "paneId": "%254",
+          "panePid": 2214138
+        }
+      },
+      "workflow_run_id": "tm-TM-300"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T21:12:32.730Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/161"
+        ],
+        "checks": [
+          "task-management unit tests: 1582/1582 pass (dispatched-worker TM_* env scrubbed; with it 9 claims/actor/session tests fail identically on pre-change source)",
+          "new round-2 tests: 4 fail on dd2aada7, pass on 1934b60f",
+          "claude plugin validate ./task-management: passed with pre-existing warnings"
+        ],
+        "risks": [
+          "tm config <key> <value> (writeConfig) still persists defaults; unchanged and out of scope",
+          "--with-revision no longer has a `config` field (replaced by stored + effective; unreleased contract)"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-300-round2-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T21:12:38.428Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/161"
+        ],
+        "checks": [
+          "task-management unit tests: 1582/1582 pass (dispatched-worker TM_* env scrubbed; with it 9 claims/actor/session tests fail identically on pre-change source)",
+          "new round-2 tests: 4 fail on dd2aada7, pass on 1934b60f",
+          "claude plugin validate ./task-management: passed with pre-existing warnings"
+        ],
+        "risks": [
+          "tm config <key> <value> (writeConfig) still persists defaults; unchanged and out of scope",
+          "--with-revision no longer has a `config` field (replaced by stored + effective; unreleased contract)"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-300-round2-evidence.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T21:13:30.064Z",
+      "worker": {
+        "name": "agent:TM-300-dc778cb2",
+        "run": "tmux:tm-TM-300",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T20:52:07.384Z",
+        "observed_at": "2026-10-02T21:07:17.834Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-300",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$138",
+          "sessionCreated": 1790975234,
+          "paneId": "%254",
+          "panePid": 2214138
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-02T23:43:27.806Z",
+      "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+      "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #161 merged after faro approved 1934b60f; CI green; main via #164 (9ce66223)",
+        "policy_auto_merge": true,
+        "at": "2026-10-02T23:43:27.459Z"
+      }
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-02T23:45:05.609Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-300-task-management-tmux-dispatched-workers-receive-",
+      "branch": "tm/TM-300-task-management-tmux-dispatched-workers-receive-",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-02T23:45:05.609Z",
+  "base_revision": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+  "owner": "dc778cb2",
+  "workflow_run_id": "tm-TM-300",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-300-task-management-tmux-dispatched-workers-receive-",
+  "branch": "tm/TM-300-task-management-tmux-dispatched-workers-receive-",
+  "started": true,
+  "state": "cleaned",
+  "finish": {
+    "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/161"
+    ],
+    "checks": [
+      "task-management unit tests: 1582/1582 pass (dispatched-worker TM_* env scrubbed; with it 9 claims/actor/session tests fail identically on pre-change source)",
+      "new round-2 tests: 4 fail on dd2aada7, pass on 1934b60f",
+      "claude plugin validate ./task-management: passed with pre-existing warnings"
+    ],
+    "risks": [
+      "tm config <key> <value> (writeConfig) still persists defaults; unchanged and out of scope",
+      "--with-revision no longer has a `config` field (replaced by stored + effective; unreleased contract)"
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-300-round2-evidence.txt"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+    "admitted_base": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+    "effective_base": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+    "range_note": "The range d3a52d3e221fac6e4ceb22ae47b052fce8717eb1..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-300-1934b60f16de1ea6130b0548114304b457b865bd.patch",
+    "patch_sha256": "db47d2fdcbd7aced7464dae14724ae81cec8606e461573f28395edf308f8a26f",
+    "nonce": "327b53b1-82f8-4725-ab54-69d6834812e0",
+    "task": "TM-300",
+    "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "created_at": "2026-10-02T21:12:34.879Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-02T21:12:35.415Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-300-1934b60f16de1ea6130b0548114304b457b865bd.json"
+  },
+  "previous_workers": [
+    {
+      "name": "agent:TM-300-dc778cb2",
+      "run": "tmux:tm-TM-300",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T20:52:07.384Z",
+      "observed_at": "2026-10-02T20:52:08.091Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-300",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$135",
+        "sessionCreated": 1790974327,
+        "paneId": "%251",
+        "panePid": 1749429
+      },
+      "stopped_at": "2026-10-02T21:06:32.800Z"
+    }
+  ],
+  "worker": {
+    "name": "agent:TM-300-dc778cb2",
+    "run": "tmux:tm-TM-300",
+    "backend": "tmux",
+    "owner": "dc778cb2",
+    "registered_at": "2026-10-02T20:52:07.384Z",
+    "observed_at": "2026-10-02T21:07:17.834Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-300",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$138",
+      "sessionCreated": 1790975234,
+      "paneId": "%254",
+      "panePid": 2214138
+    },
+    "stopped_at": "2026-10-02T21:13:30.064Z"
+  },
+  "review": {
+    "base_revision": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+    "admitted_base": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+    "effective_base": "d3a52d3e221fac6e4ceb22ae47b052fce8717eb1",
+    "patch_sha256": "db47d2fdcbd7aced7464dae14724ae81cec8606e461573f28395edf308f8a26f",
+    "task": "TM-300",
+    "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "file": "task-management/bin/tm",
+        "line": 146,
+        "claim": "The key verb still writes writeConfig(setPath(config(P), key, parsed)), and config(P) is the effective config. Unless writeConfig strips defaults, tm config <key> <value> still copies every current default into config.json, so the 'freezes nothing' guarantee covers --set-file only."
+      },
+      {
+        "severity": "note",
+        "file": "task-management/lib/settings.mjs",
+        "line": 385,
+        "claim": "withoutDefaults also drops a value the operator deliberately set equal to today's default, so a setting can no longer be pinned against a future default change through --set-file. The three round-1 minors are fixed and covered by tests (invalid ao layer not applied, malformed JSON refused, stored/effective split with defaults dropped), and the request includes no test-run output."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "request_nonce": "327b53b1-82f8-4725-ab54-69d6834812e0",
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "1934b60f16de1ea6130b0548114304b457b865bd",
+    "created_at": "2026-10-02T21:13:51.110Z"
+  },
+  "merge": {
+    "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+    "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "1934b60f16de1ea6130b0548114304b457b865bd",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #161 merged after faro approved 1934b60f; CI green; main via #164 (9ce66223)",
+      "policy_auto_merge": true,
+      "at": "2026-10-02T23:43:27.459Z"
+    }
+  }
+}

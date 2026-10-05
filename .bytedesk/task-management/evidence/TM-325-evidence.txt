@@ -1,0 +1,40 @@
+TM-325 evidence — commit afa9b9099c61c82852f2026f80aadd4988c462eb, PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/177
+
+== summary
+npm ci exit 0
+build exit 0
+build:check exit 0
+test:unit exit 1
+test:contract exit 0
+tm unit exit 1
+tm unit (worker env stripped):
+# tests 1589
+# pass 1589
+# fail 0
+contract clean rerun:
+# pass 19
+# fail 0
+
+== agent-orchestration test:unit totals and failures (all 4 also fail on unmodified HEAD; TM-293)
+not ok 552 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 559 - governed completion accepts a delegated integration record unchanged
+not ok 586 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 602 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1044
+# pass 1036
+# fail 4
+
+== new + TM-257 tests from the full unit run
+ok 567 - TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope
+ok 568 - TM-325 integration scope excludes what the task merged from its integration branch, not only main
+ok 569 - TM-325 an out-of-scope file is still refused when the task merged its integration branch
+ok 570 - TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check
+ok 834 - TM-257 (a,f) a branch that merged main is reviewed over its own changes, before and after landing
+ok 835 - TM-325 a branch that merged its integration branch is reviewed over its own changes only
+ok 836 - TM-325 an integration branch the server cannot answer for, or a malformed one, keeps the admitted range
+ok 837 - TM-257 (b) a branch that never merged main keeps the admitted range
+ok 838 - TM-257 (c) moving local main and origin/main to a mid-task commit does not shrink the range
+ok 839 - TM-257 (d) a server merge-base outside admitted..revision is refused
+ok 840 - TM-257 (d) a server merge-base that is not a descendant of the admitted base is refused
+ok 841 - TM-257 (e) an unavailable or malformed server fails closed to the admitted base with a note
+ok 842 - TM-257 (h) a pre-TM-257 request after landing verifies the stored review base, or asks for a re-review

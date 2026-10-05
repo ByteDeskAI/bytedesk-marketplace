@@ -1,0 +1,25 @@
+TM-265 verification evidence
+
+Pull request: https://github.com/ByteDeskAI/bytedesk-marketplace/pull/138
+Commit: 9604fe6b7919aa27b49037c36827fa8cbfe9bda9
+
+Local checks on the PR branch:
+- PASS: node --test tests/contract/clean-install.test.mjs (installed plugin copy, no node_modules, NATS JetStream handshake)
+- PASS: npm run build:check (tracked bundles are deterministic)
+- PASS: node --import ./tests/unit/register-file-transport.mjs --test --test-concurrency=1 tests/unit/orch-transport.test.mjs (3/3)
+- PASS: claude plugin validate ./agent-orchestration (expected warning: no version for internal marketplace plugin)
+- PASS: git diff --cached --check
+
+GitHub checks were still running when the PR was opened; see the pull request for their current state.
+
+CI follow-up:
+- The first CI rebuild exposed different internal esbuild paths because the local worktree had been using a node_modules symlink into the main checkout.
+- Replaced that symlink with `npm ci --ignore-scripts`, regenerated `dist/topology-nats.cjs`, and confirmed `npm run build:check` passes with the clean worktree install.
+- Follow-up commit: 0565f3a03d1123aa
+- GitHub checks are rerunning on PR #138; do not treat the earlier failed run as current acceptance.
+
+Final CI result on PR #138, commit 0565f3a03d1123aa:
+- PASS: unit-build-contracts (both push and pull-request runs)
+- PASS: Strict installed-cache contract (both runs)
+- PASS: test-build-install (both runs)
+- PASS: check

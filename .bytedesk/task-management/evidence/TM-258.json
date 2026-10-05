@@ -1,0 +1,123 @@
+{
+  "task": "TM-258",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-27T02:37:35.978Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-258-agent-orchestration-reviewer-land-tm-257-s-serve",
+      "branch": "tm/TM-258-agent-orchestration-reviewer-land-tm-257-s-serve",
+      "intent": "Land TM-257 (server-anchored effective review base) from a branch admitted at current main, carrying only TM-257 commits f981146 and 28b2e6d",
+      "boundaries": [
+        "agent-orchestration reviewer.mjs trustedReviewRange + management.mjs integrationEligibility scope, one shared helper",
+        "tests, dist, CHANGELOG",
+        "no push/PR/merge by worker",
+        "no version fields"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/lib/management.mjs",
+        "agent-orchestration/topology/lib/reviewer.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T02:40:20.171Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "cb1fba3f16e2f79c05976d6d5922c5880ce897a1",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/132",
+          "agent-orchestration/topology/lib/reviewer.mjs",
+          "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/CHANGELOG.md"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 749 tests, 745 pass, 0 fail, 4 skipped (lead, this worktree, real npm ci)",
+          "npm run -s build:check: exit 0",
+          "claude plugin validate ./agent-orchestration: exit 0, expected No version specified warning only",
+          "attack tests (local origin/main and main moved mid-task) fail 0/3 against f981146 local-ref code, pass with this code (worker rule-1 proof)"
+        ],
+        "risks": [
+          "Trust anchor is GitHub default branch via gh; a same-user process could replace gh or the remote config (documented same-uid limit).",
+          "Default gh implementation exercised by hand (compare main...f981146 -> merge_base 8b26684; a 404), not by a unit test."
+        ],
+        "evidence": "Branch admitted at 8b26684 carries TM-257 commits f981146+28b2e6d cherry-picked (tree identical to 28b2e6d). Addresses Faro f981146 majors: no local-ref path remains (grep refs/remotes = 0); scope check shares the helper; old-format requests verified by patch hash or TOPOLOGY_REVIEWER_REREVIEW."
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-27T02:40:20.171Z",
+  "base_revision": "8b266841c43f8de454dca929d702b47df159c807",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-258",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-258-agent-orchestration-reviewer-land-tm-257-s-serve",
+  "branch": "tm/TM-258-agent-orchestration-reviewer-land-tm-257-s-serve",
+  "started": true,
+  "state": "ready-for-review",
+  "finish": {
+    "revision": "cb1fba3f16e2f79c05976d6d5922c5880ce897a1",
+    "artifacts": [
+      "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/132",
+      "agent-orchestration/topology/lib/reviewer.mjs",
+      "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs",
+      "agent-orchestration/CHANGELOG.md"
+    ],
+    "checks": [
+      "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 749 tests, 745 pass, 0 fail, 4 skipped (lead, this worktree, real npm ci)",
+      "npm run -s build:check: exit 0",
+      "claude plugin validate ./agent-orchestration: exit 0, expected No version specified warning only",
+      "attack tests (local origin/main and main moved mid-task) fail 0/3 against f981146 local-ref code, pass with this code (worker rule-1 proof)"
+    ],
+    "risks": [
+      "Trust anchor is GitHub default branch via gh; a same-user process could replace gh or the remote config (documented same-uid limit).",
+      "Default gh implementation exercised by hand (compare main...f981146 -> merge_base 8b26684; a 404), not by a unit test."
+    ],
+    "evidence": "Branch admitted at 8b26684 carries TM-257 commits f981146+28b2e6d cherry-picked (tree identical to 28b2e6d). Addresses Faro f981146 majors: no local-ref path remains (grep refs/remotes = 0); scope check shares the helper; old-format requests verified by patch hash or TOPOLOGY_REVIEWER_REREVIEW."
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "8b266841c43f8de454dca929d702b47df159c807",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-258-cb1fba3f16e2f79c05976d6d5922c5880ce897a1.patch",
+    "patch_sha256": "276031b97b97df0506825c516b25a79ff5876f0ee2c4fcd7a6cb8945ff300923",
+    "nonce": "3fc95690-70b4-4073-97f9-f33326b0d64f",
+    "task": "TM-258",
+    "revision": "cb1fba3f16e2f79c05976d6d5922c5880ce897a1",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-27T02:40:20.745Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-27T02:40:21.292Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-258-cb1fba3f16e2f79c05976d6d5922c5880ce897a1.json"
+  }
+}

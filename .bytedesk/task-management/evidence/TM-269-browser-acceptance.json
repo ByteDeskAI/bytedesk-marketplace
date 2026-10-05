@@ -1,0 +1,66 @@
+{
+  "projectId": "proj-65a98f74958d65c2",
+  "url": "http://localhost:8443/projects/proj-65a98f74958d65c2?group=orchestration",
+  "tool": "agent-browser",
+  "checkpoints": [
+    {
+      "checkpoint": "loop-start",
+      "state": "blocked",
+      "revision": 2,
+      "taskIds": [],
+      "reports": 0,
+      "diagnostic": {
+        "code": "GOAL_LOOP_SUPERVISION",
+        "message": "Repository supervisor is unavailable: startup-failed. Reconcile this loop to retry activation."
+      }
+    },
+    {
+      "checkpoint": "loop-paused",
+      "state": "paused",
+      "revision": 3,
+      "taskIds": [],
+      "reports": 0,
+      "diagnostic": {
+        "code": "GOAL_LOOP_SUPERVISION",
+        "message": "Repository supervisor is unavailable: startup-failed. Reconcile this loop to retry activation."
+      }
+    },
+    {
+      "checkpoint": "loop-resumed",
+      "state": "blocked",
+      "revision": 5,
+      "taskIds": [],
+      "reports": 0,
+      "diagnostic": {
+        "code": "GOAL_LOOP_SUPERVISION",
+        "message": "Repository supervisor is unavailable: startup-failed. Reconcile this loop to retry activation."
+      }
+    },
+    {
+      "checkpoint": "loop-stopped",
+      "state": "stopped",
+      "revision": 6,
+      "taskIds": [],
+      "reports": 0,
+      "diagnostic": {
+        "code": "GOAL_LOOP_STOPPED",
+        "message": "Controller stopped. Existing task writers are preserved; use governed task controls to resolve them."
+      }
+    }
+  ],
+  "refreshShows": "Stopped; 0 active; 1 recent; nothing needs you",
+  "receiptsView": "No retained messages returned by the producer; publication never succeeded",
+  "limitations": [
+    "Live lead pickup and approval continuation not exercised: supervisor NATS connection refused",
+    "Nonempty receipts and typed approval were exercised in browser fixture and automated tests",
+    "No task writers launched; existing-writer lifecycle acceptance remains unproven"
+  ],
+  "cleanup": {
+    "loopStopped": true,
+    "repositoryExplicitlyDisabled": true,
+    "supervisorExited": true,
+    "pilotRecipeRemoved": true,
+    "projectRetainedForInspection": true,
+    "note": "No UI remove action exists; API cleanup session was expired (401), so registration was preserved."
+  }
+}

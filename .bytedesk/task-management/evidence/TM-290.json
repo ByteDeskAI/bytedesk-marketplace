@@ -1,0 +1,299 @@
+{
+  "task": "TM-290",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-02T12:45:46.533Z",
+      "owner": "dc778cb2",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr",
+      "branch": "tm/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr",
+      "intent": "Audit tests that run supervise/lead/startup against a temp repo; make the shared temp-repo helper opt out of enrollment by default; add a guard test that fails when a unit test spawns a real provider CLI.",
+      "boundaries": [
+        "tests/helpers and the specific temp-repo call sites only",
+        "no product code changes",
+        "PR base fix/ao-local-nats-autostart"
+      ],
+      "dependencies": [],
+      "checks": [
+        "agent-orchestration: unit (env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs)",
+        "agent-orchestration: build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/tests/helpers",
+        "agent-orchestration/tests/unit"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-02T12:56:53.379Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-290",
+      "workflow_run_id": "tm-TM-290"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T12:56:54.116Z",
+      "worker": {
+        "name": "agent:TM-290-dc778cb2",
+        "run": "tmux:tm-TM-290",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:56:53.300Z",
+        "observed_at": "2026-10-02T12:56:54.109Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-290",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$111",
+          "sessionCreated": 1790945812,
+          "paneId": "%227",
+          "panePid": 608150
+        }
+      },
+      "workflow_run_id": "tm-TM-290"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T13:18:46.886Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/151",
+          "agent-orchestration/tests/helpers/provider-guard.mjs",
+          "agent-orchestration/tests/helpers/temp-repo.mjs",
+          "agent-orchestration/tests/unit/provider-guard.test.mjs",
+          "call-site fixes in topology-supervise-exit, topology-supervision, topology-respawn, topology-session-names, topology-repo-enrollment, contract/topology-activation-tmux"
+        ],
+        "checks": [
+          "unit before fixes with guard on: 6 real claude spawns in 4 files (evidence/TM-290-unit-audit-before.log)",
+          "unit after: 935 tests, 927 pass, 0 guard hits; 4 failures in topology-management.test.mjs, identical with the guard off (evidence/TM-290-management-guard-off-control.log), file untouched",
+          "contract topology-*-tmux: 7/7 pass (evidence/TM-290-contract-tmux-after.log)"
+        ],
+        "risks": [
+          "the guard runs only via the test preflight (npm test / test:contract); a bare node --test contract step is unguarded",
+          "topology-activation-tmux change is defensive",
+          "pre-existing unit failures on base 35488ce2 (topology-management x4) mean the required unit check is red independent of this change"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-290-unit-full-after.log"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T13:28:21.344Z",
+      "worker": {
+        "name": "agent:TM-290-dc778cb2",
+        "run": "tmux:tm-TM-290",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:56:53.300Z",
+        "observed_at": "2026-10-02T12:56:54.109Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-290",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$111",
+          "sessionCreated": 1790945812,
+          "paneId": "%227",
+          "panePid": 608150
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "cleanup-blocked",
+      "at": "2026-10-02T19:05:52.579Z",
+      "reason": "Verified merge and collected results are required.",
+      "recovery": "Preserve the task, results and worktree; resolve the named ownership, writer or landing gate, then retry cleanup."
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-02T23:42:45.922Z",
+      "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+      "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #151 merged after faro approved 32379307; CI green; main via #164 (9ce66223)",
+        "policy_auto_merge": true,
+        "at": "2026-10-02T23:42:45.606Z"
+      }
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-02T23:43:38.220Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr",
+      "branch": "tm/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-02T23:43:38.220Z",
+  "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+  "owner": "dc778cb2",
+  "workflow_run_id": "tm-TM-290",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr",
+  "branch": "tm/TM-290-agent-orchestration-tests-a-temp-git-repo-is-enr",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-290-dc778cb2",
+    "run": "tmux:tm-TM-290",
+    "backend": "tmux",
+    "owner": "dc778cb2",
+    "registered_at": "2026-10-02T12:56:53.300Z",
+    "observed_at": "2026-10-02T12:56:54.109Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-290",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$111",
+      "sessionCreated": 1790945812,
+      "paneId": "%227",
+      "panePid": 608150
+    },
+    "stopped_at": "2026-10-02T13:28:21.344Z"
+  },
+  "finish": {
+    "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+    "artifacts": [
+      "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/151",
+      "agent-orchestration/tests/helpers/provider-guard.mjs",
+      "agent-orchestration/tests/helpers/temp-repo.mjs",
+      "agent-orchestration/tests/unit/provider-guard.test.mjs",
+      "call-site fixes in topology-supervise-exit, topology-supervision, topology-respawn, topology-session-names, topology-repo-enrollment, contract/topology-activation-tmux"
+    ],
+    "checks": [
+      "unit before fixes with guard on: 6 real claude spawns in 4 files (evidence/TM-290-unit-audit-before.log)",
+      "unit after: 935 tests, 927 pass, 0 guard hits; 4 failures in topology-management.test.mjs, identical with the guard off (evidence/TM-290-management-guard-off-control.log), file untouched",
+      "contract topology-*-tmux: 7/7 pass (evidence/TM-290-contract-tmux-after.log)"
+    ],
+    "risks": [
+      "the guard runs only via the test preflight (npm test / test:contract); a bare node --test contract step is unguarded",
+      "topology-activation-tmux change is defensive",
+      "pre-existing unit failures on base 35488ce2 (topology-management x4) mean the required unit check is red independent of this change"
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-290-unit-full-after.log"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "admitted_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "effective_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "range_note": "The range 35488ce2a3b109ddb7f4e3b170b348e60ddc5986..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-290-3237930758c228d1669fe1b9092e8a855b2c6b52.patch",
+    "patch_sha256": "13db7a5a41104e1c0dc7869c293ae02756a8cab201a9d86ac7f093c96755295a",
+    "nonce": "461ba07f-bdc3-4dc2-bda0-9205606e46fb",
+    "task": "TM-290",
+    "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "created_at": "2026-10-02T13:18:49.272Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-02T13:18:49.806Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-290-3237930758c228d1669fe1b9092e8a855b2c6b52.json"
+  },
+  "review": {
+    "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "admitted_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "effective_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "patch_sha256": "13db7a5a41104e1c0dc7869c293ae02756a8cab201a9d86ac7f093c96755295a",
+    "task": "TM-290",
+    "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/tests/helpers/provider-guard.mjs",
+        "line": 103,
+        "claim": "The runner deletes the shim directory on exit, so a supervisor daemon that a test leaked resolves claude to the real CLI on its next tick after the run ends.",
+        "evidence": "The exit handler runs rmSync(dir, {recursive:true}) while the leaked daemon's PATH still starts with that now-missing directory. PATH lookup then falls through to the operator's real provider CLI. Leaked supervise daemons are the failure this task defends against, and the CHANGELOG headline says 'No test can start a real provider CLI'.",
+        "fix": "Leave the shims in place (a stable per-user directory, or skip the rmSync), or have the exit handler also fail the run when any supervise process for a temp repo is still alive. Otherwise narrow the CHANGELOG claim to spawns during the run."
+      },
+      {
+        "severity": "nit",
+        "file": "agent-orchestration/CHANGELOG.md",
+        "line": 14,
+        "claim": "The CHANGELOG says 'the test file that ran it fails', but the guard fails the whole run and only names the file; the test file's own result does not change.",
+        "evidence": "provider-guard.mjs sets process.exitCode = 1 in the runner's exit handler and writes the file name to stderr; nothing marks the individual test as failed.",
+        "fix": "Reword to: the run exits non-zero and names the test file that spawned the provider."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/tests/helpers/provider-guard.mjs",
+        "line": 95,
+        "claim": "The guard only catches spawns that look up a bare command name on PATH. A test that sets PATH explicitly without the shim directory, or a provider configured by absolute path, gets past it."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/CHANGELOG.md",
+        "line": 17,
+        "claim": "The request includes no test-run output, so the claim that the guard found six spawns in four files, and that the suite now passes with the guard on, is unverified. This approval rests on reading the diff, not on any check result."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "request_nonce": "461ba07f-bdc3-4dc2-bda0-9205606e46fb",
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+    "created_at": "2026-10-02T13:59:49.678Z"
+  },
+  "merge": {
+    "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+    "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "3237930758c228d1669fe1b9092e8a855b2c6b52",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #151 merged after faro approved 32379307; CI green; main via #164 (9ce66223)",
+      "policy_auto_merge": true,
+      "at": "2026-10-02T23:42:45.606Z"
+    }
+  }
+}

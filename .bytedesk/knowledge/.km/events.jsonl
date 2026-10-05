@@ -145,3 +145,183 @@
 {"ts":"2026-09-14T00:47:01.270Z","kind":"hook_session_start","session":"b912ef80-3a7e-46bd-b455-eadb913d0808"}
 {"ts":"2026-09-21T14:45:12.405Z","kind":"hook_session_start","session":"84120c30-ca69-426f-a463-3cadc1b17470"}
 {"ts":"2026-09-21T14:45:58.233Z","kind":"hook_session_start","session":"e4488bd9-042f-4894-8874-3517f94be558"}
+{"ts":"2026-09-23T22:17:46.318Z","kind":"hook_session_start","session":"e4488bd9-042f-4894-8874-3517f94be558"}
+{"ts":"2026-09-23T22:17:53.254Z","kind":"hook_session_start","session":"40645e47-066b-4937-abc2-55d42e9ea247"}
+{"ts":"2026-09-24T17:12:35.821Z","kind":"hook_session_start","session":"bb37bd5b-8849-41bd-9804-b9cea403fbdb"}
+{"ts":"2026-09-24T21:57:29.717Z","kind":"hook_session_start","session":"766c095c-f980-459e-8338-3ccfdf1d4d48"}
+{"ts":"2026-09-24T21:57:50.207Z","kind":"hook_session_start","session":"6f4ee53c-be1d-4861-8622-3f4eed835f48"}
+{"ts":"2026-09-24T22:43:56.719Z","kind":"hook_session_start","session":"4be85887-dc3d-406f-aead-67236b273d0c"}
+{"ts":"2026-09-24T23:21:16.920Z","kind":"hook_session_start","session":"0f2b171e-ea8f-41f4-ba36-c30569ee7883"}
+{"ts":"2026-09-24T23:22:07.435Z","kind":"hook_session_start","session":"518e3fc4-4a32-4cc0-b81c-3d6df26f4fa9"}
+{"ts":"2026-09-25T01:04:14.240Z","kind":"hook_session_start","session":"baecc63e-bd35-4764-a3b8-03df1ccb9b1a"}
+{"ts":"2026-09-25T14:50:43.650Z","kind":"hook_session_start","session":"b5c4565b-7604-49d3-a100-17220c3f2a2f"}
+{"ts":"2026-09-25T14:51:17.216Z","kind":"hook_session_start","session":"774fbff5-615c-494e-9759-8cab757c54c0"}
+{"ts":"2026-09-25T14:55:18.967Z","kind":"hook_session_start","session":"12fd8144-b3fe-4df7-8613-cba1bd7ed7ec"}
+{"ts":"2026-09-25T15:27:39.241Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"architecture/task-management-and-agent-orchestration-stay-ind","type":"Architecture"}
+{"ts":"2026-09-25T15:27:51.899Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"architecture/task-management-and-agent-orchestration-stay-ind","type":"Architecture"}
+{"ts":"2026-09-25T15:27:51.994Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"architecture/task-management-and-agent-orchestration-stay-ind","type":"Architecture"}
+{"ts":"2026-09-25T15:27:52.090Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"architecture/task-management-and-agent-orchestration-stay-ind","type":"Architecture"}
+{"ts":"2026-09-25T15:27:52.178Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"architecture/task-management-and-agent-orchestration-stay-ind","type":"Architecture"}
+{"ts":"2026-09-25T17:49:57.533Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"decisions/decision-2026-09-25","type":"Decision"}
+{"ts":"2026-09-25T17:49:57.573Z","kind":"hook_decision_captured","session":"40645e47-066b-4937-abc2-55d42e9ea247","title":"Decision 2026-09-25"}
+{"ts":"2026-09-25T17:52:09.691Z","kind":"hook_session_start","session":"2e74705f-de54-453f-a810-033d774517f2"}
+{"ts":"2026-09-25T17:52:10.360Z","kind":"hook_session_start","session":"d73f76ba-a06e-4094-8b2a-dff686964b2a"}
+{"ts":"2026-09-25T17:52:33.575Z","kind":"hook_session_start","session":"dae951ee-ab69-4515-b0c0-c5b440560dcd"}
+{"ts":"2026-09-25T17:58:28.804Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"decisions/decision-2026-09-25-2","type":"Decision"}
+{"ts":"2026-09-25T17:58:28.858Z","kind":"hook_decision_captured","session":"40645e47-066b-4937-abc2-55d42e9ea247","title":"Decision 2026-09-25"}
+{"ts":"2026-09-25T20:26:55.309Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"decisions/decision-2026-09-25-3","type":"Decision"}
+{"ts":"2026-09-25T20:26:55.351Z","kind":"hook_decision_captured","session":"40645e47-066b-4937-abc2-55d42e9ea247","title":"Decision 2026-09-25"}
+{"ts":"2026-09-25T20:29:28.834Z","kind":"concept_write","session":"40645e47-066b-4937-abc2-55d42e9ea247","id":"decisions/decision-2026-09-25-4","type":"Decision"}
+{"ts":"2026-09-25T20:29:28.889Z","kind":"hook_decision_captured","session":"40645e47-066b-4937-abc2-55d42e9ea247","title":"Decision 2026-09-25"}
+{"ts":"2026-09-25T23:30:06.171Z","kind":"hook_session_start","session":"0a3e7dcc-ee0a-4289-98b1-c2ae20804a55"}
+{"ts":"2026-09-25T23:30:12.405Z","kind":"hook_session_start","session":"ef65dc97-f05e-458c-bf1f-c2ec565fb92b"}
+{"ts":"2026-09-25T23:30:15.809Z","kind":"hook_session_start","session":"b41d685d-7094-4957-80a5-950b76fb0467"}
+{"ts":"2026-09-27T02:13:36.639Z","kind":"hook_session_start","session":"be874be7-bec7-4885-a8be-ea95f276ff6f"}
+{"ts":"2026-09-27T02:15:53.058Z","kind":"hook_session_start","session":"fbaf1c75-ed8e-46a6-ae9d-d60278e329f2"}
+{"ts":"2026-09-27T02:18:50.368Z","kind":"hook_session_start","session":"3912c95f-9ac2-49f9-8075-995e01b7a41a"}
+{"ts":"2026-09-27T02:25:19.216Z","kind":"concept_write","session":"3912c95f-9ac2-49f9-8075-995e01b7a41a","id":"decisions/decision-2026-09-27","type":"Decision"}
+{"ts":"2026-09-27T02:25:19.248Z","kind":"hook_decision_captured","session":"3912c95f-9ac2-49f9-8075-995e01b7a41a","title":"Decision 2026-09-27"}
+{"ts":"2026-09-27T02:29:02.658Z","kind":"hook_session_start","session":"9fe5f8da-47b8-4269-ab66-8299a3f94fbf"}
+{"ts":"2026-09-27T02:49:06.117Z","kind":"hook_session_start","session":"4f67d860-fccf-4739-b327-0c05a4747a69"}
+{"ts":"2026-09-27T02:50:36.044Z","kind":"concept_write","session":"3912c95f-9ac2-49f9-8075-995e01b7a41a","id":"decisions/decision-2026-09-27-2","type":"Decision"}
+{"ts":"2026-09-27T02:50:36.080Z","kind":"hook_decision_captured","session":"3912c95f-9ac2-49f9-8075-995e01b7a41a","title":"Decision 2026-09-27"}
+{"ts":"2026-09-27T02:54:10.524Z","kind":"hook_session_start","session":"f33dfa05-9fbb-4c32-aa2d-330d677a9b16"}
+{"ts":"2026-09-27T03:14:59.872Z","kind":"hook_session_start","session":"47e6b825-a7cb-420b-adee-41e1546cd366"}
+{"ts":"2026-09-27T03:14:59.922Z","kind":"hook_session_start","session":"4511d18f-60d1-4448-ac41-fe2cbc520c25"}
+{"ts":"2026-09-27T03:36:54.493Z","kind":"hook_session_start","session":"4466bb6c-2ac7-42de-9231-033a68c43ebb"}
+{"ts":"2026-09-27T04:08:47.162Z","kind":"hook_session_start","session":"04f82973-52c1-4780-8259-51b4a0a282fd"}
+{"ts":"2026-09-27T04:30:52.405Z","kind":"hook_session_start","session":"1712f245-594c-482e-addb-f0edf604ca11"}
+{"ts":"2026-09-28T20:03:58.717Z","kind":"hook_session_start","session":"6dba1fc1-56df-4d09-a682-898717fc1ada"}
+{"ts":"2026-09-28T20:32:17.319Z","kind":"hook_session_start","session":"ce6c4246-4867-4c21-b2eb-91e9abcfc4c1"}
+{"ts":"2026-09-28T21:12:08.682Z","kind":"hook_session_start","session":"9603ebb1-92c4-4f6d-b8e5-7fa14ac57cee"}
+{"ts":"2026-09-30T19:53:23.632Z","kind":"hook_session_start","session":"01a0f3df-3f42-7400-99ce-542ea61146ad"}
+{"ts":"2026-09-30T19:58:33.743Z","kind":"hook_session_start","session":"840c43b6-f832-41a8-bb5d-842911ea05f1"}
+{"ts":"2026-09-30T20:06:37.045Z","kind":"hook_session_start","session":"81e61d16-ae0f-495c-a2a4-7148fc8fa898"}
+{"ts":"2026-09-30T20:31:40.698Z","kind":"concept_write","session":"840c43b6-f832-41a8-bb5d-842911ea05f1","id":"decisions/decision-2026-09-30","type":"Decision"}
+{"ts":"2026-09-30T20:31:40.731Z","kind":"hook_decision_captured","session":"840c43b6-f832-41a8-bb5d-842911ea05f1","title":"Decision 2026-09-30"}
+{"ts":"2026-09-30T20:58:36.616Z","kind":"hook_session_start","session":"177a0074-f13b-446a-92db-45e161f580ba"}
+{"ts":"2026-09-30T22:41:53.582Z","kind":"concept_write","session":"840c43b6-f832-41a8-bb5d-842911ea05f1","id":"decisions/decision-2026-09-30-2","type":"Decision"}
+{"ts":"2026-09-30T22:41:53.619Z","kind":"hook_decision_captured","session":"840c43b6-f832-41a8-bb5d-842911ea05f1","title":"Decision 2026-09-30"}
+{"ts":"2026-09-30T23:17:24.581Z","kind":"hook_pre_compact","session":"01a0f3df-3f42-7400-99ce-542ea61146ad"}
+{"ts":"2026-10-02T03:46:43.357Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:26.163Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:26.321Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:26.475Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:26.652Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:26.806Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:27.001Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T03:47:27.179Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"runbooks/ao-rollout-lessons-managed-services-naming-multi","type":"runbook"}
+{"ts":"2026-10-02T12:43:32.941Z","kind":"hook_session_start","session":"01a0f3df-3f42-7400-99ce-542ea61146ad"}
+{"ts":"2026-10-02T12:47:49.881Z","kind":"hook_session_start","session":"07c3288a-288a-4646-bb54-70e73c37a750"}
+{"ts":"2026-10-02T12:50:53.867Z","kind":"hook_session_start","session":"7b634354-1c5f-43ff-9784-77a5db96e2a8"}
+{"ts":"2026-10-02T12:53:52.912Z","kind":"hook_session_start","session":"cc847d14-b456-48bf-ba8c-6b41732b0b1c"}
+{"ts":"2026-10-02T12:56:54.456Z","kind":"hook_session_start","session":"a5b1606b-7620-47da-816f-78db644b1356"}
+{"ts":"2026-10-02T13:36:03.074Z","kind":"hook_session_start","session":"2a431e1c-89ae-412b-a18c-8da0d140faec"}
+{"ts":"2026-10-02T13:38:31.130Z","kind":"hook_session_start","session":"5e5798f2-918e-4c1a-8acb-f32f180e2b94"}
+{"ts":"2026-10-02T14:38:57.470Z","kind":"hook_session_start","session":"1e1308aa-3f79-4943-8f22-89b4fd4cc990"}
+{"ts":"2026-10-02T14:46:00.439Z","kind":"hook_session_start","session":"a772b23f-5ddf-4521-b83e-7594d33b5d88"}
+{"ts":"2026-10-02T15:10:37.508Z","kind":"hook_session_start","session":"41c65191-8714-4e58-884a-7dd2d3ef13a4"}
+{"ts":"2026-10-02T15:26:20.172Z","kind":"hook_session_start","session":"ec67ec50-d51c-4b1f-b9e5-2de6061d6fcb"}
+{"ts":"2026-10-02T19:22:32.235Z","kind":"hook_session_start","session":"337f8c9f-9837-45f3-95cd-c32790cd78a8"}
+{"ts":"2026-10-02T19:38:14.104Z","kind":"hook_session_start","session":"b8f0072d-f76d-4960-a4d3-303a604703e7"}
+{"ts":"2026-10-02T19:41:05.383Z","kind":"hook_session_start","session":"07b01b2d-c1d0-47db-976a-13504210863a"}
+{"ts":"2026-10-02T20:11:20.104Z","kind":"hook_session_start","session":"8dd2c884-aa83-43b2-810a-62653e55c893"}
+{"ts":"2026-10-02T20:16:20.099Z","kind":"hook_session_start","session":"e8a9b6ed-c002-4ff6-8c39-6e6d63f512e0"}
+{"ts":"2026-10-02T20:28:32.647Z","kind":"hook_session_start","session":"d91e5bba-ab2b-4853-91ce-cb4d5de01279"}
+{"ts":"2026-10-02T20:32:06.408Z","kind":"hook_session_start","session":"31c22785-2904-4105-9d70-a27917eb785b"}
+{"ts":"2026-10-02T20:37:28.152Z","kind":"hook_session_start","session":"2d216cfb-aa08-4dfb-a66a-73cf8604731c"}
+{"ts":"2026-10-02T20:48:46.900Z","kind":"hook_session_start","session":"5014668c-2efa-4cef-a85f-13f247f05a5d"}
+{"ts":"2026-10-02T20:52:08.743Z","kind":"hook_session_start","session":"6f0a827b-86de-456b-a343-d0644993072f"}
+{"ts":"2026-10-02T21:07:15.075Z","kind":"hook_session_start","session":"3ff38120-e4d4-47e9-b0f1-7e18d66db3f9"}
+{"ts":"2026-10-02T21:10:11.465Z","kind":"hook_session_start","session":"ab5fbb14-8572-4110-9fed-b24ee6551c48"}
+{"ts":"2026-10-02T21:29:54.334Z","kind":"hook_session_start","session":"8cbffd1a-d127-4075-922c-039bc41adccf"}
+{"ts":"2026-10-02T21:48:16.908Z","kind":"hook_session_start","session":"6b0df9a2-2ea0-421c-8923-3a24cfb69046"}
+{"ts":"2026-10-02T22:17:40.965Z","kind":"hook_session_start","session":"8e12c0e1-872f-4809-a798-a280a752667a"}
+{"ts":"2026-10-02T23:00:58.206Z","kind":"hook_session_start","session":"98bccca9-94ca-4dc5-a5e0-3b535d0da7d0"}
+{"ts":"2026-10-02T23:32:14.273Z","kind":"hook_session_start","session":"91f0e2ef-8bdc-49b5-8224-75b9b60038d8"}
+{"ts":"2026-10-02T23:48:28.528Z","kind":"hook_session_start","session":"c94fc5d5-cfcc-424a-851f-80cbc5bea306"}
+{"ts":"2026-10-02T23:48:36.878Z","kind":"hook_session_start","session":"8d8fb70c-7240-4c20-9f6f-8b816ec858fd"}
+{"ts":"2026-10-02T23:48:45.016Z","kind":"hook_session_start","session":"d922fab1-11f0-4950-9d66-48f480d03d8b"}
+{"ts":"2026-10-02T23:53:32.502Z","kind":"hook_session_start","session":"29f1d5ff-fb95-4949-91da-32a802c06f95"}
+{"ts":"2026-10-03T00:20:44.904Z","kind":"hook_session_start","session":"cb734550-66ca-4e0c-aa28-5ef74b115d52"}
+{"ts":"2026-10-03T00:37:33.212Z","kind":"hook_session_start","session":"a86d91a0-cf5a-40f4-9aed-a2576f1e099d"}
+{"ts":"2026-10-03T01:14:25.268Z","kind":"hook_session_start","session":"f1f36d97-5afd-45d9-836a-2d787a3f914d"}
+{"ts":"2026-10-03T01:28:50.526Z","kind":"hook_session_start","session":"b2e7895a-9532-4e62-bd7e-56fbe604b781"}
+{"ts":"2026-10-03T01:28:50.580Z","kind":"hook_session_start","session":"0a879f32-b518-473c-8198-1d15194c13c8"}
+{"ts":"2026-10-03T01:36:25.934Z","kind":"hook_session_start","session":"01a0ff67-bb8b-7ca2-a25a-95b9ff5b34d6"}
+{"ts":"2026-10-03T01:41:31.616Z","kind":"hook_session_start","session":"01a0ff60-ce7f-7213-8922-812d40841e85"}
+{"ts":"2026-10-03T01:55:50.613Z","kind":"concept_write","session":"177a0074-f13b-446a-92db-45e161f580ba","id":"decisions/decision-2026-10-03","type":"Decision"}
+{"ts":"2026-10-03T01:55:50.660Z","kind":"hook_decision_captured","session":"177a0074-f13b-446a-92db-45e161f580ba","title":"Decision 2026-10-03"}
+{"ts":"2026-10-03T02:11:00.980Z","kind":"concept_write","session":"177a0074-f13b-446a-92db-45e161f580ba","id":"decisions/decision-2026-10-03-2","type":"Decision"}
+{"ts":"2026-10-03T02:11:01.039Z","kind":"hook_decision_captured","session":"177a0074-f13b-446a-92db-45e161f580ba","title":"Decision 2026-10-03"}
+{"ts":"2026-10-03T02:20:49.490Z","kind":"concept_write","session":"177a0074-f13b-446a-92db-45e161f580ba","id":"decisions/decision-2026-10-03-3","type":"Decision"}
+{"ts":"2026-10-03T02:20:49.543Z","kind":"hook_decision_captured","session":"177a0074-f13b-446a-92db-45e161f580ba","title":"Decision 2026-10-03"}
+{"ts":"2026-10-03T02:22:55.953Z","kind":"hook_session_start","session":"2308f424-6cc3-4a56-a43e-961bcfcfc7b7"}
+{"ts":"2026-10-03T02:22:55.986Z","kind":"hook_session_start","session":"bf73a9f5-0ac3-40ac-9a38-9596926122ae"}
+{"ts":"2026-10-03T02:22:56.108Z","kind":"hook_session_start","session":"c17b663e-abe3-4b5f-8e82-7cef9ca04e9e"}
+{"ts":"2026-10-03T02:22:56.310Z","kind":"hook_session_start","session":"cb925b93-a861-43a1-9cad-c9a06a092fc7"}
+{"ts":"2026-10-03T05:43:59.933Z","kind":"hook_session_start","session":"20532350-8add-491c-ab57-25d8bde1a5d1"}
+{"ts":"2026-10-03T06:07:14.256Z","kind":"hook_session_start","session":"15f74e7d-4abc-4c4f-83c8-0ecb163b9eb4"}
+{"ts":"2026-10-03T06:29:26.531Z","kind":"hook_session_start","session":"8b4976d2-2f2e-4ce8-beca-e22132ae0240"}
+{"ts":"2026-10-03T07:35:35.672Z","kind":"hook_session_start","session":"03c5e1dc-0ab2-4102-b802-fe14e042a8b1"}
+{"ts":"2026-10-03T07:35:35.698Z","kind":"hook_session_start","session":"df4af371-d71f-4ca5-bf06-907d9de3d75b"}
+{"ts":"2026-10-03T20:02:31.084Z","kind":"concept_write","session":"177a0074-f13b-446a-92db-45e161f580ba","id":"decisions/decision-2026-10-03-4","type":"Decision"}
+{"ts":"2026-10-03T20:02:31.124Z","kind":"hook_decision_captured","session":"177a0074-f13b-446a-92db-45e161f580ba","title":"Decision 2026-10-03"}
+{"ts":"2026-10-03T22:51:16.929Z","kind":"concept_write","session":"177a0074-f13b-446a-92db-45e161f580ba","id":"decisions/decision-2026-10-03-5","type":"Decision"}
+{"ts":"2026-10-03T22:51:16.994Z","kind":"hook_decision_captured","session":"177a0074-f13b-446a-92db-45e161f580ba","title":"Decision 2026-10-03"}
+{"ts":"2026-10-03T22:53:30.589Z","kind":"hook_session_start","session":"107aa8f6-b3dc-4f46-a09b-e944810437fe"}
+{"ts":"2026-10-03T22:53:30.614Z","kind":"hook_session_start","session":"24dcef74-70b7-43a9-9aaa-7160c216fbc0"}
+{"ts":"2026-10-04T00:59:37.568Z","kind":"hook_session_start","session":"c514181a-c659-4181-bfb0-67905d1987a0"}
+{"ts":"2026-09-22T22:54:57.849Z","kind":"hook_session_start","session":"4b9a02ab-7b1c-4a90-b32f-cba4a4198145"}
+{"ts":"2026-10-01T05:04:53.410Z","kind":"hook_session_start","session":"d91b5e28-d369-49f8-b4d6-4a7ecb91c063"}
+{"ts":"2026-10-01T14:42:11.265Z","kind":"hook_session_start","session":"62549d39-62d5-458d-808e-8375ef53518d"}
+{"ts":"2026-10-01T15:01:32.955Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-01","type":"Decision"}
+{"ts":"2026-10-01T15:01:32.997Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-01"}
+{"ts":"2026-10-01T16:47:17.481Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-01-2","type":"Decision"}
+{"ts":"2026-10-01T16:47:17.512Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-01"}
+{"ts":"2026-10-01T17:21:55.153Z","kind":"hook_session_start","session":"73dc94c0-f9fd-41f4-80a1-bb0124248597"}
+{"ts":"2026-10-01T17:22:11.887Z","kind":"hook_session_start","session":"b17ff683-2747-4661-9a52-4fd6a9991708"}
+{"ts":"2026-10-01T17:24:59.019Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-01-3","type":"Decision"}
+{"ts":"2026-10-01T17:24:59.051Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-01"}
+{"ts":"2026-10-02T01:06:40.191Z","kind":"hook_session_start","session":"7236feff-43c6-4f9c-8408-3be6811a1a3c"}
+{"ts":"2026-10-02T01:18:14.150Z","kind":"hook_session_start","session":"32ea991f-d9c6-4296-8d8b-30d5d1ac6e82"}
+{"ts":"2026-10-02T01:20:21.483Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02","type":"Decision"}
+{"ts":"2026-10-02T01:20:21.515Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T01:20:50.862Z","kind":"hook_session_start","session":"c68e20dd-e29d-49be-a842-5c12f9d43e1c"}
+{"ts":"2026-10-02T02:04:27.754Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-2","type":"Decision"}
+{"ts":"2026-10-02T02:04:27.783Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T02:08:29.126Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-3","type":"Decision"}
+{"ts":"2026-10-02T02:08:29.161Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T02:14:08.735Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-4","type":"Decision"}
+{"ts":"2026-10-02T02:14:08.787Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T02:17:50.224Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-5","type":"Decision"}
+{"ts":"2026-10-02T02:17:50.256Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T02:19:35.530Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-6","type":"Decision"}
+{"ts":"2026-10-02T02:19:35.562Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T02:48:28.989Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-7","type":"Decision"}
+{"ts":"2026-10-02T02:48:29.041Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T02:50:50.910Z","kind":"hook_session_start","session":"f9dccf70-6a9f-449c-bc7b-f650235eb1e2"}
+{"ts":"2026-10-02T03:04:22.395Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-8","type":"Decision"}
+{"ts":"2026-10-02T03:04:22.453Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T03:34:28.792Z","kind":"hook_session_start","session":"674abb3b-70a7-459b-bcc4-1ae05d0154de"}
+{"ts":"2026-10-02T03:34:47.400Z","kind":"hook_session_start","session":"df56cfdb-a375-4055-b92b-98eee6a1fa94"}
+{"ts":"2026-10-02T03:35:33.808Z","kind":"hook_session_start","session":"fac752c7-f3a5-4e02-8ddb-c83318009507"}
+{"ts":"2026-10-02T03:46:19.969Z","kind":"hook_session_start","session":"a3cf82b2-1bd9-4ad7-bccd-b69efe884095"}
+{"ts":"2026-10-02T04:01:43.797Z","kind":"hook_session_start","session":"d866a20c-450b-4cb7-846d-e4c6e5f82353"}
+{"ts":"2026-10-02T04:25:08.277Z","kind":"hook_session_start","session":"9a18db14-c2e1-47af-98c9-35b4c01b2898"}
+{"ts":"2026-10-02T04:25:16.737Z","kind":"hook_session_start","session":"821b1316-0309-4f7a-a745-71ca7b03daf6"}
+{"ts":"2026-10-02T04:25:27.775Z","kind":"hook_session_start","session":"399ddb0c-d7df-42ae-bb6b-8357de3ad765"}
+{"ts":"2026-10-02T05:10:45.507Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-9","type":"Decision"}
+{"ts":"2026-10-02T05:10:45.540Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T05:11:26.215Z","kind":"hook_session_start","session":"00a452ec-2dc1-45c5-8a83-b009f54d8966"}
+{"ts":"2026-10-02T05:12:23.312Z","kind":"hook_session_start","session":"76a1ea50-42a3-4205-8a97-4d87980f25a7"}
+{"ts":"2026-10-02T05:21:27.352Z","kind":"concept_write","session":"62549d39-62d5-458d-808e-8375ef53518d","id":"decisions/decision-2026-10-02-10","type":"Decision"}
+{"ts":"2026-10-02T05:21:27.388Z","kind":"hook_decision_captured","session":"62549d39-62d5-458d-808e-8375ef53518d","title":"Decision 2026-10-02"}
+{"ts":"2026-10-02T11:54:06.622Z","kind":"hook_session_start","session":"f79f5b5a-7ad7-487d-bb9e-7113a090b64f"}
+{"ts":"2026-10-03T01:43:21.258Z","kind":"hook_session_start","session":"f5b17fff-e225-4aa5-bb57-de8bd2d4e85a"}
+{"ts":"2026-10-03T01:51:09.244Z","kind":"hook_session_start","session":"e063317d-d06c-4cd0-b326-30d21f17156e"}
+{"ts":"2026-10-04T05:11:29.579Z","kind":"concept_write","session":"81e61d16-ae0f-495c-a2a4-7148fc8fa898","id":"decisions/decision-2026-10-04","type":"Decision"}
+{"ts":"2026-10-04T05:11:29.625Z","kind":"hook_decision_captured","session":"81e61d16-ae0f-495c-a2a4-7148fc8fa898","title":"Decision 2026-10-04"}
+{"ts":"2026-10-04T22:25:51.966Z","kind":"hook_session_start","session":"2e1a5469-e106-4fa6-a7ed-35e999950137"}
+{"ts":"2026-10-04T22:25:52.050Z","kind":"hook_session_start","session":"d82e2db7-2daf-4130-8dff-71d57be2583d"}
+{"ts":"2026-10-04T22:26:20.083Z","kind":"hook_session_start","session":"253de95a-5b3d-4702-b941-9b7ba0507f01"}

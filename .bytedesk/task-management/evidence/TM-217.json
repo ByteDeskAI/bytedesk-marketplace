@@ -1,0 +1,208 @@
+{
+  "task": "TM-217",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-24T21:57:19.650Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s",
+      "branch": "tm/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s",
+      "intent": "Age out a reviewer verdict stuck in the INCOMPLETE state: fail and escalate once after a bound or when the reviewer pane is idle.",
+      "boundaries": [
+        "agent-orchestration reviewer.mjs, tests, dist, CHANGELOG",
+        "no push/PR/merge by worker"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/lib/reviewer.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-09-24T21:57:48.436Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-217",
+      "workflow_run_id": "tm-TM-217"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-09-24T21:57:48.838Z",
+      "worker": {
+        "name": "agent:TM-217-1b07de2e",
+        "run": "tmux:tm-TM-217",
+        "backend": "tmux",
+        "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+        "registered_at": "2026-09-24T21:57:48.418Z",
+        "observed_at": "2026-09-24T21:57:48.830Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-217",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$381",
+          "sessionCreated": 1790287068,
+          "paneId": "%727",
+          "panePid": 201949
+        }
+      },
+      "workflow_run_id": "tm-TM-217"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T22:23:41.068Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "b65c48c75523933bf732cd22f0307630a59822b7",
+        "artifacts": [
+          "commit b65c48c on tm/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s",
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/123"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs: 733 pass, 0 fail, 4 skipped (Windows-only)",
+          "cd agent-orchestration && npm run build:check: exit 0 (dist rebuilt for the reviewer.mjs change)",
+          "claude plugin validate ./agent-orchestration: passed, expected no-version warning only"
+        ],
+        "risks": [
+          "AO_REVIEW_INCOMPLETE_BOUND_MS defaults to 120s; a reviewer whose provider takes longer than that to finish printing a very long verdict on a slow terminal could be aged out before it actually finishes. The pane-idle path is unaffected by this since it only fires once the composer is actually empty.",
+          "Idle detection depends on providerDirs finding the provider's adapter JSON (needs pluginRoot, consumer, or home to resolve a providers directory); if none resolve, idle detection silently degrades to always-false and only the time bound applies, which is a safe (non-escalating) fallback, not a failure."
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-217.unit-tests.txt, .bytedesk/task-management/evidence/TM-217.build-check.txt, .bytedesk/task-management/evidence/TM-217.plugin-validate.txt"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-09-25T18:02:08.130Z",
+      "worker": {
+        "name": "agent:TM-217-1b07de2e",
+        "run": "tmux:tm-TM-217",
+        "backend": "tmux",
+        "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+        "registered_at": "2026-09-24T21:57:48.418Z",
+        "observed_at": "2026-09-24T21:57:48.830Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-217",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 25595,
+          "sessionId": "$381",
+          "sessionCreated": 1790287068,
+          "paneId": "%727",
+          "panePid": 201949
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-25T18:07:45.335Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "f69a7f2dabab48a1f68b6d65ab894dac6b354ed9",
+        "artifacts": [
+          "commit f69a7f2 on tm/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s (review round 1 of b65c48c)",
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/123"
+        ],
+        "checks": [
+          "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs: 738 tests, 734 pass, 0 fail, 4 skipped (Windows-only)",
+          "tests/unit/topology-reviewer-findings.test.mjs against b65c48c reviewer.mjs: the two new tests fail (Claude still-printing case is failed by the old composer-empty check); against f69a7f2: 21/21 pass",
+          "cd agent-orchestration && npm run build:check: exit 0 (dist rebuilt)",
+          "claude plugin validate ./agent-orchestration: passed, expected no-version warning only"
+        ],
+        "risks": [
+          "Stall detection needs the capture to be byte-identical for AO_REVIEW_INCOMPLETE_STALL_MS (default 30s). A provider that redraws nothing while it is busy but silent for over 30s would be aged out early; Claude Code redraws its spinner timer every second, so it does not.",
+          "Each incomplete poll now rewrites the request file (incomplete_screen), which invalidates collectPendingReviews' stat cache for that file; one extra JSON read per pending incomplete request per tick.",
+          "b65c48c still adds the three evidence files in history; f69a7f2 removes them, so the net PR diff has no .bytedesk/task-management paths."
+        ],
+        "evidence": "Checks run in the worktree at f69a7f2 (listed in checks); commit f69a7f2 and PR #123. No check output is committed."
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-25T18:07:45.335Z",
+  "base_revision": "9a65052ee20cde632fc5654aa8f1f66bd83a1e1c",
+  "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+  "workflow_run_id": "tm-TM-217",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s",
+  "branch": "tm/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s",
+  "started": true,
+  "state": "ready-for-review",
+  "worker": {
+    "name": "agent:TM-217-1b07de2e",
+    "run": "tmux:tm-TM-217",
+    "backend": "tmux",
+    "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+    "registered_at": "2026-09-24T21:57:48.418Z",
+    "observed_at": "2026-09-24T21:57:48.830Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-217",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$381",
+      "sessionCreated": 1790287068,
+      "paneId": "%727",
+      "panePid": 201949
+    },
+    "stopped_at": "2026-09-25T18:02:08.130Z"
+  },
+  "finish": {
+    "revision": "f69a7f2dabab48a1f68b6d65ab894dac6b354ed9",
+    "artifacts": [
+      "commit f69a7f2 on tm/TM-217-agent-orchestration-reviewer-age-out-a-verdict-s (review round 1 of b65c48c)",
+      "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/123"
+    ],
+    "checks": [
+      "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs: 738 tests, 734 pass, 0 fail, 4 skipped (Windows-only)",
+      "tests/unit/topology-reviewer-findings.test.mjs against b65c48c reviewer.mjs: the two new tests fail (Claude still-printing case is failed by the old composer-empty check); against f69a7f2: 21/21 pass",
+      "cd agent-orchestration && npm run build:check: exit 0 (dist rebuilt)",
+      "claude plugin validate ./agent-orchestration: passed, expected no-version warning only"
+    ],
+    "risks": [
+      "Stall detection needs the capture to be byte-identical for AO_REVIEW_INCOMPLETE_STALL_MS (default 30s). A provider that redraws nothing while it is busy but silent for over 30s would be aged out early; Claude Code redraws its spinner timer every second, so it does not.",
+      "Each incomplete poll now rewrites the request file (incomplete_screen), which invalidates collectPendingReviews' stat cache for that file; one extra JSON read per pending incomplete request per tick.",
+      "b65c48c still adds the three evidence files in history; f69a7f2 removes them, so the net PR diff has no .bytedesk/task-management paths."
+    ],
+    "evidence": "Checks run in the worktree at f69a7f2 (listed in checks); commit f69a7f2 and PR #123. No check output is committed."
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "9a65052ee20cde632fc5654aa8f1f66bd83a1e1c",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-217-f69a7f2dabab48a1f68b6d65ab894dac6b354ed9.patch",
+    "patch_sha256": "d30d76aba1b0888fb0b5aae6d3e75d561caae64f8bf47ecca4494f121a1d54b3",
+    "nonce": "31014076-07ac-4125-94be-0c67310a442d",
+    "task": "TM-217",
+    "revision": "f69a7f2dabab48a1f68b6d65ab894dac6b354ed9",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$288",
+      "sessionCreated": 1790282302,
+      "paneId": "%502",
+      "panePid": 2543160
+    },
+    "author_agent_ids": [
+      "1b07de2e-6b73-47c6-ad14-aa29eeea67fd"
+    ],
+    "created_at": "2026-09-25T18:07:45.801Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-25T18:07:46.355Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-217-f69a7f2dabab48a1f68b6d65ab894dac6b354ed9.json"
+  }
+}

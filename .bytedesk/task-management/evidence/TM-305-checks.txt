@@ -1,0 +1,48 @@
+TM-305 evidence — commit 3e9a7b5531ed64d41b44bbefb848afdd6ef9b9d0 (tree clean apart from untracked tool noise)
+
+== Run in the worker session (TM_* dispatch env set) ==
+npm ci exit 0
+build exit 0
+
+⚡ Done in 178ms
+build:check exit 0
+test:unit exit 1
+# tests 1016
+# pass 1008
+# fail 4
+test:contract exit 0
+# tests 19
+# pass 19
+# fail 0
+tm unit exit 1
+# tests 1582
+# pass 1573
+# fail 9
+(unit failures, all outside services; they read the worker's TM_DISPATCH_* env):
+/tmp/tm305-tm.log:not ok 3 - actor
+/tmp/tm305-tm.log:not ok 224 - tm_task_update start
+/tmp/tm305-tm.log:not ok 226 - tm_claim
+/tmp/tm305-tm.log:not ok 245 - tm_worktree new claims and provisions, rm releases and removes, list reads — and refuses a held task
+/tmp/tm305-tm.log:not ok 401 - the event log's session column
+/tmp/tm305-unit.log:not ok 535 - record-landing records an operator landing that governed completion accepts, without merging
+/tmp/tm305-unit.log:not ok 542 - governed completion accepts a delegated integration record unchanged
+/tmp/tm305-unit.log:not ok 566 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+/tmp/tm305-unit.log:not ok 582 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+
+== Same suites with the worker's TM_* env unset ==
+# tests 1016
+# pass 1012
+# fail 0
+# tests 1582
+# pass 1582
+# fail 0
+
+== New TM-305 tests ==
+ok 246 - TM-305: a linked task worktree never captures the services pointer, and a captured one moves back
+ok 247 - TM-305: linkedWorktree tells a linked worktree from a main checkout and a submodule
+ok 248 - TM-305: services ensure, restart and stop refuse inside a dispatched worker session
+
+== Same three tests against the UNFIXED src (src/services stashed): all fail ==
+not ok 1 - TM-305: a linked task worktree never captures the services pointer, and a captured one moves back
+not ok 2 - TM-305: linkedWorktree tells a linked worktree from a main checkout and a submodule
+not ok 3 - TM-305: services ensure, restart and stop refuse inside a dispatched worker session

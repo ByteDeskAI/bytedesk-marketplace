@@ -1,0 +1,231 @@
+{
+  "task": "TM-249",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-27T04:08:23.288Z",
+      "owner": "fd2b831f",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-249-agent-orchestration-manage-integrate-merges-the-",
+      "branch": "tm/TM-249-agent-orchestration-manage-integrate-merges-the-",
+      "intent": "manage integrate merges the PR itself (gh pr merge --merge) only when the task is in the approved plan grant, PR base is the integration branch, PR head equals the reviewed+approved SHA, CI is green and the verdict is approve; each unmet condition refused by name; then records the landing and closes the task with actor/delegated_by from the grant",
+      "boundaries": [
+        "agent-orchestration management/delegation/cli, tests, dist, docs, CHANGELOG",
+        "never --admin into main, never force push, never branch-protection edits",
+        "no push/PR/merge by the worker itself; tests use a fake gh",
+        "no version fields"
+      ],
+      "dependencies": [
+        "TM-234",
+        "TM-248"
+      ],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run -s build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/dist",
+        "agent-orchestration/docs/repository-leads.md",
+        "agent-orchestration/tests/unit",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/delegation.mjs",
+        "agent-orchestration/topology/lib/management.mjs"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T04:22:27.012Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "207e7e65ee7e93af5b68aaa7ddbed96316c40fe0",
+        "artifacts": [
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "lead: env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 817 tests, 813 pass, 0 fail",
+          "lead: npm run -s build:check exit 0",
+          "worker: claude plugin validate exit 0; rule-1 success test fails on 2d42492 (TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED)"
+        ],
+        "risks": [
+          "Opt-in via management.integrate_via=pull-request; default remains local fast-forward until the repo config sets it.",
+          "origin remote hardcoded; cleanupTask breaks after a PR integrate (TM-251).",
+          "In PR mode local required_checks are replaced by CI."
+        ],
+        "evidence": "integrateViaPullRequest with named refusals plan/caller/pr/base/head/ci/review/mergeable; exact gh argv pr merge <n> --merge --match-head-commit <sha>; writeLanding shared with recordLanding; landing + close attributed to the grant; idempotent reruns."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-27T04:43:54.039Z",
+      "owner": "fd2b831f",
+      "report": {
+        "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+        "artifacts": [
+          "agent-orchestration/topology/lib/management.mjs",
+          "agent-orchestration/topology/cli.mjs",
+          "agent-orchestration/tests/unit/topology-management.test.mjs",
+          "agent-orchestration/docs/repository-leads.md",
+          "agent-orchestration/CHANGELOG.md",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs"
+        ],
+        "checks": [
+          "lead: env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 819 tests, 815 pass, 0 fail",
+          "lead: npm run -s build:check exit 0",
+          "worker rule-1: the three new tests fail 0/3 against 207e7e6, pass 3/3 with the fix"
+        ],
+        "risks": [
+          "Opt-in via management.integrate_via=pull-request; default remains local fast-forward until the repo config sets it.",
+          "origin remote hardcoded; cleanupTask breaks after a PR integrate (TM-251).",
+          "In PR mode local required_checks are replaced by CI."
+        ],
+        "evidence": "Round 2 for Faro at 207e7e6: (1) closeLandedTask never accepts criteria; store refusal returns TOPOLOGY_INTEGRATE_UNCLOSED naming unaccepted criteria, landing stays recorded, rerun closes after acceptance. (2) integrationAuthority shared by eligibility and close-retry (self-assertion, grant, managed session, caller). (3) integrationAuthorization shared by PR and fast-forward paths: authorized = options.authorized===true || delegation!=null."
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-09-28T21:40:00.852Z",
+      "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+      "landed": "d9e8eb487917eb0e190009c89eafb84742ba2646",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR 135 merged at the Faro-approved head with CI green (ADR-0023, ADR-0027)",
+        "policy_auto_merge": true,
+        "at": "2026-09-28T21:40:00.551Z"
+      }
+    }
+  ],
+  "updated_at": "2026-09-28T21:40:00.852Z",
+  "base_revision": "2d42492670bb322ae87918c446900a92ff815747",
+  "owner": "fd2b831f",
+  "workflow_run_id": "tm-TM-249",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-249-agent-orchestration-manage-integrate-merges-the-",
+  "branch": "tm/TM-249-agent-orchestration-manage-integrate-merges-the-",
+  "started": true,
+  "state": "merged",
+  "finish": {
+    "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+    "artifacts": [
+      "agent-orchestration/topology/lib/management.mjs",
+      "agent-orchestration/topology/cli.mjs",
+      "agent-orchestration/tests/unit/topology-management.test.mjs",
+      "agent-orchestration/docs/repository-leads.md",
+      "agent-orchestration/CHANGELOG.md",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs"
+    ],
+    "checks": [
+      "lead: env -u TMUX -u TMUX_PANE node --test --test-concurrency=1 tests/unit/*.test.mjs: exit 0 — 819 tests, 815 pass, 0 fail",
+      "lead: npm run -s build:check exit 0",
+      "worker rule-1: the three new tests fail 0/3 against 207e7e6, pass 3/3 with the fix"
+    ],
+    "risks": [
+      "Opt-in via management.integrate_via=pull-request; default remains local fast-forward until the repo config sets it.",
+      "origin remote hardcoded; cleanupTask breaks after a PR integrate (TM-251).",
+      "In PR mode local required_checks are replaced by CI."
+    ],
+    "evidence": "Round 2 for Faro at 207e7e6: (1) closeLandedTask never accepts criteria; store refusal returns TOPOLOGY_INTEGRATE_UNCLOSED naming unaccepted criteria, landing stays recorded, rerun closes after acceptance. (2) integrationAuthority shared by eligibility and close-retry (self-assertion, grant, managed session, caller). (3) integrationAuthorization shared by PR and fast-forward paths: authorized = options.authorized===true || delegation!=null."
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "2d42492670bb322ae87918c446900a92ff815747",
+    "admitted_base": "2d42492670bb322ae87918c446900a92ff815747",
+    "effective_base": "2d42492670bb322ae87918c446900a92ff815747",
+    "range_note": "The range 2d42492670bb322ae87918c446900a92ff815747..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-249-a08c1e2f374341462d7ff9b39f2e1e308f20eaa1.patch",
+    "patch_sha256": "91a98346ce5e64fceb63c9c39d61963a6270800dd6932e1bf44e59b92677feb4",
+    "nonce": "2aa01bc9-42a8-461f-8686-d12a24f205fa",
+    "task": "TM-249",
+    "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "created_at": "2026-09-27T04:43:55.647Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-27T04:43:56.177Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-249-a08c1e2f374341462d7ff9b39f2e1e308f20eaa1.json"
+  },
+  "review": {
+    "base_revision": "2d42492670bb322ae87918c446900a92ff815747",
+    "patch_sha256": "91a98346ce5e64fceb63c9c39d61963a6270800dd6932e1bf44e59b92677feb4",
+    "task": "TM-249",
+    "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/management.mjs",
+        "line": 608,
+        "claim": "All three findings from 207e7e6 are resolved. (1) closeLandedTask no longer accepts criteria. It attaches evidence and runs tm done as the authorized actor. When the store refuses, the landing stands and TOPOLOGY_INTEGRATE_UNCLOSED names each unaccepted criterion by index and text, and a rerun after they are accepted closes without merging again (test asserts accepted is [] and the criteria are untouched). (2) The close-retry at line 632 now runs integrationAuthority, the same caller and plan gate as the merge. A worker pane naming the lead (TM_DISPATCH_WORKER unset) and the lead with a revoked grant are both refused by name, and the task stays open. (3) One integrationAuthorization builder serves both paths. An operator-shell auto_merge PR integrate records authorized: false, and the test checks it field-for-field against the fast-forward path. The actor-mismatch check moved into the shared gate as a named 'caller' refusal. Guardrails from the prior round are unchanged: exactly --merge --match-head-commit with no bypass flags, named refusals before any merge, and idempotent handling of already-merged and unrecorded PRs. The range is TM-249's own files. The request includes no test output."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 58433,
+      "sessionId": "$60",
+      "sessionCreated": 1790387813,
+      "paneId": "%60",
+      "panePid": 1948865
+    },
+    "request_nonce": "2aa01bc9-42a8-461f-8686-d12a24f205fa",
+    "author_agent_ids": [
+      "fd2b831f"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+    "created_at": "2026-09-27T04:44:19.027Z"
+  },
+  "merge": {
+    "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+    "landed": "d9e8eb487917eb0e190009c89eafb84742ba2646",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "a08c1e2f374341462d7ff9b39f2e1e308f20eaa1",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR 135 merged at the Faro-approved head with CI green (ADR-0023, ADR-0027)",
+      "policy_auto_merge": true,
+      "at": "2026-09-28T21:40:00.551Z"
+    }
+  }
+}
