@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **The project-scope commit guard is gone (TM-392).** `~/.agents/AGENTS.md` lets a repository
+  declare `agent-orchestration` and `task-management` under its own `.claude/settings.json`
+  `enabledPlugins`, so this plugin no longer treats that as an error. Removed: the
+  `PreToolUse(Bash)` hook (`scripts/guard-project-install.mjs`), which blocked any Bash call whose
+  text matched "git" then "commit", heredoc bodies and quoted text included; the standalone
+  `scripts/check-no-project-plugin-installs.mjs`; and the SessionStart warning from
+  `src/services/project-scope.mjs`. `ao-topology git-hook install` now refuses with
+  `TOPOLOGY_GIT_HOOK_RETIRED`; `status` and `uninstall` still find and remove a hook installed
+  earlier. Such a hook resolves the deleted check script at commit time and exits 0 when it is
+  missing, so it stops blocking once the plugin updates. This plugin edits no repository's
+  settings file. The "Commit guard" and `git-hook` entries below are history.
+
 ### Added
 
 - **Held standing mail rings an alive lead, and `task:<TM-id>` reaches its bound worker (TM-384,
