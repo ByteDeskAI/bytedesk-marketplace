@@ -208,7 +208,6 @@ __export(repoid_exports, {
   canonicalRepoId: () => canonicalRepoId,
   pinnedGithubRepo: () => pinnedGithubRepo,
   repoKey: () => repoKey,
-  repoSlug: () => repoSlug,
   repositoryConsumer: () => repositoryConsumer,
   stateRoot: () => stateRoot2
 });
@@ -234,11 +233,6 @@ async function repositoryConsumer(consumer) {
 }
 function repoKey(id) {
   return (0, import_node_crypto5.createHash)("sha256").update(String(id)).digest("hex").slice(0, 16);
-}
-function repoSlug(id) {
-  const path3 = String(id ?? "");
-  const name = (0, import_node_path8.basename)((0, import_node_path8.basename)(path3) === ".git" ? (0, import_node_path8.dirname)(path3) : path3).replace(/\.git$/, "");
-  return name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "repo";
 }
 function stateRoot2(env = process.env, home = (0, import_node_os4.homedir)()) {
   if (env.AGENT_ORCHESTRATION_STATE_HOME) return (0, import_node_path8.resolve)(env.AGENT_ORCHESTRATION_STATE_HOME);
@@ -790,7 +784,6 @@ var tmux_exports = {};
 __export(tmux_exports, {
   ControlClient: () => ControlClient,
   MIN_PANE_ROWS: () => MIN_PANE_ROWS,
-  ROLE_STATUS_FORMAT: () => ROLE_STATUS_FORMAT,
   ROLE_TITLE_FORMAT: () => ROLE_TITLE_FORMAT,
   SOCKET_PATH_MAX: () => SOCKET_PATH_MAX,
   SUBMIT_SETTLE_MS: () => SUBMIT_SETTLE_MS,
@@ -935,32 +928,7 @@ function roleDisplayArgs(pane, { agent, role, roleLabel, roleIcon }) {
   return Object.entries(values).flatMap(([name, value]) => [";", "set-option", "-p", "-t", pane, name, tmuxText(value)]);
 }
 function sessionTitleArgs(session) {
-  return [
-    ";",
-    "set-option",
-    "-t",
-    session,
-    "set-titles",
-    "on",
-    ";",
-    "set-option",
-    "-t",
-    session,
-    "set-titles-string",
-    ROLE_TITLE_FORMAT,
-    ";",
-    "set-option",
-    "-t",
-    session,
-    "status-left",
-    ROLE_STATUS_FORMAT,
-    ";",
-    "set-option",
-    "-t",
-    session,
-    "status-left-length",
-    "100"
-  ];
+  return [";", "set-option", "-t", session, "set-titles", "on", ";", "set-option", "-t", session, "set-titles-string", ROLE_TITLE_FORMAT];
 }
 async function setRoleDisplay(pane, display) {
   const [, ...args] = roleDisplayArgs(pane, display);
@@ -1127,7 +1095,7 @@ async function listServerPanes({ tmuxServer, session, env = process.env } = {}) 
     return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId: paneId2, panePid: Number(panePid), sessionName, command, cwd, alive: dead2 === "0", title, identity: parseIdentityFields(identity) };
   });
 }
-var import_node_child_process3, import_node_events, import_node_async_hooks, import_node_path12, IDENTITY_WIDTH, TMUX, selectedServer, LAUNCH_SHELL, MIN_PANE_ROWS, SUBMIT_SETTLE_MS, ROLE_TITLE_FORMAT, ROLE_STATUS_FORMAT, SOCKET_PATH_MAX, SUBSCRIPTION_LINE, ControlClient;
+var import_node_child_process3, import_node_events, import_node_async_hooks, import_node_path12, IDENTITY_WIDTH, TMUX, selectedServer, LAUNCH_SHELL, MIN_PANE_ROWS, SUBMIT_SETTLE_MS, ROLE_TITLE_FORMAT, SOCKET_PATH_MAX, SUBSCRIPTION_LINE, ControlClient;
 var init_tmux = __esm({
   "topology/lib/tmux.mjs"() {
     import_node_child_process3 = require("node:child_process");
@@ -1143,7 +1111,6 @@ var init_tmux = __esm({
     MIN_PANE_ROWS = 12;
     SUBMIT_SETTLE_MS = Number(process.env.AO_SUBMIT_SETTLE_MS ?? 500);
     ROLE_TITLE_FORMAT = '#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} \xB7 #{@ao_role_label},#S:#I:#W - "#T"}';
-    ROLE_STATUS_FORMAT = "#{?@ao_role_icon,#{@ao_role_icon} #{@ao_agent} \xB7 #{@ao_role_label} ,}[#S] ";
     SOCKET_PATH_MAX = 104;
     SUBSCRIPTION_LINE = /^%subscription-changed\s+(\S+)\s+\S+\s+\S+\s+\S+\s+(%\d+)\s+:\s?(.*)$/;
     ControlClient = class extends import_node_events.EventEmitter {
@@ -18934,15 +18901,19 @@ __export(orch_transport_exports, {
   openNatsTransport: () => openNatsTransport,
   orchName: () => orchName,
   orchSocketPath: () => orchSocketPath,
+  probeConfiguredNats: () => probeConfiguredNats,
   publishReviewVerdict: () => publishReviewVerdict,
   readTransportState: () => readTransportState,
   redactUrl: () => redactUrl,
   resolveTransport: () => resolveTransport,
   retireStaleOutage: () => retireStaleOutage,
   selectLiveTransport: () => selectLiveTransport,
+  selectionView: () => selectionView,
+  settleOutage: () => settleOutage,
   touchFallback: () => touchFallback,
   transportMode: () => transportMode,
   transportStatePath: () => transportStatePath,
+  updateTransportState: () => updateTransportState,
   useTransportOpener: () => useTransportOpener,
   withoutForeignSources: () => withoutForeignSources,
   writeTransportState: () => writeTransportState
@@ -19307,13 +19278,34 @@ async function writeTransportState(env, home, state) {
   const { foreign_dropped: _dropped, ...clean } = state ?? {};
   await writeJson(transportStatePath(env, home), clean);
 }
-async function touchFallback(env, home, { source, url: url2 }, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
-  const state = await readTransportState(env, home, { retireAfterMs: Infinity });
+async function updateTransportState(env, home, change, { read: read3 = {} } = {}) {
+  return withLock(`${transportStatePath(env, home)}.lock`, async () => {
+    const previous = await readTransportState(env, home, read3);
+    const next = await change(previous);
+    if (next && next !== previous) await writeTransportState(env, home, next);
+    return next ?? previous;
+  }, { timeoutMs: 1e4 });
+}
+function settleOutage(state, { now = Date.now(), drop } = {}) {
   const outage = state?.outage;
-  if (!outage || outage.recovered_at || outage.source !== source || outage.url !== url2) return false;
-  if (now - Date.parse(outage.last_fallback_at ?? outage.since) <= retireAfterMs / 4) return false;
-  await writeTransportState(env, home, { ...state, outage: { ...outage, last_fallback_at: new Date(now).toISOString() } });
-  return true;
+  if (!outage || outage.recovered_at || !outage.holders) return state;
+  const holders = liveHolders(outage.holders, drop);
+  const recovered = Boolean(outage.reachable_at) && Object.keys(holders).length === 0;
+  if (!recovered && Object.keys(holders).length === Object.keys(outage.holders).length) return state;
+  return { ...state, outage: { ...outage, holders, ...recovered ? { recovered_at: new Date(now).toISOString() } : {} } };
+}
+async function touchFallback(env, home, { source, url: url2 }, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  let wrote = false;
+  await updateTransportState(env, home, (state) => {
+    const outage = state?.outage;
+    if (!outage || outage.recovered_at || outage.source !== source || outage.url !== url2) return state;
+    const stale = now - Date.parse(outage.last_fallback_at ?? outage.since) > retireAfterMs / 4;
+    if (!stale && outage.holders?.[process.pid]) return state;
+    wrote = true;
+    const at = new Date(now).toISOString();
+    return { ...state, outage: { ...outage, last_fallback_at: stale ? at : outage.last_fallback_at, holders: { ...outage.holders, [process.pid]: at } } };
+  }, { read: { retireAfterMs: Infinity } });
+  return wrote;
 }
 function holdsFallbackFrom({ source, url: url2 }) {
   return [...liveTransports.values()].some((t) => t.selection?.fallback?.source === source && t.selection.fallback.url === url2 && t.stats?.().closed === false);
@@ -19331,55 +19323,66 @@ async function describeTransport(env = process.env, home = (0, import_node_os11.
     ...state.foreign_dropped ? { note: "ignored a NATS_URL entry written by an older ao; NATS_URL is not an ao source (ADR-0032)" } : {}
   } : { kind: "nats", source: null, url: null, fallback: null, outage: null, note: "no NATS connection recorded on this host yet" };
 }
-async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
-  const previous = await readTransportState(env, home);
-  const at = (/* @__PURE__ */ new Date()).toISOString();
-  const outageOf = (fallback) => fallback && {
-    source: fallback.source,
-    url: fallback.url,
-    error: fallback.error,
-    since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : at,
-    last_fallback_at: at,
-    recovered_at: null
+function selectionView(transport) {
+  const s = transport?.selection;
+  if (!s) return null;
+  return {
+    kind: s.kind,
+    source: s.source,
+    url: s.url,
+    fallback: s.fallback ?? null,
+    outage: s.fallback ? { ...s.fallback, recovered_at: null } : null,
+    ...s.state_write_error ? { state_write_error: s.state_write_error } : {}
   };
-  let outage = previous?.outage ?? null;
-  if (selection.fallback) outage = outageOf(selection.fallback);
-  else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
-    outage = { ...outage, recovered_at: (/* @__PURE__ */ new Date()).toISOString() };
-  }
-  const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
-  if (same) return;
-  await writeJson(transportStatePath(env, home), {
-    kind: selection.kind,
-    source: selection.source,
-    url: selection.url,
-    fallback: selection.fallback,
-    at: (/* @__PURE__ */ new Date()).toISOString(),
-    pid: process.pid,
-    outage
+}
+async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
+  await updateTransportState(env, home, (raw) => {
+    const previous = settleOutage(raw);
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    let outage = previous?.outage ?? null;
+    const open14 = outage && !outage.recovered_at ? outage : null;
+    if (selection.fallback) {
+      const same2 = open14 && open14.url === selection.fallback.url;
+      outage = {
+        source: selection.fallback.source,
+        url: selection.fallback.url,
+        error: selection.fallback.error,
+        since: same2 ? open14.since : at,
+        last_fallback_at: at,
+        recovered_at: null,
+        holders: { ...same2 ? liveHolders(open14.holders) : {}, [process.pid]: at }
+      };
+    } else if (open14 && open14.source === selection.source && open14.url === selection.url) {
+      const holders = liveHolders(open14.holders, process.pid);
+      outage = Object.keys(holders).length ? { ...open14, holders, reachable_at: at } : { ...open14, holders, recovered_at: at };
+    }
+    const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
+    if (same) return previous;
+    return { kind: selection.kind, source: selection.source, url: selection.url, fallback: selection.fallback, at, pid: process.pid, outage };
   });
 }
 async function recordPortConflict(env, home, error51) {
-  const previous = await readTransportState(env, home);
   const url2 = `nats://127.0.0.1:${error51.details?.port}`;
-  const at = (/* @__PURE__ */ new Date()).toISOString();
-  const open14 = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url2 ? previous.outage : null;
-  await writeJson(transportStatePath(env, home), {
-    kind: "nats",
-    source: previous?.source ?? null,
-    url: previous?.url ?? null,
-    fallback: null,
-    at,
-    pid: process.pid,
-    outage: {
-      source: "managed-local",
-      url: url2,
-      error: String(error51.message).slice(0, 500),
-      conflict: { port: error51.details?.port ?? null, holder: error51.details?.holder ?? null },
-      since: open14?.since ?? at,
-      last_fallback_at: at,
-      recovered_at: null
-    }
+  await updateTransportState(env, home, (previous) => {
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const open14 = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url2 ? previous.outage : null;
+    return {
+      kind: "nats",
+      source: previous?.source ?? null,
+      url: previous?.url ?? null,
+      fallback: null,
+      at,
+      pid: process.pid,
+      outage: {
+        source: "managed-local",
+        url: url2,
+        error: String(error51.message).slice(0, 500),
+        conflict: { port: error51.details?.port ?? null, holder: error51.details?.holder ?? null },
+        since: open14?.since ?? at,
+        last_fallback_at: at,
+        recovered_at: null
+      }
+    };
   });
 }
 function ignoredNatsEnv(env = process.env) {
@@ -19390,6 +19393,30 @@ function ignoredNatsEnv(env = process.env) {
     message: `${names2.join(", ")} ${names2.length > 1 ? "are" : "is"} set but ignored: ao uses AO_NATS_URL, the gateway orch.sock, or its managed NATS on nats.port (ADR-0032).`
   } : null;
 }
+async function probeConfiguredNats(outage, env = process.env, home = (0, import_node_os11.homedir)(), { timeoutMs = 2e3 } = {}) {
+  let servers = null, bridge = null, nc = null;
+  if (outage?.source === "AO_NATS_URL" && env.AO_NATS_URL && redactUrl(env.AO_NATS_URL) === outage.url) servers = env.AO_NATS_URL;
+  else if (outage?.source === "orch.sock" && outage.url && (0, import_node_fs9.existsSync)(outage.url)) {
+    bridge = await bridgeUnixSocket(outage.url).catch(() => null);
+    servers = bridge?.servers;
+  }
+  if (!servers) return false;
+  try {
+    const { connect, credsAuthenticator } = await loadNats();
+    const options = { servers, name: "ao-outage-probe", timeout: timeoutMs, maxReconnectAttempts: 0, reconnect: false };
+    if (env.AO_ORCH_CREDS) options.authenticator = credsAuthenticator((0, import_node_fs9.readFileSync)(env.AO_ORCH_CREDS));
+    nc = await connect(options);
+    const domain2 = await jetStreamDomain(env, home);
+    await nc.jetstreamManager(domain2 ? { domain: domain2 } : {});
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await nc?.close().catch(() => {
+    });
+    bridge?.server.close();
+  }
+}
 async function openNatsTransport({ env = process.env, home = (0, import_node_os11.homedir)(), servers, credsFile, name = "ao-orch" } = {}) {
   const {
     AckPolicy,
@@ -19399,27 +19426,9 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     StringCodec,
     connect,
     credsAuthenticator,
-    headers,
     nanos
-  } = await Promise.resolve().then(() => __toESM(require_nats2(), 1)).catch(async (error51) => {
-    if (error51?.code !== "ERR_MODULE_NOT_FOUND") throw error51;
-    try {
-      const client2 = await import(new URL("../../dist/nats-client.cjs", __aoImportMetaUrl).href);
-      return client2.default || client2;
-    } catch {
-      return fail2("TOPOLOGY_NATS_UNAVAILABLE", "The installed NATS client bundle is missing or invalid. Refresh the agent-orchestration plugin installation.");
-    }
-  });
+  } = await loadNats();
   const sc = StringCodec();
-  const publishOptions = (msgID, slug2) => {
-    if (!msgID && !slug2) return void 0;
-    const options = msgID ? { msgID } : {};
-    if (slug2) {
-      options.headers = headers();
-      options.headers.set(ORCH_LAYOUT.repoSlugHeader, String(slug2));
-    }
-    return options;
-  };
   const url2 = servers || env.AO_NATS_URL || "";
   const configuredSource = servers ? "servers" : env.AO_NATS_URL ? "AO_NATS_URL" : null;
   let selection = { kind: "nats", source: configuredSource, url: redactUrl(url2), fallback: null };
@@ -19431,7 +19440,8 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
     try {
       local = await ensureLocalNats({ env });
     } catch (error51) {
-      if (error51?.code === "TOPOLOGY_NATS_PORT_CONFLICT" && !servers) await recordPortConflict(env, home, error51).catch(() => {
+      if (error51?.code === "TOPOLOGY_NATS_PORT_CONFLICT" && !servers) await recordPortConflict(env, home, error51).catch((e) => {
+        error51.state_write_error = describeError(e);
       });
       throw error51;
     }
@@ -19478,20 +19488,36 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}; local fallback failed: ${second.message}`);
     }
   }
-  if (!servers) await recordTransportSelection(env, selection, home).catch(() => {
-  });
+  const jsOptions = domain2 ? { domain: domain2 } : {};
+  const js = nc.jetstream(jsOptions);
+  let jsm;
+  try {
+    jsm = await nc.jetstreamManager(jsOptions);
+  } catch (error51) {
+    await nc.close().catch(() => {
+    });
+    if (bridge) bridge.server.close();
+    throw error51;
+  }
+  const surface = (error51) => {
+    selection.state_write_error = describeError(error51);
+  };
+  if (!servers) await recordTransportSelection(env, selection, home).catch(surface);
   let heartbeat = null;
   if (!servers && selection.fallback) {
     const retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS;
-    heartbeat = setInterval(() => {
-      if (!nc.isClosed()) touchFallback(env, home, selection.fallback, { retireAfterMs }).catch(() => {
-      });
+    heartbeat = setInterval(async () => {
+      if (nc.isClosed()) return;
+      try {
+        await touchFallback(env, home, selection.fallback, { retireAfterMs });
+        const outage = (await readTransportState(env, home, { retireAfterMs: Infinity }))?.outage;
+        if (outage?.reachable_at && !outage.recovered_at && outage.url === selection.fallback.url) await transport.close({ force: true });
+      } catch (error51) {
+        surface(error51);
+      }
     }, retireAfterMs / 4);
     heartbeat.unref();
   }
-  const jsOptions = domain2 ? { domain: domain2 } : {};
-  const js = nc.jetstream(jsOptions);
-  const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = /* @__PURE__ */ new Set();
   const subscriptions = /* @__PURE__ */ new Set();
   const timers = /* @__PURE__ */ new Set();
@@ -19565,12 +19591,12 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         ensured.add(replyKey);
       }
     },
-    async publishMail({ repo, agent, messageId: messageId2, body, slug: slug2 = null }) {
+    async publishMail({ repo, agent, messageId: messageId2, body }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, agents: [nameAgent] });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId2 && `${nameRepo}.${nameAgent}.${messageId2}`, slug2));
+      const ack = await js.publish(subject, sc.encode(body), messageId2 ? { msgID: `${nameRepo}.${nameAgent}.${messageId2}` } : void 0);
       return { via: "nats", subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullMail({ repo, agent, timeoutMs = 1e3 }) {
@@ -19585,7 +19611,6 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         via: "nats",
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.("Nats-Msg-Id") ?? null,
-        repoSlug: msg.headers?.get?.(ORCH_LAYOUT.repoSlugHeader) || null,
         body: sc.decode(msg.data),
         ack: async () => {
           msg.ack();
@@ -19596,12 +19621,12 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
         }
       };
     },
-    async publishReply({ repo, agent, messageId: messageId2, body, slug: slug2 = null }) {
+    async publishReply({ repo, agent, messageId: messageId2, body }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
       const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId2 && `${nameRepo}.${nameAgent}.reply.${messageId2}`, slug2));
+      const ack = await js.publish(subject, sc.encode(body), messageId2 ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId2}` } : void 0);
       return { via: "nats", subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullReply({ repo, agent, replyTo, from, timeoutMs = 1e3 }) {
@@ -19823,6 +19848,9 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {
       });
       if (bridge) await new Promise((resolve24) => bridge.server.close(resolve24));
+      if (!servers && selection.fallback && !holdsFallbackFrom(selection.fallback)) {
+        await updateTransportState(env, home, (state) => settleOutage(state, { drop: process.pid }), { read: { retireAfterMs: Infinity } }).catch(surface);
+      }
     }
   };
   return transport;
@@ -19846,7 +19874,7 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os11, import_node_path35, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign;
+var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os11, import_node_path35, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto18 = require("node:crypto");
@@ -19856,6 +19884,7 @@ var init_orch_transport = __esm({
     import_node_path35 = require("node:path");
     init_util();
     init_nats_local();
+    init_lockfile();
     init_repoid();
     ORCH_LAYOUT = Object.freeze({
       mailStream: "ORCH_MAIL",
@@ -19867,8 +19896,6 @@ var init_orch_transport = __esm({
       personasBucket: "ORCH_PERSONAS",
       presenceTtlMs: 45e3,
       duplicateWindowMs: 12e4,
-      // TM-371: a header, not a subject change, so deployed peers keep matching `orch.<key>.…`.
-      repoSlugHeader: "Orch-Repo-Slug",
       mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
       replySubject: (repo, agent) => `orch.${repo}.mail.${agent}.reply`,
       tasksSubject: (repo) => `orch.${repo}.tasks.ready`,
@@ -19898,6 +19925,25 @@ var init_orch_transport = __esm({
     OUTAGE_RETIRE_MS = 60 * 6e4;
     AO_SOURCES = /* @__PURE__ */ new Set(["AO_NATS_URL", "orch.sock", "managed-local"]);
     foreign = (entry) => Boolean(entry?.source) && !AO_SOURCES.has(entry.source);
+    alive = (pid) => {
+      try {
+        process.kill(Number(pid), 0);
+        return true;
+      } catch (error51) {
+        return error51.code === "EPERM";
+      }
+    };
+    liveHolders = (holders, drop) => Object.fromEntries(Object.entries(holders ?? {}).filter(([pid]) => Number(pid) !== drop && alive(pid)));
+    describeError = (error51) => `${error51?.code ?? "ERROR"}: ${String(error51?.message ?? error51).slice(0, 300)}`;
+    loadNats = () => Promise.resolve().then(() => __toESM(require_nats2(), 1)).catch(async (error51) => {
+      if (error51?.code !== "ERR_MODULE_NOT_FOUND") throw error51;
+      try {
+        const client2 = await import(new URL("../../dist/nats-client.cjs", __aoImportMetaUrl).href);
+        return client2.default || client2;
+      } catch {
+        return fail2("TOPOLOGY_NATS_UNAVAILABLE", "The installed NATS client bundle is missing or invalid. Refresh the agent-orchestration plugin installation.");
+      }
+    });
   }
 });
 
@@ -20370,7 +20416,7 @@ async function publishMailboxEnvelope({ envelope, transport, ...options }) {
     await write(path3, record2);
     try {
       const publish3 = envelope.kind === "reply" ? transport.publishReply.bind(transport) : transport.publishMail.bind(transport);
-      const result = await publish3({ repo: repoKey(envelope.repositoryId), slug: repoSlug(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
+      const result = await publish3({ repo: repoKey(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
       const next = { ...record2, status: "published", publishedAt: nowIso(), result, lastError: null };
       await write(path3, next);
       return next;
@@ -22361,55 +22407,26 @@ var init_standing_mailbox = __esm({
 var nats_outage_exports = {};
 __export(nats_outage_exports, {
   SUPERVISOR_SENDER: () => SUPERVISOR_SENDER,
-  canReach: () => canReach,
   natsOutageTick: () => natsOutageTick
 });
-function canReach(url2, timeoutMs = 1e3) {
-  return new Promise((resolve24) => {
-    let target;
-    try {
-      if (String(url2).startsWith("/")) target = { path: url2 };
-      else {
-        const parsed2 = new URL(String(url2).split(",")[0]);
-        target = { host: parsed2.hostname, port: Number(parsed2.port) || 4222 };
-      }
-    } catch {
-      resolve24(false);
-      return;
-    }
-    const socket = import_node_net3.default.connect(target, () => {
-      socket.destroy();
-      resolve24(true);
-    });
-    socket.once("error", () => resolve24(false));
-    socket.setTimeout(timeoutMs, () => {
-      socket.destroy();
-      resolve24(false);
-    });
-  });
-}
 async function natsOutageTick({
   consumer,
   env = process.env,
   home = (0, import_node_os19.homedir)(),
   deliver = sendStandingMessage,
   lead = readLeadRegistration,
-  reachable = canReach,
+  reachable = (_url2, outage) => probeConfiguredNats(outage, env, home),
   discard = discardLiveTransports,
   now = Date.now,
   retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS,
   holds = holdsFallbackFrom
 }) {
-  let state = await readTransportState(env, home, { retireAfterMs: Infinity });
-  if (state?.foreign_dropped) await writeTransportState(env, home, state).catch(() => {
-  });
+  const read3 = { retireAfterMs: Infinity };
+  let state = await updateTransportState(env, home, (s) => s?.foreign_dropped ? { ...s } : s, { read: read3 });
   if (!state?.outage?.since) return null;
-  if (!state.outage.recovered_at && holds(state.outage) && await touchFallback(env, home, state.outage, { now: now(), retireAfterMs })) {
-    state = await readTransportState(env, home, { retireAfterMs: Infinity });
-  }
-  const checked = retireStaleOutage(state, { now: now(), retireAfterMs });
-  if (checked !== state) await writeTransportState(env, home, checked);
-  state = checked;
+  if (!state.outage.recovered_at && holds(state.outage)) await touchFallback(env, home, state.outage, { now: now(), retireAfterMs });
+  state = await updateTransportState(env, home, (s) => settleOutage(retireStaleOutage(s, { now: now(), retireAfterMs }), { now: now() }), { read: read3 });
+  if (!state?.outage?.since) return null;
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
   const outageId = messageId("outage", key, outage.since), recoveryId = messageId("recovered", key, outage.since);
@@ -22419,7 +22436,7 @@ async function natsOutageTick({
   const redialKey = `${outage.since}|${outage.url}`;
   const redial = redials.get(redialKey);
   if (outage.recovered_at) redials.delete(redialKey);
-  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url)) {
+  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url, outage)) {
     await discard();
     probed = true;
     const wait = redial ? Math.min(redial.wait * 2, REDIAL_MAX_MS) : REDIAL_FIRST_MS;
@@ -22464,12 +22481,11 @@ async function natsOutageTick({
     provenance: { source: "ao-topology supervise" }
   }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto23, import_node_os19, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
+var import_node_crypto23, import_node_os19, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto23 = require("node:crypto");
     import_node_os19 = require("node:os");
-    import_node_net3 = __toESM(require("node:net"), 1);
     init_repoid();
     init_orch_transport();
     init_lead();
@@ -22645,8 +22661,8 @@ async function awaitReviewerVerdict({ consumer, repo, nonce, timeoutMs = 2e3, en
   const name = repo || repoKey2((await canonicalRepoId(consumer)).id);
   return active.beginVerdictWait({ repo: name, nonce, timeoutMs });
 }
-async function reviewerProbeReady({ consumer, record: record2, env = process.env, home = (0, import_node_os20.homedir)(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive: alive2 = bindingAlive, readOnly = false, transport = null }) {
-  if (!record2?.agent_id || !incarnationOf(record2.binding) || !await alive2(record2)) return false;
+async function reviewerProbeReady({ consumer, record: record2, env = process.env, home = (0, import_node_os20.homedir)(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive: alive3 = bindingAlive, readOnly = false, transport = null }) {
+  if (!record2?.agent_id || !incarnationOf(record2.binding) || !await alive3(record2)) return false;
   const dir = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "probes");
   const cached2 = await recentReviewerAck(dir, record2);
   if (cached2) return true;
@@ -22657,7 +22673,7 @@ async function reviewerProbeReady({ consumer, record: record2, env = process.env
     const ack = await readJson3((0, import_node_path48.join)(dir, name)).catch(() => null);
     const mine = ack?.nonce === stale && pending?.nonce === stale && ack.agent_id === record2.agent_id && ack.repo_id === record2.repo_id && ack.session === record2.session && sameIncarnation(ack.binding, record2.binding) && sameIncarnation(pending.binding, record2.binding);
     if (!readOnly) await Promise.all([(0, import_promises37.rm)((0, import_node_path48.join)(dir, `${stale}.json`), { force: true }), (0, import_promises37.rm)((0, import_node_path48.join)(dir, name), { force: true })]);
-    if (mine && Number(pending.expires_at) >= Date.now() && await alive2(record2)) {
+    if (mine && Number(pending.expires_at) >= Date.now() && await alive3(record2)) {
       if (!readOnly) await rememberReviewerAck(dir, record2);
       return true;
     }
@@ -22696,12 +22712,12 @@ async function reviewerProbeReady({ consumer, record: record2, env = process.env
     }
     while (Date.now() <= waitUntil) {
       const screen = await output(record2);
-      if (readySignalOnScreen(screen, nonce) && await alive2(record2)) {
+      if (readySignalOnScreen(screen, nonce) && await alive3(record2)) {
         await rememberReviewerAck(dir, record2);
         return true;
       }
       const ack = await readJson3(ackPath).catch(() => null);
-      if (ack?.nonce === nonce && ack.agent_id === record2.agent_id && ack.repo_id === record2.repo_id && ack.session === record2.session && sameIncarnation(ack.binding, record2.binding) && await alive2(record2)) {
+      if (ack?.nonce === nonce && ack.agent_id === record2.agent_id && ack.repo_id === record2.repo_id && ack.session === record2.session && sameIncarnation(ack.binding, record2.binding) && await alive3(record2)) {
         await rememberReviewerAck(dir, record2);
         return true;
       }
@@ -22744,13 +22760,13 @@ async function defaultWake({ consumer, record: record2, nonce, env, home, adapte
     text: `AO_PROBE ${nonce} \u2014 you are being asked to prove you are listening. Reply with exactly: AO_REVIEWER_READY ${nonce}`
   });
 }
-async function reviewerNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os20.homedir)(), alive: alive2 = bindingAlive }) {
+async function reviewerNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os20.homedir)(), alive: alive3 = bindingAlive }) {
   invariant2(/^[a-f0-9-]{36}$/.test(String(nonce)), "TOPOLOGY_REVIEWER_NONCE", "Invalid reviewer nonce.");
   const dir = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "probes");
   const probe = await readJson3((0, import_node_path48.join)(dir, `${nonce}.json`));
   const record2 = await readReviewerRecord(consumer, env, home);
   const identity = await canonicalRepoId(consumer);
-  invariant2(record2 && probe.repo_id === identity.id && probe.agent_id === record2.agent_id && env.AO_AGENT_ID === record2.agent_id && probe.nonce === nonce && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive2(record2), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  invariant2(record2 && probe.repo_id === identity.id && probe.agent_id === record2.agent_id && env.AO_AGENT_ID === record2.agent_id && probe.nonce === nonce && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive3(record2), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
   await writeJson((0, import_node_path48.join)(dir, `${nonce}.ack.json`), { ...probe, acknowledged_at: nowIso() });
   return { ok: true, nonce };
 }
@@ -24049,7 +24065,7 @@ async function startupCheck({ consumer, source, agentId, session, pane, incarnat
 function afterSessionOpen(args = {}) {
   return startupCheck({ ...args, source: "managed-launch" });
 }
-function alive(pid) {
+function alive2(pid) {
   try {
     process.kill(pid, 0);
     return true;
@@ -24057,7 +24073,7 @@ function alive(pid) {
     return e.code !== "ESRCH";
   }
 }
-async function watchServer({ env = process.env, home, once = false, intervalMs = 5e3, listPanesFn, listSessionsFn, tmuxServer = "default", ownerAliveFn = alive, repoId = null, signal } = {}) {
+async function watchServer({ env = process.env, home, once = false, intervalMs = 5e3, listPanesFn, listSessionsFn, tmuxServer = "default", ownerAliveFn = alive2, repoId = null, signal } = {}) {
   invariant2(Number.isFinite(intervalMs) && intervalMs > 0, "TOPOLOGY_STARTUP_WATCH", "watchServer intervalMs must be positive.");
   const repoOf = /* @__PURE__ */ new Map();
   const inRepo = async (cwd) => {
@@ -26795,12 +26811,12 @@ function lastComposerLine(styledScreen) {
   for (let i = lines.length - 1; i >= 0; i -= 1) if (/[>\u276f]/.test(lines[i])) return lines[i];
   return "";
 }
-function evaluateScreen(adapter, screen, { alive: alive2 = true, styled = null } = {}) {
+function evaluateScreen(adapter, screen, { alive: alive3 = true, styled = null } = {}) {
   const attention = attentionOnScreen(adapter, screen);
   if (attention) return { ready: false, failed: true, attention: true, reason: attention.message };
   const failure = failureOnScreen(adapter, screen);
   if (failure) return { ready: false, failed: true, reason: `screen matched failure pattern /${failure}/` };
-  if (!alive2) return { ready: false, failed: true, reason: "pane exited" };
+  if (!alive3) return { ready: false, failed: true, reason: "pane exited" };
   if (adapter.ready.pattern) {
     if (new RegExp(adapter.ready.pattern, "m").test(screen)) return { ready: true, failed: false, reason: "ready pattern" };
     if (styled && composerEmptyStyled(lastComposerLine(styled))) {
@@ -29565,10 +29581,10 @@ async function defaultPane(record2) {
   return panes.find((pane) => pane.alive)?.id ?? panes[0]?.id ?? null;
 }
 async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () => {
-}, alive: alive2 = defaultAlive, wake = wakeLead, assignment = false, readOnly = false, onProof = () => {
+}, alive: alive3 = defaultAlive, wake = wakeLead, assignment = false, readOnly = false, onProof = () => {
 } }) {
   const binding = incarnationOf(record2?.binding);
-  const current = async () => sameIncarnation(binding, record2?.binding) && await alive2(record2) && sameIncarnation(binding, record2?.binding);
+  const current = async () => sameIncarnation(binding, record2?.binding) && await alive3(record2) && sameIncarnation(binding, record2?.binding);
   if (!record2?.pane || !binding || !await current()) return false;
   const dir = (0, import_node_path60.join)(registryDir, "probes");
   const cached2 = await recentAck(dir, record2);
@@ -29686,10 +29702,10 @@ async function wakeLead(record2, nonce, { log = () => {
   });
 }
 function resolveProbes(probes, { registryDir, log }) {
-  const alive2 = probes?.alive ?? defaultAlive;
+  const alive3 = probes?.alive ?? defaultAlive;
   return {
-    alive: alive2,
-    responsive: probes?.responsive ?? ((record2, ackTimeoutMs, options = {}) => defaultResponsive(record2, ackTimeoutMs, { registryDir, log, alive: alive2, assignment: options.assignment === true, readOnly: options.readOnly === true, onProof: options.onProof })),
+    alive: alive3,
+    responsive: probes?.responsive ?? ((record2, ackTimeoutMs, options = {}) => defaultResponsive(record2, ackTimeoutMs, { registryDir, log, alive: alive3, assignment: options.assignment === true, readOnly: options.readOnly === true, onProof: options.onProof })),
     open: probes?.open ?? ((args) => openRoleSession(args)),
     pane: probes?.pane ?? defaultPane,
     kill: probes?.kill ?? (async (record2) => {
@@ -29935,7 +29951,7 @@ async function detachLead({ consumer, env = process.env, home = (0, import_node_
     return { action: "detached", detached: true, record: record2, killed };
   });
 }
-async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os30.homedir)(), alive: alive2 = defaultAlive }) {
+async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os30.homedir)(), alive: alive3 = defaultAlive }) {
   invariant2(
     NONCE_PATTERN.test(String(nonce ?? "")),
     "TOPOLOGY_LEAD_PROBE_INVALID",
@@ -29953,7 +29969,7 @@ async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, imp
   const probe = await readJson3(probePath);
   const registration = await readLeadRegistration({ consumer, env, home });
   const record2 = probe.purpose === "assignment" ? { repo_id: probe.repo_id, agent_id: probe.agent_id, session: probe.session, pane: probe.binding?.paneId, binding: incarnationOf(probe.binding) } : registration?.record;
-  invariant2(record2 && probe.nonce === nonce && probe.repo_id === identity.id && record2.repo_id === identity.id && probe.agent_id === env.AO_AGENT_ID && record2.agent_id === env.AO_AGENT_ID && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive2(record2) && sameIncarnation(probe.binding, record2.binding), "TOPOLOGY_LEAD_PROBE_OWNER", "Probe must be acknowledged by its designated agent at the current exact incarnation in the same repository before expiry.");
+  invariant2(record2 && probe.nonce === nonce && probe.repo_id === identity.id && record2.repo_id === identity.id && probe.agent_id === env.AO_AGENT_ID && record2.agent_id === env.AO_AGENT_ID && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive3(record2) && sameIncarnation(probe.binding, record2.binding), "TOPOLOGY_LEAD_PROBE_OWNER", "Probe must be acknowledged by its designated agent at the current exact incarnation in the same repository before expiry.");
   const ackPath = (0, import_node_path60.join)(dir, `${nonce}.ack.json`);
   await writeJson(ackPath, { nonce, repo_id: identity.id, agent_id: env.AO_AGENT_ID, session: record2.session, binding: incarnationOf(record2.binding), created_at: nowIso() });
   return { ok: true, ack_path: ackPath };
@@ -30055,18 +30071,18 @@ function liveness(panes) {
   const index = new Set(panes.filter((pane) => pane.alive !== false).map(bindingKey2));
   return (binding) => validBinding(binding) ? index.has(bindingKey2(binding)) : false;
 }
-function reconcile(record2, alive2, at = nowIso()) {
+function reconcile(record2, alive3, at = nowIso()) {
   const events = [];
   let holder = record2.holder;
   let queue = record2.queue;
-  if (holder && alive2(holder.binding) === false) {
+  if (holder && alive3(holder.binding) === false) {
     events.push({ type: "vacated", at, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason, why: "binding-absent" });
     holder = null;
   }
-  const dropped = queue.filter((entry) => alive2(entry.binding) === false);
+  const dropped = queue.filter((entry) => alive3(entry.binding) === false);
   if (dropped.length) {
     for (const entry of dropped) events.push({ type: "dropped", at, name: record2.name, agent_id: entry.agent_id, ticket: entry.ticket, reason: entry.reason, why: "binding-absent" });
-    queue = queue.filter((entry) => alive2(entry.binding) !== false);
+    queue = queue.filter((entry) => alive3(entry.binding) !== false);
   }
   if (!holder && queue.length) {
     const head = queue[0];
@@ -30160,8 +30176,8 @@ async function requestSlot({
       ticket = allocate(working);
       working.queue.push({ agent_id: agentId, ticket, reason: reason.trim(), binding: mine, expect_ms: expectMs, run_dir: runDir, requested_at: nowIso() });
     }
-    const alive2 = liveness(await panesFor([...recordBindings(working), mine], { env, listPanesFn }));
-    const { record: record2, events } = reconcile(working, alive2);
+    const alive3 = liveness(await panesFor([...recordBindings(working), mine], { env, listPanesFn }));
+    const { record: record2, events } = reconcile(working, alive3);
     await commit(paths2, record2, previous);
     return { record: record2, events, ticket };
   });
@@ -30236,8 +30252,8 @@ async function reconcileOne(identity, name, { env, home, listPanesFn, panes, loc
   const paths2 = slotPaths(identity, name, env, home);
   const outcome = await withLock(paths2.lock, async () => {
     const previous = await readRecord(paths2.record, identity, name);
-    const alive2 = liveness(await panesFor(recordBindings(previous), { env, listPanesFn, panes }));
-    const { record: record2, events } = reconcile(previous, alive2);
+    const alive3 = liveness(await panesFor(recordBindings(previous), { env, listPanesFn, panes }));
+    const { record: record2, events } = reconcile(previous, alive3);
     await commit(paths2, record2, previous);
     return { record: record2, events };
   }, { timeoutMs: lockTimeoutMs });
@@ -31135,19 +31151,19 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
   const record2 = await readJson3(recordPath2).catch(() => null);
   const tick = await readJson3((0, import_node_path63.join)(root, `${key}.json`)).catch(() => null);
   const at = tick?.at ? Date.parse(tick.at) : NaN;
-  const alive2 = record2 ? pidAlive(record2.pid) : false;
+  const alive3 = record2 ? pidAlive(record2.pid) : false;
   const ownerIdentity = owner?.pid ? await processIdentity(owner.pid) : null;
   const ownerAlive = Boolean(owner && pidAlive(owner.pid) && ownerIdentity && ownerIdentity === owner.process_identity);
   const recordOwns = Boolean(record2 && ownerAlive && record2.pid === owner.pid && record2.process_identity === owner.process_identity && record2.lock_token === owner.token);
   const consumerExists = record2?.consumer ? await exists(record2.consumer) : true;
   const currentTick = Boolean(recordOwns && record2.first_tick_at && tick?.pid === record2.pid && Number.isFinite(at) && at >= Date.parse(record2.started_at));
-  const state = ownerAlive ? recordOwns ? currentTick ? "running" : "starting" : "ownership-record-mismatch" : !record2 ? "never-started" : alive2 ? "running-without-lock" : record2.state === "consumer-gone" ? "retired-consumer-gone" : !consumerExists ? "orphaned" : ["starting", "startup-failed"].includes(record2.state) ? "died-before-first-tick" : "down";
+  const state = ownerAlive ? recordOwns ? currentTick ? "running" : "starting" : "ownership-record-mismatch" : !record2 ? "never-started" : alive3 ? "running-without-lock" : record2.state === "consumer-gone" ? "retired-consumer-gone" : !consumerExists ? "orphaned" : ["starting", "startup-failed"].includes(record2.state) ? "died-before-first-tick" : "down";
   return {
     repo_id: identity.id,
     key,
     state,
     pid: record2?.pid ?? null,
-    pid_alive: alive2,
+    pid_alive: alive3,
     owner: owner ? { ...owner, alive: ownerAlive, current_process_identity: ownerIdentity } : null,
     record_owns_lock: recordOwns,
     consumer: record2?.consumer ?? null,
@@ -60745,7 +60761,6 @@ async function defaultOpenLog(stateRoot3) {
 // src/diagnostics.mjs
 var import_node_crypto37 = require("node:crypto");
 var import_promises59 = require("node:fs/promises");
-init_util();
 var import_node_path68 = require("node:path");
 var import_node_os36 = require("node:os");
 init_repoid();
@@ -60762,7 +60777,7 @@ init_prompts();
 var import_node_crypto36 = require("node:crypto");
 var import_node_fs13 = require("node:fs");
 var import_promises57 = require("node:fs/promises");
-var import_node_net4 = __toESM(require("node:net"), 1);
+var import_node_net3 = __toESM(require("node:net"), 1);
 var import_node_os35 = __toESM(require("node:os"), 1);
 var import_node_path66 = require("node:path");
 var import_promises58 = require("node:timers/promises");
@@ -61234,10 +61249,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "acdbc1f59010202a43cfb169aaa55ab021121086886c252dc032780f8b10dbcf";
+  return false ? null : "d43c83673c22616d80c5c2070ed9f230d3297efccc77d8fa4ba7d05092fe3cd1";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "acdbc1f59010202a43cfb169aaa55ab021121086886c252dc032780f8b10dbcf";
+  const fingerprint2 = false ? null : "d43c83673c22616d80c5c2070ed9f230d3297efccc77d8fa4ba7d05092fe3cd1";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61341,7 +61356,7 @@ async function extractArchive(archive, into, platform) {
 async function pickPort() {
   for (let port = 45100; port < 45200; port += 1) {
     const free = await new Promise((resolve24) => {
-      const probe = import_node_net4.default.createServer();
+      const probe = import_node_net3.default.createServer();
       probe.once("error", () => resolve24(false));
       probe.listen(port, "127.0.0.1", () => probe.close(() => resolve24(true)));
     });
@@ -61511,11 +61526,11 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     const client2 = apiClient({ port, token }, deps.fetchImpl);
     const startArgs = { mode, argv, logPath: log, run: deps.run, spawnDetached: deps.spawnDetached };
     const argvChanged = JSON.stringify(previous?.argv ?? null) !== JSON.stringify(argv);
-    let alive2 = await client2.alive();
-    if (!alive2) {
+    let alive3 = await client2.alive();
+    if (!alive3) {
       await start(startArgs);
       actions.push("started");
-      alive2 = await waitFor(client2.alive, deps.startTimeoutMs ?? 15e3);
+      alive3 = await waitFor(client2.alive, deps.startTimeoutMs ?? 15e3);
     } else if (registration.changed || mode === "detached" && argvChanged) {
       if (mode === "detached") {
         await client2.stop().catch(() => {
@@ -61524,7 +61539,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       }
       await start({ ...startArgs, restart: true });
       actions.push("restarted-manager");
-      alive2 = await waitFor(client2.alive, deps.startTimeoutMs ?? 15e3);
+      alive3 = await waitFor(client2.alive, deps.startTimeoutMs ?? 15e3);
     } else {
       if (changed.project) {
         await client2.reload();
@@ -61538,7 +61553,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
         }
       }
     }
-    invariant(alive2, "AO_SERVICES_UNAVAILABLE", `process-compose did not answer on 127.0.0.1:${port}; see ${log}.`, { mode });
+    invariant(alive3, "AO_SERVICES_UNAVAILABLE", `process-compose did not answer on 127.0.0.1:${port}; see ${log}.`, { mode });
     return {
       ok: true,
       mode,
@@ -61560,12 +61575,12 @@ async function servicesStatus({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
   const registration = await registrationState({ mode: manager?.mode ?? mode, home, env, servicesDir: paths2.dir, run: deps.run });
   const token = await (0, import_promises57.readFile)(paths2.token, "utf8").then((text) => text.trim(), () => null);
   const client2 = manager?.port && token ? apiClient({ port: manager.port, token }, deps.fetchImpl) : null;
-  const alive2 = client2 ? await client2.alive() : false;
-  const processes = alive2 ? (await client2.processes()).map(processRow) : [];
+  const alive3 = client2 ? await client2.alive() : false;
+  const processes = alive3 ? (await client2.processes()).map(processRow) : [];
   const repos = await readRepos(paths2.repos);
   const unsupported = platform === "win32" ? repos.map((repo) => ({ process: `supervise-${repo.key}`, consumer: repo.consumer, reason: "tmux is not available on native Windows" })) : [];
   const selfHeal2 = await readJson((0, import_node_path66.join)(paths2.dir, "self-heal.json"), null).catch(() => null);
-  return { ok: alive2, registration, processCompose: { alive: alive2, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: await natsStatus(env), transport: await describeTransport(env, home).catch(() => null), selfHeal: selfHeal2 };
+  return { ok: alive3, registration, processCompose: { alive: alive3, port: manager?.port ?? null, version: manager?.version ?? null }, processes, unsupported, nats: await natsStatus(env), transport: await describeTransport(env, home).catch(() => null), selfHeal: selfHeal2 };
 }
 async function natsStatus(env) {
   const port = await configuredNatsPort(env);
@@ -61603,7 +61618,7 @@ async function probeService(name, { stateRoot: stateRoot3, env = process.env } =
     const state = await readJson((0, import_node_path66.join)(localNatsHome(env), "state.json"), null).catch(() => null);
     if (!state?.port) return false;
     return new Promise((resolve24) => {
-      const socket = import_node_net4.default.connect({ host: "127.0.0.1", port: state.port }, () => {
+      const socket = import_node_net3.default.connect({ host: "127.0.0.1", port: state.port }, () => {
         socket.destroy();
         resolve24(true);
       });
@@ -61828,7 +61843,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "acdbc1f59010202a43cfb169aaa55ab021121086886c252dc032780f8b10dbcf",
+  sourceFingerprint: false ? null : "d43c83673c22616d80c5c2070ed9f230d3297efccc77d8fa4ba7d05092fe3cd1",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -61850,41 +61865,6 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   if (result.state === "current" && !result.current) result.state = "stale";
   return result;
 }
-async function pluginFreshness({ pluginRoot, home = (0, import_node_os36.homedir)(), env = process.env, timeoutMs = 5e3, deps = {} }) {
-  const exec = deps.run ?? run;
-  const root = await (0, import_promises59.realpath)(pluginRoot).catch(() => pluginRoot);
-  const cached2 = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
-  let installed = null, source = null;
-  if (cached2) {
-    source = "cache";
-    const record2 = (await json4((0, import_node_path68.join)(home, ".claude", "plugins", "installed_plugins.json")))?.plugins?.[`${cached2[2]}@${cached2[1]}`];
-    installed = (Array.isArray(record2) ? record2 : []).find((entry) => entry.installPath === root)?.gitCommitSha ?? (/^[0-9a-f]{7,40}$/.test(cached2[3]) ? cached2[3] : null);
-  } else {
-    const head = await exec("git", ["-C", root, "rev-parse", "HEAD"], { allowFailure: true, timeoutMs });
-    if (head.code === 0) {
-      installed = head.stdout.trim() || null;
-      source = "checkout";
-    }
-  }
-  const manifest2 = await json4((0, import_node_path68.join)(pluginRoot, ".claude-plugin", "plugin.json"));
-  const repository = typeof manifest2?.repository === "string" ? manifest2.repository : manifest2?.repository?.url ?? null;
-  let remote = null, remoteError = null;
-  if (repository) {
-    const listed = await exec("git", ["ls-remote", repository, "refs/heads/main"], { allowFailure: true, timeoutMs, env: { ...env, GIT_TERMINAL_PROMPT: "0" } });
-    remote = listed.code === 0 ? /^([0-9a-f]{40})\s/.exec(listed.stdout)?.[1] ?? null : null;
-    if (!remote) remoteError = listed.code === 124 ? `git ls-remote timed out after ${timeoutMs}ms` : (listed.stderr || "no refs/heads/main").trim().slice(0, 300);
-  } else remoteError = "plugin.json names no repository";
-  const status = !installed || !remote ? "unknown" : remote.startsWith(installed) || installed.startsWith(remote) ? "current" : "stale";
-  return {
-    status,
-    source,
-    installed,
-    originMain: remote,
-    repository,
-    ...remoteError ? { error: remoteError } : {},
-    ...status === "stale" ? { advice: source === "cache" ? `Installed ${installed.slice(0, 12)} is behind origin/main ${remote.slice(0, 12)}. Run \`claude plugin update ${cached2[2]}@${cached2[1]}\` and restart.` : `Checkout HEAD ${installed.slice(0, 12)} differs from origin/main ${remote.slice(0, 12)}.` } : {}
-  };
-}
 async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
   const pointer = await json4(paths2.pointer);
@@ -61904,15 +61884,7 @@ async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoo
   if (consumerCwd) {
     try {
       consumer = await resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: stateRoot3 });
-      admission = {
-        provided: true,
-        admitted: true,
-        checkoutRoot: consumer.checkoutRoot,
-        repositoryId: consumer.commonGitDir,
-        // TM-371: the readable name behind the digest in this repository's `orch.<key>` NATS subjects.
-        repositorySlug: repoSlug(consumer.commonGitDir),
-        natsSubjects: `orch.${repoKey(consumer.commonGitDir)}.>`
-      };
+      admission = { provided: true, admitted: true, checkoutRoot: consumer.checkoutRoot, repositoryId: consumer.commonGitDir };
     } catch (error51) {
       admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
     }
@@ -61927,10 +61899,8 @@ async function runtimeDiagnostics({ consumerCwd, pluginRoot, stateRoot: stateRoo
     sessionHost: { healthy: Boolean(host), port: host?.port ?? null, pid: host?.pid ?? null },
     repositorySupervision: null,
     roles: [],
-    setup: await setupDiagnostics({ stateRoot: stateRoot3, env, home }),
-    pluginFreshness: await pluginFreshness({ pluginRoot, home, env })
+    setup: await setupDiagnostics({ stateRoot: stateRoot3, env, home })
   };
-  if (diagnostics.pluginFreshness.status === "stale") diagnostics.setup.problems.push(`stale plugin: ${diagnostics.pluginFreshness.advice}`);
   if (!consumer) return diagnostics;
   const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
   diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
@@ -62717,12 +62687,22 @@ var USAGE = "Usage: agent-orchestration services install|ensure|status|restart <
 function summary(report) {
   if (report.processCompose) {
     const rows = report.processes.map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
-    return `services: process-compose ${report.processCompose.alive ? "answering" : "not answering"} (${report.registration.mode}, ${report.registration.active ?? "n/a"})${rows.length ? `; ${rows.join("; ")}` : ""}${report.unsupported.length ? `; unsupported: ${report.unsupported.map((u) => u.process).join(", ")}` : ""}`;
+    return [
+      `services: process-compose ${report.processCompose.alive ? "answering" : "not answering"} (${report.registration.mode}, ${report.registration.active ?? "n/a"})${rows.length ? `; ${rows.join("; ")}` : ""}${report.unsupported.length ? `; unsupported: ${report.unsupported.map((u) => u.process).join(", ")}` : ""}`,
+      ...transportLines(report.transport)
+    ].join("\n");
   }
   return [
     `services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`,
     ...healLines(report.selfHeal)
   ].join("\n");
+}
+function transportLines(transport) {
+  if (!transport) return [];
+  const lines = [`  transport: ${transport.kind ?? "?"} ${transport.source ?? "none"}${transport.url ? ` ${transport.url}` : ""}${transport.note ? ` (${transport.note})` : ""}`];
+  const outage = transport.outage;
+  if (outage && !outage.recovered_at) lines.push(`  NATS ${outage.conflict ? "port conflict" : "outage"}: ${outage.url} (${outage.source}) since ${outage.since}: ${outage.error}`);
+  return lines;
 }
 function healLines(heal) {
   if (!heal) return [];

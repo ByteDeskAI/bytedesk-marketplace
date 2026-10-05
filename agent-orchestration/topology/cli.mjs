@@ -422,13 +422,15 @@ const commands = {
     // change, a fallback from an unreachable configured NATS as a named warning.
     let loggedTransport = null;
     const logTransport = (transport, at) => {
-      const key = JSON.stringify([transport?.source, transport?.url, transport?.outage?.since, transport?.outage?.recovered_at]);
+      const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
+      // The start log has no `since` (it is this process's selection), so the key is the open outage's url.
+      const key = JSON.stringify([transport?.source, transport?.url, outage?.url ?? null, transport?.state_write_error ?? null]);
       if (!transport || key === loggedTransport) return;
       loggedTransport = key;
-      const outage = transport.outage && !transport.outage.recovered_at ? transport.outage : null;
       out({ event: outage ? 'transport-fallback' : 'transport-selected', at: at ?? new Date().toISOString(), consumer: ctx.consumer,
         transport: transport.kind, source: transport.source, url: transport.url,
-        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}) });
+        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}),
+        ...(transport.state_write_error ? { state_write_error: transport.state_write_error } : {}) });
     };
     const onTick = report => { logTransport(report?.transport, report?.at); if (flags.json || notable(report)) out(report); };
     const controller = new AbortController();
@@ -436,14 +438,16 @@ const commands = {
     // Start the watcher only after winning repository ownership. Both loops
     // share a lifetime; a failed or losing supervisor cannot leave one behind.
     const onOwned = async () => {
-      const { resolveTransport, describeTransport, ignoredNatsEnv } = await import('./lib/orch-transport.mjs');
+      const { resolveTransport, selectionView, ignoredNatsEnv } = await import('./lib/orch-transport.mjs');
       // ADR-0032: once per supervisor start, never per tick.
       const ignored = ignoredNatsEnv(process.env);
       if (ignored) out({ ...ignored, consumer: ctx.consumer });
       // Open it now so the start log names what this supervisor will use, not a stale record.
       const opened = await resolveTransport({ env: process.env }).catch((error) => ({ error }));
       if (opened.error) out({ event: 'transport-unavailable', consumer: ctx.consumer, code: opened.error.code ?? null, message: opened.error.message });
-      else logTransport(await describeTransport(process.env));
+      // TM-309 C5: this supervisor's own selection, not transport.json, which any process on the host
+      // may have rewritten in between. It also carries a state write that failed (C4).
+      else logTransport(selectionView(opened));
       watcher = watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId, signal: controller.signal })
         .catch(error => { watcherError = error; controller.abort(); });
     };

@@ -145,6 +145,25 @@
 
 ### Fixed
 
+- **NATS outage follow-ups: recovery no longer overclaims, and state writes are locked and visible
+  (TM-309, EP-028).**
+  - An outage now records which processes fell back from it (`holders`, by pid). An open that
+    reaches the configured server again marks it `reachable_at`, but the outage closes, and the lead
+    gets its one recovery message, only when no live holder remains. A holder's heartbeat re-dials
+    once another process has proven the server back.
+  - Recovery is recorded only after `jetstreamManager()` succeeds. A server that takes the
+    connection but has no JetStream no longer closes an outage.
+  - The supervisor's re-dial probe is a real NATS connection plus a JetStream call on a short-lived
+    connection of its own. A port that only accepts TCP no longer force-closes the supervisor's
+    live connections, presence included.
+  - Every read-modify-write of `transport.json` runs under one lock (`withLock`). A failed write is
+    no longer swallowed: it is carried as `state_write_error` on the selection, logged by the
+    supervisor start line, and fails the outage tick with its reason.
+  - The supervisor start log reports the connection it just opened, not the host-wide file.
+  - Text `agent-orchestration services status` prints the transport and any open outage.
+  - Tests prove that no credential from a single, list or malformed `AO_NATS_URL` reaches
+    `transport.json`, doctor, services status, the start log or the lead's inbox.
+
 - **The commit guard allows the plugin declaration that AGENTS.md requires (TM-370, EP-028).**
   `guard-project-install`, the `git-hook` pre-commit hook and the SessionStart warning blocked
   every commit in a repository whose `.claude/settings.json` enabled `task-management@bytedesk`,
