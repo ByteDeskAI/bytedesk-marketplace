@@ -29071,6 +29071,7 @@ __export(reviewer_exports, {
   REVIEW_INCOMPLETE_BOUND_MS: () => REVIEW_INCOMPLETE_BOUND_MS,
   REVIEW_INCOMPLETE_STALL_MS: () => REVIEW_INCOMPLETE_STALL_MS,
   approvable: () => approvable,
+  assertVerdictFindings: () => assertVerdictFindings,
   assignReviewer: () => assignReviewer,
   awaitReviewerVerdict: () => awaitReviewerVerdict,
   buildReviewerArgv: () => buildReviewerArgv,
@@ -29092,6 +29093,7 @@ __export(reviewer_exports, {
   readReviewerRecord: () => readReviewerRecord,
   readySignalOnScreen: () => readySignalOnScreen,
   recordReview: () => recordReview,
+  refusalNotice: () => refusalNotice,
   requestReview: () => requestReview,
   restartReviewer: () => restartReviewer,
   reviewEligibility: () => reviewEligibility,
@@ -29215,7 +29217,7 @@ async function listenForReviewer({ consumer, record: record2, env = process.env,
 }
 async function publishReviewerVerdict({ consumer, repo, nonce, response, env = process.env, transport = null }) {
   const verdict = decodeReviewPayload(typeof response === "string" ? response : JSON.stringify(response));
-  validateFindings(verdict.findings, { has: () => true });
+  assertVerdictFindings(verdict.verdict, validateFindings(verdict.findings, { has: () => true }));
   const { resolveTransport: resolveTransport2, publishReviewVerdict: publishReviewVerdict2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
   const { repoKey: repoKey2 } = await Promise.resolve().then(() => (init_repoid(), repoid_exports));
   const active = transport ?? await resolveTransport2({ env });
@@ -29805,6 +29807,28 @@ function validateFindings(findings, files) {
     return { severity: finding.severity, file: file2, line: finding.line, ...text };
   });
 }
+function assertVerdictFindings(verdict, structured) {
+  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
+  invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  return structured;
+}
+function refusedOnItsOwn(texts) {
+  let response = null;
+  for (const text of texts) {
+    try {
+      response = decodeReviewPayload(text);
+      break;
+    } catch {
+    }
+  }
+  if (!response) return true;
+  try {
+    assertVerdictFindings(response.verdict, validateFindings(response.findings, { has: () => true }));
+    return false;
+  } catch {
+    return true;
+  }
+}
 function approvable(findings) {
   return Array.isArray(findings) && findings.every((finding) => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
 }
@@ -29831,9 +29855,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
-  const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
-  invariant2(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
-  invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  const structured = assertVerdictFindings(verdict, validateFindings(findings, await reviewedFiles(consumer, range.base, revision)));
   const record2 = {
     base_revision: range.base,
     admitted_base: range.admitted_base,
@@ -29980,7 +30002,7 @@ async function requestReview({ consumer, task, revision, authorAgentIds, baseRev
       if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record3.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record3.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path: path3 } };
       const patchPath = (0, import_node_path46.join)(dir, `${key}.patch`);
       await writeText(patchPath, range.patch);
-      const refusals = prior?.state === "failed" && prior.revision === revision ? [...prior.previous_refusals ?? [], ...prior.failure?.refusal ? [prior.failure.refusal] : []] : [];
+      const refusals = prior?.state === "failed" && prior.reviewer_id === record3.agent_id ? [...prior.previous_refusals ?? [], ...prior.failure?.refusal ? [prior.failure.refusal] : []] : [];
       const last = refusals.at(-1);
       const previous = last ? { previous_refusal: { ...last, message: refusalNotice(last.reason) }, previous_refusals: refusals } : {};
       const request2 = { ...previous, base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto22.randomUUID)(), task, revision, repo_id: record3.repo_id, reviewer_id: record3.agent_id, binding: incarnationOf(record3.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
@@ -30000,7 +30022,9 @@ function rangeNote(range) {
   return range.effective_base === range.admitted_base ? `The range ${range.admitted_base}..revision starts at the task admission commit.` : `The range ${range.effective_base}..revision excludes code already on the default branch at ${range.effective_base}; the task was admitted at ${range.admitted_base} and later merged the default branch. Judge only this task's own changes.`;
 }
 function refusalNotice(reason) {
-  return `Your previous verdict was refused: ${String(reason).replace(/[.\s]+$/, "")}. Correct it before re-emitting.`;
+  let text = String(reason).replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (text.length > 300) text = `${text.slice(0, 299)}\u2026`;
+  return `Your previous verdict was refused: ${text.replace(/[.\s]+$/, "")}. Correct it before re-emitting.`;
 }
 async function wakeReviewRequest({ consumer, record: record2, request, path: path3, env, home }) {
   const loaded = await loadAdapters(providerDirs({ consumer, home, env }));
@@ -30211,7 +30235,7 @@ async function collectReview({ consumer, task, revision, env = process.env, home
       review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
     } catch (error51) {
       if (REFUSED_RESPONSE_CODES.has(error51.code)) {
-        const refusal = { nonce: request.nonce, code: error51.code, reason: error51.details?.original_reason ?? error51.message, payload_sha256: payloadSha, at: nowIso() };
+        const refusal = { nonce: request.nonce, code: error51.code, reason: error51.details?.original_reason ?? error51.message, payload_sha256: error51.code === "TOPOLOGY_REVIEW_REPEATED_REFUSED" || refusedOnItsOwn(shown.at(-1)) ? payloadSha : null, at: nowIso() };
         const failed = { ...request, state: "failed", failure: { at: refusal.at, code: error51.code, reason: `The reviewer's response was refused: ${error51.message}`, refusal } };
         failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
         await writeJson(path3, failed);
@@ -76787,10 +76811,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "229866628cc468dd3ebcd1e2b0f6c048e1d25cf9ab5ea215f9294588f9c7e075";
+  return false ? null : "bf2fdbd8d39817b1a217ef9bfbbbe7dd989fe85744af07734e70c1df16937cd8";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "229866628cc468dd3ebcd1e2b0f6c048e1d25cf9ab5ea215f9294588f9c7e075";
+  const fingerprint2 = false ? null : "bf2fdbd8d39817b1a217ef9bfbbbe7dd989fe85744af07734e70c1df16937cd8";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77215,7 +77239,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "229866628cc468dd3ebcd1e2b0f6c048e1d25cf9ab5ea215f9294588f9c7e075",
+  sourceFingerprint: false ? null : "bf2fdbd8d39817b1a217ef9bfbbbe7dd989fe85744af07734e70c1df16937cd8",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

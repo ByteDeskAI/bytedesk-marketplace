@@ -606,3 +606,89 @@ test('review publish refuses a minor finding without evidence at print time', as
   await assert.rejects(publishReviewerVerdict({ repo: 'r', nonce: 'n3', response: b64({ verdict: 'approve', findings: [finding({ evidence: undefined })] }), transport }),
     { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /Finding 1 must state its evidence/ });
 });
+
+// TM-414 review (PR #220): the repeat guard may only remember a payload that failed on its own; a
+// refusal's hash is recorded only when the payload itself caused it.
+const requestPath = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', 'TM-1-' + f.revision + '.json');
+const quiet = { lead: async () => null, deliver: async () => ({ status: 'skipped' }) };
+const rang = async () => ({ rang: true });
+const line = (nonce, payload) => 'AO_REVIEW ' + nonce + ' ' + payload;
+const vcsOf = f => args => run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args]);
+
+test('a bad verdict then a corrected one under the same nonce does not blacklist the corrected one', async t => {
+  const f = await fixture(t);
+  const bad = b64({ verdict: 'approve', findings: [finding({ evidence: undefined })] });
+  const good = b64({ verdict: 'approve', findings: [finding()] });
+  const first = await requestReview({ ...f.args, wake: rang });
+  const both = [line(first.nonce, bad), line(first.nonce, good)].join('\n');
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => both }), { code: 'TOPOLOGY_REVIEWER_RESPONSE', message: /different review responses/ });
+  assert.equal(JSON.parse(await readFile(await requestPath(f), 'utf8')).failure.refusal.payload_sha256, null, 'the last payload did not cause the refusal');
+  const second = await requestReview({ ...f.args, wake: rang });
+  const review = await collectReview({ ...f.args, ...quiet, output: async () => line(second.nonce, good) });
+  assert.equal(review.request_nonce, second.nonce);
+});
+
+test('a not-in-diff refusal is re-validated, never refused as a repeat, and the payload records where the file is in the diff', async t => {
+  const f = await fixture(t);
+  const payload = b64({ verdict: 'approve', findings: [finding({ file: 'src/b.js' })] });
+  const first = await requestReview({ ...f.args, wake: rang });
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(first.nonce, payload) }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /not in the reviewed diff/ });
+  assert.equal(JSON.parse(await readFile(await requestPath(f), 'utf8')).failure.refusal.payload_sha256, null);
+  const second = await requestReview({ ...f.args, wake: rang });
+  assert.match(second.previous_refusal.reason, /src\/b\.js, which is not in the reviewed diff/, 'the reason still reaches the reviewer');
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(second.nonce, payload) }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  // A revision whose diff contains src/b.js takes the same payload.
+  const vcs = vcsOf(f);
+  await writeFile(join(f.consumer, 'src', 'b.js'), Array.from({ length: 10 }, (_, i) => 'b ' + i).join('\n') + '\n');
+  await vcs(['add', 'src/b.js']); await vcs(['commit', '-qm', 'add b']);
+  const next = (await vcs(['rev-parse', 'HEAD'])).stdout.trim();
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  const managementPath = join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(f.consumer)).id), 'TM-1.json');
+  await writeJson(managementPath, { ...JSON.parse(await readFile(managementPath, 'utf8')), finish: { revision: next } });
+  const third = await requestReview({ ...f.args, revision: next, wake: rang });
+  const review = await collectReview({ ...f.args, revision: next, ...quiet, output: async () => line(third.nonce, payload) });
+  assert.equal(review.findings[0].file, 'src/b.js');
+});
+
+test('a refusal quoting control characters reaches the pane as one printable, capped line', async t => {
+  const f = await fixture(t);
+  const first = await requestReview({ ...f.args, wake: rang });
+  const payload = b64({ verdict: 'approve', findings: [finding({ file: 'src/a\n\x1b[2Jevil.js' })] });
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(first.nonce, payload) }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /\x1b/ });
+  const second = await requestReview({ ...f.args, wake: rang });
+  const { reviewRequestText, refusalNotice } = await import('../../topology/lib/reviewer.mjs');
+  const text = reviewRequestText(second, '/r.json');
+  assert.match(text, /^AO_REVIEW_REQUEST \S+: Your previous verdict was refused: Finding 1 names src\/a \[2Jevil\.js/);
+  assert.doesNotMatch(text, /[\x00-\x1f\x7f]/);
+  assert.ok(refusalNotice('x'.repeat(5000)).length <= 400);
+});
+
+test('a refusal is carried only to the reviewer that made it', async t => {
+  const f = await fixture(t);
+  const first = await requestReview({ ...f.args, wake: rang });
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => say(first.nonce, { verdict: 'approve', findings: [finding({ evidence: undefined })] }) }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  const path = await requestPath(f);
+  await writeJson(path, { ...JSON.parse(await readFile(path, 'utf8')), reviewer_id: 'a-replaced-reviewer' });
+  const second = await requestReview({ ...f.args, wake: rang });
+  assert.equal(second.previous_refusal, undefined);
+});
+
+test('review publish refuses the verdict rules collection refuses', async t => {
+  const { createFileTransport } = await import('../../topology/lib/orch-transport.mjs');
+  const { publishReviewerVerdict } = await import('../../topology/lib/reviewer.mjs');
+  const transport = createFileTransport();
+  t.after(() => transport.close());
+  for (const response of [{ verdict: 'approve', findings: [finding({ severity: 'major' })] }, { verdict: 'changes_requested', findings: [] }]) {
+    await assert.rejects(publishReviewerVerdict({ repo: 'r', nonce: 'n4', response: b64(response), transport }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  }
+});
+
+// A payload's own verdict-rule breach is context-free, so its hash is remembered.
+test('a payload that breaks the verdict rules on its own is remembered and refused as a repeat', async t => {
+  const f = await fixture(t);
+  const payload = b64({ verdict: 'approve', findings: [finding({ severity: 'major' })] });
+  const first = await requestReview({ ...f.args, wake: rang });
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(first.nonce, payload) }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /blocks approval/ });
+  const second = await requestReview({ ...f.args, wake: rang });
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(second.nonce, payload) }), { code: 'TOPOLOGY_REVIEW_REPEATED_REFUSED', message: /blocks approval/ });
+});

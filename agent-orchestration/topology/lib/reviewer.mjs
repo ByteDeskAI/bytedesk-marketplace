@@ -262,9 +262,9 @@ export async function listenForReviewer({ consumer, record, env = process.env, t
  */
 export async function publishReviewerVerdict({ consumer, repo, nonce, response, env = process.env, transport = null }) {
   const verdict = decodeReviewPayload(typeof response === 'string' ? response : JSON.stringify(response));
-  // TM-414: the evidence rule is checked here, at print time, by the same validator collection uses.
-  // ponytail: the diff is unknown here, so the file-in-diff check stays with collection.
-  validateFindings(verdict.findings, { has: () => true });
+  // TM-414: the evidence and verdict rules are checked here, at print time, by the same helpers
+  // collection uses. ponytail: the diff is unknown here, so the file-in-diff check stays with collection.
+  assertVerdictFindings(verdict.verdict, validateFindings(verdict.findings, { has: () => true }));
   const { resolveTransport, publishReviewVerdict } = await import('./orch-transport.mjs');
   const { repoKey } = await import('./repoid.mjs');
   const active = transport ?? await resolveTransport({ env });
@@ -1053,6 +1053,26 @@ export function validateFindings(findings, files) {
   });
 }
 
+/** The verdict/severity rules, shared by recordReview and review publish (TM-414). Returns `structured`. */
+export function assertVerdictFindings(verdict, structured) {
+  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
+  invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  return structured;
+}
+
+/**
+ * TM-414 review: does this one payload fail on its own, whatever the diff and whatever else is on
+ * screen? Only then is its hash a sound reason to refuse an identical copy later. Context-dependent
+ * refusals (a file outside the diff, disagreeing copies) return false.
+ */
+function refusedOnItsOwn(texts) {
+  let response = null;
+  for (const text of texts) { try { response = decodeReviewPayload(text); break; } catch { /* try the next join */ } }
+  if (!response) return true;
+  try { assertVerdictFindings(response.verdict, validateFindings(response.findings, { has: () => true })); return false; }
+  catch { return true; }
+}
+
 /** Approval stands when no remaining finding is a blocker or major one (minor, nit and note may remain). */
 export function approvable(findings) {
   return Array.isArray(findings) && findings.every(finding => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
@@ -1085,9 +1105,7 @@ export async function recordReview({ consumer, task, revision, verdict, findings
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), 'TOPOLOGY_REVIEWER_RANGE', 'Review authors and patch must match the admitted task range.');
-  const structured = validateFindings(findings, await reviewedFiles(consumer, range.base, revision));
-  invariant(verdict !== "approve" || approvable(structured), "TOPOLOGY_REVIEWER_FINDINGS", "A blocker or major finding blocks approval; approve only with minor, nit or note findings.");
-  invariant(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
+  const structured = assertVerdictFindings(verdict, validateFindings(findings, await reviewedFiles(consumer, range.base, revision)));
   const record = {
     base_revision: range.base,
     admitted_base: range.admitted_base,
@@ -1240,8 +1258,9 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
     // TM-414: a refused verdict's reason, and the payloads refused, carry into the next request for
-    // this task and revision (the key), so the reviewer is told why and cannot pass the same bytes.
-    const refusals = prior?.state === 'failed' && prior.revision === revision ? [...(prior.previous_refusals ?? []), ...(prior.failure?.refusal ? [prior.failure.refusal] : [])] : [];
+    // this task and revision (the file key), so the reviewer is told why and cannot pass the same
+    // bytes. Only to the same reviewer: a replacement was never told it was wrong.
+    const refusals = prior?.state === 'failed' && prior.reviewer_id === record.agent_id ? [...(prior.previous_refusals ?? []), ...(prior.failure?.refusal ? [prior.failure.refusal] : [])] : [];
     const last = refusals.at(-1);
     const previous = last ? { previous_refusal: { ...last, message: refusalNotice(last.reason) }, previous_refusals: refusals } : {};
     const request = { ...previous, base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
@@ -1266,8 +1285,12 @@ function rangeNote(range) {
 }
 
 /** TM-414: the sentence the next request leads with after a refused verdict. */
-function refusalNotice(reason) {
-  return `Your previous verdict was refused: ${String(reason).replace(/[.\s]+$/, '')}. Correct it before re-emitting.`;
+// The reason can quote reviewer-written text (a file name) and is typed into the pane with
+// send-keys -l, so it is reduced to one printable line and capped.
+export function refusalNotice(reason) {
+  let text = String(reason).replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (text.length > 300) text = `${text.slice(0, 299)}…`;
+  return `Your previous verdict was refused: ${text.replace(/[.\s]+$/, '')}. Correct it before re-emitting.`;
 }
 
 async function wakeReviewRequest({consumer,record,request,path,env,home}) {
@@ -1526,8 +1549,8 @@ export async function collectReview({ consumer, task, revision, env = process.en
   // never going to finish) must not retry forever either. Age it out once it has been incomplete
   // longer than the bound, or once the pane capture has stopped changing.
   if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
-  // TM-414: the exact payload text after the nonce. One already refused for this task and revision
-  // is refused again by name, with the original reason, instead of being validated afresh.
+  // TM-414: the exact payload text after the nonce. One already refused ON ITS OWN for this task and
+  // revision is refused again by name, with the original reason, instead of being validated afresh.
   const payloadSha = createHash('sha256').update(shown.at(-1)[0]).digest('hex');
   let review;
   try {
@@ -1542,7 +1565,7 @@ export async function collectReview({ consumer, task, revision, env = process.en
     // the same nonce, and a corrected answer then disagreed with the refused copy still on screen.
     // Now the request fails, the lead is told once, and requestReview mints a fresh nonce.
     if (REFUSED_RESPONSE_CODES.has(error.code)) {
-      const refusal = { nonce: request.nonce, code: error.code, reason: error.details?.original_reason ?? error.message, payload_sha256: payloadSha, at: nowIso() };
+      const refusal = { nonce: request.nonce, code: error.code, reason: error.details?.original_reason ?? error.message, payload_sha256: error.code === 'TOPOLOGY_REVIEW_REPEATED_REFUSED' || refusedOnItsOwn(shown.at(-1)) ? payloadSha : null, at: nowIso() };
       const failed = { ...request, state: 'failed', failure: { at: refusal.at, code: error.code, reason: `The reviewer's response was refused: ${error.message}`, refusal } };
       failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
       await writeJson(path, failed);

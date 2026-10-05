@@ -54,7 +54,12 @@
   for that task and revision is refused with `TOPOLOGY_REVIEW_REPEATED_REFUSED`, naming the
   original reason. `review publish` now applies the same evidence rule (`validateFindings`) when
   the verdict is printed. The reviewer prompt and protocol line say to read `previous_refusal` and
-  that every severity except `note` needs `evidence` and `fix`.
+  that every severity except `note` needs `evidence` and `fix`. Only a payload that fails on its
+  own (it does not decode, or breaks the evidence or verdict rules) is remembered for the repeat
+  guard; a refusal that depends on the diff or on another copy on screen is re-validated, so a
+  corrected verdict is never refused as a repeat. The refusal reason is typed into the pane as one
+  printable line of at most 300 characters, is carried only to the reviewer that made it, and
+  `review publish` and collection share the verdict rules (`assertVerdictFindings`).
 
 - **A late `manage admit` no longer hides the worker commits from review (TM-349).** Admission
   recorded `base_revision` as the task HEAD, so a task admitted after its worker had committed used
