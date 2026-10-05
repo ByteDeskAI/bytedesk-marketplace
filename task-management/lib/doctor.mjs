@@ -18,7 +18,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { planFindings } from "./plans.mjs";
 import { missingFields } from "./completeness.mjs";
-import { RESOLVED, config, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
+import { RESOLVED, config, dependenciesMet, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { governanceMode } from "./governance-check.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
@@ -234,8 +234,9 @@ export function diagnose(p = paths()) {
     }
 
     // Blocked, no written reason, and every blocker finished: unblockDependents should
-    // have reopened this. If the blocker was closed by hand it never ran.
-    const depsResolved = (t.blockedBy || []).every((d) => !byId.has(d) || RESOLVED.has(byId.get(d).status));
+    // have reopened this. If the blocker was closed by hand it never ran. The store's own predicate,
+    // so an unresolved foreign blocker (ADR-0041) is not "finished" here either.
+    const depsResolved = dependenciesMet(t, byId);
     if (t.status === "blocked" && !t.blockedReason && depsResolved && !dangling.length) {
       out.push(
         finding("warning", "stuck-blocked", t.id, "blocked with no reason and every blocker is finished", () => {

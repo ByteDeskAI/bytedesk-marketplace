@@ -81,6 +81,11 @@ export function missingFields(task, required, p = null) {
  */
 export const DECISION_MAP = "decision:map";
 export const DECISION_KIND = ["decision:interview", "decision:research", "decision:prototype", "decision:unblock"];
+/**
+ * A task filed into this store by another repo's lead (ADR-0041). Not a decision role, so it sits
+ * in no exclusive group; it vetoes dispatch until this board's lead or a person removes it.
+ */
+export const DECISION_INTAKE = "decision:intake";
 export const TRIAGE_LABELS = ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"];
 
 /**
@@ -95,6 +100,7 @@ const NOT_FOR_AGENTS = [
   "decision:interview",
   "decision:prototype",
   "decision:unblock",
+  DECISION_INTAKE,
   DECISION_MAP,
 ];
 

@@ -10,8 +10,8 @@
  * stay authoritative no matter whether the CLI, the dashboard or MCP called it.
  */
 import { actor, actorLabel } from "./actor.mjs";
-import { DECISION_KIND, DECISION_MAP, TRIAGE_LABELS } from "./completeness.mjs";
-import { PRIORITIES, RANK_STEP, config, kindOf, list, logEvent, mutate, now, read, update } from "./store.mjs";
+import { DECISION_INTAKE, DECISION_KIND, DECISION_MAP, TRIAGE_LABELS } from "./completeness.mjs";
+import { PRIORITIES, RANK_STEP, config, kindOf, list, logEvent, mutate, now, read, unblockDependents, update } from "./store.mjs";
 import { paths } from "./paths.mjs";
 
 /**
@@ -19,8 +19,8 @@ import { paths } from "./paths.mjs";
  * Defined in completeness.mjs, because the store's write path reads them to keep the triage label
  * in sync and store.mjs cannot import this module; re-exported here, where the label verb lives.
  */
-export { DECISION_KIND, DECISION_MAP, TRIAGE_LABELS };
-export const LABEL_CATALOG = [DECISION_MAP, ...DECISION_KIND, ...TRIAGE_LABELS];
+export { DECISION_INTAKE, DECISION_KIND, DECISION_MAP, TRIAGE_LABELS };
+export const LABEL_CATALOG = [DECISION_MAP, ...DECISION_KIND, DECISION_INTAKE, ...TRIAGE_LABELS];
 
 const EXCLUSIVE = [TRIAGE_LABELS, DECISION_KIND];
 
@@ -197,6 +197,12 @@ export const foreignRef = (ref) => {
   return m ? { board: m[1].toLowerCase(), id: m[2] } : null;
 };
 
+/** The stored form of a foreign ref: board lowercased, so two spellings are one blocker. */
+const foreignKey = (ref) => {
+  const f = foreignRef(ref);
+  return f ? `${f.board}#${f.id}` : null;
+};
+
 export function addLink(fromId, type, toId, p = paths()) {
   if (fromId === toId) throw new Error("a task cannot link to itself");
   const mirror = LINK_TYPES[type];
@@ -357,8 +363,16 @@ export function rank(id, { before, after, to } = {}, p = paths()) {
  * will not repair them — which edge to cut is a judgement — so the cheap moment to say no is
  * before one exists, exactly as `subtasks` refuses a parent loop.
  */
-export function dependencies(id, { add = [], remove = [] } = {}, p = paths()) {
+export function dependencies(id, { add: addAll = [], remove: removeAll = [] } = {}, p = paths()) {
   const t = must(id, p);
+
+  // `owner/repo#TM-n` is a task on another board (ADR-0041). It goes in foreignBlockers[], NEVER
+  // blockedBy: dependenciesMet reads a blockedBy id this store cannot find as resolved, so a
+  // foreign id there would unblock the task the moment it was added.
+  const addForeign = addAll.map(foreignKey).filter(Boolean);
+  const removeForeign = removeAll.map(foreignKey).filter(Boolean);
+  const add = addAll.filter((d) => !foreignKey(d));
+  const remove = removeAll.filter((d) => !foreignKey(d));
 
   for (const dep of add) {
     if (dep === id) throw new Error(`${id} cannot depend on itself`);
@@ -383,12 +397,16 @@ export function dependencies(id, { add = [], remove = [] } = {}, p = paths()) {
       for (const d of add) next.add(d);
       for (const d of remove) next.delete(d);
       blockedBy = [...next];
+      const held = (doc.foreignBlockers || []).filter((f) => !removeForeign.includes(f?.ref));
+      for (const ref of addForeign) if (!held.some((f) => f?.ref === ref)) held.push({ ref, added: now(), resolved: null });
+      const waiting = blockedBy.length || held.some((f) => !f?.resolved);
       return {
         blockedBy,
+        ...(addForeign.length || removeForeign.length ? { foreignBlockers: held.length ? held : undefined } : {}),
         // Adding the first blocker to open work blocks it; removing the last one does NOT reopen
         // it, because `unblockDependents` owns that transition and it checks whether every blocker
         // is resolved. Two functions deciding one status is how they disagree.
-        status: blockedBy.length && doc.status === "open" ? "blocked" : doc.status,
+        status: waiting && doc.status === "open" ? "blocked" : doc.status,
       };
     },
     p,
@@ -404,10 +422,33 @@ export function dependencies(id, { add = [], remove = [] } = {}, p = paths()) {
     mutate(d, (other) => ({ blocks: (other.blocks || []).filter((x) => x !== id) }), p);
   }
 
-  if (add.length) logEvent("dep", { id, on: add }, p);
-  if (remove.length) logEvent("undep", { id, off: remove }, p);
+  if (add.length || addForeign.length) logEvent("dep", { id, on: [...add, ...addForeign] }, p);
+  if (remove.length || removeForeign.length) logEvent("undep", { id, off: [...remove, ...removeForeign] }, p);
   void t;
   return blockedBy;
+}
+
+/**
+ * `tm upstream-resolved <owner/repo#TM-n> --landed <sha>`: record that a foreign blocker landed.
+ *
+ * The other board is never read or written here (ADR-0041 section 5): the caller has read upstream
+ * state and names the landing commit. Every local task holding the ref is marked, then the ordinary
+ * `unblockDependents` pass reopens only the ones whose blockers, local and foreign, are all met.
+ */
+export function resolveForeign(ref, { landed } = {}, p = paths()) {
+  const key = foreignKey(ref);
+  if (!key) throw new Error(`not a foreign ref: "${ref}" (expected owner/repo#TM-n)`);
+  const sha = String(landed || "").trim();
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw new Error(`--landed needs the landing commit sha, got "${landed ?? ""}"`);
+  const resolved = [];
+  for (const task of list("task", { includeDeleted: true }, p)) {
+    if (!(task.foreignBlockers || []).some((b) => b?.ref === key && !b.resolved)) continue;
+    const mark = (b) => (b?.ref === key && !b.resolved ? { ...b, resolved: { sha, at: now() } } : b);
+    mutate(task.id, (doc) => ({ foreignBlockers: (doc.foreignBlockers || []).map(mark) }), p);
+    logEvent("upstream_resolved", { id: task.id, ref: key, sha }, p);
+    resolved.push(task.id);
+  }
+  return { ref: key, sha, resolved, freed: unblockDependents(key, p) };
 }
 
 /**

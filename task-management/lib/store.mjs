@@ -1373,11 +1373,20 @@ function blockedByDependency(task) {
   return task.status === "blocked" && !task.blockedReason;
 }
 
-function dependenciesMet(task, byId) {
-  return (task.blockedBy || []).every((d) => {
-    const blocker = byId.get(d);
-    return !blocker || RESOLVED.has(blocker.status);
-  });
+/**
+ * A local blocker this store cannot find counts as resolved (doctor reports the dangling ref), but
+ * a foreign one (ADR-0041) is met only once `tm upstream-resolved` recorded its landing sha.
+ * Missing, malformed or unresolved is unmet: another board's silence is not its permission.
+ */
+export function dependenciesMet(task, byId) {
+  const foreignMet = (task.foreignBlockers || []).every((f) => Boolean(f?.resolved?.sha));
+  return (
+    foreignMet &&
+    (task.blockedBy || []).every((d) => {
+      const blocker = byId.get(d);
+      return !blocker || RESOLVED.has(blocker.status);
+    })
+  );
 }
 
 /**
@@ -1401,13 +1410,16 @@ export function nextTasks(p = paths()) {
   );
 }
 
-/** Reopen everything that was only waiting on `id`. Returns the ids it freed. */
+/**
+ * Reopen everything that was only waiting on `id`. Returns the ids it freed. `id` is a local task
+ * or a normalised foreign ref (`owner/repo#TM-n`), which `resolveForeign` passes after marking it.
+ */
 export function unblockDependents(id, p = paths()) {
   const all = list("task", { includeDeleted: true }, p);
   const byId = new Map(all.map((t) => [t.id, t]));
   const freed = [];
   for (const task of all) {
-    if (!(task.blockedBy || []).includes(id)) continue;
+    if (!(task.blockedBy || []).includes(id) && !(task.foreignBlockers || []).some((f) => f?.ref === id)) continue;
     if (!blockedByDependency(task) || !dependenciesMet(task, byId)) continue;
     update(task.id, { status: "open" }, p);
     logEvent("unblocked", { id: task.id, by: id }, p);
