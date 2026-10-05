@@ -7,6 +7,7 @@ import { withLock } from './lockfile.mjs';
 import { incarnationOf, sameIncarnation } from './incarnation.mjs';
 import { canonicalRepoId } from './repoid.mjs';
 import { listServerPanes, tmux } from './tmux.mjs';
+import { ancestorPids } from './heartbeat.mjs';
 
 export const protocolOutputLine = line => String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').trim().replace(/^[●•]\s*/,'').trim();
 
@@ -45,6 +46,18 @@ export async function refreshPrompt({ agent, consumer, session = null, pluginRoo
     await writeJson(promptStatePath(agent._dir), state);
     return state;
   });
+}
+
+/**
+ * TM-411: the pane the caller runs inside, proven by process ancestry, not by $TMUX_PANE. An agent
+ * acks from a child shell of its pane (a Bash tool call), so the caller is a descendant of the
+ * pane process rather than the pane process itself. The same /proc ancestry the TM-222 heartbeat
+ * uses decides it: a pane counts only when its pid is one of the caller's ancestors and, when a
+ * binding is recorded, it is that exact incarnation. Any other caller gets null, and ack refuses.
+ */
+export async function callerBinding({ panes, recorded = null, pids = null }) {
+  const lineage = pids ?? await ancestorPids();
+  return panes.find(p => lineage.includes(p.panePid) && (!recorded || sameIncarnation(p, recorded))) ?? null;
 }
 
 export async function acknowledgePrompt({ agent, revision, nonce, binding = null, consumer, session, env = process.env }) {

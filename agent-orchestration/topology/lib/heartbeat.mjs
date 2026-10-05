@@ -29,7 +29,7 @@ export function heartbeatPath(dir, serverKey, paneId) {
 
 // ponytail: /proc only. Elsewhere the chain is just our parent, so a pane whose pid is further up
 // (a shell running claude) gets no heartbeat proof and falls back to the nonce probe.
-async function ancestorPids(pid = process.pid) {
+export async function ancestorPids(pid = process.pid) {
   const pids = [];
   for (let i = 0; i < 32 && pid > 1; i += 1) {
     pids.push(pid);
