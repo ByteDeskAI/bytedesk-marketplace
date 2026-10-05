@@ -1095,8 +1095,14 @@ pool.state.json
 # The detached pool's own stream, truncated at every start. One machine's log.
 pool.log
 
+# A wake for this machine's pool, dropped by tm ticket from another repo and consumed by it.
+pool.wake
+
 # enhance-mine's last-seen evidence per signature. Derived from this machine's transcripts.
 enhance-mine.json
+
+# review-sweep's fired-finding markers (TM-361). One machine's notices.
+review-sweep.json
 
 # In-flight planning conversations, and the untrusted files attached to them. evidence/ is
 # the shared record and belongs in git; this is the opposite of that — one machine's unfinished
@@ -1236,7 +1242,9 @@ export const NOT_FOR_GIT = [
   "pool.pid",
   "pool.state.json",
   "pool.log",
+  "pool.wake",
   "enhance-mine.json",
+  "review-sweep.json",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",
@@ -1258,6 +1266,7 @@ export function isHostFile(name, rel = "") {
     name === "agents.json" ||
     name === "pool.pid" ||
     name === "pool.state.json" ||
+    name === "pool.wake" ||
     name === "events.json" ||
     name === "events.jsonl" ||
     name === "port.assigned" ||
@@ -1377,7 +1386,18 @@ function blockedByDependency(task) {
   return task.status === "blocked" && !task.blockedReason;
 }
 
+/**
+ * Tickets on another board this task waits on (`tm ticket --from-task`, TM-381): its foreign
+ * `blocked by` links. This store cannot read that board, so the link IS the blocker until the
+ * ticket's merged/done event removes it (TM-359). Shared by nextTasks (so `tm next` and the pool)
+ * and `tm why`.
+ */
+export function foreignBlockers(task) {
+  return (task?.links || []).filter((l) => l.type === "blocked by" && l.board).map((l) => l.id);
+}
+
 function dependenciesMet(task, byId) {
+  if (foreignBlockers(task).length) return false;
   return (task.blockedBy || []).every((d) => {
     const blocker = byId.get(d);
     return !blocker || RESOLVED.has(blocker.status);

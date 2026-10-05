@@ -42,29 +42,24 @@ Every finding is an object with these six fields:
 
 - `severity` — `blocker` or `major` stops approval; `minor` or `nit` does not. `note` is
   information that needs no action; a note may leave out `evidence` and `fix`.
-- `file` — a path the patch changes. Findings about other files are refused.
+- `file` — a path the patch changes. Findings about other files are refused, except a
+  `CHANGELOG.md`, which you may name when the change needs an entry it does not have.
 - `line` — a positive line number in that file, as its own field (not `file:line`).
 - `claim` — what is wrong.
 - `evidence` — what in the patch or request shows it.
 - `fix` — what would resolve it.
 
-Write the verdict as JSON, for example:
+Submit the verdict by calling your `review_submit` tool. It takes the request nonce, the verdict and
+the findings array, for example:
 
 ```
-{"verdict":"changes_requested","findings":[{"severity":"major","file":"src/a.js","line":12,"claim":"…","evidence":"…","fix":"…"}]}
+{"request":"<nonce>","verdict":"changes_requested","findings":[{"severity":"major","file":"src/a.js","line":12,"claim":"…","evidence":"…","fix":"…"}]}
 ```
 
-Then emit it on one line as `AO_REVIEW`, the nonce, and `b64:` followed by the standard base64 of
-that JSON's UTF-8 bytes, with no spaces or line breaks inside the base64:
-
-```
-AO_REVIEW <nonce> b64:eyJ2ZXJkaWN0IjoiYXBwcm92ZSIsImZpbmRpbmdzIjpbXX0=
-```
-
-(That example is `{"verdict":"approve","findings":[]}`.) Base64 is required because your pane
-wraps long lines before the host can read them: bare JSON loses spaces at the wrap and breaks on
-any double quote you quote from the code. Use an empty `findings` array when there are none. A
-response that does not decode to that JSON is refused, and the review has to be requested again.
+Use an empty `findings` array when there are none. The tool is the only way a verdict reaches the
+host: the host never reads your pane for one, so a verdict you only print is lost. If the tool
+refuses the verdict, it says why; fix that and call it again. Calling it again before the host
+collects the verdict replaces your earlier one.
 
 Your verdict is input to the merge gate, not a merge: you have no merge, deploy, or publish
 authority, and approving a review does not confer any.

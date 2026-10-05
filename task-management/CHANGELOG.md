@@ -2,6 +2,99 @@
 
 ## Unreleased
 
+- **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
+  heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
+  exit and the claim expired after 240 minutes under a worker that was still running. Each pool
+  tick now renews the claim of every dispatched worker that its collector proves alive (a tmux
+  session that answers, a topology run observed alive, an orchestration run not yet finished). A
+  dead or unprovable worker is not renewed. A supervisor that is not the pool can run
+  `tm claim renew --live` (or `--json`) for the same pass; it also records any worker it finds
+  dead, the way the pool does.
+
+- **A failed worker is retried with backoff before it parks (TM-363, EP-028).** A task-scoped
+  worker failure (for example, a worker that exited without closing) now reopens the task instead
+  of parking it, up to the new `dispatch.retries` (default 2; 0 parks at once). The pool picks it
+  up again after 1, then 4, then 16 minutes (`retryAt` on the task). Each retry logs a
+  `dispatch_retry` event with the attempt, the limit, `retryAt` and the reason. A worker that
+  reports `blocked` still parks, and provider or backend failures still park and still count
+  toward the pool pause. `failureScope` now treats "usage limit" and "reached your … limit" as
+  provider failures, matching the pool's quota check, so they are never retried.
+
+- **Expedite lane: urgent ready tasks dispatch on the next pool tick, outside `poolWip` (TM-358,
+  EP-028).** A `highest`-priority task, or a `high` one labelled `expedite`, takes a slot in a
+  separate lane capped by the new `dispatch.expediteWip` (default 2; 0 turns the lane off). It
+  skips the touches-disjoint batching, but still refuses any path that a running task, or a task
+  dispatched earlier in the same tick, holds. It runs in its own worktree like every dispatch. The
+  dispatch record carries `expedite: true`, so later ticks charge it to `expediteWip` and not to
+  `poolWip`. When the lane is full, an urgent task falls back to the normal lane. Normal-priority
+  tasks behave as before.
+- **Dispatched workers inherit secrets named in config (TM-375, EP-028).** The tmux backend reads
+  NAMES from `dispatch.passEnv` (tm config) and from `workers.passEnv` in
+  `.bytedesk/agent-orchestration/config.json` when that file exists. It copies the values from the
+  dispatching environment into a 0600 file in a private temp dir; the pane sources it, removes it
+  and then execs the worker. `tmux new-session -e` is not used for these, because it puts values in
+  argv and in the returned `detail.args`. A missing name is reported as `passEnvMissing` on the
+  result and the `dispatched` event. The topology backend already hands its environment to
+  `ao-topology`, which applies the same config.
+
+- **`tm pool wait` replaces sleep-polling around `tm pool status` (TM-374, EP-028).**
+  `tm pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]` polls
+  internally and prints one JSON result: exit 0 when the condition holds, 2 on timeout (with the
+  last state seen), 1 on a bad argument. The pool and collect skills point to it instead of a
+  `sleep` loop, which the harness blocks.
+- **`tm ticket` files cross-repo work on the target repo's own board (TM-381, EP-028).**
+  `tm ticket <path|slug> "<title>" --ac … [--priority critical|high|…] [--from-task TM-n]`, and
+  the MCP tool `tm_ticket`. The target is an explicit path, a slug in agent-orchestration's
+  `services/repos.json` (read as a file, never imported), or a sibling directory with a store. The
+  task is created by the TARGET's own `bin/tm task new` (argv array, `TM_ROOT` pinned), with
+  `origin: {repo, board, task, agent}` (new `task new --origin <json>`) and a `blocks` cross-ref
+  back. `--from-task` adds a `blocked by <board>#TM-n` link on the origin task. Until it is
+  removed, the store's shared dependency check (`dependenciesMet`) treats it as unresolved, so the
+  task is out of `tm next`, `tm_next` and the pool, and `tm why` reports it. `critical` maps to `highest`. `tm link` accepts `<board>#<id>` refs and
+  `--remove`; a board with no git remote is named `<dir>#TM-n`.
+
+- **A ticket notifies the target lead and wakes the target pool (TM-357, EP-028).** When
+  agent-orchestration is installed, `tm ticket` sends one standing mail through
+  `ao-topology mailbox send --to-repo <target> --subject "ticket TM-n (priority)"`. Without it the
+  ticket is still filed and the output says no mail was sent. The target's pool is woken by a
+  `pool.wake` file (git-ignored) plus `tm pool ensure`. `runPool`'s sleep checks for that file
+  every second and consumes it, so a woken pool ticks within about a second, not 30 s.
+
+- **A ticket's progress reaches the origin task and lead (TM-359, EP-028).** PR opened, review,
+  merged, published, failed and done each add one comment on the origin task (through the ORIGIN's
+  own `tm comment`) and send one standing mail to the origin lead. Merged and done remove the
+  origin's cross-repo blocker. The store's event bridge (`notify-hook.mjs`) hears `done`,
+  `task_result` (failure, or a recorded PR) and `git_link` (a PR URL) on every surface. It spawns
+  `tm ticket notify` detached, only for tasks that carry `origin`. Review verdicts and publishes
+  are reported with `tm ticket event <id> review|published|merged <detail>`. Each event is sent at
+  most once (`originNotified` markers on the ticket). Sandbox test: `tests/test-ticket.sh`. Demo:
+  `scripts/demo-cross-repo-ticket.sh`.
+- **The Stop hook leaves alone a task a live worker subagent owns (TM-397, EP-028).** A lead with
+  claimed tasks out to Agent-tool workers was told at every stop to done, block or park them, and
+  parking released the claim mid-work so the pool could re-dispatch it.
+  `tm claim note <id> --worker <name> [--ttl 60m]` records `{ worker, until }` on this session's
+  claim (and re-stamps it). The Stop gate skips that task while the marker is fresh. A task with no
+  marker, an expired one, or another session's claim still blocks as before, and the refusal now
+  names the verb.
+
+- **`tm review-sweep [--apply] [--json]` finds finished work nobody reviewed (TM-361, EP-028).**
+  Findings are done tasks (closed in the last `--since` days, default 7) or governed tasks at
+  ready-for-review that have commits and no reviewer verdict, and open non-draft PRs idle past
+  `--idle-hours` (default 24, read with `gh pr list`; offline it reports `skipped: <why>`). The
+  output carries coverage counts, so a clean board reads as zero findings over N scanned tasks.
+  `--apply` fires each finding once: a marker in the machine-local `review-sweep.json` and a task
+  comment. A PR that moves and goes idle again fires again. agent-orchestration's supervisor
+  runs it each ten minutes when tm is installed.
+
+- **One duplicate-dispatch guard for the pool and a lead (TM-360, EP-028).** On 2026-10-05 the
+  pool started a second TM-010 worker the lead knew nothing about. `dispatch()` now asks one
+  function, `liveOwner()` in `lib/dispatch/live-owner.mjs`, before it claims anything. A task is
+  refused when tm's own dispatch record has a live claim, or when agent-orchestration (if
+  installed) reports an unreleased assignment or a bound, unstopped worker through
+  `ao-topology manage assignment`. The pool and a lead's `manage start-worker` both reach
+  `dispatch()`, so both are covered. `tm dispatch-check <id> [--json]` gives the same answer
+  read-only (exit 2 when held). A missing or failing `ao-topology` is skipped, never an accusation.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:

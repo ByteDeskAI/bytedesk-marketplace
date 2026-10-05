@@ -8,15 +8,15 @@
 // restarted supervisor or a retried send never mails twice.
 import { createHash } from 'node:crypto';
 import { hostname, homedir } from 'node:os';
-import net from 'node:net';
 import { canonicalRepoId, repoKey } from './repoid.mjs';
-import { OUTAGE_RETIRE_MS, discardLiveTransports, holdsFallbackFrom, readTransportState, retireStaleOutage, touchFallback, writeTransportState } from './orch-transport.mjs';
+import { OUTAGE_RETIRE_MS, discardLiveTransports, holdsFallbackFrom, probeConfiguredNats, retireStaleOutage, settleOutage, touchFallback, updateTransportState } from './orch-transport.mjs';
 import { readLeadRegistration } from './lead.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 
-// A server that accepts TCP but refuses NATS (auth, TLS, not NATS at all) passes canReach on every
-// tick, and each pass force-closes every cached transport. So re-dials back off per outage: 30 s,
-// doubling to 15 min. ponytail: in-process; a restarted supervisor starts the ladder again.
+// TM-309 C6: the probe is a real NATS + JetStream handshake (probeConfiguredNats), so a server that
+// only accepts TCP (auth, TLS, not NATS) never costs a re-dial. Re-dials still back off per outage
+// (30 s, doubling to 15 min) for a server that passes the probe and then fails the real open.
+// ponytail: in-process; a restarted supervisor starts the ladder again.
 const REDIAL_FIRST_MS = 30_000, REDIAL_MAX_MS = 15 * 60_000;
 const redials = new Map();
 
@@ -28,35 +28,22 @@ const messageId = (kind, key, since) => createHash('sha256').update(`nats-${kind
  * an envelope with no `from`/`fromProject` is held forever as source_identity_required. */
 export const SUPERVISOR_SENDER = 'ao-supervisor';
 
-/** TCP reachability of a nats:// URL or a unix socket path. ponytail: first server of a list only. */
-export function canReach(url, timeoutMs = 1000) {
-  return new Promise((resolve) => {
-    let target;
-    try {
-      if (String(url).startsWith('/')) target = { path: url };
-      else { const parsed = new URL(String(url).split(',')[0]); target = { host: parsed.hostname, port: Number(parsed.port) || 4222 }; }
-    } catch { resolve(false); return; }
-    const socket = net.connect(target, () => { socket.destroy(); resolve(true); });
-    socket.once('error', () => resolve(false));
-    socket.setTimeout(timeoutMs, () => { socket.destroy(); resolve(false); });
-  });
-}
-
 /** Returns null when there is nothing to say, else what was sent or why it was not. Never throws for a missing lead. */
-export async function natsOutageTick({ consumer, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration, reachable = canReach,
+export async function natsOutageTick({ consumer, env = process.env, home = homedir(), deliver = sendStandingMessage, lead = readLeadRegistration,
+  reachable = (_url, outage) => probeConfiguredNats(outage, env, home),
   discard = discardLiveTransports, now = Date.now, retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS, holds = holdsFallbackFrom }) {
-  let state = await readTransportState(env, home, { retireAfterMs: Infinity });
+  // TM-309 B2/C4: every write here is a locked read-modify-write, and a failed one throws to the
+  // supervisor, which reports the tick as failed with its reason.
+  const read = { retireAfterMs: Infinity };
   // ADR-0032: an older ao wrote a NATS_URL entry. Readers already ignore it; drop it from the file too.
-  if (state?.foreign_dropped) await writeTransportState(env, home, state).catch(() => {});
+  let state = await updateTransportState(env, home, (s) => s?.foreign_dropped ? { ...s } : s, { read });
   if (!state?.outage?.since) return null;
   // A connection this supervisor still holds on the fallback is a fallback in use: keep the outage live.
   // touchFallback is the same refresh every holder's transport heartbeat runs (TM-295).
-  if (!state.outage.recovered_at && holds(state.outage) && await touchFallback(env, home, state.outage, { now: now(), retireAfterMs })) {
-    state = await readTransportState(env, home, { retireAfterMs: Infinity });
-  }
-  const checked = retireStaleOutage(state, { now: now(), retireAfterMs });
-  if (checked !== state) await writeTransportState(env, home, checked);
-  state = checked;
+  if (!state.outage.recovered_at && holds(state.outage)) await touchFallback(env, home, state.outage, { now: now(), retireAfterMs });
+  // TM-309 C2: dead holders leave, and an outage already proven reachable closes with its last holder.
+  state = await updateTransportState(env, home, (s) => settleOutage(retireStaleOutage(s, { now: now(), retireAfterMs }), { now: now() }), { read });
+  if (!state?.outage?.since) return null;
   const outage = state.outage;
   const key = repoKey((await canonicalRepoId(consumer)).id);
   const outageId = messageId('outage', key, outage.since), recoveryId = messageId('recovered', key, outage.since);
@@ -70,8 +57,8 @@ export async function natsOutageTick({ consumer, env = process.env, home = homed
   if (outage.recovered_at) redials.delete(redialKey);
   // TM-308: a port conflict answers TCP by definition (something else holds it); the next managed
   // open that succeeds on that port is what closes it, so there is nothing to probe.
-  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url)) {
-    // The configured NATS answers TCP again. Drop the cached local connection so the next open dials
+  else if (!outage.conflict && (!redial || now() >= redial.at) && await reachable(outage.url, outage)) {
+    // The configured NATS answers NATS and JetStream again. Drop the cached local connection so the next open dials
     // the configured one through the real connect path, which is what closes the outage.
     await discard();
     probed = true;

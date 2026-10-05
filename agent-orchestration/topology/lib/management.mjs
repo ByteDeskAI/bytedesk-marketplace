@@ -997,12 +997,16 @@ export async function assignmentResult(options) {
   const ctx = await context({ ...options, store: options.store ?? { root: null } });
   const record = await loadRecord(ctx.path);
   const assignee = record?.assignee ?? null;
-  if (!assignee) return { assigned: false, reason: `${options.task} has no idle-dispatch assignment.` };
-  if (assignee.released_at) return { assigned: false, released_at: assignee.released_at, agent_id: assignee.agent_id };
+  // TM-360: tm's one duplicate-dispatch guard reads this verb, so a worker this lead started or
+  // adopted (and has not stopped) is reported alongside the idle-dispatch assignee.
+  const live = record?.worker && !record.worker.stopped_at
+    ? { worker: { kind: record.worker.kind ?? null, backend: record.worker.backend ?? null, run: record.worker.run ?? null }, owner: record.owner ?? null } : {};
+  if (!assignee) return { assigned: false, reason: `${options.task} has no idle-dispatch assignment.`, ...live };
+  if (assignee.released_at) return { assigned: false, released_at: assignee.released_at, agent_id: assignee.agent_id, ...live };
   const mail = await (options.readMessage ?? readStandingMessage)({ id: assignee.message_id, env: ctx.env, home: ctx.home });
-  if (!mail?.reply) return { assigned: true, pending: true, agent_id: assignee.agent_id, message_id: assignee.message_id };
+  if (!mail?.reply) return { assigned: true, pending: true, agent_id: assignee.agent_id, message_id: assignee.message_id, ...live };
   return { assigned: true, pending: false, agent_id: assignee.agent_id, message_id: assignee.message_id,
-    replied_at: mail.reply.created_at, ...parseAssignmentReply(mail.reply.body) };
+    replied_at: mail.reply.created_at, ...parseAssignmentReply(mail.reply.body), ...live };
 }
 
 /**

@@ -386,6 +386,15 @@ describe("topology backend", () => {
     assert.equal(agent.env.TM_SESSION_ID, request.session, "and which session claimed it");
   });
 
+  it("TM-375: a dispatching secret reaches ao-topology's environment and never its spec file or argv", () => {
+    const secret = "tm375-topology-sentinel";
+    const { written, spawned } = launch(req(), { env: { PATH: "/usr/bin", TYPESAFE_API_KEY: secret } });
+    const [, args, opts] = spawned[0];
+    assert.equal(opts.env.TYPESAFE_API_KEY, secret, "ao-topology inherits it and passes it on by its own workers.passEnv");
+    assert.ok(written.length > 0 && !JSON.stringify(written).includes(secret), "the spec file never carries it");
+    assert.ok(!args.join(" ").includes(secret));
+  });
+
   it("keeps stored env and args while the producer applies candidate-specific guards", () => {
     const agentOf = (rosterList) => JSON.parse(launch(req(), { rosterList }).written.find(([f]) => f.endsWith("spec.json"))[1]).agents[0];
 

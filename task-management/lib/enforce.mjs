@@ -14,6 +14,7 @@ import { sessionId } from "./actor.mjs";
 import { decisionRole, hasAnswer } from "./decision.mjs";
 import { missingFields } from "./completeness.mjs";
 import { governedCompletion } from "./governance-check.mjs";
+import { liveWorkerNote } from "./claims.mjs";
 
 export function enforcementOff(p = paths()) {
   if (String(process.env.TM_ENFORCE || "").toLowerCase() === "off") return true;
@@ -282,7 +283,12 @@ function gateStopLocked(p) {
       // park-on-failure path is the backstop for a worker that dies mid-run. Blocking this
       // session's stop over it would nag the worker for a hand-off that already happened.
       // Anonymous sessions (no resolvable id) get no exemption — they cannot prove the claim.
-      !(session && t.dispatched && claims[t.id]?.session === session),
+      !(session && t.dispatched && claims[t.id]?.session === session) &&
+      // TM-397: same reasoning for a task this session handed to one of its own worker subagents
+      // (the Agent tool, not tm dispatch): a fresh `tm claim note` marker on this session's claim
+      // says a live worker owns it. Parking it would release the claim mid-work. An expired marker,
+      // or one on another session's claim, exempts nothing.
+      !(session && claims[t.id]?.session === session && liveWorkerNote(claims[t.id])),
   );
   if (mine.length === 0) {
     if (s.lastStopBlock) writeState({ lastStopBlock: null }, p);
@@ -324,6 +330,7 @@ function gateStopLocked(p) {
         .map((t) => `  ${t.id} ${t.title}\n    .bytedesk/task-management/bin/tm done ${t.id}  |  .bytedesk/task-management/bin/tm block ${t.id} "<why>"  |  .bytedesk/task-management/bin/tm park ${t.id}`)
         .join("\n") +
       (goals.length ? `\nThe goal you set on this work:\n${goals.join("\n")}` : "") +
-      "\nIf the work really is unfinished, park it with a note — don't leave it in_progress.",
+      "\nIf the work really is unfinished, park it with a note — don't leave it in_progress." +
+      "\nIf a live worker subagent of this session is doing it, say so instead: .bytedesk/task-management/bin/tm claim note <id> --worker <name> --ttl 60m",
   };
 }

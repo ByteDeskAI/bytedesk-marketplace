@@ -45,9 +45,9 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /never dispatched|was never dispatched/);
   });
 
-  it("parity table lists all 45 MCP tools and the HTTP twins for dispatch/collect/caps/agents", () => {
+  it("parity table lists all 46 MCP tools and the HTTP twins for dispatch/collect/caps/agents", () => {
     const doc = read("docs/agent-first.md");
-    assert.equal(TOOLS.length, 45, `expected 45 MCP tools, got ${TOOLS.length}`);
+    assert.equal(TOOLS.length, 46, `expected 46 MCP tools, got ${TOOLS.length}`);
     for (const t of TOOLS) {
       assert.match(doc, new RegExp(`\`${t.name}\``), `docs/agent-first.md missing ${t.name}`);
     }

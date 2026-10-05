@@ -548,3 +548,42 @@ test("TM-286: services status --json lists name, pid, state, restarts and readin
   }
   assert.deepEqual(report.processes.map((p) => [p.name, p.pid, p.state, p.restarts]), api.procs.map((p) => [p.name, p.pid, p.status, p.restarts]));
 });
+
+test("TM-374: services wait blocks until the condition holds (exit 0), times out with exit 2, and refuses bad arguments with exit 1", async (t) => {
+  const { runServicesCommand } = await import("../../src/services/cli.mjs");
+  const { stateRoot, env, root } = await installedServices(t);
+  const api = liveApi();
+  const nats = api.procs.find((p) => p.name === "nats");
+  nats.status = "Launching";
+  const statusOptions = { home: root, platform: "linux", deps: { fetchImpl: api.fetchImpl, mode: "detached" } };
+  const waitEnv = { ...env, AO_SERVICES_WAIT_INTERVAL_MS: "100" };
+  const lines = [];
+  const write = process.stdout.write;
+  const errWrite = process.stderr.write;
+  process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
+  process.stderr.write = (chunk) => { lines.push(String(chunk)); return true; };
+  t.after(() => { process.stdout.write = write; process.stderr.write = errWrite; });
+  const run = (values, positionals = []) => runServicesCommand("wait", { "state-root": stateRoot, ...values }, positionals, waitEnv, statusOptions);
+  const last = () => JSON.parse(lines.at(-1));
+
+  // nats is still launching: healthy and `nats running` both time out, naming what is not running.
+  assert.equal(await run({ until: "healthy", timeout: "0.3" }), 2);
+  assert.deepEqual([last().timedOut, last().notRunning], [true, ["nats=Launching/Ready"]]);
+  assert.equal(await run({ until: "nats", timeout: "0.3" }, ["running"]), 2);
+  assert.equal(last().state, "Launching");
+
+  // It must block, not just re-read once: nats comes up 400 ms into a 10 s wait.
+  setTimeout(() => { nats.status = "Running"; }, 400);
+  const started = Date.now();
+  assert.equal(await run({ until: "healthy", timeout: "10" }), 0);
+  assert.ok(Date.now() - started >= 300, "the wait returned only after nats came up");
+  assert.deepEqual([last().ok, last().notRunning], [true, []]);
+  assert.equal(await run({ until: "session-host", timeout: "1" }, ["running"]), 0);
+  assert.equal(last().pid, 101);
+
+  // Bad arguments: exit 1 before any waiting.
+  assert.equal(await run({ until: "healthy", timeout: "soon" }), 1);
+  assert.equal(await run({ until: "nats", timeout: "1" }, ["sideways"]), 1);
+  assert.equal(await run({ until: "healthy", timeout: "1" }, ["running"]), 1);
+  assert.equal(last().code, "AO_SERVICES_WAIT_ARG");
+});

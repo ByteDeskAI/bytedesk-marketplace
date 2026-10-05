@@ -19,6 +19,108 @@
 
 ### Added
 
+- **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
+  (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
+  `failover` restarts one, and when `session open` starts a durable session, ao copies each named
+  variable from the launching environment into a 0600 file beside the launcher. The launcher
+  sources and deletes that file. Values never reach the launcher, `run.json`, the journal, events,
+  prompts, tmux's environment or any argv. A name the launching environment lacks is warned about
+  by name, and the launch continues. A session restored later from its record, or a failover run
+  from a process without the variable, starts without it. This replaces running
+  `tmux set-environment -g TYPESAFE_API_KEY` by hand.
+
+- **`services wait` replaces sleep-polling around `services status` (TM-374, EP-028).**
+  `agent-orchestration services wait --until healthy|<process> [running] [--timeout <s>]` re-reads
+  status at a bounded interval and prints one JSON line: exit 0 when the condition holds, 2 on
+  timeout (naming what is not running yet), 1 on a bad argument. `healthy` means process-compose
+  answers and every managed process is Running and not "Not Ready". The common prompt and the
+  setup skill now name `services wait` and `mailbox wait` and tell agents never to `sleep N`,
+  which the harness blocks. The autonomy hook allows `services wait`, as it does `services status`.
+- **The supervisor sweeps for unreviewed work (TM-361, EP-028).** When the repository has a tm
+  launcher, each supervisor reconcile (at most every ten minutes, `AO_REVIEW_SWEEP_MS`) runs
+  `tm review-sweep --apply --json`. Each fresh finding is delivered once: a governed task with a
+  finish revision gets `requestReview`; anything else, or a refused request, becomes one standing
+  notice to the lead, with an id derived from the finding so a retry never mails twice. The tick
+  report carries `review_sweep`. With tm absent the tick skips it.
+
+- **`manage assignment` reports a live bound worker (TM-360, EP-028).** Besides the idle-dispatch
+  assignee, the result now carries `worker` (kind, backend, run) and `owner` while a worker this
+  lead started or adopted is bound and not stopped. task-management's one duplicate-dispatch
+  guard reads it through the CLI, so the pool no longer starts a second worker for a task a lead
+  adopted with `manage bind --pane`. `manage start-worker` already runs `tm dispatch`, which now
+  refuses a task the pool holds.
+- **MCP parity for run mail, lead status and session handoff (TM-355, EP-028).** New tools
+  `orchestration_run_mail_send`, `orchestration_run_mail_reply` and `orchestration_run_mail_wait`
+  run `ao-topology send|reply|wait`, `orchestration_lead_status` reads the lead (`cached: true`
+  answers from proof on disk and mints no probe), and `orchestration_session_handoff` runs
+  `session handoff`. Send and reply act as the server's session identity (`AO_AGENT_ID`); a `from`
+  or `agent` field may only repeat it. The provider-run tools are renamed
+  `orchestration_run_followup` and `orchestration_run_wait`; `orchestration_send` and
+  `orchestration_wait` remain as documented aliases. The closure-contract handoff of TM-311 is not
+  on main and has no tool yet.
+
+- **Agent identity is visible (TM-371, EP-028).** Sessions that ao creates now put the agent's
+  icon, name and role on the tmux status line (`status-left`, session-scoped) ahead of the
+  session name, matching the existing terminal title. Mailbox mail and replies published on NATS
+  carry an `Orch-Repo-Slug` header naming the repository; subjects stay `orch.<key>.…`, so
+  deployed peers are unaffected. `ao-topology doctor` prints `Repository: <slug> · NATS
+  orch.<key>.>`, and `orchestration_doctor` reports `repositorySlug` and `natsSubjects` under
+  `consumerAdmission`.
+
+- **Doctor reports plugin freshness against origin/main (TM-373, EP-028).**
+  `orchestration_doctor` now includes `diagnostics.pluginFreshness`: the installed SHA (the
+  `plugins/cache/<marketplace>/<plugin>/<sha>` entry from `installed_plugins.json`, or `HEAD` for a
+  checkout), `origin/main` from `git ls-remote` with a 5-second deadline, and `status`
+  `current`, `stale` or `unknown`. A stale cache adds a setup problem naming
+  `claude plugin update <plugin>@<marketplace>`. Offline or timed out reports `unknown` and never
+  fails doctor.
+- **Reviewer verdicts travel as JSON and are never read off the pane (TM-365, EP-028).**
+  `TOPOLOGY_REVIEWER_RESPONSE` ("Expected a nonce-bound review response", "Review response must
+  be JSON") was the most common gateway error. The reviewer now submits its verdict with a
+  `review_submit` MCP tool, served by the new `topology/review-mcp.mjs`, or from a shell with
+  `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
+  --findings @file.json`. Both run `submitReviewVerdict`. It checks the caller is the request's
+  reviewer at the request's incarnation, and applies the findings schema at once, so a refusal
+  says what to fix and the reviewer can submit again. Resubmitting before collection replaces the
+  verdict. It writes `<inbox>/verdicts/<task>-<revision>.json` and mirrors it to the NATS
+  `ORCH_REVIEWS` object store and the verdict subject when NATS is live. `reviewer collect` and
+  the supervisor's queue read only that record, and report `TOPOLOGY_REVIEWER_NO_VERDICT` while
+  none exists. The pane parser (`parseReviewResponse`, `reviewResponsesOnScreen`, the incomplete
+  verdict ageing and `AO_REVIEW_INCOMPLETE_*_MS`) is removed. A submitted verdict survives a
+  reviewer restart: `agent restart` no longer waits on it, and collection records it against the
+  incarnation that submitted it. Approval still needs the current incarnation, as before.
+  The reviewer now launches with `--restricted --setting-sources ''` in place of
+  `--restricted --safe-mode`, because safe mode also disables every MCP server. We measured both
+  on claude 2.1.289: the tool lists are the same (no Bash, Write or Edit) except for
+  `review_submit`, and no settings, plugins or hooks load. The reviewer prompts now name the tool.
+  `dist/` is rebuilt.
+
+### Fixed
+
+- **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
+  review range, the patch, the binary manifest and the files a finding may name now resolve from
+  the task worktree in the admission record. The request records that `worktree`, and the reviewer
+  prompt and request ring tell the reviewer to read files there; the main checkout may have another
+  branch checked out. A worktree that has been removed falls back to the consumer, which shares the
+  object store. A worktree of another repository is refused with `TOPOLOGY_REVIEWER_RANGE`.
+- **A reviewer finding may name a CHANGELOG.md the change did not touch (TM-367, EP-028).** A
+  missing changelog entry is a finding about a file outside the diff, and refusing it with
+  `TOPOLOGY_REVIEWER_FINDINGS` failed the whole review (gateway TM-490). A `CHANGELOG.md` at any
+  depth is now accepted; any other file outside the diff is still refused. Every finding still
+  carries one severity (`blocker`, `major`, `minor`, `nit` or `note`), and an approval with only
+  minor, nit or note findings is recorded as approved; a new test covers both. The reviewer prompt
+  says so.
+- **`reviewer ensure` honours the requested provider and reuses the reviewer it has (TM-364,
+  EP-028).** In agent-browser on 2026-10-05 a Codex reviewer was requested and three Claude
+  reviewers were created. `ao-topology reviewer ensure --provider codex` (and
+  `role ensure reviewer --provider codex`) now reuses the registered Codex reviewer. A request for
+  another provider than the registered one is refused with `TOPOLOGY_REVIEWER_PROVIDER` and names
+  the `--provider` that keeps it; nothing is minted. With no registration, ensure first looks at
+  the repository's reviewer agents. It reattaches a live one on the requested provider, relaunches
+  a stopped one as the same identity, and refuses with `TOPOLOGY_REVIEWER_LIVE` while a reviewer on
+  another provider is live. A new reviewer is minted only when none exists on that provider. The
+  requested provider must still be in `management.reviewer_providers`.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`
@@ -103,6 +205,25 @@
   `common_by_role` variant — and reports the kept layer in `warnings`.
 
 ### Fixed
+
+- **NATS outage follow-ups: recovery no longer overclaims, and state writes are locked and visible
+  (TM-309, EP-028).**
+  - An outage now records which processes fell back from it (`holders`, by pid). An open that
+    reaches the configured server again marks it `reachable_at`, but the outage closes, and the lead
+    gets its one recovery message, only when no live holder remains. A holder's heartbeat re-dials
+    once another process has proven the server back.
+  - Recovery is recorded only after `jetstreamManager()` succeeds. A server that takes the
+    connection but has no JetStream no longer closes an outage.
+  - The supervisor's re-dial probe is a real NATS connection plus a JetStream call on a short-lived
+    connection of its own. A port that only accepts TCP no longer force-closes the supervisor's
+    live connections, presence included.
+  - Every read-modify-write of `transport.json` runs under one lock (`withLock`). A failed write is
+    no longer swallowed: it is carried as `state_write_error` on the selection, logged by the
+    supervisor start line, and fails the outage tick with its reason.
+  - The supervisor start log reports the connection it just opened, not the host-wide file.
+  - Text `agent-orchestration services status` prints the transport and any open outage.
+  - Tests prove that no credential from a single, list or malformed `AO_NATS_URL` reaches
+    `transport.json`, doctor, services status, the start log or the lead's inbox.
 
 - **The commit guard allows the plugin declaration that AGENTS.md requires (TM-370, EP-028).**
   `guard-project-install`, the `git-hook` pre-commit hook and the SessionStart warning blocked
