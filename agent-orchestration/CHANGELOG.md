@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`manage assignment` reports a live bound worker (TM-360, EP-028).** Besides the idle-dispatch
+  assignee, the result now carries `worker` (kind, backend, run) and `owner` while a worker this
+  lead started or adopted is bound and not stopped. task-management's one duplicate-dispatch
+  guard reads it through the CLI, so the pool no longer starts a second worker for a task a lead
+  adopted with `manage bind --pane`. `manage start-worker` already runs `tm dispatch`, which now
+  refuses a task the pool holds.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`

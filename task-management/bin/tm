@@ -73,6 +73,7 @@ import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
 import { getPath, readConfigDocument, setPath, writeConfigDocument } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
+import { liveOwner } from "../lib/dispatch/live-owner.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
@@ -1481,6 +1482,22 @@ const VERBS = {
     if (res.backend === "manual" && res.detail?.commands) out(res.detail.commands.join("\n"));
   },
 
+  /**
+   * TM-360: would `tm dispatch` refuse this task because a worker is already live? Read-only;
+   * the same liveOwner() dispatch() consults, so the pool and a lead's start-worker agree.
+   * Exit 0 when free, 2 when held.
+   */
+  "dispatch-check"(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm dispatch-check <id> [--json]");
+    const task = read(id, P);
+    if (!task) die(`not found: ${id}`, 2);
+    const owner = liveOwner(task, P);
+    if (JSON_OUT) out(JSON.stringify({ id, free: !owner, ...(owner ? { owner } : {}) }, null, 2));
+    else out(owner ? owner.reason : `${id}: no live worker; dispatch may proceed`);
+    if (owner) process.exitCode = 2;
+  },
+
   /** Collect a dispatched worker's result into the store (park-on-failure, comment, task_result). */
   async collect(id) {
     requireInit();
@@ -1784,6 +1801,7 @@ const VERBS = {
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
+        "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",

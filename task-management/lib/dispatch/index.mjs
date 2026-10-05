@@ -41,6 +41,7 @@ import { paths } from "../paths.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
 import { failureScope } from "./failure.mjs";
+import { liveOwner } from "./live-owner.mjs";
 import { PREFIXED_BACKENDS, aoGlobalPrefix, withPrefix } from "./prefix.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { governanceMode, governedAdmission } from "../governance-check.mjs";
@@ -178,24 +179,17 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   if (!session) session = `dispatch-${id.toLowerCase()}`;
 
   /**
-   * A task already carrying a dispatch record AND a live claim is a worker in
-   * flight, not a dispatch candidate. Without this gate, a same-session
-   * re-dispatch re-claims idempotently and then dies inside provision() ("worktree
-   * already exists") — and the rollback would release the LIVE worker's claim.
-   * Refuse early with the way forward instead. `--steal` skips this gate: stealing
-   * a live claim is exactly what claimTask's steal path is for.
+   * TM-360: one guard for every dispatcher. A task with a worker in flight — tm's own dispatch
+   * record plus a live claim, or a live agent-orchestration assignment/bound worker — is not a
+   * dispatch candidate. The pool and a lead's `manage start-worker` both arrive here, so neither can
+   * start a second writer the other does not know about. Without the tm half, a same-session
+   * re-dispatch re-claims idempotently, dies in provision() and the rollback releases the LIVE
+   * worker's claim. Applies under --steal too, as the inline gate it replaced did: stealing a
+   * claim does not stop the worker that holds it.
    */
   const priorClaim = claimant(id, p);
-  if (task.dispatched && priorClaim) {
-    const as = task.dispatched.run ? ` as ${task.dispatched.run}` : "";
-    const by = priorClaim.session ?? priorClaim.actor;
-    const holder = by ? `, claimed by ${by}` : "";
-    return {
-      ok: false,
-      reason: `${id} is already dispatched to ${task.dispatched.backend}${as}${holder} — confirm the existing worker has ended and collect it first with \`tm collect ${id}\`.`,
-      holder: by ?? null,
-    };
-  }
+  const owner = liveOwner(task, p, { caps });
+  if (owner) return { ok: false, reason: owner.reason, holder: owner.holder, liveOwner: owner.source };
 
   const claim = claimTask(id, { session, actor, steal, p });
   if (!claim.ok) return { ok: false, reason: claim.reason, holder: claim.holder };

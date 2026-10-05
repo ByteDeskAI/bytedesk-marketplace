@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **One duplicate-dispatch guard for the pool and a lead (TM-360, EP-028).** On 2026-10-05 the
+  pool started a second TM-010 worker the lead knew nothing about. `dispatch()` now asks one
+  function, `liveOwner()` in `lib/dispatch/live-owner.mjs`, before it claims anything. A task is
+  refused when tm's own dispatch record has a live claim, or when agent-orchestration (if
+  installed) reports an unreleased assignment or a bound, unstopped worker through
+  `ao-topology manage assignment`. The pool and a lead's `manage start-worker` both reach
+  `dispatch()`, so both are covered. `tm dispatch-check <id> [--json]` gives the same answer
+  read-only (exit 2 when held). A missing or failing `ao-topology` is skipped, never an accusation.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
