@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
+import { HEARTBEAT_TTL_MS, heartbeatDir } from './heartbeat.mjs';
 import { AUTONOMY_LEVELS, loadConfig } from './config.mjs';
 import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
@@ -1167,6 +1168,16 @@ export async function transferTask(options) {
     const claim = await ctx.store.claim(options.task);
     invariant(!claim || claim.session === from || claim.session === to, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `${options.task} is claimed by ${claim?.session}, neither the owner ${from} nor ${to}; reconcile that claim first.`);
     invariant(caller === from || claim?.session !== from, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${from} still holds a live claim on ${options.task}; ask it to run manage transfer --task ${options.task} --to ${to}, or wait for its claim to expire.`);
+    if (caller !== from) {
+      // TM-459: a takeover. `tm block` or `tm park` releases the claim while the owner is still alive,
+      // so a released claim proves nothing. The caller must be proven to be this repository's lead, and
+      // the owner must be proven gone: no live pane bound to it and no fresh heartbeat from it.
+      const lookup = { consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc };
+      const lead = await (options.requireLead || requireLeadCaller)(lookup);
+      invariant(lead, 'TOPOLOGY_MANAGEMENT_TRANSFER', `Only this repository's proven lead may take over ${options.task} from ${from}; the caller is not it (requireLeadCaller). Ask ${from} to hand it over with manage transfer --to.`);
+      const present = await (options.ownerPresence || ownerPresence)(ctx, lookup, from);
+      invariant(!present, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${from} is not proven absent (${present}); a released claim is not proof. Ask it to hand ${options.task} over with manage transfer --to, or retry once it has exited.`);
+    }
     const doc = await ctx.store.show(options.task);
     invariant(doc.worktree && resolve(doc.worktree) === resolve(record.worktree), 'TOPOLOGY_MANAGEMENT_WORKTREE', 'Task worktree differs from the admission record; reconcile it before transferring.');
     try { await ctx.store.claimFor(options.task, to, record.worktree, claim?.session === from); }
@@ -1177,6 +1188,25 @@ export async function transferTask(options) {
     await writeJson(ctx.path, next);
     return { transferred: true, from, to, record: next };
   });
+}
+
+/** TM-459: why `owner` may still be alive, or null when nothing shows it is: a live pane the census
+ * binds to it, or a heartbeat from it fresher than HEARTBEAT_TTL_MS. Unreadable panes are not absence. */
+export async function ownerPresence(ctx, lookup, owner) {
+  const census = await (lookup.readCensusFn || readCensus)({ consumer: lookup.consumer, env: ctx.env, home: ctx.home }).catch(() => null);
+  for (const entry of (census?.agents || []).filter(a => a.agentId === owner && a.binding?.paneId)) {
+    let panes;
+    try { panes = await (lookup.listPanesFn || listServerPanes)({ tmuxServer: entry.binding.serverKey, env: ctx.env }); }
+    catch (error) { return `its pane ${entry.binding.paneId} cannot be checked: ${error.message}`; }
+    if (panes.some(pane => pane.alive && pane.paneId === entry.binding.paneId)) return `it has a live pane ${entry.binding.paneId}`;
+  }
+  const dir = heartbeatDir(ctx.env, ctx.home);
+  for (const name of (await readdir(dir).catch(() => [])).filter(n => n.endsWith('.json'))) {
+    const beat = await readJson(join(dir, name)).catch(() => null);
+    const age = Date.now() - Number(beat?.at);
+    if (beat?.agent_id === owner && age >= 0 && age < HEARTBEAT_TTL_MS) return `it sent a heartbeat ${Math.round(age / 1000)}s ago`;
+  }
+  return null;
 }
 
 /** TM-247 (AC8): close a landed governed task in the one order that cannot strand a bound worker:

@@ -9084,6 +9084,9 @@ var init_prompts = __esm({
 });
 
 // topology/lib/heartbeat.mjs
+function heartbeatDir(env = process.env, home = (0, import_node_os9.homedir)()) {
+  return (0, import_node_path30.join)(stateRoot2(env, home), "heartbeats");
+}
 function heartbeatPath(dir, serverKey, paneId2) {
   return (0, import_node_path30.join)(dir, `${(0, import_node_crypto15.createHash)("sha256").update(`${serverKey}\0${paneId2}`).digest("hex")}.json`);
 }
@@ -9118,12 +9121,13 @@ async function recentHeartbeat(dir, binding, { now = Date.now, ttlMs = HEARTBEAT
   if (!(age >= 0 && age < ttlMs)) return null;
   return { age_ms: age, event: beat.event, busy: beat.event !== "Stop" };
 }
-var import_node_child_process10, import_node_crypto15, import_promises26, import_node_path30, HEARTBEAT_TTL_MS;
+var import_node_child_process10, import_node_crypto15, import_promises26, import_node_os9, import_node_path30, HEARTBEAT_TTL_MS;
 var init_heartbeat = __esm({
   "topology/lib/heartbeat.mjs"() {
     import_node_child_process10 = require("node:child_process");
     import_node_crypto15 = require("node:crypto");
     import_promises26 = require("node:fs/promises");
+    import_node_os9 = require("node:os");
     import_node_path30 = require("node:path");
     init_repoid();
     init_util();
@@ -9466,17 +9470,17 @@ function servicesEnabled(env = process.env) {
   const value = env.AGENT_ORCHESTRATION_SERVICES ?? process.env.AGENT_ORCHESTRATION_SERVICES;
   return value !== "0";
 }
-function servicesDir(env = process.env, home = (0, import_node_os9.homedir)()) {
+function servicesDir(env = process.env, home = (0, import_node_os10.homedir)()) {
   return (0, import_node_path33.join)(stateRoot2(env, home), "services");
 }
-function reposPath(env = process.env, home = (0, import_node_os9.homedir)()) {
+function reposPath(env = process.env, home = (0, import_node_os10.homedir)()) {
   return (0, import_node_path33.join)(servicesDir(env, home), "repos.json");
 }
-async function readServiceRepos(env = process.env, home = (0, import_node_os9.homedir)()) {
+async function readServiceRepos(env = process.env, home = (0, import_node_os10.homedir)()) {
   const value = await readJson3(reposPath(env, home)).catch(() => null);
   return Array.isArray(value?.repos) ? value.repos : [];
 }
-async function addServiceRepo(consumer, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
+async function addServiceRepo(consumer, { env = process.env, home = (0, import_node_os10.homedir)() } = {}) {
   const key = repoKey((await canonicalRepoId(consumer)).id);
   return withLock(`${reposPath(env, home)}.lock`, async () => {
     const repos = await readServiceRepos(env, home);
@@ -9485,12 +9489,12 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
     return true;
   });
 }
-async function registerRepository(cwd, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
+async function registerRepository(cwd, { env = process.env, home = (0, import_node_os10.homedir)() } = {}) {
   const identity = await canonicalRepoId(cwd).catch(() => null);
   if (identity?.kind !== "git-common-dir") return null;
   return addServiceRepo(await repositoryConsumer(cwd), { env, home });
 }
-async function removeServiceRepo({ key, consumer }, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
+async function removeServiceRepo({ key, consumer }, { env = process.env, home = (0, import_node_os10.homedir)() } = {}) {
   return withLock(`${reposPath(env, home)}.lock`, async () => {
     const repos = await readServiceRepos(env, home);
     const kept = repos.filter((repo) => repo.key !== key && repo.consumer !== consumer);
@@ -9530,11 +9534,11 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
     });
   });
 }
-var import_node_child_process11, import_node_os9, import_node_path33, import_node_url4;
+var import_node_child_process11, import_node_os10, import_node_path33, import_node_url4;
 var init_services_client = __esm({
   "topology/lib/services-client.mjs"() {
     import_node_child_process11 = require("node:child_process");
-    import_node_os9 = require("node:os");
+    import_node_os10 = require("node:os");
     import_node_path33 = require("node:path");
     import_node_url4 = require("node:url");
     init_lockfile();
@@ -9545,11 +9549,11 @@ var init_services_client = __esm({
 
 // topology/lib/nats-local.mjs
 function localNatsHome(env = process.env) {
-  return env.AO_NATS_HOME || (0, import_node_path34.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
+  return env.AO_NATS_HOME || (0, import_node_path34.join)((0, import_node_os11.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
   const { execFile: execFile6 } = await import("node:child_process");
-  const candidates = [env.AO_NATS_SERVER, (0, import_node_path34.join)((0, import_node_os10.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
+  const candidates = [env.AO_NATS_SERVER, (0, import_node_path34.join)((0, import_node_os11.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
   for (const bin of candidates) {
     const ok = await new Promise((resolve23) => execFile6(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve23(!error51)));
     if (ok) return bin;
@@ -9792,7 +9796,7 @@ async function ensureLocalNats({ env = process.env } = {}) {
     return { servers: `nats://127.0.0.1:${port}`, user, pass, port, started: true };
   });
 }
-var import_node_child_process12, import_node_crypto17, import_node_fs8, import_promises28, import_node_net, import_node_os10, import_node_path34, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, localNatsEnabled;
+var import_node_child_process12, import_node_crypto17, import_node_fs8, import_promises28, import_node_net, import_node_os11, import_node_path34, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, localNatsEnabled;
 var init_nats_local = __esm({
   "topology/lib/nats-local.mjs"() {
     import_node_child_process12 = require("node:child_process");
@@ -9800,7 +9804,7 @@ var init_nats_local = __esm({
     import_node_fs8 = require("node:fs");
     import_promises28 = require("node:fs/promises");
     import_node_net = __toESM(require("node:net"), 1);
-    import_node_os10 = require("node:os");
+    import_node_os11 = require("node:os");
     import_node_path34 = require("node:path");
     init_config();
     init_lockfile();
@@ -9809,7 +9813,7 @@ var init_nats_local = __esm({
     NATS_PORT_RANGE = [45200, 45999];
     SERVER_NAME = "ao-orch-local";
     validNatsPort = (port) => Number.isInteger(port) && port >= 1024 && port <= 65535;
-    configHome = (env) => env.HOME || (0, import_node_os10.homedir)();
+    configHome = (env) => env.HOME || (0, import_node_os11.homedir)();
     NO_BINARY = "No working nats-server found. Set AO_NATS_SERVER, put one on PATH (the snap shim does not count), or set AO_TRANSPORT=file.";
     localNatsEnabled = (env = process.env) => env.AO_NATS_AUTOSTART !== "0" && !env.AO_NATS_URL;
   }
@@ -26067,7 +26071,7 @@ function orchName(value) {
 }
 function orchSocketPath(env = process.env) {
   if (env.AO_ORCH_SOCKET) return env.AO_ORCH_SOCKET;
-  const home = env.GATEWAY_HOME || (0, import_node_path35.join)((0, import_node_os11.homedir)(), ".bytedesk", "remote-gateway");
+  const home = env.GATEWAY_HOME || (0, import_node_path35.join)((0, import_node_os12.homedir)(), ".bytedesk", "remote-gateway");
   return (0, import_node_path35.join)(home, "nats", "orch.sock");
 }
 function fail2(code, message) {
@@ -26127,7 +26131,7 @@ async function absorbTransportFailure(error51) {
 async function selectLiveTransport(options = {}) {
   return resolveTransport(options);
 }
-async function jetStreamDomain(env = process.env, home = (0, import_node_os11.homedir)()) {
+async function jetStreamDomain(env = process.env, home = (0, import_node_os12.homedir)()) {
   let domain2 = env.AO_NATS_JS_DOMAIN;
   if (!domain2) {
     const { globalConfigPath: globalConfigPath2 } = await Promise.resolve().then(() => (init_config(), config_exports));
@@ -26412,7 +26416,7 @@ function withoutForeignSources(state) {
     foreign_dropped: true
   };
 }
-async function readTransportState(env = process.env, home = (0, import_node_os11.homedir)(), { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+async function readTransportState(env = process.env, home = (0, import_node_os12.homedir)(), { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
   return retireStaleOutage(withoutForeignSources(await readJson3(transportStatePath(env, home)).catch(() => null)), { now, retireAfterMs });
 }
 async function writeTransportState(env, home, state) {
@@ -26451,7 +26455,7 @@ async function touchFallback(env, home, { source, url: url2 }, { now = Date.now(
 function holdsFallbackFrom({ source, url: url2 }) {
   return [...liveTransports.values()].some((t) => t.selection?.fallback?.source === source && t.selection.fallback.url === url2 && t.stats?.().closed === false);
 }
-async function describeTransport(env = process.env, home = (0, import_node_os11.homedir)()) {
+async function describeTransport(env = process.env, home = (0, import_node_os12.homedir)()) {
   if (transportMode(env) === "file") return { kind: "file", source: "AO_TRANSPORT", url: null, fallback: null, outage: null };
   const state = await readTransportState(env, home);
   return state ? {
@@ -26476,7 +26480,7 @@ function selectionView(transport) {
     ...s.state_write_error ? { state_write_error: s.state_write_error } : {}
   };
 }
-async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
+async function recordTransportSelection(env, selection, home = (0, import_node_os12.homedir)()) {
   await updateTransportState(env, home, (raw) => {
     const previous = settleOutage(raw);
     const at2 = (/* @__PURE__ */ new Date()).toISOString();
@@ -26534,7 +26538,7 @@ function ignoredNatsEnv(env = process.env) {
     message: `${names2.join(", ")} ${names2.length > 1 ? "are" : "is"} set but ignored: ao uses AO_NATS_URL, the gateway orch.sock, or its managed NATS on nats.port (ADR-0032).`
   } : null;
 }
-async function probeConfiguredNats(outage, env = process.env, home = (0, import_node_os11.homedir)(), { timeoutMs = 2e3 } = {}) {
+async function probeConfiguredNats(outage, env = process.env, home = (0, import_node_os12.homedir)(), { timeoutMs = 2e3 } = {}) {
   let servers = null, bridge = null, nc = null;
   if (outage?.source === "AO_NATS_URL" && env.AO_NATS_URL && redactUrl(env.AO_NATS_URL) === outage.url) servers = env.AO_NATS_URL;
   else if (outage?.source === "orch.sock" && outage.url && (0, import_node_fs9.existsSync)(outage.url)) {
@@ -26558,7 +26562,7 @@ async function probeConfiguredNats(outage, env = process.env, home = (0, import_
     bridge?.server.close();
   }
 }
-async function openNatsTransport({ env = process.env, home = (0, import_node_os11.homedir)(), servers, credsFile, name = "ao-orch" } = {}) {
+async function openNatsTransport({ env = process.env, home = (0, import_node_os12.homedir)(), servers, credsFile, name = "ao-orch" } = {}) {
   const {
     AckPolicy,
     DeliverPolicy,
@@ -27026,13 +27030,13 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os11, import_node_path35, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
+var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os12, import_node_path35, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto18 = require("node:crypto");
     import_node_fs9 = require("node:fs");
     import_node_net2 = __toESM(require("node:net"), 1);
-    import_node_os11 = require("node:os");
+    import_node_os12 = require("node:os");
     import_node_path35 = require("node:path");
     init_util();
     init_nats_local();
@@ -27075,7 +27079,7 @@ var init_orch_transport = __esm({
     ]);
     JS_DOMAIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
     MAX_PENDING = 1e4;
-    transportStatePath = (env = process.env, home = (0, import_node_os11.homedir)()) => (0, import_node_path35.join)(stateRoot2(env, home), "transport.json");
+    transportStatePath = (env = process.env, home = (0, import_node_os12.homedir)()) => (0, import_node_path35.join)(stateRoot2(env, home), "transport.json");
     OUTAGE_RETIRE_MS = 60 * 6e4;
     AO_SOURCES = /* @__PURE__ */ new Set(["AO_NATS_URL", "orch.sock", "managed-local"]);
     foreign = (entry) => Boolean(entry?.source) && !AO_SOURCES.has(entry.source);
@@ -27353,7 +27357,7 @@ function verifiedEnvelope(envelope) {
   );
   return verified;
 }
-function mailboxLedgerRoot({ env = process.env, home = (0, import_node_os12.homedir)() } = {}) {
+function mailboxLedgerRoot({ env = process.env, home = (0, import_node_os13.homedir)() } = {}) {
   return (0, import_node_path37.join)(stateRoot2(env, home), "mailbox", "v1");
 }
 async function identityOf(consumer) {
@@ -27612,13 +27616,13 @@ async function listMailboxPublications({ consumer, agent, kind, status, workflow
   }
   return records3.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.messageId.localeCompare(b.messageId));
 }
-var import_node_crypto19, import_promises30, import_node_path37, import_node_os12, hash2, canonical, STATES, TERMINAL3, bounded;
+var import_node_crypto19, import_promises30, import_node_path37, import_node_os13, hash2, canonical, STATES, TERMINAL3, bounded;
 var init_mailbox_receipts = __esm({
   "topology/lib/mailbox-receipts.mjs"() {
     import_node_crypto19 = require("node:crypto");
     import_promises30 = require("node:fs/promises");
     import_node_path37 = require("node:path");
-    import_node_os12 = require("node:os");
+    import_node_os13 = require("node:os");
     init_repoid();
     init_lockfile();
     init_util();
@@ -27958,7 +27962,7 @@ function personaScope({ team = null, repo }) {
   const slug2 = slugPart(team, PART_CAPS.team);
   return slug2 ? `team:${slug2}` : `repo:${slugPart(repo, PART_CAPS.repo) || "repo"}`;
 }
-function localPersonaRegistry({ env = process.env, home = (0, import_node_os13.homedir)() } = {}) {
+function localPersonaRegistry({ env = process.env, home = (0, import_node_os14.homedir)() } = {}) {
   const dir = (0, import_node_path40.join)(stateRoot2(env, home), "personas");
   const file2 = (scope) => (0, import_node_path40.join)(dir, `${(0, import_node_crypto20.createHash)("sha256").update(String(scope)).digest("hex").slice(0, 16)}.json`);
   const read3 = async (scope) => ({ since: {}, ...await readJson3(file2(scope)).catch(() => null) ?? { scope, holders: {} } });
@@ -28011,13 +28015,13 @@ function localPersonaRegistry({ env = process.env, home = (0, import_node_os13.h
 function runHolder(runId) {
   return `run:${runId}`;
 }
-async function releaseRunPersona(identity, { env = process.env, home = (0, import_node_os13.homedir)(), personas = null } = {}) {
+async function releaseRunPersona(identity, { env = process.env, home = (0, import_node_os14.homedir)(), personas = null } = {}) {
   if (identity?.kind !== "run" || !identity.run) return false;
   const scope = personaScope({ team: identity.team, repo: identity.repo });
   personas ??= await personaRegistryFor(scope, { env, home });
   return personas.release(scope, { id: runHolder(identity.run) });
 }
-async function personaRegistryFor(scope, { env = process.env, home = (0, import_node_os13.homedir)(), transport = null } = {}) {
+async function personaRegistryFor(scope, { env = process.env, home = (0, import_node_os14.homedir)(), transport = null } = {}) {
   if (!String(scope).startsWith("team:")) return localPersonaRegistry({ env, home });
   const { isTransportFailure: isTransportFailure2, resolveTransport: resolveTransport2, transportMode: transportMode2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
   const selected2 = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
@@ -28139,12 +28143,12 @@ function natsPersonaRegistry({ transport, graceMs = RUN_PERSONA_GRACE_MS, now = 
 async function presenceKeyOf(consumer) {
   return repoKey((await canonicalRepoId(consumer)).id);
 }
-var import_node_crypto20, import_promises32, import_node_os13, import_node_path40, RUN_PERSONA_GRACE_MS, KV_CONFLICT, isConflict, kvScope;
+var import_node_crypto20, import_promises32, import_node_os14, import_node_path40, RUN_PERSONA_GRACE_MS, KV_CONFLICT, isConflict, kvScope;
 var init_persona_registry = __esm({
   "topology/lib/persona-registry.mjs"() {
     import_node_crypto20 = require("node:crypto");
     import_promises32 = require("node:fs/promises");
-    import_node_os13 = require("node:os");
+    import_node_os14 = require("node:os");
     import_node_path40 = require("node:path");
     init_lockfile();
     init_session_names();
@@ -28226,10 +28230,10 @@ function respawnBounds(env = process.env, overrides = {}) {
     idleLooks: overrides.idleLooks ?? 2
   };
 }
-function respawnDir({ env = process.env, home = (0, import_node_os14.homedir)() } = {}) {
+function respawnDir({ env = process.env, home = (0, import_node_os15.homedir)() } = {}) {
   return (0, import_node_path42.join)(stateRoot2(env, home), "respawn");
 }
-function handoffPath(agentId, predecessorId, { env = process.env, home = (0, import_node_os14.homedir)() } = {}) {
+function handoffPath(agentId, predecessorId, { env = process.env, home = (0, import_node_os15.homedir)() } = {}) {
   return (0, import_node_path42.join)(stateRoot2(env, home), "handoffs", String(agentId), `${predecessorId || Date.now()}.md`);
 }
 function handoffRequest(path3) {
@@ -28275,7 +28279,7 @@ async function waitForFile(path3, { timeoutMs, pollMs = 1e3 }) {
     await sleep(Math.min(pollMs, Math.max(1, timeoutMs - (Date.now() - started))));
   }
 }
-async function findTranscript({ adapterId, cwd, home = (0, import_node_os14.homedir)() }) {
+async function findTranscript({ adapterId, cwd, home = (0, import_node_os15.homedir)() }) {
   if (adapterId !== "claude" || !cwd) return null;
   const dir = (0, import_node_path42.join)(home, ".claude", "projects", sanitizeCwd(cwd));
   const files = await (0, import_promises34.readdir)(dir, { withFileTypes: true }).catch(() => []);
@@ -28375,7 +28379,7 @@ async function claimAgent({
   requestedBy = null,
   mode = "handoff",
   env = process.env,
-  home = (0, import_node_os14.homedir)(),
+  home = (0, import_node_os15.homedir)(),
   bounds: overrides = {},
   deps = {}
 }) {
@@ -28451,7 +28455,7 @@ async function claimAgent({
     throw error51;
   }
 }
-async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, import_node_os14.homedir)() }) {
+async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, import_node_os15.homedir)() }) {
   const no = (reason) => ({ provider_session_id: null, reason });
   if (!(adapter?.resume_args ?? []).length) return no(`provider ${adapter?.id ?? "unknown"} declares no resume_args`);
   const own = agentsDir ? (0, import_node_path42.join)(agentsDir, String(agentId)) : null;
@@ -28472,11 +28476,11 @@ async function passHandoff({ pane, adapter = null, path: path3 }) {
   const { deliverPointer: deliverPointer2 } = await Promise.resolve().then(() => (init_launch(), launch_exports));
   return deliverPointer2(pane, adapter ?? { submit_keys: ["Enter"] }, handoffPointer(path3));
 }
-var import_promises34, import_node_os14, import_node_path42, envMs, clip;
+var import_promises34, import_node_os15, import_node_path42, envMs, clip;
 var init_respawn = __esm({
   "topology/lib/respawn.mjs"() {
     import_promises34 = require("node:fs/promises");
-    import_node_os14 = require("node:os");
+    import_node_os15 = require("node:os");
     import_node_path42 = require("node:path");
     init_census();
     init_delivery();
@@ -28717,7 +28721,7 @@ __export(nats_outage_exports, {
 async function natsOutageTick({
   consumer,
   env = process.env,
-  home = (0, import_node_os15.homedir)(),
+  home = (0, import_node_os16.homedir)(),
   deliver = sendStandingMessage,
   lead = readLeadRegistration,
   reachable = (_url2, outage) => probeConfiguredNats(outage, env, home),
@@ -28758,21 +28762,21 @@ async function natsOutageTick({
   if (!leadId) return { kind, status: "skipped", reason: "no lead is registered for this repository" };
   const where = `${outage.url} (${outage.source})`;
   const body = kind === "outage" && outage.conflict ? [
-    `NATS PORT CONFLICT on ${(0, import_node_os15.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
+    `NATS PORT CONFLICT on ${(0, import_node_os16.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`
   ] : kind === "outage" ? [
-    `NATS OUTAGE on ${(0, import_node_os15.hostname)()}: the configured NATS ${where} is unreachable.`,
+    `NATS OUTAGE on ${(0, import_node_os16.hostname)()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `Fallback: ao is working on the managed local NATS ${state.url ?? "on this host"}. Work on this host continues, but agents on other machines that use ${outage.url} do not see this host's mail, claims or presence until it is back.`,
     `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. You will get one more message when it answers again.`
   ] : kind === "retired" ? [
-    `NATS OUTAGE RETIRED on ${(0, import_node_os15.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
+    `NATS OUTAGE RETIRED on ${(0, import_node_os16.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
     `It was not proven reachable. ao is on ${state.url} (${state.source}). The outage began ${outage.since}: ${outage.error}`
   ] : [
-    `NATS RECOVERED on ${(0, import_node_os15.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
+    `NATS RECOVERED on ${(0, import_node_os16.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
     `The outage began ${outage.since}: ${outage.error}`
   ];
   return deliver({
@@ -28786,11 +28790,11 @@ async function natsOutageTick({
     provenance: { source: "ao-topology supervise" }
   }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto21, import_node_os15, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
+var import_node_crypto21, import_node_os16, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto21 = require("node:crypto");
-    import_node_os15 = require("node:os");
+    import_node_os16 = require("node:os");
     init_repoid();
     init_orch_transport();
     init_lead();
@@ -28874,10 +28878,10 @@ function foldDelegations(events) {
   }
   return [...grants.values()];
 }
-async function listStandingDelegations({ consumer, env = process.env, home = (0, import_node_os16.homedir)() }) {
+async function listStandingDelegations({ consumer, env = process.env, home = (0, import_node_os17.homedir)() }) {
   return foldDelegations((await verifiedEvents(consumer, env, home)).events);
 }
-async function requireGranteeCaller({ consumer, grantee, env = process.env, home = (0, import_node_os16.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
+async function requireGranteeCaller({ consumer, grantee, env = process.env, home = (0, import_node_os17.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
   const here = await resolveBinding({ env, listPanesFn }).catch(() => null);
   invariant2(here, "TOPOLOGY_DELEGATION_ACTOR", `A standing delegation is exercised only from the grantee's own live tmux pane; ${env.TMUX_PANE || "no pane"} is not a live pane incarnation, so the caller cannot be proven to be ${grantee}.`);
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
@@ -28895,14 +28899,14 @@ async function requireGranteeCaller({ consumer, grantee, env = process.env, home
   invariant2(inPane, "TOPOLOGY_DELEGATION_ACTOR", `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
   return here;
 }
-async function requireLeadCaller({ consumer, env = process.env, home = (0, import_node_os16.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
+async function requireLeadCaller({ consumer, env = process.env, home = (0, import_node_os17.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
   const lead = await findLead(agentDirs({ consumer })).catch(() => null);
   if (!lead?.id || env.AO_AGENT_ID !== lead.id) return null;
   invariant2(!env.TM_DISPATCH_WORKER, "TOPOLOGY_DELEGATION_ACTOR", `A dispatched worker session (TM_DISPATCH_WORKER) is never the repository lead ${lead.id}.`);
   await requireGranteeCaller({ consumer, grantee: lead.id, env, home, listPanesFn, readCensusFn, callerProc });
   return lead.id;
 }
-async function findActiveDelegation({ consumer, agentId, scope, task = null, env = process.env, home = (0, import_node_os16.homedir)(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
+async function findActiveDelegation({ consumer, agentId, scope, task = null, env = process.env, home = (0, import_node_os17.homedir)(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
   if (!agentId) return null;
   const live2 = (await listStandingDelegations({ consumer, env, home })).filter((g) => g.grantee === agentId && g.scopes.includes(scope) && !g.revoked_at && (!g.expires_at || Date.parse(g.expires_at) > now)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   if (!live2[0]) return null;
@@ -28912,14 +28916,14 @@ async function findActiveDelegation({ consumer, agentId, scope, task = null, env
   invariant2(covering, "TOPOLOGY_DELEGATION_PLAN", `No live ${scope} grant for ${agentId} covers ${task?.id || "this task"}; its approved plan is ${live2.map((g) => g.plan ? planLabel(g.plan) : "none").join(" / ")}.${stale.length ? ` Grant ${stale.join(", ")} names an epic without a frozen task list, so it covers nothing; ask the operator to re-grant it.` : ""}`);
   return covering;
 }
-var import_node_crypto22, import_promises35, import_node_child_process13, import_promises36, import_node_os16, import_node_path44, DELEGATION_SCOPES, GRANT_CHANNEL, AGENT_PROCESS, AGENT_MARKERS, PLAN_MAX_MS, AGENT_MARKER_PREFIXES, CONFIG_ONLY, loadEvents, planDigest, planLabel, unfrozenEpic, planCovers;
+var import_node_crypto22, import_promises35, import_node_child_process13, import_promises36, import_node_os17, import_node_path44, DELEGATION_SCOPES, GRANT_CHANNEL, AGENT_PROCESS, AGENT_MARKERS, PLAN_MAX_MS, AGENT_MARKER_PREFIXES, CONFIG_ONLY, loadEvents, planDigest, planLabel, unfrozenEpic, planCovers;
 var init_delegation = __esm({
   "topology/lib/delegation.mjs"() {
     import_node_crypto22 = require("node:crypto");
     import_promises35 = require("node:fs/promises");
     import_node_child_process13 = require("node:child_process");
     import_promises36 = require("node:readline/promises");
-    import_node_os16 = require("node:os");
+    import_node_os17 = require("node:os");
     import_node_path44 = require("node:path");
     init_agents();
     init_census();
@@ -29090,17 +29094,17 @@ async function notifyGoalObligation({ loop, ...options }) {
   if (record2?.agent_id !== loop.leadId || record2?.repo_id !== loop.repository.id || !binding || !record2?.pane) return held("The admitted lead has no matching registered pane incarnation.");
   const bindingHash = goalLoopDigest(binding), previous = loop.obligation.notification;
   if (previous?.state === "sent" && previous.bindingHash === bindingHash) return previous;
-  const adapters = await (options.loadAdapters ?? loadAdapters)(providerDirs({ consumer: loop.consumer, home: options.home ?? (0, import_node_os17.homedir)(), pluginRoot: options.pluginRoot, env: options.env }));
+  const adapters = await (options.loadAdapters ?? loadAdapters)(providerDirs({ consumer: loop.consumer, home: options.home ?? (0, import_node_os18.homedir)(), pluginRoot: options.pluginRoot, env: options.env }));
   const adapter = adapterFor({ cli: record2.provider, model: null, args: [], skills: [] }, adapters);
   if (ringCapability(adapter) !== "supported") return held("The lead provider has no measured safe composer.");
   const text = `[ao] Goal obligation ${loop.obligation.id} is durable. Read ao-topology mailbox inbox --consumer ${shellQuote(loop.consumer)} --agent ${shellQuote(loop.leadId)}, then follow this exact obligation and report through ao-topology goal-loop report. Do not repeat an already reported obligation.`;
   const result2 = await withServer(binding.serverKey, () => (options.wake ?? wakeForProbe)({ pane: record2.pane, adapter, binding, format: composerFormat(adapter, tmuxFailureTrigger(adapter)), text }));
   return result2.rang ? { state: "sent", bindingHash } : held(result2.reason ?? "The lead composer cannot safely receive a pointer.");
 }
-var import_node_os17;
+var import_node_os18;
 var init_goal_loop_notify = __esm({
   "topology/lib/goal-loop-notify.mjs"() {
-    import_node_os17 = require("node:os");
+    import_node_os18 = require("node:os");
     init_lead();
     init_providers();
     init_delivery();
@@ -29132,7 +29136,7 @@ async function context(options) {
   requireGoalLoop((0, import_node_path45.isAbsolute)(options.consumer ?? ""), "An explicit absolute consumer is required.");
   const consumer = await (0, import_promises37.realpath)(options.consumer);
   const identity = await canonicalRepoId(consumer);
-  const root = (0, import_node_path45.join)(options.stateHome ?? stateRoot2(options.env ?? process.env, options.home ?? (0, import_node_os18.homedir)()), "goal-loops", "v1", repoKey(identity.id));
+  const root = (0, import_node_path45.join)(options.stateHome ?? stateRoot2(options.env ?? process.env, options.home ?? (0, import_node_os19.homedir)()), "goal-loops", "v1", repoKey(identity.id));
   return { consumer, repository: { id: identity.id, key: repoKey(identity.id) }, root };
 }
 async function load(ctx, id) {
@@ -29813,12 +29817,12 @@ async function controlGoalLoop(options) {
     return loop;
   }).then((loop) => reconcileGoalLoop({ ...options, loopId: loop.loopId }));
 }
-var import_promises37, import_node_path45, import_node_os18, terminal, missing, clock, clone2;
+var import_promises37, import_node_path45, import_node_os19, terminal, missing, clock, clone2;
 var init_goal_loop = __esm({
   "topology/lib/goal-loop.mjs"() {
     import_promises37 = require("node:fs/promises");
     import_node_path45 = require("node:path");
-    import_node_os18 = require("node:os");
+    import_node_os19 = require("node:os");
     init_repoid();
     init_lockfile();
     init_util();
@@ -30426,6 +30430,7 @@ __export(management_exports, {
   managementPolicyChange: () => managementPolicyChange,
   managementStatus: () => managementStatus,
   mergeInOf: () => mergeInOf,
+  ownerPresence: () => ownerPresence,
   parseAssignmentReply: () => parseAssignmentReply,
   protectedBranch: () => protectedBranch,
   recordLanding: () => recordLanding,
@@ -30516,7 +30521,7 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
   };
 }
 async function context2(options) {
-  const { consumer, env = process.env, home = (0, import_node_os19.homedir)() } = options;
+  const { consumer, env = process.env, home = (0, import_node_os20.homedir)() } = options;
   const identity = await canonicalRepoId(consumer);
   const root = (0, import_node_path47.join)(stateRoot2(env, home), "management", repoKey(identity.id));
   const path3 = (0, import_node_path47.join)(root, `${taskId(options.task)}.json`);
@@ -31037,11 +31042,11 @@ async function integrationAuthority(options, ctx, policy) {
   if (delegation && nonempty(options.actor) && options.actor !== delegation.grantee) refuse("caller", `under a standing delegation the actor is the grantee ${delegation.grantee}; refusing --actor ${options.actor}`);
   return { refusals, delegation, delegationError, autonomy };
 }
-async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = (0, import_node_os19.homedir)() } = {}) {
+async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = (0, import_node_os20.homedir)() } = {}) {
   const policy = (await serverPolicy(gh, repoDir, { env, home })).document?.management?.lead_autonomy;
   return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
 }
-async function serverPolicy(gh, repoDir, { env = process.env, home = (0, import_node_os19.homedir)() } = {}) {
+async function serverPolicy(gh, repoDir, { env = process.env, home = (0, import_node_os20.homedir)() } = {}) {
   let repo, branch;
   try {
     ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home }));
@@ -31058,7 +31063,7 @@ async function serverPolicy(gh, repoDir, { env = process.env, home = (0, import_
 }
 async function loadGovernedConfig(options) {
   const loaded = await loadConfig(options);
-  const server = await serverPolicy(options.gh || defaultGh(options.consumer), options.consumer, { env: options.env || process.env, home: options.home || (0, import_node_os19.homedir)() });
+  const server = await serverPolicy(options.gh || defaultGh(options.consumer), options.consumer, { env: options.env || process.env, home: options.home || (0, import_node_os20.homedir)() });
   const committed = server.document?.management && typeof server.document.management === "object" ? server.document.management : {};
   const management = { ...loaded.config.management || {} }, warnings = [];
   for (const key of PROTECTED_MANAGEMENT_KEYS) {
@@ -31168,7 +31173,7 @@ async function managementPolicyChange(cwd, revision, target) {
   return null;
 }
 async function runRequiredChecks(root, revision, required2) {
-  const dir = await (0, import_promises39.mkdtemp)((0, import_node_path47.join)((0, import_node_os19.tmpdir)(), "ao-checks-")), tree = (0, import_node_path47.join)(dir, "tree"), checks = [];
+  const dir = await (0, import_promises39.mkdtemp)((0, import_node_path47.join)((0, import_node_os20.tmpdir)(), "ao-checks-")), tree = (0, import_node_path47.join)(dir, "tree"), checks = [];
   try {
     await git2(root, ["worktree", "add", "--detach", tree, revision]);
     for (const check2 of required2) {
@@ -31490,6 +31495,13 @@ async function transferTask(options) {
     const claim = await ctx.store.claim(options.task);
     invariant2(!claim || claim.session === from || claim.session === to, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `${options.task} is claimed by ${claim?.session}, neither the owner ${from} nor ${to}; reconcile that claim first.`);
     invariant2(caller === from || claim?.session !== from, "TOPOLOGY_MANAGEMENT_TRANSFER", `${from} still holds a live claim on ${options.task}; ask it to run manage transfer --task ${options.task} --to ${to}, or wait for its claim to expire.`);
+    if (caller !== from) {
+      const lookup2 = { consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc };
+      const lead = await (options.requireLead || requireLeadCaller)(lookup2);
+      invariant2(lead, "TOPOLOGY_MANAGEMENT_TRANSFER", `Only this repository's proven lead may take over ${options.task} from ${from}; the caller is not it (requireLeadCaller). Ask ${from} to hand it over with manage transfer --to.`);
+      const present = await (options.ownerPresence || ownerPresence)(ctx, lookup2, from);
+      invariant2(!present, "TOPOLOGY_MANAGEMENT_TRANSFER", `${from} is not proven absent (${present}); a released claim is not proof. Ask it to hand ${options.task} over with manage transfer --to, or retry once it has exited.`);
+    }
     const doc = await ctx.store.show(options.task);
     invariant2(doc.worktree && (0, import_node_path47.resolve)(doc.worktree) === (0, import_node_path47.resolve)(record2.worktree), "TOPOLOGY_MANAGEMENT_WORKTREE", "Task worktree differs from the admission record; reconcile it before transferring.");
     try {
@@ -31503,6 +31515,25 @@ async function transferTask(options) {
     await writeJson(ctx.path, next);
     return { transferred: true, from, to, record: next };
   });
+}
+async function ownerPresence(ctx, lookup2, owner) {
+  const census = await (lookup2.readCensusFn || readCensus)({ consumer: lookup2.consumer, env: ctx.env, home: ctx.home }).catch(() => null);
+  for (const entry of (census?.agents || []).filter((a) => a.agentId === owner && a.binding?.paneId)) {
+    let panes;
+    try {
+      panes = await (lookup2.listPanesFn || listServerPanes)({ tmuxServer: entry.binding.serverKey, env: ctx.env });
+    } catch (error51) {
+      return `its pane ${entry.binding.paneId} cannot be checked: ${error51.message}`;
+    }
+    if (panes.some((pane) => pane.alive && pane.paneId === entry.binding.paneId)) return `it has a live pane ${entry.binding.paneId}`;
+  }
+  const dir = heartbeatDir(ctx.env, ctx.home);
+  for (const name of (await (0, import_promises39.readdir)(dir).catch(() => [])).filter((n) => n.endsWith(".json"))) {
+    const beat = await readJson3((0, import_node_path47.join)(dir, name)).catch(() => null);
+    const age = Date.now() - Number(beat?.at);
+    if (beat?.agent_id === owner && age >= 0 && age < HEARTBEAT_TTL_MS) return `it sent a heartbeat ${Math.round(age / 1e3)}s ago`;
+  }
+  return null;
 }
 async function closeTask(options) {
   const steps = [];
@@ -31664,15 +31695,16 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os19, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os20, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
-    import_node_os19 = require("node:os");
+    import_node_os20 = require("node:os");
     import_node_crypto25 = require("node:crypto");
     import_node_path47 = require("node:path");
     import_promises39 = require("node:fs/promises");
     init_tmux();
     init_census();
+    init_heartbeat();
     init_config();
     init_delegation();
     init_agents();
@@ -31780,22 +31812,22 @@ __export(reviewer_exports, {
   unsatisfiedChecks: () => unsatisfiedChecks,
   validateFindings: () => validateFindings
 });
-function reviewersRoot(env = process.env, home = (0, import_node_os20.homedir)()) {
+function reviewersRoot(env = process.env, home = (0, import_node_os21.homedir)()) {
   return (0, import_node_path48.join)(stateRoot2(env, home), REGISTRY_KIND);
 }
-async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
+async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_node_os21.homedir)()) {
   return (0, import_node_path48.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
   return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch, or a CHANGELOG.md>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Each request also names a packet_path directory (files.txt, files/, task.md, checks.json, checklist.md): follow its checklist.md, and when checks.json lists unsatisfied required checks you cannot approve; submit blocked and name the missing evidence. Never execute code or change files.`;
 }
-async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
+async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os21.homedir)()) {
   const identity = await canonicalRepoId(consumer);
   const key = repoKey(identity.id);
   const root = reviewersRoot(env, home);
   return { identity, key, recordPath: (0, import_node_path48.join)(root, `${key}.json`), lockPath: (0, import_node_path48.join)(root, `${key}.lock`) };
 }
-async function readReviewerRecord(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
+async function readReviewerRecord(consumer, env = process.env, home = (0, import_node_os21.homedir)()) {
   const { recordPath: recordPath2 } = await reviewerPaths(consumer, env, home);
   return await exists(recordPath2) ? readJson3(recordPath2) : null;
 }
@@ -31905,7 +31937,7 @@ async function awaitReviewerVerdict({ consumer, repo, nonce, timeoutMs = 2e3, en
   const name = repo || repoKey2((await canonicalRepoId(consumer)).id);
   return active.beginVerdictWait({ repo: name, nonce, timeoutMs });
 }
-async function reviewerProbeReady({ consumer, record: record2, env = process.env, home = (0, import_node_os20.homedir)(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive: alive3 = bindingAlive, readOnly = false, transport = null }) {
+async function reviewerProbeReady({ consumer, record: record2, env = process.env, home = (0, import_node_os21.homedir)(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive: alive3 = bindingAlive, readOnly = false, transport = null }) {
   if (!record2?.agent_id || !incarnationOf(record2.binding) || !await alive3(record2)) return false;
   const dir = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "probes");
   const cached2 = await recentReviewerAck(dir, record2);
@@ -32004,7 +32036,7 @@ async function defaultWake({ consumer, record: record2, nonce, env, home, adapte
     text: `AO_PROBE ${nonce} \u2014 you are being asked to prove you are listening. Reply with exactly: AO_REVIEWER_READY ${nonce}`
   });
 }
-async function reviewerNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os20.homedir)(), alive: alive3 = bindingAlive }) {
+async function reviewerNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os21.homedir)(), alive: alive3 = bindingAlive }) {
   invariant2(/^[a-f0-9-]{36}$/.test(String(nonce)), "TOPOLOGY_REVIEWER_NONCE", "Invalid reviewer nonce.");
   const dir = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "probes");
   const probe = await readJson3((0, import_node_path48.join)(dir, `${nonce}.json`));
@@ -32039,7 +32071,7 @@ async function resolveReviewerConfig({ consumer, home, pluginRoot, env, requeste
   assertApprovedProvider(provider2, loaded);
   return { provider: provider2, model, templateName, template: found.template, loaded };
 }
-async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)(), pluginRoot = null, env = process.env, log = () => {
+async function ensureReviewer({ consumer, home = (0, import_node_os21.homedir)(), pluginRoot = null, env = process.env, log = () => {
 }, notAgentIds = [], probes = null, provider: requested = null }) {
   invariant2(consumer, "TOPOLOGY_REVIEWER_CONSUMER", "ensureReviewer needs a consumer path to identify the repository.");
   const session = { ...defaultProbes(), ...probes };
@@ -32145,7 +32177,7 @@ async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)()
     return { record: record2, agent, created, reattached: Boolean(reattach), restarted: !created && !reattach };
   });
 }
-async function reviewerStanding({ consumer, env = process.env, home = (0, import_node_os20.homedir)(), probes = null, readOnly = false }) {
+async function reviewerStanding({ consumer, env = process.env, home = (0, import_node_os21.homedir)(), probes = null, readOnly = false }) {
   const session = { ...defaultProbes(), ...probes };
   const record2 = await readReviewerRecord(consumer, env, home);
   if (!record2) {
@@ -32158,11 +32190,11 @@ async function reviewerStanding({ consumer, env = process.env, home = (0, import
   const responsive2 = probes?.responsive ? await probes.responsive(record2) : await reviewerProbeReady({ consumer, record: record2, env, home, readOnly });
   return { registered: true, alive: true, responsive: responsive2, record: record2, reason: responsive2 ? null : "reviewer is alive but has not acknowledged a readiness nonce" };
 }
-async function reviewerAvailability({ consumer, env = process.env, home = (0, import_node_os20.homedir)(), probes = null, readOnly = false }) {
+async function reviewerAvailability({ consumer, env = process.env, home = (0, import_node_os21.homedir)(), probes = null, readOnly = false }) {
   const standing = await reviewerStanding({ consumer, env, home, probes, readOnly });
   return { available: standing.registered && standing.alive && standing.responsive, record: standing.record, reason: standing.reason };
 }
-async function assignReviewer({ consumer, agentRef, session: existingSession = null, home = (0, import_node_os20.homedir)(), pluginRoot = null, env = process.env, log = () => {
+async function assignReviewer({ consumer, agentRef, session: existingSession = null, home = (0, import_node_os21.homedir)(), pluginRoot = null, env = process.env, log = () => {
 }, notAgentIds = [], probes = null }) {
   invariant2(agentRef, "TOPOLOGY_REVIEWER_AGENT_REQUIRED", "Name the agent whose live session becomes the reviewer: assignReviewer needs an agent reference.");
   const session = { ...defaultProbes(), ...probes };
@@ -32216,7 +32248,7 @@ async function assignReviewer({ consumer, agentRef, session: existingSession = n
     return { action: "assigned", record: record2, agent, privileges: "unchanged", preserved: { conversation: true, task: "kept", cwd: "kept" } };
   });
 }
-async function detachReviewer({ consumer, env = process.env, home = (0, import_node_os20.homedir)(), kill = false, probes = null, log = () => {
+async function detachReviewer({ consumer, env = process.env, home = (0, import_node_os21.homedir)(), kill = false, probes = null, log = () => {
 } }) {
   const { recordPath: recordPath2, lockPath } = await reviewerPaths(consumer, env, home);
   if (!await exists(recordPath2)) return { action: "absent", detached: false };
@@ -32255,7 +32287,7 @@ async function assertNoReviewInFlight(consumer, record2, env, home) {
     { agent_id: agentId, pending: pending.map((r) => ({ task: r.task, revision: r.revision, nonce: r.nonce, state: r.state ?? null })) }
   );
 }
-async function restartReviewer({ consumer, agentId, mode = "handoff", home = (0, import_node_os20.homedir)(), pluginRoot = null, env = process.env, log = () => {
+async function restartReviewer({ consumer, agentId, mode = "handoff", home = (0, import_node_os21.homedir)(), pluginRoot = null, env = process.env, log = () => {
 }, turnTimeoutMs = 6e5, probes = null }) {
   const session = {
     ...defaultProbes(),
@@ -32324,7 +32356,7 @@ async function restartReviewer({ consumer, agentId, mode = "handoff", home = (0,
     prompt_revision: (await readPromptState2(ensured.agent._dir))?.desired_revision ?? null
   };
 }
-async function reviewsRoot(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
+async function reviewsRoot(consumer, env = process.env, home = (0, import_node_os21.homedir)()) {
   const identity = await canonicalRepoId(consumer);
   return (0, import_node_path48.join)(reviewersRoot(env, home), "reviews", repoKey(identity.id));
 }
@@ -32398,7 +32430,7 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
   invariant2(onDefault.status === "ahead" || onDefault.status === "identical", "TOPOLOGY_REVIEWER_RANGE", `The recorded effective review base is not on the server ${target}.`);
   return { base: candidate, note: null };
 }
-async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os20.homedir)() }) {
+async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os21.homedir)() }) {
   const taskKey = segment(task, "TOPOLOGY_REVIEWER_TASK", "task"), revisionKey = segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision");
   const managementDir = (0, import_node_path48.join)(stateRoot2(env, home), "management", repoKey((await canonicalRepoId(consumer)).id));
   const management = await readJson3((0, import_node_path48.join)(managementDir, `${taskKey}.json`)).catch(() => null);
@@ -32425,7 +32457,7 @@ async function taskTree(management, identity, consumer) {
   invariant2((await canonicalRepoId(tree)).id === identity.id, "TOPOLOGY_REVIEWER_RANGE", `The admitted task worktree ${tree} is not a worktree of this repository.`, { worktree: tree });
   return tree;
 }
-async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os20.homedir)() }) {
+async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os21.homedir)() }) {
   const identity = await canonicalRepoId(consumer);
   const path3 = (0, import_node_path48.join)(stateRoot2(env, home), "management", repoKey(identity.id), `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}.json`);
   const management = await readJson3(path3).catch(() => null);
@@ -32552,7 +32584,7 @@ function checkVerdict(verdict, findings, files, unsatisfied = []) {
   invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   return structured;
 }
-async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os21.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
   invariant2(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant2(!expectedBinding || sameIncarnation(expectedBinding, registered.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed before recording the verdict.");
@@ -32601,7 +32633,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   await writeJson((0, import_node_path48.join)(dir, `${name}.json`), record2);
   return record2;
 }
-async function latestReview(consumer, task, env = process.env, home = (0, import_node_os20.homedir)()) {
+async function latestReview(consumer, task, env = process.env, home = (0, import_node_os21.homedir)()) {
   const dir = (0, import_node_path48.join)(await reviewsRoot(consumer, env, home), segment(task, "TOPOLOGY_REVIEWER_TASK", "the task"));
   const entries2 = await (0, import_promises40.readdir)(dir).catch(() => []);
   const records3 = [];
@@ -32613,14 +32645,14 @@ async function latestReview(consumer, task, env = process.env, home = (0, import
   records3.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.revision).localeCompare(String(b.revision)));
   return records3[records3.length - 1];
 }
-async function currentReviewStatus(consumer, task, currentRevision, env = process.env, home = (0, import_node_os20.homedir)()) {
+async function currentReviewStatus(consumer, task, currentRevision, env = process.env, home = (0, import_node_os21.homedir)()) {
   const review = await latestReview(consumer, task, env, home);
   if (!review) return { state: "missing", review: null };
   if (String(review.revision) !== String(currentRevision)) return { state: "stale", review };
   if (review.verdict === "changes_requested") return { state: "changes_requested", review };
   return { state: review.verdict === "approve" && approvable(review.findings) && review.verified_commit === currentRevision ? "satisfied" : "blocked", review };
 }
-async function reviewEligibility({ consumer, task, revision, env = process.env, home = (0, import_node_os20.homedir)(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+async function reviewEligibility({ consumer, task, revision, env = process.env, home = (0, import_node_os21.homedir)(), probes = null, authorAgentIds = [], pluginRoot = null, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const availability = await reviewerAvailability({ consumer, env, home, probes });
   const status = await currentReviewStatus(consumer, task, revision, env, home);
   const reasons = [];
@@ -32658,7 +32690,7 @@ async function checkEvidenceReasons({ consumer, task, revision, env, home, plugi
   const recorded = await readJson3((0, import_node_path48.join)(request.packet_path, "checks.json")).catch(() => null);
   return unsatisfiedChecks(required2, recorded?.checks, revision).map((line) => `required check ${line}`);
 }
-async function independentReviewStatus({ consumer, task, env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+async function independentReviewStatus({ consumer, task, env = process.env, home = (0, import_node_os21.homedir)(), pluginRoot = null, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const result2 = { status: "not-requested", taskId: task ?? null, sourceRevision: null, reviewerId: null, verdict: null, requestedAt: null, collectedAt: null, reason: null };
   if (!task) return result2;
   try {
@@ -32718,7 +32750,7 @@ function normalizeChecks(checks) {
 function finishCheckEvidence(report) {
   return normalizeChecks((Array.isArray(report?.checks) ? report.checks : []).filter((check2) => check2 && typeof check2 === "object"));
 }
-async function requiredCheckNames({ consumer, home = (0, import_node_os20.homedir)(), pluginRoot = null, env = process.env }) {
+async function requiredCheckNames({ consumer, home = (0, import_node_os21.homedir)(), pluginRoot = null, env = process.env }) {
   const checks = (await loadConfig({ consumer, home, pluginRoot, env })).config.management?.required_checks;
   return Array.isArray(checks) ? checks.map((check2) => check2?.name).filter((name) => typeof name === "string" && name) : [];
 }
@@ -32797,7 +32829,7 @@ ${stat13.stdout}`);
   ].join("\n"));
   return packetDigest(dir);
 }
-async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, checkEvidence = null, pluginRoot = null, taskDoc = readTaskDoc, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os20.homedir)(), wake = wakeReviewRequest }) {
+async function requestReview({ consumer, task, revision, authorAgentIds, baseRevision = null, checkEvidence = null, pluginRoot = null, taskDoc = readTaskDoc, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os21.homedir)(), wake = wakeReviewRequest }) {
   const record2 = await readReviewerRecord(consumer, env, home);
   invariant2(record2, "TOPOLOGY_REVIEWER_UNAVAILABLE", "No designated reviewer; preserve the finished task until one is available.");
   invariant2(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(revision)), "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "Review request requires a full commit SHA.");
@@ -32896,7 +32928,7 @@ async function findReviewRequest(consumer, id, env, home) {
   }
   fail("TOPOLOGY_REVIEWER_NONCE", `No review request ${text} exists for this repository.`, { request: text });
 }
-async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = (0, import_node_os20.homedir)(), transport = null, alive: alive3 = bindingAlive }) {
+async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = (0, import_node_os21.homedir)(), transport = null, alive: alive3 = bindingAlive }) {
   const { request, path: path3 } = await findReviewRequest(consumer, id, env, home);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const current = await readJson3(path3);
@@ -32934,7 +32966,7 @@ async function readSubmittedVerdict(requestPath, request) {
   const submitted = await readJson3(verdictPath(requestPath)).catch(() => null);
   return submitted?.nonce === request.nonce ? submitted : null;
 }
-async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os20.homedir)(), pluginRoot = null, deliver = sendStandingMessage, lead = readLeadRegistration, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os21.homedir)(), pluginRoot = null, deliver = sendStandingMessage, lead = readLeadRegistration, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const path3 = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const record2 = await readReviewerRecord(consumer, env, home);
@@ -33030,7 +33062,7 @@ async function collectPendingReviews(options) {
   }
   return results;
 }
-async function escalateFailedReview({ consumer, request, env = process.env, home = (0, import_node_os20.homedir)(), deliver = sendStandingMessage, lead = readLeadRegistration }) {
+async function escalateFailedReview({ consumer, request, env = process.env, home = (0, import_node_os21.homedir)(), deliver = sendStandingMessage, lead = readLeadRegistration }) {
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { status: "skipped", reason: "no lead is registered for this repository" };
@@ -33053,13 +33085,13 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process14, import_node_crypto26, import_promises40, import_node_os20, import_node_path48, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process14, import_node_crypto26, import_promises40, import_node_os21, import_node_path48, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process14 = require("node:child_process");
     import_node_crypto26 = require("node:crypto");
     import_promises40 = require("node:fs/promises");
-    import_node_os20 = require("node:os");
+    import_node_os21 = require("node:os");
     import_node_path48 = require("node:path");
     import_node_url5 = require("node:url");
     init_agents();
@@ -33135,8 +33167,8 @@ function hookSupport(adapter) {
 }
 function settingsPath(hooks, home) {
   const configured = hooks.path;
-  if (configured === "~") return home ?? (0, import_node_os21.homedir)();
-  if (configured.startsWith("~/")) return (0, import_node_path49.join)(home ?? (0, import_node_os21.homedir)(), configured.slice(2));
+  if (configured === "~") return home ?? (0, import_node_os22.homedir)();
+  if (configured.startsWith("~/")) return (0, import_node_path49.join)(home ?? (0, import_node_os22.homedir)(), configured.slice(2));
   return configured;
 }
 function shellQuote3(value) {
@@ -33383,7 +33415,7 @@ async function startupCheck({ consumer, source, agentId, session, pane, incarnat
       pane = observed.paneId;
     }
   }
-  const root = stateRoot2(env, home ?? (0, import_node_os21.homedir)());
+  const root = stateRoot2(env, home ?? (0, import_node_os22.homedir)());
   const records3 = await registeredSessions(root, identity.id);
   const registered = records3.some((record2) => matches(record2, session, incarnation));
   const readiness = source === "watcher" ? { state: "eventual" } : readinessFn ? await readinessFn({ consumer, env, home }) : await defaultReadiness({ consumer, env, home, repoId: identity.id });
@@ -33404,7 +33436,7 @@ async function startupCheck({ consumer, source, agentId, session, pane, incarnat
   }
   if (source === "watcher") return { registered, labelled, readiness };
   const { activateRepository: activateRepository2 } = await Promise.resolve().then(() => (init_repo_enrollment(), repo_enrollment_exports));
-  const activation = await activateRepository2({ consumer, env, home: home ?? (0, import_node_os21.homedir)(), reason: "session-start" });
+  const activation = await activateRepository2({ consumer, env, home: home ?? (0, import_node_os22.homedir)(), reason: "session-start" });
   return { registered, labelled, readiness, activation };
 }
 function afterSessionOpen(args = {}) {
@@ -33426,7 +33458,7 @@ async function watchServer({ env = process.env, home, once = false, intervalMs =
     if (!repoOf.has(cwd)) repoOf.set(cwd, (await canonicalRepoId(cwd).catch(() => null))?.id ?? null);
     return repoOf.get(cwd) === repoId;
   };
-  const root = stateRoot2(env, home ?? (0, import_node_os21.homedir)());
+  const root = stateRoot2(env, home ?? (0, import_node_os22.homedir)());
   const list2 = listPanesFn ?? listSessionsFn ?? listServerPanes;
   invariant2(typeof list2 === "function", "TOPOLOGY_STARTUP_WATCH", "tmux pane enumeration is unavailable.");
   const initial = await list2({ tmuxServer, env });
@@ -33486,7 +33518,7 @@ async function watchServer({ env = process.env, home, once = false, intervalMs =
   }
 }
 async function pendingEnrollments({ env = process.env, home } = {}) {
-  const root = stateRoot2(env, home ?? (0, import_node_os21.homedir)());
+  const root = stateRoot2(env, home ?? (0, import_node_os22.homedir)());
   const dir = (0, import_node_path49.join)(root, "enrollments", "pending");
   const entries2 = await (0, import_promises41.readdir)(dir).catch(() => []);
   const records3 = [];
@@ -33502,7 +33534,7 @@ async function pendingEnrollments({ env = process.env, home } = {}) {
 }
 async function clearPendingEnrollment({ env = process.env, home, session, key, consumer, incarnation } = {}) {
   invariant2(key || session, "TOPOLOGY_STARTUP_CHECK", "clearPendingEnrollment needs an exact key or session.");
-  const root = stateRoot2(env, home ?? (0, import_node_os21.homedir)());
+  const root = stateRoot2(env, home ?? (0, import_node_os22.homedir)());
   const repoId = consumer ? (await canonicalRepoId(consumer)).id : null;
   const records3 = (await pendingEnrollments({ env, home })).filter((r) => key ? r.key === key : r.session === session && (!repoId || r.repo_id === repoId) && (!incarnation || SIX.every((k) => r.incarnation?.[k] === incarnation[k])));
   invariant2(records3.length <= 1, "TOPOLOGY_STARTUP_CHECK", "Multiple pending incarnations match; supply the exact pending key.");
@@ -33510,11 +33542,11 @@ async function clearPendingEnrollment({ env = process.env, home, session, key, c
   await (0, import_promises41.rm)((0, import_node_path49.join)(root, "enrollments", "pending", `${records3[0].key}.json`));
   return true;
 }
-var import_promises41, import_node_os21, import_node_path49, import_node_crypto27, PENDING_NOTE, OUR_MARKER, SIX;
+var import_promises41, import_node_os22, import_node_path49, import_node_crypto27, PENDING_NOTE, OUR_MARKER, SIX;
 var init_startup = __esm({
   "topology/lib/startup.mjs"() {
     import_promises41 = require("node:fs/promises");
-    import_node_os21 = require("node:os");
+    import_node_os22 = require("node:os");
     import_node_path49 = require("node:path");
     init_util();
     init_repoid();
@@ -33568,10 +33600,10 @@ function consentFrom(config2) {
     error: `failover.consent must be one of ${QUOTA_CONSENT.join(", ")} (got ${JSON.stringify(raw)}); using ${DEFAULT_CONSENT}`
   };
 }
-function quotaRoot({ env = process.env, home = (0, import_node_os22.homedir)() } = {}) {
+function quotaRoot({ env = process.env, home = (0, import_node_os23.homedir)() } = {}) {
   return (0, import_node_path50.join)(stateRoot2(env, home), "quota");
 }
-function incidentPath({ env = process.env, home = (0, import_node_os22.homedir)(), key, agentId }) {
+function incidentPath({ env = process.env, home = (0, import_node_os23.homedir)(), key, agentId }) {
   return (0, import_node_path50.join)(quotaRoot({ env, home }), key, `${String(agentId).replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
 }
 function subscriptionName(paneId2) {
@@ -33715,11 +33747,11 @@ function announcement(incident, consent) {
   );
   return lines.join("\n");
 }
-async function readIncident({ agentId, identity = null, consumer = null, env = process.env, home = (0, import_node_os22.homedir)() }) {
+async function readIncident({ agentId, identity = null, consumer = null, env = process.env, home = (0, import_node_os23.homedir)() }) {
   const id = identity ?? await canonicalRepoId(consumer);
   return readJson3(incidentPath({ env, home, key: repoKey(id.id), agentId })).catch(() => null);
 }
-async function listIncidents({ identity = null, consumer = null, env = process.env, home = (0, import_node_os22.homedir)() }) {
+async function listIncidents({ identity = null, consumer = null, env = process.env, home = (0, import_node_os23.homedir)() }) {
   const id = identity ?? await canonicalRepoId(consumer);
   const dir = (0, import_node_path50.join)(quotaRoot({ env, home }), repoKey(id.id));
   const rows = [];
@@ -33729,7 +33761,7 @@ async function listIncidents({ identity = null, consumer = null, env = process.e
   }
   return rows.sort((a, b) => String(b.detected_at).localeCompare(String(a.detected_at)));
 }
-async function resolveIncident({ agentId, identity = null, consumer = null, state, by = null, note = null, env = process.env, home = (0, import_node_os22.homedir)() }) {
+async function resolveIncident({ agentId, identity = null, consumer = null, state, by = null, note = null, env = process.env, home = (0, import_node_os23.homedir)() }) {
   invariant2(["applied", "declined", "closed"].includes(state), "TOPOLOGY_QUOTA_STATE", "An incident resolves to applied, declined or closed.");
   const id = identity ?? await canonicalRepoId(consumer);
   const path3 = incidentPath({ env, home, key: repoKey(id.id), agentId });
@@ -33742,7 +33774,7 @@ async function resolveIncident({ agentId, identity = null, consumer = null, stat
   });
 }
 async function quotaTick(options = {}, input = {}) {
-  const { consumer, env = process.env, home = (0, import_node_os22.homedir)(), pluginRoot = null } = options;
+  const { consumer, env = process.env, home = (0, import_node_os23.homedir)(), pluginRoot = null } = options;
   const identity = input.identity ?? await canonicalRepoId(consumer);
   const key = repoKey(identity.id);
   const now = input.now ?? Date.now();
@@ -33914,7 +33946,7 @@ function assertConsent({ consent, approvedBy, agentId }) {
   );
   return { consent, approved_by: consent === "auto" ? "config:failover.consent=auto" : approvedBy.trim() };
 }
-async function assertIncident({ incidentId, agentId, provider: provider2 = null, consumer, identity = null, env = process.env, home = (0, import_node_os22.homedir)() }) {
+async function assertIncident({ incidentId, agentId, provider: provider2 = null, consumer, identity = null, env = process.env, home = (0, import_node_os23.homedir)() }) {
   const record2 = await readIncident({ agentId, identity, consumer, env, home });
   invariant2(record2, "TOPOLOGY_QUOTA_NO_INCIDENT", `No quota incident is recorded for ${agentId} in this repository, so ${incidentId} cannot be the reason for a failover.`);
   invariant2(
@@ -33930,14 +33962,14 @@ async function assertIncident({ incidentId, agentId, provider: provider2 = null,
   );
   return record2;
 }
-async function authorizeFailover({ consumer, agentId, provider: provider2 = null, incidentId, approvedBy = null, env = process.env, home = (0, import_node_os22.homedir)(), pluginRoot = null, config: config2 = void 0 }) {
+async function authorizeFailover({ consumer, agentId, provider: provider2 = null, incidentId, approvedBy = null, env = process.env, home = (0, import_node_os23.homedir)(), pluginRoot = null, config: config2 = void 0 }) {
   const loaded = config2 !== void 0 ? { config: config2 } : await loadConfig({ consumer, home, env, pluginRoot });
   const { consent, error: error51 } = consentFrom(loaded.config);
   const incident = await assertIncident({ incidentId, agentId, provider: provider2, consumer, env, home });
   const approval = assertConsent({ consent, approvedBy, agentId });
   return { incident, approval, consent, consentError: error51 };
 }
-async function announceFailoverApplied({ consumer, incident, approval, from, to, env = process.env, home = (0, import_node_os22.homedir)(), deliver = sendStandingMessage, lead = readLeadRegistration }) {
+async function announceFailoverApplied({ consumer, incident, approval, from, to, env = process.env, home = (0, import_node_os23.homedir)(), deliver = sendStandingMessage, lead = readLeadRegistration }) {
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { status: "skipped", reason: "no lead is registered for this repository" };
@@ -33967,12 +33999,12 @@ async function announceFailoverApplied({ consumer, incident, approval, from, to,
 function probeNonce() {
   return (0, import_node_crypto28.randomUUID)();
 }
-var import_node_crypto28, import_promises42, import_node_os22, import_node_path50, QUOTA_CONSENT, DEFAULT_CONSENT, QUOTA_RECHECK_MS, QUOTA_PENDING_MAX_MS, QUOTA_TAIL_LINES, QUOTA_SIGNATURE, clientKey, mintIncidentId;
+var import_node_crypto28, import_promises42, import_node_os23, import_node_path50, QUOTA_CONSENT, DEFAULT_CONSENT, QUOTA_RECHECK_MS, QUOTA_PENDING_MAX_MS, QUOTA_TAIL_LINES, QUOTA_SIGNATURE, clientKey, mintIncidentId;
 var init_quota = __esm({
   "topology/lib/quota.mjs"() {
     import_node_crypto28 = require("node:crypto");
     import_promises42 = require("node:fs/promises");
-    import_node_os22 = require("node:os");
+    import_node_os23 = require("node:os");
     import_node_path50 = require("node:path");
     init_census();
     init_config();
@@ -34184,7 +34216,7 @@ Begin when you have replied READY: the mission is the inputs above plus the work
 ` : ""}
 `;
 }
-async function passEnvFor(consumer, { env = process.env, home = (0, import_node_os23.homedir)() } = {}) {
+async function passEnvFor(consumer, { env = process.env, home = (0, import_node_os24.homedir)() } = {}) {
   const pluginRoot = (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl))));
   const loaded = await loadConfig({ consumer, env, home, pluginRoot }).catch(() => null);
   const raw = loaded?.config?.workers?.passEnv;
@@ -34218,7 +34250,7 @@ function runAgentVisual(agent, leadId = null) {
 function runPaneDisplay(agent, leadId = null) {
   return { agent: displayName(agent), role: agent.role, ...runAgentVisual(agent, leadId) };
 }
-async function registeredLeadId({ consumer, env = process.env, home = (0, import_node_os23.homedir)() } = {}) {
+async function registeredLeadId({ consumer, env = process.env, home = (0, import_node_os24.homedir)() } = {}) {
   if (!consumer) return null;
   const { readLeadRegistration: readLeadRegistration2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
   const registration = await readLeadRegistration2({ consumer, env, home }).catch(() => null);
@@ -34362,7 +34394,7 @@ function decideFromSubscription(value, { promptLines = 1 } = {}) {
   if (Number(readyLine) > promptLines) return { ready: true, failed: false, reason: "ready pattern (server-side)" };
   return null;
 }
-async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = (0, import_node_os23.homedir)(), personas = null }) {
+async function planSession({ consumer, role, agent = null, workflow = null, team = null, runId = null, env = process.env, home = (0, import_node_os24.homedir)(), personas = null }) {
   const teamRun = !agent;
   const kind = teamRun ? "run" : runId ? "spawn" : "role-session";
   const identity = await newIdentity({ consumer, role: teamRun ? "run" : role, agentId: agent?.id ?? null, team, runId, workflow, kind, env, home });
@@ -34378,7 +34410,7 @@ async function staleRunHolder(holderId, sinceMs) {
   const runId = String(holderId).slice(4);
   return !(await listSessionIdentities()).some((entry) => entry.meta.run === runId);
 }
-async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, workflow = null, kind = "role-session", env = process.env, home = (0, import_node_os23.homedir)() }) {
+async function newIdentity({ consumer, role, agentId = null, team = null, runId = null, workflow = null, kind = "role-session", env = process.env, home = (0, import_node_os24.homedir)() }) {
   const [node, repo] = await Promise.all([nodeName({ env, home }), repoIdentity(consumer)]);
   return {
     id: ulid3(),
@@ -34593,7 +34625,7 @@ async function materializeWorkflowSpec(rawSpec, context4, { stateHome } = {}) {
     workflow: rawSpec.name,
     team,
     runId: context4.runId,
-    home: context4.home ?? (0, import_node_os23.homedir)(),
+    home: context4.home ?? (0, import_node_os24.homedir)(),
     personas: context4.personas
   });
   const spec = materializeSpec(rawSpec, { ...context4, team, session: planned.name, runDir: location.runDir });
@@ -35060,7 +35092,7 @@ async function recordedRoleSession({ agentsDir, agentId }) {
   const record2 = agentsDir ? await readJson3(roleSessionPath(agentsDir, agentId)).catch(() => null) : null;
   return record2?.agent_id === agentId && typeof record2.session === "string" && record2.session ? record2.session : legacyRoleSessionName(agentId);
 }
-async function roleSessionFor({ agentsDir, agentId, consumer, role, has = hasSession, env = process.env, home = (0, import_node_os23.homedir)(), personas }) {
+async function roleSessionFor({ agentsDir, agentId, consumer, role, has = hasSession, env = process.env, home = (0, import_node_os24.homedir)(), personas }) {
   assertAgentId(agentId);
   const record2 = await readJson3(roleSessionPath(agentsDir, agentId)).catch(() => null);
   const recorded = record2?.agent_id === agentId && typeof record2.session === "string" && record2.session ? record2.session : null;
@@ -35093,7 +35125,7 @@ async function openRoleSession({
   respawnBounds: respawnBounds2 = {},
   requestedBy = null,
   replace = null,
-  home = (0, import_node_os23.homedir)()
+  home = (0, import_node_os24.homedir)()
 }) {
   invariant2(replace === null || replace === "handoff" || replace === "resume", "TOPOLOGY_RESTART_MODE", "Restart mode is handoff or resume.");
   const session = assertSessionName(chosen || await roleSessionFor({ agentsDir, agentId, consumer: env.AO_CONSUMER, role, env: { ...process.env, ...env } }));
@@ -35241,7 +35273,7 @@ async function failoverAgent(options) {
   invariant2(entry?.binding?.serverKey, "TOPOLOGY_SESSION_OWNERSHIP", "Failover requires the exact member server binding.");
   return withServer(entry.binding.serverKey, () => failoverAgentNative(options));
 }
-async function failoverAgentNative({ runDir, agentId, adapters, toLabel, incidentId = null, approvedBy = null, env = process.env, home = (0, import_node_os23.homedir)(), pluginRoot = null, log = () => {
+async function failoverAgentNative({ runDir, agentId, adapters, toLabel, incidentId = null, approvedBy = null, env = process.env, home = (0, import_node_os24.homedir)(), pluginRoot = null, log = () => {
 } }) {
   const run2 = await loadRun(runDir);
   const entry = run2.agents.find((agent) => agent.id === agentId);
@@ -35346,12 +35378,12 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     ...quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, announced: announced?.status ?? null } : {}
   };
 }
-var import_node_crypto29, import_promises43, import_node_os23, import_node_path51, import_node_url6, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ENV_NAME, passEnvFile, ROLE_SESSION_NAME;
+var import_node_crypto29, import_promises43, import_node_os24, import_node_path51, import_node_url6, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ENV_NAME, passEnvFile, ROLE_SESSION_NAME;
 var init_launch = __esm({
   "topology/lib/launch.mjs"() {
     import_node_crypto29 = require("node:crypto");
     import_promises43 = require("node:fs/promises");
-    import_node_os23 = require("node:os");
+    import_node_os24 = require("node:os");
     import_node_path51 = require("node:path");
     import_node_url6 = require("node:url");
     init_prompts();
@@ -35401,7 +35433,7 @@ function busyEvidence(text) {
   for (const marker of MARKERS) if (marker.test(value)) return String(marker);
   return null;
 }
-function censusPath({ env = process.env, home = (0, import_node_os24.homedir)(), key }) {
+function censusPath({ env = process.env, home = (0, import_node_os25.homedir)(), key }) {
   return (0, import_node_path52.join)(stateRoot2(env, home), "census", `${key}.json`);
 }
 function classify({ title = "", tail = null, adapter = null, dead: dead2 = false, paneMissing = false, prior = null, now = Date.now() } = {}) {
@@ -35451,7 +35483,7 @@ async function captureTail2(pane, lines = TAIL_LINES) {
 }
 async function takeCensus(options = {}, input = {}) {
   const started = input.startedAt ?? Date.now();
-  const { env = process.env, home = (0, import_node_os24.homedir)(), consumer } = options;
+  const { env = process.env, home = (0, import_node_os25.homedir)(), consumer } = options;
   const identity = input.identity ?? await canonicalRepoId(consumer);
   const key = repoKey(identity.id);
   const path3 = censusPath({ env, home, key });
@@ -35584,7 +35616,7 @@ function withStaleness(document, now = Date.now()) {
   };
 }
 async function readCensus(options = {}) {
-  const { env = process.env, home = (0, import_node_os24.homedir)(), consumer } = options;
+  const { env = process.env, home = (0, import_node_os25.homedir)(), consumer } = options;
   const identity = options.identity ?? await canonicalRepoId(consumer);
   const document = await readJson3(censusPath({ env, home, key: repoKey(identity.id) })).catch(() => null);
   return withStaleness(document, options.now ?? Date.now());
@@ -35609,10 +35641,10 @@ function formatCensus(document) {
   lines.push(`- ${document.captures} capture(s), tick ${document.tickMs}ms, ${(document.agents ?? []).filter((a) => a.dispatchable).length} dispatchable`);
   return lines.join("\n");
 }
-var import_node_os24, import_node_path52, CENSUS_SCHEMA_VERSION, CENSUS_STATES, DEFAULT_STALE_MS, DEFAULT_INTERVAL_MS, DEFAULT_BUDGET, DEFAULT_MEMO_MS, TAIL_LINES, BRAILLE, MARKERS, bindingKey, visualOf, quotaOnly, memoStore, GLYPH;
+var import_node_os25, import_node_path52, CENSUS_SCHEMA_VERSION, CENSUS_STATES, DEFAULT_STALE_MS, DEFAULT_INTERVAL_MS, DEFAULT_BUDGET, DEFAULT_MEMO_MS, TAIL_LINES, BRAILLE, MARKERS, bindingKey, visualOf, quotaOnly, memoStore, GLYPH;
 var init_census = __esm({
   "topology/lib/census.mjs"() {
-    import_node_os24 = require("node:os");
+    import_node_os25 = require("node:os");
     import_node_path52 = require("node:path");
     init_identity();
     init_launch();
@@ -35675,7 +35707,7 @@ function reconcileFloor(env, override) {
 async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {
 }, onOwned = () => {
 }, sleepFn = sleep } = {}) {
-  const { env = process.env, home = (0, import_node_os25.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os26.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   options = { ...options, consumer };
   const identity = await canonicalRepoId(consumer), root = (0, import_node_path53.join)(stateRoot2(env, home), "supervision");
@@ -35956,7 +35988,7 @@ function pidAlive(pid) {
     return true;
   }
 }
-async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os25.homedir)() } = {}) {
+async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os26.homedir)() } = {}) {
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
   const root = (0, import_node_path53.join)(stateRoot2(env, home), "supervision");
   const owner = await lockOwner((0, import_node_path53.join)(root, `${key}.lock`));
@@ -35999,7 +36031,7 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
   };
 }
 async function startRepositorySupervision(options) {
-  const { env = process.env, home = (0, import_node_os25.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os26.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   const startTimeoutRaw = options.startTimeoutMs ?? env.AO_SUPERVISION_START_TIMEOUT_MS;
   const startTimeoutMs = Number.isFinite(Number(startTimeoutRaw)) && Number(startTimeoutRaw) > 0 ? Number(startTimeoutRaw) : DEFAULT_START_TIMEOUT_MS;
@@ -36067,14 +36099,14 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path53, import_node_crypto30, import_node_child_process15, import_node_url7, import_node_os25, import_promises44, import_promises45, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path53, import_node_crypto30, import_node_child_process15, import_node_url7, import_node_os26, import_promises44, import_promises45, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path53 = require("node:path");
     import_node_crypto30 = require("node:crypto");
     import_node_child_process15 = require("node:child_process");
     import_node_url7 = require("node:url");
-    import_node_os25 = require("node:os");
+    import_node_os26 = require("node:os");
     import_promises44 = require("node:fs/promises");
     import_promises45 = require("node:timers/promises");
     init_presence();
@@ -36118,7 +36150,7 @@ async function readJsonFile(path3) {
     return error51?.code === "ENOENT" ? { value: void 0 } : { error: `${path3}: ${error51.message}` };
   }
 }
-async function resolveEnrollment({ consumer, env = process.env, home = (0, import_node_os26.homedir)() }) {
+async function resolveEnrollment({ consumer, env = process.env, home = (0, import_node_os27.homedir)() }) {
   const root = await repositoryConsumer(consumer);
   const identity = await canonicalRepoId(root);
   const at2 = { repo_id: identity.id, root };
@@ -36147,7 +36179,7 @@ async function resolveEnrollment({ consumer, env = process.env, home = (0, impor
   if (identity.kind === "git-common-dir") return { enrolled: true, source: "default", ...at2 };
   return { enrolled: false, source: "none", ...at2, reason: "not a Git repository, so it is not enrolled by default" };
 }
-async function activateRepository({ consumer, env = process.env, home = (0, import_node_os26.homedir)(), reason = "unspecified", ...options }) {
+async function activateRepository({ consumer, env = process.env, home = (0, import_node_os27.homedir)(), reason = "unspecified", ...options }) {
   let enrollment;
   try {
     enrollment = await resolveEnrollment({ consumer, env, home });
@@ -36162,11 +36194,11 @@ async function activateRepository({ consumer, env = process.env, home = (0, impo
     return { enrollment, reason, supervision: { started: false, error: error51.message } };
   }
 }
-var import_promises46, import_node_os26, import_node_path54, PLUGIN_KEY;
+var import_promises46, import_node_os27, import_node_path54, PLUGIN_KEY;
 var init_repo_enrollment = __esm({
   "topology/lib/repo-enrollment.mjs"() {
     import_promises46 = require("node:fs/promises");
-    import_node_os26 = require("node:os");
+    import_node_os27 = require("node:os");
     import_node_path54 = require("node:path");
     init_config();
     init_lead();
@@ -36203,7 +36235,7 @@ async function readRequests(dir) {
   const rows = await Promise.all(names2.map(async (name) => ({ name, ...await readJson3((0, import_node_path55.join)(dir, name)).catch(() => ({})) })));
   return rows;
 }
-async function requestLeadRecovery({ consumer, reason = "unspecified", messageId: messageId2 = null, env = process.env, home = (0, import_node_os27.homedir)() }) {
+async function requestLeadRecovery({ consumer, reason = "unspecified", messageId: messageId2 = null, env = process.env, home = (0, import_node_os28.homedir)() }) {
   const p = await recoveryPaths({ consumer, env, home });
   const name = (0, import_node_crypto31.createHash)("sha256").update(`${messageId2 ?? ""}\0${reason}`).digest("hex");
   const file2 = (0, import_node_path55.join)(p.requests, `${name}.json`);
@@ -36221,7 +36253,7 @@ function view(record2) {
     ...record2.reverified_alive ? { reverified_alive: true } : {}
   };
 }
-async function leadRecoveryStatus({ consumer, env = process.env, home = (0, import_node_os27.homedir)() }) {
+async function leadRecoveryStatus({ consumer, env = process.env, home = (0, import_node_os28.homedir)() }) {
   const p = await recoveryPaths({ consumer, env, home });
   const record2 = await readJson3(p.state).catch(() => null);
   return {
@@ -36248,7 +36280,7 @@ function deadExternalAlert(record2, root) {
 async function recoverLead({
   consumer,
   env = process.env,
-  home = (0, import_node_os27.homedir)(),
+  home = (0, import_node_os28.homedir)(),
   pluginRoot = null,
   now = Date.now,
   probes = null,
@@ -36330,12 +36362,12 @@ async function recoverLead({
   if (result2.action === "dead-external") return heldExternal(result2.record);
   return neutral(result2.action, { reverified_alive: true });
 }
-var import_node_crypto31, import_promises47, import_node_os27, import_node_path55, RETRY_DELAYS_MS;
+var import_node_crypto31, import_promises47, import_node_os28, import_node_path55, RETRY_DELAYS_MS;
 var init_lead_recovery = __esm({
   "topology/lib/lead-recovery.mjs"() {
     import_node_crypto31 = require("node:crypto");
     import_promises47 = require("node:fs/promises");
-    import_node_os27 = require("node:os");
+    import_node_os28 = require("node:os");
     import_node_path55 = require("node:path");
     init_lead();
     init_repo_enrollment();
@@ -36346,7 +36378,7 @@ var init_lead_recovery = __esm({
 });
 
 // topology/lib/session-identity.mjs
-function sessionIdentitiesDir(env = process.env, home = (0, import_node_os28.homedir)()) {
+function sessionIdentitiesDir(env = process.env, home = (0, import_node_os29.homedir)()) {
   return (0, import_node_path56.join)(stateRoot2(env, home), "sessions");
 }
 function callerIdentity(env = process.env) {
@@ -36354,7 +36386,7 @@ function callerIdentity(env = process.env) {
   if (env[SESSION_AGENT_VAR]) return { agentId: env[SESSION_AGENT_VAR], consumer: env[SESSION_CONSUMER_VAR] || null, source: "session" };
   return null;
 }
-async function resolvePresentRecipient({ consumer, to, env = process.env, home = (0, import_node_os28.homedir)(), presence = null }) {
+async function resolvePresentRecipient({ consumer, to, env = process.env, home = (0, import_node_os29.homedir)(), presence = null }) {
   if (!to || typeof to !== "string") return null;
   const repo = await canonicalRepoId(consumer);
   if (ID.test(to)) {
@@ -36370,10 +36402,10 @@ async function resolvePresentRecipient({ consumer, to, env = process.env, home =
   const hit = agents.find((agent) => agent.agentId === to || agent.session?.sessionName === to);
   return hit ? { agentId: hit.agentId, source: "presence" } : null;
 }
-var import_node_os28, import_node_path56, SESSION_AGENT_VAR, SESSION_CONSUMER_VAR, ID;
+var import_node_os29, import_node_path56, SESSION_AGENT_VAR, SESSION_CONSUMER_VAR, ID;
 var init_session_identity = __esm({
   "topology/lib/session-identity.mjs"() {
-    import_node_os28 = require("node:os");
+    import_node_os29 = require("node:os");
     import_node_path56 = require("node:path");
     init_repoid();
     init_util();
@@ -36403,7 +36435,7 @@ __export(standing_mailbox_exports, {
   waitForStandingReply: () => waitForStandingReply,
   wakeStandingMessages: () => wakeStandingMessages
 });
-function standingMailboxRoot({ env = process.env, home = (0, import_node_os29.homedir)() } = {}) {
+function standingMailboxRoot({ env = process.env, home = (0, import_node_os30.homedir)() } = {}) {
   return (0, import_node_path57.join)(stateRoot2(env, home), "standing-mailbox");
 }
 function paths(id, opts) {
@@ -36632,7 +36664,7 @@ async function dryRunVerdict(envelope, p, opts) {
   };
 }
 async function sendStandingMessage(input, options = {}) {
-  const opts = { ...options, home: options.home ?? (0, import_node_os29.homedir)() };
+  const opts = { ...options, home: options.home ?? (0, import_node_os30.homedir)() };
   invariant2(input?.consumer && input?.to, "TOPOLOGY_RECIPIENT_REQUIRED", "Standing mail requires destination repository and agent.");
   invariant2(typeof input.body === "string" && input.body.trim(), "TOPOLOGY_BODY_REQUIRED", "Standing mail requires a body.");
   invariant2(input.via === void 0 || Array.isArray(input.via) && input.via.every((x) => typeof x === "string" && x), "TOPOLOGY_VIA_INVALID", "Forwarding ancestry must be an array of agent IDs.");
@@ -36833,7 +36865,7 @@ async function readStandingMessage({ id, ...options }) {
   }
   return record2;
 }
-async function recordStandingReply({ consumer, messageId: messageId2, agentId, body, env = process.env, home = (0, import_node_os29.homedir)() }) {
+async function recordStandingReply({ consumer, messageId: messageId2, agentId, body, env = process.env, home = (0, import_node_os30.homedir)() }) {
   invariant2(typeof messageId2 === "string" && messageId2, "TOPOLOGY_MESSAGE_ID_INVALID", "Standing reply requires a message ID.");
   invariant2(typeof body === "string" && body.trim(), "TOPOLOGY_REPLY_EMPTY", "A standing reply must have content.");
   invariant2(agentId && env.AO_AGENT_ID === agentId && env.AO_CONSUMER, "TOPOLOGY_AGENT_UNAUTHORIZED", "Standing replies require the receiving launcher identity and repository.");
@@ -36971,12 +37003,12 @@ async function waitForStandingReply({ id, timeoutMs = 20 * 6e4, pollMs = 2e3, ..
     await sleep(Math.max(0, Math.min(pollMs, timeoutMs - (Date.now() - started))));
   }
 }
-var import_node_crypto32, import_promises48, import_node_os29, import_node_path57, import_node_util4, RECOVERABLE_HOLDS, PERMANENT_HOLDS, STANDING_RING_WINDOW_MS;
+var import_node_crypto32, import_promises48, import_node_os30, import_node_path57, import_node_util4, RECOVERABLE_HOLDS, PERMANENT_HOLDS, STANDING_RING_WINDOW_MS;
 var init_standing_mailbox = __esm({
   "topology/lib/standing-mailbox.mjs"() {
     import_node_crypto32 = require("node:crypto");
     import_promises48 = require("node:fs/promises");
-    import_node_os29 = require("node:os");
+    import_node_os30 = require("node:os");
     import_node_path57 = require("node:path");
     import_node_util4 = require("node:util");
     init_lead();
@@ -37025,7 +37057,7 @@ function assertSlotName(name) {
   );
   return name;
 }
-function slotsDir(identity, env = process.env, home = (0, import_node_os30.homedir)()) {
+function slotsDir(identity, env = process.env, home = (0, import_node_os31.homedir)()) {
   return (0, import_node_path58.join)(stateRoot2(env, home), "slots", repoKey(identity.id));
 }
 function slotPaths(identity, name, env, home) {
@@ -37127,7 +37159,7 @@ async function requestSlot({
   expectMs = null,
   runDir = null,
   env = process.env,
-  home = (0, import_node_os30.homedir)(),
+  home = (0, import_node_os31.homedir)(),
   listPanesFn = listServerPanes,
   binding = null
 } = {}) {
@@ -37172,7 +37204,7 @@ async function releaseSlot({
   runDir = null,
   token = process.env.AO_AGENT_TOKEN,
   env = process.env,
-  home = (0, import_node_os30.homedir)(),
+  home = (0, import_node_os31.homedir)(),
   listPanesFn = listServerPanes
 } = {}) {
   assertSlotName(name);
@@ -37216,7 +37248,7 @@ async function proveHolder(holder, { identity, agentId, runDir, token, env, list
   }
   return null;
 }
-async function slotStatus({ consumer, name = null, env = process.env, home = (0, import_node_os30.homedir)(), listPanesFn = listServerPanes, panes } = {}) {
+async function slotStatus({ consumer, name = null, env = process.env, home = (0, import_node_os31.homedir)(), listPanesFn = listServerPanes, panes } = {}) {
   const identity = await canonicalRepoId(consumer);
   const names2 = name ? [assertSlotName(name)] : await listSlotNames(identity, env, home);
   const results = [];
@@ -37244,7 +37276,7 @@ async function reconcileOne(identity, name, { env, home, listPanesFn, panes, loc
 async function reconcileSlots({
   consumer,
   env = process.env,
-  home = (0, import_node_os30.homedir)(),
+  home = (0, import_node_os31.homedir)(),
   listPanesFn = listServerPanes,
   panes,
   identity,
@@ -37262,7 +37294,7 @@ async function reconcileSlots({
   }
   return results;
 }
-async function restampSlotBindings({ consumer, agentId, binding, env = process.env, home = (0, import_node_os30.homedir)() } = {}) {
+async function restampSlotBindings({ consumer, agentId, binding, env = process.env, home = (0, import_node_os31.homedir)() } = {}) {
   if (!agentId || !validBinding(binding)) return [];
   const identity = await canonicalRepoId(consumer);
   const touched = [];
@@ -37286,7 +37318,7 @@ async function grantSlot({
   name,
   to,
   env = process.env,
-  home = (0, import_node_os30.homedir)(),
+  home = (0, import_node_os31.homedir)(),
   listPanesFn = listServerPanes,
   leadFn = null
 } = {}) {
@@ -37365,7 +37397,7 @@ function formatSlot(view2) {
   for (const entry of view2.queue ?? []) lines.push(`  ${entry.position}. ${entry.agent_id} ticket ${entry.ticket} \u2014 ${entry.reason}`);
   return lines.join("\n");
 }
-async function notifyGrants(events, { consumer, env = process.env, home = (0, import_node_os30.homedir)() } = {}) {
+async function notifyGrants(events, { consumer, env = process.env, home = (0, import_node_os31.homedir)() } = {}) {
   const rung = [];
   for (const event of events.filter((item) => item.type === "granted")) {
     const { sendStandingMessage: sendStandingMessage2 } = await Promise.resolve().then(() => (init_standing_mailbox(), standing_mailbox_exports));
@@ -37386,12 +37418,12 @@ You now hold the ${event.name} slot. Do the work in the same turn you read this.
   }
   return rung;
 }
-var import_node_crypto33, import_promises49, import_node_os30, import_node_path58, SLOT_RECORD_VERSION, SHIPPED_SLOTS, SLOT_NAME, HISTORY_LIMIT, bindingKey2, validBinding, sameBinding;
+var import_node_crypto33, import_promises49, import_node_os31, import_node_path58, SLOT_RECORD_VERSION, SHIPPED_SLOTS, SLOT_NAME, HISTORY_LIMIT, bindingKey2, validBinding, sameBinding;
 var init_slots = __esm({
   "topology/lib/slots.mjs"() {
     import_node_crypto33 = require("node:crypto");
     import_promises49 = require("node:fs/promises");
-    import_node_os30 = require("node:os");
+    import_node_os31 = require("node:os");
     import_node_path58 = require("node:path");
     init_lockfile();
     init_presence();
@@ -37588,7 +37620,7 @@ async function readAssignedTasks(identity, env, home) {
   }
   return byAgent;
 }
-async function collectPresenceAgents({ consumer, repositoryRoot, identity, env = process.env, home = (0, import_node_os31.homedir)(), tmuxServer, listPanesFn = listServerPanes, runDirs = [] } = {}) {
+async function collectPresenceAgents({ consumer, repositoryRoot, identity, env = process.env, home = (0, import_node_os32.homedir)(), tmuxServer, listPanesFn = listServerPanes, runDirs = [] } = {}) {
   identity ??= await canonicalRepoId(consumer);
   repositoryRoot ??= await rootCheckout(consumer, identity);
   const roots = [.../* @__PURE__ */ new Set([repositoryRoot, (0, import_node_path59.resolve)(consumer)])];
@@ -37708,7 +37740,7 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
 function presenceSlotQueues(identity) {
   return PRESENCE_SLOT_QUEUES.get(identity?.id) ?? [];
 }
-async function createPresenceProducer({ consumer, env = process.env, home = (0, import_node_os31.homedir)(), presenceDir, staleAfterMs = 3e4, clockSkewToleranceMs = 5e3, tmuxServer, listPanesFn, runDirs = [], transport = null } = {}) {
+async function createPresenceProducer({ consumer, env = process.env, home = (0, import_node_os32.homedir)(), presenceDir, staleAfterMs = 3e4, clockSkewToleranceMs = 5e3, tmuxServer, listPanesFn, runDirs = [], transport = null } = {}) {
   bounds(staleAfterMs, clockSkewToleranceMs);
   const publishIntervalMs = Math.floor(staleAfterMs / 3);
   invariant2(
@@ -37784,12 +37816,12 @@ async function watchPresence(options = {}) {
   await producer.watch({ signal: options.signal, onPublish: options.onPublish });
   return producer;
 }
-var import_node_crypto34, import_promises50, import_node_os31, import_node_path59, import_promises51, PRESENCE_BINDING_FIELDS, ROLES, NEAREST_RUN_ROLE, REPO_ROLES_V2, LIFE, COUNTER, idValid, bindingKey3, bindingOf, validBinding2, PRESENCE_SLOT_QUEUES;
+var import_node_crypto34, import_promises50, import_node_os32, import_node_path59, import_promises51, PRESENCE_BINDING_FIELDS, ROLES, NEAREST_RUN_ROLE, REPO_ROLES_V2, LIFE, COUNTER, idValid, bindingKey3, bindingOf, validBinding2, PRESENCE_SLOT_QUEUES;
 var init_presence = __esm({
   "topology/lib/presence.mjs"() {
     import_node_crypto34 = require("node:crypto");
     import_promises50 = require("node:fs/promises");
-    import_node_os31 = require("node:os");
+    import_node_os32 = require("node:os");
     import_node_path59 = require("node:path");
     import_promises51 = require("node:timers/promises");
     init_repoid();
@@ -37882,7 +37914,7 @@ async function expandAddresses({
   external = false,
   consumer = null,
   env = process.env,
-  home = (0, import_node_os32.homedir)(),
+  home = (0, import_node_os33.homedir)(),
   maxRecipients = MAX_BROADCAST,
   collectPresence = null,
   census = null
@@ -37926,7 +37958,7 @@ async function expandAddresses({
   );
   return order;
 }
-async function registeredRepositories({ env = process.env, home = (0, import_node_os32.homedir)() } = {}) {
+async function registeredRepositories({ env = process.env, home = (0, import_node_os33.homedir)() } = {}) {
   const { readServiceRepos: readServiceRepos2 } = await Promise.resolve().then(() => (init_services_client(), services_client_exports));
   const { leadRegistryDir: leadRegistryDir2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
   const { repositoryConsumer: repositoryConsumer2 } = await Promise.resolve().then(() => (init_repoid(), repoid_exports));
@@ -37946,7 +37978,7 @@ function repoLeadRef(to) {
   const match = typeof to === "string" ? /^lead@(.+)$/.exec(to) : null;
   return match ? match[1] : null;
 }
-async function resolveRepoLead(ref, { env = process.env, home = (0, import_node_os32.homedir)(), cwd = process.cwd() } = {}) {
+async function resolveRepoLead(ref, { env = process.env, home = (0, import_node_os33.homedir)(), cwd = process.cwd() } = {}) {
   invariant2(typeof ref === "string" && ref.trim(), "TOPOLOGY_REPO_REQUIRED", "Name the repository by path or slug (--to-repo <path|slug>).");
   const { repositoryConsumer: repositoryConsumer2, canonicalRepoId: canonicalRepoId2, repoKey: repoKey2 } = await Promise.resolve().then(() => (init_repoid(), repoid_exports));
   const { readLeadRegistration: readLeadRegistration2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
@@ -37984,7 +38016,7 @@ async function allLeads({ from, env, home, maxRecipients }) {
   );
   return targets;
 }
-async function resolveStandingTargets({ to, toRepo = null, consumer, from = null, env = process.env, home = (0, import_node_os32.homedir)(), cwd = process.cwd(), maxRecipients = MAX_BROADCAST } = {}) {
+async function resolveStandingTargets({ to, toRepo = null, consumer, from = null, env = process.env, home = (0, import_node_os33.homedir)(), cwd = process.cwd(), maxRecipients = MAX_BROADCAST } = {}) {
   if (to === ALL_LEADS) {
     invariant2(!toRepo, "TOPOLOGY_ADDRESS_CONFLICT", `Pass --to-repo or --to ${ALL_LEADS}, not both.`);
     return allLeads({ from, env, home, maxRecipients });
@@ -37997,11 +38029,11 @@ async function resolveStandingTargets({ to, toRepo = null, consumer, from = null
   }
   return [{ consumer, to }];
 }
-var import_promises52, import_node_os32, import_node_path60, MAX_BROADCAST, AUDIENCES, ALL_LEADS;
+var import_promises52, import_node_os33, import_node_path60, MAX_BROADCAST, AUDIENCES, ALL_LEADS;
 var init_addressing = __esm({
   "topology/lib/addressing.mjs"() {
     import_promises52 = require("node:fs/promises");
-    import_node_os32 = require("node:os");
+    import_node_os33 = require("node:os");
     import_node_path60 = require("node:path");
     init_util();
     init_mailbox();
@@ -39159,13 +39191,13 @@ __export(lead_exports, {
   readLeadRegistration: () => readLeadRegistration,
   responsiveForTest: () => responsiveForTest
 });
-function leadRegistryDir(env = process.env, home = (0, import_node_os33.homedir)()) {
+function leadRegistryDir(env = process.env, home = (0, import_node_os34.homedir)()) {
   return (0, import_node_path63.join)(stateRoot2(env, home), "leads");
 }
 function registryPaths(registryDir, key) {
   return { recordPath: (0, import_node_path63.join)(registryDir, `${key}.json`), lockPath: (0, import_node_path63.join)(registryDir, `${key}.lock`) };
 }
-async function readLeadRegistration({ consumer, env = process.env, home = (0, import_node_os33.homedir)() }) {
+async function readLeadRegistration({ consumer, env = process.env, home = (0, import_node_os34.homedir)() }) {
   const identity = await canonicalRepoId(consumer);
   const key = repoKey(identity.id);
   const { recordPath: recordPath2 } = registryPaths(leadRegistryDir(env, home), key);
@@ -39302,7 +39334,7 @@ async function rememberAck(dir, record2) {
 async function wakeLead(record2, nonce, { log = () => {
 } } = {}) {
   if (!record2?.pane) return { rang: false, reason: "the record names no pane" };
-  const adapters = await loadAdapters(providerDirs({ consumer: record2.consumer, home: (0, import_node_os33.homedir)(), env: process.env })).catch(() => null);
+  const adapters = await loadAdapters(providerDirs({ consumer: record2.consumer, home: (0, import_node_os34.homedir)(), env: process.env })).catch(() => null);
   const adapter = adapters ? adapterFor({ cli: record2.provider, model: null, args: [], skills: [] }, adapters) : null;
   if (!adapter) return { rang: false, reason: `no adapter for provider ${record2.provider}` };
   return wakeForProbe({
@@ -39327,7 +39359,7 @@ function resolveProbes(probes, { registryDir, log }) {
     })
   };
 }
-async function leadState({ consumer, home = (0, import_node_os33.homedir)(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {
+async function leadState({ consumer, home = (0, import_node_os34.homedir)(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {
 }, readOnly = false }) {
   const identity = await canonicalRepoId(consumer);
   const registration = await readLeadRegistration({ consumer, env, home });
@@ -39413,7 +39445,7 @@ async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, op
   });
   return { session: opened.session ?? session, pane: opened.pane ?? null, binding: opened.binding ?? null, provider: adapter.id };
 }
-async function ensureLead({ consumer, home = (0, import_node_os33.homedir)(), pluginRoot = null, env = process.env, log = () => {
+async function ensureLead({ consumer, home = (0, import_node_os34.homedir)(), pluginRoot = null, env = process.env, log = () => {
 }, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, restartRequiresBinding = false }) {
   invariant2(consumer && typeof consumer === "string", "TOPOLOGY_LEAD_CONSUMER_REQUIRED", "ensureLead needs the consumer repository path.");
   const identity = await canonicalRepoId(consumer);
@@ -39481,7 +39513,7 @@ async function ensureLead({ consumer, home = (0, import_node_os33.homedir)(), pl
   if (await p.responsive(record2, ackTimeoutMs)) return { action: "reused", record: record2 };
   return { action: "kept-unresponsive", record: record2 };
 }
-async function assignLead({ consumer, agentRef, session: existingSession = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, home = (0, import_node_os33.homedir)(), pluginRoot = null, env = process.env, log = () => {
+async function assignLead({ consumer, agentRef, session: existingSession = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, home = (0, import_node_os34.homedir)(), pluginRoot = null, env = process.env, log = () => {
 }, probes = null }) {
   invariant2(agentRef, "TOPOLOGY_LEAD_AGENT_REQUIRED", "Name the agent whose live session becomes the lead: assignLead needs an agent reference.");
   const identity = await canonicalRepoId(consumer);
@@ -39545,7 +39577,7 @@ async function assignLead({ consumer, agentRef, session: existingSession = null,
     };
   });
 }
-async function detachLead({ consumer, env = process.env, home = (0, import_node_os33.homedir)(), kill = false, probes = null, log = () => {
+async function detachLead({ consumer, env = process.env, home = (0, import_node_os34.homedir)(), kill = false, probes = null, log = () => {
 } }) {
   const registryDir = leadRegistryDir(env, home);
   const registration = await readLeadRegistration({ consumer, env, home });
@@ -39564,7 +39596,7 @@ async function detachLead({ consumer, env = process.env, home = (0, import_node_
     return { action: "detached", detached: true, record: record2, killed };
   });
 }
-async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os33.homedir)(), alive: alive3 = defaultAlive }) {
+async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os34.homedir)(), alive: alive3 = defaultAlive }) {
   invariant2(
     NONCE_PATTERN.test(String(nonce ?? "")),
     "TOPOLOGY_LEAD_PROBE_INVALID",
@@ -39587,7 +39619,7 @@ async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, imp
   await writeJson(ackPath, { nonce, repo_id: identity.id, agent_id: env.AO_AGENT_ID, session: record2.session, binding: incarnationOf(record2.binding), created_at: nowIso() });
   return { ok: true, ack_path: ackPath };
 }
-async function pendingLeadProbes({ consumer, env = process.env, home = (0, import_node_os33.homedir)() }) {
+async function pendingLeadProbes({ consumer, env = process.env, home = (0, import_node_os34.homedir)() }) {
   const identity = await canonicalRepoId(consumer);
   const registration = await readLeadRegistration({ consumer, env, home });
   const dir = (0, import_node_path63.join)(leadRegistryDir(env, home), "probes");
@@ -39595,12 +39627,12 @@ async function pendingLeadProbes({ consumer, env = process.env, home = (0, impor
   const probes = await Promise.all(files.filter((name) => name.endsWith(".json") && !name.endsWith(".ack.json")).map((name) => readJson3((0, import_node_path63.join)(dir, name)).catch(() => null)));
   return probes.filter((p) => p && p.repo_id === identity.id && p.agent_id === env.AO_AGENT_ID && p.expires_at >= Date.now() && incarnationOf(p.binding) && (p.purpose === "assignment" || registration?.record?.agent_id === p.agent_id && registration.record.session === p.session && sameIncarnation(registration.record.binding, p.binding)));
 }
-var import_node_crypto36, import_promises55, import_node_os33, import_node_path63, RECORD_VERSION, DEFAULT_ACK_TIMEOUT_MS, ACK_POLL_MS, NONCE_PATTERN, RESPONSIVE_TTL_MS2, ackMemoPath;
+var import_node_crypto36, import_promises55, import_node_os34, import_node_path63, RECORD_VERSION, DEFAULT_ACK_TIMEOUT_MS, ACK_POLL_MS, NONCE_PATTERN, RESPONSIVE_TTL_MS2, ackMemoPath;
 var init_lead = __esm({
   "topology/lib/lead.mjs"() {
     import_node_crypto36 = require("node:crypto");
     import_promises55 = require("node:fs/promises");
-    import_node_os33 = require("node:os");
+    import_node_os34 = require("node:os");
     import_node_path63 = require("node:path");
     init_agents();
     init_config();
@@ -39633,7 +39665,7 @@ async function tmLauncher(consumer) {
 async function reviewSweepTick({
   consumer,
   env = process.env,
-  home = (0, import_node_os34.homedir)(),
+  home = (0, import_node_os35.homedir)(),
   now = Date.now,
   minIntervalMs = Number(env.AO_REVIEW_SWEEP_MS ?? REVIEW_SWEEP_MIN_MS),
   tmBin = null,
@@ -39701,11 +39733,11 @@ async function reviewSweepTick({
   }
   return out;
 }
-var import_node_crypto37, import_node_os34, import_node_path64, REVIEW_SWEEP_MIN_MS, lastSweep, noticeId;
+var import_node_crypto37, import_node_os35, import_node_path64, REVIEW_SWEEP_MIN_MS, lastSweep, noticeId;
 var init_review_sweep = __esm({
   "topology/lib/review-sweep.mjs"() {
     import_node_crypto37 = require("node:crypto");
-    import_node_os34 = require("node:os");
+    import_node_os35 = require("node:os");
     import_node_path64 = require("node:path");
     init_repoid();
     init_lead();
@@ -63817,7 +63849,7 @@ var import_node_url9 = require("node:url");
 
 // src/service.mjs
 var import_promises60 = require("node:fs/promises");
-var import_node_os38 = require("node:os");
+var import_node_os39 = require("node:os");
 var import_node_path70 = require("node:path");
 
 // src/policy/catalog.mjs
@@ -78773,7 +78805,7 @@ var import_promises59 = require("node:fs/promises");
 init_util();
 init_safe_git();
 var import_node_path69 = require("node:path");
-var import_node_os37 = require("node:os");
+var import_node_os38 = require("node:os");
 init_repoid();
 init_review_sweep();
 init_services_client();
@@ -78791,7 +78823,7 @@ var import_node_crypto38 = require("node:crypto");
 var import_node_fs13 = require("node:fs");
 var import_promises57 = require("node:fs/promises");
 var import_node_net3 = __toESM(require("node:net"), 1);
-var import_node_os36 = __toESM(require("node:os"), 1);
+var import_node_os37 = __toESM(require("node:os"), 1);
 var import_node_path67 = require("node:path");
 var import_promises58 = require("node:timers/promises");
 init_lockfile();
@@ -78802,7 +78834,7 @@ init_orch_transport();
 var import_node_child_process16 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
 var import_promises56 = require("node:fs/promises");
-var import_node_os35 = __toESM(require("node:os"), 1);
+var import_node_os36 = __toESM(require("node:os"), 1);
 var import_node_path65 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
@@ -78815,11 +78847,11 @@ function windowsQuote2(value) {
   const text = String(value);
   return /[\s"]/.test(text) || text === "" ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
-async function registrationMode({ platform = process.platform, home = import_node_os35.default.homedir(), env = process.env } = {}) {
+async function registrationMode({ platform = process.platform, home = import_node_os36.default.homedir(), env = process.env } = {}) {
   if (platform === "darwin") return "launchd";
   if (platform === "win32") return "schtasks";
   if (platform !== "linux") return "detached";
-  if (home !== import_node_os35.default.userInfo().homedir) return "detached";
+  if (home !== import_node_os36.default.userInfo().homedir) return "detached";
   try {
     await canonicalUserBusEnvironment(env);
     return "systemd";
@@ -78827,7 +78859,7 @@ async function registrationMode({ platform = process.platform, home = import_nod
     return "detached";
   }
 }
-function registrationPath({ mode, home = import_node_os35.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
+function registrationPath({ mode, home = import_node_os36.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
       return (0, import_node_path65.join)(env.XDG_CONFIG_HOME || (0, import_node_path65.join)(home, ".config"), "systemd", "user", UNIT_NAME);
@@ -78998,7 +79030,7 @@ function copyIdentity(root) {
 function readLock(pluginRoot = PLUGIN_ROOT) {
   return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path67.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
-function dataHome({ platform = process.platform, env = process.env, home = import_node_os36.default.homedir() } = {}) {
+function dataHome({ platform = process.platform, env = process.env, home = import_node_os37.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
   if (platform === "win32") return import_node_path67.win32.join(env.LOCALAPPDATA || import_node_path67.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
   if (platform === "darwin") return import_node_path67.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
@@ -79039,10 +79071,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "660cdddacf0fd692809ed329b04dcb904aeeb1f40d9cbd11f713a808184a729e";
+  return false ? null : "bb7fbf0066d52a011e64d9b6fec44b4587e69b90fa926b6dd29d3da83e892712";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "660cdddacf0fd692809ed329b04dcb904aeeb1f40d9cbd11f713a808184a729e";
+  const fingerprint2 = false ? null : "bb7fbf0066d52a011e64d9b6fec44b4587e69b90fa926b6dd29d3da83e892712";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79279,7 +79311,7 @@ async function context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home
   const lock = deps.lock ?? readLock(pluginRoot);
   return { data, paths: paths2, mode, lock, node };
 }
-async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os36.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os37.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const ctx = await context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
@@ -79467,7 +79499,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "660cdddacf0fd692809ed329b04dcb904aeeb1f40d9cbd11f713a808184a729e",
+  sourceFingerprint: false ? null : "bb7fbf0066d52a011e64d9b6fec44b4587e69b90fa926b6dd29d3da83e892712",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -79489,7 +79521,7 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   if (result2.state === "current" && !result2.current) result2.state = "stale";
   return result2;
 }
-async function pluginFreshness({ pluginRoot, home = (0, import_node_os37.homedir)(), env = process.env, timeoutMs = 5e3, deps = {} }) {
+async function pluginFreshness({ pluginRoot, home = (0, import_node_os38.homedir)(), env = process.env, timeoutMs = 5e3, deps = {} }) {
   const exec = deps.run ?? ((_command, args, options) => safeGit(null, args, options));
   const root = await (0, import_promises59.realpath)(pluginRoot).catch(() => pluginRoot);
   const cached2 = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
@@ -79524,7 +79556,7 @@ async function pluginFreshness({ pluginRoot, home = (0, import_node_os37.homedir
     ...status === "stale" ? { advice: source === "cache" ? `Installed ${installed.slice(0, 12)} is behind origin/main ${remote.slice(0, 12)}. Run \`claude plugin update ${cached2[2]}@${cached2[1]}\` and restart.` : `Checkout HEAD ${installed.slice(0, 12)} differs from origin/main ${remote.slice(0, 12)}.` } : {}
   };
 }
-async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os37.homedir)(), platform = process.platform, deps = {} }) {
+async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os38.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
   const pointer = await json4(paths2.pointer);
   const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path69.join)(paths2.dir, "self-heal.json"))]);
@@ -79538,7 +79570,7 @@ async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home
   ];
   return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, transport, lastSelfHeal, problems };
 }
-async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os37.homedir)() }) {
+async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os38.homedir)() }) {
   let consumer = null, admission = { provided: Boolean(consumerCwd2), admitted: null };
   if (consumerCwd2) {
     try {
@@ -80182,7 +80214,7 @@ var OrchestrationService = class {
    * explicitly and falls back only to a directory that still exists.
    */
   async resolveDiscoveryCwd(preferred) {
-    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os38.homedir)()]) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os39.homedir)()]) {
       if (!candidate) continue;
       try {
         const stats = await (0, import_promises60.stat)(candidate);

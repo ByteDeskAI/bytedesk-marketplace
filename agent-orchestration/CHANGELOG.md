@@ -4,6 +4,13 @@
 
 ### Security
 
+- **`manage transfer` takeover needs lead proof and owner absence (TM-459, EP-028).**
+  A session could take ownership of a task as soon as the owner held no live claim, but `tm block`
+  or `tm park` releases the claim while the owner is still alive. A takeover (the caller is not the
+  owner) now requires the caller to pass `requireLeadCaller` (this repository's lead, proven by its
+  census-bound pane) and the owner to be proven absent by `ownerPresence`: no live pane the census
+  binds to it and no heartbeat from it fresher than `HEARTBEAT_TTL_MS`. A hand-over by the owner is
+  unchanged.
 - **Autonomy `publish` never grants a production cutover (TM-458, EP-028).**
   `management.autonomy: "publish"` let `manage cutover` deploy to a live production host with no
   human, and a test asserted it. `publish` now grants `manage cut-release` only; `manage cutover`

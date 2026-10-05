@@ -2103,6 +2103,35 @@ test('TM-247 AC7: a recorded ownership transfer moves the admission between lead
   assert.equal(state.owned, true, state.reason); assert.equal(state.active, false);
   // The new owner's claim then expires; a third lead may take over for itself.
   l.setClaim(null);
-  const taken = await transferTask({ ...l.actual, ...reason, owner: 'lead-3' });
+  // TM-459: a takeover needs the proven lead and a proven-absent owner (covered by its own test below).
+  const taken = await transferTask({ ...l.actual, ...reason, owner: 'lead-3', requireLead: async () => 'lead-3', ownerPresence: async () => null });
   assert.equal(taken.record.owner, 'lead-3'); assert.equal(claims.at(-1).steal, false);
+});
+
+// ── TM-459: a takeover needs lead proof and owner absence, never just a released claim ─────────────
+test('TM-459 transfer takeover: a released claim is not enough; the caller must be the proven lead and the owner proven gone', async t => {
+  const { opts, setClaim } = await fixture(t);
+  const { transferTask } = await import('../../topology/lib/management.mjs');
+  const { heartbeatDir, heartbeatPath } = await import('../../topology/lib/heartbeat.mjs');
+  const claims = [];
+  opts.store.claimFor = async (task, session) => { claims.push(session); setClaim({ session }); };
+  await admitTask(opts);
+  setClaim(null); // the owner ran `tm block` or `tm park`: its claim is released, and it is still alive
+  const binding = { serverKey: '/tmp/fixture-socket', paneId: '%7' };
+  let alive = true;
+  const live = { readCensusFn: async () => ({ agents: [{ agentId: 'author', binding }] }), listPanesFn: async ({ tmuxServer }) => (tmuxServer === binding.serverKey ? [{ paneId: '%7', alive }] : []) };
+  const take = extra => transferTask({ ...opts, reason: 'the lead left', owner: 'lead-3', ...live, ...extra });
+  // Not the repository's proven lead: refused, whatever the claim says.
+  await assert.rejects(take({ requireLead: async () => null }), { code: 'TOPOLOGY_MANAGEMENT_TRANSFER', message: /proven lead/ });
+  // The proven lead, but the owner's pane is live: refused.
+  await assert.rejects(take({ requireLead: async () => 'lead-3' }), { code: 'TOPOLOGY_MANAGEMENT_TRANSFER', message: /author is not proven absent \(it has a live pane %7\)/ });
+  // The pane is gone but the owner sent a fresh heartbeat: still refused.
+  alive = false;
+  await writeJson(heartbeatPath(heartbeatDir(opts.env, opts.home), '/other', '%9'), { serverKey: '/other', paneId: '%9', at: Date.now(), agent_id: 'author' });
+  await assert.rejects(take({ requireLead: async () => 'lead-3' }), { code: 'TOPOLOGY_MANAGEMENT_TRANSFER', message: /heartbeat/ });
+  assert.deepEqual(claims, [], 'no refusal moved the claim');
+  // Pane dead and heartbeat stale: the proven lead takes it over.
+  await writeJson(heartbeatPath(heartbeatDir(opts.env, opts.home), '/other', '%9'), { serverKey: '/other', paneId: '%9', at: Date.now() - 3_600_000, agent_id: 'author' });
+  const taken = await take({ requireLead: async () => 'lead-3' });
+  assert.equal(taken.record.owner, 'lead-3'); assert.deepEqual(claims, ['lead-3']);
 });
