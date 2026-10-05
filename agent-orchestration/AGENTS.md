@@ -50,10 +50,11 @@ keep `ao-topology schema`, the skills, and that document in sync.
 These names are compatibility contracts:
 
 - Discovery and routing: `orchestration_capabilities`, `orchestration_doctor`, `orchestration_route`, `orchestration_plan`
-- Lifecycle: `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events`
+- Lifecycle: `orchestration_spawn`, `orchestration_run_followup` (alias `orchestration_send`), `orchestration_run_wait` (alias `orchestration_wait`), `orchestration_status`, `orchestration_list`, `orchestration_events`
 - Control: `orchestration_cancel`, `orchestration_cleanup`
 - Approval: `orchestration_decision_get`, `orchestration_decision_approve`
 - Durable mail: `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`, `orchestration_mailbox_wait`
+- Run mail and roles: `orchestration_run_mail_send`, `orchestration_run_mail_reply`, `orchestration_run_mail_wait`, `orchestration_lead_status`, `orchestration_session_handoff`
 - Goal feedback: `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile`
 
 Goal feedback uses the repository supervisor and standing lead, with Task Management as the

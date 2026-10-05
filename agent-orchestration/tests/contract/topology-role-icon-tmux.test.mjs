@@ -113,6 +113,9 @@ test("role icons reach managed panes and title bars; the registered lead wears i
   assert.equal(await tm("show-options", "-v", "-t", opened.session, "set-titles"), "on");
   const leadTitle = await tm("show-options", "-v", "-t", opened.session, "set-titles-string");
   assert.equal(await tm("display", "-p", "-t", opened.pane, leadTitle), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead`);
+  // TM-371: the status line names the agent and role too, ahead of the session name.
+  const leadStatus = await tm("show-options", "-v", "-t", opened.session, "status-left");
+  assert.equal(await tm("display", "-p", "-t", opened.pane, leadStatus), `${ROLE_ICON_MAP.lead} Ada Vale, Engineering Lead · Lead [${opened.session}] `);
   assert.equal(await tm("display", "-p", "-t", opened.pane, "#{session_name}\t#{window_name}\t#{pane_title}"), `${opened.session}\t${lead.id}\t${lead.id} · lead · fake-agent`);
 
   // ---- register Ada as the repository lead, where readLeadRegistration looks for it.

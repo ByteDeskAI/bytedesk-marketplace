@@ -41,6 +41,8 @@ export const ORCH_LAYOUT = Object.freeze({
   personasBucket: 'ORCH_PERSONAS',
   presenceTtlMs: 45_000,
   duplicateWindowMs: 120_000,
+  // TM-371: a header, not a subject change, so deployed peers keep matching `orch.<key>.…`.
+  repoSlugHeader: 'Orch-Repo-Slug',
   mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
   replySubject: (repo, agent) => `orch.${repo}.mail.${agent}.reply`,
   tasksSubject: (repo) => `orch.${repo}.tasks.ready`,
@@ -551,6 +553,7 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     StringCodec,
     connect,
     credsAuthenticator,
+    headers,
     nanos,
   } = await import('nats').catch(async (error) => {
     // Installed topology remains ESM and has no node_modules. Ship the same
@@ -564,6 +567,12 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     }
   });
   const sc = StringCodec();
+  const publishOptions = (msgID, slug) => {
+    if (!msgID && !slug) return undefined;
+    const options = msgID ? { msgID } : {};
+    if (slug) { options.headers = headers(); options.headers.set(ORCH_LAYOUT.repoSlugHeader, String(slug)); }
+    return options;
+  };
   // ADR-0032: AO_NATS_URL, then the gateway orch.sock, then managed local NATS on nats.port. The
   // generic NATS_URL belongs to other tools and is never read here.
   const url = servers || env.AO_NATS_URL || '';
@@ -708,12 +717,12 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         ensured.add(replyKey);
       }
     },
-    async publishMail({ repo, agent, messageId, body }) {
+    async publishMail({ repo, agent, messageId, body, slug = null }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, agents: [nameAgent] });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.${messageId}` } : undefined);
+      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId && `${nameRepo}.${nameAgent}.${messageId}`, slug));
       return { via: 'nats', subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullMail({ repo, agent, timeoutMs = 1000 }) {
@@ -728,17 +737,18 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         via: 'nats',
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
+        repoSlug: msg.headers?.get?.(ORCH_LAYOUT.repoSlugHeader) || null,
         body: sc.decode(msg.data),
         ack: async () => { msg.ack(); await nc.flush(); },
         nak: async () => { msg.nak(); },
       };
     },
-    async publishReply({ repo, agent, messageId, body }) {
+    async publishReply({ repo, agent, messageId, body, slug = null }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
       const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId}` } : undefined);
+      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId && `${nameRepo}.${nameAgent}.reply.${messageId}`, slug));
       return { via: 'nats', subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullReply({ repo, agent, replyTo, from, timeoutMs = 1000 }) {

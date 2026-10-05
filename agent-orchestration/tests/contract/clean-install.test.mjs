@@ -23,6 +23,8 @@ const expectedToolNames = [
   "orchestration_spawn",
   "orchestration_send",
   "orchestration_wait",
+  "orchestration_run_followup", "orchestration_run_wait",
+  "orchestration_run_mail_send", "orchestration_run_mail_reply", "orchestration_run_mail_wait", "orchestration_lead_status", "orchestration_session_handoff",
   "orchestration_status",
   "orchestration_list",
   "orchestration_events",
