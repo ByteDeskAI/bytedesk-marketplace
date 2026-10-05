@@ -29,6 +29,12 @@
 
 ### Changed
 
+- **The topology backend says which `passEnv` names it does not pass (TM-449, EP-028).** An
+  earlier entry and the dispatch skill said topology passes tm's `dispatch.passEnv`. It does not:
+  `ao-topology` passes only agent-orchestration's own global `workers.passEnv`, and the spec's
+  agent env is written into the launcher, so a value cannot travel there. A topology dispatch now
+  reports each tm-only name in `passEnvWarnings` (result, `dispatched` event, stderr), naming the
+  fix: add it to agent-orchestration's global `workers.passEnv`, or dispatch with `--backend tmux`.
 - **A crashed governed worker whose lead is gone is parked or retried again (TM-460, EP-028).**
   Because a governed dispatch claims under its admission owner, collect treated every governed
   task as "held by the lead" and left a dead worker's task in progress until the claim expired.

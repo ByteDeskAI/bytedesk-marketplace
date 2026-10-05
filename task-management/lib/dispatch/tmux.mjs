@@ -137,14 +137,16 @@ export function userConfigDir(env = process.env) {
   return env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config");
 }
 
-/** `{ names, ignored, refused, warnings }` — names are what a worker gets. */
+/**
+ * `{ names, ignored, refused, warnings, viaAo }` — names are what a tmux worker gets; `viaAo` is
+ * the subset agent-orchestration itself passes (its global workers.passEnv), which is all a
+ * topology worker gets (TM-449).
+ */
 export function passEnvNames(req, cfg = config(req.p), env = process.env) {
   const base = userConfigDir(env);
   const userFile = join(base, "task-management", "config.json");
-  const user = [
-    ...readNames(userFile, (d) => d?.dispatch?.passEnv),
-    ...readNames(join(base, "agent-orchestration", "config.json"), (d) => d?.workers?.passEnv),
-  ];
+  const aoUser = readNames(join(base, "agent-orchestration", "config.json"), (d) => d?.workers?.passEnv);
+  const user = [...readNames(userFile, (d) => d?.dispatch?.passEnv), ...aoUser];
   const repo = [
     ...(Array.isArray(cfg.dispatch?.passEnv) ? cfg.dispatch.passEnv : []).filter((n) => typeof n === "string" && ENV_NAME.test(n)),
     ...readNames(join(req.p.root, ".bytedesk", "agent-orchestration", "config.json"), (d) => d?.workers?.passEnv),
@@ -156,7 +158,7 @@ export function passEnvNames(req, cfg = config(req.p), env = process.env) {
     ...(ignored.length ? [`passEnv ${ignored.join(", ")} ignored: named only in git-tracked repository config; name it in ${userFile} (dispatch.passEnv) instead`] : []),
     ...(refused.length ? [`passEnv ${refused.join(", ")} refused: reserved names (${RESERVED_LIST}) are never passed to a worker`] : []),
   ];
-  return { names, ignored, refused, warnings };
+  return { names, ignored, refused, warnings, viaAo: names.filter((n) => aoUser.includes(n)) };
 }
 
 /**

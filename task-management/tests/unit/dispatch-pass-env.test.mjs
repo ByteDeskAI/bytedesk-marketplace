@@ -11,9 +11,12 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import { cleanup, tempStore } from "./helpers.mjs";
-import { writeConfig } from "../../lib/store.mjs";
+import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
+import { create, seedGitContract, writeConfig } from "../../lib/store.mjs";
+import { ensureDirs, paths } from "../../lib/paths.mjs";
 import * as tmux from "../../lib/dispatch/tmux.mjs";
+import * as topology from "../../lib/dispatch/topology.mjs";
+import { dispatch } from "../../lib/dispatch/index.mjs";
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -104,6 +107,39 @@ describe("TM-448 passEnv trusts only user config and never a reserved name", () 
     const out = spawnSync(pane[0], pane.slice(1), { env: { PATH: process.env.PATH, ...tmuxEnv }, encoding: "utf8" });
     assert.equal(out.status, 0, `${out.stderr} ${out.error?.message} ${JSON.stringify(pane)}`);
     assert.equal(out.stdout, `${p.root}|@a|s-1|TM-448`);
+  });
+});
+
+describe("TM-449 topology dispatch says which passEnv names it does not pass", () => {
+  it("a tm-only name is reported on the result and the dispatched event; an ao global name is not", async () => {
+    const p = storeWithPassEnv(null, { tm: [], ao: [] });
+    const worktree = mkdtempSync(join(tmpdir(), "tm449-wt-"));
+    trash.push(worktree);
+    const res = topology.spawn({ task: { id: "TM-449", title: "x" }, worktree, prompt: "x", session: "s", actor: "@a", p }, {
+      caps: { backends: { topology: { available: true, path: "/fake/ao-topology" } } },
+      rosterList: [],
+      writeImpl: () => {},
+      spawnImpl: () => ({ status: 0, stdout: JSON.stringify({ session: "ao-449", run_id: "r449" }) }),
+      env: { PATH: "/usr/bin" },
+    });
+    assert.equal(res.ok, true, res.reason);
+    const w = res.detail.passEnvWarnings.join("\n");
+    assert.match(w, /passEnv TM375_SECRET, TM375_ABSENT not passed by the topology backend/);
+    assert.doesNotMatch(w, /TM375_AO/, "ao's own global workers.passEnv does reach the worker");
+
+    // The same warnings reach the dispatch result and the `dispatched` event.
+    const repo = paths(tempRepo());
+    trash.push(repo.root);
+    ensureDirs(repo);
+    seedGitContract(repo);
+    writeConfig({ enforce: false, requireEpic: false, dispatch: { enabled: false, governed: false } }, repo);
+    const task = create("task", { title: "dispatch me", status: "open", labels: ["ready-for-agent"] }, "body", repo);
+    const backend = { name: "topology", available: () => true, spawn: (r) => topology.spawn(r, { caps: { backends: { topology: { available: true, path: "/fake/ao-topology" } } }, rosterList: [], writeImpl: () => {}, spawnImpl: () => ({ status: 0, stdout: JSON.stringify({ session: "ao-449b" }) }) }) };
+    const out = await dispatch(task.id, { p: repo, backend, caps: {}, session: "s-449" });
+    assert.equal(out.ok, true, out.reason);
+    assert.match(out.passEnvWarnings.join("\n"), /not passed by the topology backend/);
+    const ev = readFileSync(repo.events, "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.event === "dispatched");
+    assert.match(ev.passEnvWarnings.join("\n"), /TM375_SECRET, TM375_ABSENT not passed/);
   });
 });
 
