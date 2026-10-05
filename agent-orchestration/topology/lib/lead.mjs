@@ -40,6 +40,7 @@ import { agentDirs, createAgent, findLead, requireAgent } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
+import { recentHeartbeat } from "./heartbeat.mjs";
 import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
 import { openRoleSession, recordedRoleSession, roleSessionFor, tmuxFailureTrigger } from "./launch.mjs";
 import { withLock } from "./lockfile.mjs";
@@ -135,6 +136,12 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
   const late = await lateAck(dir, record, log, { readOnly });
   if (late && await current()) { if (!readOnly) await rememberAck(dir, record); log(`lead acknowledged probe ${late.nonce} after the previous wait returned`); onProof({ source: "late", age_ms: late.age_ms }); return true; }
+  // TM-222. A LEAD MID-TURN IS WORKING, NOT UNRESPONSIVE. Its harness fires hooks between and inside
+  // turns without the model's involvement, and each one leaves a heartbeat bound to this pane. A
+  // fresh one is host-side proof that a live agent runs in this exact incarnation, so the lead is
+  // reported responsive and busy, and is not rung. Read-only, so a screen may use it too.
+  const beat = await recentHeartbeat(join(dirname(registryDir), "heartbeats"), binding);
+  if (beat && await current()) { log(`lead harness heartbeat (${beat.event}) ${beat.age_ms}ms ago; no probe needed`); onProof({ source: "heartbeat", age_ms: beat.age_ms, busy: beat.busy }); return true; }
   // TM-161. `ackTimeoutMs <= 0` means READ ONLY: answer from proof already on disk, mint nothing.
   //
   // A fast readiness SCREEN — `startupCheck`, which runs on a SessionStart hook for every Claude

@@ -1,4 +1,5 @@
-// TM-209: `lead status --cached` is a non-blocking read.
+// TM-209: `lead status --cached` is a non-blocking read. TM-222: a lead mid-turn is alive and busy,
+// not unresponsive, when a harness heartbeat from its exact pane says so.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -7,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { leadRegistryDir, leadState } from '../../topology/lib/lead.mjs';
+import { HEARTBEAT_TTL_MS } from '../../topology/lib/heartbeat.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { exists, run, writeJson } from '../../topology/lib/util.mjs';
 import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
@@ -23,7 +25,7 @@ async function fixture(t, binding) {
   const registryDir = leadRegistryDir(env, home);
   const record = { repo_id: identity.id, agent_id: 'lead0001', session: 'lead', pane: binding.paneId, consumer, provider: 'claude', binding };
   await writeJson(join(registryDir, `${repoKey(identity.id)}.json`), record);
-  return { root, consumer, home, env, record, probes: join(registryDir, 'probes') };
+  return { root, consumer, home, env, record, probes: join(registryDir, 'probes'), heartbeats: join(registryDir, '..', 'heartbeats') };
 }
 
 function node(args, { env, input = '' }) {
@@ -64,4 +66,51 @@ test('lead status --cached answers in under a second, names its source and write
   const blocking = status([]);
   assert.ok(blocking.ms >= 1500, `default status waited ${blocking.ms}ms`);
   assert.ok((await readdir(f.probes)).some((name) => name.endsWith('.json') && !name.includes('answered')), 'the default path mints a probe');
+});
+
+const BINDING = { serverKey: '/isolated/live-test', serverPid: 100, sessionId: '$1', sessionCreated: 200, paneId: '%2', panePid: process.pid };
+
+function beat(f, event, { pane = BINDING.paneId, serverPid = BINDING.serverPid } = {}) {
+  // The real hook, as Claude Code runs it: this test process is its ancestor, so panePid matches.
+  node([join(pluginRoot, 'topology/session-hook.mjs'), event], { env: { ...process.env, ...f.env, HOME: f.home,
+    TMUX: `${BINDING.serverKey},${serverPid},0`, TMUX_PANE: pane }, input: JSON.stringify({ hook_event_name: event }) });
+}
+
+test('a lead mid-turn with a harness heartbeat from its exact pane is responsive and busy, not unresponsive', async (t) => {
+  const f = await fixture(t, BINDING);
+  const opts = { consumer: f.consumer, home: f.home, env: f.env, pluginRoot, ackTimeoutMs: 0, probes: { alive: async () => true } };
+  assert.equal((await leadState(opts)).status, 'unresponsive', 'control: mid-turn with no heartbeat and no ack');
+
+  beat(f, 'PostToolUse');
+  const busy = await leadState({ ...opts, ackTimeoutMs: 1000, probes: { alive: async () => true } });
+  assert.equal(busy.status, 'responsive');
+  assert.equal(busy.verdict_source, 'heartbeat');
+  assert.equal(busy.busy, true);
+  assert.equal(await exists(f.probes), false, 'a heartbeat answers without ringing the lead');
+
+  beat(f, 'Stop');
+  assert.equal((await leadState(opts)).busy, false, 'Stop means between turns');
+});
+
+test('a dead, rebound or silent lead is still detected despite heartbeats', async (t) => {
+  const f = await fixture(t, BINDING);
+  const opts = { consumer: f.consumer, home: f.home, env: f.env, pluginRoot, ackTimeoutMs: 0, probes: { alive: async () => true } };
+  beat(f, 'PostToolUse');
+  assert.equal((await leadState({ ...opts, probes: { alive: async () => false } })).status, 'registered', 'a dead pane is dead whatever its last heartbeat said');
+
+  const { writeJson: write } = await import('../../topology/lib/util.mjs');
+  const { heartbeatPath } = await import('../../topology/lib/heartbeat.mjs');
+  const path = heartbeatPath(f.heartbeats, BINDING.serverKey, BINDING.paneId);
+  const fresh = { serverKey: BINDING.serverKey, serverPid: BINDING.serverPid, paneId: BINDING.paneId, pids: [BINDING.panePid], event: 'PostToolUse', at: Date.now() };
+  for (const [why, value] of [
+    ['a respawned pane: the heartbeat came from another process', { ...fresh, pids: [1, 2, 3] }],
+    ['another tmux server incarnation', { ...fresh, serverPid: 999 }],
+    ['a heartbeat older than the window', { ...fresh, at: Date.now() - HEARTBEAT_TTL_MS - 1 }],
+  ]) {
+    await write(path, value);
+    assert.equal((await leadState(opts)).status, 'unresponsive', why);
+  }
+  await rm(path);
+  beat(f, 'PostToolUse', { pane: '%9' });
+  assert.equal((await leadState(opts)).status, 'unresponsive', 'another pane cannot vouch for the lead');
 });

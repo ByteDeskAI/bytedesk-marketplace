@@ -61,6 +61,14 @@
   result now carries `verdict_source` (`cached`, `late`, `probe`, or `none`) and `proof_age_ms`.
   Plain `lead status` still rings the lead and waits up to `--ack-timeout` (default 30s) when no
   proof is stored; the CLI help says so.
+- **A lead mid-turn reads as responsive and busy, not unresponsive (TM-222, EP-021, EP-028).** The
+  plugin's `UserPromptSubmit`, `PostToolUse` and `Stop` hooks write a heartbeat for their tmux pane
+  (`topology/lib/heartbeat.mjs`), with no model turn involved. A heartbeat from the lead's exact
+  binding (socket, server pid, pane id, and the pane pid among the hook's ancestors) that is younger
+  than `AO_LEAD_HEARTBEAT_TTL_MS` (default 5 minutes) proves the lead alive. `leadState` then
+  reports `responsive` with `verdict_source: "heartbeat"` and `busy`, and the pane is not rung. A
+  dead pane, a respawned pane, another pane's heartbeat or a stale one still reads as before, and
+  the nonce probe remains the proof when no heartbeat exists. Outside tmux the hook writes nothing.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
