@@ -19,6 +19,16 @@
   `pool.wake` file (git-ignored) plus `tm pool ensure`. `runPool`'s sleep checks for that file
   every second and consumes it, so a woken pool ticks within about a second, not 30 s.
 
+- **A ticket's progress reaches the origin task and lead (TM-359, EP-028).** PR opened, review,
+  merged, published, failed and done each add one comment on the origin task (through the ORIGIN's
+  own `tm comment`) and send one standing mail to the origin lead. Merged and done remove the
+  origin's cross-repo blocker. The store's event bridge (`notify-hook.mjs`) hears `done`,
+  `task_result` (failure, or a recorded PR) and `git_link` (a PR URL) on every surface. It spawns
+  `tm ticket notify` detached, only for tasks that carry `origin`. Review verdicts and publishes
+  are reported with `tm ticket event <id> review|published|merged <detail>`. Each event is sent at
+  most once (`originNotified` markers on the ticket). Sandbox test: `tests/test-ticket.sh`. Demo:
+  `scripts/demo-cross-repo-ticket.sh`.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
