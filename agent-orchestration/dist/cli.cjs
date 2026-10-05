@@ -25819,16 +25819,23 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
 }
 async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os24.homedir)() }) {
   const taskKey = segment(task, "TOPOLOGY_REVIEWER_TASK", "task"), revisionKey = segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision");
-  const management = await readJson3((0, import_node_path52.join)(stateRoot2(env, home), "management", repoKey((await canonicalRepoId(consumer)).id), `${taskKey}.json`)).catch(() => null);
+  const managementDir = (0, import_node_path52.join)(stateRoot2(env, home), "management", repoKey((await canonicalRepoId(consumer)).id));
+  const management = await readJson3((0, import_node_path52.join)(managementDir, `${taskKey}.json`)).catch(() => null);
   const branch = typeof management?.integration_branch === "string" && management.integration_branch ? management.integration_branch : null;
+  const basesPath = (0, import_node_path52.join)(managementDir, `${taskKey}.bases.json`);
+  const bases = await readJson3(basesPath).catch(() => ({}));
+  const hit = bases?.[revisionKey];
+  if (hit && hit.admitted_base === admittedBase && hit.branch === branch && COMMIT_SHA.test(String(hit.base)) && (hit.base === admittedBase || await isAncestor(consumer, admittedBase, hit.base) && await isAncestor(consumer, hit.base, revision)))
+    return { admitted_base: admittedBase, effective_base: hit.base, range_note: null };
   if (branch && typeof management.branch === "string" && management.branch) {
-    const bases = await serverPullBase(consumer, management.branch).catch(() => []);
-    const other = Array.isArray(bases) ? bases.find((base2) => base2 !== branch) : void 0;
+    const bases2 = await serverPullBase(consumer, management.branch).catch(() => []);
+    const other = Array.isArray(bases2) ? bases2.find((base2) => base2 !== branch) : void 0;
     invariant2(other === void 0, "TOPOLOGY_REVIEWER_RANGE", `The task PR targets ${other}, but the task was admitted against the integration branch ${branch}; refusing the range.`);
   }
   const request = await readJson3((0, import_node_path52.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson3((0, import_node_path52.join)(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
   const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
+  if (note === null) await writeJson(basesPath, { ...bases, [revisionKey]: { base, admitted_base: admittedBase, branch, verified_at: nowIso() } });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
 async function taskTree(management, identity, consumer) {
@@ -26438,7 +26445,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process13, import_node_crypto28, import_promises42, import_node_os24, import_node_path52, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, ZERO_BLOB, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process13, import_node_crypto28, import_promises42, import_node_os24, import_node_path52, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process13 = require("node:child_process");
@@ -26489,6 +26496,7 @@ var init_reviewer = __esm({
     PENDING_COLLECTION_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_NO_VERDICT"]);
     COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
     INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
+    isAncestor = async (dir, a, b) => (await run("git", ["-C", dir, "merge-base", "--is-ancestor", a, b], { allowFailure: true })).code === 0;
     ZERO_BLOB = /^0+$/;
     REVIEW_CHECKLIST_PATH = (0, import_node_path52.join)(".bytedesk", "agent-orchestration", "review-checklist.md");
     LOG_TAIL_MAX = 4e3;
@@ -62167,10 +62175,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "0a2cea3a2ba619f704cd2899f42c091fcef760ee39f6c5892b681f518fa8dde2";
+  return false ? null : "83eb6c84469a3b2e71deec6724409116563e6da7d31744fc860a55057f81ee86";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "0a2cea3a2ba619f704cd2899f42c091fcef760ee39f6c5892b681f518fa8dde2";
+  const fingerprint2 = false ? null : "83eb6c84469a3b2e71deec6724409116563e6da7d31744fc860a55057f81ee86";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -62787,7 +62795,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "0a2cea3a2ba619f704cd2899f42c091fcef760ee39f6c5892b681f518fa8dde2",
+  sourceFingerprint: false ? null : "83eb6c84469a3b2e71deec6724409116563e6da7d31744fc860a55057f81ee86",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

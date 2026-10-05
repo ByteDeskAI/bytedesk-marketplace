@@ -98,6 +98,16 @@
 
 ### Fixed
 
+- **A network blip no longer flips an approved review (TM-259, EP-028).** Once the server has
+  verified a task revision's effective review base, the host records it in
+  `<state>/management/<repo>/<task>.bases.json` and reuses it for that exact (task, revision). So
+  supervision and eligibility sweeps make no GitHub call for a recorded revision, and a rate
+  limit or outage can no longer fall back to the admitted base and report an approved task as
+  "review does not cover the complete admitted task range". A fallback is never recorded, so a
+  first derivation with the server down still fails closed to the admitted base. A recorded base
+  that is not between the admitted base and the revision is ignored. The GitHub repository itself
+  was already pinned by TM-263.
+
 - **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
   review range, the patch, the binary manifest and the files a finding may name now resolve from
   the task worktree in the admission record. The request records that `worktree`, and the reviewer

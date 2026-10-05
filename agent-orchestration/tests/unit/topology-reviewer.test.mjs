@@ -476,6 +476,8 @@ async function mergedBranch(t, { late = false } = {}) {
 }
 
 const probesUp = { alive: async () => true, responsive: async () => true };
+// TM-259: drop the host's recorded verified bases, so the next derivation asks the server again.
+const forgetBases = f => rm(f.managementPath.replace(/\.json$/, '.bases.json'), { force: true });
 
 test('TM-257 (a,f) a branch that merged main is reviewed over its own changes, before and after landing', async t => {
   const { f, git, sibling, revision, server, o } = await mergedBranch(t);
@@ -490,10 +492,14 @@ test('TM-257 (a,f) a branch that merged main is reviewed over its own changes, b
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
   // (f) Landing: the server's default branch now contains the revision; the recorded base stands.
   await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
-  const calls = server.calls;
+  let calls = server.calls;
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
-  assert.ok(server.calls > calls, 'the landed check asked the server');
+  assert.equal(server.calls, calls, 'TM-259: the verified base is recorded, so landing asks the server nothing');
+  await forgetBases(f); calls = server.calls;
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  assert.ok(server.calls > calls, 'with no recorded base, the landed check asks the server');
   // (f) refused: the server says the recorded base is not on its default branch.
+  await forgetBases(f);
   const offDefault = async (dir, from) => from === null ? { status: 'behind', merge_base: revision } : { status: 'diverged', merge_base: f.revision };
   const refused = (await reviewEligibility({ ...o, serverCompare: offDefault, revision, probes: probesUp })).reasons;
   assert.ok(refused.some(reason => /not on the server default branch/.test(reason)), refused.join('\n'));
@@ -530,7 +536,7 @@ test('TM-325 a branch that merged its integration branch is reviewed over its ow
   assert.equal(review.effective_base, sibling);
   // Landed on the integration branch: the recorded base is checked against that branch, not main.
   await git(['checkout', '-q', 'fix/integration']); await git(['merge', '-q', '--ff-only', revision]);
-  asked.length = 0;
+  await forgetBases(f); asked.length = 0;
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
   assert.ok(asked.some(([from, to]) => from === sibling && to === 'fix/integration'), JSON.stringify(asked));
   assert.equal(server.main, f.revision, 'main never moved');
@@ -547,7 +553,7 @@ test('TM-325 a landed task whose integration branch was merged and deleted keeps
   await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
   await git(['checkout', '-q', 'fix/integration']); await git(['merge', '-q', '--ff-only', revision]);
   await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', 'fix/integration']); await git(['branch', '-q', '-D', 'fix/integration']);
-  asked.length = 0;
+  await forgetBases(f); asked.length = 0;
   const gone = async (dir, from, to) => { asked.push([from, to]); if (from === 'fix/integration' || to === 'fix/integration') throw new Error('gh compare failed: HTTP 404'); return o.serverCompare(dir, from, to); };
   assert.deepEqual((await reviewEligibility({ ...o, serverCompare: gone, revision, probes: probesUp })).reasons, []);
   const { reviewRangeBase } = await import('../../topology/lib/reviewer.mjs');
@@ -564,6 +570,44 @@ test('TM-325 an integration branch the server cannot answer for, or a malformed 
   let called = false;
   const bad = await effectiveBase(f.consumer, f.revision, revision, { branch: 'main...x', serverCompare: async () => { called = true; return { status: 'ahead', merge_base: revision }; } });
   assert.equal(bad.base, f.revision); assert.match(bad.note, /not a plain branch name/); assert.equal(called, false);
+});
+
+test('TM-259 a server outage on a revision with a recorded verified base keeps the approved review valid', async t => {
+  const { f, sibling, revision, o } = await mergedBranch(t);
+  const { reviewRangeBase } = await import('../../topology/lib/reviewer.mjs');
+  const down = async () => { throw new Error('gh: HTTP 403 rate limit exceeded'); };
+  // First derivation with the server down still fails closed to the admitted base, and is not recorded.
+  const fallback = await reviewRangeBase({ ...o, serverCompare: down, revision, admittedBase: f.revision });
+  assert.equal(fallback.effective_base, f.revision); assert.match(fallback.range_note, /rate limit/);
+  await assert.rejects(readFile(f.managementPath.replace(/\.json$/, '.bases.json'), 'utf8'), { code: 'ENOENT' });
+  const request = await requestReview({ ...o, revision });
+  assert.equal(request.effective_base, sibling);
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
+  assert.deepEqual((await reviewEligibility({ ...o, serverCompare: down, revision, probes: probesUp })).reasons, [], 'a blip after approval does not flip it');
+  // Coverage: without the record, the same blip is exactly the flip TM-259 reports.
+  await forgetBases(f);
+  const flipped = (await reviewEligibility({ ...o, serverCompare: down, revision, probes: probesUp })).reasons;
+  assert.ok(flipped.includes('review does not cover the complete admitted task range'), flipped.join('\n'));
+});
+
+test('TM-259 sweeps make no GitHub call for a revision whose base is recorded; a tampered record is not trusted', async t => {
+  const { f, git, commit, sibling, revision, asked, pulls, o } = await mergedIntegrationBranch(t, 'fix/integration');
+  const { reviewRangeBase } = await import('../../topology/lib/reviewer.mjs');
+  const request = await requestReview({ ...o, revision });
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
+  assert.ok(asked.length > 0 && pulls.length > 0, 'the first derivation asked the server');
+  asked.length = 0; pulls.length = 0;
+  for (let tick = 0; tick < 3; tick++) assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  assert.equal((await reviewRangeBase({ ...o, revision, admittedBase: f.revision })).effective_base, sibling);
+  assert.deepEqual([asked.length, pulls.length], [0, 0], 'no compare and no PR lookup for a recorded revision');
+  // A recorded base outside admitted..revision is ignored and the server is asked again.
+  const path = f.managementPath.replace(/\.json$/, '.bases.json');
+  const recorded = JSON.parse(await readFile(path, 'utf8'));
+  await git(['checkout', '-q', '-b', 'side', f.revision]); const outside = await commit('side.txt', 'not in the task range'); await git(['checkout', '-q', 'task']);
+  await writeJson(path, { [revision]: { ...recorded[revision], base: outside } });
+  assert.notEqual(outside, sibling);
+  assert.equal((await reviewRangeBase({ ...o, revision, admittedBase: f.revision })).effective_base, sibling);
+  assert.ok(asked.length > 0, 'the tampered record sent the derivation back to the server');
 });
 
 test('TM-257 (b) a branch that never merged main keeps the admitted range', async t => {
@@ -635,11 +679,13 @@ test('TM-257 (h) a pre-TM-257 request after landing verifies the stored review b
   const stored = JSON.parse(await readFile(request.path, 'utf8'));
   delete stored.admitted_base; delete stored.effective_base; delete stored.range_note;
   await writeJson(request.path, stored);
+  await forgetBases(f);
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, [], 'the stored review base reproduces the reviewed patch');
   // A stored base that does not reproduce the reviewed patch is not used; a re-review is asked for.
   const { reviewsRoot } = await import('../../topology/lib/reviewer.mjs');
   const reviewPath = join(await reviewsRoot(f.consumer, f.env, f.home), 'TM-1', `${revision}.json`);
   await writeJson(reviewPath, { ...(JSON.parse(await readFile(reviewPath, 'utf8'))), base_revision: own });
+  await forgetBases(f);
   const reasons = (await reviewEligibility({ ...o, revision, probes: probesUp })).reasons;
   assert.ok(reasons.some(reason => /predates TM-257.*re-review is required/.test(reason)), reasons.join('\n'));
 });

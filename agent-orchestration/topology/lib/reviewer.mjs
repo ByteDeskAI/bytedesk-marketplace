@@ -971,8 +971,19 @@ export async function reviewRangeBase({ consumer, task, revision, admittedBase, 
   const taskKey = segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task'), revisionKey = segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision');
   // TM-325: the integration branch is read from the producer-owned admission record, never the mutable task
   // file; none recorded = the default branch. The task PR's base, when the server can name it, must agree.
-  const management = await readJson(join(stateRoot(env, home), 'management', repoKey((await canonicalRepoId(consumer)).id), `${taskKey}.json`)).catch(() => null);
+  const managementDir = join(stateRoot(env, home), 'management', repoKey((await canonicalRepoId(consumer)).id));
+  const management = await readJson(join(managementDir, `${taskKey}.json`)).catch(() => null);
   const branch = typeof management?.integration_branch === 'string' && management.integration_branch ? management.integration_branch : null;
+  // TM-259: a base the server verified for this exact (task, revision) is recorded in host state and reused,
+  // so supervision and eligibility sweeps make no GitHub call for it, and a rate limit or network blip
+  // cannot fall back to the admitted base and flip an approved review to "does not cover the range".
+  // Only a server-verified derivation is recorded; a fallback never is, so first derivation still fails closed.
+  const basesPath = join(managementDir, `${taskKey}.bases.json`);
+  const bases = await readJson(basesPath).catch(() => ({}));
+  const hit = bases?.[revisionKey];
+  if (hit && hit.admitted_base === admittedBase && hit.branch === branch && COMMIT_SHA.test(String(hit.base))
+    && (hit.base === admittedBase || await isAncestor(consumer, admittedBase, hit.base) && await isAncestor(consumer, hit.base, revision)))
+    return { admitted_base: admittedBase, effective_base: hit.base, range_note: null };
   if (branch && typeof management.branch === 'string' && management.branch) {
     const bases = await serverPullBase(consumer, management.branch).catch(() => []); // ponytail: unanswerable = unconfirmed, not refused
     const other = Array.isArray(bases) ? bases.find(base => base !== branch) : undefined;
@@ -981,8 +992,12 @@ export async function reviewRangeBase({ consumer, task, revision, admittedBase, 
   const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson(join(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
   const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
+  // ponytail: unlocked read-modify-write; two writers record the same verified value for a revision.
+  if (note === null) await writeJson(basesPath, { ...bases, [revisionKey]: { base, admitted_base: admittedBase, branch, verified_at: nowIso() } });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
+
+const isAncestor = async (dir, a, b) => (await run('git', ['-C', dir, 'merge-base', '--is-ancestor', a, b], { allowFailure: true })).code === 0;
 
 /**
  * TM-366: the tree a review reads, the worker's task worktree from the admission record. The main
