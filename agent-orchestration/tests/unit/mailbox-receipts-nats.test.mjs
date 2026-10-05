@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
-import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
+import { canonicalRepoId, repoKey, repoSlug } from '../../topology/lib/repoid.mjs';
 import { openNatsTransport, ORCH_LAYOUT } from '../../topology/lib/orch-transport.mjs';
 import { createMailboxEnvelope, publishMailboxEnvelope, listMailboxReceipts, setMailboxDisposition, resumeMailboxPublications } from '../../topology/lib/mailbox-receipts.mjs';
 import { sendStandingMessage, resumeStandingMessages, readStandingInbox } from '../../topology/lib/standing-mailbox.mjs';
@@ -129,4 +129,20 @@ test('run replies remain available to a second waiter process after broker ACK',
   const wait = `${common} const result=await api.waitForReplies({runDir,agentIds:['worker'],messageId:${JSON.stringify(sent.id)},timeoutMs:3000,pollMs:50}); console.log(JSON.stringify(result)); await (await import(${JSON.stringify(moduleURL('orch-transport'))})).closeLiveTransports();`;
   const first = JSON.parse(await f.runChild(wait)), second = JSON.parse(await f.runChild(wait));
   assert.equal(first.ok, true); assert.equal(second.ok, true); assert.equal(second.replies[0].body, 'verified answer');
+});
+
+test('TM-371: published mail carries a readable Orch-Repo-Slug header; the subject keeps its digest', async t => {
+  const f = await fixture(t);
+  await publishMailboxEnvelope({ envelope: f.make('slug-proof'), transport: f.transport, env: f.env });
+  const delivery = await f.transport.pullMail({ repo: f.repo, agent: 'worker' });
+  assert.equal(delivery?.subject, ORCH_LAYOUT.mailSubject(f.repo, 'worker'));
+  assert.equal(delivery.repoSlug, 'repo');
+  await delivery.ack();
+});
+
+test('TM-371: repoSlug names the checkout for <repo>/.git, a bare repo by its name, and is header-safe', () => {
+  assert.equal(repoSlug('/home/u/src/bytedesk-marketplace/.git'), 'bytedesk-marketplace');
+  assert.equal(repoSlug('/srv/git/tools.git'), 'tools');
+  assert.equal(repoSlug('/tmp/my repo:x'), 'my-repo-x');
+  assert.equal(repoSlug(''), 'repo');
 });

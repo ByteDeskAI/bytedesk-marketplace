@@ -56,9 +56,10 @@ import { cycleTime, human as humanMs, summary as timeSummary, timeInStatus } fro
 import { upsertDecision } from "../lib/adr.mjs";
 import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score as capScore, ship as shipCap } from "../lib/capability.mjs";
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
-import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
+import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
-import { DECISION_INTAKE, TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, resolveForeign, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { addComment, addLink, assign, backlog, DECISION_INTAKE, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, resolveForeign, setType, subtasks, TRIAGE_LABELS, typeOf } from "../lib/issue.mjs";
+import { EVENT_KINDS, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -73,10 +74,12 @@ import { detectHostCaps, renderCaps } from "../lib/hostcaps.mjs";
 import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../lib/agents.mjs";
 import { getPath, readConfigDocument, setPath, writeConfigDocument } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
+import { liveOwner } from "../lib/dispatch/live-owner.mjs";
+import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { ensurePool, livePool, poolable, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -170,6 +173,7 @@ function renderEvidenceCheck(rows) {
 
 const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --title "<new title>")';
 const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] [--filed-by <board>/<agent>/<task>]';
+const USAGE_TICKET = 'usage: tm ticket <repo-path|slug> "<title>" --ac "<criterion>"... [--priority critical|highest|high|medium|low] [--body <text>] [--from-task TM-n]\n       tm ticket event <id> <' + "pr_opened|review|merged|published|failed|done" + '> [detail]';
 
 /** One foreign blocker as text: the ref, and the landing sha once `tm upstream-resolved` recorded it. */
 const foreignLine = (f) => `${f?.ref ?? "?"} (${f?.resolved?.sha ? `landed ${f.resolved.sha}` : "unresolved"})`;
@@ -357,6 +361,19 @@ const VERBS = {
         filedBy = { board: m[1].toLowerCase(), agent: m[2], task: m[3] };
         rest.splice(fi, 2);
       }
+      // --origin '<json>' is written by `tm ticket` in another repo (TM-381): where this task came
+      // from, so its progress can be reported back there.
+      const oi = rest.indexOf("--origin");
+      let origin;
+      if (oi !== -1) {
+        try {
+          origin = JSON.parse(rest[oi + 1]);
+        } catch {
+          origin = null;
+        }
+        if (!origin || typeof origin.repo !== "string") die(`--origin needs a JSON object with a repo path\n${USAGE_TASK_NEW}`);
+        rest.splice(oi, 2);
+      }
       // Any flag left in `rest` is one this verb does not take, and `rest.join(" ")` would bake it
       // into the title. `tm epic new` and `tm edit` already guard this; `task new` did not, which is
       // the same guard-in-one-sibling shape those two were fixed for. Observed: a `--epic EP-018`
@@ -366,7 +383,7 @@ const VERBS = {
       if (stray) die(`unknown option ${stray}\n${USAGE_TASK_NEW}`);
       const title = rest.join(" ");
       if (!title) die(USAGE_TASK_NEW);
-      const base = { title, epic: state(P).activeEpic || null, acceptance: acs.map((text) => ({ text, done: false })), evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
+      const base = { title, epic: state(P).activeEpic || null, acceptance: acs.map((text) => ({ text, done: false })), evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp(), ...(origin ? { origin } : {}) };
       const applied = template ? applyTemplate(template, base, P) : { fields: base, body: "" };
       // An explicit --body wins over the template's starter body; the gate below checks
       // what will actually be created, so a template's own body/criteria satisfy it too.
@@ -1350,10 +1367,17 @@ const VERBS = {
 
   link(id, ...rest) {
     requireInit();
-    // `tm link <id> <sha>` still attaches a commit; `tm link <id> <type> <id>` links tasks.
-    if (rest.length >= 2 && kindOf(rest.at(-1))) {
+    // `tm link <id> <sha>` still attaches a commit; `tm link <id> <type> <id>` links tasks, and
+    // `<type> <board>#<id>` links a task on another board (TM-381). `--remove` drops a typed link.
+    const remove = rest.includes("--remove");
+    rest = rest.filter((a) => a !== "--remove");
+    if (rest.length >= 2 && (kindOf(rest.at(-1)) || foreignRef(rest.at(-1)))) {
       const target = rest.at(-1);
       const type = rest.slice(0, -1).join(" ");
+      if (remove) {
+        removeLink(id, type, target, P);
+        return out(`${id} no longer ${type} ${target}`);
+      }
       addLink(id, type, target, P);
       return out(`${id} ${type} ${target}`);
     }
@@ -1362,6 +1386,58 @@ const VERBS = {
     if ((t.commits || []).includes(ref)) return;
     mutate(id, (doc) => ({ commits: [...new Set([...(doc.commits || []), ref])] }), P);
     out(`${id} ← ${ref}`);
+  },
+
+  /**
+   * Cross-repo work is a ticket on the target repo's board (TM-381). The ticket is filed by the
+   * target's own `tm`, its lead is mailed through agent-orchestration when that is installed
+   * (TM-357), and its progress comes back here as comments and mail (TM-359). lib/ticket.mjs.
+   */
+  ticket(target, ...rest) {
+    requireInit();
+    if (target === "notify") {
+      // Internal: the logEvent bridge (lib/notify-hook.mjs) hands over one event row.
+      const row = JSON.parse(rest[0] || "{}");
+      const ev = originEventFor(row);
+      return ev && row.id ? emit(notifyOrigin(row.id, ev, P), () => `${row.id} → origin: ${ev.kind}`) : undefined;
+    }
+    if (target === "event") {
+      const [id, kind, ...detail] = rest;
+      if (!id || !EVENT_KINDS.includes(kind)) die(USAGE_TICKET);
+      const res = notifyOrigin(id, { kind, key: `${kind}:${detail.join(" ")}`, detail: detail.join(" ") }, P);
+      if (!res.ok) die(res.reason, 2);
+      return emit(res, () => (res.duplicate ? `${id} ${kind}: already reported` : `${id} ${kind} → origin comment ${res.comment === true ? "added" : `not added (${res.comment})`}, mail ${res.mail.sent ? "sent" : `not sent (${res.mail.reason})`}${res.cleared ? ", origin blocker cleared" : ""}`));
+    }
+    const take = (flag) => {
+      const at = rest.indexOf(flag);
+      if (at === -1) return undefined;
+      const v = rest[at + 1];
+      if (v === undefined || v.startsWith("--")) die(USAGE_TICKET);
+      rest.splice(at, 2);
+      return v;
+    };
+    const priority = take("--priority") ?? "medium";
+    const body = take("--body") ?? "";
+    const fromTask = take("--from-task") ?? null;
+    const acceptance = [];
+    for (let v = take("--ac"); v !== undefined; v = take("--ac")) acceptance.push(v);
+    const stray = rest.find((w) => w.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\n${USAGE_TICKET}`);
+    const title = rest.join(" ");
+    if (!target || !title) die(USAGE_TICKET);
+    let res;
+    try {
+      res = fileTicket({ target, title, priority, acceptance, body, fromTask }, P);
+    } catch (err) {
+      die(`tm ticket: ${err.message}`, 2);
+    }
+    emit(res, () =>
+      [
+        `${res.ref} filed on ${res.root} (priority ${res.priority})${fromTask ? ` — ${fromTask} is now blocked by it` : ""}`,
+        `  lead: ${res.mail.sent ? "mailed" : res.mail.reason}`,
+        `  pool: ${res.wake.woke ? `woken (${res.wake.pool})` : `not woken: ${res.wake.reason}`}`,
+      ].join("\n"),
+    );
   },
 
   subtask(id, parent) {
@@ -1485,8 +1561,34 @@ const VERBS = {
   },
 
   /** Explicit lock handling for parallel sessions. */
-  claim(id) {
+  async claim(id, ...rest) {
     requireInit();
+    /**
+     * `claim renew --live` (TM-362): renew every dispatched worker's claim that its collector
+     * proves alive, for a supervisor that is not the pool. Dead workers are collected, not renewed.
+     */
+    if (id === "renew") {
+      if (!argv.includes("--live")) die("usage: tm claim renew --live", 2);
+      const rows = await renewLiveClaims({ p: P });
+      return emit(rows, () =>
+        rows.length
+          ? rows.map((r) => `${r.id}: ${r.renewed ? "renewed (worker alive)" : r.pending ? "alive, claim not held by its dispatch" : r.reason ? `not renewed — ${r.reason}` : `not renewed — worker ended (${r.outcome ?? "collected"})`}`).join("\n")
+          : "(no dispatched workers)",
+      );
+    }
+    // TM-397: `tm claim note <id> --worker <name> [--ttl 60m]` — a live worker subagent of this
+    // session owns the task; the Stop gate honours it until the TTL runs out.
+    if (id === "note") {
+      const task = rest[0];
+      const at = (name) => { const i = rest.indexOf(name); return i < 0 ? null : rest[i + 1]; };
+      const worker = at("--worker");
+      const ttl = String(at("--ttl") ?? "60m").match(/^(\d+)([smh]?)$/);
+      if (!task || task.startsWith("--") || !worker || worker.startsWith("--") || !ttl) die("usage: tm claim note <id> --worker <name> [--ttl <n>[s|m|h]]   (default 60m)");
+      const ttlMs = Number(ttl[1]) * { s: 1000, m: 60_000, h: 3_600_000, "": 60_000 }[ttl[2]];
+      const claim = noteClaimWorker(task, { session: sessionId(), worker, ttlMs, p: P });
+      if (!claim) die(`${task} is not claimed by this session (${sessionId() || "no session id"}) — claim or start it first.`, 2);
+      return out(JSON_OUT ? JSON.stringify(claim, null, 2) : `${task}: worker ${worker} noted until ${claim.worker.until}`);
+    }
     const res = claimTask(id, {
       session: sessionId(),
       actor: actorLabel(actor()),
@@ -1535,6 +1637,42 @@ const VERBS = {
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.
     if (res.backend === "manual" && res.detail?.commands) out(res.detail.commands.join("\n"));
+  },
+
+  /**
+   * TM-360: would `tm dispatch` refuse this task because a worker is already live? Read-only;
+   * the same liveOwner() dispatch() consults, so the pool and a lead's start-worker agree.
+   * Exit 0 when free, 2 when held.
+   */
+  "dispatch-check"(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm dispatch-check <id> [--json]");
+    const task = read(id, P);
+    if (!task) die(`not found: ${id}`, 2);
+    const owner = liveOwner(task, P);
+    if (JSON_OUT) out(JSON.stringify({ id, free: !owner, ...(owner ? { owner } : {}) }, null, 2));
+    else out(owner ? owner.reason : `${id}: no live worker; dispatch may proceed`);
+    if (owner) process.exitCode = 2;
+  },
+
+  /**
+   * TM-361: done or ready-for-review tasks with no reviewer verdict, and open PRs idle past
+   * --idle-hours (default 24). Read-only without --apply; --apply fires each finding exactly once
+   * (marker + task comment). agent-orchestration's supervisor runs `review-sweep --apply --json`.
+   */
+  "review-sweep"(...args) {
+    requireInit();
+    const num = (name, fallback) => {
+      const at = args.indexOf(name);
+      if (at < 0) return fallback;
+      const v = Number(args[at + 1]);
+      return Number.isFinite(v) && v >= 0 ? v : die(`usage: tm review-sweep [--apply] [--since <days>] [--idle-hours <n>] [--json]`);
+    };
+    const res = reviewSweep({ p: P, apply: args.includes("--apply"), sinceDays: num("--since", 7), idleHours: num("--idle-hours", 24) });
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    const c = res.coverage;
+    out(`review-sweep: ${res.findings.length} finding(s), ${res.fresh.length} new — scanned ${c.tasks} task(s), ${c.candidates} finished with commits in ${c.sinceDays}d; PRs: ${c.prs ?? c.prSource}`);
+    for (const f of res.findings) out(`  ${f.fresh ? (res.applied ? "fired" : "new  ") : "seen "}  ${f.detail}${f.pr ? ` (${f.pr})` : ""}`);
   },
 
   /** Collect a dispatched worker's result into the store (park-on-failure, comment, task_result). */
@@ -1623,7 +1761,25 @@ const VERBS = {
       const line = `${head} — ${res.workers}/${res.poolWip} workers, ${res.poolable} ready`;
       return emit(res, () => (res.paused ? `${line}\npaused: ${res.pausedReason} (since ${res.pausedAt}) — tm pool resume` : line));
     }
-    die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume [--dry-run])`);
+    if (action === "wait") {
+      // TM-374: the verb an agent runs instead of `sleep N; tm pool status`. One JSON result
+      // always; exit 0 met, 2 timed out, 1 bad argument.
+      const at = rest.indexOf("--until");
+      const until = at >= 0 ? rest[at + 1] : "idle";
+      const id = at >= 0 && rest[at + 2] && !rest[at + 2].startsWith("--") ? rest[at + 2] : undefined;
+      const ti = rest.indexOf("--timeout");
+      const timeoutSeconds = ti >= 0 ? Number(rest[ti + 1]) : 300;
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) die(`--timeout must be a number of seconds, got: ${rest[ti + 1]}`);
+      let res;
+      try {
+        res = await poolWait({ until, id, timeoutSeconds, intervalMs: Number(process.env.TM_POOL_WAIT_INTERVAL_MS) || 1000, p: P });
+      } catch (e) {
+        die(e.message);
+      }
+      out(JSON.stringify(res));
+      process.exit(res.ok ? 0 : 2);
+    }
+    die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume | wait [--dry-run])`);
   },
 
   /** Drop claims whose sessions or worktrees are gone. */
@@ -1813,6 +1969,7 @@ const VERBS = {
         "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
+        "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
         "  rework <id> --revision <full SHA>         reflect the producer rework after changes_requested",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
@@ -1829,6 +1986,8 @@ const VERBS = {
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
+        "  ticket <repo|slug> \"<title>\" --ac <c>... [--priority p] [--from-task TM-n]   file it on another repo's board",
+        "  ticket event <id> pr_opened|review|merged|published|failed|done [detail]   report a ticket's progress to its origin",
         '  sprint [show|new "<name>"|use <id>|add <task>...|rm|done|list]',
         "  next | board | stale | standup [iso] | handoff <id>",
         `  find <words> [field:value]...          fields: ${FIELD_NAMES.join(", ")} (a leading - negates)`,
@@ -1842,9 +2001,13 @@ const VERBS = {
         "  where                         project launcher and resolved plugin runtime",
         "  caps                          what this host can dispatch work to: agent backends, CLIs, sandbox",
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
+        "  review-sweep [--apply] [--since <days>] [--idle-hours <n>]   unreviewed finished tasks and idle open PRs",
+        "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
+        "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
+        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0) or timeout (exit 2); never sleep-poll",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",

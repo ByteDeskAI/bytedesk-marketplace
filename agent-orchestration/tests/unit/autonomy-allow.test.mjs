@@ -19,6 +19,7 @@ const ALLOWED = [
   'ao-topology capture --run /r --agent w1 --lines 60',
   'agent-orchestration doctor',
   'agent-orchestration services status',
+  'agent-orchestration services wait --until healthy --timeout 60',
   'tm task new "Fix the guard" --epic EP-028',
   '.bytedesk/task-management/bin/tm board',
   '/home/u/repo/.bytedesk/task-management/bin/tm show TM-1',

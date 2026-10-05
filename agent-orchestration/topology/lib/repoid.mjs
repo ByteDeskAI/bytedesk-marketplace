@@ -58,6 +58,16 @@ export function repoKey(id) {
 }
 
 /**
+ * TM-371: the human-readable name beside `repoKey`, from the same canonical id: the checkout folder
+ * for `<repo>/.git`, the bare repository's name otherwise. Display only; subjects stay keyed by digest.
+ */
+export function repoSlug(id) {
+  const path = String(id ?? "");
+  const name = basename(basename(path) === ".git" ? dirname(path) : path).replace(/\.git$/, "");
+  return name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "repo";
+}
+
+/**
  * Host-local state shared across every checkout of every repo: lead and reviewer registries,
  * presence snapshots, watcher leases. Mirrors the broker's stateRoot in src/config.mjs so both
  * runtimes agree on one home — but resolved here, dependency-free, because the topology layer

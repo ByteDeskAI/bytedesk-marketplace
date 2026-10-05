@@ -12,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, sleep } from '../../topology/lib/util.mjs';
 import { findNatsServer } from '../../topology/lib/nats-local.mjs';
-import { closeLiveTransports, readTransportState, redactUrl, resolveTransport, transportStatePath } from '../../topology/lib/orch-transport.mjs';
+import { closeLiveTransports, readTransportState, redactUrl, resolveTransport, selectionView, transportStatePath, updateTransportState } from '../../topology/lib/orch-transport.mjs';
+import { summary } from '../../src/services/cli.mjs';
 import { natsOutageTick } from '../../topology/lib/nats-outage.mjs';
 import { readStandingInbox, readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
 import { agentsRoot } from '../../topology/lib/agents.mjs';
@@ -316,4 +317,172 @@ test('a non-supervisor holding the fallback keeps its outage open; closing it le
   await closeLiveTransports();
   await sleep(2 * bound);
   assert.equal((await read()).outage.retired, true, 'control: once nothing holds it, the outage retires');
+});
+
+// ---- TM-309 follow-ups (C2–C6, B2, B3, credential sinks) ----
+
+const natsBin = () => findNatsServer({ ...process.env, AO_NATS_SERVER: process.env.AO_NATS_SERVER ?? '' });
+const portOf = (url) => Number(new URL(url).port);
+// A broker on the configured port, killed in teardown (TM-326/TM-330: no leaked nats-server).
+function startBroker(t, bin, port, root, { jetstream = true } = {}) {
+  const storeDir = join(root, `js-${port}`);
+  mkdirSync(storeDir, { recursive: true });
+  const child = spawn(bin, [...(jetstream ? ['-js', '-sd', storeDir] : []), '-a', '127.0.0.1', '-p', String(port)], { stdio: 'ignore' });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  return child;
+}
+const leadInbox = (f, env) => readStandingInbox({ consumer: f.repo, agent: 'lead-1', env, home: f.home });
+
+test('C2: recovery waits for the last fallback holder; the lead gets one outage and one recovery, read from its inbox', { timeout: 90_000 }, async t => {
+  const bin = await natsBin();
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const f = await outageFixture(t, 'ao-nats-holders-');
+  const env = { ...f.env, AO_NATS_SERVER: bin };
+  const tick = () => natsOutageTick({ consumer: f.repo, env, home: f.home, lead: f.lead, deliver: f.deliver });
+  const subjects = async () => (await leadInbox(f, env)).map(m => [m.envelope.context?.subject, m.status]);
+
+  await resolveTransport({ env });
+  assert.equal((await tick()).status, 'delivered');
+  // The lead reads it while on the fallback, which is the only server that carries it.
+  assert.deepEqual(await subjects(), [[`NATS outage: ${f.configured}`, 'accepted']]);
+  // A second process on this host (an MCP server) also fell back and still holds it.
+  const other = spawn('sleep', ['120'], { stdio: 'ignore' });
+  t.after(() => { if (other.exitCode === null) other.kill('SIGKILL'); });
+  await updateTransportState(env, f.home, s => ({ ...s, outage: { ...s.outage, holders: { ...s.outage.holders, [other.pid]: new Date().toISOString() } } }), { read: { retireAfterMs: Infinity } });
+
+  startBroker(t, bin, portOf(f.configured), f.root);
+  await untilConnect(portOf(f.configured));
+  assert.equal((await tick()).probed, true, 'control: the real NATS + JetStream probe sees the server');
+  const back = await resolveTransport({ env });
+  assert.equal(back.selection.source, 'AO_NATS_URL', 'the supervisor moved back');
+  const held = (await readTransportState(env, f.home, { retireAfterMs: Infinity })).outage;
+  assert.equal(held.recovered_at, null, 'only the supervisor moved back: the outage is still open');
+  assert.ok(held.reachable_at);
+  assert.deepEqual(Object.keys(held.holders), [String(other.pid)]);
+  await tick();
+  assert.deepEqual(await subjects(), [[`NATS outage: ${f.configured}`, 'accepted']], 'no recovery while a holder remains');
+
+  other.kill('SIGKILL');
+  await new Promise(resolve => other.once('exit', resolve));
+  const recovered = await tick();
+  assert.equal(recovered.kind, 'recovered');
+  assert.equal(recovered.status, 'delivered');
+  assert.equal(await tick(), null);
+  assert.deepEqual((await subjects()).map(([s]) => s), [`NATS outage: ${f.configured}`, `NATS recovered: ${f.configured}`],
+    'exactly one outage and one recovery reached the lead');
+  assert.deepEqual(f.mail.map(m => m.subject), [`NATS outage: ${f.configured}`, `NATS recovered: ${f.configured}`]);
+});
+
+test('C3/C6: a configured server without JetStream is neither probed as back nor recorded as recovered', { timeout: 90_000 }, async t => {
+  const bin = await natsBin();
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const f = await outageFixture(t, 'ao-nats-nojs-');
+  const env = { ...f.env, AO_NATS_SERVER: bin };
+  let discards = 0;
+  const tick = () => natsOutageTick({ consumer: f.repo, env, home: f.home, lead: f.lead, deliver: f.deliver, discard: async () => { discards += 1; } });
+  await resolveTransport({ env });
+  await tick();
+  startBroker(t, bin, portOf(f.configured), f.root, { jetstream: false });
+  await untilConnect(portOf(f.configured));
+  await tick();
+  assert.equal(discards, 0, 'C6: a server that answers TCP and NATS but not JetStream costs no re-dial');
+  // C3: the open itself reaches the server, then fails JetStream init; nothing is recorded.
+  await closeLiveTransports();
+  await assert.rejects(resolveTransport({ env, home: f.home }));
+  const outage = (await readTransportState(env, f.home, { retireAfterMs: Infinity })).outage;
+  assert.equal(outage.recovered_at, null, 'recovery is not recorded before JetStream init succeeds');
+  assert.equal(outage.reachable_at, undefined);
+});
+
+test('C6: a configured port that only accepts TCP is never re-dialled', { timeout: 30_000 }, async t => {
+  const f = await outageFixture(t, 'ao-nats-tcp-');
+  const sockets = new Set();
+  const server = net.createServer(socket => { sockets.add(socket); socket.on('error', () => {}); });
+  await new Promise(resolve => server.listen(portOf(f.configured), '127.0.0.1', resolve));
+  t.after(() => { for (const s of sockets) s.destroy(); server.close(); });
+  const statePath = transportStatePath(f.env, f.home);
+  mkdirSync(join(statePath, '..'), { recursive: true });
+  await writeFile(statePath, JSON.stringify({ kind: 'nats', source: 'managed-local', url: 'nats://127.0.0.1:1', fallback: null,
+    outage: { source: 'AO_NATS_URL', url: f.configured, error: 'CONNECTION_REFUSED', since: new Date().toISOString(), recovered_at: null } }));
+  let discards = 0;
+  const result = await natsOutageTick({ consumer: f.repo, env: f.env, home: f.home, lead: f.lead, deliver: async () => ({ status: 'delivered' }),
+    discard: async () => { discards += 1; } });
+  assert.ok(sockets.size >= 1, 'control: the probe did reach the port');
+  assert.equal(discards, 0);
+  assert.equal(result.probed, undefined);
+});
+
+test('C4/C5: a transport.json write that fails is surfaced on the selection and in the start-log view', { timeout: 60_000 }, async t => {
+  const bin = await natsBin();
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const f = await outageFixture(t, 'ao-nats-write-');
+  const env = { ...f.env, AO_NATS_SERVER: bin };
+  delete env.AO_NATS_URL;
+  // A directory where the file belongs: every rename onto it fails.
+  mkdirSync(transportStatePath(env, f.home), { recursive: true });
+  const opened = await resolveTransport({ env, home: f.home });
+  assert.equal(opened.selection.source, 'managed-local');
+  assert.match(opened.selection.state_write_error ?? '', /EISDIR|ENOTEMPTY|EEXIST/);
+  const view = selectionView(opened);
+  assert.equal(view.source, 'managed-local');
+  assert.equal(view.state_write_error, opened.selection.state_write_error);
+});
+
+test('C5: the start-log view is this connection\'s selection, not whatever transport.json says now', () => {
+  const view = selectionView({ selection: { kind: 'nats', source: 'managed-local', url: 'nats://127.0.0.1:4333',
+    fallback: { source: 'AO_NATS_URL', url: 'nats://h:4222', error: 'CONNECTION_REFUSED' } } });
+  assert.deepEqual(view.outage, { source: 'AO_NATS_URL', url: 'nats://h:4222', error: 'CONNECTION_REFUSED', recovered_at: null });
+  assert.equal(selectionView({}), null);
+});
+
+test('B2: concurrent read-modify-writes of transport.json lose nothing', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-nats-lock-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+  await Promise.all(Array.from({ length: 25 }, () => updateTransportState(env, root,
+    async (s) => { await sleep(1); return { kind: 'nats', source: 'managed-local', url: null, n: (s?.n ?? 0) + 1 }; })));
+  assert.equal((await readTransportState(env, root)).n, 25);
+});
+
+test('B3: text services status names the transport and an open outage', () => {
+  const text = summary({ processCompose: { alive: true }, registration: { mode: 'user', active: 'active' }, processes: [], unsupported: [],
+    transport: { kind: 'nats', source: 'managed-local', url: 'nats://127.0.0.1:4333',
+      outage: { source: 'AO_NATS_URL', url: 'nats://h:4222', error: 'CONNECTION_REFUSED', since: '2026-10-05T00:00:00.000Z', recovered_at: null } } });
+  assert.match(text, /transport: nats managed-local nats:\/\/127\.0\.0\.1:4333/);
+  assert.match(text, /NATS outage: nats:\/\/h:4222 \(AO_NATS_URL\) since 2026-10-05T00:00:00\.000Z: CONNECTION_REFUSED/);
+  const recovered = summary({ processCompose: { alive: true }, registration: { mode: 'user' }, processes: [], unsupported: [],
+    transport: { kind: 'nats', source: 'AO_NATS_URL', url: 'nats://h:4222', outage: { url: 'nats://h:4222', recovered_at: 'x' } } });
+  assert.doesNotMatch(recovered, /NATS outage/);
+});
+
+test('no credential from a single, list or malformed AO_NATS_URL reaches transport.json, doctor, status, the start log or lead mail', { timeout: 120_000 }, async t => {
+  const bin = await natsBin();
+  if (!bin) { t.skip('no working nats-server binary'); return; }
+  const dead = [await freePort(), await freePort()];
+  const forms = {
+    single: `nats://u:SECRETa1@127.0.0.1:${dead[0]}`,
+    list: `nats://a:SECRETb1@127.0.0.1:${dead[0]},nats://b:SECRETb2@127.0.0.1:${dead[1]}`,
+    malformed: 'nats://u:SECRETc1@[not-a-host',
+  };
+  const { doctor } = await import('../../topology/lib/doctor.mjs');
+  for (const [form, url] of Object.entries(forms)) {
+    const f = await outageFixture(t, `ao-nats-creds-${form}-`);
+    const env = { ...f.env, AO_NATS_SERVER: bin, AO_NATS_URL: url };
+    const opened = await resolveTransport({ env, home: f.home });
+    assert.ok(opened.selection.fallback, `${form}: control, the open fell back`);
+    const sent = await natsOutageTick({ consumer: f.repo, env, home: f.home, lead: f.lead, deliver: f.deliver });
+    assert.equal(sent.status, 'delivered', `${form}: control, the notice was delivered`);
+    const sinks = {
+      'transport.json': readFileSync(transportStatePath(env, f.home), 'utf8'),
+      doctor: JSON.stringify(await doctor({ adapters: new Map(), workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [], consumer: f.repo, env, home: f.home })),
+      'services status': summary({ processCompose: { alive: true }, registration: { mode: 'user' }, processes: [], unsupported: [],
+        transport: await (await import('../../topology/lib/orch-transport.mjs')).describeTransport(env, f.home) }),
+      'start log': JSON.stringify(selectionView(opened)),
+      'lead mail': JSON.stringify(await leadInbox(f, env)),
+    };
+    assert.match(sinks['lead mail'], /NATS OUTAGE/, `${form}: control, the inbox holds the notice`);
+    assert.match(sinks['services status'], /NATS outage/, `${form}: control, status names the outage`);
+    for (const [sink, text] of Object.entries(sinks)) assert.doesNotMatch(text, /SECRET/, `${form} leaked into ${sink}`);
+    await closeLiveTransports();
+  }
 });

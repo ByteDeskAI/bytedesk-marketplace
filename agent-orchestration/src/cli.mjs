@@ -18,6 +18,8 @@ async function main() {
       "no-browser": { type: "boolean" },
       json: { type: "boolean" },
       detach: { type: "boolean" },
+      until: { type: "string" },
+      timeout: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -82,7 +84,7 @@ async function main() {
     process.stdout.write(`${JSON.stringify(await service.getRun({ runId: values["run-id"], consumerCwd: values["consumer-cwd"] }), null, 2)}\n`);
     return;
   }
-  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe|uninstall");
+  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe|uninstall");
 }
 
 main().catch((error) => {

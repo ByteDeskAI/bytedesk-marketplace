@@ -1095,8 +1095,14 @@ pool.state.json
 # The detached pool's own stream, truncated at every start. One machine's log.
 pool.log
 
+# A wake for this machine's pool, dropped by tm ticket from another repo and consumed by it.
+pool.wake
+
 # enhance-mine's last-seen evidence per signature. Derived from this machine's transcripts.
 enhance-mine.json
+
+# review-sweep's fired-finding markers (TM-361). One machine's notices.
+review-sweep.json
 
 # In-flight planning conversations, and the untrusted files attached to them. evidence/ is
 # the shared record and belongs in git; this is the opposite of that — one machine's unfinished
@@ -1236,7 +1242,9 @@ export const NOT_FOR_GIT = [
   "pool.pid",
   "pool.state.json",
   "pool.log",
+  "pool.wake",
   "enhance-mine.json",
+  "review-sweep.json",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",
@@ -1258,6 +1266,7 @@ export function isHostFile(name, rel = "") {
     name === "agents.json" ||
     name === "pool.pid" ||
     name === "pool.state.json" ||
+    name === "pool.wake" ||
     name === "events.json" ||
     name === "events.jsonl" ||
     name === "port.assigned" ||
@@ -1378,6 +1387,16 @@ function blockedByDependency(task) {
 }
 
 /**
+ * Tickets on another board this task waits on (`tm ticket --from-task`, TM-381): its foreign
+ * `blocked by` links. This store cannot read that board, so the link IS the blocker until the
+ * ticket's merged/done event removes it (TM-359). Shared by nextTasks (so `tm next` and the pool)
+ * and `tm why`.
+ */
+export function foreignBlockers(task) {
+  return (task?.links || []).filter((l) => l.type === "blocked by" && l.board).map((l) => l.id);
+}
+
+/**
  * `owner/repo#TM-007`: a task on another board.
  *
  * Cross-repo work is real: a persona ticket genuinely does relate to a marketplace pull request.
@@ -1386,7 +1405,9 @@ function blockedByDependency(task) {
  * the board makes the reference honest and un-resolvable by accident. Lives here, not in
  * issue.mjs, because the unblock pass matches foreign blockers and store.mjs cannot import issue.mjs.
  */
-const FOREIGN = /^([\w.-]+\/[\w.-]+)#([A-Z]+-\d+)$/;
+// The owner is optional: a board with no git remote is named by its directory (paths.boardId), and a
+// `tm ticket` between two such repos still needs an honest reference (TM-381).
+const FOREIGN = /^([\w.-]+(?:\/[\w.-]+)?)#([A-Z]+-\d+)$/;
 export const foreignRef = (ref) => {
   const m = FOREIGN.exec(String(ref || ""));
   return m ? { board: m[1].toLowerCase(), id: m[2] } : null;
@@ -1412,12 +1433,14 @@ export function unresolvedForeign(task) {
 
 /**
  * A local blocker this store cannot find counts as resolved (doctor reports the dangling ref), but
- * a foreign one (ADR-0041) is met only once `tm upstream-resolved` recorded its landing sha.
+ * a foreign one (ADR-0041) is met only once `tm upstream-resolved` recorded its landing sha, and a
+ * cross-repo ticket link (TM-381) only once its merge removes the link.
  * Missing, malformed or unresolved is unmet: another board's silence is not its permission.
  */
 export function dependenciesMet(task, byId) {
   return (
     unresolvedForeign(task).length === 0 &&
+    foreignBlockers(task).length === 0 &&
     (task.blockedBy || []).every((d) => {
       const blocker = byId.get(d);
       return !blocker || RESOLVED.has(blocker.status);

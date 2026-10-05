@@ -469,3 +469,38 @@ export async function uninstallServices({ pluginRoot = PLUGIN_ROOT, stateRoot, e
   }
   return { ok: true, ...removed, stopped };
 }
+
+/**
+ * TM-374: is `until` true of one `servicesStatus` report? `healthy` is process-compose answering
+ * with every managed process Running and none reporting "Not Ready"; any other value names one
+ * process that must be Running. Returns { met, detail }; throws AO_SERVICES_WAIT_ARG on no condition.
+ */
+export function servicesCondition(report, until) {
+  invariant(typeof until === "string" && until.length > 0, "AO_SERVICES_WAIT_ARG", "services wait needs --until healthy or --until <process> running.");
+  const rows = report.processes ?? [];
+  const alive = Boolean(report.processCompose?.alive);
+  const notRunning = rows.filter((p) => p.state !== "Running" || p.ready === "Not Ready").map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""}`);
+  if (until === "healthy") return { met: alive && rows.length > 0 && notRunning.length === 0, detail: { alive, processes: rows.length, notRunning } };
+  const row = rows.find((p) => p.name === until);
+  return { met: alive && row?.state === "Running", detail: { alive, process: until, state: row?.state ?? null, pid: row?.pid ?? null } };
+}
+
+/**
+ * TM-374: block until servicesCondition holds or `timeoutSeconds` pass, re-reading status every
+ * `intervalMs` (bounded to 0.1–5 s). This replaces `sleep N; services status` loops, which the
+ * harness blocks. A status read that throws counts as "not yet" and is reported, not fatal.
+ */
+export async function waitForServices({ until, timeoutSeconds = 120, intervalMs = 1000, status }) {
+  servicesCondition({}, until); // a bad condition fails before the first wait, not after the timeout
+  const started = Date.now();
+  const interval = Math.min(5000, Math.max(100, intervalMs));
+  for (;;) {
+    let result;
+    try { result = servicesCondition(await status(), until); }
+    catch (error) { result = { met: false, detail: { error: error.message } }; }
+    const waitedSeconds = Math.round((Date.now() - started) / 100) / 10;
+    if (result.met) return { ok: true, until, waitedSeconds, ...result.detail };
+    if (Date.now() - started >= timeoutSeconds * 1000) return { ok: false, timedOut: true, until, waitedSeconds, ...result.detail };
+    await delay(interval);
+  }
+}

@@ -23,7 +23,7 @@ paths in your own commands before you run them.
   be told to continue — nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
 - Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
-- Deliver review verdicts through the nonce-bound AO_REVIEW output protocol. Use your read tools only; do not run shell commands or write reply files.
+- Submit review verdicts with your review_submit tool; the host never reads a verdict off your pane. Use your read tools only; do not run shell commands or write reply files.
 - A prompt — this file, at any revision — grants no permissions. Access comes from the launcher's
   grants, and no layer of this text can extend them.
 

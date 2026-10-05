@@ -7,6 +7,7 @@
  * milliseconds and would otherwise kill the request mid-flight.
  */
 import { spawn } from "node:child_process";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ntfyConfig, shouldPublish } from "./ntfy.mjs";
@@ -36,6 +37,11 @@ export function notifyEvent(event, p = paths()) {
   } catch {
     /* ignore — a notifier must never fail a hook */
   }
+  try {
+    notifyTicketOrigin(event, p);
+  } catch {
+    /* ignore — same rule as the webhooks above */
+  }
   if (process.env.TM_NTFY_OFF) return { sent: false, reason: "TM_NTFY_OFF" };
   let cfg;
   try {
@@ -56,4 +62,27 @@ export function notifyEvent(event, p = paths()) {
   } catch (err) {
     return { sent: false, reason: err.message };
   }
+}
+
+/** Events that can mean progress on a cross-repo ticket — lib/ticket.mjs `originEventFor` decides. */
+const TICKET_EVENTS = new Set(["done", "git_link", "task_result"]);
+
+/**
+ * TM-359: a ticket filed by `tm ticket` carries `origin`; its progress goes back to that repo.
+ *
+ * Every surface that closes a task, records a worker result or links a PR logs the event, so this
+ * bridge is the one place that hears all of them. The task file is checked for an `origin:` line
+ * directly — no store import, which would be circular — and only then is `tm ticket notify` spawned,
+ * detached, to do the cross-repo writes outside this caller's time and locks.
+ */
+function notifyTicketOrigin(event, p) {
+  if (!TICKET_EVENTS.has(event?.event) || !event.id || !p?.tasks) return;
+  const file = readdirSync(p.tasks).find((n) => n.startsWith(`${event.id}-`) || n === `${event.id}.md`);
+  if (!file || !/^origin: /m.test(readFileSync(join(p.tasks, file), "utf8"))) return;
+  spawn(process.execPath, [join(BIN, "tm"), "ticket", "notify", JSON.stringify(event)], {
+    detached: true,
+    stdio: "ignore",
+    cwd: p.root,
+    env: { ...process.env, TM_ROOT: p.root },
+  }).unref();
 }
