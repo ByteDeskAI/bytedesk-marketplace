@@ -52,7 +52,8 @@ export function autonomyDecision(command) {
   if (prog === 'agent-orchestration' && verb in AO_CLI_VERBS) {
     return AO_CLI_VERBS[verb] === null || AO_CLI_VERBS[verb].includes(sub) ? `agent-orchestration: ${verb}` : null;
   }
-  if (TM.test(prog) && verb) return `agent-orchestration: tm ${verb} (task-management board)`;
+  // `tm override` mints a one-shot bypass of the board's own gates: the operator's call, never auto-approved.
+  if (TM.test(prog) && verb && verb !== 'override') return `agent-orchestration: tm ${verb} (task-management board)`;
   if (prog === 'tmux' && tmuxReadOnly(words)) return 'agent-orchestration: read-only tmux';
   return null;
 }

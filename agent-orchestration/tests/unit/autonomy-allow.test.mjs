@@ -47,6 +47,7 @@ const REFUSED = [
   'kubectl apply -f deploy.yaml',
   'infisical secrets get TOKEN',
   // A listed program cannot smuggle a second command.
+  'tm override "skip the gate"',
   'tm board; git push --force',
   'tm board && rm -rf ~',
   'tm board | sh',
