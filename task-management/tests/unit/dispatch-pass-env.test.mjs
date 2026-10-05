@@ -92,9 +92,12 @@ describe("TM-375 tmux backend passes configured secrets", () => {
       const res = tmux.spawn(req);
       assert.equal(res.ok, true, res.reason);
       const seen = join(worktree, "seen.sha");
-      for (let i = 0; i < 100 && !(existsSync(seen) && statSync(seen).size > 0); i += 1) spawnSync("sleep", ["0.1"]);
+      const aoSeen = join(worktree, "ao.sha");
+      const written = (f) => existsSync(f) && statSync(f).size > 0;
+      // The worker writes seen.sha, then ao.sha: wait for both, or the second read races the shell.
+      for (let i = 0; i < 100 && !(written(seen) && written(aoSeen)); i += 1) spawnSync("sleep", ["0.1"]);
       assert.equal(readFileSync(seen, "utf8").split(" ")[0], sha(SENTINEL), "the worker received the tm-config secret");
-      assert.equal(readFileSync(join(worktree, "ao.sha"), "utf8").split(" ")[0], sha(`${SENTINEL}-ao`), "and the ao-config one");
+      assert.equal(readFileSync(aoSeen, "utf8").split(" ")[0], sha(`${SENTINEL}-ao`), "and the ao-config one");
       const staged = res.detail.args[res.detail.args.indexOf("tm-pass-env") + 1];
       assert.equal(existsSync(dirname(staged)), false, "the wrapper removed the staged dir");
       assert.deepEqual([...filesContaining(p.root, SENTINEL), ...filesContaining(worktree, SENTINEL)], []);

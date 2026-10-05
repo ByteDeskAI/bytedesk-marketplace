@@ -31,6 +31,7 @@ export const CATALOG = {
     stop_gate_blocked: { group: "recommended", label: "A session is blocked from stopping with work still open", priority: "high", tags: "warning" },
     claim_stolen: { group: "recommended", label: "Another session took a claim", priority: "high", tags: "twisted_rightwards_arrows" },
     claims_swept: { group: "recommended", label: "A claim expired and work was abandoned", priority: "default", tags: "ghost" },
+    claim_worker_noted: { group: "writes", label: "A live worker was noted on a claim, so the Stop gate waits for it", priority: "min", tags: "construction_worker" },
     dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
     task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
     ticket_filed: { group: "recommended", label: "A ticket was filed on another repo's board", priority: "default", tags: "outbox_tray" },
