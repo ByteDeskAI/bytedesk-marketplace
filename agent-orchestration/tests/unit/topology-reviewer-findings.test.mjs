@@ -692,3 +692,20 @@ test('a payload that breaks the verdict rules on its own is remembered and refus
   const second = await requestReview({ ...f.args, wake: rang });
   await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(second.nonce, payload) }), { code: 'TOPOLOGY_REVIEW_REPEATED_REFUSED', message: /blocks approval/ });
 });
+
+// The repeat guard's identity is the decoded payload, so the pane's wrap and the key order don't change it.
+test('the same refused verdict wrapped differently, or with keys reordered, is refused as a repeat', async t => {
+  const f = await fixture(t);
+  const response = { verdict: 'approve', findings: [finding({ evidence: undefined, claim: 'The helper name says nothing about what it returns to the caller.' })] };
+  const first = await requestReview({ ...f.args, wake: rang });
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => say(first.nonce, response) }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  const firstSha = JSON.parse(await readFile(await requestPath(f), 'utf8')).failure.refusal.payload_sha256;
+  const second = await requestReview({ ...f.args, wake: rang });
+  const wrapped = ['Done.', ...claudeWrap(say(second.nonce, response), 60), '', '> '].join('\n');
+  assert.ok(wrapped.split('\n').length > 5, 'the verdict really wraps');
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => wrapped }), { code: 'TOPOLOGY_REVIEW_REPEATED_REFUSED' });
+  assert.equal(JSON.parse(await readFile(await requestPath(f), 'utf8')).failure.refusal.payload_sha256, firstSha, 'one identity for both wraps');
+  const third = await requestReview({ ...f.args, wake: rang });
+  const reordered = { findings: response.findings.map(item => Object.fromEntries(Object.entries(item).reverse())), verdict: 'approve' };
+  await assert.rejects(collectReview({ ...f.args, ...quiet, output: async () => line(third.nonce, b64(reordered)) }), { code: 'TOPOLOGY_REVIEW_REPEATED_REFUSED' });
+});

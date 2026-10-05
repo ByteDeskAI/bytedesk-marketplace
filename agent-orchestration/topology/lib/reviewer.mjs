@@ -1066,11 +1066,23 @@ export function assertVerdictFindings(verdict, structured) {
  * refusals (a file outside the diff, disagreeing copies) return false.
  */
 function refusedOnItsOwn(texts) {
-  let response = null;
-  for (const text of texts) { try { response = decodeReviewPayload(text); break; } catch { /* try the next join */ } }
+  const response = decodeCandidate(texts);
   if (!response) return true;
   try { assertVerdictFindings(response.verdict, validateFindings(response.findings, { has: () => true })); return false; }
   catch { return true; }
+}
+
+/** The first join of one on-screen candidate that decodes, or null. */
+function decodeCandidate(texts) {
+  for (const text of texts) { try { return decodeReviewPayload(text); } catch { /* try the next join */ } }
+  return null;
+}
+
+/** TM-414: a wrap-independent payload identity: the decoded JSON with sorted keys, else the raw text. */
+function payloadIdentity(texts) {
+  const response = decodeCandidate(texts);
+  const sorted = (key, value) => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : value;
+  return createHash('sha256').update(response ? JSON.stringify(response, sorted) : texts[0]).digest('hex');
 }
 
 /** Approval stands when no remaining finding is a blocker or major one (minor, nit and note may remain). */
@@ -1549,9 +1561,9 @@ export async function collectReview({ consumer, task, revision, env = process.en
   // never going to finish) must not retry forever either. Age it out once it has been incomplete
   // longer than the bound, or once the pane capture has stopped changing.
   if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
-  // TM-414: the exact payload text after the nonce. One already refused ON ITS OWN for this task and
+  // TM-414: the payload after the nonce, decoded so a different wrap is the same payload. One already refused ON ITS OWN for this task and
   // revision is refused again by name, with the original reason, instead of being validated afresh.
-  const payloadSha = createHash('sha256').update(shown.at(-1)[0]).digest('hex');
+  const payloadSha = payloadIdentity(shown.at(-1));
   let review;
   try {
   const repeat = (request.previous_refusals ?? []).find(refusal => refusal.payload_sha256 === payloadSha);

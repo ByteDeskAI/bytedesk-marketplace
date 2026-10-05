@@ -22935,14 +22935,7 @@ function assertVerdictFindings(verdict, structured) {
   return structured;
 }
 function refusedOnItsOwn(texts) {
-  let response = null;
-  for (const text of texts) {
-    try {
-      response = decodeReviewPayload(text);
-      break;
-    } catch {
-    }
-  }
+  const response = decodeCandidate(texts);
   if (!response) return true;
   try {
     assertVerdictFindings(response.verdict, validateFindings(response.findings, { has: () => true }));
@@ -22950,6 +22943,20 @@ function refusedOnItsOwn(texts) {
   } catch {
     return true;
   }
+}
+function decodeCandidate(texts) {
+  for (const text of texts) {
+    try {
+      return decodeReviewPayload(text);
+    } catch {
+    }
+  }
+  return null;
+}
+function payloadIdentity(texts) {
+  const response = decodeCandidate(texts);
+  const sorted = (key, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : value;
+  return (0, import_node_crypto22.createHash)("sha256").update(response ? JSON.stringify(response, sorted) : texts[0]).digest("hex");
 }
 function approvable(findings) {
   return Array.isArray(findings) && findings.every((finding) => finding && !BLOCKING_SEVERITIES.has(finding.severity) && SEVERITIES.includes(finding.severity));
@@ -23346,7 +23353,7 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     const shown = reviewResponsesOnScreen(screen, request.nonce);
     invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
     if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
-    const payloadSha = (0, import_node_crypto22.createHash)("sha256").update(shown.at(-1)[0]).digest("hex");
+    const payloadSha = payloadIdentity(shown.at(-1));
     let review;
     try {
       const repeat = (request.previous_refusals ?? []).find((refusal) => refusal.payload_sha256 === payloadSha);
@@ -60579,10 +60586,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "bf2fdbd8d39817b1a217ef9bfbbbe7dd989fe85744af07734e70c1df16937cd8";
+  return false ? null : "061c6614df14cae340875778d04cd59245c90ec24c9dd22832fb203cd253ef62";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "bf2fdbd8d39817b1a217ef9bfbbbe7dd989fe85744af07734e70c1df16937cd8";
+  const fingerprint2 = false ? null : "061c6614df14cae340875778d04cd59245c90ec24c9dd22832fb203cd253ef62";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61173,7 +61180,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "bf2fdbd8d39817b1a217ef9bfbbbe7dd989fe85744af07734e70c1df16937cd8",
+  sourceFingerprint: false ? null : "061c6614df14cae340875778d04cd59245c90ec24c9dd22832fb203cd253ef62",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
