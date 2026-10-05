@@ -1,0 +1,4528 @@
+TAP version 13
+# Subtest: the bundle build does not follow symlinks out of the tree
+ok 1 - the bundle build does not follow symlinks out of the tree
+  ---
+  duration_ms: 0.602207
+  type: 'test'
+  ...
+# Subtest: the ACP entry point is mapped back in-tree, because require.resolve always realpaths
+ok 2 - the ACP entry point is mapped back in-tree, because require.resolve always realpaths
+  ---
+  duration_ms: 0.126553
+  type: 'test'
+  ...
+# Subtest: stateRoot uses native Windows and Linux state locations
+ok 3 - stateRoot uses native Windows and Linux state locations
+  ---
+  duration_ms: 0.71734
+  type: 'test'
+  ...
+# Subtest: validateStateRoot preserves nested missing segments on every platform
+ok 4 - validateStateRoot preserves nested missing segments on every platform
+  ---
+  duration_ms: 4.265572
+  type: 'test'
+  ...
+# Subtest: a launcher binding is read from the environment, and is null when nothing names one
+ok 5 - a launcher binding is read from the environment, and is null when nothing names one
+  ---
+  duration_ms: 0.930818
+  type: 'test'
+  ...
+# Subtest: launcher labels are bounded single lines, because another program renders them
+ok 6 - launcher labels are bounded single lines, because another program renders them
+  ---
+  duration_ms: 0.25504
+  type: 'test'
+  ...
+# Subtest: a run spawned inside a worker names that worker's run as its parent
+ok 7 - a run spawned inside a worker names that worker's run as its parent
+  ---
+  duration_ms: 0.235034
+  type: 'test'
+  ...
+# Subtest: spawn records the parent run and the launcher it was started from
+ok 8 - spawn records the parent run and the launcher it was started from
+  ---
+  duration_ms: 102.143828
+  type: 'test'
+  ...
+# Subtest: a run launched from nowhere identifiable says so, rather than inventing a launcher
+ok 9 - a run launched from nowhere identifiable says so, rather than inventing a launcher
+  ---
+  duration_ms: 73.322354
+  type: 'test'
+  ...
+# Subtest: session-open returns the capability URL without opening a browser
+ok 10 - session-open returns the capability URL without opening a browser
+  ---
+  duration_ms: 95.893316
+  type: 'test'
+  ...
+# Subtest: session-open refuses a run that does not exist, before minting anything
+ok 11 - session-open refuses a run that does not exist, before minting anything
+  ---
+  duration_ms: 26.206638
+  type: 'test'
+  ...
+# Subtest: a one-shot caller is refused a URL served by a host that dies with the command
+ok 12 - a one-shot caller is refused a URL served by a host that dies with the command
+  ---
+  duration_ms: 63.28766
+  type: 'test'
+  ...
+# Subtest: an attested decision records the actor label the caller holding the capability gave
+ok 13 - an attested decision records the actor label the caller holding the capability gave
+  ---
+  duration_ms: 184.862562
+  type: 'test'
+  ...
+# Subtest: an actor label is optional and bounded, and never blanks the record
+ok 14 - an actor label is optional and bounded, and never blanks the record
+  ---
+  duration_ms: 923.250479
+  type: 'test'
+  ...
+# Subtest: the session-open verb answers on stdout, as JSON or as the bare URL
+ok 15 - the session-open verb answers on stdout, as JSON or as the bare URL
+  ---
+  duration_ms: 628.243949
+  type: 'test'
+  ...
+# Subtest: cleanup is one of the controls a capability holder can drive
+ok 16 - cleanup is one of the controls a capability holder can drive
+  ---
+  duration_ms: 25.625652
+  type: 'test'
+  ...
+# Subtest: parseArgs defaults to every host
+ok 17 - parseArgs defaults to every host
+  ---
+  duration_ms: 1.832278
+  type: 'test'
+  ...
+# Subtest: pluginRootFromScript walks out of the skill scripts directory
+ok 18 - pluginRootFromScript walks out of the skill scripts directory
+  ---
+  duration_ms: 0.343943
+  type: 'test'
+  ...
+# Subtest: kimi host wiring merges mcp.json and links skills without dropping other servers
+ok 19 - kimi host wiring merges mcp.json and links skills without dropping other servers
+  ---
+  duration_ms: 7.91685
+  type: 'test'
+  ...
+# Subtest: grok host plan uses trusted plugin install and does not run on dry-run
+ok 20 - grok host plan uses trusted plugin install and does not run on dry-run
+  ---
+  duration_ms: 0.372101
+  type: 'test'
+  ...
+# Subtest: Linux network attachment refuses missing, malformed, or unbound namespace identities
+ok 21 - Linux network attachment refuses missing, malformed, or unbound namespace identities
+  ---
+  duration_ms: 1.146865
+  type: 'test'
+  ...
+# Subtest: Linux namespace identities remain arguments to a fixed isolated launcher
+ok 22 - Linux namespace identities remain arguments to a fixed isolated launcher
+  ---
+  duration_ms: 0.464128
+  type: 'test'
+  ...
+# Subtest: public MCP surface exposes exactly the orchestration-prefixed contract
+ok 23 - public MCP surface exposes exactly the orchestration-prefixed contract
+  ---
+  duration_ms: 91.381991
+  type: 'test'
+  ...
+# Subtest: MCP plan and spawn expose protocols while route remains a single-route preview
+ok 24 - MCP plan and spawn expose protocols while route remains a single-route preview
+  ---
+  duration_ms: 38.890055
+  type: 'test'
+  ...
+# Subtest: every MCP tool publishes a concrete forward-compatible success/error envelope
+ok 25 - every MCP tool publishes a concrete forward-compatible success/error envelope
+  ---
+  duration_ms: 33.019397
+  type: 'test'
+  ...
+# Subtest: concrete output schemas preserve serialized operation errors
+ok 26 - concrete output schemas preserve serialized operation errors
+  ---
+  duration_ms: 8.50616
+  type: 'test'
+  ...
+# Subtest: Linux doctor fails closed when namespace owner attachment dependencies are missing
+ok 27 - Linux doctor fails closed when namespace owner attachment dependencies are missing
+  ---
+  duration_ms: 1.248825
+  type: 'test'
+  ...
+# Subtest: Abstract Factory selects the native Linux strategy family
+ok 28 - Abstract Factory selects the native Linux strategy family
+  ---
+  duration_ms: 0.277453
+  type: 'test'
+  ...
+# Subtest: Abstract Factory selects the native Windows strategy family
+ok 29 - Abstract Factory selects the native Windows strategy family
+  ---
+  duration_ms: 0.182831
+  type: 'test'
+  ...
+# Subtest: explicit Windows host backend selection is deterministic
+ok 30 - explicit Windows host backend selection is deterministic
+  ---
+  duration_ms: 0.213805
+  type: 'test'
+  ...
+# Subtest: WSL Adapter checks the Linux security stack and translates the entrypoint
+ok 31 - WSL Adapter checks the Linux security stack and translates the entrypoint
+  ---
+  duration_ms: 0.484749
+  type: 'test'
+  ...
+# Subtest: WSL Adapter fails closed when an isolation dependency is missing
+ok 32 - WSL Adapter fails closed when an isolation dependency is missing
+  ---
+  duration_ms: 0.412644
+  type: 'test'
+  ...
+# Subtest: WSL path Adapter translates only absolute Windows paths
+ok 33 - WSL path Adapter translates only absolute Windows paths
+  ---
+  duration_ms: 0.277414
+  type: 'test'
+  ...
+# Subtest: Windows executable Strategy honors PATHEXT without invoking a shell
+ok 34 - Windows executable Strategy honors PATHEXT without invoking a shell
+  ---
+  duration_ms: 7.276261
+  type: 'test'
+  ...
+# Subtest: Codex sandbox always uses agent-full-access regardless of mount profile
+ok 35 - Codex sandbox always uses agent-full-access regardless of mount profile
+  ---
+  duration_ms: 12.442238
+  type: 'test'
+  ...
+# Subtest: Claude sandbox HOME is the provider config dir, not the unmounted host home
+ok 36 - Claude sandbox HOME is the provider config dir, not the unmounted host home
+  ---
+  duration_ms: 4.770342
+  type: 'test'
+  ...
+# Subtest: Grok sandbox always passes --always-approve
+ok 37 - Grok sandbox always passes --always-approve
+  ---
+  duration_ms: 3.966059
+  type: 'test'
+  ...
+# Subtest: non-Codex sandboxes do not receive INITIAL_AGENT_MODE
+ok 38 - non-Codex sandboxes do not receive INITIAL_AGENT_MODE
+  ---
+  duration_ms: 5.914817
+  type: 'test'
+  ...
+# Subtest: write provider sandboxes make only the worktree writable and remount Git metadata read-only
+ok 39 - write provider sandboxes make only the worktree writable and remount Git metadata read-only
+  ---
+  duration_ms: 5.516447
+  type: 'test'
+  ...
+# Subtest: provider sandbox without credentials protects home ancestors without inventing an auth mount
+ok 40 - provider sandbox without credentials protects home ancestors without inventing an auth mount
+  ---
+  duration_ms: 3.337534
+  type: 'test'
+  ...
+# Subtest: sandbox execution revalidates provider-specific executable authority
+ok 41 - sandbox execution revalidates provider-specific executable authority
+  ---
+  duration_ms: 2.591434
+  type: 'test'
+  ...
+# Subtest: ACP proxy releases pipelined prompts after bootstrap and revokes on close
+ok 42 - ACP proxy releases pipelined prompts after bootstrap and revokes on close
+  ---
+  duration_ms: 3.341051
+  type: 'test'
+  ...
+# Subtest: ACP proxy rejects prompts before any session establishment
+ok 43 - ACP proxy rejects prompts before any session establishment
+  ---
+  duration_ms: 0.956426
+  type: 'test'
+  ...
+# Subtest: removeTree deletes a tree containing a read-only Go module cache
+ok 44 - removeTree deletes a tree containing a read-only Go module cache
+  ---
+  duration_ms: 8.023275
+  type: 'test'
+  ...
+# Subtest: removeTree does not follow symlinked directories out of the tree
+ok 45 - removeTree does not follow symlinked directories out of the tree
+  ---
+  duration_ms: 3.768046
+  type: 'test'
+  ...
+# Subtest: removeTree is a no-op for a path that is already gone
+ok 46 - removeTree is a no-op for a path that is already gone
+  ---
+  duration_ms: 0.552573
+  type: 'test'
+  ...
+# Subtest: consumerCwd is required and never falls back to the plugin process cwd
+ok 47 - consumerCwd is required and never falls back to the plugin process cwd
+  ---
+  duration_ms: 31.243974
+  type: 'test'
+  ...
+# Subtest: linked consumer worktrees have distinct run authority keys
+ok 48 - linked consumer worktrees have distinct run authority keys
+  ---
+  duration_ms: 63.679511
+  type: 'test'
+  ...
+# Subtest: worktrees derive from the consumer repository sibling and register only there
+ok 49 - worktrees derive from the consumer repository sibling and register only there
+  ---
+  duration_ms: 78.054201
+  type: 'test'
+  ...
+# Subtest: cleanup rejects a sibling worktree path and a mismatched ownership nonce
+ok 50 - cleanup rejects a sibling worktree path and a mismatched ownership nonce
+  ---
+  duration_ms: 107.405539
+  type: 'test'
+  ...
+# Subtest: cleanup verifies the marker hash, base SHA, and exact Git administration entry
+ok 51 - cleanup verifies the marker hash, base SHA, and exact Git administration entry
+  ---
+  duration_ms: 81.664816
+  type: 'test'
+  ...
+# Subtest: the marketplace checkout containing the plugin source is rejected as a consumer
+ok 52 - the marketplace checkout containing the plugin source is rejected as a consumer
+  ---
+  duration_ms: 23.937486
+  type: 'test'
+  ...
+# Subtest: a Gateway-shaped unrelated marketplace is a valid consumer
+ok 53 - a Gateway-shaped unrelated marketplace is a valid consumer
+  ---
+  duration_ms: 39.175231
+  type: 'test'
+  ...
+# Subtest: actual orchestration payload and its aliases and older linked worktrees are rejected
+ok 54 - actual orchestration payload and its aliases and older linked worktrees are rejected
+  ---
+  duration_ms: 88.320619
+  type: 'test'
+  ...
+# Subtest: dirty tracked and untracked consumers are rejected for write orchestration
+ok 55 - dirty tracked and untracked consumers are rejected for write orchestration
+  ---
+  duration_ms: 40.300071
+  type: 'test'
+  ...
+# Subtest: the checked-in roadmap is valid and preserves the canonical seed inventory
+ok 56 - the checked-in roadmap is valid and preserves the canonical seed inventory
+  ---
+  duration_ms: 49.747404
+  type: 'test'
+  ...
+# Subtest: parsing, derived indexes, and generated views are deterministic
+ok 57 - parsing, derived indexes, and generated views are deterministic
+  ---
+  duration_ms: 16.864168
+  type: 'test'
+  ...
+# Subtest: hard dependency cycles report the explicit cycle path
+ok 58 - hard dependency cycles report the explicit cycle path
+  ---
+  duration_ms: 24.92244
+  type: 'test'
+  ...
+# Subtest: task and outgoing unlock reciprocity cannot drift
+ok 59 - task and outgoing unlock reciprocity cannot drift
+  ---
+  duration_ms: 21.199553
+  type: 'test'
+  ...
+# Subtest: a preferred one-hop trajectory is rejected with an actionable distance error
+ok 60 - a preferred one-hop trajectory is rejected with an actionable distance error
+  ---
+  duration_ms: 25.38713
+  type: 'test'
+  ...
+# Subtest: orphan strategic references identify the missing object
+ok 61 - orphan strategic references identify the missing object
+  ---
+  duration_ms: 22.739465
+  type: 'test'
+  ...
+# Subtest: duplicate live trajectories for one goal are rejected
+ok 62 - duplicate live trajectories for one goal are rejected
+  ---
+  duration_ms: 22.417494
+  type: 'test'
+  ...
+# Subtest: strategic records cannot grant agents execution or budget authority
+ok 63 - strategic records cannot grant agents execution or budget authority
+  ---
+  duration_ms: 21.78714
+  type: 'test'
+  ...
+# Subtest: source seams must remain inside the plugin and identify real source
+ok 64 - source seams must remain inside the plugin and identify real source
+  ---
+  duration_ms: 22.177013
+  type: 'test'
+  ...
+# Subtest: source seam manifests support installed caches and detect source-checkout drift
+ok 65 - source seam manifests support installed caches and detect source-checkout drift
+  ---
+  duration_ms: 34.755088
+  type: 'test'
+  ...
+# Subtest: source manifest generation is deterministic and matches the checked-in inventory
+ok 66 - source manifest generation is deterministic and matches the checked-in inventory
+  ---
+  duration_ms: 5.114027
+  type: 'test'
+  ...
+# Subtest: source manifest generation fails closed for installed, missing, and invalid sources
+ok 67 - source manifest generation fails closed for installed, missing, and invalid sources
+  ---
+  duration_ms: 5.999372
+  type: 'test'
+  ...
+# Subtest: mutating CLI commands use their plugin root and leave installed artifacts untouched
+ok 68 - mutating CLI commands use their plugin root and leave installed artifacts untouched
+  ---
+  duration_ms: 112.189726
+  type: 'test'
+  ...
+# Subtest: a disconnected preferred route cannot masquerade as a materialized trajectory
+ok 69 - a disconnected preferred route cannot masquerade as a materialized trajectory
+  ---
+  duration_ms: 21.748325
+  type: 'test'
+  ...
+# Subtest: checked-in Mermaid and trajectory views cannot drift from canonical records
+ok 70 - checked-in Mermaid and trajectory views cannot drift from canonical records
+  ---
+  duration_ms: 75.864566
+  type: 'test'
+  ...
+# Subtest: unknown multi-hop distance remains valid for research trajectories and gaps
+ok 71 - unknown multi-hop distance remains valid for research trajectories and gaps
+  ---
+  duration_ms: 21.428609
+  type: 'test'
+  ...
+# Subtest: approved strategy records require explicit human approval provenance
+ok 72 - approved strategy records require explicit human approval provenance
+  ---
+  duration_ms: 26.008502
+  type: 'test'
+  ...
+# Subtest: retired or invalidated trajectories cannot remain preferred
+ok 73 - retired or invalidated trajectories cannot remain preferred
+  ---
+  duration_ms: 22.914068
+  type: 'test'
+  ...
+# Subtest: gap materialization and evidence must match lifecycle state
+ok 74 - gap materialization and evidence must match lifecycle state
+  ---
+  duration_ms: 21.161224
+  type: 'test'
+  ...
+# Subtest: realized trajectories and attained goals require completed, validated evidence
+ok 75 - realized trajectories and attained goals require completed, validated evidence
+  ---
+  duration_ms: 21.238471
+  type: 'test'
+  ...
+# Subtest: trajectory selections admit only hard and bridge edges
+ok 76 - trajectory selections admit only hard and bridge edges
+  ---
+  duration_ms: 24.302217
+  type: 'test'
+  ...
+# Subtest: trajectory roots, reachability, and global hard prerequisites are enforced
+ok 77 - trajectory roots, reachability, and global hard prerequisites are enforced
+  ---
+  duration_ms: 40.681237
+  type: 'test'
+  ...
+# Subtest: task counts and preferred estimates must fit declared ranges
+ok 78 - task counts and preferred estimates must fit declared ranges
+  ---
+  duration_ms: 41.522645
+  type: 'test'
+  ...
+# Subtest: append-only inventory preserves every ID and kind-specific identity
+ok 79 - append-only inventory preserves every ID and kind-specific identity
+  ---
+  duration_ms: 22.79701
+  type: 'test'
+  ...
+# Subtest: inventory appends only contiguous namespace suffixes and unions valid additions
+ok 80 - inventory appends only contiguous namespace suffixes and unions valid additions
+  ---
+  duration_ms: 45.505405
+  type: 'test'
+  ...
+# Subtest: future tasks need an active incident edge but no trajectory membership
+ok 81 - future tasks need an active incident edge but no trajectory membership
+  ---
+  duration_ms: 56.01345
+  type: 'test'
+  ...
+# Subtest: inventory append validates prospective roadmap semantics without mutating its input
+ok 82 - inventory append validates prospective roadmap semantics without mutating its input
+  ---
+  duration_ms: 65.944527
+  type: 'test'
+  ...
+# Subtest: append-inventory CLI writes only a fully validated prospective inventory
+ok 83 - append-inventory CLI writes only a fully validated prospective inventory
+  ---
+  duration_ms: 184.088137
+  type: 'test'
+  ...
+# Subtest: documented maintenance sequence handles new IDs plus source drift end to end
+ok 84 - documented maintenance sequence handles new IDs plus source drift end to end
+  ---
+  duration_ms: 826.145922
+  type: 'test'
+  ...
+# Subtest: gap fillers are reciprocal, goal-local lineage owned by the parent trajectory
+ok 85 - gap fillers are reciprocal, goal-local lineage owned by the parent trajectory
+  ---
+  duration_ms: 62.71102
+  type: 'test'
+  ...
+# Subtest: filled gaps require completed fillers, exact completion evidence, and cleared nextGapId
+ok 86 - filled gaps require completed fillers, exact completion evidence, and cleared nextGapId
+  ---
+  duration_ms: 39.262263
+  type: 'test'
+  ...
+# Subtest: operational strategic state always rests on an approved human decision
+ok 87 - operational strategic state always rests on an approved human decision
+  ---
+  duration_ms: 51.892045
+  type: 'test'
+  ...
+# Subtest: done tasks require completion evidence distinct from baseline evidence
+ok 88 - done tasks require completion evidence distinct from baseline evidence
+  ---
+  duration_ms: 50.895147
+  type: 'test'
+  ...
+# Subtest: hop ranges reject alternate or extra field shapes
+ok 89 - hop ranges reject alternate or extra field shapes
+  ---
+  duration_ms: 49.827343
+  type: 'test'
+  ...
+# Subtest: object source seams must use anchors that occur exactly once
+ok 90 - object source seams must use anchors that occur exactly once
+  ---
+  duration_ms: 2.728936
+  type: 'test'
+  ...
+# Subtest: canonical generated views recover every stale marked projection
+ok 91 - canonical generated views recover every stale marked projection
+  ---
+  duration_ms: 27.974211
+  type: 'test'
+  ...
+# Subtest: CLI accepts only the canonical roadmap path and prints stale canonical views
+ok 92 - CLI accepts only the canonical roadmap path and prints stale canonical views
+  ---
+  duration_ms: 147.042407
+  type: 'test'
+  ...
+# Subtest: trajectory reachability derives from the full declared gap set and lifecycle
+ok 93 - trajectory reachability derives from the full declared gap set and lifecycle
+  ---
+  duration_ms: 15.79792
+  type: 'test'
+  ...
+# Subtest: same-kind supersession permits acyclic chains to a live terminal
+ok 94 - same-kind supersession permits acyclic chains to a live terminal
+  ---
+  duration_ms: 66.812764
+  type: 'test'
+  ...
+# Subtest: active projections ignore superseded history while retired routes retain it
+ok 95 - active projections ignore superseded history while retired routes retain it
+  ---
+  duration_ms: 44.992005
+  type: 'test'
+  ...
+# Subtest: history-only reverse edges cannot introduce an operational dependency cycle
+ok 96 - history-only reverse edges cannot introduce an operational dependency cycle
+  ---
+  duration_ms: 38.348445
+  type: 'test'
+  ...
+# Subtest: live routes reject history-only selections and active edges reject superseded endpoints
+ok 97 - live routes reject history-only selections and active edges reject superseded endpoints
+  ---
+  duration_ms: 54.517145
+  type: 'test'
+  ...
+# Subtest: superseded gaps remain reciprocal history on retired trajectories
+ok 98 - superseded gaps remain reciprocal history on retired trajectories
+  ---
+  duration_ms: 20.83734
+  type: 'test'
+  ...
+# Subtest: retired goals may retain their retired preferred trajectory as history
+ok 99 - retired goals may retain their retired preferred trajectory as history
+  ---
+  duration_ms: 19.197567
+  type: 'test'
+  ...
+# Subtest: capability keys are globally unique across roadmap record kinds
+ok 100 - capability keys are globally unique across roadmap record kinds
+  ---
+  duration_ms: 17.04488
+  type: 'test'
+  ...
+# Subtest: inventory schema and append reject cross-kind capability collisions
+ok 101 - inventory schema and append reject cross-kind capability collisions
+  ---
+  duration_ms: 1.403698
+  type: 'test'
+  ...
+# Subtest: supersession chains may traverse retired records but must terminate live
+ok 102 - supersession chains may traverse retired records but must terminate live
+  ---
+  duration_ms: 38.48088
+  type: 'test'
+  ...
+# Subtest: retired gaps preserve completion evidence and retired child lineage
+ok 103 - retired gaps preserve completion evidence and retired child lineage
+  ---
+  duration_ms: 16.94449
+  type: 'test'
+  ...
+# Subtest: active gaps reject completion history or retired children, and retired gaps reject live children
+ok 104 - active gaps reject completion history or retired children, and retired gaps reject live children
+  ---
+  duration_ms: 77.88102
+  type: 'test'
+  ...
+# Subtest: provider catalog exposes only canonical ACPX targets and no commands
+ok 105 - provider catalog exposes only canonical ACPX targets and no commands
+  ---
+  duration_ms: 1.014269
+  type: 'test'
+  ...
+# Subtest: documented model IDs are isolated from runtime-only Grok and Kimi defaults
+ok 106 - documented model IDs are isolated from runtime-only Grok and Kimi defaults
+  ---
+  duration_ms: 0.151787
+  type: 'test'
+  ...
+# Subtest: bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs
+ok 107 - bundled Claude ACP bridge isolates settings and forwards exact runtime model IDs
+  ---
+  duration_ms: 12.748178
+  type: 'test'
+  ...
+# Subtest: bundled Codex bridge launches app-server without a shell
+ok 108 - bundled Codex bridge launches app-server without a shell
+  ---
+  duration_ms: 3.763588
+  type: 'test'
+  ...
+# Subtest: default aliases preserve the agreed architecture, design, and implementation order
+ok 109 - default aliases preserve the agreed architecture, design, and implementation order
+  ---
+  duration_ms: 0.34685
+  type: 'test'
+  ...
+# Subtest: provider capabilities and sandbox credential inputs are explicit metadata
+ok 110 - provider capabilities and sandbox credential inputs are explicit metadata
+  ---
+  duration_ms: 0.254907
+  type: 'test'
+  ...
+# Subtest: architecture plan is adversarial, cross-provider, max effort, and session-stable
+ok 111 - architecture plan is adversarial, cross-provider, max effort, and session-stable
+  ---
+  duration_ms: 9.926549
+  type: 'test'
+  ...
+# Subtest: architecture blocks when the required independent Sol adversary is unavailable
+ok 112 - architecture blocks when the required independent Sol adversary is unavailable
+  ---
+  duration_ms: 1.526344
+  type: 'test'
+  ...
+# Subtest: non-architecture intent uses the single protocol
+ok 113 - non-architecture intent uses the single protocol
+  ---
+  duration_ms: 0.660785
+  type: 'test'
+  ...
+# Subtest: architecture protocol rejects a contradictory intent
+ok 114 - architecture protocol rejects a contradictory intent
+  ---
+  duration_ms: 0.38034
+  type: 'test'
+  ...
+# Subtest: architecture uses separate frozen aliases for proposal and critique
+ok 115 - architecture uses separate frozen aliases for proposal and critique
+  ---
+  duration_ms: 0.828375
+  type: 'test'
+  ...
+# Subtest: execution plans and explanations are deterministic and JSON serializable
+ok 116 - execution plans and explanations are deterministic and JSON serializable
+  ---
+  duration_ms: 2.326322
+  type: 'test'
+  ...
+# Subtest: protocol definitions are validated and deterministically topologically ordered
+ok 117 - protocol definitions are validated and deterministically topologically ordered
+  ---
+  duration_ms: 0.156844
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects duplicate, missing, and cyclic dependencies with clear errors
+ok 118 - protocol validation rejects duplicate, missing, and cyclic dependencies with clear errors
+  ---
+  duration_ms: 0.24994
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects unregistered executors and internal output contracts
+ok 119 - protocol validation rejects unregistered executors and internal output contracts
+  ---
+  duration_ms: 0.420002
+  type: 'test'
+  ...
+# Subtest: execution requirements derive hard workspace and session capabilities
+ok 120 - execution requirements derive hard workspace and session capabilities
+  ---
+  duration_ms: 1.164361
+  type: 'test'
+  ...
+# Subtest: write routing admits proven Grok tools but rejects unknown Kimi write capability
+ok 121 - write routing admits proven Grok tools but rejects unknown Kimi write capability
+  ---
+  duration_ms: 0.632528
+  type: 'test'
+  ...
+# Subtest: protocolId rejects non-string and unknown public values
+ok 122 - protocolId rejects non-string and unknown public values
+  ---
+  duration_ms: 0.186518
+  type: 'test'
+  ...
+# Subtest: design prefers Claude Fable at high effort
+ok 123 - design prefers Claude Fable at high effort
+  ---
+  duration_ms: 8.357941
+  type: 'test'
+  ...
+# Subtest: implementation prefers Codex Sol and accepts an exact effort override
+ok 124 - implementation prefers Codex Sol and accepts an exact effort override
+  ---
+  duration_ms: 0.726784
+  type: 'test'
+  ...
+# Subtest: Fable unavailability deterministically falls back to Opus
+ok 125 - Fable unavailability deterministically falls back to Opus
+  ---
+  duration_ms: 0.346642
+  type: 'test'
+  ...
+# Subtest: unknown availability blocks execution when a live snapshot is required
+ok 126 - unknown availability blocks execution when a live snapshot is required
+  ---
+  duration_ms: 0.470527
+  type: 'test'
+  ...
+# Subtest: hard capabilities beat provider preference and unknown is not treated as supported
+ok 127 - hard capabilities beat provider preference and unknown is not treated as supported
+  ---
+  duration_ms: 1.189859
+  type: 'test'
+  ...
+# Subtest: a probed capability override can make an explicit provider route eligible
+ok 128 - a probed capability override can make an explicit provider route eligible
+  ---
+  duration_ms: 0.223232
+  type: 'test'
+  ...
+# Subtest: unsupported exact effort is rejected instead of clamped
+ok 129 - unsupported exact effort is rejected instead of clamped
+  ---
+  duration_ms: 0.19118
+  type: 'test'
+  ...
+# Subtest: frozen alias candidates are independent from mutable policy inputs
+ok 130 - frozen alias candidates are independent from mutable policy inputs
+  ---
+  duration_ms: 0.47791
+  type: 'test'
+  ...
+# Subtest: per-alias frozen snapshots are honored
+ok 131 - per-alias frozen snapshots are honored
+  ---
+  duration_ms: 0.391
+  type: 'test'
+  ...
+# Subtest: routing ties are deterministic by alias rank then candidate ID
+ok 132 - routing ties are deterministic by alias rank then candidate ID
+  ---
+  duration_ms: 0.442986
+  type: 'test'
+  ...
+# Subtest: invalid intent and alias produce stable contract errors
+ok 133 - invalid intent and alias produce stable contract errors
+  ---
+  duration_ms: 0.429298
+  type: 'test'
+  ...
+# Subtest: diagnostics separate admission, loaded build, missing services and mismatched roots without leaking host credentials
+ok 134 - diagnostics separate admission, loaded build, missing services and mismatched roots without leaking host credentials
+  ---
+  duration_ms: 49.891462
+  type: 'test'
+  ...
+# Subtest: fresh idle census evidence alone never labels a role ready
+ok 135 - fresh idle census evidence alone never labels a role ready
+  ---
+  duration_ms: 97.665454
+  type: 'test'
+  ...
+# Subtest: idle live roles require both prompt and nonce acknowledgement, and diagnostics stay read-only
+ok 136 - idle live roles require both prompt and nonce acknowledgement, and diagnostics stay read-only
+  ---
+  duration_ms: 431.97491
+  type: 'test'
+  ...
+# Subtest: role diagnostics reject expired proof, successor bindings and changed composed prompts
+ok 137 - role diagnostics reject expired proof, successor bindings and changed composed prompts
+  ---
+  duration_ms: 757.665004
+  type: 'test'
+  ...
+# Subtest: architecture runtime retains Fable to Opus fallback and proposal-session reuse
+ok 138 - architecture runtime retains Fable to Opus fallback and proposal-session reuse
+  ---
+  duration_ms: 9.309609
+  type: 'test'
+  ...
+# Subtest: fallback is limited to pre-turn model, effort, and session negotiation errors
+ok 139 - fallback is limited to pre-turn model, effort, and session negotiation errors
+  ---
+  duration_ms: 0.283182
+  type: 'test'
+  ...
+# Subtest: timeout classification is stable and separate from generic provider failure
+ok 140 - timeout classification is stable and separate from generic provider failure
+  ---
+  duration_ms: 0.178823
+  type: 'test'
+  ...
+# Subtest: deterministic gate requires approval for unparseable or severe unresolved critique
+ok 141 - deterministic gate requires approval for unparseable or severe unresolved critique
+  ---
+  duration_ms: 2.621184
+  type: 'test'
+  ...
+# Subtest: deterministic gate correlates stable finding IDs and escalates severe disagreement
+ok 142 - deterministic gate correlates stable finding IDs and escalates severe disagreement
+  ---
+  duration_ms: 0.339936
+  type: 'test'
+  ...
+# Subtest: deterministic gate fails closed on invalid fields and unknown dispositions
+ok 143 - deterministic gate fails closed on invalid fields and unknown dispositions
+  ---
+  duration_ms: 0.780166
+  type: 'test'
+  ...
+# Subtest: provider executable discovery excludes plugin-local binaries and aliases
+ok 144 - provider executable discovery excludes plugin-local binaries and aliases
+  ---
+  duration_ms: 7.264545
+  type: 'test'
+  ...
+# Subtest: provider executable discovery resolves a trusted target when PATH contains only a shim
+ok 145 - provider executable discovery resolves a trusted target when PATH contains only a shim
+  ---
+  duration_ms: 2.066939
+  type: 'test'
+  ...
+# Subtest: run authority does not cross linked consumer worktrees
+ok 146 - run authority does not cross linked consumer worktrees
+  ---
+  duration_ms: 138.473216
+  type: 'test'
+  ...
+# Subtest: request semantics dynamically route design, implementation, research, and large context
+ok 147 - request semantics dynamically route design, implementation, research, and large context
+  ---
+  duration_ms: 131.530746
+  type: 'test'
+  ...
+# Subtest: architecture is a max-effort Claude and Sol adversarial protocol
+ok 148 - architecture is a max-effort Claude and Sol adversarial protocol
+  ---
+  duration_ms: 42.574906
+  type: 'test'
+  ...
+# Subtest: single-route preview refuses to hide architecture protocol stages
+ok 149 - single-route preview refuses to hide architecture protocol stages
+  ---
+  duration_ms: 42.339427
+  type: 'test'
+  ...
+# Subtest: review excludes the originating provider family when possible
+ok 150 - review excludes the originating provider family when possible
+  ---
+  duration_ms: 42.0013
+  type: 'test'
+  ...
+# Subtest: explicit Claude and Codex provider requests resolve through catalog aliases
+ok 151 - explicit Claude and Codex provider requests resolve through catalog aliases
+  ---
+  duration_ms: 113.183128
+  type: 'test'
+  ...
+# Subtest: an exact catalog endpoint can select Fable 5.1 for implementation
+ok 152 - an exact catalog endpoint can select Fable 5.1 for implementation
+  ---
+  duration_ms: 43.583579
+  type: 'test'
+  ...
+# Subtest: state roots must be absolute and outside the plugin installation
+ok 153 - state roots must be absolute and outside the plugin installation
+  ---
+  duration_ms: 1.791047
+  type: 'test'
+  ...
+# Subtest: scheduler enforces concurrency and preserves idempotent spawn
+ok 154 - scheduler enforces concurrency and preserves idempotent spawn
+  ---
+  duration_ms: 149.224432
+  type: 'test'
+  ...
+# Subtest: architecture decisions can transition only from complete waiting evidence
+ok 155 - architecture decisions can transition only from complete waiting evidence
+  ---
+  duration_ms: 243.751914
+  type: 'test'
+  ...
+# Subtest: waiting-for-decision returns immediately and can be cancelled without a live worker
+ok 156 - waiting-for-decision returns immediately and can be cancelled without a live worker
+  ---
+  duration_ms: 176.077049
+  type: 'test'
+  ...
+# Subtest: restart recovery relaunches queued work and quarantines a lost active worker
+ok 157 - restart recovery relaunches queued work and quarantines a lost active worker
+  ---
+  duration_ms: 106.288123
+  type: 'test'
+  ...
+# Subtest: worker startup acknowledgement fails closed and leaves a durable terminal failure
+ok 158 - worker startup acknowledgement fails closed and leaves a durable terminal failure
+  ---
+  duration_ms: 71.879891
+  type: 'test'
+  ...
+# Subtest: an approval records which channel it came through, because the name on it proves nothing
+ok 159 - an approval records which channel it came through, because the name on it proves nothing
+  ---
+  duration_ms: 375.582991
+  type: 'test'
+  ...
+# Subtest: a server can require the channel an agent cannot reach
+ok 160 - a server can require the channel an agent cannot reach
+  ---
+  duration_ms: 215.056778
+  type: 'test'
+  ...
+# Subtest: session host refuses non-loopback binds
+ok 161 - session host refuses non-loopback binds
+  ---
+  duration_ms: 1.251319
+  type: 'test'
+  ...
+# Subtest: session meta refuses a run id with no run record
+ok 162 - session meta refuses a run id with no run record
+  ---
+  duration_ms: 5.158297
+  type: 'test'
+  ...
+# Subtest: session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability
+ok 163 - session host binds 127.0.0.1, walks a busy port, and exchanges a one-time capability
+  ---
+  duration_ms: 66.82183
+  type: 'test'
+  ...
+# Subtest: spawn returns a session URL that is not stored on the snapshot
+ok 164 - spawn returns a session URL that is not stored on the snapshot
+  ---
+  duration_ms: 99.393607
+  type: 'test'
+  ...
+# Subtest: SSE after=N returns only later events and Last-Event-ID is equivalent
+ok 165 - SSE after=N returns only later events and Last-Event-ID is equivalent
+  ---
+  duration_ms: 34.649973
+  type: 'test'
+  ...
+# Subtest: SSE returns 409 when the journal hash chain is corrupt
+ok 166 - SSE returns 409 when the journal hash chain is corrupt
+  ---
+  duration_ms: 15.828551
+  type: 'test'
+  ...
+# Subtest: SSE watch delivers seq+1 after a later journal append
+ok 167 - SSE watch delivers seq+1 after a later journal append
+  ---
+  duration_ms: 19.117954
+  type: 'test'
+  ...
+# Subtest: POST controls require loopback Origin, journal follow-up, and cancel the run
+ok 168 - POST controls require loopback Origin, journal follow-up, and cancel the run
+  ---
+  duration_ms: 37.563555
+  type: 'test'
+  ...
+# Subtest: POST decision reviews a waiting architecture run
+ok 169 - POST decision reviews a waiting architecture run
+  ---
+  duration_ms: 19.480973
+  type: 'test'
+  ...
+# Subtest: session supervisor unit names are stable, hashed, and refuse unsafe ids
+ok 170 - session supervisor unit names are stable, hashed, and refuse unsafe ids
+  ---
+  duration_ms: 1.62801
+  type: 'test'
+  ...
+# Subtest: session supervisor launch argv is systemd-run, prlimit, and cli session-host
+ok 171 - session supervisor launch argv is systemd-run, prlimit, and cli session-host
+  ---
+  duration_ms: 1.301399
+  type: 'test'
+  ...
+# Subtest: supervision is off on Windows, inside the session-host process, and when env is 0
+ok 172 - supervision is off on Windows, inside the session-host process, and when env is 0
+  ---
+  duration_ms: 4.770932
+  type: 'test'
+  ...
+# Subtest: ensureSessionHost joins a live lease and dispose leaves that listener running
+ok 173 - ensureSessionHost joins a live lease and dispose leaves that listener running
+  ---
+  duration_ms: 32.435729
+  type: 'test'
+  ...
+# Subtest: ensureSessionHost listens in-process when dist/cli.cjs is missing
+ok 174 - ensureSessionHost listens in-process when dist/cli.cjs is missing
+  ---
+  duration_ms: 9.178925
+  type: 'test'
+  ...
+# Subtest: waitForSessionHostLease returns the first successful probe
+ok 175 - waitForSessionHostLease returns the first successful probe
+  ---
+  duration_ms: 1.775183
+  type: 'test'
+  ...
+# Subtest: source fingerprint survives local verification caches but changes with source
+ok 176 - source fingerprint survives local verification caches but changes with source
+  ---
+  duration_ms: 13.336706
+  type: 'test'
+  ...
+# Subtest: idempotency keys return one durable run
+ok 177 - idempotency keys return one durable run
+  ---
+  duration_ms: 90.313046
+  type: 'test'
+  ...
+# Subtest: run IDs cannot traverse outside the state root
+ok 178 - run IDs cannot traverse outside the state root
+  ---
+  duration_ms: 3.00092
+  type: 'test'
+  ...
+# Subtest: a torn final event is ignored but prior hashes remain verified
+ok 179 - a torn final event is ignored but prior hashes remain verified
+  ---
+  duration_ms: 7.555187
+  type: 'test'
+  ...
+# Subtest: events are sequenced and terminal states are immutable
+ok 180 - events are sequenced and terminal states are immutable
+  ---
+  duration_ms: 26.940423
+  type: 'test'
+  ...
+# Subtest: operator_message events append to the verified hash chain
+ok 181 - operator_message events append to the verified hash chain
+  ---
+  duration_ms: 10.23255
+  type: 'test'
+  ...
+# Subtest: cancel requests are idempotent
+ok 182 - cancel requests are idempotent
+  ---
+  duration_ms: 12.907253
+  type: 'test'
+  ...
+# Subtest: the durable journal repairs a stale snapshot after an interrupted commit
+ok 183 - the durable journal repairs a stale snapshot after an interrupted commit
+  ---
+  duration_ms: 11.588859
+  type: 'test'
+  ...
+# Subtest: generic updates cannot mutate lifecycle or identity fields
+ok 184 - generic updates cannot mutate lifecycle or identity fields
+  ---
+  duration_ms: 7.873101
+  type: 'test'
+  ...
+# Subtest: generic updates reject terminal evidence changes while clearWorkspace is narrow and idempotent
+ok 185 - generic updates reject terminal evidence changes while clearWorkspace is narrow and idempotent
+  ---
+  duration_ms: 23.329875
+  type: 'test'
+  ...
+# Subtest: list skips a run directory that has lost its durable record
+ok 186 - list skips a run directory that has lost its durable record
+  ---
+  duration_ms: 6.141888
+  type: 'test'
+  ...
+# Subtest: list fails closed when a valid run directory contains a corrupt journal, beside a skipped orphan
+ok 187 - list fails closed when a valid run directory contains a corrupt journal, beside a skipped orphan
+  ---
+  duration_ms: 6.024566
+  type: 'test'
+  ...
+# Subtest: an empty or malformed stale primary lock is reclaimed under the breaker
+ok 188 - an empty or malformed stale primary lock is reclaimed under the breaker
+  ---
+  duration_ms: 7.030215
+  type: 'test'
+  ...
+# Subtest: an abandoned breaker can be reclaimed before breaking a stale lock
+ok 189 - an abandoned breaker can be reclaimed before breaking a stale lock
+  ---
+  duration_ms: 243.300628
+  type: 'test'
+  ...
+# Subtest: listServerPanes refuses an unnamed server and scopes every listing it does make
+ok 190 - listServerPanes refuses an unnamed server and scopes every listing it does make
+  ---
+  duration_ms: 28.233544
+  type: 'test'
+  ...
+# Subtest: ordinary verbs never enumerate an unnamed tmux server
+ok 191 - ordinary verbs never enumerate an unnamed tmux server
+  ---
+  duration_ms: 974.654587
+  type: 'test'
+  ...
+# [{"verb":"census --json","code":0,"listings":[]},{"verb":"prompt refresh","code":0,"listings":[]},{"verb":"prompt ack","code":1,"listings":[]},{"verb":"prompt ack","code":1,"listings":["-S /fake/caller.sock -u list-panes -a -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{pane_title}"]},{"verb":"startup-check --source","code":0,"listings":[]},{"verb":"startup-check --source","code":0,"listings":["-S /fake/caller.sock -u list-panes -a -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{pane_title}"]},{"verb":"role status","code":0,"listings":["-u list-panes -s -t =ao-c7d1c7dc -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{pane_title}"]},{"verb":"supervise --once","code":0,"listings":[]},{"verb":"role status (recorded server)","listings":["-S /fake/role.sock -u list-panes -s -t =ao-c7d1c7dc -F \#{socket_path}\\t\#{pid}\\t\#{session_id}\\t\#{session_created}\\t\#{pane_id}\\t\#{pane_pid}\\t\#{session_name}\\t\#{pane_current_command}\\t\#{pane_current_path}\\t\#{pane_dead}\\t\#{pane_title}"]}]
+# Subtest: supervise in an unenrolled repository runs read-only: it publishes presence and never starts a lead or agent
+ok 192 - supervise in an unenrolled repository runs read-only: it publishes presence and never starts a lead or agent
+  ---
+  duration_ms: 164.602877
+  type: 'test'
+  ...
+# Subtest: supervise --once still reconciles an enrolled repository
+ok 193 - supervise --once still reconciles an enrolled repository
+  ---
+  duration_ms: 240.855035
+  type: 'test'
+  ...
+# Subtest: a per-repository watcher labels only its own repository's panes
+ok 194 - a per-repository watcher labels only its own repository's panes
+  ---
+  duration_ms: 65.138304
+  type: 'test'
+  ...
+# Subtest: every non-@ address is byte-identical to expandFanout, and an unknown @ token is refused
+ok 195 - every non-@ address is byte-identical to expandFanout, and an unknown @ token is refused
+  ---
+  duration_ms: 39.030257
+  type: 'test'
+  ...
+# Subtest: @run is the roster minus the sender minus the orchestrator
+ok 196 - @run is the roster minus the sender minus the orchestrator
+  ---
+  duration_ms: 29.574207
+  type: 'test'
+  ...
+# Subtest: @role: spans both scopes and tags each expansion with its envelope path
+ok 197 - @role: spans both scopes and tags each expansion with its envelope path
+  ---
+  duration_ms: 35.485003
+  type: 'test'
+  ...
+# Subtest: @idle reads the census, and refuses rather than degrading when it cannot
+ok 198 - @idle reads the census, and refuses rather than degrading when it cannot
+  ---
+  duration_ms: 26.438133
+  type: 'test'
+  ...
+# Subtest: THE TRAP: a standing lead outside run.agents is delivered, not TOPOLOGY_UNKNOWN_AGENT
+ok 199 - THE TRAP: a standing lead outside run.agents is delivered, not TOPOLOGY_UNKNOWN_AGENT
+  ---
+  duration_ms: 121.579993
+  type: 'test'
+  ...
+# Subtest: TM-168: a role icon is display only — a lead icon on a worker's row does not make it a lead
+ok 200 - TM-168: a role icon is display only — a lead icon on a worker's row does not make it a lead
+  ---
+  duration_ms: 28.41312
+  type: 'test'
+  ...
+# Subtest: an @ token from outside the repository is refused, while a plain id still reaches the lead
+ok 201 - an @ token from outside the repository is refused, while a plain id still reaches the lead
+  ---
+  duration_ms: 108.873813
+  type: 'test'
+  ...
+# Subtest: the bound refuses naming the count and the limit, never truncates, and --max-recipients raises it
+ok 202 - the bound refuses naming the count and the limit, never truncates, and --max-recipients raises it
+  ---
+  duration_ms: 164.7151
+  type: 'test'
+  ...
+# Subtest: wait --message barriers over exactly the delivered set and names the silent one
+ok 203 - wait --message barriers over exactly the delivered set and names the silent one
+  ---
+  duration_ms: 172.874693
+  type: 'test'
+  ...
+# Subtest: a redirected recipient still satisfies the barrier through the existing redirect map
+ok 204 - a redirected recipient still satisfies the barrier through the existing redirect map
+  ---
+  duration_ms: 49.009614
+  type: 'test'
+  ...
+# Subtest: forwarding a broadcast-delivered message into a child workflow cannot re-broadcast it
+ok 205 - forwarding a broadcast-delivered message into a child workflow cannot re-broadcast it
+  ---
+  duration_ms: 64.294398
+  type: 'test'
+  ...
+# Subtest: a refused broadcast leaves run.json byte-identical, and an outsider cannot grow it
+ok 206 - a refused broadcast leaves run.json byte-identical, and an outsider cannot grow it
+  ---
+  duration_ms: 259.531208
+  type: 'test'
+  ...
+# Subtest: moving expansion above the allocation does not disturb idempotency
+ok 207 - moving expansion above the allocation does not disturb idempotency
+  ---
+  duration_ms: 78.186956
+  type: 'test'
+  ...
+# Subtest: busy is the braille RANGE, not a table of glyphs
+ok 208 - busy is the braille RANGE, not a table of glyphs
+  ---
+  duration_ms: 1.040002
+  type: 'test'
+  ...
+# Subtest: the claude timer marker stays off the two real IDLE screens it was tuned against
+ok 209 - the claude timer marker stays off the two real IDLE screens it was tuned against
+  ---
+  duration_ms: 0.28161
+  type: 'test'
+  ...
+# Subtest: needs-input is edge-triggered exactly once across busy -> idle -> idle -> idle
+ok 210 - needs-input is edge-triggered exactly once across busy -> idle -> idle -> idle
+  ---
+  duration_ms: 1.102636
+  type: 'test'
+  ...
+# Subtest: a pane that has never been observed working never produces needs-input
+ok 211 - a pane that has never been observed working never produces needs-input
+  ---
+  duration_ms: 0.228009
+  type: 'test'
+  ...
+# Subtest: quota-blocked beats attention beats working, through the real providers/kimi.json
+ok 212 - quota-blocked beats attention beats working, through the real providers/kimi.json
+  ---
+  duration_ms: 7.387248
+  type: 'test'
+  ...
+# Subtest: the kimi quota pattern survives withoutPaths AND tmuxFailureTrigger
+ok 213 - the kimi quota pattern survives withoutPaths AND tmuxFailureTrigger
+  ---
+  duration_ms: 2.302619
+  type: 'test'
+  ...
+# Subtest: a dead pane is dead even while its last capture still holds a spinner
+ok 214 - a dead pane is dead even while its last capture still holds a spinner
+  ---
+  duration_ms: 0.154743
+  type: 'test'
+  ...
+# Subtest: a failed capture is unknown, never idle; so is a listing we could not take
+ok 215 - a failed capture is unknown, never idle; so is a listing we could not take
+  ---
+  duration_ms: 0.120104
+  type: 'test'
+  ...
+# Subtest: the census records the cadence it was told, and owns none of its own
+ok 216 - the census records the cadence it was told, and owns none of its own
+  ---
+  duration_ms: 6.749122
+  type: 'test'
+  ...
+# Subtest: activity means the world moved, so it cannot pin the supervisor's sleep ladder
+ok 217 - activity means the world moved, so it cannot pin the supervisor's sleep ladder
+  ---
+  duration_ms: 11.361365
+  type: 'test'
+  ...
+# Subtest: stale forces every dispatchable false and every state unknown
+ok 218 - stale forces every dispatchable false and every state unknown
+  ---
+  duration_ms: 0.359353
+  type: 'test'
+  ...
+# Subtest: adapterForPane resolves a kimi pane from its running command, not from a record
+ok 219 - adapterForPane resolves a kimi pane from its running command, not from a record
+  ---
+  duration_ms: 2.034995
+  type: 'test'
+  ...
+# Subtest: a census reuses one listing, captures only inconclusive panes, and honours its budget
+ok 220 - a census reuses one listing, captures only inconclusive panes, and honours its budget
+  ---
+  duration_ms: 9.435441
+  type: 'test'
+  ...
+# Subtest: CLI workflow preview loads resolver definition and rejects another repository
+ok 221 - CLI workflow preview loads resolver definition and rejects another repository
+  ---
+  duration_ms: 199.058306
+  type: 'test'
+  ...
+# Subtest: internal collaboration: a project's own agents reach each other directly
+ok 222 - internal collaboration: a project's own agents reach each other directly
+  ---
+  duration_ms: 92.121979
+  type: 'test'
+  ...
+# Subtest: external collaboration: an outsider reaches the lead, not the member
+ok 223 - external collaboration: an outsider reaches the lead, not the member
+  ---
+  duration_ms: 116.762336
+  type: 'test'
+  ...
+# Subtest: an unresolvable recipient fails closed: an outsider naming a stranger still reaches the lead
+ok 224 - an unresolvable recipient fails closed: an outsider naming a stranger still reaches the lead
+  ---
+  duration_ms: 133.522876
+  type: 'test'
+  ...
+# Subtest: a project reached by another path shape is the same project, not an outsider
+ok 225 - a project reached by another path shape is the same project, not an outsider
+  ---
+  duration_ms: 125.636163
+  type: 'test'
+  ...
+# Subtest: a barrier on the original addressee is satisfied by the lead's answer, and returns it
+ok 226 - a barrier on the original addressee is satisfied by the lead's answer, and returns it
+  ---
+  duration_ms: 263.430806
+  type: 'test'
+  ...
+# Subtest: a delegation opens the direct channel, scoped to task and to the named outsider
+ok 227 - a delegation opens the direct channel, scoped to task and to the named outsider
+  ---
+  duration_ms: 212.576779
+  type: 'test'
+  ...
+# Subtest: the receiving repo's task store gets the last word on a delegation token
+ok 228 - the receiving repo's task store gets the last word on a delegation token
+  ---
+  duration_ms: 161.112016
+  type: 'test'
+  ...
+# Subtest: the via chain is appended to per hop and enforced on the send path
+ok 229 - the via chain is appended to per hop and enforced on the send path
+  ---
+  duration_ms: 186.966883
+  type: 'test'
+  ...
+# Subtest: coordinates_only is a capability: the mailbox refuses to assign a coordinator work
+ok 230 - coordinates_only is a capability: the mailbox refuses to assign a coordinator work
+  ---
+  duration_ms: 257.85754
+  type: 'test'
+  ...
+# Subtest: the lead's inbox depth is a number, and it is journalled as it grows
+ok 231 - the lead's inbox depth is a number, and it is journalled as it grows
+  ---
+  duration_ms: 248.44267
+  type: 'test'
+  ...
+# Subtest: a run that records only the token's digest still authenticates the writer
+ok 232 - a run that records only the token's digest still authenticates the writer
+  ---
+  duration_ms: 55.575288
+  type: 'test'
+  ...
+# Subtest: an agent cannot answer for another agent, and an empty reply satisfies nothing
+ok 233 - an agent cannot answer for another agent, and an empty reply satisfies nothing
+  ---
+  duration_ms: 177.073098
+  type: 'test'
+  ...
+# Subtest: config paths follow XDG and the repo convention
+ok 234 - config paths follow XDG and the repo convention
+  ---
+  duration_ms: 0.9423
+  type: 'test'
+  ...
+# Subtest: merge is deep for objects and wholesale for arrays
+ok 235 - merge is deep for objects and wholesale for arrays
+  ---
+  duration_ms: 0.661796
+  type: 'test'
+  ...
+# Subtest: shape check reports every problem without aborting
+ok 236 - shape check reports every problem without aborting
+  ---
+  duration_ms: 0.345981
+  type: 'test'
+  ...
+# Subtest: layers load in precedence order; bad JSON is reported and contributes nothing
+ok 237 - layers load in precedence order; bad JSON is reported and contributes nothing
+  ---
+  duration_ms: 14.508049
+  type: 'test'
+  ...
+# Subtest: config-relative prompt paths resolve against the file that named them
+ok 238 - config-relative prompt paths resolve against the file that named them
+  ---
+  duration_ms: 0.20458
+  type: 'test'
+  ...
+# Subtest: configured prompt values must be paths; inherited templates are not definitions
+ok 239 - configured prompt values must be paths; inherited templates are not definitions
+  ---
+  duration_ms: 0.201714
+  type: 'test'
+  ...
+# Subtest: classifyLanding: the truth table, including the row that must never read as submitted
+ok 240 - classifyLanding: the truth table, including the row that must never read as submitted
+  ---
+  duration_ms: 0.775692
+  type: 'test'
+  ...
+# Subtest: nextDeliveryRung: a stuck draft is resubmitted, then waited on — and NEVER re-typed
+ok 241 - nextDeliveryRung: a stuck draft is resubmitted, then waited on — and NEVER re-typed
+  ---
+  duration_ms: 0.30909
+  type: 'test'
+  ...
+# Subtest: decideBell refuses on a failure column, a dead pane and a stale binding
+ok 242 - decideBell refuses on a failure column, a dead pane and a stale binding
+  ---
+  duration_ms: 0.181958
+  type: 'test'
+  ...
+# Subtest: decideBell thresholds on > 0, not > promptLines — the launch rule rejects every safe pane
+ok 243 - decideBell thresholds on > 0, not > promptLines — the launch rule rejects every safe pane
+  ---
+  duration_ms: 0.195867
+  type: 'test'
+  ...
+# Subtest: decideResubmit drops the composer check and NOTHING else — the rung must stay reachable
+ok 244 - decideResubmit drops the composer check and NOTHING else — the rung must stay reachable
+  ---
+  duration_ms: 0.172355
+  type: 'test'
+  ...
+# Subtest: an adapter with no composer is ring_capability unsupported, holds, and touches tmux not at all
+ok 245 - an adapter with no composer is ring_capability unsupported, holds, and touches tmux not at all
+  ---
+  duration_ms: 15.575914
+  type: 'test'
+  ...
+# Subtest: --no-ring skips the bell without touching tmux and never escalates
+ok 246 - --no-ring skips the bell without touching tmux and never escalates
+  ---
+  duration_ms: 9.752882
+  type: 'test'
+  ...
+# Subtest: the driver rings, observes an empty composer, and reports submitted
+ok 247 - the driver rings, observes an empty composer, and reports submitted
+  ---
+  duration_ms: 513.305007
+  type: 'test'
+  ...
+# Subtest: a stuck draft is resubmitted with the submit key alone, never re-typed
+ok 248 - a stuck draft is resubmitted with the submit key alone, never re-typed
+  ---
+  duration_ms: 6518.346928
+  type: 'test'
+  ...
+# Subtest: a pane that never accepts input escalates as ring-failed rather than reporting success
+ok 249 - a pane that never accepts input escalates as ring-failed rather than reporting success
+  ---
+  duration_ms: 8.785477
+  type: 'test'
+  ...
+# Subtest: no safe moment holds without escalating, and never reports rang
+ok 250 - no safe moment holds without escalating, and never reports rang
+  ---
+  duration_ms: 1009.626265
+  type: 'test'
+  ...
+# Subtest: every provider declaring a composer declares a note, and its patterns survive both guards
+ok 251 - every provider declaring a composer declares a note, and its patterns survive both guards
+  ---
+  duration_ms: 1.955224
+  type: 'test'
+  ...
+# Subtest: the codex ready pattern matches the placeholder an empty composer actually renders
+ok 252 - the codex ready pattern matches the placeholder an empty composer actually renders
+  ---
+  duration_ms: 2.538982
+  type: 'test'
+  ...
+# Subtest: a repeated idempotencyKey writes no second inbox file
+ok 253 - a repeated idempotencyKey writes no second inbox file
+  ---
+  duration_ms: 45.358031
+  type: 'test'
+  ...
+# Subtest: notificationFor keeps durable-pending's meaning and widens the rest
+ok 254 - notificationFor keeps durable-pending's meaning and widens the rest
+  ---
+  duration_ms: 0.214859
+  type: 'test'
+  ...
+# Subtest: explicit nonce enrollment preserves session/task/privileges and appears in presence
+ok 255 - explicit nonce enrollment preserves session/task/privileges and appears in presence
+  ---
+  duration_ms: 129.81936
+  type: 'test'
+  ...
+# Subtest: wrong nonce, identity, repository or acknowledging pane preserves pending
+ok 256 - wrong nonce, identity, repository or acknowledging pane preserves pending
+  ---
+  duration_ms: 76.774417
+  type: 'test'
+  ...
+# Subtest: each changed incarnation component rejects acknowledgement without clearing pending
+ok 257 - each changed incarnation component rejects acknowledgement without clearing pending
+  ---
+  duration_ms: 118.059011
+  type: 'test'
+  ...
+# Subtest: concurrent requests cannot assign one incarnation to different identities
+ok 258 - concurrent requests cannot assign one incarnation to different identities
+  ---
+  duration_ms: 86.654764
+  type: 'test'
+  ...
+# Subtest: invalid prompt configuration retains pending and existing running prompt
+ok 259 - invalid prompt configuration retains pending and existing running prompt
+  ---
+  duration_ms: 53.819016
+  type: 'test'
+  ...
+# Subtest: expired challenge preserves pending and same identity can request a fresh nonce
+ok 260 - expired challenge preserves pending and same identity can request a fresh nonce
+  ---
+  duration_ms: 109.712501
+  type: 'test'
+  ...
+# Subtest: ack recovery clears only the exact pending record after enrolled publication
+ok 261 - ack recovery clears only the exact pending record after enrolled publication
+  ---
+  duration_ms: 96.30119
+  type: 'test'
+  ...
+# Subtest: a TMUX_TMPDIR too long for a unix socket is refused with the reason
+ok 262 - a TMUX_TMPDIR too long for a unix socket is refused with the reason
+  ---
+  duration_ms: 0.787262
+  type: 'test'
+  ...
+# Subtest: an ordinary TMUX_TMPDIR, and an unset one, say nothing
+ok 263 - an ordinary TMUX_TMPDIR, and an unset one, say nothing
+  ---
+  duration_ms: 0.131615
+  type: 'test'
+  ...
+# Subtest: a prompt refusal names the key that is wrong
+ok 264 - a prompt refusal names the key that is wrong
+  ---
+  duration_ms: 0.128425
+  type: 'test'
+  ...
+# Subtest: doctor reports the first-run trust gate for a repository Claude has never been trusted in
+ok 265 - doctor reports the first-run trust gate for a repository Claude has never been trusted in
+  ---
+  duration_ms: 46.678088
+  type: 'test'
+  ...
+# Subtest: a trusted ANCESTOR does not make a repository nested under it trusted
+ok 266 - a trusted ANCESTOR does not make a repository nested under it trusted
+  ---
+  duration_ms: 24.049692
+  type: 'test'
+  ...
+# Subtest: doctor says nothing about trust once the repository is trusted
+ok 267 - doctor says nothing about trust once the repository is trusted
+  ---
+  duration_ms: 20.388452
+  type: 'test'
+  ...
+# Subtest: a subdirectory of a trusted repository is trusted — the mistake this check first reproduced
+ok 268 - a subdirectory of a trusted repository is trusted — the mistake this check first reproduced
+  ---
+  duration_ms: 20.070738
+  type: 'test'
+  ...
+# Subtest: an untrusted ancestor is still untrusted — inheritance is not an escape hatch
+ok 269 - an untrusted ancestor is still untrusted — inheritance is not an escape hatch
+  ---
+  duration_ms: 20.233242
+  type: 'test'
+  ...
+# Subtest: TM-150: no deny rule names a tool the CLI does not know, and the flags that ENFORCE read-only stay
+ok 270 - TM-150: no deny rule names a tool the CLI does not know, and the flags that ENFORCE read-only stay
+  ---
+  duration_ms: 1.623949
+  type: 'test'
+  ...
+# Subtest: ids and names are minted independently; a name collision never moves an address
+ok 271 - ids and names are minted independently; a name collision never moves an address
+  ---
+  duration_ms: 1.740804
+  type: 'test'
+  ...
+# Subtest: every built-in role including lead has a title, and people never see an id
+ok 272 - every built-in role including lead has a title, and people never see an id
+  ---
+  duration_ms: 0.21767
+  type: 'test'
+  ...
+# Subtest: a session is one agent's stable address plus a per-spawn discriminator
+ok 273 - a session is one agent's stable address plus a per-spawn discriminator
+  ---
+  duration_ms: 0.121132
+  type: 'test'
+  ...
+# Subtest: agents resolve through the same four-tier search path as the other resource types
+ok 274 - agents resolve through the same four-tier search path as the other resource types
+  ---
+  duration_ms: 7.516461
+  type: 'test'
+  ...
+# Subtest: a repo takes exactly one lead, and agents resolve by id or by name
+ok 275 - a repo takes exactly one lead, and agents resolve by id or by name
+  ---
+  duration_ms: 71.748062
+  type: 'test'
+  ...
+# Subtest: an agent's prompt maps the real work tree and warns against relative paths
+ok 276 - an agent's prompt maps the real work tree and warns against relative paths
+  ---
+  duration_ms: 16.392614
+  type: 'test'
+  ...
+# Subtest: loop and hop guards
+ok 277 - loop and hop guards
+  ---
+  duration_ms: 0.238896
+  type: 'test'
+  ...
+# Subtest: a session name resolves back to the agent that owns it, and to one spawn of it
+ok 278 - a session name resolves back to the agent that owns it, and to one spawn of it
+  ---
+  duration_ms: 0.33975
+  type: 'test'
+  ...
+# Subtest: the idle check and the write are one critical section: two tasks cannot get the same agent
+ok 279 - the idle check and the write are one critical section: two tasks cannot get the same agent
+  ---
+  duration_ms: 102.613789
+  type: 'test'
+  ...
+# Subtest: a stale census is no news, not old news: nothing is dispatchable from one
+ok 280 - a stale census is no news, not old news: nothing is dispatchable from one
+  ---
+  duration_ms: 47.79057
+  type: 'test'
+  ...
+# Subtest: an agent the census calls idle but whose pane incarnation is gone is refused
+ok 281 - an agent the census calls idle but whose pane incarnation is gone is refused
+  ---
+  duration_ms: 44.372226
+  type: 'test'
+  ...
+# Subtest: an assignment that is already live refuses a second one for the same task
+ok 282 - an assignment that is already live refuses a second one for the same task
+  ---
+  duration_ms: 48.473401
+  type: 'test'
+  ...
+# Subtest: reassigning the same task to the same agent mints a NEW envelope, not the last round's
+ok 283 - reassigning the same task to the same agent mints a NEW envelope, not the last round's
+  ---
+  duration_ms: 57.301327
+  type: 'test'
+  ...
+# Subtest: the pointer carries the dispatching session id, so the agent's tm shares the claim (CAP-0002)
+ok 284 - the pointer carries the dispatching session id, so the agent's tm shares the claim (CAP-0002)
+  ---
+  duration_ms: 39.509466
+  type: 'test'
+  ...
+# Subtest: assignment requires an owning session: an unowned claim cannot be handed to anyone
+ok 285 - assignment requires an owning session: an unowned claim cannot be handed to anyone
+  ---
+  duration_ms: 27.734956
+  type: 'test'
+  ...
+# Subtest: the result is the reply: pending until one arrives, and the first word is the outcome
+ok 286 - the result is the reply: pending until one arrives, and the first word is the outcome
+  ---
+  duration_ms: 44.607786
+  type: 'test'
+  ...
+# Subtest: an unrecognised reply is an honest failure, never a silent success
+ok 287 - an unrecognised reply is an honest failure, never a silent success
+  ---
+  duration_ms: 0.242006
+  type: 'test'
+  ...
+# Subtest: release is idempotent and keeps the record, because an assignment that happened is history
+ok 288 - release is idempotent and keeps the record, because an assignment that happened is history
+  ---
+  duration_ms: 50.859443
+  type: 'test'
+  ...
+# Subtest: coordinates-only observer sessions do not require governed-work readiness
+ok 289 - coordinates-only observer sessions do not require governed-work readiness
+  ---
+  duration_ms: 0.917867
+  type: 'test'
+  ...
+# Subtest: an own-state observer may receive only its host-state grant, never the repository
+ok 290 - an own-state observer may receive only its host-state grant, never the repository
+  ---
+  duration_ms: 0.767412
+  type: 'test'
+  ...
+# Subtest: a spec with no auto_approve key launches auto-approved without consent — dry run included
+ok 291 - a spec with no auto_approve key launches auto-approved without consent — dry run included
+  ---
+  duration_ms: 31.733765
+  type: 'test'
+  ...
+# Subtest: the legacy allowAutoApprove option is accepted and changes nothing
+ok 292 - the legacy allowAutoApprove option is accepted and changes nothing
+  ---
+  duration_ms: 15.746187
+  type: 'test'
+  ...
+# Subtest: explicit auto_approve: false opts an agent out, and the real claude adapter argv reflects both
+ok 293 - explicit auto_approve: false opts an agent out, and the real claude adapter argv reflects both
+  ---
+  duration_ms: 16.801678
+  type: 'test'
+  ...
+# Subtest: the runs root is gitignored before a run writes into it
+ok 294 - the runs root is gitignored before a run writes into it
+  ---
+  duration_ms: 3.128593
+  type: 'test'
+  ...
+# Subtest: a shell prompt that looks exactly like the ready pattern does not count as ready
+ok 295 - a shell prompt that looks exactly like the ready pattern does not count as ready
+  ---
+  duration_ms: 1.5027
+  type: 'test'
+  ...
+# Subtest: screenSince anchors on the last occurrence, because tmux trims trailing blank lines
+ok 296 - screenSince anchors on the last occurrence, because tmux trims trailing blank lines
+  ---
+  duration_ms: 0.217582
+  type: 'test'
+  ...
+# Subtest: the fixed-delay path can return ready:false, so the not-ready warning is reachable
+ok 297 - the fixed-delay path can return ready:false, so the not-ready warning is reachable
+  ---
+  duration_ms: 0.470473
+  type: 'test'
+  ...
+# Subtest: a dead pane fails whichever readiness path the adapter uses
+ok 298 - a dead pane fails whichever readiness path the adapter uses
+  ---
+  duration_ms: 0.28059
+  type: 'test'
+  ...
+# Subtest: failure patterns no longer fire on a word that only appears inside a path
+ok 299 - failure patterns no longer fire on a word that only appears inside a path
+  ---
+  duration_ms: 0.104775
+  type: 'test'
+  ...
+# Subtest: a failure pattern in fresh output still fails the candidate
+ok 300 - a failure pattern in fresh output still fails the candidate
+  ---
+  duration_ms: 0.07102
+  type: 'test'
+  ...
+# Subtest: every shipped provider declares where its memory lives and how it grants a directory
+ok 301 - every shipped provider declares where its memory lives and how it grants a directory
+  ---
+  duration_ms: 1.996465
+  type: 'test'
+  ...
+# Subtest: two agents in the same repo do not share memory, and one agent keeps its across spawns
+ok 302 - two agents in the same repo do not share memory, and one agent keeps its across spawns
+  ---
+  duration_ms: 0.353953
+  type: 'test'
+  ...
+# Subtest: the repo is granted through the adapter's own add_dir mechanism, never a hardcoded flag
+ok 303 - the repo is granted through the adapter's own add_dir mechanism, never a hardcoded flag
+  ---
+  duration_ms: 0.212927
+  type: 'test'
+  ...
+# Subtest: an adapter with a bad memory declaration is rejected at load, not at launch
+ok 304 - an adapter with a bad memory declaration is rejected at load, not at launch
+  ---
+  duration_ms: 0.431869
+  type: 'test'
+  ...
+# Subtest: an agent whose cwd is not the repo is warned about when its CLI cannot be granted the repo
+ok 305 - an agent whose cwd is not the repo is warned about when its CLI cannot be granted the repo
+  ---
+  duration_ms: 15.984603
+  type: 'test'
+  ...
+# Subtest: an agent token is a capability: long, random, and never repeated
+ok 306 - an agent token is a capability: long, random, and never repeated
+  ---
+  duration_ms: 4.438859
+  type: 'test'
+  ...
+# Subtest: each agent's launcher exports that agent's token and no other agent's
+ok 307 - each agent's launcher exports that agent's token and no other agent's
+  ---
+  duration_ms: 0.885011
+  type: 'test'
+  ...
+# Subtest: a spec cannot name the token that decides which agent a pane may answer as
+ok 308 - a spec cannot name the token that decides which agent a pane may answer as
+  ---
+  duration_ms: 0.748197
+  type: 'test'
+  ...
+# Subtest: a coordinator is launched without the work-tree grant, so it cannot write the repo
+ok 309 - a coordinator is launched without the work-tree grant, so it cannot write the repo
+  ---
+  duration_ms: 19.782707
+  type: 'test'
+  ...
+# Subtest: a coordinator on an adapter that cannot drop its write tools is warned about, not quietly trusted
+ok 310 - a coordinator on an adapter that cannot drop its write tools is warned about, not quietly trusted
+  ---
+  duration_ms: 13.746803
+  type: 'test'
+  ...
+# Subtest: a restriction beats a permission when one flag expresses both
+ok 311 - a restriction beats a permission when one flag expresses both
+  ---
+  duration_ms: 0.203003
+  type: 'test'
+  ...
+# Subtest: every shipped provider states a coordinator form, even when that form is 'none'
+ok 312 - every shipped provider states a coordinator form, even when that form is 'none'
+  ---
+  duration_ms: 1.780291
+  type: 'test'
+  ...
+# Subtest: a session name is the agent's stable id plus a per-spawn discriminator, unique among live sessions
+ok 313 - a session name is the agent's stable id plus a per-spawn discriminator, unique among live sessions
+  ---
+  duration_ms: 0.228632
+  type: 'test'
+  ...
+# Subtest: two concurrent spawns of one agent are two distinct, separately addressable sessions
+ok 314 - two concurrent spawns of one agent are two distinct, separately addressable sessions
+  ---
+  duration_ms: 0.213891
+  type: 'test'
+  ...
+# Subtest: minting gives up loudly rather than handing back a name that is already taken
+ok 315 - minting gives up loudly rather than handing back a name that is already taken
+  ---
+  duration_ms: 0.17507
+  type: 'test'
+  ...
+# Subtest: the subscription format asks the server for readiness, failure, death and the exit code
+ok 316 - the subscription format asks the server for readiness, failure, death and the exit code
+  ---
+  duration_ms: 0.170968
+  type: 'test'
+  ...
+# Subtest: patterns tmux cannot parse are left out of the trigger rather than breaking the format
+ok 317 - patterns tmux cannot parse are left out of the trigger rather than breaking the format
+  ---
+  duration_ms: 0.085357
+  type: 'test'
+  ...
+# Subtest: an adapter whose tmux_pattern tmux cannot parse is rejected at load
+ok 318 - an adapter whose tmux_pattern tmux cannot parse is rejected at load
+  ---
+  duration_ms: 0.111447
+  type: 'test'
+  ...
+# Subtest: a tmux_pattern that tmux can parse but can never match is rejected too
+ok 319 - a tmux_pattern that tmux can parse but can never match is rejected too
+  ---
+  duration_ms: 0.344818
+  type: 'test'
+  ...
+# Subtest: a pushed value decides readiness, and the shell's own prompt still does not count
+ok 320 - a pushed value decides readiness, and the shell's own prompt still does not count
+  ---
+  duration_ms: 0.114307
+  type: 'test'
+  ...
+# Subtest: a pushed death carries the process's real exit code, not just 'it died'
+ok 321 - a pushed death carries the process's real exit code, not just 'it died'
+  ---
+  duration_ms: 0.061558
+  type: 'test'
+  ...
+# Subtest: a server-side failure hit only asks for a second look; it does not decide
+ok 322 - a server-side failure hit only asks for a second look; it does not decide
+  ---
+  duration_ms: 0.038299
+  type: 'test'
+  ...
+# Subtest: deaths recorded by the pane-died hook parse back with their exit codes
+ok 323 - deaths recorded by the pane-died hook parse back with their exit codes
+  ---
+  duration_ms: 2.294707
+  type: 'test'
+  ...
+# Subtest: a role-session is named from the agent's stable id and never from a run
+ok 324 - a role-session is named from the agent's stable id and never from a run
+  ---
+  duration_ms: 0.244804
+  type: 'test'
+  ...
+# Subtest: a role-session name refuses the two characters tmux silently mangles
+ok 325 - a role-session name refuses the two characters tmux silently mangles
+  ---
+  duration_ms: 0.157507
+  type: 'test'
+  ...
+# Subtest: the record lives beside the agent, not inside a run that will be torn down
+ok 326 - the record lives beside the agent, not inside a run that will be torn down
+  ---
+  duration_ms: 0.060872
+  type: 'test'
+  ...
+# Subtest: reattaching to a live role-session returns the same session rather than a second one
+ok 327 - reattaching to a live role-session returns the same session rather than a second one
+  ---
+  duration_ms: 1143.859111
+  type: 'test'
+  ...
+# Subtest: healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation
+ok 328 - healthy reattach preserves a queued prompt, while retained-dead restart promotes it onto the new incarnation
+  ---
+  duration_ms: 7461.112214
+  type: 'test'
+  ...
+# Subtest: the window is sized so every agent's pane stays wider than a ready pattern
+ok 329 - the window is sized so every agent's pane stays wider than a ready pattern
+  ---
+  duration_ms: 0.488573
+  type: 'test'
+  ...
+# Subtest: splitting for a large team re-equalizes, so the seventh agent still gets a pane
+ok 330 - splitting for a large team re-equalizes, so the seventh agent still gets a pane
+  ---
+  duration_ms: 170.732496
+  type: 'test'
+  ...
+# Subtest: a blank anchor never truncates the screen away — the readiness flake
+ok 331 - a blank anchor never truncates the screen away — the readiness flake
+  ---
+  duration_ms: 0.320905
+  type: 'test'
+  ...
+# Subtest: the shipped failure list does not fire on a real provider's startup banner
+ok 332 - the shipped failure list does not fire on a real provider's startup banner
+  ---
+  duration_ms: 1.377024
+  type: 'test'
+  ...
+# Subtest: a prompt glyph that is not an empty input box is not readiness
+ok 333 - a prompt glyph that is not an empty input box is not readiness
+  ---
+  duration_ms: 2.502106
+  type: 'test'
+  ...
+# Subtest: a screen only a human can clear is reported as that, not as a provider fault
+ok 334 - a screen only a human can clear is reported as that, not as a provider fault
+  ---
+  duration_ms: 1.497596
+  type: 'test'
+  ...
+# Subtest: a pane's liveness and exit status come from one answer
+ok 335 - a pane's liveness and exit status come from one answer
+  ---
+  duration_ms: 874.250789
+  type: 'test'
+  ...
+# Subtest: a capture that could not be taken is not a blank screen
+ok 336 - a capture that could not be taken is not a blank screen
+  ---
+  duration_ms: 4.2931
+  type: 'test'
+  ...
+# Subtest: the submit key reaches the pane as a keystroke, not as the tail of a paste
+ok 337 - the submit key reaches the pane as a keystroke, not as the tail of a paste
+  ---
+  duration_ms: 1964.189825
+  type: 'test'
+  ...
+# Subtest: the conductor is told to begin, and only the conductor
+ok 338 - the conductor is told to begin, and only the conductor
+  ---
+  duration_ms: 1.349499
+  type: 'test'
+  ...
+# Subtest: a pointer typed at a pane that is not listening is a failure, not a warning
+ok 339 - a pointer typed at a pane that is not listening is a failure, not a warning
+  ---
+  duration_ms: 4423.920949
+  type: 'test'
+  ...
+# Subtest: TM-151: a composer holding only DIM suggestion text is ready, though no text pattern can say so
+ok 340 - TM-151: a composer holding only DIM suggestion text is ready, though no text pattern can say so
+  ---
+  duration_ms: 1.06632
+  type: 'test'
+  ...
+# Subtest: TM-151: the composer is the LAST glyph line, not an earlier one the agent quoted
+ok 341 - TM-151: the composer is the LAST glyph line, not an earlier one the agent quoted
+  ---
+  duration_ms: 0.128384
+  type: 'test'
+  ...
+# Subtest: retry delay is 10s, 30s, 2m, then capped at 10m
+ok 342 - retry delay is 10s, 30s, 2m, then capped at 10m
+  ---
+  duration_ms: 1.090909
+  type: 'test'
+  ...
+# Subtest: an unenrolled repository is never observed or given a lead; an enrolled one with none gets one created
+ok 343 - an unenrolled repository is never observed or given a lead; an enrolled one with none gets one created
+  ---
+  duration_ms: 69.374531
+  type: 'test'
+  ...
+# Subtest: a responsive lead is reused, and is rung only when someone asked for proof
+ok 344 - a responsive lead is reused, and is rung only when someone asked for proof
+  ---
+  duration_ms: 81.504322
+  type: 'test'
+  ...
+# Subtest: a live unresponsive lead is never restarted, killed or duplicated, and its probe backs off
+ok 345 - a live unresponsive lead is never restarted, killed or duplicated, and its probe backs off
+  ---
+  duration_ms: 96.139577
+  type: 'test'
+  ...
+# Subtest: a dead managed lead restarts only after its recorded incarnation is re-verified gone
+ok 346 - a dead managed lead restarts only after its recorded incarnation is re-verified gone
+  ---
+  duration_ms: 151.886092
+  type: 'test'
+  ...
+# Subtest: a dead externally owned lead is held with a reassignment alert, journalled once, never replaced
+ok 347 - a dead externally owned lead is held with a reassignment alert, journalled once, never replaced
+  ---
+  duration_ms: 119.815581
+  type: 'test'
+  ...
+# Subtest: a provider failure backs off 10s, 30s, 2m, 10m, 10m visibly, and resets once the lead is responsive
+ok 348 - a provider failure backs off 10s, 30s, 2m, 10m, 10m visibly, and resets once the lead is responsive
+  ---
+  duration_ms: 247.10407
+  type: 'test'
+  ...
+# Subtest: a recovery request is a durable marker, not a recovery in the caller
+ok 349 - a recovery request is a durable marker, not a recovery in the caller
+  ---
+  duration_ms: 26.125603
+  type: 'test'
+  ...
+# Subtest: ensureLead probes a live lead with the registration lock released
+ok 350 - ensureLead probes a live lead with the registration lock released
+  ---
+  duration_ms: 42.107001
+  type: 'test'
+  ...
+# Subtest: a supervisor tick is quiet for an unenrolled repository and reports recovery for an enrolled one
+ok 351 - a supervisor tick is quiet for an unenrolled repository and reports recovery for an enrolled one
+  ---
+  duration_ms: 221.062948
+  type: 'test'
+  ...
+# Subtest: read-only lead readiness preserves missing, invalid and valid acknowledgement evidence
+ok 352 - read-only lead readiness preserves missing, invalid and valid acknowledgement evidence
+  ---
+  duration_ms: 62.286003
+  type: 'test'
+  ...
+# Subtest: lead readiness stores an exact-incarnation proof and rejects stale or unbound memos
+ok 353 - lead readiness stores an exact-incarnation proof and rejects stale or unbound memos
+  ---
+  duration_ms: 25.162073
+  type: 'test'
+  ...
+# Subtest: lead late acknowledgements require matching challenge and acknowledgement incarnations
+ok 354 - lead late acknowledgements require matching challenge and acknowledgement incarnations
+  ---
+  duration_ms: 34.18947
+  type: 'test'
+  ...
+# Subtest: lead refuses acknowledgement after its candidate binding changes during the probe
+ok 355 - lead refuses acknowledgement after its candidate binding changes during the probe
+  ---
+  duration_ms: 13.62531
+  type: 'test'
+  ...
+# Subtest: lead ack validates current registration and records the complete tuple
+ok 356 - lead ack validates current registration and records the complete tuple
+  ---
+  duration_ms: 56.162168
+  type: 'test'
+  ...
+# Subtest: lead assignment can prove an unregistered candidate but cannot register a changed incarnation
+ok 357 - lead assignment can prove an unregistered candidate but cannot register a changed incarnation
+  ---
+  duration_ms: 123.715769
+  type: 'test'
+  ...
+# Subtest: concurrent shared-worktree ensure converges, distinguishes dead and unresponsive, and preserves external assignment
+ok 358 - concurrent shared-worktree ensure converges, distinguishes dead and unresponsive, and preserves external assignment
+  ---
+  duration_ms: 294.553313
+  type: 'test'
+  ...
+# Subtest: separate startup processes race on a real tmux server and converge on one session
+ok 359 - separate startup processes race on a real tmux server and converge on one session
+  ---
+  duration_ms: 237.308245
+  type: 'test'
+  ...
+# Subtest: lineage travels in the environment
+    # Subtest: reads nothing at the root, and a full chain below it
+    ok 1 - reads nothing at the root, and a full chain below it
+      ---
+      duration_ms: 0.93893
+      type: 'test'
+      ...
+    # Subtest: grows the chain by exactly one workflow per level
+    ok 2 - grows the chain by exactly one workflow per level
+      ---
+      duration_ms: 0.145301
+      type: 'test'
+      ...
+    1..2
+ok 360 - lineage travels in the environment
+  ---
+  duration_ms: 1.794584
+  type: 'suite'
+  ...
+# Subtest: the refusals that keep a tree finite
+    # Subtest: refuses a workflow already in its own ancestry, and names the loop
+    ok 1 - refuses a workflow already in its own ancestry, and names the loop
+      ---
+      duration_ms: 0.223077
+      type: 'test'
+      ...
+    # Subtest: refuses past the depth cap, and says how to raise it
+    ok 2 - refuses past the depth cap, and says how to raise it
+      ---
+      duration_ms: 0.121415
+      type: 'test'
+      ...
+    # Subtest: has nothing to refuse at the root
+    ok 3 - has nothing to refuse at the root
+      ---
+      duration_ms: 0.078628
+      type: 'test'
+      ...
+    1..3
+ok 361 - the refusals that keep a tree finite
+  ---
+  duration_ms: 0.615636
+  type: 'suite'
+  ...
+# Subtest: fan-out expands one entry into a team per item
+    # Subtest: names each child after its item, not its position
+    ok 1 - names each child after its item, not its position
+      ---
+      duration_ms: 1.252639
+      type: 'test'
+      ...
+    # Subtest: takes a comma-separated string, because an input can only ever supply one
+    ok 2 - takes a comma-separated string, because an input can only ever supply one
+      ---
+      duration_ms: 0.272542
+      type: 'test'
+      ...
+    # Subtest: resolves a slug collision rather than silently losing a child
+    ok 3 - resolves a slug collision rather than silently losing a child
+      ---
+      duration_ms: 0.227225
+      type: 'test'
+      ...
+    # Subtest: refuses an empty list and one wider than the cap
+    ok 4 - refuses an empty list and one wider than the cap
+      ---
+      duration_ms: 0.508774
+      type: 'test'
+      ...
+    1..4
+ok 362 - fan-out expands one entry into a team per item
+  ---
+  duration_ms: 2.610618
+  type: 'suite'
+  ...
+# Subtest: the admitted holder receives the exact durable owner identity
+ok 363 - the admitted holder receives the exact durable owner identity
+  ---
+  duration_ms: 9.415356
+  type: 'test'
+  ...
+# Subtest: concurrent holders serialize: exactly one critical section runs at a time
+ok 364 - concurrent holders serialize: exactly one critical section runs at a time
+  ---
+  duration_ms: 194.458803
+  type: 'test'
+  ...
+# Subtest: a live holder outlasting the timeout is an error, never a broken lock
+ok 365 - a live holder outlasting the timeout is an error, never a broken lock
+  ---
+  duration_ms: 152.35954
+  type: 'test'
+  ...
+# Subtest: a stale lock from a dead holder is broken and retaken
+ok 366 - a stale lock from a dead holder is broken and retaken
+  ---
+  duration_ms: 68.086226
+  type: 'test'
+  ...
+# Subtest: a failing body still releases the lock
+ok 367 - a failing body still releases the lock
+  ---
+  duration_ms: 4.705998
+  type: 'test'
+  ...
+# Subtest: creator paused before owner write cannot be evicted
+ok 368 - creator paused before owner write cannot be evicted
+  ---
+  duration_ms: 65.249864
+  type: 'test'
+  ...
+# Subtest: live holder survives stale age and malformed record respects deadline
+ok 369 - live holder survives stale age and malformed record respects deadline
+  ---
+  duration_ms: 135.154457
+  type: 'test'
+  ...
+# Subtest: old holder release preserves externally replaced successor
+ok 370 - old holder release preserves externally replaced successor
+  ---
+  duration_ms: 4.352094
+  type: 'test'
+  ...
+# Subtest: delayed dead-owner reclaimer cannot delete a successor
+ok 371 - delayed dead-owner reclaimer cannot delete a successor
+  ---
+  duration_ms: 73.4151
+  type: 'test'
+  ...
+# Subtest: sendMessage writes one inbox file per recipient and journals it
+ok 372 - sendMessage writes one inbox file per recipient and journals it
+  ---
+  duration_ms: 53.474944
+  type: 'test'
+  ...
+# Subtest: waitForReplies resolves when every reply file exists and times out otherwise
+ok 373 - waitForReplies resolves when every reply file exists and times out otherwise
+  ---
+  duration_ms: 386.239626
+  type: 'test'
+  ...
+# Subtest: adapters: unknown cli falls back to generic with the id as command; argv order is stable
+ok 374 - adapters: unknown cli falls back to generic with the id as command; argv order is stable
+  ---
+  duration_ms: 2.882958
+  type: 'test'
+  ...
+# Subtest: queue depth counts what each agent still owes, and a run with no lead reports no lead queue
+ok 375 - queue depth counts what each agent still owes, and a run with no lead reports no lead queue
+  ---
+  duration_ms: 48.410534
+  type: 'test'
+  ...
+# Subtest: workflow forwarding reads persisted source/task/ancestry, revalidates child admission, and deduplicates retries
+ok 376 - workflow forwarding reads persisted source/task/ancestry, revalidates child admission, and deduplicates retries
+  ---
+  duration_ms: 174.339405
+  type: 'test'
+  ...
+# Subtest: CLI send persists notification without injecting a live terminal composer
+ok 377 - CLI send persists notification without injecting a live terminal composer
+  ---
+  duration_ms: 261.575029
+  type: 'test'
+  ...
+# Subtest: new admission requires reviewer, task scope, ownership and complete protocol before provisioning
+ok 378 - new admission requires reviewer, task scope, ownership and complete protocol before provisioning
+  ---
+  duration_ms: 83.966962
+  type: 'test'
+  ...
+# Subtest: adopted active worker is preserved for migration review
+ok 379 - adopted active worker is preserved for migration review
+  ---
+  duration_ms: 23.572314
+  type: 'test'
+  ...
+# Subtest: finish survives reviewer outage but merge fails closed and task is never automatically done
+ok 380 - finish survives reviewer outage but merge fails closed and task is never automatically done
+  ---
+  duration_ms: 284.205481
+  type: 'test'
+  ...
+# Subtest: configured checks, verified local merge and tm cleanup close only the owned task in order
+ok 381 - configured checks, verified local merge and tm cleanup close only the owned task in order
+  ---
+  duration_ms: 415.22015
+  type: 'test'
+  ...
+# Subtest: dirty, changed and unowned task cleanup preserves work with recovery reason
+ok 382 - dirty, changed and unowned task cleanup preserves work with recovery reason
+  ---
+  duration_ms: 307.003704
+  type: 'test'
+  ...
+# Subtest: actual tm CLI provisions once, records worker claim, and enforces start before admission
+ok 383 - actual tm CLI provisions once, records worker claim, and enforces start before admission
+  ---
+  duration_ms: 1264.073814
+  type: 'test'
+  ...
+# Subtest: TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+ok 384 - TM-240: a standing reviewer refuses unadmitted tm dispatch; admit, dispatch, finish yields a reviewable revision
+  ---
+  duration_ms: 1865.95156
+  type: 'test'
+  ...
+# Subtest: TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent
+ok 385 - TM-240: the reviewer accepts an admitted revision from an agent-orchestration copy with task-management absent
+  ---
+  duration_ms: 156.653911
+  type: 'test'
+  ...
+# Subtest: failed required checks and out-of-scope files prevent integration
+ok 386 - failed required checks and out-of-scope files prevent integration
+  ---
+  duration_ms: 386.0067
+  type: 'test'
+  ...
+# Subtest: production worker proof uses actual tm registry and observed process exit before merge and cleanup
+ok 387 - production worker proof uses actual tm registry and observed process exit before merge and cleanup
+  ---
+  duration_ms: 4865.284755
+  type: 'test'
+  ...
+# Subtest: tmux default worker proof binds the real pane incarnation and waits for its exit
+ok 388 - tmux default worker proof binds the real pane incarnation and waits for its exit
+  ---
+  duration_ms: 184.133916
+  type: 'test'
+  ...
+# Subtest: native worker proof uses the durable producer binding and every member instead of an implicit same-named session
+ok 389 - native worker proof uses the durable producer binding and every member instead of an implicit same-named session
+  ---
+  duration_ms: 462.917773
+  type: 'test'
+  ...
+# Subtest: native parent completion waits for every child and holds pending, unknown or missing runtime evidence
+ok 390 - native parent completion waits for every child and holds pending, unknown or missing runtime evidence
+  ---
+  duration_ms: 659.743869
+  type: 'test'
+  ...
+# Subtest: a native fallback requires a new verified finish and incomplete or foreign task handles remain held
+ok 391 - a native fallback requires a new verified finish and incomplete or foreign task handles remain held
+  ---
+  duration_ms: 460.366265
+  type: 'test'
+  ...
+# Subtest: integration tolerates dirty tool store paths but refuses any other dirty path
+ok 392 - integration tolerates dirty tool store paths but refuses any other dirty path
+  ---
+  duration_ms: 441.459502
+  type: 'test'
+  ...
+# Subtest: integration refuses a landing that would change tool store paths
+ok 393 - integration refuses a landing that would change tool store paths
+  ---
+  duration_ms: 205.417484
+  type: 'test'
+  ...
+# Subtest: record-landing records an operator landing that governed completion accepts, without merging
+ok 394 - record-landing records an operator landing that governed completion accepts, without merging
+  ---
+  duration_ms: 164.254204
+  type: 'test'
+  ...
+# Subtest: record-landing refuses without review, ancestry, target branch, actor or reason
+ok 395 - record-landing refuses without review, ancestry, target branch, actor or reason
+  ---
+  duration_ms: 211.905234
+  type: 'test'
+  ...
+# Subtest: integration refuses a task that cannot fast-forward the target branch
+ok 396 - integration refuses a task that cannot fast-forward the target branch
+  ---
+  duration_ms: 280.295777
+  type: 'test'
+  ...
+# Subtest: this repository's committed management policy raises no policy reasons
+ok 397 - this repository's committed management policy raises no policy reasons
+  ---
+  duration_ms: 364.947583
+  type: 'test'
+  ...
+# Subtest: start-worker dispatches through tm, records the pane binding and clears the dispatch-owner reason
+ok 398 - start-worker dispatches through tm, records the pane binding and clears the dispatch-owner reason
+  ---
+  duration_ms: 416.38571
+  type: 'test'
+  ...
+# Subtest: stop-worker refuses unowned, uncollected and active workers and closes an owned idle pane
+ok 399 - stop-worker refuses unowned, uncollected and active workers and closes an owned idle pane
+  ---
+  duration_ms: 462.807739
+  type: 'test'
+  ...
+# Subtest: bind adopts a live worker only after verifying it and fails closed on unknown or reused identities
+ok 400 - bind adopts a live worker only after verifying it and fails closed on unknown or reused identities
+  ---
+  duration_ms: 311.458771
+  type: 'test'
+  ...
+# Subtest: a stopped worker is history: start-worker starts the next round and the old binding is kept
+ok 401 - a stopped worker is history: start-worker starts the next round and the old binding is kept
+  ---
+  duration_ms: 304.960684
+  type: 'test'
+  ...
+# Subtest: bind never adopts an operator shell: pre-admission sessions and login shells are refused
+ok 402 - bind never adopts an operator shell: pre-admission sessions and login shells are refused
+  ---
+  duration_ms: 1273.21671
+  type: 'test'
+  ...
+# Subtest: TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope
+ok 403 - TM-257 (g) integration scope uses the review effective base, so a merged sibling is not out of scope
+  ---
+  duration_ms: 172.733652
+  type: 'test'
+  ...
+# Subtest: TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check
+ok 404 - TM-257 (g) moving local main and origin/main does not hide an out-of-scope file from the scope check
+  ---
+  duration_ms: 196.437187
+  type: 'test'
+  ...
+# Subtest: discovery exposes only live non-terminal runs with a conductor
+ok 405 - discovery exposes only live non-terminal runs with a conductor
+  ---
+  duration_ms: 67.99265
+  type: 'test'
+  ...
+# Subtest: discovery exposes a verified standing repository orchestration
+ok 406 - discovery exposes a verified standing repository orchestration
+  ---
+  duration_ms: 59.533886
+  type: 'test'
+  ...
+# Subtest: attachment requires explicit exact selection and is idempotent
+ok 407 - attachment requires explicit exact selection and is idempotent
+  ---
+  duration_ms: 84.385148
+  type: 'test'
+  ...
+# Subtest: start commits no attachment before exact prompt acknowledgement
+ok 408 - start commits no attachment before exact prompt acknowledgement
+  ---
+  duration_ms: 40.22284
+  type: 'test'
+  ...
+# Subtest: target binding drift fails closed before attachment commit
+ok 409 - target binding drift fails closed before attachment commit
+  ---
+  duration_ms: 37.618302
+  type: 'test'
+  ...
+# Subtest: managed observer reattaches only when current and otherwise requests one controlled restart
+ok 410 - managed observer reattaches only when current and otherwise requests one controlled restart
+  ---
+  duration_ms: 15.277809
+  type: 'test'
+  ...
+# Subtest: prompt wait rejects wrong binding and legacy attachments cannot observe or report
+ok 411 - prompt wait rejects wrong binding and legacy attachments cannot observe or report
+  ---
+  duration_ms: 18.441238
+  type: 'test'
+  ...
+# Subtest: verified observer can record and report the target-gone anomaly
+ok 412 - verified observer can record and report the target-gone anomaly
+  ---
+  duration_ms: 40.199103
+  type: 'test'
+  ...
+# Subtest: post-attach prompt staleness refuses direct persistence and reporting
+ok 413 - post-attach prompt staleness refuses direct persistence and reporting
+  ---
+  duration_ms: 28.759479
+  type: 'test'
+  ...
+# Subtest: same-target legacy or degraded attachment upgrades transactionally and different target refuses
+ok 414 - same-target legacy or degraded attachment upgrades transactionally and different target refuses
+  ---
+  duration_ms: 120.220626
+  type: 'test'
+  ...
+# Subtest: observer acknowledgement timeout precedence is flag then env then legacy then default
+ok 415 - observer acknowledgement timeout precedence is flag then env then legacy then default
+  ---
+  duration_ms: 0.508637
+  type: 'test'
+  ...
+# Subtest: classification, redaction, fingerprint and delivery states are deterministic
+ok 416 - classification, redaction, fingerprint and delivery states are deterministic
+  ---
+  duration_ms: 29.706685
+  type: 'test'
+  ...
+# Subtest: escalation preserves authority boundaries
+ok 417 - escalation preserves authority boundaries
+  ---
+  duration_ms: 0.262385
+  type: 'test'
+  ...
+# Subtest: watch persists findings and report sends non-assignment conductor requests
+ok 418 - watch persists findings and report sends non-assignment conductor requests
+  ---
+  duration_ms: 32.655668
+  type: 'test'
+  ...
+# Subtest: the conductor protocol fails closed on epic and fingerprint ambiguity
+ok 419 - the conductor protocol fails closed on epic and fingerprint ambiguity
+  ---
+  duration_ms: 1.053932
+  type: 'test'
+  ...
+# Subtest: the frozen validator, unmodified, accepts the extended fixtures and rejects the vocabulary change
+ok 420 - the frozen validator, unmodified, accepts the extended fixtures and rejects the vocabulary change
+  ---
+  duration_ms: 172.393508
+  type: 'test'
+  ...
+# Subtest: a run agent whose library role is outside the frozen vocabulary appears, mapped, instead of vanishing
+ok 421 - a run agent whose library role is outside the frozen vocabulary appears, mapped, instead of vanishing
+  ---
+  duration_ms: 129.316961
+  type: 'test'
+  ...
+# Subtest: every activity block in the header fixtures carries observedAt
+ok 422 - every activity block in the header fixtures carries observedAt
+  ---
+  duration_ms: 3.697783
+  type: 'test'
+  ...
+# Subtest: a live reading is confirmed strictly before the snapshot was generated
+ok 423 - a live reading is confirmed strictly before the snapshot was generated
+  ---
+  duration_ms: 2.885089
+  type: 'test'
+  ...
+# Subtest: TM-138: the producer emits the additive header keys, and the FROZEN validator still accepts the result
+ok 424 - TM-138: the producer emits the additive header keys, and the FROZEN validator still accepts the result
+  ---
+  duration_ms: 135.594071
+  type: 'test'
+  ...
+# Subtest: TM-138: an agent with no slot, census, assignment or mail carries none of those keys
+ok 425 - TM-138: an agent with no slot, census, assignment or mail carries none of those keys
+  ---
+  duration_ms: 32.325681
+  type: 'test'
+  ...
+# Subtest: TM-137 draft: the frozen v1 validator rejects every v2 fixture, and both accept unchanged v1
+ok 426 - TM-137 draft: the frozen v1 validator rejects every v2 fixture, and both accept unchanged v1
+  ---
+  duration_ms: 274.142484
+  type: 'test'
+  ...
+# Subtest: TM-137: the producer emits schemaVersion 2, and the v1 vocabularies are still frozen
+ok 427 - TM-137: the producer emits schemaVersion 2, and the v1 vocabularies are still frozen
+  ---
+  duration_ms: 1.092196
+  type: 'test'
+  ...
+# Subtest: the v2 validator checks its own fixtures by default, and says how many
+ok 428 - the v2 validator checks its own fixtures by default, and says how many
+  ---
+  duration_ms: 32.092765
+  type: 'test'
+  ...
+# Subtest: a v2-aware validator still accepts every v1 fixture unchanged
+ok 429 - a v2-aware validator still accepts every v1 fixture unchanged
+  ---
+  duration_ms: 40.52151
+  type: 'test'
+  ...
+# Subtest: presence: a lead in its run, a run worker, a child-run member, an unknown session and hostile roles each get a computed icon
+ok 430 - presence: a lead in its run, a run worker, a child-run member, an unknown session and hostile roles each get a computed icon
+  ---
+  duration_ms: 145.944299
+  type: 'test'
+  ...
+# Subtest: roleIcon follows the first-join roleName overwrite rather than the library role
+ok 431 - roleIcon follows the first-join roleName overwrite rather than the library role
+  ---
+  duration_ms: 60.832435
+  type: 'test'
+  ...
+# Subtest: census rows and tombstones carry the icon presence computed, recomputed from their roles
+ok 432 - census rows and tombstones carry the icon presence computed, recomputed from their roles
+  ---
+  duration_ms: 34.279869
+  type: 'test'
+  ...
+# Subtest: formatCensus puts the role icon beside the name with its label, and keeps the state glyph first
+ok 433 - formatCensus puts the role icon beside the name with its label, and keeps the state glyph first
+  ---
+  duration_ms: 0.93898
+  type: 'test'
+  ...
+# Subtest: the role-icon fixture check accepts every h fixture and rejects every n fixture for its declared reason
+ok 434 - the role-icon fixture check accepts every h fixture and rejects every n fixture for its declared reason
+  ---
+  duration_ms: 263.47435
+  type: 'test'
+  ...
+# Subtest: role-icon-map.json is the registry, not a copy of it
+ok 435 - role-icon-map.json is the registry, not a copy of it
+  ---
+  duration_ms: 1.624654
+  type: 'test'
+  ...
+# Subtest: the mapping table in the addendum and in the countersignature request is rendered from the registry
+ok 436 - the mapping table in the addendum and in the countersignature request is rendered from the registry
+  ---
+  duration_ms: 1.420692
+  type: 'test'
+  ...
+# Subtest: every artifact recorded in ROLE-ICON-HASHES.txt still has its recorded hash
+ok 437 - every artifact recorded in ROLE-ICON-HASHES.txt still has its recorded hash
+  ---
+  duration_ms: 6.538861
+  type: 'test'
+  ...
+# Subtest: frozen fixtures and validator negative suite conform unchanged
+ok 438 - frozen fixtures and validator negative suite conform unchanged
+  ---
+  duration_ms: 74.894718
+  type: 'test'
+  ...
+# Subtest: producer emits standing, run, nested and pending metadata using exact bindings and passes frozen validator
+ok 439 - producer emits standing, run, nested and pending metadata using exact bindings and passes frozen validator
+  ---
+  duration_ms: 81.68643
+  type: 'test'
+  ...
+# Subtest: same agent in separate runs retains separate bindings, depth five resolves, orphan resemblance never affiliates
+ok 440 - same agent in separate runs retains separate bindings, depth five resolves, orphan resemblance never affiliates
+  ---
+  duration_ms: 113.408648
+  type: 'test'
+  ...
+# Subtest: parent directory identity mismatch remains unresolved
+ok 441 - parent directory identity mismatch remains unresolved
+  ---
+  duration_ms: 35.115159
+  type: 'test'
+  ...
+# Subtest: server restart and pane replacement remove membership instead of reattaching stale identity
+ok 442 - server restart and pane replacement remove membership instead of reattaching stale identity
+  ---
+  duration_ms: 46.962693
+  type: 'test'
+  ...
+# Subtest: name-only legacy registrations never authorize a current pane
+ok 443 - name-only legacy registrations never authorize a current pane
+  ---
+  duration_ms: 16.961575
+  type: 'test'
+  ...
+# Subtest: generation allocation races fence all predecessors; revisions serialize and survive restarts
+ok 444 - generation allocation races fence all predecessors; revisions serialize and survive restarts
+  ---
+  duration_ms: 224.519063
+  type: 'test'
+  ...
+# Subtest: slow old collection cannot publish after a successor takes ownership
+ok 445 - slow old collection cannot publish after a successor takes ownership
+  ---
+  duration_ms: 27.987532
+  type: 'test'
+  ...
+# Subtest: generation corruption or deletion fails closed; large decimal counters stay strings
+ok 446 - generation corruption or deletion fails closed; large decimal counters stay strings
+  ---
+  duration_ms: 52.020967
+  type: 'test'
+  ...
+# Subtest: independent repositories share monotonic allocator without fencing each other
+ok 447 - independent repositories share monotonic allocator without fencing each other
+  ---
+  duration_ms: 39.569277
+  type: 'test'
+  ...
+# Subtest: heartbeat republishes complete snapshots within TTL thirds and stops on abort
+ok 448 - heartbeat republishes complete snapshots within TTL thirds and stops on abort
+  ---
+  duration_ms: 700.945612
+  type: 'test'
+  ...
+# Subtest: configured directory and bounds honor the frozen contract
+ok 449 - configured directory and bounds honor the frozen contract
+  ---
+  duration_ms: 11.24527
+  type: 'test'
+  ...
+# Subtest: failed enumeration preserves the previous complete snapshot
+ok 450 - failed enumeration preserves the previous complete snapshot
+  ---
+  duration_ms: 17.496907
+  type: 'test'
+  ...
+# Subtest: all linked worktrees publish into the main checkout repository identity
+ok 451 - all linked worktrees publish into the main checkout repository identity
+  ---
+  duration_ms: 99.252128
+  type: 'test'
+  ...
+# Subtest: real isolated tmux pane observation publishes only its exact standing incarnation
+ok 452 - real isolated tmux pane observation publishes only its exact standing incarnation
+  ---
+  duration_ms: 113.78039
+  type: 'test'
+  ...
+# Subtest: spawn metadata is explicit, validated, and preserves library standing independently of run role
+ok 453 - spawn metadata is explicit, validated, and preserves library standing independently of run role
+  ---
+  duration_ms: 48.59135
+  type: 'test'
+  ...
+# Subtest: multiple library leads refuse publication and preserve prior metadata
+ok 454 - multiple library leads refuse publication and preserve prior metadata
+  ---
+  duration_ms: 29.549149
+  type: 'test'
+  ...
+# Subtest: concurrent snapshot readers only observe complete JSON documents
+ok 455 - concurrent snapshot readers only observe complete JSON documents
+  ---
+  duration_ms: 91.762202
+  type: 'test'
+  ...
+# Subtest: an idle pane with an empty composer is woken, and the line carries the nonce
+ok 456 - an idle pane with an empty composer is woken, and the line carries the nonce
+  ---
+  duration_ms: 2.832747
+  type: 'test'
+  ...
+# Subtest: a pane with a non-empty composer is NOT typed into
+ok 457 - a pane with a non-empty composer is NOT typed into
+  ---
+  duration_ms: 0.665308
+  type: 'test'
+  ...
+# Subtest: a pane whose binding has moved is NOT typed into
+ok 458 - a pane whose binding has moved is NOT typed into
+  ---
+  duration_ms: 0.300125
+  type: 'test'
+  ...
+# Subtest: a pane that cannot be read is refused, not pressed blind
+ok 459 - a pane that cannot be read is refused, not pressed blind
+  ---
+  duration_ms: 0.240338
+  type: 'test'
+  ...
+# Subtest: no pane recorded means no ring, and no tmux call at all
+ok 460 - no pane recorded means no ring, and no tmux call at all
+  ---
+  duration_ms: 0.209665
+  type: 'test'
+  ...
+# Subtest: the probe window is answerable: seconds, not one second
+ok 461 - the probe window is answerable: seconds, not one second
+  ---
+  duration_ms: 17.370384
+  type: 'test'
+  ...
+# Subtest: an attention screen is never typed into — TM-111, where Enter means exit
+ok 462 - an attention screen is never typed into — TM-111, where Enter means exit
+  ---
+  duration_ms: 0.846533
+  type: 'test'
+  ...
+# Subtest: a composer holding only dim suggestion text is EMPTY
+ok 463 - a composer holding only dim suggestion text is EMPTY
+  ---
+  duration_ms: 0.48185
+  type: 'test'
+  ...
+# Subtest: a composer holding bright typed text is OCCUPIED — the one that must never be wrong
+ok 464 - a composer holding bright typed text is OCCUPIED — the one that must never be wrong
+  ---
+  duration_ms: 0.452709
+  type: 'test'
+  ...
+# Subtest: anything unparseable stays occupied, because 'empty' has to be PROVEN
+ok 465 - anything unparseable stays occupied, because 'empty' has to be PROVEN
+  ---
+  duration_ms: 0.624737
+  type: 'test'
+  ...
+# Subtest: the composer line is the LAST prompt line, not the first
+ok 466 - the composer line is the LAST prompt line, not the first
+  ---
+  duration_ms: 0.310947
+  type: 'test'
+  ...
+# Subtest: the styled look is taken ONLY for a not-empty composer, and only turns that into empty
+ok 467 - the styled look is taken ONLY for a not-empty composer, and only turns that into empty
+  ---
+  duration_ms: 0.465308
+  type: 'test'
+  ...
+# Subtest: a dead pane is never rescued by the styled look
+ok 468 - a dead pane is never rescued by the styled look
+  ---
+  duration_ms: 0.369857
+  type: 'test'
+  ...
+# Subtest: a live probe left with an ack is accepted on the next check, without minting a new nonce
+ok 469 - a live probe left with an ack is accepted on the next check, without minting a new nonce
+  ---
+  duration_ms: 18.339533
+  type: 'test'
+  ...
+# Subtest: an EXPIRED probe's ack is refused — accepting late must not become accepting stale
+ok 470 - an EXPIRED probe's ack is refused — accepting late must not become accepting stale
+  ---
+  duration_ms: 2.338775
+  type: 'test'
+  ...
+# Subtest: another agent's ack is never accepted as ours
+ok 471 - another agent's ack is never accepted as ours
+  ---
+  duration_ms: 2.28807
+  type: 'test'
+  ...
+# Subtest: a submitted message whose pane then renders a dim suggestion is `submitted`, not stuck
+ok 472 - a submitted message whose pane then renders a dim suggestion is `submitted`, not stuck
+  ---
+  duration_ms: 0.429905
+  type: 'test'
+  ...
+# Subtest: the lead CLI omits ackTimeoutMs unless --ack-timeout was given
+ok 473 - the lead CLI omits ackTimeoutMs unless --ack-timeout was given
+  ---
+  duration_ms: 1.755594
+  type: 'test'
+  ...
+# Subtest: the library default is long enough for a model turn, and env-configurable
+ok 474 - the library default is long enough for a model turn, and env-configurable
+  ---
+  duration_ms: 0.922239
+  type: 'test'
+  ...
+# Subtest: a readiness SCREEN answers from disk and mints nothing
+ok 475 - a readiness SCREEN answers from disk and mints nothing
+  ---
+  duration_ms: 2.781542
+  type: 'test'
+  ...
+# Subtest: a probe outlives its own wait, so a lead can still answer at its next turn boundary
+ok 476 - a probe outlives its own wait, so a lead can still answer at its next turn boundary
+  ---
+  duration_ms: 519.183739
+  type: 'test'
+  ...
+# Subtest: an ack whose probe is already gone is discarded LOUDLY, never in silence
+ok 477 - an ack whose probe is already gone is discarded LOUDLY, never in silence
+  ---
+  duration_ms: 2.660252
+  type: 'test'
+  ...
+# Subtest: last-valid prompt survives malformed config and live changes require restart and agent acknowledgment
+ok 478 - last-valid prompt survives malformed config and live changes require restart and agent acknowledgment
+  ---
+  duration_ms: 141.093381
+  type: 'test'
+  ...
+# Subtest: acknowledgement belongs to one exact process incarnation and replacement invalidates current
+ok 479 - acknowledgement belongs to one exact process incarnation and replacement invalidates current
+  ---
+  duration_ms: 55.917059
+  type: 'test'
+  ...
+# Subtest: a controlled restart promotes pending text and mints an acknowledgement for the replacement only
+ok 480 - a controlled restart promotes pending text and mints an acknowledgement for the replacement only
+  ---
+  duration_ms: 44.758584
+  type: 'test'
+  ...
+# Subtest: restricted reviewer acknowledges through observed output without shell or write grants
+ok 481 - restricted reviewer acknowledges through observed output without shell or write grants
+  ---
+  duration_ms: 41.886871
+  type: 'test'
+  ...
+# Subtest: the resolver composes every layer in order and hashes each source
+ok 482 - the resolver composes every layer in order and hashes each source
+  ---
+  duration_ms: 25.691771
+  type: 'test'
+  ...
+# Subtest: missing configured files are visible, never silent
+ok 483 - missing configured files are visible, never silent
+  ---
+  duration_ms: 24.032799
+  type: 'test'
+  ...
+# Subtest: the generated layer explains the cwd discipline and states the permission rule
+ok 484 - the generated layer explains the cwd discipline and states the permission rule
+  ---
+  duration_ms: 0.296962
+  type: 'test'
+  ...
+# Subtest: prompt state lives beside the agent and survives a missing or corrupt file
+ok 485 - prompt state lives beside the agent and survives a missing or corrupt file
+  ---
+  duration_ms: 2.935044
+  type: 'test'
+  ...
+# Subtest: defaults common and role policy compose for workers and customized leads
+ok 486 - defaults common and role policy compose for workers and customized leads
+  ---
+  duration_ms: 11.077819
+  type: 'test'
+  ...
+# Subtest: required template absence cannot silently fall back to inline instructions
+ok 487 - required template absence cannot silently fall back to inline instructions
+  ---
+  duration_ms: 6.673548
+  type: 'test'
+  ...
+# Subtest: unreadable source and invalid config yield structured refusal
+ok 488 - unreadable source and invalid config yield structured refusal
+  ---
+  duration_ms: 16.250246
+  type: 'test'
+  ...
+# Subtest: the quota signature is the quota-shaped SUBSET of failure_patterns, not the whole list
+ok 489 - the quota signature is the quota-shaped SUBSET of failure_patterns, not the whole list
+  ---
+  duration_ms: 1.0159
+  type: 'test'
+  ...
+# Subtest: triggerVerdict reads the server's four fields and ignores the ready column
+ok 490 - triggerVerdict reads the server's four fields and ignores the ready column
+  ---
+  duration_ms: 0.631672
+  type: 'test'
+  ...
+# Subtest: failover.consent defaults to ask, and an unrecognised value is reported rather than obeyed
+ok 491 - failover.consent defaults to ask, and an unrecognised value is reported rather than obeyed
+  ---
+  duration_ms: 0.260077
+  type: 'test'
+  ...
+# Subtest: assertConsent is the one unavoidable human turn, and never means never
+ok 492 - assertConsent is the one unavoidable human turn, and never means never
+  ---
+  duration_ms: 0.509964
+  type: 'test'
+  ...
+# Subtest: confirmQuota: a capture that failed is not an empty screen and confirms nothing
+ok 493 - confirmQuota: a capture that failed is not an empty screen and confirms nothing
+  ---
+  duration_ms: 0.233255
+  type: 'test'
+  ...
+# Subtest: confirmQuota: a path that contains the word is blanked before matching
+ok 494 - confirmQuota: a path that contains the word is blanked before matching
+  ---
+  duration_ms: 0.63082
+  type: 'test'
+  ...
+# Subtest: confirmQuota: a non-quota failure word never proposes a takeover
+ok 495 - confirmQuota: a non-quota failure word never proposes a takeover
+  ---
+  duration_ms: 0.44169
+  type: 'test'
+  ...
+# Subtest: confirmQuota: DEFENCE 2 — a pane still rendering progress is an agent quoting the error, not one hit by it
+ok 496 - confirmQuota: DEFENCE 2 — a pane still rendering progress is an agent quoting the error, not one hit by it
+  ---
+  duration_ms: 0.398299
+  type: 'test'
+  ...
+# Subtest: confirmQuota: a dead pane confirms outright, and an ANSWERED nonce probe vetoes outright
+ok 497 - confirmQuota: a dead pane confirms outright, and an ANSWERED nonce probe vetoes outright
+  ---
+  duration_ms: 0.468156
+  type: 'test'
+  ...
+# Subtest: a quiet repository costs nothing: subscriptions are armed and no pane is captured
+ok 498 - a quiet repository costs nothing: subscriptions are armed and no pane is captured
+  ---
+  duration_ms: 8.324138
+  type: 'test'
+  ...
+# Subtest: DEFENCE 1: a single trigger is a suspicion; the incident needs a second look at least 2s later
+ok 499 - DEFENCE 1: a single trigger is a suspicion; the incident needs a second look at least 2s later
+  ---
+  duration_ms: 9.602349
+  type: 'test'
+  ...
+# Subtest: the incident is written, the lead is rung with the approval command, and NOTHING is restarted
+ok 500 - the incident is written, the lead is rung with the approval command, and NOTHING is restarted
+  ---
+  duration_ms: 7.083096
+  type: 'test'
+  ...
+# Subtest: a second sighting of the same outage does not raise a second incident or a second message
+ok 501 - a second sighting of the same outage does not raise a second incident or a second message
+  ---
+  duration_ms: 11.942316
+  type: 'test'
+  ...
+# Subtest: consent never records the incident and announces nothing; auto announces that it is pre-authorised
+ok 502 - consent never records the incident and announces nothing; auto announces that it is pre-authorised
+  ---
+  duration_ms: 10.512007
+  type: 'test'
+  ...
+# Subtest: an agent that greps the signature while working never produces an incident, however long it holds it
+ok 503 - an agent that greps the signature while working never produces an incident, however long it holds it
+  ---
+  duration_ms: 3.355911
+  type: 'test'
+  ...
+# Subtest: no lead registered: the incident still lands, and says why nobody was told
+ok 504 - no lead registered: the incident still lands, and says why nobody was told
+  ---
+  duration_ms: 7.188126
+  type: 'test'
+  ...
+# Subtest: a listing that could not be taken watches nothing rather than reporting every agent healthy
+ok 505 - a listing that could not be taken watches nothing rather than reporting every agent healthy
+  ---
+  duration_ms: 1.463131
+  type: 'test'
+  ...
+# Subtest: a pane running something with no measured adapter is not watched, never guessed at
+ok 506 - a pane running something with no measured adapter is not watched, never guessed at
+  ---
+  duration_ms: 1.346382
+  type: 'test'
+  ...
+# Subtest: assertIncident refuses a stale id, a resolved incident, and a provider that has moved on
+ok 507 - assertIncident refuses a stale id, a resolved incident, and a provider that has moved on
+  ---
+  duration_ms: 11.709178
+  type: 'test'
+  ...
+# Subtest: an agent with no run dir gets an announcement that names role reassign, not a command that would refuse
+ok 508 - an agent with no run dir gets an announcement that names role reassign, not a command that would refuse
+  ---
+  duration_ms: 0.268169
+  type: 'test'
+  ...
+# Subtest: ready.pattern — a ready composer is ready, hint or no hint (the provider is up and accepting input)
+ok 509 - ready.pattern — a ready composer is ready, hint or no hint (the provider is up and accepting input)
+  ---
+  duration_ms: 0.832104
+  type: 'test'
+  ...
+# Subtest: ready.pattern — the negatives still hold, TM-111 included
+ok 510 - ready.pattern — the negatives still hold, TM-111 included
+  ---
+  duration_ms: 0.149856
+  type: 'test'
+  ...
+# Subtest: composer.empty_pattern — a ready composer is ready, hint or no hint (the composer is empty RIGHT NOW)
+ok 511 - composer.empty_pattern — a ready composer is ready, hint or no hint (the composer is empty RIGHT NOW)
+  ---
+  duration_ms: 0.131844
+  type: 'test'
+  ...
+# Subtest: composer.empty_pattern — the negatives still hold, TM-111 included
+ok 512 - composer.empty_pattern — the negatives still hold, TM-111 included
+  ---
+  duration_ms: 0.074884
+  type: 'test'
+  ...
+# Subtest: the tmux siblings say the same thing, and stay tmux-safe
+ok 513 - the tmux siblings say the same thing, and stay tmux-safe
+  ---
+  duration_ms: 0.28115
+  type: 'test'
+  ...
+# Subtest: the hint branch is literal, not 'letters are allowed'
+ok 514 - the hint branch is literal, not 'letters are allowed'
+  ---
+  duration_ms: 0.124477
+  type: 'test'
+  ...
+# Subtest: enrollment precedence: enabled:false wins, then repo config, project plugin, lead registration, none
+ok 515 - enrollment precedence: enabled:false wins, then repo config, project plugin, lead registration, none
+  ---
+  duration_ms: 450.878231
+  type: 'test'
+  ...
+# nothing: none | lead registration only: lead-registration | plugin beats lead registration: project-plugin | any marketplace suffix: project-plugin | a different plugin name does not match: none | explicit plugin false does not disable: lead-registration | explicit plugin false alone is just none: none | repo config true: repo-config | repo config true beats plugin: repo-config | repo config without enabled falls through: project-plugin | enabled:false beats plugin AND lead registration: disabled | non-boolean enabled fails closed: disabled | numeric enabled fails closed: disabled | unparseable repo config fails closed: disabled | non-object repo config fails closed: disabled
+# Subtest: validateConfigShape reports a non-boolean enabled and accepts a boolean one
+ok 516 - validateConfigShape reports a non-boolean enabled and accepts a boolean one
+  ---
+  duration_ms: 0.799661
+  type: 'test'
+  ...
+# Subtest: every linked worktree resolves from the canonical root, whatever its own checkout holds
+ok 517 - every linked worktree resolves from the canonical root, whatever its own checkout holds
+  ---
+  duration_ms: 232.189822
+  type: 'test'
+  ...
+# Subtest: a disabled or unenrolled repository is never activated, by a verb or by session start
+ok 518 - a disabled or unenrolled repository is never activated, by a verb or by session start
+  ---
+  duration_ms: 638.995449
+  type: 'test'
+  ...
+# Subtest: activateRepository never throws, even when enrollment cannot be resolved
+ok 519 - activateRepository never throws, even when enrollment cannot be resolved
+  ---
+  duration_ms: 183.348591
+  type: 'test'
+  ...
+# Subtest: session start activates an enrolled repository, and N concurrent linked-worktree activations converge on one supervisor
+ok 520 - session start activates an enrolled repository, and N concurrent linked-worktree activations converge on one supervisor
+  ---
+  duration_ms: 11477.820905
+  type: 'test'
+  ...
+# Subtest: linked worktrees share one canonical identity; a plain directory is its own
+ok 521 - linked worktrees share one canonical identity; a plain directory is its own
+  ---
+  duration_ms: 52.693974
+  type: 'test'
+  ...
+# Subtest: repoKey is filename-safe, stable, and one-way
+ok 522 - repoKey is filename-safe, stable, and one-way
+  ---
+  duration_ms: 0.966431
+  type: 'test'
+  ...
+# Subtest: stateRoot honours the override, then XDG, then the default home
+ok 523 - stateRoot honours the override, then XDG, then the default home
+  ---
+  duration_ms: 0.274803
+  type: 'test'
+  ...
+# Subtest: findings must be structured and name a file in the reviewed diff
+ok 524 - findings must be structured and name a file in the reviewed diff
+  ---
+  duration_ms: 1001.257722
+  type: 'test'
+  ...
+# Subtest: approve stands with minor and nit findings; blocker and major findings block it
+ok 525 - approve stands with minor and nit findings; blocker and major findings block it
+  ---
+  duration_ms: 1459.259118
+  type: 'test'
+  ...
+# Subtest: changes_requested is its own review state, and needs at least one finding
+ok 526 - changes_requested is its own review state, and needs at least one finding
+  ---
+  duration_ms: 665.859343
+  type: 'test'
+  ...
+# Subtest: a re-review keeps the earlier record in history and the current one resolvable
+ok 527 - a re-review keeps the earlier record in history and the current one resolvable
+  ---
+  duration_ms: 259.917519
+  type: 'test'
+  ...
+# Subtest: repeated identical verdicts and output after the verdict are accepted; disagreeing copies are not
+ok 528 - repeated identical verdicts and output after the verdict are accepted; disagreeing copies are not
+  ---
+  duration_ms: 0.898681
+  type: 'test'
+  ...
+# Subtest: a verdict Claude Code hard-wrapped across indented pane lines is rejoined
+ok 529 - a verdict Claude Code hard-wrapped across indented pane lines is rejoined
+  ---
+  duration_ms: 2.422475
+  type: 'test'
+  ...
+# Subtest: a live verdict wrapped by Claude Code in a 2000-column pane parses (TM-214 round 3, pane %289)
+ok 530 - a live verdict wrapped by Claude Code in a 2000-column pane parses (TM-214 round 3, pane %289)
+  ---
+  duration_ms: 1.392645
+  type: 'test'
+  ...
+# Subtest: the live TM-214 round-3 verdict (approve, two notes) records as satisfied once its findings use the schema fields
+ok 531 - the live TM-214 round-3 verdict (approve, two notes) records as satisfied once its findings use the schema fields
+  ---
+  duration_ms: 394.841167
+  type: 'test'
+  ...
+# Subtest: a note is informational: it may omit evidence and fix, never blocks approve, and still needs a file and line in the diff
+ok 532 - a note is informational: it may omit evidence and fix, never blocks approve, and still needs a file and line in the diff
+  ---
+  duration_ms: 905.971082
+  type: 'test'
+  ...
+# Subtest: collection reads a verdict that has scrolled far above the bottom of the pane
+ok 533 - collection reads a verdict that has scrolled far above the bottom of the pane
+  ---
+  duration_ms: 428.732986
+  type: 'test'
+  ...
+# Subtest: after the last failed wake a request is marked failed, the lead is told once, and a new request replaces it
+ok 534 - after the last failed wake a request is marked failed, the lead is told once, and a new request replaces it
+  ---
+  duration_ms: 390.126435
+  type: 'test'
+  ...
+# Subtest: a refused verdict fails its request once; a corrected verdict on the fresh request records
+ok 535 - a refused verdict fails its request once; a corrected verdict on the fresh request records
+  ---
+  duration_ms: 738.170395
+  type: 'test'
+  ...
+# Subtest: unparseable and disagreeing responses are refusals too; no response yet is not
+ok 536 - unparseable and disagreeing responses are refusals too; no response yet is not
+  ---
+  duration_ms: 300.155284
+  type: 'test'
+  ...
+# Subtest: a verdict captured while it is still printing waits for a later capture instead of failing
+ok 537 - a verdict captured while it is still printing waits for a later capture instead of failing
+  ---
+  duration_ms: 1001.878085
+  type: 'test'
+  ...
+# Subtest: an incomplete verdict older than the bound fails the request once and notifies the lead; a fresh request mints a new nonce
+ok 538 - an incomplete verdict older than the bound fails the request once and notifies the lead; a fresh request mints a new nonce
+  ---
+  duration_ms: 474.395628
+  type: 'test'
+  ...
+# Subtest: a Claude verdict still printing above its empty input box is not failed, even across polls (TM-217 review 1)
+ok 539 - a Claude verdict still printing above its empty input box is not failed, even across polls (TM-217 review 1)
+  ---
+  duration_ms: 611.168503
+  type: 'test'
+  ...
+# Subtest: an incomplete verdict whose pane capture stops changing fails once the stall window passes, within the bound
+ok 540 - an incomplete verdict whose pane capture stops changing fails once the stall window passes, within the bound
+  ---
+  duration_ms: 601.804862
+  type: 'test'
+  ...
+# Subtest: changes_requested needs a blocker or major finding
+ok 541 - changes_requested needs a blocker or major finding
+  ---
+  duration_ms: 533.857504
+  type: 'test'
+  ...
+# Subtest: the reviewer gets a common prompt without reply files or commands; other roles keep the shared one
+ok 542 - the reviewer gets a common prompt without reply files or commands; other roles keep the shared one
+  ---
+  duration_ms: 2.125797
+  type: 'test'
+  ...
+# Subtest: the reviewer prompt asks for evidence from the request instead of checks it cannot run
+ok 543 - the reviewer prompt asks for evidence from the request instead of checks it cannot run
+  ---
+  duration_ms: 0.369191
+  type: 'test'
+  ...
+# Subtest: reviewer argv stays restricted and never auto-approves
+ok 544 - reviewer argv stays restricted and never auto-approves
+  ---
+  duration_ms: 0.453975
+  type: 'test'
+  ...
+# Subtest: TM-444 capture: a wrapped verdict with bare quotes and a \\u{} escape parses to its visible findings
+ok 545 - TM-444 capture: a wrapped verdict with bare quotes and a \\u{} escape parses to its visible findings
+  ---
+  duration_ms: 4.452893
+  type: 'test'
+  ...
+# Subtest: TM-224 capture: a verdict quoting JSON with its backslashes eaten parses to its visible findings
+ok 546 - TM-224 capture: a verdict quoting JSON with its backslashes eaten parses to its visible findings
+  ---
+  duration_ms: 2.086952
+  type: 'test'
+  ...
+# Subtest: a capture cut off mid-verdict is incomplete, and a closed malformed one is still refused
+ok 547 - a capture cut off mid-verdict is incomplete, and a closed malformed one is still refused
+  ---
+  duration_ms: 3.391185
+  type: 'test'
+  ...
+# Subtest: eight ensures converge and restart preserves reviewer identity
+ok 548 - eight ensures converge and restart preserves reviewer identity
+  ---
+  duration_ms: 269.45912
+  type: 'test'
+  ...
+# Subtest: alive reviewer is unavailable without nonce; only current reviewer can acknowledge
+ok 549 - alive reviewer is unavailable without nonce; only current reviewer can acknowledge
+  ---
+  duration_ms: 173.77945
+  type: 'test'
+  ...
+# Subtest: read-only reviewer readiness neither rings nor consumes missing, invalid or valid proof
+ok 550 - read-only reviewer readiness neither rings nor consumes missing, invalid or valid proof
+  ---
+  duration_ms: 91.820757
+  type: 'test'
+  ...
+# Subtest: review record rejects impersonation, self review, findings and abbreviated commits
+ok 551 - review record rejects impersonation, self review, findings and abbreviated commits
+  ---
+  duration_ms: 905.505792
+  type: 'test'
+  ...
+# Subtest: host collects nonce-bound read-only output and rejects forged response nonces
+ok 552 - host collects nonce-bound read-only output and rejects forged response nonces
+  ---
+  duration_ms: 676.671384
+  type: 'test'
+  ...
+# Subtest: TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve
+ok 553 - TM-214: the reviewer stays read-only even though every other agent now defaults to auto_approve
+  ---
+  duration_ms: 65.524727
+  type: 'test'
+  ...
+# Subtest: TM-214: createAgent stores auto_approve false for any reviewer, and session open refuses the reviewer role
+ok 554 - TM-214: createAgent stores auto_approve false for any reviewer, and session open refuses the reviewer role
+  ---
+  duration_ms: 93.769503
+  type: 'test'
+  ...
+# Subtest: concurrent review collectors record one response and replaced reviewer bindings require a fresh nonce
+ok 555 - concurrent review collectors record one response and replaced reviewer bindings require a fresh nonce
+  ---
+  duration_ms: 682.539826
+  type: 'test'
+  ...
+# Subtest: linked worktrees share reviewer identity and exact review evidence
+ok 556 - linked worktrees share reviewer identity and exact review evidence
+  ---
+  duration_ms: 515.623417
+  type: 'test'
+  ...
+# Subtest: review covers harmful first commit and harmless final commit from trusted admission base
+ok 557 - review covers harmful first commit and harmless final commit from trusted admission base
+  ---
+  duration_ms: 690.008014
+  type: 'test'
+  ...
+# Subtest: reviewer prompt inputs are inside its explicit repo-scoped read-only grants
+ok 558 - reviewer prompt inputs are inside its explicit repo-scoped read-only grants
+  ---
+  duration_ms: 151.026239
+  type: 'test'
+  ...
+# Subtest: a reviewer probe outlives its own wait, so a mid-review reviewer can still answer
+ok 559 - a reviewer probe outlives its own wait, so a mid-review reviewer can still answer
+  ---
+  duration_ms: 398.918145
+  type: 'test'
+  ...
+# Subtest: same-name reviewer recovery rejects old and legacy readiness acknowledgements
+ok 560 - same-name reviewer recovery rejects old and legacy readiness acknowledgements
+  ---
+  duration_ms: 115.16079
+  type: 'test'
+  ...
+# Subtest: reviewer readiness does not cache output when the observed incarnation ends
+ok 561 - reviewer readiness does not cache output when the observed incarnation ends
+  ---
+  duration_ms: 125.127762
+  type: 'test'
+  ...
+# Subtest: assignment observes binding before the default liveness probe and leaves external owners stopped
+ok 562 - assignment observes binding before the default liveness probe and leaves external owners stopped
+  ---
+  duration_ms: 155.414429
+  type: 'test'
+  ...
+# Subtest: automatic review collection skips retained history and rotates unanswered batches
+ok 563 - automatic review collection skips retained history and rotates unanswered batches
+  ---
+  duration_ms: 5048.690049
+  type: 'test'
+  ...
+# Subtest: TM-257 (a,f) a branch that merged main is reviewed over its own changes, before and after landing
+ok 564 - TM-257 (a,f) a branch that merged main is reviewed over its own changes, before and after landing
+  ---
+  duration_ms: 502.422359
+  type: 'test'
+  ...
+# Subtest: TM-257 (b) a branch that never merged main keeps the admitted range
+ok 565 - TM-257 (b) a branch that never merged main keeps the admitted range
+  ---
+  duration_ms: 159.92691
+  type: 'test'
+  ...
+# Subtest: TM-257 (c) moving local main and origin/main to a mid-task commit does not shrink the range
+ok 566 - TM-257 (c) moving local main and origin/main to a mid-task commit does not shrink the range
+  ---
+  duration_ms: 226.899602
+  type: 'test'
+  ...
+# Subtest: TM-257 (d) a server merge-base outside admitted..revision is refused
+ok 567 - TM-257 (d) a server merge-base outside admitted..revision is refused
+  ---
+  duration_ms: 178.13864
+  type: 'test'
+  ...
+# Subtest: TM-257 (d) a server merge-base that is not a descendant of the admitted base is refused
+ok 568 - TM-257 (d) a server merge-base that is not a descendant of the admitted base is refused
+  ---
+  duration_ms: 161.077965
+  type: 'test'
+  ...
+# Subtest: TM-257 (e) an unavailable or malformed server fails closed to the admitted base with a note
+ok 569 - TM-257 (e) an unavailable or malformed server fails closed to the admitted base with a note
+  ---
+  duration_ms: 167.84267
+  type: 'test'
+  ...
+# Subtest: TM-257 (h) a pre-TM-257 request after landing verifies the stored review base, or asks for a re-review
+ok 570 - TM-257 (h) a pre-TM-257 request after landing verifies the stored review base, or asks for a re-review
+  ---
+  duration_ms: 458.325979
+  type: 'test'
+  ...
+# Subtest: hostile text loses control and tmux format characters; ordinary text is untouched
+ok 571 - hostile text loses control and tmux format characters; ordinary text is untouched
+  ---
+  duration_ms: 1.217485
+  type: 'test'
+  ...
+# Subtest: pane display options are four pane-scoped set-options whose values cannot split the batch
+ok 572 - pane display options are four pane-scoped set-options whose values cannot split the batch
+  ---
+  duration_ms: 0.908014
+  type: 'test'
+  ...
+# Subtest: the launcher's OSC 2 title keeps its text for an ordinary role and cannot carry an escape for a hostile one
+ok 573 - the launcher's OSC 2 title keeps its text for an ordinary role and cannot carry an escape for a hostile one
+  ---
+  duration_ms: 0.359693
+  type: 'test'
+  ...
+# Subtest: run agents: declared role, custom role and nested team each get a computed icon, at launch and on read
+ok 574 - run agents: declared role, custom role and nested team each get a computed icon, at launch and on read
+  ---
+  duration_ms: 31.9658
+  type: 'test'
+  ...
+# Subtest: agent and session lists: icon before the readable name, additive JSON, ids unchanged, agent.json never rewritten
+ok 575 - agent and session lists: icon before the readable name, additive JSON, ids unchanged, agent.json never rewritten
+  ---
+  duration_ms: 696.074788
+  type: 'test'
+  ...
+# Subtest: status computes icons for a run.json written before TM-168, uses the team icon, and never echoes a stored icon
+ok 576 - status computes icons for a run.json written before TM-168, uses the team icon, and never echoes a stored icon
+  ---
+  duration_ms: 213.632892
+  type: 'test'
+  ...
+# Subtest: no topology code reads a role icon, label or @ao_ option back to decide anything
+ok 577 - no topology code reads a role icon, label or @ao_ option back to decide anything
+  ---
+  duration_ms: 16.014996
+  type: 'test'
+  ...
+# Subtest: TM-185: a registered lead coordinating a run shows the lead icon at launch and on its pane; any other orchestrator keeps its own
+ok 578 - TM-185: a registered lead coordinating a run shows the lead icon at launch and on its pane; any other orchestrator keeps its own
+  ---
+  duration_ms: 82.734666
+  type: 'test'
+  ...
+# Subtest: TM-185: status, session list, agent list and role list show the registered lead's icon whatever its declared role
+ok 579 - TM-185: status, session list, agent list and role list show the registered lead's icon whatever its declared role
+  ---
+  duration_ms: 862.420166
+  type: 'test'
+  ...
+# Subtest: the registry is exactly the approved mapping, plus nested-team and unknown fallbacks
+ok 580 - the registry is exactly the approved mapping, plus nested-team and unknown fallbacks
+  ---
+  duration_ms: 1.22126
+  type: 'test'
+  ...
+# Subtest: unknown, custom and hostile role values fall back without reaching the prototype
+ok 581 - unknown, custom and hostile role values fall back without reaching the prototype
+  ---
+  duration_ms: 0.310957
+  type: 'test'
+  ...
+# Subtest: effective role: nested team, then repository lead, then run role, then library role
+ok 582 - effective role: nested team, then repository lead, then run role, then library role
+  ---
+  duration_ms: 0.15947
+  type: 'test'
+  ...
+# Subtest: every icon and label is display text only: no control, escape or tmux format characters
+ok 583 - every icon and label is display text only: no control, escape or tmux format characters
+  ---
+  duration_ms: 0.313061
+  type: 'test'
+  ...
+# Subtest: the singleton rule binds lead and reviewer and nothing else
+ok 584 - the singleton rule binds lead and reviewer and nothing else
+  ---
+  duration_ms: 181.856943
+  type: 'test'
+  ...
+# Subtest: reviewer assignment refuses the lead and refuses an author
+ok 585 - reviewer assignment refuses the lead and refuses an author
+  ---
+  duration_ms: 73.962702
+  type: 'test'
+  ...
+# Subtest: role status keeps registered, alive and responsive as three separate fields
+ok 586 - role status keeps registered, alive and responsive as three separate fields
+  ---
+  duration_ms: 105.311599
+  type: 'test'
+  ...
+# Subtest: reassign hands the role over without killing, duplicating, or changing privileges
+ok 587 - reassign hands the role over without killing, duplicating, or changing privileges
+  ---
+  duration_ms: 371.17574
+  type: 'test'
+  ...
+# Subtest: history logs one entry per transition, in order, and reads back
+ok 588 - history logs one entry per transition, in order, and reads back
+  ---
+  duration_ms: 188.322887
+  type: 'test'
+  ...
+# Subtest: role list names an image-gen holder with its title from TITLES
+ok 589 - role list names an image-gen holder with its title from TITLES
+  ---
+  duration_ms: 35.647988
+  type: 'test'
+  ...
+# Subtest: a coordinator LAST in the list refuses the whole send: nobody ahead of it is delivered to
+ok 590 - a coordinator LAST in the list refuses the whole send: nobody ahead of it is delivered to
+  ---
+  duration_ms: 26.164409
+  type: 'test'
+  ...
+# Subtest: an unknown agent LAST in the list refuses the whole send, and burns no sequence number
+ok 591 - an unknown agent LAST in the list refuses the whole send, and burns no sequence number
+  ---
+  duration_ms: 22.016152
+  type: 'test'
+  ...
+# Subtest: a router that blocks the LAST recipient refuses the whole send
+ok 592 - a router that blocks the LAST recipient refuses the whole send
+  ---
+  duration_ms: 22.768607
+  type: 'test'
+  ...
+# Subtest: the router is consulted exactly once per recipient — the write pass reuses the admitted decision
+ok 593 - the router is consulted exactly once per recipient — the write pass reuses the admitted decision
+  ---
+  duration_ms: 36.667454
+  type: 'test'
+  ...
+# Subtest: the control: with no refused recipient, every addressed agent is delivered to
+ok 594 - the control: with no refused recipient, every addressed agent is delivered to
+  ---
+  duration_ms: 21.353028
+  type: 'test'
+  ...
+# Subtest: omitted source and callback cannot bypass production run send admission
+ok 595 - omitted source and callback cannot bypass production run send admission
+  ---
+  duration_ms: 54.817915
+  type: 'test'
+  ...
+# Subtest: shared send stable hold resumes to absent-roster lead once
+ok 596 - shared send stable hold resumes to absent-roster lead once
+  ---
+  duration_ms: 273.758971
+  type: 'test'
+  ...
+# Subtest: local sender supplies explicit source or launcher AO_CONSUMER
+ok 597 - local sender supplies explicit source or launcher AO_CONSUMER
+  ---
+  duration_ms: 64.661326
+  type: 'test'
+  ...
+# Subtest: legacy run needs explicit destination context
+ok 598 - legacy run needs explicit destination context
+  ---
+  duration_ms: 21.826329
+  type: 'test'
+  ...
+# Subtest: standingOptions router cannot override production routing
+ok 599 - standingOptions router cannot override production routing
+  ---
+  duration_ms: 71.34927
+  type: 'test'
+  ...
+# Subtest: held barrier stays pending through resume until correct standing recipient replies
+ok 600 - held barrier stays pending through resume until correct standing recipient replies
+  ---
+  duration_ms: 239.948431
+  type: 'test'
+  ...
+# Subtest: standing reply cannot precede delivery or use a different launcher repository
+ok 601 - standing reply cannot precede delivery or use a different launcher repository
+  ---
+  duration_ms: 109.419031
+  type: 'test'
+  ...
+# Subtest: missing durable envelope keeps pre-admission bridge pending after interrupted write
+ok 602 - missing durable envelope keeps pre-admission bridge pending after interrupted write
+  ---
+  duration_ms: 114.717662
+  type: 'test'
+  ...
+# Subtest: a name containing / or .. never becomes a path
+ok 603 - a name containing / or .. never becomes a path
+  ---
+  duration_ms: 1.126517
+  type: 'test'
+  ...
+# Subtest: the name is validated before it is joined to a path, on every verb
+ok 604 - the name is validated before it is joined to a path, on every verb
+  ---
+  duration_ms: 10.577049
+  type: 'test'
+  ...
+# Subtest: first request is granted; the rest queue in ticket order
+ok 605 - first request is granted; the rest queue in ticket order
+  ---
+  duration_ms: 26.301244
+  type: 'test'
+  ...
+# Subtest: FIFO is by ticket, never by timestamp: skewed clocks do not reorder the queue
+ok 606 - FIFO is by ticket, never by timestamp: skewed clocks do not reorder the queue
+  ---
+  duration_ms: 29.96921
+  type: 'test'
+  ...
+# Subtest: byTicket orders decimal strings numerically, past Number.MAX_SAFE_INTEGER
+ok 607 - byTicket orders decimal strings numerically, past Number.MAX_SAFE_INTEGER
+  ---
+  duration_ms: 0.240123
+  type: 'test'
+  ...
+# Subtest: a repeated request is idempotent: same ticket, same position, never sent to the back
+ok 608 - a repeated request is idempotent: same ticket, same position, never sent to the back
+  ---
+  duration_ms: 60.696657
+  type: 'test'
+  ...
+# Subtest: release alone does not grant; reconcile does
+ok 609 - release alone does not grant; reconcile does
+  ---
+  duration_ms: 33.944458
+  type: 'test'
+  ...
+# Subtest: release without proof refuses and leaves the record byte-identical
+ok 610 - release without proof refuses and leaves the record byte-identical
+  ---
+  duration_ms: 48.806139
+  type: 'test'
+  ...
+# Subtest: a run agent releases with its token digest; a wrong token does not
+ok 611 - a run agent releases with its token digest; a wrong token does not
+  ---
+  duration_ms: 14.970183
+  type: 'test'
+  ...
+# Subtest: a holder whose six-tuple is absent is reclaimed; a present one is never reclaimed, however old
+ok 612 - a holder whose six-tuple is absent is reclaimed; a present one is never reclaimed, however old
+  ---
+  duration_ms: 24.09086
+  type: 'test'
+  ...
+# Subtest: a grant nobody can prove is reclaimed on the next tick rather than honoured
+ok 613 - a grant nobody can prove is reclaimed on the next tick rather than honoured
+  ---
+  duration_ms: 21.834469
+  type: 'test'
+  ...
+# Subtest: a dead mid-queue entry is dropped without disturbing those behind it
+ok 614 - a dead mid-queue entry is dropped without disturbing those behind it
+  ---
+  duration_ms: 26.872889
+  type: 'test'
+  ...
+# Subtest: an unreadable pane listing reclaims nothing: proof of absence, never absence of proof
+ok 615 - an unreadable pane listing reclaims nothing: proof of absence, never absence of proof
+  ---
+  duration_ms: 22.573079
+  type: 'test'
+  ...
+# Subtest: reconcile twice is byte-identical, and returns the same object when nothing moved
+ok 616 - reconcile twice is byte-identical, and returns the same object when nothing moved
+  ---
+  duration_ms: 45.877237
+  type: 'test'
+  ...
+# Subtest: eight concurrent requests yield exactly one holder and seven distinct consecutive tickets
+ok 617 - eight concurrent requests yield exactly one holder and seven distinct consecutive tickets
+  ---
+  duration_ms: 185.695023
+  type: 'test'
+  ...
+# Subtest: grant --to refuses for a non-lead, and records the tickets it jumped for the lead
+ok 618 - grant --to refuses for a non-lead, and records the tickets it jumped for the lead
+  ---
+  duration_ms: 41.97221
+  type: 'test'
+  ...
+# Subtest: a failover respawn keeps its slot: restampSlotBindings replaces the six-tuple in place
+ok 619 - a failover respawn keeps its slot: restampSlotBindings replaces the six-tuple in place
+  ---
+  duration_ms: 44.36089
+  type: 'test'
+  ...
+# Subtest: --reason is required, and the granted line reproduces the observed transcript
+ok 620 - --reason is required, and the granted line reproduces the observed transcript
+  ---
+  duration_ms: 6.281158
+  type: 'test'
+  ...
+# Subtest: a request from outside tmux is refused rather than parked forever
+ok 621 - a request from outside tmux is refused rather than parked forever
+  ---
+  duration_ms: 7.632353
+  type: 'test'
+  ...
+# Subtest: slot status with no name reconciles every slot in the repository
+ok 622 - slot status with no name reconciles every slot in the repository
+  ---
+  duration_ms: 33.697203
+  type: 'test'
+  ...
+# Subtest: the supervise tick skips a slot whose lock is busy rather than blocking on it
+ok 623 - the supervise tick skips a slot whose lock is busy rather than blocking on it
+  ---
+  duration_ms: 120.814728
+  type: 'test'
+  ...
+# Subtest: nested workflow normalization survives raw and serialized roundtrips
+ok 624 - nested workflow normalization survives raw and serialized roundtrips
+  ---
+  duration_ms: 2.092819
+  type: 'test'
+  ...
+# Subtest: workflow participants still reject explicit auto_approve values
+ok 625 - workflow participants still reject explicit auto_approve values
+  ---
+  duration_ms: 0.604204
+  type: 'test'
+  ...
+# Subtest: compose saves a nested workflow that loadSpec can read
+ok 626 - compose saves a nested workflow that loadSpec can read
+  ---
+  duration_ms: 84.44719
+  type: 'test'
+  ...
+# Subtest: validateSpec normalizes a minimal spec
+ok 627 - validateSpec normalizes a minimal spec
+  ---
+  duration_ms: 2.598363
+  type: 'test'
+  ...
+# Subtest: validateSpec lists every problem at once
+ok 628 - validateSpec lists every problem at once
+  ---
+  duration_ms: 0.606056
+  type: 'test'
+  ...
+# Subtest: validateSpec requires exactly one orchestrator
+ok 629 - validateSpec requires exactly one orchestrator
+  ---
+  duration_ms: 0.135884
+  type: 'test'
+  ...
+# Subtest: resolveInputs applies defaults and reports missing required inputs
+ok 630 - resolveInputs applies defaults and reports missing required inputs
+  ---
+  duration_ms: 0.496109
+  type: 'test'
+  ...
+# Subtest: inputs with options are validated, support multi, and reject unknown values
+ok 631 - inputs with options are validated, support multi, and reject unknown values
+  ---
+  duration_ms: 0.512386
+  type: 'test'
+  ...
+# Subtest: candidates give an ordered fallback chain, from arrays, strings, or inputs
+ok 632 - candidates give an ordered fallback chain, from arrays, strings, or inputs
+  ---
+  duration_ms: 5.733626
+  type: 'test'
+  ...
+# Subtest: materializeSpec renders placeholders, run_dir, and per-agent cwd
+ok 633 - materializeSpec renders placeholders, run_dir, and per-agent cwd
+  ---
+  duration_ms: 1.086461
+  type: 'test'
+  ...
+# Subtest: helpers: render leaves unknown placeholders visible, durations parse, shellQuote is safe
+ok 634 - helpers: render leaves unknown placeholders visible, durations parse, shellQuote is safe
+  ---
+  duration_ms: 0.491865
+  type: 'test'
+  ...
+# Subtest: a spec entry may reference a stored agent, and anything inline overrides the stored definition
+ok 635 - a spec entry may reference a stored agent, and anything inline overrides the stored definition
+  ---
+  duration_ms: 41.213886
+  type: 'test'
+  ...
+# Subtest: TM-214: a spec may not reference the stored reviewer, even with an inline auto_approve
+ok 636 - TM-214: a spec may not reference the stored reviewer, even with an inline auto_approve
+  ---
+  duration_ms: 65.043668
+  type: 'test'
+  ...
+# Subtest: an unknown agent reference fails with the roster and the search path
+ok 637 - an unknown agent reference fails with the roster and the search path
+  ---
+  duration_ms: 31.918145
+  type: 'test'
+  ...
+# Subtest: a system prompt can come from a file, and a missing one is fatal
+ok 638 - a system prompt can come from a file, and a missing one is fatal
+  ---
+  duration_ms: 3.144957
+  type: 'test'
+  ...
+# Subtest: mcp is part of the agent schema and is documented
+ok 639 - mcp is part of the agent schema and is documented
+  ---
+  duration_ms: 0.556237
+  type: 'test'
+  ...
+# Subtest: a minted agent id is a valid spec agent id
+ok 640 - a minted agent id is a valid spec agent id
+  ---
+  duration_ms: 8.36287
+  type: 'test'
+  ...
+# Subtest: a spec may not launch outside the repo that invoked it
+ok 641 - a spec may not launch outside the repo that invoked it
+  ---
+  duration_ms: 2.541772
+  type: 'test'
+  ...
+# Subtest: a library agent runs in its own directory; an inline agent still follows the spec cwd
+ok 642 - a library agent runs in its own directory; an inline agent still follows the spec cwd
+  ---
+  duration_ms: 36.126865
+  type: 'test'
+  ...
+# Subtest: a library agent found outside the consumer still works inside it
+ok 643 - a library agent found outside the consumer still works inside it
+  ---
+  duration_ms: 18.206573
+  type: 'test'
+  ...
+# Subtest: coordinates_only reaches the run agent, from the library or declared inline
+ok 644 - coordinates_only reaches the run agent, from the library or declared inline
+  ---
+  duration_ms: 43.702664
+  type: 'test'
+  ...
+# Subtest: a run of one library agent is addressed by that agent; anything else stays run-addressed
+ok 645 - a run of one library agent is addressed by that agent; anything else stays run-addressed
+  ---
+  duration_ms: 30.878452
+  type: 'test'
+  ...
+# Subtest: the stage list is `stages`, and the old `workflow` key still runs
+ok 646 - the stage list is `stages`, and the old `workflow` key still runs
+  ---
+  duration_ms: 0.370113
+  type: 'test'
+  ...
+# Subtest: a repo laid out under the old templates/ name still resolves its workflows
+ok 647 - a repo laid out under the old templates/ name still resolves its workflows
+  ---
+  duration_ms: 0.173356
+  type: 'test'
+  ...
+# Subtest: held mail across an unenrolled repository names enrollment and never schedules a lead start
+ok 648 - held mail across an unenrolled repository names enrollment and never schedules a lead start
+  ---
+  duration_ms: 151.916532
+  type: 'test'
+  ...
+# Subtest: durable hold automatically resumes to standing lead, preserves immutable content and ancestry
+ok 649 - durable hold automatically resumes to standing lead, preserves immutable content and ancestry
+  ---
+  duration_ms: 75.557098
+  type: 'test'
+  ...
+# Subtest: concurrent retry uses one stable delivery and rejects changed body/provenance
+ok 650 - concurrent retry uses one stable delivery and rejects changed body/provenance
+  ---
+  duration_ms: 187.423817
+  type: 'test'
+  ...
+# Subtest: source omission cannot bypass admission even with ready destination and permissive injected router
+ok 651 - source omission cannot bypass admission even with ready destination and permissive injected router
+  ---
+  duration_ms: 27.521444
+  type: 'test'
+  ...
+# Subtest: canonical same repository alias uses internal routing without external readiness
+ok 652 - canonical same repository alias uses internal routing without external readiness
+  ---
+  duration_ms: 51.394279
+  type: 'test'
+  ...
+# Subtest: held delegation revalidates receiving task store and redirects after revoked claim
+ok 653 - held delegation revalidates receiving task store and redirects after revoked claim
+  ---
+  duration_ms: 68.090056
+  type: 'test'
+  ...
+# Subtest: ready direct delegation reaches worker outside every run roster
+ok 654 - ready direct delegation reaches worker outside every run roster
+  ---
+  duration_ms: 66.490144
+  type: 'test'
+  ...
+# Subtest: hop loops and coordinator assignments remain held with request retained
+ok 655 - hop loops and coordinator assignments remain held with request retained
+  ---
+  duration_ms: 101.525984
+  type: 'test'
+  ...
+# Subtest: readiness must prove both source and destination with matching library lead
+ok 656 - readiness must prove both source and destination with matching library lead
+  ---
+  duration_ms: 50.107221
+  type: 'test'
+  ...
+# Subtest: admission exception persists recoverable hold, concurrent resumes deliver once
+ok 657 - admission exception persists recoverable hold, concurrent resumes deliver once
+  ---
+  duration_ms: 142.809702
+  type: 'test'
+  ...
+# Subtest: nested standing forwarding preserves original provenance and cannot shorten ancestry
+ok 658 - nested standing forwarding preserves original provenance and cannot shorten ancestry
+  ---
+  duration_ms: 166.651827
+  type: 'test'
+  ...
+# Subtest: held cross-repository mail asks each non-ready side to recover, read-only and after the message lock
+ok 659 - held cross-repository mail asks each non-ready side to recover, read-only and after the message lock
+  ---
+  duration_ms: 63.433516
+  type: 'test'
+  ...
+# Subtest: held mail backs off on the lead-recovery schedule, and resume honours it unless forced
+ok 660 - held mail backs off on the lead-recovery schedule, and resume honours it unless forced
+  ---
+  duration_ms: 144.104003
+  type: 'test'
+  ...
+# Subtest: a permanent hold is not retried every tick, not even when forced
+ok 661 - a permanent hold is not retried every tick, not even when forced
+  ---
+  duration_ms: 44.205724
+  type: 'test'
+  ...
+# Subtest: exactly one delivery with concurrent resumers and resends across a recovery
+ok 662 - exactly one delivery with concurrent resumers and resends across a recovery
+  ---
+  duration_ms: 376.615323
+  type: 'test'
+  ...
+# Subtest: the supervisor that proves its lead responsive wakes the mail that asked, and only its own request is consumed
+ok 663 - the supervisor that proves its lead responsive wakes the mail that asked, and only its own request is consumed
+  ---
+  duration_ms: 112.444499
+  type: 'test'
+  ...
+# Subtest: installHooks preserves unrelated hook entries and unrelated top-level keys
+ok 664 - installHooks preserves unrelated hook entries and unrelated top-level keys
+  ---
+  duration_ms: 12.535973
+  type: 'test'
+  ...
+# Subtest: installHooks is idempotent: installing twice yields exactly one entry
+ok 665 - installHooks is idempotent: installing twice yields exactly one entry
+  ---
+  duration_ms: 5.41579
+  type: 'test'
+  ...
+# Subtest: uninstallHooks removes only our entry, leaving foreign SessionStart entries and the file
+ok 666 - uninstallHooks removes only our entry, leaving foreign SessionStart entries and the file
+  ---
+  duration_ms: 6.925751
+  type: 'test'
+  ...
+# Subtest: corrupt settings file: install fails with TOPOLOGY_STARTUP_HOOKS and the file is untouched
+ok 667 - corrupt settings file: install fails with TOPOLOGY_STARTUP_HOOKS and the file is untouched
+  ---
+  duration_ms: 2.72831
+  type: 'test'
+  ...
+# Subtest: an adapter without a hooks capability cannot install hooks, and reports unsupported
+ok 668 - an adapter without a hooks capability cannot install hooks, and reports unsupported
+  ---
+  duration_ms: 0.375572
+  type: 'test'
+  ...
+# Subtest: startupCheck labels an unregistered session pending-enrollment and journals it
+ok 669 - startupCheck labels an unregistered session pending-enrollment and journals it
+  ---
+  duration_ms: 62.87217
+  type: 'test'
+  ...
+# Subtest: startupCheck does not label a session a lead/reviewer registration claims
+ok 670 - startupCheck does not label a session a lead/reviewer registration claims
+  ---
+  duration_ms: 31.296758
+  type: 'test'
+  ...
+# Subtest: afterSessionOpen is the managed-launch source
+ok 671 - afterSessionOpen is the managed-launch source
+  ---
+  duration_ms: 18.388387
+  type: 'test'
+  ...
+# Subtest: watcher detects arbitrary provider sessions, rejects unrelated processes and selects server
+ok 672 - watcher detects arbitrary provider sessions, rejects unrelated processes and selects server
+  ---
+  duration_ms: 23.332096
+  type: 'test'
+  ...
+# Subtest: pending identity separates repos, punctuation and pane incarnations; registration never suppresses another repo
+ok 673 - pending identity separates repos, punctuation and pane incarnations; registration never suppresses another repo
+  ---
+  duration_ms: 32.276965
+  type: 'test'
+  ...
+# Subtest: watcher fences a suspended owner after explicit dead-owner takeover
+ok 674 - watcher fences a suspended owner after explicit dead-owner takeover
+  ---
+  duration_ms: 22.388215
+  type: 'test'
+  ...
+# Subtest: two concurrent watcher acquisitions permit only one owner
+ok 675 - two concurrent watcher acquisitions permit only one owner
+  ---
+  duration_ms: 58.680113
+  type: 'test'
+  ...
+# Subtest: a stopped daemon watcher releases only its own lease promptly
+ok 676 - a stopped daemon watcher releases only its own lease promptly
+  ---
+  duration_ms: 11.335857
+  type: 'test'
+  ...
+# Subtest: pendingEnrollments and clearPendingEnrollment round trip
+ok 677 - pendingEnrollments and clearPendingEnrollment round trip
+  ---
+  duration_ms: 39.357809
+  type: 'test'
+  ...
+# Subtest: the claude adapter's hooks capability survives loadAdapters; kimi and codex honestly have none
+ok 678 - the claude adapter's hooks capability survives loadAdapters; kimi and codex honestly have none
+  ---
+  duration_ms: 2.954333
+  type: 'test'
+  ...
+# Subtest: install/uninstall preserve hook siblings and a foreign startup-check command
+ok 679 - install/uninstall preserve hook siblings and a foreign startup-check command
+  ---
+  duration_ms: 6.129605
+  type: 'test'
+  ...
+# Subtest: concurrent installs preserve unrelated settings bytes and contain one managed hook
+ok 680 - concurrent installs preserve unrelated settings bytes and contain one managed hook
+  ---
+  duration_ms: 48.216122
+  type: 'test'
+  ...
+# Subtest: quoted hook executable with spaces and apostrophe executes as one path
+ok 681 - quoted hook executable with spaces and apostrophe executes as one path
+  ---
+  duration_ms: 9.130865
+  type: 'test'
+  ...
+# Subtest: native and managed startup offer receiving-repository lead readiness; watcher stays eventual
+ok 682 - native and managed startup offer receiving-repository lead readiness; watcher stays eventual
+  ---
+  duration_ms: 39.683827
+  type: 'test'
+  ...
+# Subtest: real isolated tmux servers bind hookless provider panes to repository cwd
+ok 683 - real isolated tmux servers bind hookless provider panes to repository cwd
+  ---
+  duration_ms: 81.067769
+  type: 'test'
+  ...
+# Subtest: watcher aliases to one observed server share one lease
+ok 684 - watcher aliases to one observed server share one lease
+  ---
+  duration_ms: 12.488111
+  type: 'test'
+  ...
+# Subtest: renaming a tmux display session does not create a new pending identity
+ok 685 - renaming a tmux display session does not create a new pending identity
+  ---
+  duration_ms: 12.595179
+  type: 'test'
+  ...
+# Subtest: a tmux enumeration failure degrades one tick instead of ending the supervisor
+ok 686 - a tmux enumeration failure degrades one tick instead of ending the supervisor
+  ---
+  duration_ms: 183.277244
+  type: 'test'
+  ...
+# Subtest: a one-shot supervise still fails loudly: it has no next tick to degrade into
+ok 687 - a one-shot supervise still fails loudly: it has no next tick to degrade into
+  ---
+  duration_ms: 52.700281
+  type: 'test'
+  ...
+# Subtest: lead assign and role assign lead answer a failed supervisor identically
+ok 688 - lead assign and role assign lead answer a failed supervisor identically
+  ---
+  duration_ms: 431.410341
+  type: 'test'
+  ...
+# Subtest: supervision refreshes a live legacy workflow instance without applying an unacknowledged change
+ok 689 - supervision refreshes a live legacy workflow instance without applying an unacknowledged change
+  ---
+  duration_ms: 170.430695
+  type: 'test'
+  ...
+# Subtest: supervision refreshes a live durable workflow instance without applying an unacknowledged change
+ok 690 - supervision refreshes a live durable workflow instance without applying an unacknowledged change
+  ---
+  duration_ms: 152.415534
+  type: 'test'
+  ...
+# Subtest: a second supervisor for the same repository exits on the lock instead of double-publishing
+ok 691 - a second supervisor for the same repository exits on the lock instead of double-publishing
+  ---
+  duration_ms: 221.254838
+  type: 'test'
+  ...
+# Subtest: the expensive reconcile body runs at most once per AO_RECONCILE_MIN_MS across many cheap ticks
+ok 692 - the expensive reconcile body runs at most once per AO_RECONCILE_MIN_MS across many cheap ticks
+  ---
+  duration_ms: 247.948235
+  type: 'test'
+  ...
+# Subtest: the tick sleep walks 2s / 5s / 15s while quiet
+ok 693 - the tick sleep walks 2s / 5s / 15s while quiet
+  ---
+  duration_ms: 257.240819
+  type: 'test'
+  ...
+# Subtest: any activity snaps the ladder back to its busy rung rather than stepping down it
+ok 694 - any activity snaps the ladder back to its busy rung rather than stepping down it
+  ---
+  duration_ms: 0.155777
+  type: 'test'
+  ...
+# Subtest: the supervisor records where it went and how often it has been restarted
+ok 695 - the supervisor records where it went and how often it has been restarted
+  ---
+  duration_ms: 256.808796
+  type: 'test'
+  ...
+# Subtest: supervision startup uses a bounded configurable ownership handshake
+ok 696 - supervision startup uses a bounded configurable ownership handshake
+  ---
+  duration_ms: 0.201409
+  type: 'test'
+  ...
+# Subtest: a live owner without its first heartbeat is starting, never ready
+ok 697 - a live owner without its first heartbeat is starting, never ready
+  ---
+  duration_ms: 38.042858
+  type: 'test'
+  ...
+# Subtest: startup errors are retained and are not classified as competing ownership
+ok 698 - startup errors are retained and are not classified as competing ownership
+  ---
+  duration_ms: 22.870676
+  type: 'test'
+  ...
+# Subtest: the census rides every tick, including the cheap ones, and is told its cadence
+ok 699 - the census rides every tick, including the cheap ones, and is told its cadence
+  ---
+  duration_ms: 251.473211
+  type: 'test'
+  ...
+# Subtest: a quiet census does not pin the sleep ladder to its busy rung
+ok 700 - a quiet census does not pin the sleep ladder to its busy rung
+  ---
+  duration_ms: 351.137306
+  type: 'test'
+  ...
+# Subtest: absolutize never consults the cwd for an already-absolute path
+ok 701 - absolutize never consults the cwd for an already-absolute path
+  ---
+  duration_ms: 0.600441
+  type: 'test'
+  ...
+# Subtest: a supervisor started with an absolute --consumer survives losing its working directory
+ok 702 - a supervisor started with an absolute --consumer survives losing its working directory
+  ---
+  duration_ms: 360.32263
+  type: 'test'
+  ...
+# Subtest: a supervisor that died during startup is not reported as a healthy one
+ok 703 - a supervisor that died during startup is not reported as a healthy one
+  ---
+  duration_ms: 30.01735
+  type: 'test'
+  ...
+# Subtest: status reports the live lock owner when process.json names a loser
+ok 704 - status reports the live lock owner when process.json names a loser
+  ---
+  duration_ms: 14.651222
+  type: 'test'
+  ...
+# Subtest: a supervisor retires itself when the repository it supervises is removed
+ok 705 - a supervisor retires itself when the repository it supervises is removed
+  ---
+  duration_ms: 126.055558
+  type: 'test'
+  ...
+# Subtest: missing user-bus variables are recovered from the validated canonical runtime
+ok 706 - missing user-bus variables are recovered from the validated canonical runtime
+  ---
+  duration_ms: 0.718433
+  type: 'test'
+  ...
+# Subtest: systemd-run, systemctl, and worker launch receive the same canonical user-bus environment
+ok 707 - systemd-run, systemctl, and worker launch receive the same canonical user-bus environment
+  ---
+  duration_ms: 0.491484
+  type: 'test'
+  ...
+# Subtest: ambient user-bus paths are replaced instead of trusted
+ok 708 - ambient user-bus paths are replaced instead of trusted
+  ---
+  duration_ms: 0.168124
+  type: 'test'
+  ...
+# Subtest: user-manager execution fails closed for unsafe canonical runtime or bus paths
+    # Subtest: runtime permissions are not private
+    ok 1 - runtime permissions are not private
+      ---
+      duration_ms: 0.644694
+      type: 'test'
+      ...
+    # Subtest: runtime path resolves elsewhere
+    ok 2 - runtime path resolves elsewhere
+      ---
+      duration_ms: 0.187973
+      type: 'test'
+      ...
+    # Subtest: bus path is not an owned socket
+    ok 3 - bus path is not an owned socket
+      ---
+      duration_ms: 0.201491
+      type: 'test'
+      ...
+    1..3
+ok 709 - user-manager execution fails closed for unsafe canonical runtime or bus paths
+  ---
+  duration_ms: 2.162657
+  type: 'test'
+  ...
+# Subtest: native Windows helper creates Job Objects and AppContainers
+ok 710 - native Windows helper creates Job Objects and AppContainers # SKIP
+  ---
+  duration_ms: 0.516877
+  type: 'test'
+  ...
+# Subtest: native Windows AppContainer launches a bounded console process
+ok 711 - native Windows AppContainer launches a bounded console process # SKIP
+  ---
+  duration_ms: 0.095078
+  type: 'test'
+  ...
+# Subtest: native Windows AppContainer launches a staged Node runtime
+ok 712 - native Windows AppContainer launches a staged Node runtime # SKIP
+  ---
+  duration_ms: 0.061415
+  type: 'test'
+  ...
+# Subtest: native Windows AppContainer launches the installed Codex executable
+ok 713 - native Windows AppContainer launches the installed Codex executable # SKIP
+  ---
+  duration_ms: 0.06561
+  type: 'test'
+  ...
+# Subtest: stop confirms exact termination on the recorded server and retains evidence
+ok 714 - stop confirms exact termination on the recorded server and retains evidence
+  ---
+  duration_ms: 99.967686
+  type: 'test'
+  ...
+# Subtest: session name reuse refuses native stop without controlling any pane
+ok 715 - session name reuse refuses native stop without controlling any pane
+  ---
+  duration_ms: 63.623392
+  type: 'test'
+  ...
+# Subtest: wrong pane process refuses native stop without controlling any pane
+ok 716 - wrong pane process refuses native stop without controlling any pane
+  ---
+  duration_ms: 54.519521
+  type: 'test'
+  ...
+# Subtest: wrong server incarnation refuses native stop without controlling any pane
+ok 717 - wrong server incarnation refuses native stop without controlling any pane
+  ---
+  duration_ms: 46.737171
+  type: 'test'
+  ...
+# Subtest: unowned pane and missing binding refuse control; a replacement during stop stays visible
+ok 718 - unowned pane and missing binding refuse control; a replacement during stop stays visible
+  ---
+  duration_ms: 55.543805
+  type: 'test'
+  ...
+# Subtest: partial stop failures remain failures and cannot declare the run stopped
+ok 719 - partial stop failures remain failures and cannot declare the run stopped
+  ---
+  duration_ms: 57.724723
+  type: 'test'
+  ...
+# Subtest: consumer-bound inspection rejects a native record from another repository
+ok 720 - consumer-bound inspection rejects a native record from another repository
+  ---
+  duration_ms: 56.690596
+  type: 'test'
+  ...
+# Subtest: a child cannot redirect cascade control across repository boundaries
+ok 721 - a child cannot redirect cascade control across repository boundaries
+  ---
+  duration_ms: 73.688765
+  type: 'test'
+  ...
+# Subtest: human review is idempotent, revision-bound and never bypasses independent integration
+ok 722 - human review is idempotent, revision-bound and never bypasses independent integration
+  ---
+  duration_ms: 219.992788
+  type: 'test'
+  ...
+# Subtest: retry creates a linked attempt and preserves the admitted workload and authority
+ok 723 - retry creates a linked attempt and preserves the admitted workload and authority
+  ---
+  duration_ms: 207.650649
+  type: 'test'
+  ...
+# Subtest: legacy attempts without an original template hold retry before any new launch
+ok 724 - legacy attempts without an original template hold retry before any new launch
+  ---
+  duration_ms: 91.608105
+  type: 'test'
+  ...
+# Subtest: native writer observation proves all exact members absent or dead and fences record changes
+ok 725 - native writer observation proves all exact members absent or dead and fences record changes
+  ---
+  duration_ms: 135.127943
+  type: 'test'
+  ...
+# Subtest: native writer observation includes child writers and holds missing virtual participants
+ok 726 - native writer observation includes child writers and holds missing virtual participants
+  ---
+  duration_ms: 179.523909
+  type: 'test'
+  ...
+# Subtest: real isolated tmux stop addresses the recorded server and leaves a same-named peer intact
+ok 727 - real isolated tmux stop addresses the recorded server and leaves a same-named peer intact
+  ---
+  duration_ms: 140.921695
+  type: 'test'
+  ...
+# Subtest: both runtimes share canonical discovery across worktrees without expanding write authority
+ok 728 - both runtimes share canonical discovery across worktrees without expanding write authority
+  ---
+  duration_ms: 139.117739
+  type: 'test'
+  ...
+# Subtest: terminal legacy worktree records preserve exact evidence and survive owned worktree removal
+ok 729 - terminal legacy worktree records preserve exact evidence and survive owned worktree removal
+  ---
+  duration_ms: 147.681814
+  type: 'test'
+  ...
+# Subtest: active, corrupt and unregistered legacy records prevent cleanup
+ok 730 - active, corrupt and unregistered legacy records prevent cleanup
+  ---
+  duration_ms: 74.875961
+  type: 'test'
+  ...
+# Subtest: corrupt and escaped records are isolated; removals update the index revision
+ok 731 - corrupt and escaped records are isolated; removals update the index revision
+  ---
+  duration_ms: 111.99061
+  type: 'test'
+  ...
+# Subtest: journal-only changes advance discovery while unchanged history retains its revision
+ok 732 - journal-only changes advance discovery while unchanged history retains its revision
+  ---
+  duration_ms: 127.684603
+  type: 'test'
+  ...
+# Subtest: admitted launch failure retains a durable record without changing workload cwd
+ok 733 - admitted launch failure retains a durable record without changing workload cwd
+  ---
+  duration_ms: 82.070716
+  type: 'test'
+  ...
+# Subtest: task ownership hook is candidate-specific; unsupported fallback is held
+ok 734 - task ownership hook is candidate-specific; unsupported fallback is held
+  ---
+  duration_ms: 0.411595
+  type: 'test'
+  ...
+# Subtest: an uncertain guarded workflow prevents a second writer in the same task worktree
+ok 735 - an uncertain guarded workflow prevents a second writer in the same task worktree
+  ---
+  duration_ms: 132.160174
+  type: 'test'
+  ...
+# Subtest: runtime grants name only the current member and shared artifacts and reject redirected recorded paths
+ok 736 - runtime grants name only the current member and shared artifacts and reject redirected recorded paths
+  ---
+  duration_ms: 34.805883
+  type: 'test'
+  ...
+# Subtest: automatic fallback is restricted to the explicit ordered provider chain
+ok 737 - automatic fallback is restricted to the explicit ordered provider chain
+  ---
+  duration_ms: 0.630581
+  type: 'test'
+  ...
+# Subtest: terminal durable records cannot authorize cleanup while their exact session remains
+ok 738 - terminal durable records cannot authorize cleanup while their exact session remains
+  ---
+  duration_ms: 89.059977
+  type: 'test'
+  ...
+# Subtest: a second authentic native record cannot silently replace a durable workflow with the same run ID
+ok 739 - a second authentic native record cannot silently replace a durable workflow with the same run ID
+  ---
+  duration_ms: 104.397609
+  type: 'test'
+  ...
+# Subtest: launch and retry render retained templates against their own durable attempt without rewriting literal prose
+ok 740 - launch and retry render retained templates against their own durable attempt without rewriting literal prose
+  ---
+  duration_ms: 54.458937
+  type: 'test'
+  ...
+1..740
+# tests 749
+# suites 3
+# pass 745
+# fail 0
+# cancelled 0
+# skipped 4
+# todo 0
+# duration_ms 119834.894519

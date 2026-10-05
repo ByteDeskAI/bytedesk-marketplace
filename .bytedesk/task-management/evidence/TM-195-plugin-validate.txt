@@ -1,0 +1,5 @@
+
+  ❯ version: No version specified. Consider adding a version following semver (e.g., "1.0.0")
+
+✔ Validation passed with warnings
+validate_exit=0

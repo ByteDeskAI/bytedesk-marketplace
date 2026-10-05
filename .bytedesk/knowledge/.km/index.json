@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T21:32:03.377Z",
+  "generatedAt": "2026-10-04T05:11:29.603Z",
   "concepts": [
     {
       "id": "architecture/gateway-tab-ids-are-server-minted",
@@ -11,6 +11,21 @@
         "gateway",
         "tmux",
         "agent-orchestration"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "architecture/task-management-and-agent-orchestration-stay-ind",
+      "path": "/architecture/task-management-and-agent-orchestration-stay-ind.md",
+      "type": "Architecture",
+      "title": "task-management and agent-orchestration stay independent of each other",
+      "description": "Each plugin works with the other absent: no cross imports, no manifest dependency, capability-check then skip silently (Ryan, 2026-09-25)",
+      "tags": [
+        "plugin:task-management",
+        "plugin:agent-orchestration",
+        "architecture"
       ],
       "status": "stable",
       "trust": "unverified",
@@ -255,6 +270,384 @@
       "stale": false
     },
     {
+      "id": "decisions/decision-2026-09-25-2",
+      "path": "/decisions/decision-2026-09-25-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-25",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-25-3",
+      "path": "/decisions/decision-2026-09-25-3.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-25",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-25-4",
+      "path": "/decisions/decision-2026-09-25-4.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-25",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-25",
+      "path": "/decisions/decision-2026-09-25.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-25",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-27-2",
+      "path": "/decisions/decision-2026-09-27-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-27",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-27",
+      "path": "/decisions/decision-2026-09-27.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-27",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-30-2",
+      "path": "/decisions/decision-2026-09-30-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-30",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-09-30",
+      "path": "/decisions/decision-2026-09-30.md",
+      "type": "Decision",
+      "title": "Decision 2026-09-30",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-01-2",
+      "path": "/decisions/decision-2026-10-01-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-01",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-01-3",
+      "path": "/decisions/decision-2026-10-01-3.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-01",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-01",
+      "path": "/decisions/decision-2026-10-01.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-01",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-10",
+      "path": "/decisions/decision-2026-10-02-10.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-2",
+      "path": "/decisions/decision-2026-10-02-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-3",
+      "path": "/decisions/decision-2026-10-02-3.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-4",
+      "path": "/decisions/decision-2026-10-02-4.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-5",
+      "path": "/decisions/decision-2026-10-02-5.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-6",
+      "path": "/decisions/decision-2026-10-02-6.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-7",
+      "path": "/decisions/decision-2026-10-02-7.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-8",
+      "path": "/decisions/decision-2026-10-02-8.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02-9",
+      "path": "/decisions/decision-2026-10-02-9.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-02",
+      "path": "/decisions/decision-2026-10-02.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-02",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-03-2",
+      "path": "/decisions/decision-2026-10-03-2.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-03",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-03-3",
+      "path": "/decisions/decision-2026-10-03-3.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-03",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-03-4",
+      "path": "/decisions/decision-2026-10-03-4.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-03",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-03-5",
+      "path": "/decisions/decision-2026-10-03-5.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-03",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-03",
+      "path": "/decisions/decision-2026-10-03.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-03",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "decisions/decision-2026-10-04",
+      "path": "/decisions/decision-2026-10-04.md",
+      "type": "Decision",
+      "title": "Decision 2026-10-04",
+      "description": "Agent-captured decision",
+      "tags": [
+        "decision",
+        "captured"
+      ],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
       "id": "decisions/topology-is-the-authoritative-orchestration-layer",
       "path": "/decisions/topology-is-the-authoritative-orchestration-layer.md",
       "type": "Decision",
@@ -291,6 +684,20 @@
       "title": "L",
       "description": "L",
       "tags": [],
+      "status": "stable",
+      "trust": "unverified",
+      "stale": false
+    },
+    {
+      "id": "runbooks/ao-rollout-lessons-managed-services-naming-multi",
+      "path": "/runbooks/ao-rollout-lessons-managed-services-naming-multi.md",
+      "type": "runbook",
+      "title": "ao rollout lessons: managed services, naming, multi-host installs (2026-10-01/02)",
+      "description": "Problems hit while moving agent-orchestration onto process-compose services and ADR-0030 naming, each with its fix or tracking task; read before changing ao setup, services or tests",
+      "tags": [
+        "agent-orchestration",
+        "lessons"
+      ],
       "status": "stable",
       "trust": "unverified",
       "stale": false

@@ -1,0 +1,34 @@
+npm ci exit=0
+build exit=0
+
+⚡ Done in 203ms
+build:check exit=0
+not ok 533 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 540 - governed completion accepts a delegated integration record unchanged
+not ok 565 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 581 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1015
+# pass 1007
+# fail 4
+test:unit exit=1
+# tests 19
+# pass 19
+# fail 0
+test:contract exit=0
+not ok 3 - actor
+not ok 224 - tm_task_update start
+not ok 226 - tm_claim
+not ok 245 - tm_worktree new claims and provisions, rm releases and removes, list reads — and refuses a held task
+not ok 401 - the event log's session column
+# tests 1582
+# pass 1573
+# fail 9
+tm unit exit=1
+# tests 1015
+# pass 1011
+# fail 0
+ao test:unit (scrubbed env) exit=0
+# tests 1582
+# pass 1582
+# fail 0
+tm unit (scrubbed env) exit=0

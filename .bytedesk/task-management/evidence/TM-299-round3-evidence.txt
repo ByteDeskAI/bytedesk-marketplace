@@ -1,0 +1,47 @@
+TM-299 round 3 — commit 99da80881e289e0861107a4b7daf1bfbb6be709d (branch tm/TM-299-..., PR #162 -> fix/ao-local-nats-autostart)
+origin/fix/ao-local-nats-autostart had not moved since the round-2 merge (64308e0c).
+
+== reproducibility: dist sha256 at HEAD 360941bf (ct 1790976723-era) vs HEAD 99da80881e289e0861107a4b7daf1bfbb6be709d (ct 1790978743) ==
+98aa5bd44627bcff550b6b6402c078f50dda88022e320712d5bf13c55640bdaa  dist/cli.cjs
+f7466afe0e6a2c87172a98ad8629936db2c4dbdcc12f40e6173638666ae63c10  dist/host-launcher.cjs
+eacd142e02e0a4a2a89089375a3eee28c31ca9d7f97bea5ffd6400031f27bc96  dist/mcp.cjs
+eac8a4e3feef89d0c6aa7ba2e108b125d73de9961eddfae9866f070b5a372d1d  dist/nats-client.cjs
+2954349ee9d2d9f1181a06a5ab6a12f992d7d96bfc6646878ba13a382529ac7e  dist/probe-worker.cjs
+550a97e05cc391abafc08cbe1172be61c951cde7415d0965d0185b2598ccd0ca  dist/provider-sandbox.cjs
+second build: IDENTICAL (diff empty)
+grep -c ao-build-ordinal dist/*.cjs: all 0
+
+== build:check after commit ==
+build:check exit=0
+git status after build:check: clean
+
+== test:unit (TM_DISPATCH_*/TM_ACTOR/TM_ROOT/TM_SESSION_ID unset) ==
+# tests 1011
+# pass 1007
+# fail 0
+# skipped 4
+test:unit exit=0
+Note: with this worker's TM_DISPATCH_* env present, 4 topology-management.test.mjs landing tests fail (pre-existing env leak, unrelated); 76/76 pass with it unset.
+
+== TMUX= test:contract ==
+# tests 19
+# pass 19
+# fail 0
+test:contract exit=0
+
+== mutation checks on setup-self-heal.test.mjs ==
+a>b flipped to a<b in keepBuild: test 4 fails
+.ao-build.json write disabled: test 4 fails
+
+== setup-self-heal.test.mjs ==
+ok 270 - TM-284: hostCopies finds the codex, grok and kimi copies and nothing else
+ok 271 - TM-284: an older copy is refreshed to the pointer's build; an equal or newer one is left alone
+ok 272 - TM-299: a same-version copy of a NEWER build is never downgraded; an unfingerprinted one is left alone
+ok 273 - TM-299: same-version builds are ordered by the ordinal recorded at sync; mtime only for a copy without one
+ok 274 - TM-299: outside git the source's ordinal is the newest mtime under dist/
+ok 275 - TM-284: a copy whose node_modules does not satisfy the new package.json is reported and left whole
+ok 276 - TM-284: a copy that fails half-way is rolled back, never left half-updated
+ok 277 - TM-284: never copies from a source tree with uncommitted changes, and never writes into a git checkout
+ok 278 - TM-284: install-host refreshes older copies from its plugin root (dry run reports only)
+ok 279 - TM-284: satisfies covers the range forms package.json uses
+ok 285 - TM-284/285: one ensure's self-heal reports every part, and a failing part never fails the rest

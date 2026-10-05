@@ -1,0 +1,50 @@
+# TM-304 round 2 — merge origin/fix/ao-local-nats-autostart (ede48115) at f2852d55
+
+## As run (dispatched-worker env: TM_DISPATCH_WORKER, TM_SESSION_ID, CLAUDECODE ... inherited)
+HEAD f2852d55d593bbe9f5f269c43da099e0d531875a
+build:check exit=0
+status after build:check: []
+not ok 536 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 543 - governed completion accepts a delegated integration record unchanged
+not ok 568 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 584 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 1018
+# pass 1010
+# fail 4
+test:unit exit=1
+# tests 19
+# pass 19
+# fail 0
+test:contract exit=0
+not ok 3 - actor
+not ok 224 - tm_task_update start
+not ok 226 - tm_claim
+not ok 245 - tm_worktree new claims and provisions, rm releases and removes, list reads — and refuses a held task
+not ok 402 - the event log's session column
+    # Subtest: a push that relies on HEAD is allowed only while HEAD is the worker's own branch
+    ok 3 - a push that relies on HEAD is allowed only while HEAD is the worker's own branch
+    # Subtest: creates a fresh branch from configured integration state, not the caller's HEAD
+    ok 3 - creates a fresh branch from configured integration state, not the caller's HEAD
+# tests 1589
+# pass 1580
+# fail 9
+tm unit exit=1
+
+## Control: base origin/fix/ao-local-nats-autostart, same env: task-management 1580 pass / 9 fail (identical to branch)
+
+## Branch, session vars cleared
+HEAD f2852d55d593bbe9f5f269c43da099e0d531875a; cleared: -u TM_DISPATCH_WORKER -u TM_SESSION_ID -u TM_ACTOR -u TM_DISPATCH_TASK -u TM_DISPATCH_BRANCH -u TM_DISPATCH_INTEGRATION_BRANCH -u TM_ROOT -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CLAUDE_PID
+# tests 1018
+# pass 1014
+# fail 0
+# skipped 4
+ao test:unit (cleared) exit=0
+    # Subtest: a push that relies on HEAD is allowed only while HEAD is the worker's own branch
+    ok 3 - a push that relies on HEAD is allowed only while HEAD is the worker's own branch
+    # Subtest: creates a fresh branch from configured integration state, not the caller's HEAD
+    ok 3 - creates a fresh branch from configured integration state, not the caller's HEAD
+# tests 1589
+# pass 1589
+# fail 0
+# skipped 0
+tm unit (cleared) exit=0

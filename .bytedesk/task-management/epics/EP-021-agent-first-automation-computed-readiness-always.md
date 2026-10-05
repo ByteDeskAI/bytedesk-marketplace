@@ -9,8 +9,8 @@ actor: "main"
 session: "c3738e82-1fbf-4fc3-a6a3-06f965eac51c"
 branch: "main"
 worktree: "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace"
-updated: "2026-09-11T19:41:54.058Z"
-plan: ".bytedesk/task-management/plans/2026-09-11-plan-automatic-readiness-and-an-always-on-dispat.md"
+updated: "2026-10-03T01:57:36.353Z"
+plan: ".bytedesk/task-management/plans/2026-10-03-plan-two-repo-nats-sandbox-for-agent-orchestrati.md"
 adr: "ADR-0012"
 ---
 

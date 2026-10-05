@@ -1,0 +1,48 @@
+TM-295 evidence — revision c3997262535b867d75cec7f0a0ba4110234d2895 (worktree clean apart from graft tool noise in ../.claude, ../.grok, ../opencode.json; not committed)
+nats-server: present (/snap/bin/nats-server); nats tests ran, none skipped for its absence.
+
+== Controls: new tests against the UNFIXED topology/lib (fix reverted with git apply -R) ==
+not ok 1 - a b64 verdict captured right after its prefix waits instead of failing its request
+  error: 'b64:'
+  error: 'Review response base64 is empty or has characters outside the base64 alphabet.'
+not ok 2 - a complete b64 verdict followed by a one-word row decodes intact
+  error: 'Review response base64 is empty or has characters outside the base64 alphabet.'
+# pass 0
+# fail 2
+not ok 1 - a non-supervisor holding the fallback keeps its outage open; closing it lets the outage retire
+  error: |-
+# pass 0
+# fail 1
+not ok 1 - a non-supervisor holding the fallback keeps its outage open; closing it lets the outage retire
+  ---
+  duration_ms: 2611.7013
+  type: 'test'
+  location: '/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-295-agent-orchestration-fix-faro-s-minor-findings-on/agent-orchestration/tests/unit/nats-outage.test.mjs:273:1'
+  failureType: 'testCodeFailure'
+  error: |-
+  error: |-
+    a held fallback is refreshed by its holder, not only by a supervisor
+    + actual - expected
+    
+    + '2026-10-02T19:45:32.987Z'
+
+== Fixed: targeted tests ==
+reviewer b64 tests: 5/5 pass (incl. 'captured right after its prefix waits', 'one-word row decodes intact')
+nats-outage tests: 4/4 pass (incl. 'a non-supervisor holding the fallback keeps its outage open')
+
+== npm run build:check == exit 0
+== npm run test:unit == exit 1 (known, not this task: 4 topology-management landing tests)
+# tests 997
+# pass 989
+# fail 4
+# skipped 4
+not ok 523 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 530 - governed completion accepts a delegated integration record unchanged
+not ok 554 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 570 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+== npm run test:contract == exit 1 (known: topology-tmux, owned by TM-294)
+# tests 20
+# pass 19
+# fail 1
+# skipped 0
+not ok 8 - tests/contract/topology-tmux.test.mjs

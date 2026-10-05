@@ -1,0 +1,7 @@
+TM-303 round 2 @ 1693031d9eaf8fca7f85822641357a66b866cb63 (clean tree)
+new tests vs 206bc07b collect.mjs: 2/2 fail; all 7 TM-303 tests vs unfixed 37918336: 7/7 fail
+task-management unit (TM_/AO_ env cleared):
+# tests 1589
+# pass 1589
+# fail 0
+claude plugin validate ./task-management: passed with warnings (pre-existing hook-quoting/version advisories)

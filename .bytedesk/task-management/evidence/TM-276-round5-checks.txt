@@ -1,0 +1,36 @@
+TM-276 round 5 checks — base 618d38816ddab2ab76243eda8ee8cfa2b16cfb3d + working tree (lib, test, CHANGELOG, dist); origin/fix/ao-local-nats-autostart 570d9e79 already merged
+nats-server: /snap/bin/nats-server
+
+== nats-outage.test.mjs (fix applied)
+ok 1 - redactUrl drops credentials and keeps host and port
+ok 2 - a dead ambient NATS_URL falls back to managed local and mails the lead once, then once on recovery
+ok 3 - an open from an env without NATS_URL does not close the dead NATS_URL outage: one outage mail, no recovery mail
+ok 4 - openNatsTransport records the selection under the caller's home, not the process home
+ok 5 - a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+ok 6 - an outage nothing falls back from any more is retired after the bound: one closing mail, doctor clears, no re-dials
+# tests 6
+# pass 6
+# fail 0
+# skipped 0
+
+== control: same test with topology/lib reverted: 5 pass, 1 fail (test 6)
+
+== build: exit 0; build:check: exit 0
+
+== test:unit
+not ok 475 - record-landing records an operator landing that governed completion accepts, without merging
+not ok 482 - governed completion accepts a delegated integration record unchanged
+not ok 506 - TM-249 success: integrate merges the PR with exactly --merge --match-head-commit and records the landing; it never accepts criteria, so an unattested task stays open until a rerun
+not ok 522 - TM-263 (a) the proven lead records a landing with no grant and no --authorized; the record names the lead channel and ADR
+# tests 947
+# pass 939
+# fail 4
+# cancelled 0
+# skipped 4
+
+== test:contract
+not ok 8 - tests/contract/topology-tmux.test.mjs
+# tests 20
+# pass 19
+# fail 1
+# skipped 0

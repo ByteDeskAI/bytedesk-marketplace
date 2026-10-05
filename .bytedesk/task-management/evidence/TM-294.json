@@ -1,0 +1,314 @@
+{
+  "task": "TM-294",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-02T19:38:06.706Z",
+      "owner": "dc778cb2",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-294-agent-orchestration-tests-topology-tmux-contract",
+      "branch": "tm/TM-294-agent-orchestration-tests-topology-tmux-contract",
+      "intent": "Make tests/contract/topology-tmux.test.mjs create its temp repos opted out of enrollment (shared temp-repo helper) so the TM-290 provider guard no longer fails test:contract.",
+      "boundaries": [
+        "only topology-tmux.test.mjs, the temp-repo helper if needed, and a CHANGELOG Unreleased line",
+        "no product code, no version bump",
+        "PR base fix/ao-local-nats-autostart",
+        "never run services ensure from the worktree"
+      ],
+      "dependencies": [],
+      "checks": [
+        "npm run build:check",
+        "npm run test:unit (4 known topology-management failures)",
+        "npm run test:contract 20/20, zero provider-guard hits"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/tests/contract/topology-tmux.test.mjs",
+        "agent-orchestration/tests/helpers/temp-repo.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-02T19:38:13.507Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-294",
+      "workflow_run_id": "tm-TM-294"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T19:38:15.240Z",
+      "worker": {
+        "name": "agent:TM-294-dc778cb2",
+        "run": "tmux:tm-TM-294",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T19:38:13.288Z",
+        "observed_at": "2026-10-02T19:38:15.229Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-294",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$120",
+          "sessionCreated": 1790969892,
+          "paneId": "%236",
+          "panePid": 3346114
+        }
+      },
+      "workflow_run_id": "tm-TM-294"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T19:53:19.455Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/157"
+        ],
+        "checks": [
+          "test:contract exit 0, 19/19, zero provider-guard hits",
+          "build:check pass",
+          "test:unit 986/994 (4 known topology-management landing failures)"
+        ],
+        "risks": [
+          "AC2 met via the helper enrolled mode (NO_PROVIDER), not opt-out: the delivery runs need supervision"
+        ],
+        "evidence": "/tmp/TM-294-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T19:53:25.678Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+        "artifacts": [
+          "https://github.com/ByteDeskAI/bytedesk-marketplace/pull/157"
+        ],
+        "checks": [
+          "test:contract exit 0, 19/19, zero provider-guard hits",
+          "build:check pass",
+          "test:unit 986/994 (4 known topology-management landing failures)"
+        ],
+        "risks": [
+          "AC2 met via the helper enrolled mode (NO_PROVIDER), not opt-out: the delivery runs need supervision"
+        ],
+        "evidence": "/tmp/TM-294-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T20:09:42.408Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/157",
+          "agent-orchestration/tests/contract/topology-tmux.test.mjs",
+          "agent-orchestration/CHANGELOG.md"
+        ],
+        "checks": [
+          "npm run test:contract: exit 0, 19/19, zero provider-guard hits",
+          "npm run build:check: pass",
+          "npm run test:unit: 986/994; 4 known topology-management landing failures"
+        ],
+        "risks": [
+          "AC2 met through the temp-repo helper's enrolled NO_PROVIDER mode rather than opt-out, because the delivery runs need supervision"
+        ],
+        "evidence": "/tmp/TM-294-evidence.md (worker evidence; attached to the task)"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T20:09:44.925Z",
+      "worker": {
+        "name": "agent:TM-294-dc778cb2",
+        "run": "tmux:tm-TM-294",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T19:38:13.288Z",
+        "observed_at": "2026-10-02T19:38:15.229Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-294",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$120",
+          "sessionCreated": 1790969892,
+          "paneId": "%236",
+          "panePid": 3346114
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-02T23:43:11.309Z",
+      "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+      "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #157 merged after faro approved 832b347d; CI green; main via #164 (9ce66223)",
+        "policy_auto_merge": true,
+        "at": "2026-10-02T23:43:10.972Z"
+      }
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-02T23:43:54.550Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-294-agent-orchestration-tests-topology-tmux-contract",
+      "branch": "tm/TM-294-agent-orchestration-tests-topology-tmux-contract",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-02T23:43:54.550Z",
+  "base_revision": "9e0731167fd5f32882cc72c121539a29153e105b",
+  "owner": "dc778cb2",
+  "workflow_run_id": "tm-TM-294",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-294-agent-orchestration-tests-topology-tmux-contract",
+  "branch": "tm/TM-294-agent-orchestration-tests-topology-tmux-contract",
+  "started": true,
+  "state": "cleaned",
+  "worker": {
+    "name": "agent:TM-294-dc778cb2",
+    "run": "tmux:tm-TM-294",
+    "backend": "tmux",
+    "owner": "dc778cb2",
+    "registered_at": "2026-10-02T19:38:13.288Z",
+    "observed_at": "2026-10-02T19:38:15.229Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-294",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$120",
+      "sessionCreated": 1790969892,
+      "paneId": "%236",
+      "panePid": 3346114
+    },
+    "stopped_at": "2026-10-02T20:09:44.925Z"
+  },
+  "finish": {
+    "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+    "artifacts": [
+      "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/157",
+      "agent-orchestration/tests/contract/topology-tmux.test.mjs",
+      "agent-orchestration/CHANGELOG.md"
+    ],
+    "checks": [
+      "npm run test:contract: exit 0, 19/19, zero provider-guard hits",
+      "npm run build:check: pass",
+      "npm run test:unit: 986/994; 4 known topology-management landing failures"
+    ],
+    "risks": [
+      "AC2 met through the temp-repo helper's enrolled NO_PROVIDER mode rather than opt-out, because the delivery runs need supervision"
+    ],
+    "evidence": "/tmp/TM-294-evidence.md (worker evidence; attached to the task)"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "9e0731167fd5f32882cc72c121539a29153e105b",
+    "admitted_base": "9e0731167fd5f32882cc72c121539a29153e105b",
+    "effective_base": "9e0731167fd5f32882cc72c121539a29153e105b",
+    "range_note": "The range 9e0731167fd5f32882cc72c121539a29153e105b..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-294-832b347d8508711cf68732bb05e5d21027273d41.patch",
+    "patch_sha256": "469941a2285302516a05050d222a056dfaa2e3446924139fd595706bb5c239af",
+    "nonce": "acbfdfbb-f5f6-49e0-b3bf-4205006d609e",
+    "task": "TM-294",
+    "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "created_at": "2026-10-02T19:53:21.187Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-02T19:53:21.725Z"
+    },
+    "state": "collected",
+    "collection": {
+      "at": "2026-10-02T19:53:30.359Z",
+      "code": "TOPOLOGY_REVIEWER_RESPONSE",
+      "reason": "Expected a nonce-bound review response from the designated pane."
+    },
+    "collected_at": "2026-10-02T19:53:42.264Z",
+    "verdict": "approve",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-294-832b347d8508711cf68732bb05e5d21027273d41.json"
+  },
+  "review": {
+    "base_revision": "9e0731167fd5f32882cc72c121539a29153e105b",
+    "admitted_base": "9e0731167fd5f32882cc72c121539a29153e105b",
+    "effective_base": "9e0731167fd5f32882cc72c121539a29153e105b",
+    "patch_sha256": "469941a2285302516a05050d222a056dfaa2e3446924139fd595706bb5c239af",
+    "task": "TM-294",
+    "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "file": "agent-orchestration/tests/contract/topology-tmux.test.mjs",
+        "line": 112,
+        "claim": "The request includes no test-run output, so the claim that test:contract passes with no TM-290 guard hits, and that no delivery-run assertion depended on the lead starting, is unverified. The change itself is a one-line fixture fix that reuses the existing NO_PROVIDER helper."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "request_nonce": "acbfdfbb-f5f6-49e0-b3bf-4205006d609e",
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "832b347d8508711cf68732bb05e5d21027273d41",
+    "created_at": "2026-10-02T19:53:42.235Z"
+  },
+  "merge": {
+    "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+    "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "832b347d8508711cf68732bb05e5d21027273d41",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #157 merged after faro approved 832b347d; CI green; main via #164 (9ce66223)",
+      "policy_auto_merge": true,
+      "at": "2026-10-02T23:43:10.972Z"
+    }
+  }
+}

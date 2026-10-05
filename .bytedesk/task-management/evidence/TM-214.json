@@ -1,0 +1,175 @@
+{
+  "task": "TM-214",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-09-24T17:23:52.102Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-214-agent-orchestration-agents-launch-without-permis",
+      "branch": "tm/TM-214-agent-orchestration-agents-launch-without-permis",
+      "intent": "agent-orchestration agents launch without permission prompts by default: absent auto_approve means true, --allow-auto-approve consent gate removed (flag kept as no-op), reviewer stays --restricted --safe-mode.",
+      "boundaries": [
+        "agent-orchestration/ only",
+        "reviewer argv unchanged",
+        "coordinator_args unchanged",
+        "no push/PR/merge by worker"
+      ],
+      "dependencies": [],
+      "checks": [
+        "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs",
+        "cd agent-orchestration && npm run build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/CHANGELOG.md",
+        "agent-orchestration/README.md",
+        "agent-orchestration/dist/cli.cjs",
+        "agent-orchestration/dist/mcp.cjs",
+        "agent-orchestration/docs/EP-018-DEMO.md",
+        "agent-orchestration/docs/topology.md",
+        "agent-orchestration/providers/claude.json",
+        "agent-orchestration/tests/live/two-projects.sh",
+        "agent-orchestration/tests/unit/topology-launch.test.mjs",
+        "agent-orchestration/tests/unit/topology-reviewer.test.mjs",
+        "agent-orchestration/tests/unit/topology-spec-roundtrip.test.mjs",
+        "agent-orchestration/topology/cli.mjs",
+        "agent-orchestration/topology/lib/agents.mjs",
+        "agent-orchestration/topology/lib/launch.mjs",
+        "agent-orchestration/topology/lib/spec.mjs",
+        "agent-orchestration/workflows/client-rebrand-5-brand.json"
+      ]
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T17:24:41.911Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "6a3cb38083530f771918162cd5cd9045273bbcb2",
+        "artifacts": [
+          "commit 6a3cb38 on tm/TM-214-agent-orchestration-agents-launch-without-permis (16 files under agent-orchestration/)"
+        ],
+        "checks": [
+          "node --test tests/unit/*.test.mjs: exit 0, 701 tests, 697 pass, 0 fail, 4 skipped (Windows-only)",
+          "npm run build:check: exit 0",
+          "claude plugin validate ./agent-orchestration: passed with the expected 'No version specified' warning",
+          "discrimination: reverting spec.mjs default makes 4 new tests fail"
+        ],
+        "evidence": "Worker report /home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-remote-gateway/.bytedesk/agent-orchestration/agents/d60f0608/briefs/TM-214.report.md; lead verified commit file list, clean tree, reviewer.mjs untouched, no AI trailers.",
+        "risks": [
+          "Existing agent.json files carry explicit auto_approve:false and keep prompting until migrated (operator approved migration after merge)",
+          "tests/live/two-projects.sh edited but not run (live tmux)",
+          "ADR 0001 still describes the consent gate as the historical decision"
+        ]
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T17:35:14.569Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "6c93e69fee0e82d78e86784bcbba7d471912b7ff",
+        "artifacts": [
+          "commits 6a3cb38 (round 1) and 6c93e69 (round-2 fixes) on tm/TM-214-agent-orchestration-agents-launch-without-permis"
+        ],
+        "checks": [
+          "node --test tests/unit/*.test.mjs: exit 0, 702 tests, 698 pass, 0 fail, 4 skipped (Windows-only)",
+          "npm run build:check: exit 0",
+          "claude plugin validate ./agent-orchestration: passed, expected 'No version specified' warning only",
+          "discrimination: reverting agents.mjs/reviewer.mjs/cli.mjs fails the 3 new reviewer tests",
+          "tests/live/two-projects.sh: TM-214 assertion passes; 19 other failures also fail at base 7f15ac9 (pre-existing)"
+        ],
+        "evidence": "Round-1 findings file .../agents/d60f0608/briefs/TM-214.review-1.txt; round-2 worker report .../agents/d60f0608/briefs/TM-214.report.md; lead verified commits, clean tree, no AI trailers, reviewer forced false in createAgent.",
+        "risks": [
+          "Pre-TM-214 agent.json files keep explicit auto_approve:false until migrated (operator approved migration after merge)",
+          "assignReviewer adopting an already-running auto-approved pane keeps its live flags until restart (pre-existing)",
+          "19 pre-existing live-script failures need their own task"
+        ]
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "finish",
+      "at": "2026-09-24T17:39:28.150Z",
+      "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+      "report": {
+        "revision": "8965c3a55f4e620b66dbea1b6d426315f2af998f",
+        "artifacts": [
+          "commits 6a3cb38, 6c93e69, 8965c3a on tm/TM-214-agent-orchestration-agents-launch-without-permis"
+        ],
+        "checks": [
+          "node --test tests/unit/*.test.mjs: exit 0, 703 tests, 699 pass, 0 fail, 4 skipped (Windows-only)",
+          "npm run build:check: exit 0",
+          "claude plugin validate: passed, expected no-version warning only",
+          "discrimination: reverting spec.mjs fails the new reviewer-reference test",
+          "tests/live/two-projects.sh (round 2): TM-214 assertion passed; 19 failures identical at base 7f15ac9; recorded in 8965c3a body"
+        ],
+        "evidence": "Round-1 findings file .../agents/d60f0608/briefs/TM-214.review-1.txt; round-2 worker report .../agents/d60f0608/briefs/TM-214.report.md; lead verified commits, clean tree, no AI trailers, reviewer forced false in createAgent.",
+        "risks": [
+          "Pre-TM-214 agent.json files keep explicit auto_approve:false until migrated (operator approved migration after merge)",
+          "assignReviewer adopting an already-running auto-approved pane keeps its live flags until restart (pre-existing)",
+          "19 pre-existing live-script failures need their own task"
+        ]
+      },
+      "state": "ready-for-review"
+    }
+  ],
+  "updated_at": "2026-09-24T17:39:28.150Z",
+  "base_revision": "7f15ac95745d8028bc2b2553367eeb03b393526c",
+  "owner": "1b07de2e-6b73-47c6-ad14-aa29eeea67fd",
+  "workflow_run_id": "tm-TM-214",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-214-agent-orchestration-agents-launch-without-permis",
+  "branch": "tm/TM-214-agent-orchestration-agents-launch-without-permis",
+  "started": true,
+  "state": "ready-for-review",
+  "finish": {
+    "revision": "8965c3a55f4e620b66dbea1b6d426315f2af998f",
+    "artifacts": [
+      "commits 6a3cb38, 6c93e69, 8965c3a on tm/TM-214-agent-orchestration-agents-launch-without-permis"
+    ],
+    "checks": [
+      "node --test tests/unit/*.test.mjs: exit 0, 703 tests, 699 pass, 0 fail, 4 skipped (Windows-only)",
+      "npm run build:check: exit 0",
+      "claude plugin validate: passed, expected no-version warning only",
+      "discrimination: reverting spec.mjs fails the new reviewer-reference test",
+      "tests/live/two-projects.sh (round 2): TM-214 assertion passed; 19 failures identical at base 7f15ac9; recorded in 8965c3a body"
+    ],
+    "evidence": "Round-1 findings file .../agents/d60f0608/briefs/TM-214.review-1.txt; round-2 worker report .../agents/d60f0608/briefs/TM-214.report.md; lead verified commits, clean tree, no AI trailers, reviewer forced false in createAgent.",
+    "risks": [
+      "Pre-TM-214 agent.json files keep explicit auto_approve:false until migrated (operator approved migration after merge)",
+      "assignReviewer adopting an already-running auto-approved pane keeps its live flags until restart (pre-existing)",
+      "19 pre-existing live-script failures need their own task"
+    ]
+  },
+  "collected": false,
+  "review_request": {
+    "base_revision": "7f15ac95745d8028bc2b2553367eeb03b393526c",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-214-8965c3a55f4e620b66dbea1b6d426315f2af998f.patch",
+    "patch_sha256": "d22b9e21f6fe9acfd1757bdbce5a852c2c39b9171066291bd8e82337c357baf7",
+    "nonce": "9168d438-f7ab-4b16-9b94-46328896f3c6",
+    "task": "TM-214",
+    "revision": "8965c3a55f4e620b66dbea1b6d426315f2af998f",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 25595,
+      "sessionId": "$203",
+      "sessionCreated": 1790270151,
+      "paneId": "%289",
+      "panePid": 3392090
+    },
+    "author_agent_ids": [
+      "1b07de2e-6b73-47c6-ad14-aa29eeea67fd"
+    ],
+    "created_at": "2026-09-24T17:39:28.564Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-09-24T17:39:29.107Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-214-8965c3a55f4e620b66dbea1b6d426315f2af998f.json"
+  }
+}

@@ -1,0 +1,484 @@
+{
+  "task": "TM-287",
+  "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+  "events": [
+    {
+      "event": "start",
+      "at": "2026-10-02T12:43:46.601Z",
+      "owner": "dc778cb2",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-287-agent-orchestration-presence-publishes-kind-spaw",
+      "branch": "tm/TM-287-agent-orchestration-presence-publishes-kind-spaw",
+      "intent": "publishPresence emits kind run, never spawn, for a non-legacy session name; every published snapshot in topology-presence tests runs through the v2 validator.",
+      "boundaries": [
+        "only presence.mjs and presence tests",
+        "never edit a hash-locked presence contract or fixture",
+        "PR base fix/ao-local-nats-autostart"
+      ],
+      "dependencies": [],
+      "checks": [
+        "agent-orchestration: unit (env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs)",
+        "agent-orchestration: build:check",
+        "claude plugin validate ./agent-orchestration"
+      ],
+      "files": [
+        "agent-orchestration/tests/unit/topology-presence-session-names.test.mjs",
+        "agent-orchestration/tests/unit/topology-presence.test.mjs",
+        "agent-orchestration/topology/lib/presence.mjs"
+      ]
+    },
+    {
+      "event": "worker-started",
+      "at": "2026-10-02T12:53:51.996Z",
+      "backend": "tmux",
+      "run": "tmux:tm-TM-287",
+      "workflow_run_id": "tm-TM-287"
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T12:53:52.617Z",
+      "worker": {
+        "name": "agent:TM-287-dc778cb2",
+        "run": "tmux:tm-TM-287",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:53:51.968Z",
+        "observed_at": "2026-10-02T12:53:52.611Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-287",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$110",
+          "sessionCreated": 1790945631,
+          "paneId": "%226",
+          "panePid": 539592
+        }
+      },
+      "workflow_run_id": "tm-TM-287"
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-10-02T13:00:51.196Z",
+      "reason": "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-10-02T13:03:59.181Z",
+      "reason": "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-10-02T13:05:03.944Z",
+      "reason": "Task worker result has not been collected through the finish protocol.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T13:37:18.231Z",
+      "worker": {
+        "name": "agent:TM-287-dc778cb2",
+        "run": "tmux:tm-TM-287",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:53:51.968Z",
+        "observed_at": "2026-10-02T12:53:52.611Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-287",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$110",
+          "sessionCreated": 1790945631,
+          "paneId": "%226",
+          "panePid": 539592
+        },
+        "stopped_at": "2026-10-02T13:37:18.231Z"
+      },
+      "proof": "observed-pane-exited-without-finish",
+      "closed": false,
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02, goal item 3, option 2 for both tasks",
+        "reason": "worker exited mid-task with no finish report; stop-worker cannot retire it (TM-247). tmux session and pane gone, pane pid gone. No finish recorded."
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T13:38:38.051Z",
+      "worker": {
+        "name": "agent:TM-287-dc778cb2",
+        "run": "tmux:tm-TM-287",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:53:51.968Z",
+        "observed_at": "2026-10-02T13:38:38.045Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-287",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$113",
+          "sessionCreated": 1790948310,
+          "paneId": "%229",
+          "panePid": 1654309
+        }
+      },
+      "workflow_run_id": "tm-TM-287"
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T13:56:27.175Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "b070c9f8850bc1b268ed7f612041cd3c5c517496",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/153",
+          "agent-orchestration/topology/lib/presence.mjs",
+          "agent-orchestration/tests/unit/topology-presence.test.mjs",
+          "agent-orchestration/CHANGELOG.md"
+        ],
+        "checks": [
+          "topology-presence.test.mjs via npm run test:unit hooks: 19/19 pass",
+          "negative control: HEAD presence.mjs with the kind assertion stripped fails under the v2 validator hook alone (test 17)",
+          "npm run test:unit: 923 pass / 4 fail, all in topology-management.test.mjs, identical with HEAD presence.mjs (pre-existing on base)"
+        ],
+        "risks": [
+          "4 pre-existing topology-management failures on base fix/ao-local-nats-autostart",
+          "bare node --test without the suite --import hooks selects NATS and hangs; use npm run test:unit"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-287-evidence.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T14:11:46.583Z",
+      "worker": {
+        "name": "agent:TM-287-dc778cb2",
+        "run": "tmux:tm-TM-287",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:53:51.968Z",
+        "observed_at": "2026-10-02T13:38:38.045Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-287",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$113",
+          "sessionCreated": 1790948310,
+          "paneId": "%229",
+          "panePid": 1654309
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "rebuild-round-reopened",
+      "at": "2026-10-02T14:37:37.746Z",
+      "previous_state": "ready-for-review",
+      "previous_finish_revision": "b070c9f8850bc1b268ed7f612041cd3c5c517496",
+      "manual_repair": {
+        "by": "Bastion lead dc778cb2",
+        "authorized_by": "marketplace orchestration session acting for the operator (Ryan Helms), 2026-10-02: TM-247 criterion-5 repair for rebuild rounds of TM-287 (#153) and TM-276 (#154)",
+        "reason": "rebuild on the updated base after an approved review; no public verb reopens a ready-for-review admission (TM-247 AC5)"
+      }
+    },
+    {
+      "event": "worker-bound",
+      "at": "2026-10-02T14:38:59.565Z",
+      "worker": {
+        "name": "agent:TM-287-dc778cb2",
+        "run": "tmux:tm-TM-287",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:53:51.968Z",
+        "observed_at": "2026-10-02T14:38:59.560Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-287",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$114",
+          "sessionCreated": 1790951935,
+          "paneId": "%230",
+          "panePid": 3237588
+        }
+      },
+      "workflow_run_id": "tm-TM-287"
+    },
+    {
+      "event": "worker-stop-refused",
+      "at": "2026-10-02T14:55:44.308Z",
+      "reason": "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.",
+      "recovery": "Leave the worker running. Wait for it to finish and send its finish report, or ask it to exit its harness, then retry stop-worker."
+    },
+    {
+      "event": "finish",
+      "at": "2026-10-02T14:56:50.873Z",
+      "owner": "dc778cb2",
+      "report": {
+        "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+        "artifacts": [
+          "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/153 (round 3: merge of origin/fix/ao-local-nats-autostart 4c87f1ed + rebuilt dist)",
+          "agent-orchestration/dist/cli.cjs",
+          "agent-orchestration/dist/mcp.cjs",
+          "agent-orchestration/CHANGELOG.md (conflict resolved keeping both entries)"
+        ],
+        "checks": [
+          "npm run build:check: pass (fixes Tracked bundle drift)",
+          "npm run test:unit: 933/941; the 4 failures are the known topology-management landing tests, pre-existing on base",
+          "npm run test:contract: 19/20; topology-tmux.test.mjs subtests all pass but the TM-290 provider guard fails the file on 5 real claude lead spawns from enrolled temp repos; identical on base 4c87f1ed without TM-287"
+        ],
+        "risks": [
+          "base regression outside TM-287 scope: topology-tmux contract test spawns real provider leads (guard from TM-290 now catches it); follow-up needed",
+          "no code change since the approved b070c9f8 beyond the merge and rebuilt bundles"
+        ],
+        "evidence": ".bytedesk/task-management/evidence/TM-287-round3-checks.md"
+      },
+      "state": "ready-for-review"
+    },
+    {
+      "event": "worker-stopped",
+      "at": "2026-10-02T14:58:51.015Z",
+      "worker": {
+        "name": "agent:TM-287-dc778cb2",
+        "run": "tmux:tm-TM-287",
+        "backend": "tmux",
+        "owner": "dc778cb2",
+        "registered_at": "2026-10-02T12:53:51.968Z",
+        "observed_at": "2026-10-02T14:38:59.560Z",
+        "kind": "tmux",
+        "session_name": "tm-TM-287",
+        "binding": {
+          "serverKey": "/tmp/tmux-1000/default",
+          "serverPid": 595980,
+          "sessionId": "$114",
+          "sessionCreated": 1790951935,
+          "paneId": "%230",
+          "panePid": 3237588
+        }
+      },
+      "proof": "observed-pane-exited",
+      "closed": false
+    },
+    {
+      "event": "recorded-landing",
+      "at": "2026-10-02T23:43:03.298Z",
+      "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+      "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+      "checks": [],
+      "checks_skipped": true,
+      "target_branch": "main",
+      "authorization": {
+        "decision": "integrate",
+        "actor": "fd2b831f",
+        "authorized": true,
+        "explicit": false,
+        "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+        "channel": "repository-lead",
+        "adr": "ADR-0027",
+        "reason": "PR #153 merged after faro approved b561eaec; CI green; main via #164 (9ce66223)",
+        "policy_auto_merge": true,
+        "at": "2026-10-02T23:43:02.961Z"
+      }
+    },
+    {
+      "event": "cleanup",
+      "at": "2026-10-02T23:43:46.665Z",
+      "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-287-agent-orchestration-presence-publishes-kind-spaw",
+      "branch": "tm/TM-287-agent-orchestration-presence-publishes-kind-spaw",
+      "status": "complete"
+    }
+  ],
+  "updated_at": "2026-10-02T23:43:46.665Z",
+  "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+  "owner": "dc778cb2",
+  "workflow_run_id": "tm-TM-287",
+  "lead_id": "fd2b831f",
+  "worktree": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.bytedesk/worktrees/TM-287-agent-orchestration-presence-publishes-kind-spaw",
+  "branch": "tm/TM-287-agent-orchestration-presence-publishes-kind-spaw",
+  "started": true,
+  "state": "cleaned",
+  "previous_workers": [
+    {
+      "name": "agent:TM-287-dc778cb2",
+      "run": "tmux:tm-TM-287",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T12:53:51.968Z",
+      "observed_at": "2026-10-02T12:53:52.611Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-287",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$110",
+        "sessionCreated": 1790945631,
+        "paneId": "%226",
+        "panePid": 539592
+      },
+      "stopped_at": "2026-10-02T13:37:18.231Z"
+    },
+    {
+      "name": "agent:TM-287-dc778cb2",
+      "run": "tmux:tm-TM-287",
+      "backend": "tmux",
+      "owner": "dc778cb2",
+      "registered_at": "2026-10-02T12:53:51.968Z",
+      "observed_at": "2026-10-02T13:38:38.045Z",
+      "kind": "tmux",
+      "session_name": "tm-TM-287",
+      "binding": {
+        "serverKey": "/tmp/tmux-1000/default",
+        "serverPid": 595980,
+        "sessionId": "$113",
+        "sessionCreated": 1790948310,
+        "paneId": "%229",
+        "panePid": 1654309
+      },
+      "stopped_at": "2026-10-02T14:11:46.583Z"
+    }
+  ],
+  "finish": {
+    "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+    "artifacts": [
+      "PR https://github.com/ByteDeskAI/bytedesk-marketplace/pull/153 (round 3: merge of origin/fix/ao-local-nats-autostart 4c87f1ed + rebuilt dist)",
+      "agent-orchestration/dist/cli.cjs",
+      "agent-orchestration/dist/mcp.cjs",
+      "agent-orchestration/CHANGELOG.md (conflict resolved keeping both entries)"
+    ],
+    "checks": [
+      "npm run build:check: pass (fixes Tracked bundle drift)",
+      "npm run test:unit: 933/941; the 4 failures are the known topology-management landing tests, pre-existing on base",
+      "npm run test:contract: 19/20; topology-tmux.test.mjs subtests all pass but the TM-290 provider guard fails the file on 5 real claude lead spawns from enrolled temp repos; identical on base 4c87f1ed without TM-287"
+    ],
+    "risks": [
+      "base regression outside TM-287 scope: topology-tmux contract test spawns real provider leads (guard from TM-290 now catches it); follow-up needed",
+      "no code change since the approved b070c9f8 beyond the merge and rebuilt bundles"
+    ],
+    "evidence": ".bytedesk/task-management/evidence/TM-287-round3-checks.md"
+  },
+  "collected": true,
+  "review_request": {
+    "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "admitted_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "effective_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "range_note": "The range 35488ce2a3b109ddb7f4e3b170b348e60ddc5986..revision starts at the task admission commit.",
+    "patch_path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-287-b561eaec815660314ed2330bcdbdcdfb4b05ca10.patch",
+    "patch_sha256": "7df3cf7f8cb8966f679c5061d618ecbb2d6128feba3d95553c249614a5d418ce",
+    "nonce": "2fb1c54c-4deb-42d5-9844-b7e609d8a2da",
+    "task": "TM-287",
+    "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "created_at": "2026-10-02T14:56:53.332Z",
+    "delivery": {
+      "rang": true,
+      "at": "2026-10-02T14:56:53.866Z"
+    },
+    "state": "published",
+    "path": "/home/ryan/.local/state/bytedesk/agent-orchestration/reviewers/inboxes/8890762dbb279261/requests/TM-287-b561eaec815660314ed2330bcdbdcdfb4b05ca10.json"
+  },
+  "worker": {
+    "name": "agent:TM-287-dc778cb2",
+    "run": "tmux:tm-TM-287",
+    "backend": "tmux",
+    "owner": "dc778cb2",
+    "registered_at": "2026-10-02T12:53:51.968Z",
+    "observed_at": "2026-10-02T14:38:59.560Z",
+    "kind": "tmux",
+    "session_name": "tm-TM-287",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$114",
+      "sessionCreated": 1790951935,
+      "paneId": "%230",
+      "panePid": 3237588
+    },
+    "stopped_at": "2026-10-02T14:58:51.015Z"
+  },
+  "review": {
+    "base_revision": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "admitted_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "effective_base": "35488ce2a3b109ddb7f4e3b170b348e60ddc5986",
+    "patch_sha256": "7df3cf7f8cb8966f679c5061d618ecbb2d6128feba3d95553c249614a5d418ce",
+    "task": "TM-287",
+    "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "agent-orchestration/CHANGELOG.md",
+        "line": 33,
+        "claim": "The TM-287 range also carries all of TM-195 (b64 reviewer verdicts and the TM-220 failed-request refusal) and all of TM-290 (the provider-CLI test guard). Landing this branch lands those tasks under TM-287's review record, whether or not their own merge gates have passed.",
+        "evidence": "The patch changes reviewer.mjs, cli.mjs review publish, prompts/reviewer.md, provider-guard.mjs, temp-repo.mjs, tmux-preflight.mjs and six other test files, plus CHANGELOG entries for TM-290 and TM-195/TM-220. None of these concern presence, and the range starts at the TM-287 admission commit. The hunks match the TM-195 and TM-290 revisions approved separately, so their earlier minor findings still stand.",
+        "fix": "Land TM-195 and TM-290 through their own gates first, then merge main into this branch so the range drops their code. Or have the lead confirm that one combined landing is intended."
+      },
+      {
+        "severity": "nit",
+        "file": "agent-orchestration/tests/unit/topology-presence.test.mjs",
+        "line": 66,
+        "claim": "No test covers a legacy-named session whose @ao-* metadata names the matching agent, the one case where kind spawn is kept while metadata is present.",
+        "evidence": "The TM-274 test asserts run for a new-style name and rejection for a legacy name with mismatched metadata. The check at line 158 covers a legacy spawn, but nothing pairs a legacy name with matching metadata.",
+        "fix": "Add an assertion that sessionName work0001-abcdef1 with identity {agent:work0001} publishes kind spawn and spawn abcdef1."
+      },
+      {
+        "severity": "note",
+        "file": "agent-orchestration/topology/lib/presence.mjs",
+        "line": 268,
+        "claim": "The request includes no test-run output. The TM-287 presence change is the same as the revision approved earlier, and this approval rests on reading the diff."
+      }
+    ],
+    "reviewer_id": "c164bf8b",
+    "binding": {
+      "serverKey": "/tmp/tmux-1000/default",
+      "serverPid": 595980,
+      "sessionId": "$106",
+      "sessionCreated": 1790942090,
+      "paneId": "%222",
+      "panePid": 3479571
+    },
+    "request_nonce": "2fb1c54c-4deb-42d5-9844-b7e609d8a2da",
+    "author_agent_ids": [
+      "dc778cb2"
+    ],
+    "repo_id": "/home/ryan/Documents/GitHub/ByteDeskAI/bytedesk-marketplace/.git",
+    "verified_commit": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+    "created_at": "2026-10-02T14:57:35.668Z"
+  },
+  "merge": {
+    "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+    "landed": "9ce66223f748e6d92612c6d4334e69167c8fe3f3",
+    "checks": [],
+    "checks_skipped": true,
+    "target_branch": "main",
+    "authorization": {
+      "decision": "integrate",
+      "actor": "fd2b831f",
+      "authorized": true,
+      "explicit": false,
+      "revision": "b561eaec815660314ed2330bcdbdcdfb4b05ca10",
+      "channel": "repository-lead",
+      "adr": "ADR-0027",
+      "reason": "PR #153 merged after faro approved b561eaec; CI green; main via #164 (9ce66223)",
+      "policy_auto_merge": true,
+      "at": "2026-10-02T23:43:02.961Z"
+    }
+  }
+}

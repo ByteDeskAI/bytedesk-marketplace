@@ -1,0 +1,61 @@
+TM-324 / ADR-0035 — checks run 2026-10-03 in worktree .bytedesk/worktrees/TM-324-agent-orchestration-ao-nats-url-fails-hard
+base: origin/fix/ao-local-nats-autostart = 1926ebb0 (1926ebb0); node_modules from 'npm ci' in the worktree (real, not symlinked)
+isolation: TMUX='' TMUX_TMPDIR=$(mktemp -d); preloads: tests/helpers/tmux-preflight.mjs + tests/unit/register-file-transport.mjs; --test-concurrency=1
+
+1. node --import <preloads> --test --test-concurrency=1 tests/unit/nats-outage.test.mjs   -> exit 0
+   ok 1 - redactUrl drops credentials and keeps host and port
+   ok 2 - redactUrl fails closed on server lists and malformed URLs
+   ok 3 - a dead AO_NATS_URL fails every open and starts no local server; the lead gets one outage mail when it answers again, then one recovery mail
+   ok 4 - an open from an env without AO_NATS_URL does not close the dead AO_NATS_URL outage: one outage mail, no recovery mail
+   ok 5 - openNatsTransport records the selection under the caller's home, not the process home
+   ok 6 - a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+   ok 7 - an outage nothing retries any more is retired after the bound: one closing mail, doctor clears, no re-dials
+   ok 8 - a non-supervisor holding the orch.sock fallback keeps its outage open; closing it lets the outage retire
+   # tests 8
+   # pass 8
+   # fail 0
+   # skipped 0
+
+2. same, tests/unit/topology-supervision-transport.test.mjs   -> exit 0
+   ok 1 - only NATS outages are classified as transport failures
+   ok 2 - a cached connection that reports closed is replaced, not reused
+   ok 3 - a JetStream TIMEOUT and a closed connection each degrade one tick, and the next tick dials a fresh connection
+   ok 4 - a programming error in the transport path is still fatal
+   ok 5 - a one-shot supervise still reports a NATS outage as its answer
+   ok 6 - a supervisor keeps its pid across a real nats-server kill -9 and restart, and publishes again
+   # tests 6
+   # pass 6
+   # fail 0
+   # skipped 0
+
+3. regression sweep, same preloads, files:
+   
+   tests/unit/darwin-runtime.test.mjs
+   tests/unit/install-host.test.mjs
+   tests/unit/mailbox-receipts-nats.test.mjs
+   tests/unit/mcp-contract.test.mjs
+   tests/unit/nats-port.test.mjs
+   tests/unit/orch-transport.test.mjs
+   tests/unit/platform-runtime.test.mjs
+   tests/unit/services.test.mjs
+   tests/unit/setup-self-heal.test.mjs
+   tests/unit/topology-first-run.test.mjs
+   tests/unit/topology-persona-registry.test.mjs
+   tests/unit/topology-reviewer-findings.test.mjs
+   tests/unit/topology-supervision-consistency.test.mjs
+   tests/unit/windows-native-helper.test.mjs
+   # tests 134
+   # pass 130
+   # fail 0
+   # skipped 4
+   regress exit 0
+   skipped:
+     ok 131 - native Windows helper creates Job Objects and AppContainers # SKIP
+     ok 132 - native Windows AppContainer launches a bounded console process # SKIP
+     ok 133 - native Windows AppContainer launches a staged Node runtime # SKIP
+     ok 134 - native Windows AppContainer launches the installed Codex executable # SKIP
+
+4. npm run build -> exit 0; npm run build:check -> exit 0 (dist/cli.cjs, dist/mcp.cjs each carry 'blocking' x3)
+5. claude plugin validate ./agent-orchestration -> passed; only the expected 'No version specified' warning (versionless by policy)
+
+not run: the full unit suite (known pre-existing landing-test failures and a runtime-diagnostics hang on base, per TM-276 evidence); test:contract; a live 'ao-topology supervise' against a dead AO_NATS_URL.

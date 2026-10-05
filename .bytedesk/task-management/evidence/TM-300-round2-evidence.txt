@@ -1,0 +1,7 @@
+TM-300 round 2 — commit 1934b60f16de1ea6130b0548114304b457b865bd (base origin/fix/ao-local-nats-autostart d3a52d3e, unchanged)
+New tests fail on dd2aada7 source (control: source reverted, tests kept): 4 failing — with-revision stored/effective, malformed JSON refused, set-file drops defaults, invalid ao layer not applied.
+Full unit suite (worker TM_* env scrubbed; with it, mcp-claims/actor/session tests fail identically on the reverted source):
+# tests 1582
+# pass 1582
+# fail 0
+claude plugin validate ./task-management: passed with warnings (unquoted CLAUDE_PLUGIN_ROOT hook advisories, pre-existing)

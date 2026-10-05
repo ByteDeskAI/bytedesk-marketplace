@@ -1,0 +1,40 @@
+{
+  "sourceCommit": "60547b2983a6355fb97655d3f7ac0bcaa3e8c595",
+  "files": [
+    {
+      "file": "agent-orchestration/topology/lib/goal-loop.mjs",
+      "sha256": "6dd7ec9ab2f6ae9dd627aa76dc562468e472badc44eb0f6e1549b6621c2bcee0",
+      "installedMatches": true
+    },
+    {
+      "file": "agent-orchestration/topology/lib/mailbox-receipts.mjs",
+      "sha256": "8616de11bc0715a291f80ae7f55989629b032d5195e244522221ed75e23d6b21",
+      "installedMatches": true
+    },
+    {
+      "file": "agent-orchestration/dist/nats-client.cjs",
+      "sha256": "eac8a4e3feef89d0c6aa7ba2e108b125d73de9961eddfae9866f070b5a372d1d",
+      "installedMatches": true
+    },
+    {
+      "file": "agent-orchestration/bin/ao-topology",
+      "sha256": "080cf392df4f821238cb302da0c6859f9a45b5cf3078ed28840bd3b8b2570e36",
+      "installedMatches": true
+    },
+    {
+      "file": "task-management/lib/goal-feedback.mjs",
+      "sha256": "0900a11eae854b2383f71a31eabb5669ede5cf0bf225fb3ff0bdfb1e6bfb2d16",
+      "installedMatches": true
+    },
+    {
+      "file": "task-management/lib/goal-guard.mjs",
+      "sha256": "e62b40da1151260ed55730b2af7887375009fdc19bb2a465eb474ebb10d96fc2",
+      "installedMatches": true
+    },
+    {
+      "file": "task-management/bin/tm",
+      "sha256": "fe0c69f1c50818cdf062673c389bced74c7b56f8abe3ba01ace3ea86d569328e",
+      "installedMatches": true
+    }
+  ]
+}
