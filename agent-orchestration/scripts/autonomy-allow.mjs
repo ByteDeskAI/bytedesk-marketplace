@@ -78,11 +78,19 @@ function trustedLaunchers(pluginRoot) {
   }
   return map;
 }
-/** A tmux binary only root can have written: the file and its directory are owned by root, and neither is
- * group- or world-writable. A user-owned tmux (a look-alike planted on PATH, or Homebrew's) falls through. */
-export function rootOwned(real) {
+/** A tmux only root can have written: its realpath is one of the system locations below, and the file and
+ * EVERY directory up to `/` are owned by root and not group- or world-writable. Ownership alone is not
+ * enough: a FUSE mount (fusermount3 is setuid) can present root-owned files anywhere the user can mount.
+ * A user-owned tmux (a look-alike planted on PATH, or Homebrew's) falls through. */
+export const TMUX_PATHS = ['/usr/bin/tmux', '/bin/tmux', '/usr/local/bin/tmux'];
+export function trustedTmux(real, stat = statSync) {
+  if (!TMUX_PATHS.includes(real)) return false;
   try {
-    return [real, dirname(real)].every((p) => { const s = statSync(p); return s.uid === 0 && (s.mode & 0o022) === 0; });
+    for (let p = real; ; p = dirname(p)) {
+      const s = stat(p);
+      if (s.uid !== 0 || (s.mode & 0o022) !== 0) return false;
+      if (p === '/') return true;
+    }
   } catch { return false; }
 }
 
@@ -117,7 +125,8 @@ export const AO_ALLOW = {
   repos: ['list'],
   manage: ['status', 'assignment', 'eligible'],
   mailbox: { inbox: (flags, env) => ownAgent(flags, env), outbox: true, receipts: true, wait: true, send: true },
-  prompt: ['ack'],
+  // The CLI takes the agent from `prompt ack <agent>`, else --agent.
+  prompt: { ack: (flags, env, positional) => ownAgent({ agent: positional[2] ?? flags.agent }, env) },
   lead: { status: (flags) => flags.cached === true },
 };
 /** No --agent (the CLI then uses the caller's own), or --agent naming the caller's identity. */
@@ -134,7 +143,7 @@ function aoTopology(args, env) {
   const deny = Object.hasOwn(AO_DENY, verb) ? AO_DENY[verb] : undefined;
   if (deny === null || deny?.includes(sub)) return null;
   const rule = Object.hasOwn(AO_ALLOW, verb) ? AO_ALLOW[verb] : undefined;
-  const check = (r) => r === true || (typeof r === 'function' && r(flags, env) === true);
+  const check = (r) => r === true || (typeof r === 'function' && r(flags, env, positional) === true);
   let ok;
   if (Array.isArray(rule)) ok = rule.includes(sub);
   else if (rule && typeof rule === 'object') ok = Object.hasOwn(rule, sub) && check(rule[sub]);
@@ -174,15 +183,7 @@ function tmuxReadOnly(words) {
   return true;
 }
 
-/** The reason to approve `command`, or null to leave it to the normal permission flow. */
-export function autonomyDecision(command, { pluginRoot = PLUGIN_ROOT, env = process.env, tmuxTrusted = rootOwned } = {}) {
-  const head = (heredocHead(command) ?? '').trim();
-  if (!head || SHELL_SYNTAX.test(head)) return null;
-  const words = shellWords(head);
-  if (!words?.length) return null;
-  const [word, ...args] = words;
-  const real = resolveProgram(word, env);
-  if (!real) return null;
+function judge(word, args, words, real, { pluginRoot, env, tmuxTrusted }) {
   const prog = trustedLaunchers(pluginRoot).get(real);
   if (prog === 'ao-topology') return aoTopology(args, env);
   if (prog === 'agent-orchestration' && Object.hasOwn(AO_CLI_VERBS, args[0])) {
@@ -192,15 +193,44 @@ export function autonomyDecision(command, { pluginRoot = PLUGIN_ROOT, env = proc
     const verb = tmVerb(args);
     return verb ? `agent-orchestration: tm ${verb} (read-only task-management board)` : null;
   }
-  if (basename(word) === 'tmux' && basename(real) === 'tmux' && tmuxTrusted(real) && tmuxReadOnly(words)) return 'agent-orchestration: read-only tmux';
+  if (basename(word) === 'tmux' && tmuxTrusted(real) && tmuxReadOnly(words)) return 'agent-orchestration: read-only tmux';
   return null;
+}
+
+// The first word as written in the command, so it can be swapped for the path that was judged.
+const FIRST_WORD = /^(\s*)('[^']*'|"[^"]*"|[^\s'"]+)/;
+const SAFE_PATH = /^[A-Za-z0-9_@%+=:,./-]+$/;
+
+/**
+ * `{ reason, command }` to approve, or null to leave it to the normal permission flow. `command` is the
+ * input with its program pinned to the realpath that was judged (TOCTOU): the shell would otherwise resolve
+ * the name again at run time, through a PATH a profile can prepend to, a directory that can change in
+ * between, or an alias or function of the same name. A bare name also gets `command ` in front, which
+ * skips aliases and functions. Everything after the first word is unchanged.
+ */
+export function autonomyDecision(command, { pluginRoot = PLUGIN_ROOT, env = process.env, tmuxTrusted = trustedTmux } = {}) {
+  const head = (heredocHead(command) ?? '').trim();
+  if (!head || SHELL_SYNTAX.test(head)) return null;
+  const words = shellWords(head);
+  if (!words?.length) return null;
+  const [word, ...args] = words;
+  const real = resolveProgram(word, env);
+  if (!real) return null;
+  const reason = judge(word, args, words, real, { pluginRoot, env, tmuxTrusted });
+  if (!reason) return null;
+  const pinned = SAFE_PATH.test(real) ? real : real.includes("'") ? null : `'${real}'`;
+  if (!pinned) return null;
+  const rewritten = command.replace(FIRST_WORD, (_, space, first) => `${space}${first.includes('/') ? '' : 'command '}${pinned}`);
+  return { reason, command: rewritten };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const input = JSON.parse(readFileSync(0, 'utf8'));
-    const reason = input?.tool_name === 'Bash' || input?.tool_name === undefined ? autonomyDecision(String(input?.tool_input?.command ?? '')) : null;
-    if (reason) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason } }));
+    const decision = input?.tool_name === 'Bash' || input?.tool_name === undefined ? autonomyDecision(String(input?.tool_input?.command ?? '')) : null;
+    // updatedInput replaces every argument (docs: PreToolUse decision control), so keep the others.
+    if (decision) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow',
+      permissionDecisionReason: decision.reason, updatedInput: { ...input.tool_input, command: decision.command } } }));
   } catch { /* fall through to the normal permission flow */ }
   process.exit(0);
 }

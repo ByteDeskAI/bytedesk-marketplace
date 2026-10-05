@@ -454,7 +454,7 @@ ADR-0001 class (`fleet/docs/adr/0001-hierarchical-authorization.md`).
 | `ao-topology repos list`, `manage status\|assignment\|eligible` | Local-blast (read) | Reads the registry and the management record; read-only `git` |
 | `ao-topology mailbox outbox\|receipts\|wait` | Local-blast (read) | Reads standing-mail records |
 | `ao-topology lead status --cached` | Local-blast (read) | A pure read. Without `--cached` it rings the lead's pane, so it falls through |
-| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply. `ack`, `reply` and `mailbox inbox` are approved only with no `--agent`, or with `--agent` equal to the caller's `AO_AGENT_ID` or `AO_SESSION_AGENT_ID` |
+| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply. `ack`, `reply`, `mailbox inbox` and `prompt ack` are approved only with no agent named, or with the named agent (`--agent`, or the positional of `prompt ack`) equal to the caller's `AO_AGENT_ID` or `AO_SESSION_AGENT_ID` |
 | `ao-topology mailbox send` | Local-blast (report) | Writes one envelope as this session's own identity (TM-356). Delivery and the pointer-only arrival ring (TM-351) belong to admission and the supervisor, not to this command |
 | `agent-orchestration doctor\|status`, `agent-orchestration services status\|probe\|wait` | Local-blast (read) | Health and run status only |
 | `tm board\|show\|find\|next\|why\|graph\|log\|events\|standup\|stale\|where\|doctor`, `tm pool status` | Local-blast (read) | Read the board. `board` rewrites only `index.json`, a disposable cache. `doctor` falls through with `--fix` (repairs) or `--all` (runs another CLI). `caps` is not approved: it runs `<cli> -V` for every agent CLI on PATH |
@@ -470,8 +470,10 @@ approved only when that realpath is one of these launchers:
 
 An absolute path is judged the same way. A relative path, or a `PATH` with an empty or relative
 entry before the match, falls through, because the shell would search the current directory.
-`tmux` is approved only when its realpath and that file's directory are owned by root and are not
-group- or world-writable. A user-owned `tmux`, such as Homebrew's, falls through.
+`tmux` is approved only when its realpath is `/usr/bin/tmux`, `/bin/tmux` or `/usr/local/bin/tmux`,
+and the file and every directory up to `/` are owned by root and are not group- or world-writable.
+Ownership alone is not enough, because a FUSE mount can present root-owned files anywhere the user
+can mount one. A user-owned `tmux`, such as Homebrew's, falls through.
 
 As a result, a `tm` at any other path falls through, including `.bytedesk/task-management/bin/tm`
 in a worktree, because a worker can write any script there. So does a `tm` or `ao-topology` on
@@ -479,9 +481,14 @@ in a worktree, because a worker can write any script there. So does a `tm` or `a
 cache or a source checkout. Each of those commands then costs one prompt. A path that only starts
 with the same prefix as the launcher does not match.
 
-The hook sees Claude Code's own `PATH`. If your shell profile prepends a directory for the Bash
-tool, the program that runs can differ from the one judged here. If that matters, add a `deny`
-rule.
+**The approved program is the one that runs.** The shell would otherwise resolve the name again
+when the command runs. A shell profile could prepend to `PATH`, a writable `PATH` directory could
+change in between, or an alias or function could use the same name. So when the hook approves a
+command, it also returns `updatedInput` (see [PreToolUse decision control](https://code.claude.com/docs/en/hooks)).
+That rewrites the command's first word to the absolute realpath it judged, and keeps the rest of the
+command and the other tool arguments unchanged. A command that began with a bare name also gets
+`command ` in front, which skips aliases and functions. For example, `tm board` runs as
+`command /…/task-management/bin/tm board`.
 
 **What stays gated.** The hook never approves these commands. They go through the normal
 permission flow (a prompt, or the auto-mode classifier). An explicit deny list in the hook wins

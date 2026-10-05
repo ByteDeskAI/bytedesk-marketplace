@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { AO_ALLOW, autonomyDecision, rootOwned } from '../../scripts/autonomy-allow.mjs';
+import { AO_ALLOW, autonomyDecision, trustedTmux } from '../../scripts/autonomy-allow.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'scripts', 'autonomy-allow.mjs');
@@ -30,7 +30,7 @@ const ALLOWED = [
   // report
   'ao-topology ack --run /r --agent w1 --message 003-brief',
   'ao-topology reply --run /r --agent w1 --message 003-brief --file /abs/reply.md',
-  'ao-topology prompt ack lead --revision 3 --nonce abc',
+  'ao-topology prompt ack w1 --revision 3 --nonce abc',
   'ao-topology mailbox inbox',
   'ao-topology mailbox --to lead send --subject "status" --body "done"',
   // agent-orchestration CLI
@@ -248,12 +248,52 @@ test('TM-432 review: a look-alike earlier on PATH is never approved, for any pro
   assert.equal(decide('bin/ao-topology status --run /r'), null, 'a relative path is cwd-dependent');
 });
 
-test('TM-432 review: tmux is approved only when its realpath and directory are root-owned', () => {
-  // The stand-in tmux is owned by the user running the test, so the real rule refuses it.
-  assert.equal(autonomyDecision('tmux list-sessions', { env: TEST_ENV }), null, 'a user-owned tmux falls through');
-  assert.equal(rootOwned(join(FAKE_TMUX_DIR, 'tmux')), process.getuid?.() === 0);
-  const system = ['/usr/bin/tmux', '/bin/tmux'].find((p) => { try { return rootOwned(realpathSync(p)); } catch { return false; } });
-  if (system) assert.ok(autonomyDecision('tmux list-sessions', { env: { PATH: dirname(system) } }), `root-owned ${system} is approved`);
+test('TM-432 review: tmux is approved only at a pinned system path with a root-owned chain up to /', () => {
+  // The stand-in tmux is outside the pinned paths and owned by the test user, so the real rule refuses it.
+  assert.equal(autonomyDecision('tmux list-sessions', { env: TEST_ENV }), null, 'a planted tmux falls through');
+  assert.equal(trustedTmux(join(FAKE_TMUX_DIR, 'tmux')), false);
+  // Pinned paths only, even for a root-owned file: a FUSE mount can present root-owned files anywhere.
+  const rootStat = () => ({ uid: 0, mode: 0o40755 });
+  assert.equal(trustedTmux('/opt/fuse/tmux', rootStat), false, 'root-owned but not a pinned path');
+  assert.equal(trustedTmux('/usr/sbin/tmux', rootStat), false);
+  for (const pinned of ['/usr/bin/tmux', '/bin/tmux', '/usr/local/bin/tmux']) assert.equal(trustedTmux(pinned, rootStat), true, pinned);
+  // Every ancestor is checked, not just the file and its directory.
+  const walked = [];
+  const statWith = (bad) => (p) => { walked.push(p); return p === bad.path ? { uid: 0, mode: 0o40755, ...bad } : rootStat(); };
+  assert.equal(trustedTmux('/usr/local/bin/tmux', statWith({ path: '/usr', uid: 1000 })), false, 'a user-owned /usr');
+  assert.equal(trustedTmux('/usr/local/bin/tmux', statWith({ path: '/usr', mode: 0o40777 })), false, 'a world-writable /usr');
+  assert.equal(trustedTmux('/usr/local/bin/tmux', statWith({ path: '/', mode: 0o40775 })), false, 'a group-writable /');
+  walked.length = 0;
+  trustedTmux('/usr/local/bin/tmux', statWith({ path: 'none' }));
+  assert.deepEqual(walked, ['/usr/local/bin/tmux', '/usr/local/bin', '/usr/local', '/usr', '/'], 'the walk reaches /');
+  const system = ['/usr/bin/tmux', '/bin/tmux'].find((p) => { try { return trustedTmux(realpathSync(p)); } catch { return false; } });
+  if (system) assert.ok(autonomyDecision('tmux list-sessions', { env: { PATH: dirname(system) } }), `system ${system} is approved`);
+});
+
+test('TM-432 review: an approval pins the program to the realpath it judged (no TOCTOU)', () => {
+  const ao = realpathSync(join(ROOT, 'bin', 'ao-topology'));
+  const tm = realpathSync(join(ROOT, '..', 'task-management', 'bin', 'tm'));
+  const tmux = realpathSync(join(FAKE_TMUX_DIR, 'tmux'));
+  for (const [input, expected] of [
+    ['ao-topology status --run /r', `command ${ao} status --run /r`],
+    ['  tm --json board', `  command ${tm} --json board`],
+    ['"tm" show TM-1', `command ${tm} show TM-1`],
+    [`${ROOT}/bin/ao-topology status --run /r`, `${ao} status --run /r`],
+    ['tmux capture-pane -p -t %3', `command ${tmux} capture-pane -p -t %3`],
+    ["ao-topology mailbox send --to lead <<'EOF'\nbody ao-topology\nEOF", `command ${ao} mailbox send --to lead <<'EOF'\nbody ao-topology\nEOF`],
+  ]) assert.equal(decide(input)?.command, expected, input);
+});
+
+test('TM-432 review: prompt ack approves only the caller\'s own agent, positional or --agent', () => {
+  const env = (extra) => ({ PATH: TEST_ENV.PATH, ...extra });
+  for (const [ids, command, expected] of [
+    [{ AO_AGENT_ID: 'w1' }, 'ao-topology prompt ack w1 --nonce n', true],
+    [{ AO_SESSION_AGENT_ID: 'w1' }, 'ao-topology prompt ack --agent w1 --nonce n', true],
+    [{ AO_AGENT_ID: 'w1' }, 'ao-topology prompt ack lead --nonce n', false],
+    [{ AO_AGENT_ID: 'w1' }, 'ao-topology prompt --agent lead ack --nonce n', false],
+    [{ AO_AGENT_ID: 'w1' }, 'ao-topology prompt ack lead --agent w1', false], // the CLI takes the positional
+    [{}, 'ao-topology prompt ack w1', false],
+  ]) assert.equal(Boolean(decide(command, { env: env(ids) })), expected, `${JSON.stringify(ids)}: ${command}`);
 });
 
 test('TM-432 review: identity-bound verbs approve only the caller\'s own --agent', () => {
@@ -271,11 +311,14 @@ test('TM-432 review: identity-bound verbs approve only the caller\'s own --agent
 
 test('TM-369: the hook prints an allow decision, or nothing, and never blocks', () => {
   const run = (input) => spawnSync(process.execPath, [SCRIPT], { input, encoding: 'utf8', env: { ...process.env, PATH: TEST_ENV.PATH } });
-  const allowed = run(JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ao-topology status --run /r' } }));
+  const allowed = run(JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ao-topology status --run /r', timeout: 60000, description: 'run status' } }));
   assert.equal(allowed.status, 0);
   const decision = JSON.parse(allowed.stdout).hookSpecificOutput;
   assert.equal(decision.hookEventName, 'PreToolUse');
   assert.equal(decision.permissionDecision, 'allow');
+  // The approved command is the one that runs: its program pinned to the absolute realpath that was judged,
+  // and `command ` in front because the input began with a bare name. Other arguments are kept.
+  assert.deepEqual(decision.updatedInput, { command: `command ${realpathSync(join(ROOT, 'bin', 'ao-topology'))} status --run /r`, timeout: 60000, description: 'run status' });
   for (const input of [JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ao-topology manage --task TM-1 land --authorized' } }), 'not json', '']) {
     const r = run(input);
     assert.deepEqual([r.status, r.stdout], [0, ''], `falls through silently for ${JSON.stringify(input)}`);
