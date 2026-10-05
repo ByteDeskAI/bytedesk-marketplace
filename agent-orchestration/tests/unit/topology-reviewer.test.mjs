@@ -671,3 +671,55 @@ test('TM-366 the review reads the worker worktree: a change only there is review
   await writeJson(f.managementPath, { ...f.management, worktree: other, finish: { revision } });
   await assert.rejects(requestReview(opts), { code: 'TOPOLOGY_REVIEWER_RANGE', message: /not a worktree of this repository/ });
 });
+
+// TM-364: agent-browser 2026-10-05 asked for a Codex reviewer and got three Claude ones.
+async function providerFixture(t) {
+  const f = await fixture(t);
+  // The configured provider is claude; the reviewer the repository already has is codex.
+  await writeJson(join(f.pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'claude', instructions: 'Review.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
+  const { agentDirs, createAgent, listAgents } = await import('../../topology/lib/agents.mjs');
+  const reviewers = async () => (await listAgents(agentDirs(f))).filter(a => a.role === 'reviewer');
+  const codex = await createAgent(f.consumer, { role: 'reviewer', cli: 'codex' }, null, { pluginRoot: f.pluginRoot, home: f.home, env: f.env });
+  const opened = [];
+  const probes = (liveSessions) => ({
+    alive: async (session) => liveSessions.has(session),
+    open: async ({ agent, provider }) => { opened.push({ agent: agent.id, provider }); liveSessions.add(`review-${agent.id}`); return { session: `review-${agent.id}`, pane: '%9', binding: { ...binding, paneId: '%9', sessionId: `$${agent.id}` } }; },
+  });
+  return { ...f, codex, reviewers, opened, probes };
+}
+
+test('TM-364 ensure --provider codex reuses the registered codex reviewer and never mints another', async t => {
+  const f = await providerFixture(t);
+  const live = new Set();
+  const first = await ensureReviewer({ ...f, provider: 'codex', probes: f.probes(live) });
+  assert.equal(first.record.agent_id, f.codex.id, 'the library codex reviewer is used, not a new one');
+  assert.equal(first.record.provider, 'codex'); assert.equal(first.created, false);
+  assert.deepEqual(f.opened, [{ agent: f.codex.id, provider: 'codex' }]);
+  const again = await ensureReviewer({ ...f, provider: 'codex', probes: f.probes(live) });
+  assert.equal(again.record.agent_id, f.codex.id); assert.equal(again.reattached, true);
+  assert.equal(f.opened.length, 1, 'a live registered reviewer is reattached, not reopened');
+  // Plain ensure (config says claude) and ensure --provider claude refuse instead of minting.
+  await assert.rejects(ensureReviewer({ ...f, probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_PROVIDER', message: /--provider codex/ });
+  await assert.rejects(ensureReviewer({ ...f, provider: 'claude', probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_PROVIDER', message: /never creates a second reviewer/ });
+  await assert.rejects(ensureReviewer({ ...f, provider: 'grok', probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_PROVIDER' });
+  assert.deepEqual((await f.reviewers()).map(a => a.id), [f.codex.id], 'still exactly one reviewer');
+});
+
+test('TM-364 with no registration, a live library reviewer is reattached on its provider and blocks any other', async t => {
+  const f = await providerFixture(t);
+  await writeJson(join(f.codex._dir, 'session.json'), { agent_id: f.codex.id, session: 'codex-review', binding: { ...binding, paneId: '%7' } });
+  const live = new Set(['codex-review']);
+  // Configured claude while a codex reviewer is live: refused, and nothing is created.
+  await assert.rejects(ensureReviewer({ ...f, probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_LIVE', message: /--provider codex/ });
+  await assert.rejects(ensureReviewer({ ...f, provider: 'claude', probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_LIVE' });
+  assert.deepEqual((await f.reviewers()).map(a => a.id), [f.codex.id]);
+  const reattached = await ensureReviewer({ ...f, provider: 'codex', probes: f.probes(live) });
+  assert.equal(reattached.record.agent_id, f.codex.id); assert.equal(reattached.reattached, true);
+  assert.equal(reattached.record.session, 'codex-review'); assert.equal(reattached.record.binding.paneId, '%7');
+  assert.deepEqual(f.opened, [], 'nothing was launched');
+  // Only with no reviewer of that provider at all is one minted.
+  const g = await providerFixture(t);
+  const minted = await ensureReviewer({ ...g, probes: g.probes(new Set()) });
+  assert.equal(minted.created, true); assert.equal(minted.record.provider, 'claude');
+  assert.equal((await g.reviewers()).length, 2, 'the stopped codex reviewer stays; one claude reviewer is added');
+});

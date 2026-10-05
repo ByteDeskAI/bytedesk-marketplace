@@ -142,6 +142,8 @@ Standing repository services
                                                 Without --cached, status with no stored proof rings the
                                                 lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  reviewer ensure [--provider claude|codex]   reuse the registered or a library reviewer on that provider;
+                                               never starts a second live reviewer (TM-364)
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
        |reassign <role> [<agent>] [--force]|detach <role> [<agent>] [--kill]|history <role>
                                                lead, reviewer, worker, designer, image-gen
@@ -754,7 +756,7 @@ const commands = {
     const options = { ...ctx, task: flags.task, revision: flags.revision, authorAgentIds: list(flags.author) };
     const sub = positional[0] || 'status';
     if (sub === 'status') return out(await api.reviewerAvailability(options));
-    if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds }));
+    if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds, provider: flags.provider && flags.provider !== true ? String(flags.provider) : null }));
     if (sub === 'request') return out(await api.requestReview(options));
     if (sub === 'collect') return out(await api.collectReview(options));
     if (sub === 'eligible') return out(await api.reviewEligibility(options));
@@ -878,6 +880,7 @@ const commands = {
       agentRef: positional[2] ?? (flags.agent && flags.agent !== true ? String(flags.agent) : null),
       session: flags.session && flags.session !== true ? String(flags.session) : null,
       notAgentIds: list(flags.author),
+      provider: flags.provider && flags.provider !== true ? String(flags.provider) : null,
       runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null,
       force: flags.force === true,
       kill: flags.kill === true,

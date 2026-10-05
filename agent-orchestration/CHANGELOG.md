@@ -40,6 +40,16 @@
   carries one severity (`blocker`, `major`, `minor`, `nit` or `note`), and an approval with only
   minor, nit or note findings is recorded as approved; a new test covers both. The reviewer prompt
   says so.
+- **`reviewer ensure` honours the requested provider and reuses the reviewer it has (TM-364,
+  EP-028).** In agent-browser on 2026-10-05 a Codex reviewer was requested and three Claude
+  reviewers were created. `ao-topology reviewer ensure --provider codex` (and
+  `role ensure reviewer --provider codex`) now reuses the registered Codex reviewer. A request for
+  another provider than the registered one is refused with `TOPOLOGY_REVIEWER_PROVIDER` and names
+  the `--provider` that keeps it; nothing is minted. With no registration, ensure first looks at
+  the repository's reviewer agents. It reattaches a live one on the requested provider, relaunches
+  a stopped one as the same identity, and refuses with `TOPOLOGY_REVIEWER_LIVE` while a reviewer on
+  another provider is live. A new reviewer is minted only when none exists on that provider. The
+  requested provider must still be in `management.reviewer_providers`.
 
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine

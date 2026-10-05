@@ -22724,7 +22724,7 @@ function assertApprovedProvider(provider, loaded) {
     { provider, allowed }
   );
 }
-async function resolveReviewerConfig({ consumer, home, pluginRoot, env }) {
+async function resolveReviewerConfig({ consumer, home, pluginRoot, env, requested = null }) {
   const loaded = await loadConfig({ consumer, home, pluginRoot, env });
   invariant2(loaded.errors.length === 0, "TOPOLOGY_REVIEWER_CONFIG", "Reviewer config is invalid.", { errors: loaded.errors });
   const templateName = loaded.config.reviewer?.template ?? DEFAULT_TEMPLATE;
@@ -22734,13 +22734,14 @@ async function resolveReviewerConfig({ consumer, home, pluginRoot, env }) {
     "TOPOLOGY_REVIEWER_TEMPLATE",
     `No reviewer template named "${templateName}" in any config layer. Declare one (the plugin defaults ship "reviewer-default") or set reviewer.template to a template that exists.`
   );
-  const provider = loaded.config.reviewer?.provider ?? found.template.cli ?? null;
-  const model = loaded.config.reviewer?.model ?? found.template.model ?? null;
+  const configured = loaded.config.reviewer?.provider ?? found.template.cli ?? null;
+  const provider = requested ?? configured;
+  const model = provider === configured ? loaded.config.reviewer?.model ?? found.template.model ?? null : null;
   assertApprovedProvider(provider, loaded);
   return { provider, model, templateName, template: found.template, loaded };
 }
 async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)(), pluginRoot = null, env = process.env, log = () => {
-}, notAgentIds = [], probes = null }) {
+}, notAgentIds = [], probes = null, provider: requested = null }) {
   invariant2(consumer, "TOPOLOGY_REVIEWER_CONSUMER", "ensureReviewer needs a consumer path to identify the repository.");
   const session = { ...defaultProbes(), ...probes };
   const { identity, recordPath: recordPath2, lockPath } = await reviewerPaths(consumer, env, home);
@@ -22750,8 +22751,13 @@ async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)()
     if (await exists(recordPath2)) {
       const record3 = await readJson3(recordPath2);
       assertIndependent(record3.agent_id, { lead, notAgentIds });
-      const current = await resolveReviewerConfig({ consumer, home, pluginRoot, env });
-      invariant2(current.provider === record3.provider, "TOPOLOGY_REVIEWER_PROVIDER", "Registered reviewer provider differs from current policy; reconcile explicitly.");
+      const current = await resolveReviewerConfig({ consumer, home, pluginRoot, env, requested });
+      invariant2(
+        current.provider === record3.provider,
+        "TOPOLOGY_REVIEWER_PROVIDER",
+        requested ? `The registered reviewer ${record3.agent_id} runs on ${record3.provider}, not ${requested}. Ensure never creates a second reviewer: detach this one first (ao-topology role detach reviewer) to change provider.` : `The registered reviewer ${record3.agent_id} runs on ${record3.provider}, but the configured reviewer provider is ${current.provider}. Keep it with --provider ${record3.provider}, or detach it first (ao-topology role detach reviewer) to change provider.`,
+        { registered: record3.provider, requested: current.provider }
+      );
       const agent2 = await resolveAgentRef(record3.agent_id, agentDirs({ pluginRoot, consumer: record3.consumer || consumer, home }));
       invariant2(agent2?.role === "reviewer", "TOPOLOGY_REVIEWER_AGENT_GONE", "Registered reviewer identity is missing or no longer a reviewer.");
       if (await session.alive(record3.session, record3)) {
@@ -22766,8 +22772,8 @@ async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)()
         "TOPOLOGY_REVIEWER_AGENT_GONE",
         `Reviewer record names agent ${record3.agent_id}, but the library no longer has that agent. Restore the agent or remove ${recordPath2} and ensure again.`
       );
-      const prompt2 = await refreshPrompt({ agent: agent2, consumer, home, pluginRoot, env, live: false });
-      invariant2(prompt2.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt2.errors)}`, { errors: prompt2.errors ?? [] });
+      const prompt = await refreshPrompt({ agent: agent2, consumer, home, pluginRoot, env, live: false });
+      invariant2(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
       const opened2 = await session.open({ agent: agent2, consumer, home, pluginRoot, env, provider: record3.provider, model: agent2.model ?? null, log, existing: record3 });
       const { restarting: _restarting, ...unmarked } = record3;
       const updated = { ...unmarked, session: opened2.session ?? record3.session, pane: opened2.pane ?? record3.pane ?? null, binding: opened2.binding ?? null, updated_at: nowIso() };
@@ -22775,31 +22781,53 @@ async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)()
       log(`restarted reviewer ${record3.agent_id} in ${updated.session}`);
       return { record: updated, agent: agent2, created: false, reattached: false, restarted: true };
     }
-    const { provider, model, templateName, template, loaded } = await resolveReviewerConfig({ consumer, home, pluginRoot, env });
-    const agent = await createAgent(consumer, {
-      role: "reviewer",
-      template: templateName,
-      full_name: template.name,
-      cli: provider,
-      model,
-      // The reviewer reads the project and writes verdicts — it never implements. On CLIs with a
-      // read-only mode this is what turns it on; the repo grant below stays explicit either way.
-      coordinates_only: true,
-      candidates: template.candidates,
-      skills: template.skills,
-      mcp: template.mcp,
-      args: template.args,
-      env: template.env,
-      auto_approve: template.auto_approve,
-      instructions: typeof template.instructions === "string" ? template.instructions : ""
-    }, null, { pluginRoot, home, env });
-    assertIndependent(agent.id, { lead, notAgentIds });
-    const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName });
-    invariant2(composed.ok, "TOPOLOGY_PROMPT_INVALID", "Reviewer prompt is invalid.", { errors: composed.errors });
-    await writeText((0, import_node_path48.join)(agent._dir, "prompt.md"), composed.text);
-    const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
-    invariant2(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
-    const opened = await session.open({ agent, consumer, home, pluginRoot, env, provider, model, log });
+    const { provider, model, templateName, template, loaded } = await resolveReviewerConfig({ consumer, home, pluginRoot, env, requested });
+    const library = (await listAgents(dirs)).filter((a) => a.role === "reviewer" && a.id !== lead?.id && !notAgentIds.includes(a.id));
+    const live2 = [];
+    for (const candidate of library) {
+      const recorded = await readJson3((0, import_node_path48.join)(candidate._dir, "session.json")).catch(() => null);
+      const seen = recorded?.agent_id === candidate.id && incarnationOf(recorded.binding) ? { session: recorded.session, pane: recorded.binding.paneId, binding: incarnationOf(recorded.binding), agent_id: candidate.id } : null;
+      if (seen && await session.alive(seen.session, seen)) live2.push({ agent: candidate, seen });
+    }
+    const other = live2.find((item) => item.agent.cli !== provider);
+    invariant2(
+      !other,
+      "TOPOLOGY_REVIEWER_LIVE",
+      other && `Reviewer ${displayName(other.agent)} (${other.agent.id}) is live on ${other.agent.cli} in ${other.seen.session}; ensure never starts a second reviewer. Reattach it with --provider ${other.agent.cli}, or stop it first.`,
+      other && { agent_id: other.agent.id, provider: other.agent.cli, requested: provider }
+    );
+    const reattach = live2.find((item) => item.agent.cli === provider) ?? null;
+    let agent = reattach?.agent ?? library.find((a) => a.cli === provider) ?? null;
+    const created = !agent;
+    if (created) {
+      agent = await createAgent(consumer, {
+        role: "reviewer",
+        template: templateName,
+        full_name: template.name,
+        cli: provider,
+        model,
+        // The reviewer reads the project and writes verdicts — it never implements. On CLIs with a
+        // read-only mode this is what turns it on; the repo grant below stays explicit either way.
+        coordinates_only: true,
+        candidates: template.candidates,
+        skills: template.skills,
+        mcp: template.mcp,
+        args: template.args,
+        env: template.env,
+        auto_approve: template.auto_approve,
+        instructions: typeof template.instructions === "string" ? template.instructions : ""
+      }, null, { pluginRoot, home, env });
+      assertIndependent(agent.id, { lead, notAgentIds });
+      const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName });
+      invariant2(composed.ok, "TOPOLOGY_PROMPT_INVALID", "Reviewer prompt is invalid.", { errors: composed.errors });
+      await writeText((0, import_node_path48.join)(agent._dir, "prompt.md"), composed.text);
+    }
+    let opened = reattach?.seen ?? null;
+    if (!opened) {
+      const prompt = await refreshPrompt({ agent, consumer, home, pluginRoot, env, live: false });
+      invariant2(prompt.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", `Reviewer prompt config is invalid.${promptErrorDetail(prompt.errors)}`, { errors: prompt.errors ?? [] });
+      opened = await session.open({ agent, consumer, home, pluginRoot, env, provider, model: agent.model ?? model, log });
+    }
     const record2 = {
       version: 1,
       repo_id: identity.id,
@@ -22814,8 +22842,8 @@ async function ensureReviewer({ consumer, home = (0, import_node_os20.homedir)()
       updated_at: nowIso()
     };
     await writeJson(recordPath2, record2);
-    log(`ensured reviewer ${agent.id} on ${provider} in ${record2.session}`);
-    return { record: record2, agent, created: true, reattached: false, restarted: false };
+    log(`${created ? "ensured" : reattach ? "reattached" : "relaunched"} reviewer ${agent.id} on ${provider} in ${record2.session}`);
+    return { record: record2, agent, created, reattached: Boolean(reattach), restarted: !created && !reattach };
   });
 }
 async function reviewerStanding({ consumer, env = process.env, home = (0, import_node_os20.homedir)(), probes = null, readOnly = false }) {
@@ -61120,10 +61148,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "0826cbcf143875e11aba1068462f5c7e5008af366070579ea10a53b8a1659460";
+  return false ? null : "c3d030ea4ad3b3270b9032c37359ec7ee950704771000d6ea242ae75e665c639";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "0826cbcf143875e11aba1068462f5c7e5008af366070579ea10a53b8a1659460";
+  const fingerprint2 = false ? null : "c3d030ea4ad3b3270b9032c37359ec7ee950704771000d6ea242ae75e665c639";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61714,7 +61742,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "0826cbcf143875e11aba1068462f5c7e5008af366070579ea10a53b8a1659460",
+  sourceFingerprint: false ? null : "c3d030ea4ad3b3270b9032c37359ec7ee950704771000d6ea242ae75e665c639",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
