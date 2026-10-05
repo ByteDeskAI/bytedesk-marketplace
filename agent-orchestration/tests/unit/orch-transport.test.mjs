@@ -1,7 +1,7 @@
 import { natsServerBin } from '../helpers/nats-server.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import net from 'node:net';
@@ -367,6 +367,33 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
       assert.equal(await inboxStat(outbox), 'ENOENT');
       assert.equal(await inboxStat(senderFile), 'present');
       console.log(`CASE reply subject=${doneView.replies[0].subject} inboxSubject=${senderMail[0].subject} outboxStat=ENOENT`);
+      // TM-410: a file-only reviewer answers a NATS-delivered message by writing the outbox file
+      // the message named. `wait` must count that file as the answer.
+      const fileAsk = await runCli([
+        'send', '--run', replyRun, '--from', 'conductor', '--to', 'agent-b',
+        '--from-project', replyRun, '--stage', 'review', '--body', 'answer-by-file', '--no-ring',
+      ], replyEnv);
+      assert.equal(fileAsk.code, 0, fileAsk.stderr || fileAsk.stdout);
+      const fileAskMessage = JSON.parse(fileAsk.stdout);
+      const fileOutbox = fileAskMessage.deliveries[0].outbox;
+      assert.equal(fileOutbox, join(replyRun, 'agents', 'agent-b', 'outbox', `${fileAskMessage.id}.reply.md`));
+      const unanswered = await runCli([
+        'wait', '--run', replyRun, '--from', 'agent-b', '--message', fileAskMessage.id,
+        '--timeout', '1s', '--poll', '200ms', '--json',
+      ], replyEnv);
+      assert.equal(unanswered.code, 2, unanswered.stderr || unanswered.stdout);
+      await mkdir(join(replyRun, 'agents', 'agent-b', 'outbox'), { recursive: true });
+      await writeFile(fileOutbox, 'file-reply-body\n');
+      const fileDone = await runCli([
+        'wait', '--run', replyRun, '--from', 'agent-b', '--message', fileAskMessage.id,
+        '--timeout', '4s', '--poll', '200ms', '--json',
+      ], replyEnv);
+      assert.equal(fileDone.code, 0, fileDone.stderr || fileDone.stdout);
+      const fileView = JSON.parse(fileDone.stdout);
+      assert.equal(fileView.ok, true);
+      assert.equal(fileView.replies.length, 1);
+      assert.equal(fileView.replies[0].path, fileOutbox);
+      assert.equal(fileView.replies[0].body, 'file-reply-body\n');
       await rm(replyRun, { recursive: true, force: true });
       const gapEnv = {
         ...process.env,

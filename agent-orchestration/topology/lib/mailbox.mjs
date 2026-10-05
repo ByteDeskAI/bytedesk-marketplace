@@ -540,9 +540,11 @@ async function obligations(runDir, run, agentId, transport = null) {
         repo,
         replyAgent: run.message_envelopes?.[id]?.from ?? null,
         replyToId: delivery.messageId ?? id,
-        inbox: null,
-        outbox: null,
-        addressee_outbox: null,
+        // TM-410: a NATS-delivered message is also answerable by a file reply (TM-409 gives the
+        // recipient this outbox path), so the barrier checks both.
+        inbox: join(agentDir(runDir, agentId), "inbox", `${id}.md`),
+        outbox: join(agentDir(runDir, agentId), "outbox", replyFileNameFor(id)),
+        addressee_outbox: join(agentDir(runDir, agentId), "outbox", replyFileNameFor(id)),
       });
     }
   }
@@ -597,7 +599,7 @@ export async function pendingReplies(runDir, agentIds, { addressing = {}, transp
       // The outbox reported is the one the answer must actually appear in. Naming the addressee's
       // box on a redirected message sends whoever is debugging the wait to an empty directory.
       if (item.transport === 'nats') {
-        if (await readNatsReply(runDir, item, active)) continue;
+        if (await hasAnswer(item.outbox) || await readNatsReply(runDir, item, active)) continue;
       } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
@@ -636,7 +638,7 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
           if (messageId && item.id !== messageId) continue;
           const answerKey = item.standingId ?? item.outbox ?? `${item.transport}:${item.id}:${item.answerer}`;
           if (seen.has(answerKey)) continue;
-          if (item.transport === 'nats') {
+          if (item.transport === 'nats' && !(await hasAnswer(item.outbox))) {
             const reply = await readNatsReply(runDir, item, active);
             if (!reply) continue;
             seen.add(answerKey);

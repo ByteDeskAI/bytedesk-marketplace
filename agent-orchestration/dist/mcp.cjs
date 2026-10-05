@@ -35872,9 +35872,11 @@ async function obligations(runDir, run2, agentId, transport = null) {
         repo,
         replyAgent: run2.message_envelopes?.[id]?.from ?? null,
         replyToId: delivery.messageId ?? id,
-        inbox: null,
-        outbox: null,
-        addressee_outbox: null
+        // TM-410: a NATS-delivered message is also answerable by a file reply (TM-409 gives the
+        // recipient this outbox path), so the barrier checks both.
+        inbox: (0, import_node_path58.join)(agentDir(runDir, agentId), "inbox", `${id}.md`),
+        outbox: (0, import_node_path58.join)(agentDir(runDir, agentId), "outbox", replyFileNameFor(id)),
+        addressee_outbox: (0, import_node_path58.join)(agentDir(runDir, agentId), "outbox", replyFileNameFor(id))
       });
     }
   }
@@ -35915,7 +35917,7 @@ async function pendingReplies(runDir, agentIds, { addressing = {}, transport = n
   for (const agentId of ids) {
     for (const item of await obligations(runDir, run2, agentId, active)) {
       if (item.transport === "nats") {
-        if (await readNatsReply(runDir, item, active)) continue;
+        if (await hasAnswer(item.outbox) || await readNatsReply(runDir, item, active)) continue;
       } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
@@ -77709,10 +77711,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "afdd4f849171ffcc986e7346d396f9275a0ce2acbaa86bc3474e278c60cf68b1";
+  return false ? null : "1dfb3bf64087e258c1cbfd6e0b4b18355301731d4efa236a4cbcb989cedc554e";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "afdd4f849171ffcc986e7346d396f9275a0ce2acbaa86bc3474e278c60cf68b1";
+  const fingerprint2 = false ? null : "1dfb3bf64087e258c1cbfd6e0b4b18355301731d4efa236a4cbcb989cedc554e";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78137,7 +78139,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "afdd4f849171ffcc986e7346d396f9275a0ce2acbaa86bc3474e278c60cf68b1",
+  sourceFingerprint: false ? null : "1dfb3bf64087e258c1cbfd6e0b4b18355301731d4efa236a4cbcb989cedc554e",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

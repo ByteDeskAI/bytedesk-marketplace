@@ -87,6 +87,9 @@
   succeeds, and the delivery names an outbox path. The message tells the recipient it may reply
   on NATS or write its reply to that outbox file. A file-only reviewer therefore receives
   NATS-delivered mail.
+- **`wait` accepts a file reply to a NATS-delivered message (TM-410, EP-028).** `pendingReplies`
+  and `waitForReplies` treat a NATS-delivered message as answered when its outbox reply file has
+  content, as well as when a NATS reply exists. The file reply is returned with its path.
 - **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
   review range, the patch, the binary manifest and the files a finding may name now resolve from
   the task worktree in the admission record. The request records that `worktree`, and the reviewer
