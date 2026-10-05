@@ -225,6 +225,14 @@ or reused identities fail closed. Finish requires
 artifacts, the exact committed revision, checks and risks, and records `ready-for-review`, never
 automatic task completion.
 
+A finish files the independent review request itself. If that request is refused (for example, no
+designated reviewer), the record keeps `review_blocked`, and the lead receives one standing-mail
+notice per task revision, from `ao-topology manage`, carrying the refusal text. Fix the cause, then
+retry with `ao-topology manage retry-review --task TM-id`. It re-files the request for the recorded
+finish revision and clears `review_blocked`. If it is refused again, it exits with the new refusal.
+`tm doctor` lists finished tasks that have commits and no review for their current revision.
+`tm review-sweep` uses the same detector.
+
 ### Starting, adopting and stopping a worker
 
 Leads do not launch workers ad hoc. A hand-made tmux session or an unrecorded subagent has no

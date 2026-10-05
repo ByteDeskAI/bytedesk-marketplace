@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey } from '../../topology/lib/repoid.mjs';
-import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
 // epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
@@ -44,7 +44,9 @@ async function fixture(t) {
   const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
     // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
     // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
-    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
+    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }),
+    // TM-244: a refused review mails the lead; fixtures capture it instead of reaching any real mailbox.
+    notifyLead: async () => ({ status: 'held', reason: 'fixture' }) };
   const finish = async () => {
     await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
     await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
@@ -81,6 +83,33 @@ test('finish survives reviewer outage but merge fails closed and task is never a
   const gate = await integrationEligibility({ ...opts, reviewGate: async () => ({ reasons: ['reviewer unavailable'] }) });
   assert.equal(gate.eligible, false); assert.ok(gate.reasons.includes('reviewer unavailable'));
   await assert.rejects(integrateTask({ ...opts, workerState: async () => ({ owned: true, active: true }) }), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+});
+
+test('a refused review request is mailed to the lead with the refusal text and one retry verb (TM-244)', async t => {
+  const { opts, finish } = await fixture(t);
+  const mail = [];
+  const refusal = Object.assign(new Error('No designated reviewer; preserve the finished task until one is available.'), { code: 'TOPOLOGY_REVIEWER_UNAVAILABLE' });
+  Object.assign(opts, { leadId: 'lead-1', queueReview: async () => { throw refusal; }, notifyLead: async (msg) => { mail.push(msg); return { status: 'held', reason: 'pending_admission' }; } });
+  await admitTask(opts);
+  // task-management gone by the time the review is queued: its comment write fails, and the lead must still have been told.
+  const comment = opts.store.comment;
+  opts.store.comment = async (task, value) => { if (JSON.parse(value).event === 'review-queued') throw new Error('tm is not installed'); return comment(task, value); };
+  await assert.rejects(finish(), /tm is not installed/);
+  opts.store.comment = comment;
+  assert.equal(mail.length, 1);
+  assert.equal(mail[0].to, 'lead-1');
+  assert.match(mail[0].body, /TOPOLOGY_REVIEWER_UNAVAILABLE: No designated reviewer/);
+  assert.match(mail[0].body, /retry: ao-topology manage retry-review --task TM-1$/);
+  const record = await readJson(join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json'));
+  assert.equal(record.review_blocked, refusal.message);
+  assert.deepEqual(record.review_blocked_notice, { to: 'lead-1', message_id: mail[0].id, status: 'held', reason: 'pending_admission' });
+
+  // The documented retry: still refused keeps it blocked; accepted files the request and clears it.
+  await assert.rejects(retryReview(opts), { code: 'TOPOLOGY_REVIEWER_UNAVAILABLE' });
+  const retried = await retryReview({ ...opts, queueReview: async ({ revision }) => ({ nonce: 'n-2', revision }) });
+  assert.equal(retried.review_request.nonce, 'n-2');
+  assert.equal(retried.review_request.revision, record.finish.revision);
+  assert.equal(retried.review_blocked, undefined);
 });
 
 test('configured checks, verified local merge and tm cleanup close only the owned task in order', async t => {

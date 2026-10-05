@@ -35,17 +35,53 @@ function readMarkers(p) {
 // task, a `review` field, review evidence, or a comment that states a verdict. A structured
 // `tm review <id> --verdict` verb is the upgrade if this heuristic misfires.
 const VERDICT_TEXT = /\b(review|verdict|reviewed)\b[^\n]{0,80}\b(approve[sd]?|lgtm|changes requested|request changes|rejected?|pass(ed)?)\b/i;
-function hasVerdict(task, p) {
-  if (task.review?.verdict) return true;
+
+/**
+ * Where a finished task's review stands, from tm's own records alone (TM-244): works with
+ * agent-orchestration absent, because the management record is only a file it may have left.
+ *   completed    a verdict tm can see (for a governed task: on the finish revision)
+ *   outstanding  a governed review request filed for the finish revision, not refused
+ *   missing      neither; `reason` names why — no admission record, review_blocked, never requested
+ */
+export function reviewState(task, p) {
+  let record = null;
   if (task.governance) {
     try {
-      if (readManagementRecord(task, p).record.review?.verdict) return true;
+      record = readManagementRecord(task, p).record;
     } catch {
-      /* no readable record: fall through to what the task itself carries */
+      /* unreadable or absent: judged on what the task itself carries */
     }
   }
-  if ((task.evidence || []).some((e) => /review/i.test(String(e?.path ?? e)))) return true;
-  return (task.comments || []).some((c) => VERDICT_TEXT.test(String(c?.text ?? "")));
+  const revision = record?.finish?.revision ?? null;
+  const v = record?.review;
+  if (v?.verdict && (!v.revision || !revision || v.revision === revision)) return { state: "completed" };
+  if (task.review?.verdict) return { state: "completed" };
+  if ((task.evidence || []).some((e) => /review/i.test(String(e?.path ?? e)))) return { state: "completed" };
+  if ((task.comments || []).some((c) => VERDICT_TEXT.test(String(c?.text ?? "")))) return { state: "completed" };
+  if (!record) return { state: "missing", reason: "no admission record" };
+  if (record.review_blocked) return { state: "missing", reason: `review_blocked: ${String(record.review_blocked).split("\n")[0].slice(0, 200)}` };
+  if (record.review_request && (!revision || record.review_request.revision === revision)) return { state: "outstanding" };
+  return { state: "missing", reason: "never requested" };
+}
+
+/**
+ * Finished tasks with commits and no verdict — the one detector `tm review-sweep` and `tm doctor`
+ * share (TM-244, rule 3): `{ found: [{ task, inReview, state, reason }], tasks, candidates }`.
+ */
+export function unreviewedTasks(p, { sinceDays = 7, now = Date.now() } = {}) {
+  const tasks = list("task", {}, p);
+  const since = now - sinceDays * 86_400_000;
+  const found = [];
+  let candidates = 0;
+  for (const t of tasks) {
+    const inReview = t.governance?.state === "ready-for-review" && t.status !== "done";
+    const recentlyDone = t.status === "done" && t.closed && new Date(t.closed).getTime() >= since;
+    if (!(inReview || recentlyDone) || !(t.commits || []).length) continue;
+    candidates += 1;
+    const r = reviewState(t, p);
+    if (r.state !== "completed") found.push({ task: t, inReview, ...r });
+  }
+  return { found, tasks, candidates };
 }
 
 /** Open PRs via gh: `{ prs }` or `{ skipped }`. */
@@ -66,16 +102,9 @@ export function ghOpenPrs(root, { spawnImpl = spawnSync, env = process.env } = {
 }
 
 export function reviewSweep({ p, apply = false, sinceDays = 7, idleHours = 24, now = Date.now(), prs = null } = {}) {
-  const tasks = list("task", {}, p);
-  const since = now - sinceDays * 86_400_000;
+  const { found, tasks, candidates } = unreviewedTasks(p, { sinceDays, now });
   const findings = [];
-  let candidates = 0;
-  for (const t of tasks) {
-    const inReview = t.governance?.state === "ready-for-review" && t.status !== "done";
-    const recentlyDone = t.status === "done" && t.closed && new Date(t.closed).getTime() >= since;
-    if (!(inReview || recentlyDone) || !(t.commits || []).length) continue;
-    candidates += 1;
-    if (hasVerdict(t, p)) continue;
+  for (const { task: t, inReview, state, reason } of found) {
     findings.push({
       key: `no-review:${t.id}`,
       kind: "no-review",
@@ -83,6 +112,8 @@ export function reviewSweep({ p, apply = false, sinceDays = 7, idleHours = 24, n
       title: t.title,
       status: inReview ? "ready-for-review" : "done",
       governed: Boolean(t.governance),
+      review: state,
+      ...(reason ? { reason } : {}),
       pr: (t.commits || []).find((c) => /\/pull\/\d+/.test(c)) ?? null,
       detail: `${t.id} is ${inReview ? "ready for review" : "done"} with commits and no reviewer verdict`,
     });

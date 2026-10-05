@@ -1112,7 +1112,7 @@ const VERBS = {
     }
     // Re-read after repairing: what is reported as remaining must be what remains.
     const after = diagnose(P);
-    emit({ findings: after.map(({ fix, ...f }) => f), fixed, ...peer }, () => renderDoctor(after, { fixed }) + (peer ? `\n${peer.agentOrchestration.note}` : ""));
+    emit({ findings: after.map(({ fix, ...f }) => f), fixed, reviewCoverage: after.reviewCoverage, ...peer }, () => renderDoctor(after, { fixed }) + (peer ? `\n${peer.agentOrchestration.note}` : ""));
     if (after.some((f) => f.level === "error")) process.exit(1);
   },
 

@@ -49,6 +49,13 @@
   "route", "cap" and "agent". `tests/unit/orchestrate-skill.test.mjs` fails when a verb, sub-verb,
   flag, MCP tool or skill it names does not exist in `topology/cli.mjs`, `src/cli.mjs`, `bin/tm`'s
   VERBS table or either MCP server.
+- **A refused review request reaches the lead, with one verb to retry it (TM-244, EP-028).** When a
+  finish report's review request is refused, `manage report` still records `review_blocked`. It now
+  also sends the owning lead one standing-mail notice per task revision, with the refusal code and
+  text and the retry verb. The notice is sent before the task-management comment, so it does not
+  depend on task-management. `ao-topology manage retry-review --task TM-id` re-files the request for
+  the recorded finish revision and clears `review_blocked`. The `--summary` line of `manage report`
+  names the notice status and the retry verb.
 
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
