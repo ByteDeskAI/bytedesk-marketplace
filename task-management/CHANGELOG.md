@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
+  that went stale every time a tool was added. It now compares the sorted name set and prints which
+  names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
 - **enhance-mine no longer counts its own report or source code it read (EP-028).** A tool result
   from `tm enhance-mine` itself, or a successful read of source (`grep`, `cat`, `sed -n`, `git diff`,
   Read, Grep), is not evidence of the codes it quotes. Before this, its top themes were partly its
