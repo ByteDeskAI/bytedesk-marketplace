@@ -543,3 +543,66 @@ test('review publish carries the whole response, findings included, and refuses 
     await assert.rejects(publishReviewerVerdict({ repo: 'r', nonce: 'n2', response: sent, transport }), { code });
   }
 });
+
+// TM-414: Bastion's reviewer re-printed a refused verdict under two fresh nonces because the next
+// request never said why the first was refused.
+test('a refused verdict\'s reason leads the next request for the same task and revision, and no other', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => null, deliver: async () => ({ status: 'skipped' }) };
+  const wake = async () => ({ rang: true });
+  const first = await requestReview({ ...f.args, wake });
+  assert.equal(first.previous_refusal, undefined, 'a first request carries no refusal');
+  const refused = say(first.nonce, { verdict: 'approve', findings: [finding({ evidence: undefined })] });
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => refused }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /Finding 1 must state its evidence/ });
+  const second = await requestReview({ ...f.args, wake });
+  assert.equal(second.previous_refusal.reason, 'Finding 1 must state its evidence.');
+  assert.equal(second.previous_refusal.message, 'Your previous verdict was refused: Finding 1 must state its evidence. Correct it before re-emitting.');
+  const path = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).previous_refusal.reason, 'Finding 1 must state its evidence.', 'the reviewer reads it from the request file');
+  // A request for another revision of the task carries nothing from this one.
+  const vcs = args => run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args]);
+  await writeFile(join(f.consumer, 'src', 'a.js'), 'changed\n'); await vcs(['commit', '-qam', 'again']);
+  const next = (await vcs(['rev-parse', 'HEAD'])).stdout.trim();
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  const managementPath = join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(f.consumer)).id), 'TM-1.json');
+  await writeJson(managementPath, { ...JSON.parse(await readFile(managementPath, 'utf8')), finish: { revision: next } });
+  const other = await requestReview({ ...f.args, revision: next, wake });
+  assert.equal(other.previous_refusal, undefined, 'another revision is not told about this refusal');
+});
+
+test('the AO_REVIEW_REQUEST line opens with the previous refusal, and the prompt says to act on it', async () => {
+  const { reviewRequestText } = await import('../../topology/lib/reviewer.mjs');
+  const message = 'Your previous verdict was refused: Finding 3 must state its evidence. Correct it before re-emitting.';
+  assert.ok(reviewRequestText({ nonce: 'n1', previous_refusal: { message } }, '/r.json').startsWith(`AO_REVIEW_REQUEST n1: ${message} Read /r.json`));
+  assert.doesNotMatch(reviewRequestText({ nonce: 'n1' }, '/r.json'), /refused/);
+  const prompt = await readFile(join(PLUGIN, 'prompts', 'reviewer.md'), 'utf8');
+  assert.match(prompt, /`previous_refusal`[\s\S]*correct exactly what it names/);
+});
+
+test('an identical refused payload under a new nonce is refused as a repeat with the reason; a corrected one records', async t => {
+  const f = await fixture(t);
+  const mail = { lead: async () => null, deliver: async () => ({ status: 'skipped' }) };
+  const wake = async () => ({ rang: true });
+  const payload = b64({ verdict: 'approve', findings: [finding({ evidence: undefined })] });
+  const first = await requestReview({ ...f.args, wake });
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${first.nonce} ${payload}` }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+  const second = await requestReview({ ...f.args, wake });
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${second.nonce} ${payload}` }),
+    { code: 'TOPOLOGY_REVIEW_REPEATED_REFUSED', message: /byte-identical.*Finding 1 must state its evidence/ });
+  const third = await requestReview({ ...f.args, wake });
+  assert.equal(third.previous_refusal.reason, 'Finding 1 must state its evidence.', 'a repeat keeps the original reason, not a nested one');
+  await assert.rejects(collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${third.nonce} ${payload}` }), { code: 'TOPOLOGY_REVIEW_REPEATED_REFUSED' });
+  const fourth = await requestReview({ ...f.args, wake });
+  const review = await collectReview({ ...f.args, ...mail, output: async () => `AO_REVIEW ${fourth.nonce} ${b64({ verdict: 'approve', findings: [finding()] })}` });
+  assert.equal(review.request_nonce, fourth.nonce);
+  assert.equal(review.verdict, 'approve');
+});
+
+test('review publish refuses a minor finding without evidence at print time', async t => {
+  const { createFileTransport } = await import('../../topology/lib/orch-transport.mjs');
+  const { publishReviewerVerdict } = await import('../../topology/lib/reviewer.mjs');
+  const transport = createFileTransport();
+  t.after(() => transport.close());
+  await assert.rejects(publishReviewerVerdict({ repo: 'r', nonce: 'n3', response: b64({ verdict: 'approve', findings: [finding({ evidence: undefined })] }), transport }),
+    { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /Finding 1 must state its evidence/ });
+});

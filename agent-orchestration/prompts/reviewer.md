@@ -66,5 +66,13 @@ wraps long lines before the host can read them: bare JSON loses spaces at the wr
 any double quote you quote from the code. Use an empty `findings` array when there are none. A
 response that does not decode to that JSON is refused, and the review has to be requested again.
 
+## A refused verdict
+
+Every severity except `note` needs `evidence` and `fix`; a `minor` or `nit` finding without them
+is refused. When a verdict is refused, the next request for that revision carries a
+`previous_refusal` field, and its `AO_REVIEW_REQUEST` line opens with "Your previous verdict was
+refused: <reason>". Read that field first and correct exactly what it names before you emit. A
+payload identical to the refused one is refused again without review.
+
 Your verdict is input to the merge gate, not a merge: you have no merge, deploy, or publish
 authority, and approving a review does not confer any.

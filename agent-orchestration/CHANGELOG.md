@@ -44,6 +44,18 @@
 
 ### Fixed
 
+- **A refused review verdict now tells the reviewer why, and an unchanged copy is refused by name
+  (TM-414).** In Bastion a reviewer's verdict was refused ("Finding 3 must state its evidence":
+  `minor` findings without evidence), and it re-printed the same payload under two fresh nonces,
+  because the next `AO_REVIEW_REQUEST` never carried the reason. Now the request record keeps the
+  refusal, and the next request for the same task and revision carries a `previous_refusal` field
+  and opens with "Your previous verdict was refused: <reason>. Correct it before re-emitting."
+  A request for another revision carries nothing. A payload byte-identical to one already refused
+  for that task and revision is refused with `TOPOLOGY_REVIEW_REPEATED_REFUSED`, naming the
+  original reason. `review publish` now applies the same evidence rule (`validateFindings`) when
+  the verdict is printed. The reviewer prompt and protocol line say to read `previous_refusal` and
+  that every severity except `note` needs `evidence` and `fix`.
+
 - **A late `manage admit` no longer hides the worker commits from review (TM-349).** Admission
   recorded `base_revision` as the task HEAD, so a task admitted after its worker had committed used
   that commit as the base: the review range left it out, and once the task merged its integration

@@ -29096,6 +29096,7 @@ __export(reviewer_exports, {
   restartReviewer: () => restartReviewer,
   reviewEligibility: () => reviewEligibility,
   reviewRangeBase: () => reviewRangeBase,
+  reviewRequestText: () => reviewRequestText,
   reviewResponsesOnScreen: () => reviewResponsesOnScreen,
   reviewerAvailability: () => reviewerAvailability,
   reviewerInboxRoot: () => reviewerInboxRoot,
@@ -29115,7 +29116,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path46.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path46.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path46.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path46.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path46.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path46.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path46.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix, every other severity needs both. When a request carries previous_refusal, your last verdict for that revision was refused: fix exactly what it names before emitting, never re-emit the same payload. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os18.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -29214,6 +29215,7 @@ async function listenForReviewer({ consumer, record: record2, env = process.env,
 }
 async function publishReviewerVerdict({ consumer, repo, nonce, response, env = process.env, transport = null }) {
   const verdict = decodeReviewPayload(typeof response === "string" ? response : JSON.stringify(response));
+  validateFindings(verdict.findings, { has: () => true });
   const { resolveTransport: resolveTransport2, publishReviewVerdict: publishReviewVerdict2 } = await Promise.resolve().then(() => (init_orch_transport(), orch_transport_exports));
   const { repoKey: repoKey2 } = await Promise.resolve().then(() => (init_repoid(), repoid_exports));
   const active = transport ?? await resolveTransport2({ env });
@@ -29978,7 +29980,10 @@ async function requestReview({ consumer, task, revision, authorAgentIds, baseRev
       if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record3.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record3.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path: path3 } };
       const patchPath = (0, import_node_path46.join)(dir, `${key}.patch`);
       await writeText(patchPath, range.patch);
-      const request2 = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto22.randomUUID)(), task, revision, repo_id: record3.repo_id, reviewer_id: record3.agent_id, binding: incarnationOf(record3.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+      const refusals = prior?.state === "failed" && prior.revision === revision ? [...prior.previous_refusals ?? [], ...prior.failure?.refusal ? [prior.failure.refusal] : []] : [];
+      const last = refusals.at(-1);
+      const previous = last ? { previous_refusal: { ...last, message: refusalNotice(last.reason) }, previous_refusals: refusals } : {};
+      const request2 = { ...previous, base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto22.randomUUID)(), task, revision, repo_id: record3.repo_id, reviewer_id: record3.agent_id, binding: incarnationOf(record3.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
       await writeJson(path3, request2);
       return { record: record3, request: request2 };
     });
@@ -29994,6 +29999,9 @@ function rangeNote(range) {
   if (range.range_note) return range.range_note;
   return range.effective_base === range.admitted_base ? `The range ${range.admitted_base}..revision starts at the task admission commit.` : `The range ${range.effective_base}..revision excludes code already on the default branch at ${range.effective_base}; the task was admitted at ${range.admitted_base} and later merged the default branch. Judge only this task's own changes.`;
 }
+function refusalNotice(reason) {
+  return `Your previous verdict was refused: ${String(reason).replace(/[.\s]+$/, "")}. Correct it before re-emitting.`;
+}
 async function wakeReviewRequest({ consumer, record: record2, request, path: path3, env, home }) {
   const loaded = await loadAdapters(providerDirs({ consumer, home, env }));
   const adapter = adapterFor({ cli: record2.provider, model: null, args: [], skills: [] }, loaded);
@@ -30002,8 +30010,11 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     adapter,
     format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
     binding: record2.binding,
-    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`
+    text: reviewRequestText(request, path3)
   });
+}
+function reviewRequestText(request, path3) {
+  return `AO_REVIEW_REQUEST ${request.nonce}: ${request.previous_refusal ? `${request.previous_refusal.message} ` : ""}Read ${path3} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`;
 }
 function lenientJson(text, glueAt = () => "") {
   let out = "", depth = 0, key = null, lastKey = null, inString = false, before = "";
@@ -30189,15 +30200,19 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     const shown = reviewResponsesOnScreen(screen, request.nonce);
     invariant2(shown.length > 0, "TOPOLOGY_REVIEWER_RESPONSE", "Expected a nonce-bound review response from the designated pane.");
     if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path: path3, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
+    const payloadSha = (0, import_node_crypto22.createHash)("sha256").update(shown.at(-1)[0]).digest("hex");
     let review;
     try {
+      const repeat = (request.previous_refusals ?? []).find((refusal) => refusal.payload_sha256 === payloadSha);
+      invariant2(!repeat, "TOPOLOGY_REVIEW_REPEATED_REFUSED", `This verdict is byte-identical to one already refused for ${task} at ${revision} (nonce ${repeat?.nonce}): ${repeat?.reason} Correct it before re-emitting.`, { original_reason: repeat?.reason, original_nonce: repeat?.nonce });
       const response = parseReviewResponse(screen, request.nonce);
       const current = await readReviewerRecord(consumer, env, home);
       invariant2(current?.agent_id === record2.agent_id && sameIncarnation(current.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer changed while collecting output.");
       review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, expectedBinding: record2.binding, verdict: response.verdict, findings: response.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
     } catch (error51) {
       if (REFUSED_RESPONSE_CODES.has(error51.code)) {
-        const failed = { ...request, state: "failed", failure: { at: nowIso(), code: error51.code, reason: `The reviewer's response was refused: ${error51.message}` } };
+        const refusal = { nonce: request.nonce, code: error51.code, reason: error51.details?.original_reason ?? error51.message, payload_sha256: payloadSha, at: nowIso() };
+        const failed = { ...request, state: "failed", failure: { at: refusal.at, code: error51.code, reason: `The reviewer's response was refused: ${error51.message}`, refusal } };
         failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
         await writeJson(path3, failed);
       }
@@ -30337,7 +30352,7 @@ var init_reviewer = __esm({
     ZERO_BLOB = /^0+$/;
     STRICT_VALUE_KEYS = /* @__PURE__ */ new Set(["verdict", "severity", "file"]);
     B64_PREFIX = "b64:";
-    REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
+    REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT", "TOPOLOGY_REVIEW_REPEATED_REFUSED"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
 });
@@ -76772,10 +76787,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "eae716e0a618d2838b83026b74e687c93c794b462d27add20fb784bf2050d14a";
+  return false ? null : "229866628cc468dd3ebcd1e2b0f6c048e1d25cf9ab5ea215f9294588f9c7e075";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "eae716e0a618d2838b83026b74e687c93c794b462d27add20fb784bf2050d14a";
+  const fingerprint2 = false ? null : "229866628cc468dd3ebcd1e2b0f6c048e1d25cf9ab5ea215f9294588f9c7e075";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77200,7 +77215,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "eae716e0a618d2838b83026b74e687c93c794b462d27add20fb784bf2050d14a",
+  sourceFingerprint: false ? null : "229866628cc468dd3ebcd1e2b0f6c048e1d25cf9ab5ea215f9294588f9c7e075",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

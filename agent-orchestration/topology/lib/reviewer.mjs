@@ -91,7 +91,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then emit one line AO_REVIEW followed by a space, the request nonce, a space, b64: and the standard base64 of the UTF-8 JSON {"verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}, with no spaces or line breaks in the base64; a note may omit evidence and fix, every other severity needs both. When a request carries previous_refusal, your last verdict for that revision was refused: fix exactly what it names before emitting, never re-emit the same payload. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 
 /**
@@ -262,6 +262,9 @@ export async function listenForReviewer({ consumer, record, env = process.env, t
  */
 export async function publishReviewerVerdict({ consumer, repo, nonce, response, env = process.env, transport = null }) {
   const verdict = decodeReviewPayload(typeof response === 'string' ? response : JSON.stringify(response));
+  // TM-414: the evidence rule is checked here, at print time, by the same validator collection uses.
+  // ponytail: the diff is unknown here, so the file-in-diff check stays with collection.
+  validateFindings(verdict.findings, { has: () => true });
   const { resolveTransport, publishReviewVerdict } = await import('./orch-transport.mjs');
   const { repoKey } = await import('./repoid.mjs');
   const active = transport ?? await resolveTransport({ env });
@@ -1236,7 +1239,12 @@ export async function requestReview({ consumer, task, revision, authorAgentIds, 
     if (prior && prior.state !== 'failed' && sameIncarnation(prior.binding,record.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path } };
     const patchPath = join(dir, `${key}.patch`);
     await writeText(patchPath, range.patch);
-    const request = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+    // TM-414: a refused verdict's reason, and the payloads refused, carry into the next request for
+    // this task and revision (the key), so the reviewer is told why and cannot pass the same bytes.
+    const refusals = prior?.state === 'failed' && prior.revision === revision ? [...(prior.previous_refusals ?? []), ...(prior.failure?.refusal ? [prior.failure.refusal] : [])] : [];
+    const last = refusals.at(-1);
+    const previous = last ? { previous_refusal: { ...last, message: refusalNotice(last.reason) }, previous_refusals: refusals } : {};
+    const request = { ...previous, base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: randomUUID(), task, revision, repo_id: record.repo_id, reviewer_id: record.agent_id, binding:incarnationOf(record.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
     await writeJson(path, request);
     return { record, request };
     });
@@ -1257,11 +1265,21 @@ function rangeNote(range) {
     : `The range ${range.effective_base}..revision excludes code already on the default branch at ${range.effective_base}; the task was admitted at ${range.admitted_base} and later merged the default branch. Judge only this task's own changes.`;
 }
 
+/** TM-414: the sentence the next request leads with after a refused verdict. */
+function refusalNotice(reason) {
+  return `Your previous verdict was refused: ${String(reason).replace(/[.\s]+$/, '')}. Correct it before re-emitting.`;
+}
+
 async function wakeReviewRequest({consumer,record,request,path,env,home}) {
   const loaded=await loadAdapters(providerDirs({consumer,home,env}));
   const adapter=adapterFor({cli:record.provider,model:null,args:[],skills:[]},loaded);
   return wakeForProbe({pane:record.pane??record.binding.paneId,adapter,format:composerFormat(adapter,tmuxFailureTrigger(adapter)),binding:record.binding,
-    text:`AO_REVIEW_REQUEST ${request.nonce}: Read ${path} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`});
+    text:reviewRequestText(request,path)});
+}
+
+/** The AO_REVIEW_REQUEST line. TM-414: a previous refusal for this task and revision leads it. */
+export function reviewRequestText(request, path) {
+  return `AO_REVIEW_REQUEST ${request.nonce}: ${request.previous_refusal ? `${request.previous_refusal.message} ` : ''}Read ${path} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision and emit the nonce-bound AO_REVIEW verdict using read tools only.`;
 }
 
 // Values whose text must never gain a space at a wrap: a cut inside them is always a cut.
@@ -1442,7 +1460,7 @@ export function parseReviewResponse(screen, nonce) {
  * writes no files and receives no execution tool just to deliver a verdict.
  */
 /** A response the reviewer DID give that collection refuses. Not "no answer yet", not a changed identity. */
-const REFUSED_RESPONSE_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_FINDINGS', 'TOPOLOGY_REVIEWER_VERDICT']);
+const REFUSED_RESPONSE_CODES = new Set(['TOPOLOGY_REVIEWER_RESPONSE', 'TOPOLOGY_REVIEWER_FINDINGS', 'TOPOLOGY_REVIEWER_VERDICT', 'TOPOLOGY_REVIEW_REPEATED_REFUSED']);
 
 /**
  * TM-217. An unclosed verdict is retried, never failed, right up until it is stuck: either it has
@@ -1508,8 +1526,13 @@ export async function collectReview({ consumer, task, revision, env = process.en
   // never going to finish) must not retry forever either. Age it out once it has been incomplete
   // longer than the bound, or once the pane capture has stopped changing.
   if (!shown.at(-1).closed) return ageOutIncompleteReview({ consumer, request, path, screen, env, home, boundMs: incompleteBoundMs, stallMs: incompleteStallMs, deliver, lead });
+  // TM-414: the exact payload text after the nonce. One already refused for this task and revision
+  // is refused again by name, with the original reason, instead of being validated afresh.
+  const payloadSha = createHash('sha256').update(shown.at(-1)[0]).digest('hex');
   let review;
   try {
+  const repeat = (request.previous_refusals ?? []).find(refusal => refusal.payload_sha256 === payloadSha);
+  invariant(!repeat, 'TOPOLOGY_REVIEW_REPEATED_REFUSED', `This verdict is byte-identical to one already refused for ${task} at ${revision} (nonce ${repeat?.nonce}): ${repeat?.reason} Correct it before re-emitting.`, { original_reason: repeat?.reason, original_nonce: repeat?.nonce });
   const response = parseReviewResponse(screen, request.nonce);
   const current = await readReviewerRecord(consumer,env,home);
   invariant(current?.agent_id===record.agent_id && sameIncarnation(current.binding,record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer changed while collecting output.');
@@ -1519,7 +1542,8 @@ export async function collectReview({ consumer, task, revision, env = process.en
     // the same nonce, and a corrected answer then disagreed with the refused copy still on screen.
     // Now the request fails, the lead is told once, and requestReview mints a fresh nonce.
     if (REFUSED_RESPONSE_CODES.has(error.code)) {
-      const failed = { ...request, state: 'failed', failure: { at: nowIso(), code: error.code, reason: `The reviewer's response was refused: ${error.message}` } };
+      const refusal = { nonce: request.nonce, code: error.code, reason: error.details?.original_reason ?? error.message, payload_sha256: payloadSha, at: nowIso() };
+      const failed = { ...request, state: 'failed', failure: { at: refusal.at, code: error.code, reason: `The reviewer's response was refused: ${error.message}`, refusal } };
       failed.escalation = await escalateFailedReview({ consumer, request: failed, env, home, deliver, lead });
       await writeJson(path, failed);
     }
