@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
+  EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
+  the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
+  error codes, `is_error` tool results, Bash workarounds (`tmux send-keys`, `sleep`,
+  `mailbox inbox`, `capture-pane`), user corrections, stale and evidence-free tasks. It ranks them
+  by frequency × severity × userPain. The report states coverage per source, so a skipped source
+  reads `skipped: <reason>` and an empty one reads `0 file(s)`. Dry-run is the default. `--apply`
+  files bugs as tasks and enhancements as CAPs, or comments on a matching item. Last-seen evidence
+  per signature is kept in the git-ignored `enhance-mine.json`, so a re-run files and comments
+  nothing new. Secrets are redacted at ingestion.
+
 - **A dispatched worker merges its own PR (TM-389).** Operator policy 2026-10-05: a run carries
   through to done. The worker guard now allows `gh pr merge <own tm/ branch>` (or a bare
   `gh pr merge` while that branch is checked out) and still refuses a PR number, another branch,

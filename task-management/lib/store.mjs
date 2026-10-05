@@ -1095,6 +1095,9 @@ pool.state.json
 # The detached pool's own stream, truncated at every start. One machine's log.
 pool.log
 
+# enhance-mine's last-seen evidence per signature. Derived from this machine's transcripts.
+enhance-mine.json
+
 # In-flight planning conversations, and the untrusted files attached to them. evidence/ is
 # the shared record and belongs in git; this is the opposite of that — one machine's unfinished
 # thinking, plus bytes that arrived from outside and were never reviewed by anyone.
@@ -1233,6 +1236,7 @@ export const NOT_FOR_GIT = [
   "pool.pid",
   "pool.state.json",
   "pool.log",
+  "enhance-mine.json",
   "events.json",
   "events.jsonl",
   "events.*.jsonl",
