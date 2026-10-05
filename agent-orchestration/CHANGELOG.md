@@ -17,6 +17,17 @@
 
 ### Fixed
 
+- **A governed task returns to work after an independent review requests changes (TM-347).** A
+  finish report set the management record and the governed task to `ready-for-review`, and nothing
+  set them back, so `tm dispatch` and `manage start-worker` refused every new worker with
+  `TM_GOVERNED_ADMISSION_REQUIRED` and the task deadlocked. The new `manage rework --task TM-id`
+  returns the task to `working` only when the latest review is `changes_requested` for the exact
+  current finish revision and the finished worker is stopped. It records a `rework` event binding
+  the findings to the reviewed revision, clears the finish and keeps owner, worktree, branch and
+  base, then runs the new `tm rework`, which resets the governed state and archives the finished
+  dispatch so the next worker can be dispatched. The next finish must name a new revision; the
+  reviewed one is refused. Integration already keys reviews on the exact revision, and a new test
+  proves an earlier verdict, even a later-dated approval of the old revision, never satisfies it.
 - **`manage admit` no longer dead-ends on a task whose worktree is recorded but whose claim was
   released (TM-348).** Admission provisioned only when no worktree was recorded, so a task left with
   a worktree by an earlier `tm worktree new`, or parked or blocked since, skipped provisioning and

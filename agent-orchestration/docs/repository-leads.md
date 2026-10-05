@@ -236,10 +236,9 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    It calls `tm dispatch` in the admitted worktree, then binds the observed worker: tmux server,
    session, pane, pane PID and creation time, plus the workflow run ID. It refuses a task that is not
    admitted or has a bound worker that is not stopped. After `stop-worker`, `start-worker` starts the
-   next round's worker, for example after changes are requested, and keeps the stopped binding in
-   `previous_workers`. If tm refuses the re-dispatch because the task is still dispatched, collect the
-   previous worker with `tm collect TM-id` first. If the worker cannot be observed yet, the result says
-   `bound: false`; run `manage bind --task TM-id` then. Do not launch a second worker.
+   next round's worker and keeps the stopped binding in `previous_workers`. If the worker cannot be
+   observed yet, the result says `bound: false`; run `manage bind --task TM-id` then. Do not launch a
+   second worker.
 2. **Adopt.** For a worker started before this rule, run `manage bind --task TM-id --pane <id>
    [--server <socket>]` or `--pid <pid>`. The pane must be live, the only live pane in its session,
    and in the task worktree, its session must have been created after the task was admitted, and its
@@ -255,6 +254,24 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    as stopped. Anything else is refused with a recovery path, and the worker keeps running. It never
    closes a session it did not start or bind, and never an active one. `manage cleanup` uses the same
    rule.
+
+### Rework after changes are requested
+
+A finish report moves the task to `ready-for-review`, and a governed task cannot be dispatched again
+from there. When the independent review of the finish revision returns `changes_requested`:
+
+1. Stop the finished worker with `manage stop-worker --task TM-id`.
+2. Run `manage rework --task TM-id`. It refuses with `TOPOLOGY_MANAGEMENT_REWORK_REVIEW` unless the
+   latest review is `changes_requested` for the exact current finish revision (no review, an
+   approval, or a review of another revision is refused), and with `TOPOLOGY_MANAGEMENT_REWORK`
+   for an unadmitted or landed task, another session, or a worker that is not stopped. It records
+   a `rework` event that keeps the reviewed revision and its findings, clears the finish, returns
+   the record to `working`, and runs `tm rework`, which returns the governed task to `working` and
+   moves its finished dispatch into `governance.reworks`.
+3. Run `manage start-worker --task TM-id` and give the worker the findings from the `rework` event.
+4. The next finish report must name a new commit; the reviewed revision is refused with
+   `TOPOLOGY_MANAGEMENT_REVISION`. That new revision needs its own review: integration keys the
+   review on the exact revision, so the earlier verdict never applies to it.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
 review. `reviewer collect` accepts the challenge-bound response from the registered reviewer.

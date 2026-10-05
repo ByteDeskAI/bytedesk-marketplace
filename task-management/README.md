@@ -217,6 +217,8 @@ The JSON is `{"kind":"finish","report":{"revision":"<full commit SHA>","artifact
 The producer persists the finish, calls `tm review-ready`, and queues a review request bound
 to that revision and reviewer incarnation. A bare `review-ready` call cannot skip this report.
 It keeps its claim while review is pending; `review_blocked` names a producer hold for the lead.
+If the review requests changes, the lead runs `ao-topology manage rework --task <id>`, which
+records the rework and calls `tm rework`; the task is then `working` and can be dispatched again.
 Worker exit, a PR, or acceptance ticks cannot close the task. Every completion surface rereads
 the producer's exact-revision review and separately attributed integration decision, and
 checks the reviewed commit landed on the target branch. Ordinary gate overrides do not

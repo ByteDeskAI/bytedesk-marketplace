@@ -1519,3 +1519,98 @@ test('TM-263 (j) record-landing: a server lead_autonomy policy naming another le
   const agreed = await leadServer(t, 'landed');
   assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1'), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
 });
+
+// TM-347: changes_requested -> rework -> a new worker -> re-finish at a new revision -> re-review -> integrate.
+test("TM-347: a governed task returns to working after changes are requested, and only a new revision can be approved", async t => {
+  const { opts, git } = await fixture(t);
+  const { fileURLToPath } = await import("node:url");
+  const { reviewerPaths, reviewsRoot, currentReviewStatus } = await import("../../topology/lib/reviewer.mjs");
+  const { reworkTask, stopTaskWorker } = await import("../../topology/lib/management.mjs");
+  const tmBin = fileURLToPath(new URL("../../../task-management/bin/tm", import.meta.url));
+  const env = { ...opts.env, TM_ROOT: opts.consumer, TM_SESSION_ID: "author", CLAUDE_PROJECT_DIR: opts.consumer };
+  delete env.TM_DISPATCH_WORKER;
+  const tm = async (args, allowFailure = false) => run(tmBin, args, { cwd: opts.consumer, env, allowFailure });
+  const show = async () => JSON.parse((await tm(["show", "TM-001", "--json"])).stdout);
+  await tm(["init"]);
+  await tm(["epic", "new", "Fixture integration"]);
+  await tm(["task", "new", "Implement scoped content change", "--body", "Change code.txt and validate it.", "--ac", "code.txt contains implemented"]);
+  await tm(["label", "TM-001", "ready-for-agent"]);
+  await tm(["touches", "TM-001", "code.txt"]);
+  const reviewer = await reviewerPaths(opts.consumer, opts.env, opts.home);
+  await writeJson(reviewer.recordPath, { agent_id: "reviewer-1", repo_id: reviewer.identity.id, provider: "claude", binding: { serverKey: "/tmp/s", serverPid: 1, sessionId: "$1", sessionCreated: 1, paneId: "%1", panePid: 2 } });
+  const registry = join(opts.consumer, "..", "registry.mjs");
+  await writeFile(registry, `import { spawn } from "node:child_process";
+export default { proc: { name: "proc", available: () => true, spawn: ({ worktree }) => {
+  const child = spawn("sleep", ["60"], { cwd: worktree, detached: true, stdio: "ignore" }); child.unref();
+  return { ok: true, run: "proc:" + child.pid, pid: child.pid };
+} } };`);
+  env.TM_DISPATCH_REGISTRY = registry;
+  const actual = { ...opts, store: undefined, task: "TM-001", tmBin, env, wake: async () => ({ rang: false, reason: "fixture" }) };
+  const dispatch = async () => {
+    const result = JSON.parse((await tm(["dispatch", "TM-001", "--backend", "proc", "--json"])).stdout);
+    t.after(() => { try { process.kill(Number(result.run.slice(5))); } catch {} });
+    return result;
+  };
+  const commit = async text => {
+    const { worktree } = await show();
+    await writeFile(join(worktree, "code.txt"), text); await git(worktree, ["add", "code.txt"]);
+    await git(worktree, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", text]);
+    return (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  };
+  const report = revision => workerReport({ ...actual, kind: "finish", report: { artifacts: ["code.txt"], checks: ["content"], risks: [], evidence: "fixture result", revision } });
+  const reviewsDir = join(await reviewsRoot(opts.consumer, opts.env, opts.home), "TM-001");
+  let clock = Date.parse("2026-10-05T00:00:00Z");
+  const review = async (revision, verdict) => writeJson(join(reviewsDir, `${revision}.json`), { task: "TM-001", revision, verified_commit: revision, verdict, reviewer_id: "reviewer-1", author_agent_ids: ["author"], request_nonce: "n", created_at: new Date(clock += 1000).toISOString(),
+    findings: verdict === "changes_requested" ? [{ severity: "major", file: "code.txt", line: 1, claim: "wrong", evidence: "e", fix: "f" }] : [] });
+
+  assert.equal((await admitTask(actual)).admitted, true);
+  assert.equal((await dispatch()).ok, true);
+  const first = await commit("first attempt");
+  assert.equal((await report(first)).state, "ready-for-review");
+  assert.equal((await show()).governance.state, "ready-for-review");
+  const refusedDispatch = await tm(["dispatch", "TM-001", "--backend", "proc"], true);
+  assert.match(refusedDispatch.stderr, /TM_GOVERNED_ADMISSION_REQUIRED/, "the deadlock this task removes");
+
+  const code = c => ({ code: c });
+  await assert.rejects(reworkTask(actual), code("TOPOLOGY_MANAGEMENT_REWORK"), "a live finished worker is stopped first");
+  await stopTaskWorker({ ...actual, workerState: async () => ({ owned: true, active: false, alive: false, proof: "fixture-exited" }) });
+  await assert.rejects(reworkTask(actual), { code: "TOPOLOGY_MANAGEMENT_REWORK_REVIEW", message: /missing/ }, "no review");
+  await review(first, "approve");
+  await assert.rejects(reworkTask(actual), { code: "TOPOLOGY_MANAGEMENT_REWORK_REVIEW", message: /satisfied/ }, "an approved revision");
+  const other = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await review(other, "changes_requested");
+  await assert.rejects(reworkTask(actual), { code: "TOPOLOGY_MANAGEMENT_REWORK_REVIEW", message: /stale/ }, "a review of another revision");
+  await assert.rejects(reworkTask({ ...actual, owner: "peer" }), code("TOPOLOGY_MANAGEMENT_REWORK"), "only the admitting session");
+  await review(first, "changes_requested");
+  const reworked = await reworkTask(actual);
+  assert.equal(reworked.revision, first);
+  const record = reworked.record;
+  assert.equal(record.state, "working"); assert.equal(record.finish, undefined); assert.equal(record.collected, undefined);
+  assert.ok(record.worktree && record.branch && record.base_revision && record.owner === "author", "owner, worktree, branch and base are kept");
+  const event = record.events.at(-1);
+  assert.equal(event.event, "rework"); assert.equal(event.revision, first); assert.equal(event.review.findings[0].severity, "major");
+  assert.ok(record.events.some(e => e.event === "finish" && e.report.revision === first), "the reviewed finish stays in history");
+  const doc = await show();
+  assert.equal(doc.governance.state, "working"); assert.equal(doc.governance.revision, undefined);
+  assert.equal(doc.governance.reworks.at(-1).revision, first); assert.equal(doc.dispatched, undefined);
+  assert.equal((await reworkTask(actual)).revision, first, "a retry only repeats the store projection");
+  assert.equal((await show()).governance.reworks.length, 1);
+
+  // start-worker is tm dispatch then bind: both now succeed.
+  assert.equal((await dispatch()).ok, true);
+  assert.equal((await bindTaskWorker(actual)).bound, true);
+  await assert.rejects(report(first), { code: "TOPOLOGY_MANAGEMENT_REVISION", message: /changes were requested/ }, "the reviewed revision is never resubmitted");
+  const second = await commit("implemented");
+  assert.equal((await report(second)).state, "ready-for-review");
+  assert.equal((await show()).governance.revision, second);
+
+  // The old verdict never satisfies the new revision, whatever it says and however recent it is.
+  // The operator shell decides integration (TM-248): TM_SESSION_ID would mark a managed session.
+  const gate = () => integrationEligibility({ ...actual, env: opts.env, reviewGate: async g => { const status = await currentReviewStatus(g.consumer, g.task, g.revision, g.env, g.home); return { eligible: status.state === "satisfied", reasons: status.state === "satisfied" ? [] : [`review is ${status.state}`], status }; } });
+  assert.deepEqual((await gate()).refusals.filter(r => r.condition === "review").map(r => r.reason), ["review is stale"]);
+  await review(first, "approve");
+  assert.deepEqual((await gate()).refusals.filter(r => r.condition === "review").map(r => r.reason), ["review is stale"], "an approval of the old revision");
+  await review(second, "approve");
+  const eligible = await gate();
+  assert.equal(eligible.eligible, true, eligible.reasons.join("; "));
+});

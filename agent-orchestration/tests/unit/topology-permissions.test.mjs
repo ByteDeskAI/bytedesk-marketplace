@@ -135,7 +135,7 @@ test('the CLI refuses a dispatched worker every lead verb but lets its report th
   const { consumer } = await fixture(t);
   const cli = args => spawnSync(process.execPath, [join(PLUGIN, 'topology', 'cli.mjs'), 'manage', ...args, '--consumer', consumer, '--task', 'TM-1'],
     { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME, TM_DISPATCH_WORKER: '1', AGENT_ORCHESTRATION_STATE_HOME: join(consumer, '..', 'state') } });
-  for (const verb of ['admit', 'start-worker', 'stop-worker', 'integrate', 'record-landing', 'bind', 'cleanup', 'assign', 'release']) {
+  for (const verb of ['admit', 'start-worker', 'stop-worker', 'rework', 'integrate', 'record-landing', 'bind', 'cleanup', 'assign', 'release']) {
     const r = cli([verb]); assert.equal(r.status, 1, verb); assert.match(r.stderr, /TOPOLOGY_MANAGEMENT_WORKER_REFUSED/, verb);
   }
   const report = cli(['report']);
