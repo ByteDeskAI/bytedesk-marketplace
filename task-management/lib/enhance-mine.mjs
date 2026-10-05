@@ -43,8 +43,9 @@ const SECRET_RULES = [
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, "[REDACTED:aws-key]"],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[REDACTED:jwt]"],
   // TM-435: GitLab, npm, Stripe live secret and restricted keys, Google API keys and OAuth access tokens,
-  // Hugging Face tokens. `{35,}` and the open-ended runs take the whole token, never a prefix of it.
-  [/\b(?:glpat-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{36,}|[sr]k_live_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{35,}|ya29\.[A-Za-z0-9._-]{20,}|hf_[A-Za-z0-9]{20,})/g, "[REDACTED:token]"],
+  // Hugging Face tokens. The open-ended runs take the whole token, never a prefix of it. A Google key is
+  // AIza + 35; `{30,}` also takes a truncated or mistyped one (the delta check's AIza + 34 leaked).
+  [/\b(?:glpat-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{36,}|[sr]k_live_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{30,}|ya29\.[A-Za-z0-9._-]{20,}|hf_[A-Za-z0-9]{20,})/g, "[REDACTED:token]"],
   // Cookie headers carry sessions: everything after the header name, to the end of the line.
   [/\b((?:set-)?cookie\s*:)[^\n]*/gi, "$1 [REDACTED]"],
   // curl's cookie argument (`-b` only after curl: elsewhere it is a branch or a buffer name).

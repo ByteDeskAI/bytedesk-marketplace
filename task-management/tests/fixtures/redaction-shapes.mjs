@@ -63,6 +63,8 @@ export const SHAPES = [
   // 39 characters after the prefix: the whole run goes. The secret is the 4-character tail that a rule
   // stopping at 35 would leave behind.
   [`AI${'za'}${pad(35)}Q9zX`, 'Q9zX'],
+  // The delta check's key, exactly: 38 characters, 34 after the prefix (one short of a full key).
+  [`AI${'za'}SyA1234567890abcdefghijklmnopqrstu`, `AI${'za'}SyA1234567890abcdefghijklmnopqrstu`],
   [`ya${'29.'}yaVAL9x${pad(20)}`, 'yaVAL9x'],
   [`h${'f_'}hfVAL9x${pad(24)}`, 'hfVAL9x'],
   ['DefaultEndpointsProtocol=https;AccountKey=azVAL9x/ab+cd==;EndpointSuffix=core', 'azVAL9x'],
