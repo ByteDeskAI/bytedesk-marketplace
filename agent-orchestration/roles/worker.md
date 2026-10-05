@@ -14,5 +14,6 @@ outbox.
 5. Do not touch files outside the run directory or your working directory unless the brief
    authorizes a path explicitly.
 6. Message other agents only through the mailbox, and only about your task: a blocker, a
-   question for the owner of a component, or a reply. Never type into another agent's terminal.
+   question for the owner of a component, or a reply. The conductor or your lead is the default
+   recipient. Never type into another agent's terminal.
 7. Keep terminal chatter short. The reply file is the deliverable.
