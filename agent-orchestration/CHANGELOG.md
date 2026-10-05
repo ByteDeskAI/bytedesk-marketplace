@@ -15,6 +15,13 @@
 
 ### Added
 
+- **One doctor for AO, task-management and the services (TM-379, EP-028).** `agent-orchestration
+  doctor` now leads its JSON with a `combined` block and exits 1 when any present part is
+  unhealthy: `agentOrchestration` (the doctor's own verdict), `services` (process-compose answering
+  and every managed process Running, the same predicate as `services wait --until healthy`;
+  `ok: null` when services are switched off), `taskManagement` (`tm doctor --json` run through the
+  repository's tm launcher, never imported; `ok: null` when tm is absent) and `pluginFreshness`
+  (TM-373, informational). It used to exit 0 whatever it found.
 - **`ao-topology repos list|add|remove` makes repository registration explicit (TM-378, EP-028).**
   Until now a repository got a supervisor only as a SessionStart side effect. `repos list [--json]`
   shows each entry of the services `repos.json` registry with its supervisor state (running,

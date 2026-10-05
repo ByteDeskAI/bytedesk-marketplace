@@ -38,7 +38,7 @@ work: a task that is dispatched must not also be launched as a team.
 | See how a team run is going, or stop it | `/agent-orchestration:orchestration-status` → `ao-topology status --run <run_dir>` | AO |
 | See or change which repositories have a supervisor | `ao-topology repos list`, `ao-topology repos add <path>`, `ao-topology repos remove <path-or-key>` (remove keeps the repository and its state) | AO |
 | Wait for the managed services | `agent-orchestration services wait --until healthy --timeout 120` | AO |
-| Check overall health | `/agent-orchestration:agent-orchestration-doctor`; for the store alone `tm doctor` | either |
+| Check overall health (AO, task-management, services) | `agent-orchestration doctor --consumer-cwd <repo>` or `tm doctor --all` (exit 1 when any present part is unhealthy); `/agent-orchestration:agent-orchestration-doctor` explains the report; for the store alone `tm doctor` | either |
 | Find finished work nobody reviewed | `tm review-sweep` (`--apply` files the findings) | tm |
 | Find recurring problems and improvements | `/task-management:enhance-mine` → `tm enhance-mine` (`--apply` files them) | tm |
 | Pick a task-management flow (spec, map, tickets…) | `/task-management:route` | tm |

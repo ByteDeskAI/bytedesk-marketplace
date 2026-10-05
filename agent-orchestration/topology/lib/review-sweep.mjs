@@ -26,8 +26,8 @@ const lastSweep = new Map();
 
 const noticeId = (key, findingKey) => createHash('sha256').update(`review-sweep:v1:${key}:${findingKey}`).digest('hex').slice(0, 32);
 
-/** The repository's own tm launcher, or null when task-management is not installed there. */
-async function tmLauncher(consumer) {
+/** The repository's own tm launcher, or null when task-management is not installed there. Shared with the combined doctor (TM-379). */
+export async function tmLauncher(consumer) {
   const bin = join(consumer, '.bytedesk/task-management/bin/tm');
   return (await exists(bin)) ? bin : null;
 }
