@@ -386,6 +386,7 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 .bytedesk/task-management/bin/tm cap list [--status open]          the enhancement backlog, best bet first
 .bytedesk/task-management/bin/tm cap accept <CAP-id>               mint the task that builds it, criteria and all
 .bytedesk/task-management/bin/tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
+.bytedesk/task-management/bin/tm enhance-mine [--apply]            mine transcripts + board for issues; dry-run by default
 .bytedesk/task-management/bin/tm evidence <id> <path|->            attach a log/screenshot as proof
 .bytedesk/task-management/bin/tm evidence [<id>] --check           does each attachment still match its source?
 .bytedesk/task-management/bin/tm task new "<title>" --template bug   start from a template
@@ -1003,7 +1004,7 @@ Twenty ship, in three groups:
 
 - **Lifecycle** — `/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override`
 - **Decision-map pipeline** — `map` · `interview` · `research` · `prototype` · `spec` · `tickets` · `implement` · `route`
-- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track`
+- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track` · `enhance-mine`
 
 ## Capabilities — what to build next
 

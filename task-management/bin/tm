@@ -510,6 +510,36 @@ const VERBS = {
     die(`unknown: tm cap ${sub} (new | list | accept | ship | drop)`);
   },
 
+  /**
+   * `tm enhance-mine` — mine transcripts, the board and logs for issues and enhancements (TM-380).
+   * Dry-run by default; `--apply` files tasks and CAPs and comments on matches.
+   */
+  async "enhance-mine"(...args) {
+    requireInit();
+    const flag = (name) => {
+      const i = args.indexOf(`--${name}`);
+      return i === -1 ? undefined : args[i + 1];
+    };
+    const num = (name, dflt) => {
+      const v = flag(name);
+      if (v === undefined) return dflt;
+      if (!/^\d+$/.test(v)) die(`--${name} takes a whole number, got ${v}`);
+      return Number(v);
+    };
+    const testLogs = args.flatMap((a, i) => (a === "--test-log" && args[i + 1] ? [args[i + 1]] : []));
+    const { mine, render } = await import("../lib/enhance-mine.mjs");
+    const report = await mine({
+      p: P,
+      project: flag("project"),
+      days: num("days", 14),
+      apply: args.includes("--apply"),
+      top: num("top", 15),
+      minCount: num("min-count", 2),
+      testLogs,
+    });
+    emit(report, () => render(report));
+  },
+
   start(id) {
     requireInit();
     const t = read(id, P) || die(`not found: ${id}`);
@@ -1722,6 +1752,7 @@ const VERBS = {
         '  adr new "<title>"',
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
+        "  enhance-mine [--apply] [--days 14] [--top 15] [--min-count 2] [--test-log <f>]...   mine transcripts + board for issues (dry-run by default)",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
         "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
