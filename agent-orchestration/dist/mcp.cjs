@@ -31349,6 +31349,8 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     // TM-218: the lead's one launcher. tm claims under TM_SESSION_ID=owner, reuses the admitted
     // worktree, spawns the backend, and writes the dispatch + registry row observeWorker reads.
     dispatch: async (id, backend) => JSON.parse((await exec(["dispatch", taskId(id), "--backend", backend, "--json"])).stdout),
+    // TM-247 (AC7): move the claim to a new admission owner; --steal only from the recorded owner.
+    claimFor: async (id, session, cwd, steal) => exec(["claim", taskId(id), ...steal ? ["--steal"] : []], cwd, { TM_SESSION_ID: session }),
     // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
     collect: async (id) => JSON.parse((await exec(["collect", taskId(id), "--json"])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
@@ -31474,8 +31476,11 @@ async function taskWorkerState(options, record2) {
 }
 async function observeLiveness(ctx, doc, record2, { finished, claimRule = {} }) {
   const worker = record2.worker;
-  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record2.owner, claimRule);
-  invariant2(worker && worker.owner === record2.owner && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  const workerOwner = worker?.owner ?? record2.owner;
+  invariant2(workerOwner === record2.owner || (record2.transfers || []).some((t) => t.from === workerOwner), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  const rule = workerOwner === record2.owner ? claimRule : { ...claimRule, holders: [...claimRule.holders || [], record2.owner] };
+  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant2(worker && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
   if (finished) invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
   if (row.backend === "topology") {
     invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
@@ -77735,10 +77740,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4571ecbc3cf6989407fe1538d253580caf7446bfd1fa608664da13c4f831da1f";
+  return false ? null : "5cf6d31e410d89f71bed32165f7f641fdd682396901ab1ae2dd0c53488707317";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4571ecbc3cf6989407fe1538d253580caf7446bfd1fa608664da13c4f831da1f";
+  const fingerprint2 = false ? null : "5cf6d31e410d89f71bed32165f7f641fdd682396901ab1ae2dd0c53488707317";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78163,7 +78168,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4571ecbc3cf6989407fe1538d253580caf7446bfd1fa608664da13c4f831da1f",
+  sourceFingerprint: false ? null : "5cf6d31e410d89f71bed32165f7f641fdd682396901ab1ae2dd0c53488707317",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

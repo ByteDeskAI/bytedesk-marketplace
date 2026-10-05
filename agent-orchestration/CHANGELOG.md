@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`manage transfer` hands a governed admission to another lead (TM-247, EP-028).**
+  `manage transfer --task <id> [--to <session>] --reason <text>`:
+  - The owner can hand off to `--to`.
+  - Any other session can take over for itself once the owner's claim is no longer live.
+  - A bound worker that is not stopped refuses the transfer.
+  - The transfer is an `ownership-transfer` event plus a task comment. The claim moves through
+    `tm claim`.
+  - A worker stopped before the transfer still satisfies integration under its original owner.
+
 - **Closing a landed governed task no longer has an order trap (TM-247, EP-028).**
   - `manage close --task <id> [--landed <sha> --reason <text>]` records the landing if none is
     recorded, stops the worker, then cleans up and closes the task, in that order.

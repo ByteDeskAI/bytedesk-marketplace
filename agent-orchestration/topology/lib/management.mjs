@@ -94,6 +94,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     // TM-218: the lead's one launcher. tm claims under TM_SESSION_ID=owner, reuses the admitted
     // worktree, spawns the backend, and writes the dispatch + registry row observeWorker reads.
     dispatch: async (id, backend) => JSON.parse((await exec(['dispatch', taskId(id), '--backend', backend, '--json'])).stdout),
+    // TM-247 (AC7): move the claim to a new admission owner; --steal only from the recorded owner.
+    claimFor: async (id, session, cwd, steal) => exec(['claim', taskId(id), ...(steal ? ['--steal'] : [])], cwd, { TM_SESSION_ID: session }),
     // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
     collect: async id => JSON.parse((await exec(['collect', taskId(id), '--json'])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
@@ -434,9 +436,14 @@ export async function deadWorkerState(options, record) {
 
 async function observeLiveness(ctx, doc, record, { finished, claimRule = {} }) {
   const worker = record.worker;
+  // TM-247 (AC7): a worker started before an ownership transfer keeps its own owner's identity; the
+  // claim may then sit with the new owner. Only an owner the record transferred from is accepted.
+  const workerOwner = worker?.owner ?? record.owner;
+  invariant(workerOwner === record.owner || (record.transfers || []).some(t => t.from === workerOwner), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
+  const rule = workerOwner === record.owner ? claimRule : { ...claimRule, holders: [...(claimRule.holders || []), record.owner] };
   // An adopted worker (TM-218) has no tm dispatch; its binding in this record is the registry.
-  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, record.owner, claimRule);
-  invariant(worker && worker.owner === record.owner && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
+  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant(worker && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
   if (finished) invariant(record.finish && record.events?.some(event => event.event === 'finish' && event.report?.revision === record.finish.revision), 'TOPOLOGY_MANAGEMENT_WORKER', 'Task worker result has not been collected through the finish protocol.');
   if (row.backend === 'topology') {
     invariant(worker.kind === 'topology' && worker.native_identity, 'TOPOLOGY_MANAGEMENT_WORKER', 'Legacy native ownership must be reconciled through a new verified finish report.');
@@ -969,6 +976,38 @@ export async function cleanupTask(options) {
       await recordEvent(ctx, options.task, record, 'cleanup-blocked', { reason: error.message, recovery });
       return { cleaned: false, reason: error.message, recovery };
     }
+  });
+}
+
+/** TM-247 (AC7): hand a governed admission to another lead session, recorded where both can see it
+ * (a management-record event and a task comment). The owner may hand off to --to at any time; any
+ * other session may take over only once the owner's claim is no longer live (released or expired),
+ * so a lead that left does not strand its review rounds. A live bound worker refuses either way: its
+ * identity names the old owner, so stop or retire it first. The admission, base, worktree, branch and
+ * lead id are unchanged; only the owner and the claim move. */
+export async function transferTask(options) {
+  const ctx = await context(options);
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record = await loadRecord(ctx.path), caller = options.owner;
+    invariant(record?.started, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${options.task} has no admission to transfer.`);
+    invariant(nonempty(options.reason), 'TOPOLOGY_MANAGEMENT_TRANSFER', 'transfer requires a non-empty --reason.');
+    invariant(nonempty(caller), 'TOPOLOGY_MANAGEMENT_TRANSFER', 'The caller has no session id (TM_SESSION_ID or AO_AGENT_ID).');
+    const from = record.owner, to = nonempty(options.to) ? options.to.trim() : caller;
+    invariant(to !== from, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${options.task} is already owned by ${from}.`);
+    invariant(caller === from || caller === to, 'TOPOLOGY_MANAGEMENT_TRANSFER', `Only the owner ${from} can hand ${options.task} to another session; another session can only take it over for itself.`);
+    invariant(!record.worker || record.worker.stopped_at, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${options.task} has a bound worker that is not stopped; stop or retire it with manage stop-worker first.`);
+    const claim = await ctx.store.claim(options.task);
+    invariant(!claim || claim.session === from || claim.session === to, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `${options.task} is claimed by ${claim?.session}, neither the owner ${from} nor ${to}; reconcile that claim first.`);
+    invariant(caller === from || claim?.session !== from, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${from} still holds a live claim on ${options.task}; ask it to run manage transfer --task ${options.task} --to ${to}, or wait for its claim to expire.`);
+    const doc = await ctx.store.show(options.task);
+    invariant(doc.worktree && resolve(doc.worktree) === resolve(record.worktree), 'TOPOLOGY_MANAGEMENT_WORKTREE', 'Task worktree differs from the admission record; reconcile it before transferring.');
+    try { await ctx.store.claimFor(options.task, to, record.worktree, claim?.session === from); }
+    catch (error) { fail('TOPOLOGY_MANAGEMENT_OWNERSHIP', `Moving the claim on ${options.task} to ${to} failed: ${tmMessage(error)}`); }
+    const next = await recordEvent(ctx, options.task, record, 'ownership-transfer', { from, to, by: caller, reason: options.reason.trim() });
+    next.owner = to;
+    next.transfers = [...(next.transfers || []), { from, to, by: caller, at: next.updated_at }];
+    await writeJson(ctx.path, next);
+    return { transferred: true, from, to, record: next };
   });
 }
 

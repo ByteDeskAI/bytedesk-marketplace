@@ -1771,3 +1771,29 @@ test('TM-247 AC8: after integrate closes the task and releases the claim, stop-w
   assert.equal(calls.filter(c => c === 'done').length, 0, 'an already-done task is not closed twice');
   setClaim({ session: 'someone-else' });
 });
+
+test('TM-247 AC7: a recorded ownership transfer moves the admission between leads without stranding its stopped worker', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker, transferTask } = await import('../../topology/lib/management.mjs');
+  const claims = [];
+  l.opts.store.claimFor = async (task, session, cwd, steal) => { claims.push({ session, steal }); l.setClaim({ session, worktree: cwd, branch: l.doc.branch }); };
+  await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  const reason = { reason: 'the gateway lead session left; marketplace lead takes the review rounds' };
+  await assert.rejects(transferTask({ ...l.actual, ...reason, to: 'lead-2' }), /bound worker that is not stopped/);
+  await l.finish(); await l.kill(first.run);
+  assert.equal((await stopTaskWorker(l.actual)).stopped, true);
+  await assert.rejects(transferTask({ ...l.actual, ...reason, owner: 'lead-2' }), /still holds a live claim/, 'no takeover while the owner holds a live claim');
+  await assert.rejects(transferTask({ ...l.actual, to: 'lead-2' }), /--reason/);
+  await assert.rejects(transferTask({ ...l.actual, ...reason, owner: 'stranger', to: 'lead-2' }), /Only the owner/);
+  const handed = await transferTask({ ...l.actual, ...reason, to: 'lead-2' });
+  assert.deepEqual([handed.from, handed.to, handed.record.owner], ['author', 'lead-2', 'lead-2']);
+  assert.deepEqual(claims, [{ session: 'lead-2', steal: true }]);
+  assert.ok(handed.record.events.some(e => e.event === 'ownership-transfer' && e.by === 'author' && e.reason === reason.reason), 'recorded where both can see it');
+  const state = await taskWorkerState({ ...l.actual, owner: 'lead-2' }, handed.record);
+  assert.equal(state.owned, true, state.reason); assert.equal(state.active, false);
+  // The new owner's claim then expires; a third lead may take over for itself.
+  l.setClaim(null);
+  const taken = await transferTask({ ...l.actual, ...reason, owner: 'lead-3' });
+  assert.equal(taken.record.owner, 'lead-3'); assert.equal(claims.at(-1).steal, false);
+});

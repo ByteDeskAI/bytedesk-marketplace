@@ -269,6 +269,17 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    the admission owner through `tm start`, so no `TM_SESSION_ID=<owner> tm start` is needed. A claim
    held by another session is never taken. While a lead holds the claim, the pool's collector records
    a dead worker's result but never parks the task or drops the claim.
+6. **Hand over an admission (TM-247).** Run
+   `manage transfer --task TM-id [--to <session>] --reason "<why>"`.
+   - The owner can hand the task to `--to` at any time.
+   - Another lead can take the task over for itself only when the owner's claim is no longer live
+     (released or expired). So review rounds are not stranded when the admitting session leaves.
+   - A bound worker that is not stopped refuses the transfer. Stop or retire it first.
+   - The transfer is recorded as an `ownership-transfer` event and a task comment, which both leads
+     can read. Only the owner and the claim move. The admission, base, worktree, branch and lead id
+     stay the same.
+   - A worker stopped before the transfer still counts toward integration under its original
+     owner's identity.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
 review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a
