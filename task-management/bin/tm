@@ -1590,6 +1590,7 @@ const VERBS = {
     if (res.ungoverned) process.stderr.write(`WARNING: ${res.ungoverned}\n`);
     // TM-300: a missing ao prefix never blocks a dispatch, but it is never silent either.
     if (res.prefixWarning) process.stderr.write(`WARNING: ${res.prefixWarning}\n`);
+    for (const w of res.passEnvWarnings ?? []) process.stderr.write(`WARNING: ${w}\n`);
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.

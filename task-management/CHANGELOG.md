@@ -16,6 +16,16 @@
   the target's pool claimed and mailed as the filing worker. `runTm` children and the detached pool
   now drop every `AO_*` variable except machine configuration (`AO_HOME`, `AO_TRANSPORT`,
   `AO_NATS_*`, `AO_NTFY_*`, `AO_SERVICES_*`, `AO_TOPOLOGY_BIN`, `AO_TMUX_COMMAND`, `AO_*_MS`).
+- **`dispatch.passEnv` is honoured only from user config, never for a reserved name, and cannot
+  override the worker's identity (TM-448, EP-028).** Names now come from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`dispatch.passEnv`) and agent-orchestration's
+  global `workers.passEnv`. The git-tracked `.bytedesk/task-management/config.json` and
+  `.bytedesk/agent-orchestration/config.json` are ignored with a warning (`passEnvWarnings` on the
+  dispatch result and the `dispatched` event, and `WARNING:` on stderr). `TM_*`, `AO_*`,
+  `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME` and `NODE_OPTIONS` are refused. On tmux, the
+  pane re-applies `TM_ROOT`, `TM_ACTOR`, `TM_SESSION_ID` and the worker markers with `env` after
+  sourcing the secrets file, so a sourced value can no longer override them. Move any
+  `dispatch.passEnv` from repository config to your user config.
 
 ### Changed
 

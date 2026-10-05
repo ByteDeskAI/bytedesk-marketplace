@@ -242,13 +242,35 @@ Begin when you have replied READY: the mission is the inputs above plus the work
  */
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** The configured names to pass, and which of them the launching environment lacks. */
+/**
+ * TM-448: names that steer tm, ao, the harness, the loader or git are never passed, whichever layer
+ * names them — a secrets file sourced into a worker must not be able to rename who it is.
+ */
+export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS)$/;
+
+/**
+ * The configured names to pass, which of them the launching environment lacks, and what was set
+ * but not honoured, with `warnings` to show for it.
+ *
+ * TM-448: only the global and plugin-defaults layers count. The repository layer is git-tracked, so
+ * a worker whose PR lands could name a secret there for every later worker; a name set only there
+ * is ignored with a warning. The nearest trusted layer wins, as mergeConfig replaces an array whole.
+ */
 export async function passEnvFor(consumer, { env = process.env, home = homedir() } = {}) {
   const pluginRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
   const loaded = await loadConfig({ consumer, env, home, pluginRoot }).catch(() => null);
-  const raw = loaded?.config?.workers?.passEnv;
-  const names = Array.isArray(raw) ? [...new Set(raw.filter((name) => typeof name === "string" && ENV_NAME.test(name)))] : [];
-  return { names, missing: names.filter((name) => typeof env[name] !== "string") };
+  const layer = (scope) => loaded?.layers?.find((l) => l.scope === scope && l.ok && l.present)?.raw?.workers?.passEnv;
+  const valid = (raw) => (Array.isArray(raw) ? [...new Set(raw.filter((name) => typeof name === "string" && ENV_NAME.test(name)))] : []);
+  const trusted = valid(layer("global") ?? layer("defaults"));
+  const repo = valid(layer("repo"));
+  const refused = [...new Set([...trusted, ...repo].filter((name) => RESERVED_ENV.test(name)))];
+  const names = trusted.filter((name) => !RESERVED_ENV.test(name));
+  const ignored = repo.filter((name) => !RESERVED_ENV.test(name) && !names.includes(name));
+  const warnings = [
+    ...(ignored.length ? [`workers.passEnv: ${ignored.join(", ")} ignored — named only in the repository config, which is git-tracked; name it in the global config instead`] : []),
+    ...(refused.length ? [`workers.passEnv: ${refused.join(", ")} refused — reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, NODE_OPTIONS) are never passed`] : []),
+  ];
+  return { names, missing: names.filter((name) => typeof env[name] !== "string"), ignored, refused, warnings };
 }
 
 /** The env file a launcher sources: always the launcher's own path plus `.env`. */
@@ -1011,6 +1033,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
   const leadId = await registeredLeadId({ consumer: spec.consumer || spec.cwd });
   // TM-375: names only, in the warning as everywhere else.
   const passEnv = await passEnvFor(spec.consumer || spec.cwd);
+  warnings.push(...passEnv.warnings);
   for (const name of passEnv.missing) warnings.push(`workers.passEnv: ${name} is not set in the launching environment; agents start without it`);
 
   if (dryRun) {
@@ -1398,6 +1421,7 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   // TM-375: the secrets this session inherits, by name; values are read only when the pane starts.
   const source = { ...process.env, ...env };
   const passEnv = await passEnvFor(env.AO_CONSUMER || null, { env: source, home });
+  for (const line of passEnv.warnings) log(line);
   for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in the launching environment; ${agentId} starts without it`);
   const passed = { names: passEnv.names, source };
 
@@ -1630,6 +1654,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, consent: quota.consent } : {}) });
   // TM-375: a launcher written before passEnv existed has no source line; staging for it is a no-op the rm cleans up.
   const passEnv = await passEnvFor(run.repository?.root || run.consumer || runDir, { env, home });
+  for (const line of passEnv.warnings) log(line);
   for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in this environment; ${agentId} restarts without it`);
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true, passEnv: passEnv.names });
   entry.binding = (await panesOn(entry.binding?.serverKey ?? await tmux.serverOf(entry.pane))).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;

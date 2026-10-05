@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Security
+
+- **`workers.passEnv` is honoured only from the global config, and never for a reserved name
+  (TM-448, EP-028).** The repository layer is git-tracked, so a worker whose PR landed could name
+  `GITHUB_TOKEN` there and have it copied into every later worker. `passEnvFor` now reads
+  `workers.passEnv` from the global (or plugin-defaults) layer only, using `loadConfig`'s per-layer
+  provenance; a name set only in the repository layer is ignored with a warning in launch
+  warnings and session logs. `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`
+  and `NODE_OPTIONS` are refused from every layer. A test also pins that the launcher exports the
+  agent's own variables after sourcing the secrets file.
+
+### Changed
+
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
   `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to

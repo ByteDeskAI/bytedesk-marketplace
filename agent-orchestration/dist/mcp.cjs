@@ -33795,6 +33795,7 @@ var init_quota = __esm({
 var launch_exports = {};
 __export(launch_exports, {
   BEGIN_CLAUSE: () => BEGIN_CLAUSE,
+  RESERVED_ENV: () => RESERVED_ENV,
   RUN_PERSONA_GRACE_MS: () => RUN_PERSONA_GRACE_MS,
   assertAutomaticFallbackPolicy: () => assertAutomaticFallbackPolicy,
   candidateLabel: () => candidateLabel,
@@ -33982,9 +33983,18 @@ Begin when you have replied READY: the mission is the inputs above plus the work
 async function passEnvFor(consumer, { env = process.env, home = (0, import_node_os23.homedir)() } = {}) {
   const pluginRoot = (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl))));
   const loaded = await loadConfig({ consumer, env, home, pluginRoot }).catch(() => null);
-  const raw = loaded?.config?.workers?.passEnv;
-  const names2 = Array.isArray(raw) ? [...new Set(raw.filter((name) => typeof name === "string" && ENV_NAME.test(name)))] : [];
-  return { names: names2, missing: names2.filter((name) => typeof env[name] !== "string") };
+  const layer = (scope) => loaded?.layers?.find((l) => l.scope === scope && l.ok && l.present)?.raw?.workers?.passEnv;
+  const valid = (raw) => Array.isArray(raw) ? [...new Set(raw.filter((name) => typeof name === "string" && ENV_NAME.test(name)))] : [];
+  const trusted = valid(layer("global") ?? layer("defaults"));
+  const repo = valid(layer("repo"));
+  const refused = [...new Set([...trusted, ...repo].filter((name) => RESERVED_ENV.test(name)))];
+  const names2 = trusted.filter((name) => !RESERVED_ENV.test(name));
+  const ignored = repo.filter((name) => !RESERVED_ENV.test(name) && !names2.includes(name));
+  const warnings = [
+    ...ignored.length ? [`workers.passEnv: ${ignored.join(", ")} ignored \u2014 named only in the repository config, which is git-tracked; name it in the global config instead`] : [],
+    ...refused.length ? [`workers.passEnv: ${refused.join(", ")} refused \u2014 reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, NODE_OPTIONS) are never passed`] : []
+  ];
+  return { names: names2, missing: names2.filter((name) => typeof env[name] !== "string"), ignored, refused, warnings };
 }
 async function stagePassEnv(launcher, names2, source = process.env) {
   const file2 = passEnvFile(launcher);
@@ -34611,6 +34621,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
   }
   const leadId = await registeredLeadId({ consumer: spec.consumer || spec.cwd });
   const passEnv = await passEnvFor(spec.consumer || spec.cwd);
+  warnings.push(...passEnv.warnings);
   for (const name of passEnv.missing) warnings.push(`workers.passEnv: ${name} is not set in the launching environment; agents start without it`);
   if (dryRun) {
     return {
@@ -34898,6 +34909,7 @@ async function openRoleSession({
   const display = { agent: stored ? displayName(stored) : agentId, role, ...roleVisual({ role }) };
   const source = { ...process.env, ...env };
   const passEnv = await passEnvFor(env.AO_CONSUMER || null, { env: source, home });
+  for (const line of passEnv.warnings) log(line);
   for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in the launching environment; ${agentId} starts without it`);
   const passed = { names: passEnv.names, source };
   if (env.AO_CONSUMER && roleSessionNeedsGovernance({ role, coordinatesOnly: coordinatesOnly2 })) {
@@ -35084,6 +35096,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     ...quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, consent: quota.consent } : {}
   });
   const passEnv = await passEnvFor(run2.repository?.root || run2.consumer || runDir, { env, home });
+  for (const line of passEnv.warnings) log(line);
   for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in this environment; ${agentId} restarts without it`);
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true, passEnv: passEnv.names });
   entry.binding = (await panesOn(entry.binding?.serverKey ?? await serverOf(entry.pane))).find((p) => p.paneId === entry.pane && p.sessionName === run2.session) || null;
@@ -35141,7 +35154,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     ...quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, announced: announced?.status ?? null } : {}
   };
 }
-var import_node_crypto29, import_promises43, import_node_os23, import_node_path51, import_node_url6, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ENV_NAME, passEnvFile, ROLE_SESSION_NAME;
+var import_node_crypto29, import_promises43, import_node_os23, import_node_path51, import_node_url6, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ENV_NAME, RESERVED_ENV, passEnvFile, ROLE_SESSION_NAME;
 var init_launch = __esm({
   "topology/lib/launch.mjs"() {
     import_node_crypto29 = require("node:crypto");
@@ -35171,6 +35184,7 @@ var init_launch = __esm({
     BEGIN_CLAUSE = " Then begin the mission immediately, in the same turn \u2014 do not stop after READY and do not wait for another message. You are the conductor: nobody is going to tell you to start.";
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
     ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+    RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS)$/;
     passEnvFile = (launcher) => `${launcher}.env`;
     ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,160}$/;
   }
@@ -78828,10 +78842,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  return false ? null : "9f62e0e80ad0d69cb458d0cbf0f35851b7277dfe18ed7d0df22f9229996e36f1";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  const fingerprint2 = false ? null : "9f62e0e80ad0d69cb458d0cbf0f35851b7277dfe18ed7d0df22f9229996e36f1";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79256,7 +79270,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b",
+  sourceFingerprint: false ? null : "9f62e0e80ad0d69cb458d0cbf0f35851b7277dfe18ed7d0df22f9229996e36f1",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

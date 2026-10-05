@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import { launchRun, launcherScript, openRoleSession, passEnvFile, stagePassEnv } from "../../topology/lib/launch.mjs";
+import { launchRun, launcherScript, openRoleSession, passEnvFile, passEnvFor, stagePassEnv } from "../../topology/lib/launch.mjs";
 import { validateConfigShape } from "../../topology/lib/config.mjs";
 import { normalizeAdapter } from "../../topology/lib/providers.mjs";
 import { materializeSpec, validateSpec } from "../../topology/lib/spec.mjs";
@@ -66,14 +66,57 @@ test("the launcher sources and deletes the staged file, and never contains a val
   assert.equal(existsSync(join(dir, "pwned")), false, "the value was data, not code");
 });
 
-test("a dry-run launch warns about a configured name the launching environment lacks, by name only", async (t) => {
-  const consumer = await mkdtemp(join(tmpdir(), "ao-passenv-repo-"));
-  t.after(() => rm(consumer, { recursive: true, force: true }));
+/** A consumer whose git-tracked config and a private global layer each name passEnv. */
+async function layered(t, { global: g, repo }) {
+  const root = await mkdtemp(join(tmpdir(), "ao-passenv-layers-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, "repo");
+  const xdg = join(root, "xdg");
   await mkdir(join(consumer, ".bytedesk", "agent-orchestration"), { recursive: true });
-  await writeFile(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: ["TM375_NEVER_SET_ANYWHERE"] } }));
+  await mkdir(join(xdg, "agent-orchestration"), { recursive: true });
+  if (repo) await writeFile(join(consumer, ".bytedesk", "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: repo } }));
+  if (g) await writeFile(join(xdg, "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: g } }));
+  return { consumer, xdg, home: root };
+}
+
+test("a dry-run launch warns about a configured name the launching environment lacks, by name only", async (t) => {
+  const { consumer, xdg } = await layered(t, { global: ["TM375_NEVER_SET_ANYWHERE"] });
+  const prior = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = xdg; // launchRun reads the launching process's own config
+  t.after(() => { if (prior === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = prior; });
   const spec = materializeSpec(validateSpec({ name: "passenv", agents: [{ id: "conductor", role: "orchestrator", cli: "generic" }, { id: "hand", role: "worker", cli: "generic" }] }), { runId: "r1", consumer, home: consumer, inputs: {} });
   const result = await launchRun({ spec, adapters: new Map([["generic", normalizeAdapter({ id: "generic" }, "generic")]]), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true });
   assert.ok(result.warnings.some((w) => w.includes("workers.passEnv: TM375_NEVER_SET_ANYWHERE is not set")), result.warnings.join("\n"));
+});
+
+test("TM-448: repo-tracked workers.passEnv is ignored with a warning; the global layer counts", async (t) => {
+  const { consumer, xdg, home } = await layered(t, { global: ["TM448_GLOBAL"], repo: ["TM448_REPO", "GITHUB_TOKEN"] });
+  const got = await passEnvFor(consumer, { env: { XDG_CONFIG_HOME: xdg, TM448_GLOBAL: "v", TM448_REPO: "v", GITHUB_TOKEN: "v" }, home });
+  assert.deepEqual(got.names, ["TM448_GLOBAL"]);
+  assert.deepEqual(got.ignored, ["TM448_REPO", "GITHUB_TOKEN"]);
+  assert.match(got.warnings.join("\n"), /TM448_REPO, GITHUB_TOKEN ignored — named only in the repository config/);
+  const only = await layered(t, { repo: ["TM448_REPO"] });
+  assert.deepEqual((await passEnvFor(only.consumer, { env: { XDG_CONFIG_HOME: only.xdg }, home: only.home })).names, [], "a repo layer alone passes nothing");
+});
+
+test("TM-448: reserved names are refused from every layer", async (t) => {
+  const reserved = ["TM_ROOT", "AO_AGENT_ID", "AO_CONSUMER", "CLAUDE_CONFIG_DIR", "PATH", "HOME", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND"];
+  const { consumer, xdg, home } = await layered(t, { global: ["OK_NAME", ...reserved.slice(0, 6)], repo: reserved.slice(6) });
+  const got = await passEnvFor(consumer, { env: { XDG_CONFIG_HOME: xdg }, home });
+  assert.deepEqual(got.names, ["OK_NAME"]);
+  assert.deepEqual([...got.refused].sort(), [...reserved].sort());
+  assert.match(got.warnings.join("\n"), /refused — reserved names/);
+});
+
+test("TM-448: the launcher applies the agent's own variables after the secrets file", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ao-passenv-order-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const launcher = join(dir, "launch-0.sh");
+  await writeFile(launcher, launcherScript({ agent: { id: "w1", role: "worker", cwd: dir }, candidate: { cli: "sh" },
+    argv: ["sh", "-c", 'printf "%s|%s" "$AO_AGENT_ID" "$TM_ROOT" > seen'], env: { AO_AGENT_ID: "w1", TM_ROOT: "/store" }, envFile: passEnvFile(launcher) }), { mode: 0o700 });
+  await writeFile(passEnvFile(launcher), "export AO_AGENT_ID=evil TM_ROOT=/evil\n", { mode: 0o600 });
+  await execFile("bash", [launcher], { env: { PATH: process.env.PATH, HOME: dir } });
+  assert.equal(await readFile(join(dir, "seen"), "utf8"), "w1|/store");
 });
 
 const haveTmux = await execFile("tmux", ["-V"]).then(() => true, () => false);
