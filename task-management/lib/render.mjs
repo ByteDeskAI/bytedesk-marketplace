@@ -389,10 +389,16 @@ export function handoff(id, p = paths()) {
       `- Push your own branch: git push -u origin ${branch}`,
       `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"${prBase}`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
-      ...(t.governance ? governedFinishSteps(t, p) : [`- Then close: .bytedesk/task-management/bin/tm done ${t.id}`]),
+      ...(t.governance
+        ? governedFinishSteps(t, p)
+        : [
+            "- Review your own diff (a review subagent or /code-review) and fix what it finds.",
+            `- Wait for required checks (gh pr checks ${branch} --watch), then merge your own PR: gh pr merge ${branch} --merge. If the only blocker is a required approving review, add --admin; never merge over a failing or pending check.`,
+            `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
+          ]),
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,
       `- Blocked for any other reason? .bytedesk/task-management/bin/tm block ${t.id} "reason" — name what you need`,
-      t.governance ? `- Report ready-for-review to lead ${t.governance.leadId}. Stop here; independent review and a separate integration decision are required before completion.` : "- Never merge your own PR — a human does that. Never leave the task in_progress: close it or block it.",
+      t.governance ? `- Report ready-for-review to lead ${t.governance.leadId}. Stop here; independent review and a separate integration decision are required before completion.` : "- Merge only your own PR. If checks fail and you cannot fix them, tm block with the failure. Never leave the task in_progress: close it or block it.",
       "",
     );
   }

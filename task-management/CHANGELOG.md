@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A dispatched worker merges its own PR (TM-389).** Operator policy 2026-10-05: a run carries
+  through to done. The worker guard now allows `gh pr merge <own tm/ branch>` (or a bare
+  `gh pr merge` while that branch is checked out) and still refuses a PR number, another branch,
+  or any extra target. The ungoverned handoff tells the worker to review its diff, wait for
+  required checks, merge (`--admin` only when a required approving review is the sole blocker),
+  then `tm done`. Governed tasks are unchanged: the lead integrates.
+
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool
   collected it again on every tick: 575 identical comments and `task_result` events on TM-290. The

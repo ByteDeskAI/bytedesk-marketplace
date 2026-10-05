@@ -321,7 +321,7 @@ once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its ow
 (`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`)**,
 attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
-error instead. **A worker never merges**; the PR is where its run ends and a human takes over.
+error instead. **A worker merges only its own PR**, by branch name, after review and green checks; never anyone else's.
 
 **A guard makes that contract hard to break by accident.** A dispatched worker runs
 `--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`,

@@ -549,7 +549,7 @@ holder and the backend. The worker's handoff ends with the finish line — commi
 `git push -u origin <the task's tm/ branch>`, `gh pr create --title "TM-014: <title>"`,
 evidence, `tm done`, or `tm block` with the error if the push or PR fails — and a PreToolUse
 guard blocks everything past it: force pushes, other branches, deletions, history rewrites,
-`gh pr merge`, releases, secrets, deploys. **The worker stops at the PR; a human merges.**
+merging any PR but its own, releases, secrets, deploys. **The worker merges its own PR once review is clean and checks pass.**
 
 ---
 
