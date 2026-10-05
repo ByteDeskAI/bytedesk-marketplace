@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Skill cleanup: fewer, clearer entry points (TM-377, EP-028).** `roadmap-orchestrator` is now
+  `roadmap-governance` (it governs `ROADMAP.md`; it never orchestrated agents); its description
+  names the old name so `$roadmap-orchestrator` still resolves, and host wiring removes the Kimi link
+  an older install left under the old name. `install-orchestration-host` is merged into
+  `setup-agent-orchestration` as its "Wire another host" step; the script moved to
+  `skills/setup-agent-orchestration/scripts/install-host.mjs`. `orchestration-conduct` is marked
+  not user-invokable (it is the conductor's internal protocol). `goal-feedback-loop` now has
+  trigger phrases and an argument hint.
+
 ### Added
 
 - **`/orchestrate` is one entry point across both plugins (TM-376, EP-028).** The new

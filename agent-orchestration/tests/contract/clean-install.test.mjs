@@ -106,19 +106,19 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     assert.equal(shippedEntries.includes("ROADMAP-INVENTORY.json"), true, "package files must ship append-only roadmap identity data");
     const roadmapCheck = await run(process.execPath, [join(installed, "scripts", "roadmap.mjs"), "--check", join(installed, "ROADMAP.md")], { cwd: installed });
     assert.match(roadmapCheck.stdout, /^ROADMAP OK:/);
-    const roadmapSkill = (await readFile(join(installed, "skills", "roadmap-orchestrator", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
-    assert.match(roadmapSkill, /^---\nname: roadmap-orchestrator\ndescription: .+\n---\n/);
-    const roadmapSkillMetadata = await readFile(join(installed, "skills", "roadmap-orchestrator", "agents", "openai.yaml"), "utf8");
-    assert.match(roadmapSkillMetadata, /display_name: "Roadmap Orchestrator"/);
-    assert.match(roadmapSkillMetadata, /\$roadmap-orchestrator/);
+    const roadmapSkill = (await readFile(join(installed, "skills", "roadmap-governance", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
+    assert.match(roadmapSkill, /^---\nname: roadmap-governance\ndescription: .+\n---\n/);
+    const roadmapSkillMetadata = await readFile(join(installed, "skills", "roadmap-governance", "agents", "openai.yaml"), "utf8");
+    assert.match(roadmapSkillMetadata, /display_name: "Roadmap Governance"/);
+    assert.match(roadmapSkillMetadata, /\$roadmap-governance/);
     assert.equal(JSON.parse(await readFile(join(installed, ".claude-plugin", "plugin.json"), "utf8")).version, undefined);
     assert.equal(JSON.parse(await readFile(join(installed, ".codex-plugin", "plugin.json"), "utf8")).version, undefined);
     const agentsMd = await readFile(join(installed, "AGENTS.md"), "utf8");
     assert.match(agentsMd, /\| Grok Build \| Same `\.mcp\.json`/);
     assert.match(agentsMd, /\| Kimi Code \| `~\/\.kimi-code\/mcp\.json`/);
-    assert.match(agentsMd, /Wire hosts with `skills\/install-orchestration-host`/);
-    const hostSkill = (await readFile(join(installed, "skills", "install-orchestration-host", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
-    assert.match(hostSkill, /^---\nname: install-orchestration-host\n/);
+    assert.match(agentsMd, /Wire hosts with `skills\/setup-agent-orchestration`/);
+    const hostSkill = (await readFile(join(installed, "skills", "setup-agent-orchestration", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
+    assert.match(hostSkill, /^---\nname: setup-agent-orchestration\n/);
 
     const providerEnv = {
       PATH: [fakeGrokBin, fakeKimiBin, process.env.PATH].filter(Boolean).join(delimiter),

@@ -123,7 +123,7 @@ supervisor. It is idempotent. It:
    build is never overwritten, an equal ordinal is left alone, and so is the same build. The copy is built beside the old one and swapped in by rename, keeping the old
    copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
    inside a git checkout, or when the copy's `node_modules` does not satisfy the new
-   `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
+   `package.json` (run `npm ci` there). `setup-agent-orchestration` (its host-wiring step) does the same from its root;
 7. cleans up after earlier installs (TM-285): stops leaked `agent-orchestration-session-*.scope`
    units whose state root no longer exists, hands the managed state root over from a pre-services
    session host (a 24-hour scope or a hand-run host) and a detached `nats-server`, and never touches
@@ -231,8 +231,8 @@ grok plugin install /absolute/path/to/bytedesk-marketplace/agent-orchestration -
 Kimi Code (and a dry-run of every host):
 
 ```sh
-node skills/install-orchestration-host/scripts/install-host.mjs --dry-run --all
-node skills/install-orchestration-host/scripts/install-host.mjs --host kimi --host grok
+node skills/setup-agent-orchestration/scripts/install-host.mjs --dry-run --all
+node skills/setup-agent-orchestration/scripts/install-host.mjs --host kimi --host grok
 ```
 
 Start a fresh host session after installation so the MCP server and skills are discovered.
@@ -394,8 +394,8 @@ Runs live under `<consumer>/.bytedesk/agent-orchestration/runs/<run_id>/`, which
 
 The installed package includes `ROADMAP.md`, its append-only `ROADMAP-INVENTORY.json` identity
 ledger, its validator, portable `ROADMAP-SOURCES.json` seam integrity data, and the
-`roadmap-orchestrator` skill for reference and discovery. Invoke
-`$roadmap-orchestrator`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
+`roadmap-governance` skill (formerly `roadmap-orchestrator`) for reference and discovery. Invoke
+`$roadmap-governance`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
 task, unlock, trajectory, gap, or goal ID. The skill reads the repository roadmap, runs
 `npm run roadmap:check` (or `node scripts/roadmap.mjs --check`), preserves IDs and reciprocal
 lineage, and validates again after an edit. With no target, it presents at most five eligible
