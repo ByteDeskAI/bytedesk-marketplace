@@ -1095,6 +1095,9 @@ pool.state.json
 # The detached pool's own stream, truncated at every start. One machine's log.
 pool.log
 
+# A wake for this machine's pool, dropped by tm ticket from another repo and consumed by it.
+pool.wake
+
 # enhance-mine's last-seen evidence per signature. Derived from this machine's transcripts.
 enhance-mine.json
 
@@ -1236,6 +1239,7 @@ export const NOT_FOR_GIT = [
   "pool.pid",
   "pool.state.json",
   "pool.log",
+  "pool.wake",
   "enhance-mine.json",
   "events.json",
   "events.jsonl",
@@ -1258,6 +1262,7 @@ export function isHostFile(name, rel = "") {
     name === "agents.json" ||
     name === "pool.pid" ||
     name === "pool.state.json" ||
+    name === "pool.wake" ||
     name === "events.json" ||
     name === "events.jsonl" ||
     name === "port.assigned" ||

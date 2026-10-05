@@ -12,6 +12,13 @@
   reports it as a blocker. `critical` maps to `highest`. `tm link` accepts `<board>#<id>` refs and
   `--remove`; a board with no git remote is named `<dir>#TM-n`.
 
+- **A ticket notifies the target lead and wakes the target pool (TM-357, EP-028).** When
+  agent-orchestration is installed, `tm ticket` sends one standing mail through
+  `ao-topology mailbox send --to-repo <target> --subject "ticket TM-n (priority)"`. Without it the
+  ticket is still filed and the output says no mail was sent. The target's pool is woken by a
+  `pool.wake` file (git-ignored) plus `tm pool ensure`. `runPool`'s sleep checks for that file
+  every second and consumes it, so a woken pool ticks within about a second, not 30 s.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
