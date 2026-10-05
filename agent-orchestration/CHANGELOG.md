@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`
+  gains a "Keep work moving: no stalled agents" section. Agents talk to each other through the
+  mailbox within and across repositories, and terminal typing or a human relay is a filed defect.
+  A problem in another component goes to its owner as a ticket plus a mailbox notice, followed by
+  `plugin-rsync` once the fix lands. No agent ends a turn waiting on a person when a recommended
+  option or a standing operator rule answers the question. Agents clear the stalls they find:
+  stale tasks, dirty trees, paused pools, unadmitted ready tasks and silent workers. Rules stay
+  general, and task-specific detail stays on the task. `roles/worker.md` now lets a worker
+  message other agents through the mailbox about its own task, instead of forbidding all
+  messages.
+
 ### Added
 
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
