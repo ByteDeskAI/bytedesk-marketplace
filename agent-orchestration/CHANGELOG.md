@@ -90,6 +90,12 @@
 - **`wait` accepts a file reply to a NATS-delivered message (TM-410, EP-028).** `pendingReplies`
   and `waitForReplies` treat a NATS-delivered message as answered when its outbox reply file has
   content, as well as when a NATS reply exists. The file reply is returned with its path.
+- **`prompt ack` works from a child shell of the agent's pane (TM-411, EP-028).** The ack used to
+  bind to the pane named by `$TMUX_PANE`, and was refused with `TOPOLOGY_PROMPT_ACK_INVALID` from
+  an agent's Bash tool shell. It now binds to the pane whose process is an ancestor of the caller,
+  using the same `/proc` ancestry walk as the TM-222 heartbeat (`ancestorPids`, now exported), and
+  still requires the recorded incarnation. Any caller outside that pane's process tree is refused,
+  including one that sets `TMUX_PANE` by hand.
 - **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
   review range, the patch, the binary manifest and the files a finding may name now resolve from
   the task worktree in the admission record. The request records that `worktree`, and the reviewer

@@ -8958,9 +8958,33 @@ var init_prompts = __esm({
   }
 });
 
+// topology/lib/heartbeat.mjs
+function heartbeatPath(dir, serverKey, paneId2) {
+  return (0, import_node_path30.join)(dir, `${(0, import_node_crypto15.createHash)("sha256").update(`${serverKey}\0${paneId2}`).digest("hex")}.json`);
+}
+async function recentHeartbeat(dir, binding, { now = Date.now, ttlMs = HEARTBEAT_TTL_MS } = {}) {
+  if (!binding?.serverKey || !binding.paneId) return null;
+  const beat = await readJson3(heartbeatPath(dir, binding.serverKey, binding.paneId)).catch(() => null);
+  if (!beat || beat.serverKey !== binding.serverKey || beat.paneId !== binding.paneId || beat.serverPid !== binding.serverPid) return null;
+  if (!Array.isArray(beat.pids) || !beat.pids.includes(binding.panePid)) return null;
+  const age = now() - Number(beat.at);
+  if (!(age >= 0 && age < ttlMs)) return null;
+  return { age_ms: age, event: beat.event, busy: beat.event !== "Stop" };
+}
+var import_node_crypto15, import_node_path30, HEARTBEAT_TTL_MS;
+var init_heartbeat = __esm({
+  "topology/lib/heartbeat.mjs"() {
+    import_node_crypto15 = require("node:crypto");
+    import_node_path30 = require("node:path");
+    init_repoid();
+    init_util();
+    HEARTBEAT_TTL_MS = Number(process.env.AO_LEAD_HEARTBEAT_TTL_MS ?? 3e5);
+  }
+});
+
 // topology/lib/prompt-lifecycle.mjs
 async function refreshPrompt({ agent, consumer, session = null, pluginRoot, home, env = process.env, live: live2 = false, safeBoundary = false, binding = null }) {
-  return withLock((0, import_node_path30.join)(agent._dir, ".prompt.lock"), async () => {
+  return withLock((0, import_node_path31.join)(agent._dir, ".prompt.lock"), async () => {
     const prior = await readPromptState(agent._dir) || {};
     const loaded = await loadConfig({ consumer, pluginRoot, home, env });
     const composed = await composePrompt({ agent, consumer, dir: agent._dir, loaded, templateName: agent.template });
@@ -8989,12 +9013,12 @@ async function refreshPrompt({ agent, consumer, session = null, pluginRoot, home
         status: safeBoundary ? "restart-required" : "queued",
         replacement: "restart-required"
       };
-      await writeText((0, import_node_path30.join)(agent._dir, "prompt.pending.md"), composed.text);
+      await writeText((0, import_node_path31.join)(agent._dir, "prompt.pending.md"), composed.text);
       await writeJson(promptStatePath(agent._dir), state2);
       return state2;
     }
-    const nonce = (0, import_node_crypto15.randomUUID)();
-    await writeText((0, import_node_path30.join)(agent._dir, "prompt.md"), composed.text);
+    const nonce = (0, import_node_crypto16.randomUUID)();
+    await writeText((0, import_node_path31.join)(agent._dir, "prompt.md"), composed.text);
     const state = {
       ...prior,
       desired_revision: composed.revision,
@@ -9014,7 +9038,7 @@ async function refreshPrompt({ agent, consumer, session = null, pluginRoot, home
   });
 }
 async function acknowledgePrompt({ agent, revision, nonce, binding = null, consumer, session, env = process.env }) {
-  return withLock((0, import_node_path30.join)(agent._dir, ".prompt.lock"), async () => {
+  return withLock((0, import_node_path31.join)(agent._dir, ".prompt.lock"), async () => {
     const state = await readJson3(promptStatePath(agent._dir));
     const expectedRepo = (await canonicalRepoId(consumer)).id;
     const actualRepo = env.AO_CONSUMER ? (await canonicalRepoId(env.AO_CONSUMER)).id : null;
@@ -9057,16 +9081,16 @@ async function collectPromptAcknowledgement({
   return { collected: true, state };
 }
 async function promotePromptForIncarnation({ agent, binding, consumer, session }) {
-  return withLock((0, import_node_path30.join)(agent._dir, ".prompt.lock"), async () => {
+  return withLock((0, import_node_path31.join)(agent._dir, ".prompt.lock"), async () => {
     const state = await readJson3(promptStatePath(agent._dir));
     const exact = incarnationOf(binding);
     invariant2(exact, "TOPOLOGY_PROMPT_INCARNATION", "A complete live process incarnation is required before staging its prompt.");
     if (state.status === "queued" || state.status === "restart-required") {
       const { readFile: readFile32 } = await import("node:fs/promises");
-      const text = await readFile32((0, import_node_path30.join)(agent._dir, "prompt.pending.md"), "utf8");
-      await writeText((0, import_node_path30.join)(agent._dir, "prompt.md"), text);
+      const text = await readFile32((0, import_node_path31.join)(agent._dir, "prompt.pending.md"), "utf8");
+      await writeText((0, import_node_path31.join)(agent._dir, "prompt.md"), text);
     }
-    const nonce = (0, import_node_crypto15.randomUUID)();
+    const nonce = (0, import_node_crypto16.randomUUID)();
     const next = { ...state, desired_binding: exact, desired_session: session, repo_id: (await canonicalRepoId(consumer)).id, status: "awaiting-ack", nonce, replacement: "controlled-restart" };
     delete next.applied_revision;
     delete next.applied_binding;
@@ -9075,11 +9099,11 @@ async function promotePromptForIncarnation({ agent, binding, consumer, session }
     return next;
   });
 }
-var import_node_crypto15, import_node_path30, protocolOutputLine;
+var import_node_crypto16, import_node_path31, protocolOutputLine;
 var init_prompt_lifecycle = __esm({
   "topology/lib/prompt-lifecycle.mjs"() {
-    import_node_crypto15 = require("node:crypto");
-    import_node_path30 = require("node:path");
+    import_node_crypto16 = require("node:crypto");
+    import_node_path31 = require("node:path");
     init_config();
     init_prompts();
     init_util();
@@ -9087,6 +9111,7 @@ var init_prompt_lifecycle = __esm({
     init_incarnation();
     init_repoid();
     init_tmux();
+    init_heartbeat();
     protocolOutputLine = (line) => String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trim().replace(/^[●•]\s*/, "").trim();
   }
 });
@@ -9104,8 +9129,8 @@ function libraryConsumer(consumer) {
 function agentDirs({ pluginRoot, consumer, home, extra = [] }) {
   const dirs = [...extra];
   if (consumer) dirs.push(...consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND), ...consumerResourceDirs(consumer, AGENTS_KIND));
-  if (home) dirs.push((0, import_node_path31.join)(home, ".config", "agent-orchestration", AGENTS_KIND));
-  if (pluginRoot) dirs.push((0, import_node_path31.join)(pluginRoot, AGENTS_KIND));
+  if (home) dirs.push((0, import_node_path32.join)(home, ".config", "agent-orchestration", AGENTS_KIND));
+  if (pluginRoot) dirs.push((0, import_node_path32.join)(pluginRoot, AGENTS_KIND));
   return [...new Set(dirs)];
 }
 function agentsRoot(consumer) {
@@ -9122,7 +9147,7 @@ function listAgentsSync(dirs) {
     }
     for (const entry of entries2) {
       if (!entry.isDirectory() || seen.has(entry.name)) continue;
-      const file2 = (0, import_node_path31.join)(dir, entry.name, DEFINITION);
+      const file2 = (0, import_node_path32.join)(dir, entry.name, DEFINITION);
       let raw;
       try {
         raw = JSON.parse((0, import_node_fs7.readFileSync)(file2, "utf8"));
@@ -9130,7 +9155,7 @@ function listAgentsSync(dirs) {
         continue;
       }
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      seen.set(entry.name, { ...raw, id: raw.id || entry.name, _dir: (0, import_node_path31.join)(dir, entry.name), _file: file2 });
+      seen.set(entry.name, { ...raw, id: raw.id || entry.name, _dir: (0, import_node_path32.join)(dir, entry.name), _file: file2 });
     }
   }
   return [...seen.values()];
@@ -9208,18 +9233,18 @@ async function createAgent(consumer, spec = {}, dirs = null, context4 = {}) {
     auto_approve: role === "reviewer" ? false : spec.auto_approve !== false,
     created_at: nowIso()
   };
-  const dir = (0, import_node_path31.join)(agentsRoot(consumer), agentDirName(agent));
+  const dir = (0, import_node_path32.join)(agentsRoot(consumer), agentDirName(agent));
   await (0, import_promises26.mkdir)(dir, { recursive: true });
-  await writeJson((0, import_node_path31.join)(dir, DEFINITION), agent);
-  if (!await exists((0, import_node_path31.join)(dir, PROMPT))) {
-    await (0, import_promises26.writeFile)((0, import_node_path31.join)(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer, dir), "utf8");
+  await writeJson((0, import_node_path32.join)(dir, DEFINITION), agent);
+  if (!await exists((0, import_node_path32.join)(dir, PROMPT))) {
+    await (0, import_promises26.writeFile)((0, import_node_path32.join)(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer, dir), "utf8");
   }
-  const enriched = { ...agent, _dir: dir, _file: (0, import_node_path31.join)(dir, DEFINITION) };
-  const state = await refreshPrompt({ agent: enriched, consumer, pluginRoot: (0, import_node_path31.dirname)((0, import_node_path31.dirname)((0, import_node_path31.dirname)((0, import_node_url3.fileURLToPath)(__aoImportMetaUrl)))), ...context4 });
+  const enriched = { ...agent, _dir: dir, _file: (0, import_node_path32.join)(dir, DEFINITION) };
+  const state = await refreshPrompt({ agent: enriched, consumer, pluginRoot: (0, import_node_path32.dirname)((0, import_node_path32.dirname)((0, import_node_path32.dirname)((0, import_node_url3.fileURLToPath)(__aoImportMetaUrl)))), ...context4 });
   invariant2(state.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Cannot create agent with invalid prompt configuration.", { errors: state.errors });
   return enriched;
 }
-function defaultPrompt(agent, consumer, dir = (0, import_node_path31.join)(agentsRoot(consumer), agentDirName(agent))) {
+function defaultPrompt(agent, consumer, dir = (0, import_node_path32.join)(agentsRoot(consumer), agentDirName(agent))) {
   return `# ${displayName(agent)}
 
 You are **${agent.full_name}**, ${agent.title} on this project.
@@ -9257,13 +9282,13 @@ async function requireAgent(ref, dirs) {
   if (!agent) fail("TOPOLOGY_AGENT_NOT_FOUND", `No agent matches ${JSON.stringify(ref)} in this repo.`);
   return agent;
 }
-var import_node_child_process9, import_node_fs7, import_promises26, import_node_path31, import_node_url3, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
+var import_node_child_process9, import_node_fs7, import_promises26, import_node_path32, import_node_url3, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
 var init_agents = __esm({
   "topology/lib/agents.mjs"() {
     import_node_child_process9 = require("node:child_process");
     import_node_fs7 = require("node:fs");
     import_promises26 = require("node:fs/promises");
-    import_node_path31 = require("node:path");
+    import_node_path32 = require("node:path");
     import_node_url3 = require("node:url");
     init_config();
     init_prompt_lifecycle();
@@ -9273,30 +9298,6 @@ var init_agents = __esm({
     DEFINITION = "agent.json";
     PROMPT = "prompt.md";
     humanKey = (value) => String(value || "").trim().replace(/\s+/g, " ").replace(/\s*,\s*/g, ", ").toLowerCase();
-  }
-});
-
-// topology/lib/heartbeat.mjs
-function heartbeatPath(dir, serverKey, paneId2) {
-  return (0, import_node_path32.join)(dir, `${(0, import_node_crypto16.createHash)("sha256").update(`${serverKey}\0${paneId2}`).digest("hex")}.json`);
-}
-async function recentHeartbeat(dir, binding, { now = Date.now, ttlMs = HEARTBEAT_TTL_MS } = {}) {
-  if (!binding?.serverKey || !binding.paneId) return null;
-  const beat = await readJson3(heartbeatPath(dir, binding.serverKey, binding.paneId)).catch(() => null);
-  if (!beat || beat.serverKey !== binding.serverKey || beat.paneId !== binding.paneId || beat.serverPid !== binding.serverPid) return null;
-  if (!Array.isArray(beat.pids) || !beat.pids.includes(binding.panePid)) return null;
-  const age = now() - Number(beat.at);
-  if (!(age >= 0 && age < ttlMs)) return null;
-  return { age_ms: age, event: beat.event, busy: beat.event !== "Stop" };
-}
-var import_node_crypto16, import_node_path32, HEARTBEAT_TTL_MS;
-var init_heartbeat = __esm({
-  "topology/lib/heartbeat.mjs"() {
-    import_node_crypto16 = require("node:crypto");
-    import_node_path32 = require("node:path");
-    init_repoid();
-    init_util();
-    HEARTBEAT_TTL_MS = Number(process.env.AO_LEAD_HEARTBEAT_TTL_MS ?? 3e5);
   }
 });
 
@@ -77711,10 +77712,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1dfb3bf64087e258c1cbfd6e0b4b18355301731d4efa236a4cbcb989cedc554e";
+  return false ? null : "4030e20bb650c9ce4d92f9900423d8197e0abe7a21f02ce4e7ebb71cfab596ca";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1dfb3bf64087e258c1cbfd6e0b4b18355301731d4efa236a4cbcb989cedc554e";
+  const fingerprint2 = false ? null : "4030e20bb650c9ce4d92f9900423d8197e0abe7a21f02ce4e7ebb71cfab596ca";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78139,7 +78140,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1dfb3bf64087e258c1cbfd6e0b4b18355301731d4efa236a4cbcb989cedc554e",
+  sourceFingerprint: false ? null : "4030e20bb650c9ce4d92f9900423d8197e0abe7a21f02ce4e7ebb71cfab596ca",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
