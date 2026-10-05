@@ -112,7 +112,8 @@ export function governanceMode(task, p) {
 /**
  * TM-247 (AC9): `head` is a merge-in of the integration branch on top of the approved `revision`:
  * a two-parent merge whose first parent IS the revision, whose second parent is on `target` (local or
- * origin), and whose own change against that parent has the revision's patch-id. Mirrors
+ * origin), and whose tree equals `git merge-tree --write-tree <revision> <integration>` (TM-441: never
+ * patch-id, which is whitespace-blind; a conflicted merge is never a merge-in). Mirrors
  * agent-orchestration topology/lib/management.mjs `mergeInOf` without importing it; a conformance test
  * in agent-orchestration runs both on one repository.
  */
@@ -123,13 +124,9 @@ export function mergeInOf(root, revision, head, target) {
   const integration = parents[1];
   const onTarget = (ref) => governanceGit(root, "merge-base", "--is-ancestor", integration, ref) !== null;
   if (!onTarget(`refs/heads/${target}`) && !onTarget(`refs/remotes/origin/${target}`)) return false;
-  const base = governanceGit(root, "merge-base", revision, integration);
-  if (!base) return false;
-  const patchId = (from, to) => {
-    const diff = safeGitText(root, ["diff", "--binary", from, to], { raw: true });
-    return diff ? safeGitText(root, ["patch-id", "--stable"], { input: diff }).split(" ")[0] : "";
-  };
-  try { return patchId(base, revision) === patchId(integration, head); } catch { return false; }
+  const expected = (governanceGit(root, "merge-tree", "--write-tree", revision, integration) || "").split("\n")[0].trim();
+  const actual = governanceGit(root, "rev-parse", "--verify", "--quiet", `${head}^{tree}`);
+  return Boolean(expected) && expected === actual;
 }
 
 /** The worktree still holds the reviewed revision, or only merged the integration branch into it. */

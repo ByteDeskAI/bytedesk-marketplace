@@ -1896,6 +1896,32 @@ test('TM-247 AC9 conformance: both plugins agree on what a merge-in of the appro
   assert.equal(tmCheck(clean.doc.worktree, clean.revision, strayHead, 'main'), false);
 });
 
+test('TM-441 conformance: a whitespace-only change inside the merge that alters behaviour is refused by both plugins', async t => {
+  const { mergeInOf } = await import('../../topology/lib/management.mjs');
+  const tmCheck = (await import('../../../task-management/lib/governance-check.mjs')).mergeInOf;
+  const root = await mkdtemp(join(tmpdir(), 'ao-merge-in-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo'), g = args => run('git', ['-C', repo, ...args]);
+  await run('git', ['init', '-q', '-b', 'main', repo]);
+  await writeFile(join(repo, 'README'), 'base\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'base']);
+  await g(['checkout', '-q', '-b', 'task']);
+  await writeFile(join(repo, 'build.sh'), 'rm -rf /tmp/build\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'approved']);
+  const revision = (await g(['rev-parse', 'HEAD'])).stdout.trim();
+  await g(['checkout', '-q', 'main']); await writeFile(join(repo, 'sibling.txt'), 'landed\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'sibling']);
+  const mergeIn = async content => {
+    await g(['checkout', '-q', '--detach', revision]);
+    await g([...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '--no-commit', 'main']);
+    if (content) { await writeFile(join(repo, 'build.sh'), content); await g(['add', 'build.sh']); }
+    await g([...COMMIT, '-m', 'merge main']);
+    return (await g(['rev-parse', 'HEAD'])).stdout.trim();
+  };
+  const clean = await mergeIn(null);
+  assert.ok(await mergeInOf(repo, revision, clean, 'main'), 'a clean merge-in is accepted');
+  assert.equal(tmCheck(repo, revision, clean, 'main'), true);
+  const evil = await mergeIn('rm -rf / tmp/build\n'); // one space: deletes / instead of /tmp/build
+  assert.equal(await mergeInOf(repo, revision, evil, 'main'), null, 'agent-orchestration accepted a behaviour change hidden in the merge');
+  assert.equal(tmCheck(repo, revision, evil, 'main'), false, 'task-management accepted a behaviour change hidden in the merge');
+});
+
 test('TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion', async t => {
   const m = await mergeInFixture(t);
   assert.ok(!(await integrationEligibility(m.opts)).reasons.some(r => /changed after finish/.test(r)), 'a merge-in is the approved revision');

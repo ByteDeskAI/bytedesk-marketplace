@@ -4,6 +4,12 @@
 
 ### Security
 
+- **A merge-in is accepted only when its tree is exactly the merge git computes (TM-441, EP-028).**
+  `mergeInOf` compared `git patch-id --stable`, which ignores whitespace, so a merge of the
+  integration branch into the approved revision could carry an unreviewed behaviour change
+  (`rm -rf /tmp/build` became `rm -rf / tmp/build`) and still land. It now requires the head's tree
+  to equal `git merge-tree --write-tree <approved revision> <integration parent>`; a conflicted
+  merge is never a merge-in. task-management's mirror uses the same rule, and one test runs both.
 - **Required checks run in a fresh tree of the finish revision, not in the worker's worktree (TM-444, EP-028).**
   `manage integrate` ran each `management.required_checks` argv with the worker's worktree as its
   working directory. `git status --porcelain` hides ignored files, so a planted

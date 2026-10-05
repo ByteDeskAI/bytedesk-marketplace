@@ -44,8 +44,10 @@ export async function foreignDirtyPaths(cwd) {
 
 /** TM-247 (AC9): is `head` a merge-in of the integration branch on top of the approved `revision`?
  * Exactly: a two-parent merge whose first parent IS the revision, whose second parent is on the
- * integration branch (local or origin), and whose own change against that parent has the same
- * patch-id as the revision's change against its merge base, so the merge added nothing of its own.
+ * integration branch (local or origin), and whose TREE is byte-for-byte the tree git itself computes
+ * for that merge (`git merge-tree --write-tree <revision> <integration>`), so the merge added nothing
+ * of its own. TM-441: never patch-id, which ignores whitespace (`rm -rf /tmp/build` and
+ * `rm -rf / tmp/build` share one); a conflicted merge has no clean tree and is never a merge-in.
  * Returns { head, integration } or null. task-management governance-check.mjs mirrors it (no import
  * crosses the plugins); a conformance test runs both on one repository.
  * ponytail: one merge-in commit; a chain of merge-ins needs a walk down first parents. */
@@ -56,13 +58,10 @@ export async function mergeInOf(cwd, revision, head, target) {
   const integration = parents[1];
   const onTarget = async ref => (await git(cwd, ['merge-base', '--is-ancestor', integration, ref], true)).code === 0;
   if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
-  const base = (await git(cwd, ['merge-base', revision, integration], true)).stdout.trim();
-  if (!base) return null;
-  const patchId = async (from, to) => {
-    const diff = (await git(cwd, ['diff', '--binary', from, to])).stdout;
-    return diff ? (await safeGit(cwd, ['patch-id', '--stable'], { input: diff })).stdout.split(' ')[0] : '';
-  };
-  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
+  const merged = await git(cwd, ['merge-tree', '--write-tree', revision, integration], true);
+  const expected = merged.code === 0 ? merged.stdout.split('\n')[0].trim() : '';
+  const actual = (await git(cwd, ['rev-parse', '--verify', '--quiet', `${head}^{tree}`], true)).stdout.trim();
+  return expected && expected === actual ? { head, integration } : null;
 }
 
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */

@@ -4,6 +4,11 @@
 
 ### Security
 
+- **Governed completion accepts a merge-in only when its tree is exactly the merge git computes (TM-441, EP-028).**
+  `mergeInOf` in `lib/governance-check.mjs` used the whitespace-blind `git patch-id --stable`, so a
+  merge could hide `rm -rf / tmp/build` where `rm -rf /tmp/build` was reviewed. It now requires the
+  head's tree to equal `git merge-tree --write-tree <approved revision> <integration parent>`, the
+  same rule agent-orchestration applies.
 - **tm's git calls no longer run config a worker planted in the shared `.git/config` (TM-443, EP-028).**
   Every git call in `lib/` and `bin/` (governance check, worktree, collect, store, doctor, paths,
   actor, duplicate, mcp, `tm`, `tm-hook`) now goes through `lib/safe-git.mjs`, a byte-identical copy

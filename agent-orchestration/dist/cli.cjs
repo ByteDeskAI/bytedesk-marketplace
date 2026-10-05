@@ -23508,13 +23508,10 @@ async function mergeInOf(cwd, revision, head, target) {
   const integration = parents[1];
   const onTarget = async (ref) => (await git2(cwd, ["merge-base", "--is-ancestor", integration, ref], true)).code === 0;
   if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
-  const base = (await git2(cwd, ["merge-base", revision, integration], true)).stdout.trim();
-  if (!base) return null;
-  const patchId = async (from, to) => {
-    const diff = (await git2(cwd, ["diff", "--binary", from, to])).stdout;
-    return diff ? (await safeGit(cwd, ["patch-id", "--stable"], { input: diff })).stdout.split(" ")[0] : "";
-  };
-  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
+  const merged = await git2(cwd, ["merge-tree", "--write-tree", revision, integration], true);
+  const expected = merged.code === 0 ? merged.stdout.split("\n")[0].trim() : "";
+  const actual = (await git2(cwd, ["rev-parse", "--verify", "--quiet", `${head}^{tree}`], true)).stdout.trim();
+  return expected && expected === actual ? { head, integration } : null;
 }
 async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
@@ -62640,10 +62637,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "3f086bb271a14f8ad7ee691075fba262348f49606392a186974b5f7078bfcba5";
+  return false ? null : "f3ad0adabfb7266729d01529ec2a53efd4e3aac7647062b0065ae6e6655c7155";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "3f086bb271a14f8ad7ee691075fba262348f49606392a186974b5f7078bfcba5";
+  const fingerprint2 = false ? null : "f3ad0adabfb7266729d01529ec2a53efd4e3aac7647062b0065ae6e6655c7155";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63260,7 +63257,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "3f086bb271a14f8ad7ee691075fba262348f49606392a186974b5f7078bfcba5",
+  sourceFingerprint: false ? null : "f3ad0adabfb7266729d01529ec2a53efd4e3aac7647062b0065ae6e6655c7155",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
