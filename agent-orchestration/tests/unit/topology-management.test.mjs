@@ -844,14 +844,15 @@ function fakeServer(main) {
 // admission. The task file is then edited to name `main`: the range must still come from the admission record.
 async function mergedTask(t, { stray, integration = null }) {
   const { opts, git, doc } = await fixture(t);
-  if (integration) doc.integrationBranch = integration;
+  // TM-349: the integration branch exists at admission (the admission base is resolved against it).
+  if (integration) { doc.integrationBranch = integration; await git(opts.consumer, ['branch', integration]); }
   await admitTask(opts);
   if (integration) doc.integrationBranch = 'main';
   const worktree = (await opts.store.show()).worktree, id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
   const admitted = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
   if (stray) { await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']); }
   if (integration) {
-    await git(opts.consumer, ['checkout', '-q', '-b', integration]);
+    await git(opts.consumer, ['checkout', '-q', integration]);
     await mkdir(join(opts.consumer, '.bytedesk/task-management/tasks'), { recursive: true });
     await writeFile(join(opts.consumer, '.bytedesk/task-management/tasks/TM-1-fixture.md'), '---\nid: "TM-1"\nintegrationBranch: "main"\n---\n');
   }
