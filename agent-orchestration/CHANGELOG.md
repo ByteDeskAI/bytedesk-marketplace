@@ -45,6 +45,36 @@
   the sender is never its own recipient, an audience that reaches nobody is refused, and more than
   24 recipients (`--max-recipients`) is refused, never truncated. A given `--id` becomes one id per
   repository, so a retried broadcast dedupes per recipient.
+- **Every session gets an AO identity (TM-353, EP-028).** A plugin SessionStart hook
+  (`topology/session-hook.mjs`) mints an 8-character id for any session a launcher did not start,
+  records it under `<state>/sessions/`, and exports `AO_SESSION_AGENT_ID` / `AO_SESSION_CONSUMER`
+  through `CLAUDE_ENV_FILE`. A bare `ao-topology mailbox send` now uses it as the sender instead of
+  holding the mail as `source_identity_required`. It never sets `AO_AGENT_ID`, so a lead named by
+  its census binding keeps its name. `callerIdentity()` in `topology/lib/session-identity.mjs` is
+  the one shared answer to "who is sending".
+- **Recipients outside the agent library resolve through presence (TM-353, EP-028).** Standing
+  mail to a name the library does not know, from the same repository, now resolves to a live
+  presence entry (a Codex pane, by agent id or session name) or to a minted session identity
+  before it is held as `unknown_recipient`. The library still wins.
+- **`lead status --cached`: a non-blocking lead read (TM-209, EP-028).** It answers from proof
+  already on disk, mints no probe, rings nothing and returns in under a second. Every `lead status`
+  result now carries `verdict_source` (`cached`, `late`, `probe`, or `none`) and `proof_age_ms`.
+  Plain `lead status` still rings the lead and waits up to `--ack-timeout` (default 30s) when no
+  proof is stored; the CLI help says so.
+- **A lead mid-turn reads as responsive and busy, not unresponsive (TM-222, EP-021, EP-028).** The
+  plugin's `UserPromptSubmit`, `PostToolUse` and `Stop` hooks write a heartbeat for their tmux pane
+  (`topology/lib/heartbeat.mjs`), with no model turn involved. A heartbeat from the lead's exact
+  binding (socket, server pid, pane id, and the pane pid among the hook's ancestors) that is younger
+  than `AO_LEAD_HEARTBEAT_TTL_MS` (default 5 minutes) proves the lead alive. `leadState` then
+  reports `responsive` with `verdict_source: "heartbeat"` and `busy`, and the pane is not rung. A
+  dead pane, a respawned pane, another pane's heartbeat or a stale one still reads as before, and
+  the nonce probe remains the proof when no heartbeat exists. Outside tmux the hook writes nothing.
+- **Held `no_lead` mail launches the destination's lead (TM-354, EP-028).** A `leads_not_ready`
+  hold already asked each side's own supervisor to recover its lead (TM-167). A `no_lead` hold now
+  does the same for the destination only, so the supervisor creates the missing lead through
+  `recoverLead` / `ensureLead`, under the registration lock. Tests cover the whole path: two held
+  messages, six racing supervisor ticks, one lead launched, and both messages delivered to that
+  lead once it is proven ready.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

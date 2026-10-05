@@ -22,6 +22,7 @@ import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
+import { callerIdentity, resolvePresentRecipient } from './session-identity.mjs';
 import { invariant, nowIso, shellQuote, sleep } from './util.mjs';
 import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt } from './mailbox-receipts.mjs';
 
@@ -61,6 +62,9 @@ function readinessOf(state) {
 
 // Holds no retry can change. The envelope is immutable, so its declared source, its repository
 // identities and its ancestry stay what they are, and so does the routing verdict built from them.
+// TM-354: holds a lead can end. Each asks the side's own supervisor to launch or recover its lead
+// (recoverLead, under the registration lock, so repeated asks never start a second lead).
+const RECOVERABLE_HOLDS = new Set(['leads_not_ready', 'no_lead']);
 const PERMANENT_HOLDS = new Set(['source_identity_required', 'repository_identity_changed', 'hop_limit', 'loop', 'coordinator_not_worker']);
 
 function due(record, now, force) {
@@ -83,10 +87,13 @@ async function scheduleRecovery(record, opts) {
   const request = opts.requestRecovery ?? requestLeadRecovery;
   const activate = opts.activate ?? activateRepository;
   const sides = {};
-  for (const [side, consumer] of [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]]) {
+  // TM-354: no_lead is the destination's alone: its library has no lead to vouch for the contact.
+  const candidates = record.reason === 'no_lead' ? [['destination', record.envelope.consumer]]
+    : [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]];
+  for (const [side, consumer] of candidates) {
     if (record.readiness?.[side] === 'responsive') continue;
     try {
-      await request({ consumer, env: opts.env, home: opts.home, reason: 'leads_not_ready', messageId: record.envelope.id });
+      await request({ consumer, env: opts.env, home: opts.home, reason: record.reason, messageId: record.envelope.id });
       const activation = await activate({ consumer, env: opts.env, home: opts.home, reason: 'held-standing-mail' });
       sides[side] = { requested: true, enrolled: activation?.enrollment?.enrolled ?? null, supervision: activation?.supervision ?? null };
     } catch (error) {
@@ -96,7 +103,7 @@ async function scheduleRecovery(record, opts) {
   return sides;
 }
 async function withRecovery(record, opts) {
-  if (record.status !== 'held' || record.reason !== 'leads_not_ready') return record;
+  if (record.status !== 'held' || !RECOVERABLE_HOLDS.has(record.reason)) return record;
   return { ...record, recovery: await scheduleRecovery(record, opts) };
 }
 
@@ -173,12 +180,18 @@ async function attempt(record, opts) {
     }
     // This is intentionally rerun, including delegationAllows/verifyAgainstStore,
     // for EACH resume. A held record contains no cached grant.
-    const decision = await (opts.router ?? routeMessage)({
+    let decision = await (opts.router ?? routeMessage)({
       consumer: e.consumer, pluginRoot: opts.pluginRoot, home: opts.home,
       from: e.from, fromProject: sameRepo ? e.consumer : e.fromProject,
       to: e.to, task: e.task, token: e.token, via: e.via,
     });
     if (decision.blocked) return { ...updated, reason: decision.blocked, decision };
+    // TM-353: a name the library does not know may still be a live session here (a Codex pane, a
+    // session's minted identity). Routing only leaves it unresolved for a same-repository sender.
+    if (!decision.resolved && !decision.redirected) {
+      const present = await resolvePresentRecipient({ consumer: e.consumer, to: e.to, env: opts.env, home: opts.home, presence: opts.presence });
+      if (present) decision = { ...decision, resolved: present.agentId, deliver_to: present.agentId, resolved_via: present.source };
+    }
     if (!decision.resolved && !decision.redirected) return { ...updated, reason: 'unknown_recipient', decision };
     if (e.assignment && decision.coordinates_only) return { ...updated, reason: 'coordinator_not_worker', decision };
     const recipient = decision.deliver_to;
@@ -312,16 +325,18 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
  * own environment.
  */
 export async function sessionIdentity({ env = process.env, agent = null, consumer = null } = {}) {
-  invariant(env.AO_AGENT_ID && env.AO_CONSUMER, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED',
-    'source_identity_required: this session has no agent-orchestration identity (AO_AGENT_ID and AO_CONSUMER are not set), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Run it from an agent that ao launched. Nothing was done.');
-  invariant(agent === null || agent === undefined || agent === env.AO_AGENT_ID, 'TOPOLOGY_SENDER_MISMATCH',
-    `This session is ${env.AO_AGENT_ID}; it cannot act as ${JSON.stringify(agent)}. Drop the explicit sender, or run as that agent. Nothing was done.`);
+  // TM-353: a launcher identity (AO_AGENT_ID) wins; otherwise the identity SessionStart minted.
+  const caller = callerIdentity(env);
+  invariant(caller?.agentId && caller?.consumer, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED',
+    'source_identity_required: this session has no agent-orchestration identity (neither AO_AGENT_ID/AO_CONSUMER from a launcher nor the session identity minted at SessionStart), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Nothing was done.');
+  invariant(agent === null || agent === undefined || agent === caller.agentId, 'TOPOLOGY_SENDER_MISMATCH',
+    `This session is ${caller.agentId}; it cannot act as ${JSON.stringify(agent)}. Drop the explicit sender, or run as that agent. Nothing was done.`);
   if (consumer !== null && consumer !== undefined) {
-    const [mine, claimed] = await Promise.all([canonicalRepoId(env.AO_CONSUMER), canonicalRepoId(String(consumer))]);
+    const [mine, claimed] = await Promise.all([canonicalRepoId(caller.consumer), canonicalRepoId(String(consumer))]);
     invariant(mine.id === claimed.id, 'TOPOLOGY_SENDER_MISMATCH',
-      `This session belongs to ${env.AO_CONSUMER}; it cannot act for ${consumer}. Nothing was done.`);
+      `This session belongs to ${caller.consumer}; it cannot act for ${consumer}. Nothing was done.`);
   }
-  return { agent: env.AO_AGENT_ID, consumer: resolve(env.AO_CONSUMER) };
+  return { agent: caller.agentId, consumer: resolve(caller.consumer), source: caller.source };
 }
 
 // These are host-local mailbox views, not an authorization boundary. API/CLI
