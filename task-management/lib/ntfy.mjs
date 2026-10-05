@@ -69,6 +69,7 @@ export const CATALOG = {
     unlink: { group: "writes", label: "A typed link is removed", priority: "min", tags: "broken_heart" },
     dep: { group: "writes", label: "A dependency is added", priority: "low", tags: "no_entry" },
     undep: { group: "writes", label: "A dependency is removed", priority: "low", tags: "arrow_forward" },
+    upstream_resolved: { group: "writes", label: "A foreign blocker landed upstream", priority: "low", tags: "white_check_mark" },
     subtask: { group: "writes", label: "A task is nested under a parent", priority: "min", tags: "family" },
     rank: { group: "writes", label: "The backlog is reordered", priority: "min", tags: "arrow_up_down" },
     claim: { group: "writes", label: "A task is claimed", priority: "low", tags: "lock" },

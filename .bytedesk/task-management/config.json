@@ -16,7 +16,7 @@
     "evidence",
     "actor"
   ],
-  "wipLimit": 8,
+  "wipLimit": 12,
   "staleMinutes": 90,
   "gitLink": true,
   "captureDecisions": "smart",
@@ -60,7 +60,7 @@
     "me": "Ryan",
     "watching": []
   },
-  "activeEpic": "EP-021",
+  "activeEpic": "EP-028",
   "boardId": "bytedeskai/bytedesk-marketplace",
   "owner": "Ryan Helms <ryan@helms.ai>",
   "ntfy": {},
@@ -71,6 +71,7 @@
     "backends": [
       "tmux",
       "manual"
-    ]
+    ],
+    "poolWip": 10
   }
 }
