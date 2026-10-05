@@ -56,8 +56,12 @@ owner when dispatching it. A missing admission is a visible hold on that task.
 Config: `dispatch.enabled` (true), `dispatch.poolWip` (3),
 `dispatch.pollSeconds` (30), `dispatch.maxFailures` (3),
 `dispatch.maxRuntimeMinutes` (120), `dispatch.idleExitMinutes` (60),
-`dispatch.backendCaps` (e.g. `{"tmux":2}`), `dispatch.backends`. Probe hosts with
-[[caps]] first.
+`dispatch.backendCaps` (e.g. `{"tmux":2}`), `dispatch.backends`,
+`dispatch.expediteWip` (2). Probe hosts with [[caps]] first.
+
+**Expedite lane:** a `highest` task, or a `high` one labelled `expedite`, dispatches
+on the next tick outside `poolWip`, up to `expediteWip` at once. It skips touches
+batching but never a path a running task holds.
 
 ## After it runs
 

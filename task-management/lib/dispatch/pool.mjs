@@ -37,6 +37,7 @@
  *   maxFailures        consecutive failures before the pool pauses (default 3)
  *   maxRuntimeMinutes  a still-running worker older than this logs worker_overrun (default 120)
  *   duplicateGuard     default true; look for commits naming a running task that are not its own (see duplicate.mjs)
+ *   expediteWip        max expedited workers at once, outside poolWip (default 2; see isExpedite, TM-358)
  *
  * Dispatch goes through ./index.mjs `dispatch()` only — claim, start, provision,
  * spawn all keep their one implementation, and a refused dispatch leaves the
@@ -59,10 +60,10 @@ import { SESSION_ENV } from "../harness/sessions.mjs";
 import { claimant } from "../claims.mjs";
 import { listAgents, retireAgent } from "../agents.mjs";
 import { batches } from "../parallel.mjs";
-import { config, list, logEvent, nextTasks, now, queueOrder, read, withLock } from "../store.mjs";
+import { config, list, logEvent, mutate, nextTasks, now, queueOrder, read, withLock } from "../store.mjs";
 import { agentReadiness } from "../completeness.mjs";
 import { paths } from "../paths.mjs";
-import { dispatch } from "./index.mjs";
+import { dispatch, heartbeatOnce } from "./index.mjs";
 import { collect } from "./collect.mjs";
 import { resolveBackend } from "./backend.mjs";
 import { describeDuplicates, duplicateCommits, duplicateGuardEnabled } from "./duplicate.mjs";
@@ -311,19 +312,65 @@ function resetOnClose(p) {
 
 // ── the tick ─────────────────────────────────────────────────────────────────
 
+/** The label that puts a `high` task in the expedite lane; `highest` (the store's top priority) needs none. */
+export const EXPEDITE_LABEL = "expedite";
+
+/**
+ * The expedite lane (TM-358): a `highest` task — or a `high` one labelled `expedite` — dispatches
+ * on the next tick outside poolWip, up to dispatch.expediteWip of its own. It skips the
+ * touches-disjoint batching but never a path a running task holds. `critical` is accepted too,
+ * for a board that imported that word, though the store's vocabulary tops out at `highest`.
+ */
+export function isExpedite(task) {
+  if (task.priority === "highest" || task.priority === "critical") return true;
+  return task.priority === "high" && (task.labels || []).includes(EXPEDITE_LABEL);
+}
+
 /**
  * The pickup queue: startable tasks labelled ready-for-agent that nobody holds,
  * in `nextTasks` queue order (rank, then priority, then id). nextTasks already
  * excludes blocked and resolved work; claimant excludes live claims.
  */
 export function poolable(p = paths()) {
-  const waiting = nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p));
+  // A worker failure reopened for retry waits out its backoff (TM-363, collect.mjs retryPlan).
+  const waiting = nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p) && !(Date.parse(t.retryAt) > Date.now()));
   const admitted = list("task", { status: "in_progress" }, p).filter((t) => {
     if (!t.governance || t.dispatched || !(t.labels || []).includes(READY_LABEL)) return false;
     const gate = governedAdmission(t, p);
     return gate.allow && claimant(t.id, p)?.session === gate.owner;
   });
   return queueOrder([...waiting, ...admitted]);
+}
+
+/**
+ * Renew a dispatched task's claim when its collector just proved the worker alive (TM-362).
+ *
+ * dispatch()'s own heartbeat is a setInterval in the dispatching process, so a one-shot
+ * `tm dispatch` takes it with it when it exits and the claim ages out at claimTtlMinutes under a
+ * worker that is still running. `pending` from collect() is the liveness proof every backend
+ * already gives — a tmux session that answers has-session, a topology run observed alive, an
+ * orchestration run not yet terminal — so that, and only that, renews. A dead worker collects as
+ * not-pending and is never renewed; heartbeatClaim refuses a claim held by another session.
+ */
+export function renewIfLive(task, res, p = paths()) {
+  if (!res?.ok || !res.pending || !task.dispatched?.session) return null;
+  return heartbeatOnce(task.id, task.dispatched.session, p);
+}
+
+/**
+ * `tm claim renew --live`: one collect-and-renew pass over every dispatched in_progress task,
+ * for a supervisor (an AO supervisor, cron) that is not the pool. It runs collect(), the one
+ * liveness probe, so a worker found dead is recorded the way the pool would record it.
+ * Returns [{ id, renewed, pending, outcome?, reason? }].
+ */
+export async function renewLiveClaims({ p = paths(), impls = {} } = {}) {
+  const out = [];
+  for (const t of poolWorkers(p)) {
+    const res = await collect(t.id, p, impls);
+    const renewed = Boolean(renewIfLive(t, res, p));
+    out.push({ id: t.id, renewed, pending: Boolean(res?.pending), ...(res?.outcome ? { outcome: res.outcome } : {}), ...(res?.ok ? {} : { reason: res?.reason }) });
+  }
+  return out;
 }
 
 /**
@@ -404,6 +451,7 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
     }
     try {
       const res = await collect(t.id, p, impls);
+      renewIfLive(t, res, p);
       collected.push({ id: t.id, ...res });
       if (res.ok && !res.pending && !res.duplicate) {
         // Registry hygiene only — capacity is read from the board below.
@@ -419,7 +467,10 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
 
   const running = list("task", { status: "in_progress" }, p);
   const workers = running.filter((t) => t.dispatched);
-  const capacity = Math.max(0, Number(cfg.dispatch?.poolWip ?? 3) - workers.length);
+  // Expedited workers live outside poolWip (TM-358), so they are not charged against it.
+  const expedited = workers.filter((t) => t.dispatched.expedite).length;
+  const capacity = Math.max(0, Number(cfg.dispatch?.poolWip ?? 3) - (workers.length - expedited));
+  let expediteRoom = Math.max(0, Number(cfg.dispatch?.expediteWip ?? 2) - expedited);
 
   // Per-backend caps (config dispatch.backendCaps, e.g. { tmux: 2 }) sit on top of
   // poolWip, charged by the backend each running task was dispatched to.
@@ -453,11 +504,13 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       skipped.push({ id: task.id, reason: `pool paused: ${brake.pausedReason} — tm pool resume` });
       continue;
     }
-    if (room <= 0) {
+    // An expedite task over its own cap falls back to the normal lane rather than waiting.
+    const expedite = expediteRoom > 0 && isExpedite(task);
+    if (!expedite && room <= 0) {
       skipped.push({ id: task.id, reason: "at capacity" });
       continue;
     }
-    if (!collisionFree.has(task.id) && !task.governance) {
+    if (!expedite && !collisionFree.has(task.id) && !task.governance) {
       skipped.push({ id: task.id, reason: "touches collide with a task ahead of it" });
       continue;
     }
@@ -467,8 +520,9 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       continue;
     }
     if (dryRun) {
-      dispatched.push({ id: task.id, dryRun: true });
-      room -= 1;
+      dispatched.push({ id: task.id, dryRun: true, ...(expedite ? { expedite: true } : {}) });
+      if (expedite) expediteRoom -= 1;
+      else room -= 1;
       continue;
     }
     if (Number.isFinite(backendCap) && (busyByBackend[pick.name] || 0) >= backendCap) {
@@ -483,9 +537,16 @@ export async function poolTick({ p = paths(), registry = null, caps = null, dryR
       const owner = task.governance ? governedAdmission(task, p).owner : `pool-${task.id.toLowerCase()}`;
       const res = await dispatch(task.id, { session: owner, actor: "pool", p, caps, registry, backend: pick?.name ?? null });
       if (res.ok) {
-        dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree, ...(res.prefixWarning ? { warning: res.prefixWarning } : {}) });
+        dispatched.push({ id: task.id, backend: res.backend, run: res.run ?? null, worktree: res.worktree, ...(expedite ? { expedite: true } : {}), ...(res.prefixWarning ? { warning: res.prefixWarning } : {}) });
         busyByBackend[res.backend] = (busyByBackend[res.backend] || 0) + 1;
-        room -= 1;
+        // Its paths are held from now on: an expedited task skipped batching, so a later task in
+        // this same tick must still see what it occupies.
+        for (const path of task.touches || []) if (!occupiedBy.has(path)) occupiedBy.set(path, task.id);
+        if (expedite) {
+          // Stamped on the dispatch record, so the next tick charges it to expediteWip, not poolWip.
+          mutate(task.id, (doc) => ({ dispatched: { ...doc.dispatched, expedite: true } }), p);
+          expediteRoom -= 1;
+        } else room -= 1;
       } else {
         failure = res.reason;
         systemFailure = isSystemFailure(res);

@@ -76,7 +76,7 @@ import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
-import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -1429,8 +1429,21 @@ const VERBS = {
   },
 
   /** Explicit lock handling for parallel sessions. */
-  claim(id) {
+  async claim(id) {
     requireInit();
+    /**
+     * `claim renew --live` (TM-362): renew every dispatched worker's claim that its collector
+     * proves alive, for a supervisor that is not the pool. Dead workers are collected, not renewed.
+     */
+    if (id === "renew") {
+      if (!argv.includes("--live")) die("usage: tm claim renew --live", 2);
+      const rows = await renewLiveClaims({ p: P });
+      return emit(rows, () =>
+        rows.length
+          ? rows.map((r) => `${r.id}: ${r.renewed ? "renewed (worker alive)" : r.pending ? "alive, claim not held by its dispatch" : r.reason ? `not renewed — ${r.reason}` : `not renewed — worker ended (${r.outcome ?? "collected"})`}`).join("\n")
+          : "(no dispatched workers)",
+      );
+    }
     const res = claimTask(id, {
       session: sessionId(),
       actor: actorLabel(actor()),
@@ -1786,6 +1799,7 @@ const VERBS = {
         "  dispatch <id> [--backend <name>] [--steal]   hand the task to a worker: claim, start, worktree, spawn",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
+        "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",

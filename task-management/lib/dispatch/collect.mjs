@@ -15,6 +15,8 @@
  *      ungoverned worker reporting done before passing `tm done` is recorded as failed.
  *   2. Failure parks an in_progress task and releases its claim unless the governed
  *      revision was already submitted for review. That ownership and evidence persist.
+ *      A task-scoped failure first reopens the task for up to dispatch.retries retries
+ *      with backoff (retryPlan, TM-363); only then does it park.
  *   3. Everything is recorded: the summary lands as a comment and one `task_result`
  *      event ({ id, run, outcome }) lands in the log, so `tm log` tells the story.
  *   4. Fire-and-forget safe. Every function here is bounded and never throws — a
@@ -92,6 +94,24 @@ function recordPullRequest(task, p, exec) {
 }
 
 /**
+ * Whether a failed worker earns another attempt instead of parking (TM-363), as
+ * { attempt, retries, retryAt }, or null.
+ *
+ * Only a task-scoped failure of a running, ungoverned-or-unsubmitted task qualifies: a
+ * provider or backend failure parks as before and still feeds the pool's brake, and a
+ * worker that said `blocked` is asking for a person. Backoff is 1, 4, 16… minutes
+ * (4^(attempt-1)) and the count lives on the task, so it caps retries over the task's life.
+ * ponytail: lifetime count, never reset; reset on a later success if reopened work needs fresh retries.
+ */
+function retryPlan(task, final, scope, reviewReady, p) {
+  if (final !== "failed" || scope !== "task" || reviewReady || task.status !== "in_progress") return null;
+  const retries = Number(config(p).dispatch?.retries ?? 2);
+  const attempt = (Number(task.dispatchRetries) || 0) + 1;
+  if (!(attempt <= retries)) return null;
+  return { attempt, retries, retryAt: new Date(Date.now() + 4 ** (attempt - 1) * 60_000).toISOString() };
+}
+
+/**
  * Record one worker's result against the store. This is the only write path the
  * protocol has; collectors only normalize signals into it.
  *
@@ -135,7 +155,14 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     if (priorCollection(task)?.outcome === final) return { ok: true, id, outcome: final, duplicate: true, downgraded: false, parked: false };
 
     let parked = false;
-    if ((final === "blocked" || final === "failed") && task.status === "in_progress" && !reviewReady) {
+    const scope = failureScope({ ...result, summary: note });
+    const retry = retryPlan(task, final, scope, reviewReady, p);
+    if (retry) {
+      // Reopened, not parked: the claim goes so the pool can pick it up once retryAt passes.
+      update(id, { status: "open", dispatchRetries: retry.attempt, retryAt: retry.retryAt }, p);
+      releaseClaim(id, p);
+      logEvent("dispatch_retry", { id, run: task.dispatched.run ?? null, ...retry, reason: note.split("\n")[0].slice(0, 300) }, p);
+    } else if ((final === "blocked" || final === "failed") && task.status === "in_progress" && !reviewReady) {
       update(id, { status: "parked", parkedReason: note || `worker ${final}` }, p);
       releaseClaim(id, p);
       parked = true;
@@ -149,7 +176,7 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
     mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, collected: { dispatchedAt: task.dispatched.at ?? null, run: task.dispatched.run ?? null, outcome: final, at: now() } } }), p);
     logEvent("task_result", { id, run: task.dispatched.run ?? null, outcome: final }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
-    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: failureScope({ ...result, summary: note }), ...(pr ? { pr } : {}) };
+    return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: scope, ...(retry ? { retry } : {}), ...(pr ? { pr } : {}) };
   } catch (err) {
     return { ok: false, reason: `recordResult failed for ${id}: ${err.message}` };
   }

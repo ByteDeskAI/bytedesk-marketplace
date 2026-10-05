@@ -13,12 +13,12 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
-import { claimTask } from "../../lib/claims.mjs";
+import { claimTask, claimant } from "../../lib/claims.mjs";
 import { listAgents, registerAgent } from "../../lib/agents.mjs";
-import { create, read, seedGitContract, state, update, writeConfig } from "../../lib/store.mjs";
+import { create, read, seedGitContract, state, update, writeConfig, writeState } from "../../lib/store.mjs";
 import { dispatch } from "../../lib/dispatch/index.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolable, readPoolPid, releasePoolPid, runPool, writePoolPid } from "../../lib/dispatch/pool.mjs";
+import { livePool, poolTick, poolable, readPoolPid, readPoolState, releasePoolPid, renewLiveClaims, runPool, writePoolPid } from "../../lib/dispatch/pool.mjs";
 
 // The kill-switch tests set this themselves; nothing else may inherit it.
 delete process.env.TM_ENFORCE;
@@ -213,7 +213,7 @@ describe("poolTick — failure isolation", () => {
 
 describe("poolTick — collect before dispatch", () => {
   it("collects a finished worker, freeing its capacity for the same tick", async () => {
-    const p = repoStore({ dispatch: { poolWip: 1 } });
+    const p = repoStore({ dispatch: { poolWip: 1, retries: 0 } }); // the park path; TM-363 retries are tested below
     const a = ready(p, "worker walks away");
     const b = ready(p, "next up");
     const fake = fakeBackend();
@@ -300,5 +300,190 @@ describe("pool.pid — one loop per store", () => {
     const p = store();
     const { readFileSync } = await import("node:fs");
     assert.match(readFileSync(p.gitignore, "utf8"), /^pool\.pid$/m, "the seeded .gitignore covers it");
+  });
+});
+
+describe("claim renewal for live workers (TM-362)", () => {
+  const FIVE_HOURS_AGO = () => new Date(Date.now() - 300 * 60_000).toISOString();
+  /** Dispatched, then the dispatching process is gone: no heartbeat, and the claim aged past the 240-minute TTL. */
+  async function orphaned(p, title) {
+    const id = ready(p, title);
+    const fake = fakeBackend();
+    assert.equal((await dispatch(id, { backend: fake, session: `pool-${id}`, actor: "pool", p })).ok, true);
+    writeState({ claims: { ...state(p).claims, [id]: { ...state(p).claims[id], ts: FIVE_HOURS_AGO() } } }, p);
+    assert.equal(claimant(id, p), null, "precondition: the claim has expired");
+    return id;
+  }
+
+  it("the pool tick renews a live worker's claim past the expiry, with no dispatching process", async () => {
+    const p = repoStore({ dispatch: { heartbeatSeconds: 0 } }); // no in-process heartbeat at all
+    const id = await orphaned(p, "long-running");
+    await poolTick({ p, registry: { fake: fakeBackend() }, caps: {}, impls: { fake: () => ({ ok: true, pending: true }) } });
+    const held = claimant(id, p);
+    assert.ok(held, "renewed: the claim is live again");
+    assert.equal(held.session, `pool-${id}`, "still the dispatch's own claim");
+    assert.ok(Date.now() - Date.parse(held.ts) < 60_000);
+  });
+
+  it("a dead worker's claim is not renewed", async () => {
+    const p = repoStore({ dispatch: { heartbeatSeconds: 0 } });
+    const unknown = await orphaned(p, "collector cannot tell");
+    const ended = await orphaned(p, "worker exited");
+    const impls = {
+      fake: (tid, { p: pp }) => (tid === unknown ? { ok: false, reason: "backend unreachable" } : { ok: true, pending: false, skipped: "session gone" }),
+    };
+    await poolTick({ p, registry: { fake: fakeBackend() }, caps: {}, impls });
+    assert.equal(claimant(unknown, p), null, "no proof of life, no renewal");
+    assert.equal(claimant(ended, p), null);
+    assert.equal(Date.parse(state(p).claims[ended].ts) < Date.now() - 200 * 60_000, true, "the stale timestamp was left alone");
+  });
+
+  it("renewLiveClaims (tm claim renew --live) renews only the proven-alive worker", async () => {
+    const p = repoStore({ dispatch: { heartbeatSeconds: 0 } });
+    const live = await orphaned(p, "alive");
+    const dead = await orphaned(p, "dead");
+    const impls = { fake: (tid) => (tid === live ? { ok: true, pending: true } : { ok: true, pending: false, skipped: "gone" }) };
+    const rows = await renewLiveClaims({ p, impls });
+    assert.deepEqual(rows.map((r) => [r.id, r.renewed]), [[live, true], [dead, false]]);
+    assert.ok(claimant(live, p));
+    assert.equal(claimant(dead, p), null);
+  });
+});
+
+describe("poolTick — bounded retry with backoff (TM-363)", () => {
+  it("a task-scoped worker failure waits out its backoff, then the pool re-dispatches it", async () => {
+    const p = repoStore({ dispatch: { retries: 2 } });
+    const a = ready(p, "flaky");
+    const fake = fakeBackend();
+    assert.equal((await dispatch(a, { backend: fake, session: "pool-a", actor: "pool", p })).ok, true);
+    const impls = { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, pp) };
+
+    const t1 = await poolTick({ p, registry: { fake }, caps: {}, impls });
+    assert.equal(t1.collected[0].retry.attempt, 1);
+    assert.equal(read(a, p).status, "open");
+    assert.deepEqual(t1.dispatched, [], "not before retryAt");
+    assert.equal(readPoolState(p).failures, 0, "a task-scoped failure does not feed the brake");
+
+    update(a, { retryAt: new Date(Date.now() - 1000).toISOString() }, p); // the backoff elapses
+    const t2 = await poolTick({ p, registry: { fake }, caps: {}, impls });
+    assert.deepEqual(t2.dispatched.map((d) => d.id), [a], "re-dispatched once the backoff passed");
+    assert.equal(read(a, p).status, "in_progress");
+  });
+
+  it("a system-scoped worker failure parks and still counts toward the pool pause", async () => {
+    const p = repoStore({ dispatch: { retries: 2, maxFailures: 3 } });
+    const a = ready(p, "provider broke");
+    const fake = fakeBackend();
+    assert.equal((await dispatch(a, { backend: fake, session: "pool-a", actor: "pool", p })).ok, true);
+    const impls = { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", summary: "ECONNREFUSED talking to the backend" }, pp) };
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls });
+    assert.equal(res.collected[0].retry, undefined);
+    assert.equal(read(a, p).status, "parked");
+    assert.equal(readPoolState(p).failures, 1);
+  });
+});
+
+describe("poolTick — expedite lane (TM-358)", () => {
+  /** A dispatched worker that is still running, charged to the normal lane unless `expedite`. */
+  function running(p, title, { touches, ...extra } = {}) {
+    const t = create("task", { title }, "", p);
+    update(t.id, { status: "in_progress", ...(touches ? { touches } : {}), dispatched: { backend: "tmux", run: `tmux:${t.id}`, session: `s-${t.id}`, at: new Date().toISOString(), ...extra } }, p);
+    return t.id;
+  }
+  const alive = { tmux: () => ({ ok: true, pending: true }) };
+
+  it("a highest-priority ready task dispatches on the next tick even when poolWip is full", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1 } });
+    running(p, "fills the only normal slot");
+    const normal = ready(p, "normal work");
+    const urgent = ready(p, "urgent work", { priority: "highest" });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.equal(res.capacity, 0, "the normal lane is full");
+    assert.deepEqual(res.dispatched.map((d) => d.id), [urgent]);
+    assert.equal(res.dispatched[0].expedite, true);
+    assert.equal(read(urgent, p).dispatched.expedite, true, "stamped so the next tick charges expediteWip");
+    assert.ok(read(urgent, p).worktree, "an expedited task still runs in its own worktree");
+    assert.deepEqual(res.skipped, [{ id: normal, reason: "at capacity" }]);
+  });
+
+  it("a high task needs the expedite label; without it the normal lane applies", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1 } });
+    running(p, "fills the only normal slot");
+    const high = ready(p, "high, no label", { priority: "high" });
+    const flagged = ready(p, "high, flagged", { priority: "high" });
+    update(flagged, { labels: ["ready-for-agent", "expedite"] }, p);
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [flagged]);
+    assert.deepEqual(res.skipped, [{ id: high, reason: "at capacity" }]);
+  });
+
+  it("dispatch.expediteWip caps concurrent expedited workers; the overflow falls back to the normal lane", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1, expediteWip: 2 } });
+    running(p, "an expedited worker already running", { expedite: true });
+    const u1 = ready(p, "urgent one", { priority: "highest" });
+    const u2 = ready(p, "urgent two", { priority: "highest" });
+    const u3 = ready(p, "urgent three", { priority: "highest" });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.equal(res.capacity, 1, "the running expedited worker is not charged to poolWip");
+    // u1 takes the one free expedite slot; u2 overflows into the free normal slot; u3 waits.
+    assert.deepEqual(res.dispatched.map((d) => [d.id, Boolean(d.expedite)]), [[u1, true], [u2, false]]);
+    assert.deepEqual(res.skipped, [{ id: u3, reason: "at capacity" }]);
+  });
+
+  it("skips touches-disjoint batching but never a path a running or just-dispatched task holds", async () => {
+    const p = repoStore({ dispatch: { poolWip: 3 } });
+    const ahead = ready(p, "normal, owns a.ts", { touches: ["src/a.ts"], rank: 1 });
+    const urgent = ready(p, "urgent, also a.ts", { priority: "highest", touches: ["src/a.ts"] });
+    const held = ready(p, "urgent, b.ts is held", { priority: "highest", touches: ["src/b.ts"] });
+    const holder = running(p, "holds b.ts", { touches: ["src/b.ts"] });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [ahead]);
+    const reasons = Object.fromEntries(res.skipped.map((s) => [s.id, s.reason]));
+    assert.equal(reasons[urgent], `touches overlap in_progress ${ahead} (src/a.ts)`);
+    assert.equal(reasons[held], `touches overlap in_progress ${holder} (src/b.ts)`);
+  });
+
+  it("an expedited task that collides only in batching still dispatches", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1 } });
+    running(p, "fills the only normal slot");
+    ready(p, "normal, ranked ahead, same path", { touches: ["src/a.ts"], rank: 1 });
+    const urgent = ready(p, "urgent", { priority: "highest", touches: ["src/a.ts"] });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [urgent], "batching put it in a later bin; the lane ignores that");
+  });
+
+  it("normal-priority behaviour is unchanged: no expedite flag, poolWip caps, batching applies", async () => {
+    const p = repoStore({ dispatch: { poolWip: 2 } });
+    const t1 = ready(p, "one", { touches: ["src/same.ts"] });
+    const t2 = ready(p, "two", { touches: ["src/same.ts"] });
+    const t3 = ready(p, "three");
+    const t4 = ready(p, "four");
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {} });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [t1, t3]);
+    assert.ok(res.dispatched.every((d) => !("expedite" in d)));
+    assert.equal(read(t1, p).dispatched.expedite, undefined);
+    assert.deepEqual(res.skipped, [
+      { id: t2, reason: "touches collide with a task ahead of it" },
+      { id: t4, reason: "at capacity" },
+    ]);
   });
 });

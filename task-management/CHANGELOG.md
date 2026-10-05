@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
+  heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
+  exit and the claim expired after 240 minutes under a worker that was still running. Each pool
+  tick now renews the claim of every dispatched worker that its collector proves alive (a tmux
+  session that answers, a topology run observed alive, an orchestration run not yet finished). A
+  dead or unprovable worker is not renewed. A supervisor that is not the pool can run
+  `tm claim renew --live` (or `--json`) for the same pass; it also records any worker it finds
+  dead, the way the pool does.
+
+- **A failed worker is retried with backoff before it parks (TM-363, EP-028).** A task-scoped
+  worker failure (for example, a worker that exited without closing) now reopens the task instead
+  of parking it, up to the new `dispatch.retries` (default 2; 0 parks at once). The pool picks it
+  up again after 1, then 4, then 16 minutes (`retryAt` on the task). Each retry logs a
+  `dispatch_retry` event with the attempt, the limit, `retryAt` and the reason. A worker that
+  reports `blocked` still parks, and provider or backend failures still park and still count
+  toward the pool pause. `failureScope` now treats "usage limit" and "reached your … limit" as
+  provider failures, matching the pool's quota check, so they are never retried.
+
+- **Expedite lane: urgent ready tasks dispatch on the next pool tick, outside `poolWip` (TM-358,
+  EP-028).** A `highest`-priority task, or a `high` one labelled `expedite`, takes a slot in a
+  separate lane capped by the new `dispatch.expediteWip` (default 2; 0 turns the lane off). It
+  skips the touches-disjoint batching, but still refuses any path that a running task, or a task
+  dispatched earlier in the same tick, holds. It runs in its own worktree like every dispatch. The
+  dispatch record carries `expedite: true`, so later ticks charge it to `expediteWip` and not to
+  `poolWip`. When the lane is full, an urgent task falls back to the normal lane. Normal-priority
+  tasks behave as before.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
