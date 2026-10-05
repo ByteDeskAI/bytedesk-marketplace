@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { consumerResourceDirs, invariant, nowIso, readJson, writeJson } from "./util.mjs";
 import { agentDirs, findLead, resolveAgentRef } from "./agents.mjs";
 import { displayName } from "./identity.mjs";
-import { canonicalRepoId } from "./repoid.mjs";
+import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 
 export const DELEGATIONS_KIND = "delegations";
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -218,15 +218,72 @@ export async function sameProject(a, b) {
   return (await canonicalRepoId(a)).id === (await canonicalRepoId(b)).id;
 }
 
+// -- task:<TM-id> addresses ---------------------------------------------------
+// TM-384 / ADR-0041. A worker a lead bound to a task is usually NOT a library agent (a Codex worker
+// tm dispatched, a pane the lead adopted), so naming it by id fails closed as an unknown recipient.
+// "task:<TM-id>" names it by the one thing everybody already knows: the task it is bound to. The
+// binding is the management record bindTaskWorker writes; nothing here writes it.
+const TASK_ADDRESS = /^task:(TM-[0-9]+)$/;
+
+export function taskAddress(to) {
+  return TASK_ADDRESS.exec(String(to ?? ""))?.[1] ?? null;
+}
+
+/** The live worker bound to taskId in the management record of this repository, or null. */
+export async function boundTaskWorker(consumer, taskId, { env = process.env, home } = {}) {
+  if (!consumer || !taskId) return null;
+  const identity = await canonicalRepoId(consumer);
+  // ponytail: mirrors management.mjs context(); export it from there when that file is free to edit.
+  const file = join(stateRoot(env, home), "management", repoKey(identity.id), taskId + ".json");
+  const record = await readJson(file).catch(() => null);
+  const worker = record?.worker;
+  if (!worker?.name || worker.stopped_at || record.state === "cleaned") return null;
+  return worker;
+}
+
+async function routeTaskAddress({ consumer, home, env, from, task, token, external, taskId, toLead, decision }) {
+  decision.task_address = taskId;
+  const worker = await boundTaskWorker(consumer, taskId, { env, home });
+  if (worker) {
+    decision.worker = { name: worker.name, kind: worker.kind ?? null, run: worker.run ?? null, session_name: worker.session_name ?? null };
+  }
+  if (!external) {
+    if (!worker) {
+      // Not unknown_recipient: the address is well formed and names a task; nobody is bound to it yet.
+      decision.blocked = "task_worker_unbound";
+      decision.reason = "no worker is bound to " + taskId + " in the management record of this repository";
+      return decision;
+    }
+    decision.resolved = worker.name;
+    decision.deliver_to = worker.name;
+    decision.reason = "same project; " + taskId + " is bound to " + worker.name;
+    return decision;
+  }
+  // Cross-repo: the lead stays the front door unless it delegated THIS task to THIS worker.
+  if (!worker) return toLead("external contact for " + taskId + ", which has no bound worker", null);
+  if (task && String(task) !== taskId) return toLead("external contact for " + taskId + " while naming task " + task, null);
+  const allowed = await delegationAllows(consumer, { from, to: worker.name, task: taskId, token });
+  if (allowed.ok) {
+    decision.resolved = worker.name;
+    decision.deliver_to = worker.name;
+    decision.delegation = allowed.delegation.token;
+    decision.reason = "delegation " + allowed.delegation.token + " covers task " + taskId + " - " + allowed.delegation.verified;
+    return decision;
+  }
+  if (allowed.rejected.length > 0) decision.delegation_rejected = allowed.rejected;
+  return toLead("external contact for the worker " + worker.name + " bound to " + taskId + " with no open delegation", null);
+}
+
 /**
  * Decide where a message actually goes.
  *
  * Same repo, or addressed to the lead, or covered by a delegation -> straight through.
  * Otherwise -> the lead, with the intended recipient preserved so the lead knows what was meant.
  */
-export async function routeMessage({ consumer, pluginRoot, home, from, fromProject, to, task, token, via = [] }) {
+export async function routeMessage({ consumer, pluginRoot, home, env = process.env, from, fromProject, to, task, token, via = [] }) {
   const dirs = agentDirs({ pluginRoot, consumer, home });
-  const target = await resolveAgentRef(to, dirs);
+  const taskId = taskAddress(to);
+  const target = taskId ? null : await resolveAgentRef(to, dirs);
   const decision = {
     requested: to,
     resolved: target ? target.id : null,
@@ -271,6 +328,8 @@ export async function routeMessage({ consumer, pluginRoot, home, from, fromProje
     decision.reason = `${because}; routed to ${displayName(lead)}`;
     return decision;
   };
+
+  if (taskId) return routeTaskAddress({ consumer, home, env, from, task, token, external, taskId, toLead, decision });
 
   if (!external) {
     // Inside the repo an unknown ref is not a routing question — sendMessage validates it against
