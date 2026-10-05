@@ -81,6 +81,20 @@ export function layerWarnings(raw, scope, label = scope) {
     : [];
 }
 
+/** TM-368: `management.autonomy`, lowest first. `pr` (the default) stops at the reviewed pull request,
+ * `merge` integrates it, `publish` also releases it (ADR-0001 External class; the policy is the grant). */
+export const AUTONOMY_LEVELS = Object.freeze(["pr", "merge", "publish"]);
+
+/** The effective autonomy and the layer that set it, nearest layer winning; `pr` when none does. */
+export function autonomyOf(loaded) {
+  for (const scope of PRECEDENCE) {
+    const layer = loaded.layers.find((l) => l.scope === scope && l.ok && l.present);
+    const level = layer?.raw?.management?.autonomy;
+    if (level !== undefined) return { level, scope, path: layer.path };
+  }
+  return { level: "pr", scope: "built-in", path: null };
+}
+
 /** Shape check, forgiving by design: every problem is reported, none aborts the other layers. */
 export function validateConfigShape(raw, label) {
   const errors = [];
@@ -128,6 +142,10 @@ export function validateConfigShape(raw, label) {
     if (raw.prompts.prefix !== undefined) errors.push(...promptEntryErrors(raw.prompts.prefix, `${label}: prompt "prefix"`, { mode: false }));
   }
   if (raw.management !== undefined && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
+  // TM-368: how far a lead lands on its own. An unknown value never widens: the layer is rejected.
+  if (isPlainObject(raw.management) && raw.management.autonomy !== undefined && !AUTONOMY_LEVELS.includes(raw.management.autonomy)) {
+    errors.push(`${label}: "management.autonomy" must be one of ${AUTONOMY_LEVELS.join(", ")}`);
+  }
   // TM-375: environment variable NAMES a worker inherits from whoever launches it. Never values.
   if (raw.workers !== undefined && (!isPlainObject(raw.workers) || (raw.workers.passEnv !== undefined
     && !(Array.isArray(raw.workers.passEnv) && raw.workers.passEnv.every((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))))) {

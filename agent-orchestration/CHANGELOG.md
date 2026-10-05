@@ -71,6 +71,40 @@
   refuse `approve` and the reviewer submits `blocked`. `reviewer eligible` independently refuses a
   required check with no evidence, evidence recorded at another revision, or a nonzero exit. The
   reviewer's launch is unchanged: it still cannot write files or run commands.
+- **Landing autonomy: `management.autonomy` is `pr`, `merge` or `publish` (TM-368, EP-028).** It
+  comes from the AO layered config (repo, then global, then the shipped default `pr`); an unknown
+  value invalidates its layer. The new `ao-topology manage land --task <TM-id>` follows it: `pr`
+  stops at the reviewed PR, `merge` runs `manage integrate`, and `publish` also runs `cut-release`
+  once every task of the epic has landed, then records the publish and runs
+  `tm ticket event <id> published` for a cross-repo ticket's origin (TM-359). At `publish` the
+  policy is the External-class grant (ADR-0001) for `cutover` and `cut-release`; each record names
+  the grant layer and file in `authorization.granted_by`. `cut-release` now waits for the TeamCity
+  build its release started, read through a small REST adapter (`topology/lib/teamcity.mjs`;
+  `TEAMCITY_URL` or config, `TEAMCITY_TOKEN` from the environment only), and requires it under
+  `publish`. A red or missing build, a failed verify or cutover postflight, a missing reviewer
+  approval, a failed step or a release refused after merge stops the run and pages through ntfy
+  (`topology/lib/ntfy.mjs`, AO's own notifier, so it works with task-management absent). The
+  autonomy hook never approves `manage land`. Documented in the README under "Landing autonomy".
+
+- **`manage cutover` and `manage cut-release` wrap deploy-safe and /release behind guardrails
+  (TM-250, EP-028).** Both are External-class verbs (ADR-0001). They run only the repository's own
+  argv from `management.cutover` / `management.release` (for example `deploy-safe.sh deploy`,
+  `release-gitflow.sh start` then `verify`), without a shell. Each refuses by name, running nothing,
+  unless every condition holds: `config` (argv set, and argv[0] is never `systemctl`, `git`, `gh`,
+  a shell, `sudo`, `env` or `ssh`), `authority`, `branch` (default `develop`), `dirty`, `sync` (HEAD
+  equals `origin/<branch>` after a fetch) and `plan` (every task of `--epic` is done). `cutover`
+  proves the running binary switched: `identity_argv` must answer before and answer differently
+  after, and a failed postflight stops it. `cut-release` fails unless its verify step passes. Each
+  run writes a record, with its authorization, under the management state directory. The
+  autonomy hook never approves either verb. `manage release` keeps its existing meaning (release an
+  idle assignment), so the release wrapper is named `cut-release`.
+
+- **`manage cleanup` refuses protected branches by name (TM-251, EP-028).** Cleanup removes a
+  merged task's worktree and its LOCAL branch only (`git branch -d`). Before it observes or removes
+  anything, it refuses a record naming `develop`, `main`, `master`, any `release/*` branch or the
+  configured integration branch, with `TOPOLOGY_MANAGEMENT_CLEANUP` and the branch named. Remote
+  branch deletion stays out of scope: a test proves the remote copy of a cleaned branch survives.
+  `protectedBranch()` in `topology/lib/management.mjs` is the one predicate.
 
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when

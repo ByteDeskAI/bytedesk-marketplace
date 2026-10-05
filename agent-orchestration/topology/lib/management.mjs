@@ -76,6 +76,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async epic => JSON.parse((await exec(['find', `epic:${epic}`, 'kind:task', '--json'])).stdout).filter(t => t.epic === epic).map(t => t.id),
+    // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
+    ticketEvent: async (id, kind, detail) => exec(['ticket', 'event', taskId(id), kind, detail]),
   };
 }
 
@@ -93,6 +95,15 @@ async function recordEvent(ctx, task, prior, event, details) {
   // Comment first: a failed task-store write must never claim the lead received the protocol.
   await ctx.store.comment(task, JSON.stringify(entry));
   const next = { ...prior, task, repo_id: ctx.identity.id, events: [...(prior?.events || []), entry], updated_at: entry.at };
+  await writeJson(ctx.path, next);
+  return next;
+}
+/** TM-368: append one event to a task's management record (comment first, as recordEvent does) and
+ * merge `patch` into the record. Refuses a task with no record: there is nothing to attach it to. */
+export async function recordTaskEvent(options, event, details, patch = {}) {
+  const ctx = await context(options), record = await loadRecord(ctx.path);
+  invariant(record, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${options.task} has no management record to attach ${event} to.`);
+  const next = Object.assign(await recordEvent(ctx, options.task, record, event, details), patch);
   await writeJson(ctx.path, next);
   return next;
 }
@@ -848,13 +859,22 @@ export async function recordLanding(options) {
   });
 }
 
-/** Cleanup fails closed with a recovery path; it never force-removes a tree or remote branch. */
+/** TM-251: branches cleanup never deletes, whatever a record says: develop, main, master, release/*
+ * and the configured integration branch. One predicate, so any future deletion path shares it. */
+export function protectedBranch(name, target = null) {
+  return ['develop', 'main', 'master'].includes(name) || /^release\//.test(name) || (nonempty(target) && name === target);
+}
+
+/** Cleanup fails closed with a recovery path; it never force-removes a tree. It deletes only the
+ * local task branch (`git branch -d`, never -D); remote branch deletion is out of scope (TM-251). */
 export async function cleanupTask(options) {
   const ctx = await context(options);
   return withLock(join(ctx.root, 'integration.lock'), async () => {
     const record = await loadRecord(ctx.path);
     try {
       invariant(record?.merge && record.collected, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Verified merge and collected results are required.');
+      // Checked before anything is observed or removed: a protected branch is refused by name.
+      invariant(!protectedBranch(record.branch, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Refusing to clean up protected branch ${record.branch}: cleanup never touches develop, main, master, release/* or the integration branch.`);
       const doc = await ownedTask(ctx, options.task, record.owner);
       invariant(record.worktree === doc.worktree && record.branch === doc.branch, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task worktree ownership changed.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
@@ -1554,4 +1554,126 @@ test('TM-360: manage assignment reports a live bound worker, and start-worker su
   assert.deepEqual([live.assigned, live.worker, live.owner], [false, { kind: 'tmux', backend: 'tmux', run: 'tmux:lead-worker' }, 'author']);
   await writeJson(path, { ...record, worker: { kind: 'tmux', run: 'tmux:lead-worker', stopped_at: '2026-10-05T00:00:00Z' } });
   assert.equal((await assignmentResult(opts)).worker, undefined, 'a stopped worker is history, not a holder');
+});
+
+// ── TM-251: cleanup never touches develop, main or release/*, and never a remote branch ─────────
+const recordPath = async opts => join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+for (const branch of ['develop', 'main', 'release/v1.2.0']) {
+  test(`TM-251 cleanup refuses the protected branch ${branch} by name and removes nothing`, async t => {
+    const { opts, finish, calls, git } = await fixture(t);
+    await admitTask(opts); await finish(); await integrateTask(opts);
+    // A record naming a protected branch (a corrupted or hand-edited record): cleanup must refuse it.
+    if (branch !== 'main') await git(opts.consumer, ['branch', branch]);
+    const path = await recordPath(opts), record = await readJson(path);
+    await writeJson(path, { ...record, branch });
+    const result = await cleanupTask(opts);
+    assert.equal(result.cleaned, false);
+    assert.match(result.reason, new RegExp(`protected branch ${branch.replace('/', '\\/')}`));
+    assert.equal(calls.includes('remove'), false); assert.equal(calls.includes('done'), false);
+    assert.equal((await git(opts.consumer, ['branch', '--list', branch])).stdout.trim().replace(/^[*+] /, ''), branch, `${branch} still exists`);
+  });
+}
+
+test('TM-251 cleanup deletes only the local task branch; the remote branch stays', async t => {
+  const { opts, finish, git } = await fixture(t);
+  const origin = join(opts.home, '..', 'origin.git');
+  await run('git', ['init', '-q', '--bare', origin]);
+  await git(opts.consumer, ['remote', 'add', 'origin', origin]);
+  await admitTask(opts); await finish();
+  await git(opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
+  await integrateTask(opts);
+  assert.equal((await cleanupTask(opts)).cleaned, true);
+  assert.equal((await git(opts.consumer, ['branch', '--list', 'tm/TM-1'])).stdout.trim(), '', 'the local branch is gone');
+  assert.match((await run('git', ['-C', origin, 'branch', '--list', 'tm/TM-1'])).stdout, /tm\/TM-1/, 'the remote branch is untouched');
+});
+
+// ── TM-368: management.autonomy drives manage land ──────────────────────────────────────────────
+const { landTask } = await import('../../topology/lib/release.mjs');
+const globalConfig = opts => join(opts.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json');
+const landPager = () => { const pages = []; return { pages, page: async msg => { pages.push(msg); return { sent: true }; } }; };
+
+test('TM-368 autonomy pr (the default) stops at the reviewed PR: land merges nothing', async t => {
+  const { opts, finish, calls } = await fixture(t);
+  await admitTask(opts); await finish();
+  const result = await landTask(opts);
+  assert.equal(result.landed, false); assert.equal(result.stopped, 'pr'); assert.equal(result.autonomy.scope, 'built-in');
+  assert.equal(calls.includes('merge'), false);
+});
+
+test('TM-368 autonomy merge: land integrates through manage integrate and does not publish', async t => {
+  const { opts, finish, calls } = await fixture(t);
+  await writeJson(globalConfig(opts), { management: { autonomy: 'merge' } });
+  await admitTask(opts); const report = await finish();
+  const result = await landTask(opts);
+  assert.equal(result.landed, true); assert.equal(result.merge.revision, report.finish.revision);
+  assert.ok(calls.includes('merge')); assert.equal(calls.includes('publish'), false);
+});
+
+test('TM-368 a missing reviewer approval stops land before merge and pages', async t => {
+  const { opts, finish, calls } = await fixture(t);
+  await writeJson(globalConfig(opts), { management: { autonomy: 'publish' } });
+  await admitTask(opts); await finish();
+  const p = landPager();
+  const error = await landTask({ ...opts, page: p.page, reviewGate: async () => ({ eligible: false, reasons: ['review changes_requested'], status: { review: { verdict: 'changes_requested' } } }) }).then(() => null, e => e);
+  assert.equal(error?.code, 'TOPOLOGY_LAND_REVIEW', error?.message);
+  assert.equal(calls.includes('merge'), false, 'nothing merged');
+  assert.equal(p.pages.length, 1); assert.match(p.pages[0].body, /no reviewer approval \(verdict changes_requested/);
+});
+
+/** A landed task on main, pushed to a bare origin, with fake release scripts and a TeamCity stub. */
+async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhere', task: 'TM-9' } } = {}) {
+  const fx = await fixture(t);
+  const { opts, finish, git, doc } = fx;
+  const root = join(opts.home, '..'), logs = join(root, 'release.log');
+  await writeFile(join(root, 'release.sh'), `#!/bin/sh\necho "$*" >> ${logs}\n`, { mode: 0o755 });
+  await writeJson(globalConfig(opts), { management: { autonomy: 'publish', release: { branch: 'main', argv: [join(root, 'release.sh'), 'start'], verify_argv: [join(root, 'release.sh'), 'verify'], teamcity: { build_type: 'Rel' } } } });
+  await run('git', ['init', '-q', '--bare', join(root, 'origin.git')]);
+  await git(opts.consumer, ['remote', 'add', 'origin', join(root, 'origin.git')]);
+  await admitTask(opts); await finish(); await integrateTask(opts);
+  await git(opts.consumer, ['push', '-q', 'origin', 'main']);
+  if (origin) doc.origin = origin;
+  const events = [], p = landPager();
+  opts.store.epicTasks = async () => ['TM-1'];
+  opts.store.ticketEvent = async (...args) => { events.push(args); };
+  const teamcity = { latestBuildId: async () => 7, waitForBuild: async () => ({ id: 8, number: '9', state: 'finished', status }) };
+  const options = { ...opts, env: { ...opts.env, TEAMCITY_URL: 'https://tc.invalid', TEAMCITY_TOKEN: 'x' }, page: p.page, teamcity, ancestors: async () => ['claude'] };
+  return { ...fx, options, logs, events, pages: p.pages };
+}
+
+test('TM-368 autonomy publish: after the merge, land releases, waits for TeamCity, verifies, records the grant source and notifies the origin', async t => {
+  const fx = await publishLanded(t);
+  const result = await landTask(fx.options);
+  assert.equal(result.published, true, JSON.stringify(result));
+  assert.deepEqual((await readFile(fx.logs, 'utf8')).trim().split('\n'), ['start', 'verify']);
+  const record = await readJson(await recordPath(fx.opts));
+  assert.equal(record.published.authorization.channel, 'autonomy-policy');
+  assert.equal(record.published.authorization.class, 'external');
+  assert.deepEqual(record.published.authorization.granted_by, { scope: 'global', path: globalConfig(fx.opts) });
+  assert.equal(record.published.teamcity.status, 'SUCCESS'); assert.equal(record.published.verified, true);
+  assert.ok(fx.calls.includes('publish'));
+  assert.equal(fx.events.length, 1); assert.deepEqual(fx.events[0].slice(0, 2), ['TM-1', 'published']); assert.match(fx.events[0][2], /artifact verified/);
+  assert.equal(result.origin.notified, true);
+  const again = await landTask(fx.options);
+  assert.equal(again.already, true); assert.equal(fx.events.length, 1, 'a rerun never publishes or notifies twice');
+});
+
+test('TM-368 autonomy publish: a red TeamCity build stops, pages, records no publish and notifies no origin', async t => {
+  const fx = await publishLanded(t, { status: 'FAILURE' });
+  await assert.rejects(landTask(fx.options), { code: 'TOPOLOGY_RELEASE_BUILD_RED' });
+  assert.equal(fx.pages.length, 1);
+  assert.equal((await readJson(await recordPath(fx.opts))).published, undefined);
+  assert.deepEqual(fx.events, []);
+});
+
+test('TM-368 autonomy publish waits while the plan has unlanded tasks, and pages a refused release after merge', async t => {
+  const fx = await publishLanded(t, { origin: null });
+  fx.opts.store.epicTasks = async () => ['TM-1', 'TM-2'];
+  const show = fx.opts.store.show; fx.opts.store.show = async id => (id === 'TM-2' ? { id, status: 'in_progress' } : show(id));
+  const waiting = await landTask(fx.options);
+  assert.equal(waiting.published, false); assert.deepEqual(waiting.waiting, ['TM-2 (in_progress)']);
+  assert.deepEqual(fx.pages, [], 'waiting for the plan is not a page');
+  fx.opts.store.epicTasks = async () => ['TM-1'];
+  await fx.git(fx.opts.consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'unpushed']);
+  await assert.rejects(landTask(fx.options), { code: 'TOPOLOGY_RELEASE_REFUSED' });
+  assert.equal(fx.pages.length, 1); assert.match(fx.pages[0].body, /merged, but publishing stopped: .*sync/);
 });
