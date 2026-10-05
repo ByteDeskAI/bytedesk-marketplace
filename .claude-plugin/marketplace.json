@@ -114,7 +114,7 @@
     },
     {
       "name": "remote-gateway",
-      "description": "Operator skills for the ByteDesk remote gateway, including /remote-gateway-login (local yaml or --url/--method/--username/--password).",
+      "description": "Operator skills for the ByteDesk remote gateway, including /remote-gateway-login (local yaml or --url/--method/--username/--password) and the gateway-logs and gateway-profiling diagnosis skills.",
       "source": "./remote-gateway"
     }
   ]

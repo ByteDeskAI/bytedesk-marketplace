@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "remote-gateway",
-  "description": "ByteDesk remote gateway operator skills copied from the gateway repo, plus /remote-gateway-login so an agent can authenticate with a local agent-login.yaml or with explicit flags and then reuse the session cookie.",
+  "description": "ByteDesk remote gateway operator skills copied from the gateway repo, plus /remote-gateway-login so an agent can authenticate with a local agent-login.yaml or with explicit flags and then reuse the session cookie, and gateway-logs and gateway-profiling for diagnosing a gateway from its own log index and profiler.",
   "author": {
     "name": "ByteDesk AI",
     "url": "https://github.com/ByteDeskAI"
@@ -13,6 +13,9 @@
     "remote-gateway",
     "login",
     "vault",
-    "bytedesk"
+    "bytedesk",
+    "logs",
+    "profiling",
+    "diagnostics"
   ]
 }
