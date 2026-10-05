@@ -97,7 +97,7 @@ async function recordEvent(ctx, task, prior, event, details) {
   return next;
 }
 function ownClaim(claim, owner) {
-  invariant(claim && claim.session === owner, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', 'Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.');
+  invariant(claim && claim.session === owner, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `Task claim is held by ${claim ? claim.session || 'an unknown session' : 'none'}, expected owner ${owner || 'none'}; reconcile ownership without stealing.`);
 }
 async function ownedTask(ctx, task, owner) {
   const doc = await ctx.store.show(task);
@@ -369,12 +369,14 @@ export async function admitTask(options) {
       return { admitted: false, state: 'ownership-review-required' };
     }
     if (held) ownClaim(held, owner); // TTL expiry never authorizes silent reassignment here.
-    if (prior?.owner === owner && prior.started) { await ownedTask(ctx, task, owner); return { admitted: true, resumed: true, record: prior }; }
+    if (prior?.owner === owner && prior.started) { if (!held) await ctx.store.provision(task); await ownedTask(ctx, task, owner); return { admitted: true, resumed: true, record: prior }; }
     invariant(doc.labels?.includes('ready-for-agent') && list(doc.touches) && doc.touches.length, 'TOPOLOGY_MANAGEMENT_SCOPE', 'Task needs approved ready-for-agent scope and declared files/touches.');
     const available = await (options.reviewerReady || reviewerAvailability)(options);
     invariant(available.available, 'TOPOLOGY_MANAGEMENT_REVIEWER', available.reason || 'Designated reviewer is not ready.');
     for (const id of doc.blockedBy || []) invariant((await ctx.store.show(id)).status === 'done', 'TOPOLOGY_MANAGEMENT_DEPENDENCY', `Dependency ${id} is not complete.`);
-    if (!doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
+    // TM-348: tm worktree new is idempotent and claims first, so an unclaimed task with a recorded
+    // worktree is re-claimed here; a claim held by another session was already refused above.
+    if (!held || !doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
     const provisioned = await ownedTask(ctx, task, owner);
     await ctx.store.start(task, provisioned.worktree);
     const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, intent, boundaries, dependencies, checks, files: doc.touches });

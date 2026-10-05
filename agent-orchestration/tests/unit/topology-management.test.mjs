@@ -67,6 +67,22 @@ test('new admission requires reviewer, task scope, ownership and complete protoc
   await admitTask(opts); assert.equal(calls.filter(c => c === 'provision').length, 1);
 });
 
+test('TM-348: a recorded worktree with no claim is provisioned (re-claimed) once and admitted', async t => {
+  const { opts, doc, calls, setClaim, git } = await fixture(t);
+  // An earlier tm worktree new left the worktree and branch recorded, then the claim was released.
+  const worktree = join(opts.consumer, '..', 'task');
+  await git(opts.consumer, ['worktree', 'add', '-b', 'tm/TM-1', worktree]);
+  Object.assign(doc, { worktree, branch: 'tm/TM-1', status: 'open' }); setClaim(null);
+  // tm worktree new is idempotent: it claims first and reuses the checkout.
+  opts.store.provision = async () => { calls.push('provision'); setClaim({ session: 'author', worktree, branch: doc.branch }); };
+  const result = await admitTask(opts);
+  assert.equal(result.admitted, true);
+  assert.equal(calls.filter(c => c === 'provision').length, 1);
+  setClaim({ session: 'peer' });
+  await assert.rejects(admitTask(opts), { code: 'TOPOLOGY_MANAGEMENT_OWNERSHIP', message: /held by peer, expected owner author/ });
+  assert.equal(calls.filter(c => c === 'provision').length, 1, 'a claim held by another session is never re-provisioned');
+});
+
 test('adopted active worker is preserved for migration review', async t => {
   const { opts, doc, calls } = await fixture(t); doc.status = 'in_progress';
   const result = await admitTask(opts);

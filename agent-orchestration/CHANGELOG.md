@@ -17,6 +17,14 @@
 
 ### Fixed
 
+- **`manage admit` no longer dead-ends on a task whose worktree is recorded but whose claim was
+  released (TM-348).** Admission provisioned only when no worktree was recorded, so a task left with
+  a worktree by an earlier `tm worktree new`, or parked or blocked since, skipped provisioning and
+  was refused with `TOPOLOGY_MANAGEMENT_OWNERSHIP`. Admission, and a resumed admission, now run
+  `tm worktree new` whenever no claim is held. That verb claims first and reuses the checkout, so the
+  task is re-claimed by the admitting session. A claim held by another session is still refused, and
+  an in-progress task with no admission record still returns `ownership-review-required`. The
+  ownership refusal now names the session holding the claim (or `none`) and the expected owner.
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
