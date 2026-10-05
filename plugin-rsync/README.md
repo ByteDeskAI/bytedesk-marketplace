@@ -38,6 +38,17 @@ Destinations (existing installs only — this never creates a new plugin install
 
 `node_modules`, `.git`, and Vite leftovers are excluded. `--delete` drops dest-only files except those excludes.
 
+## Automatic sync
+
+Installed in Claude, Codex or Grok, this plugin's SessionStart hook sets
+`core.hooksPath=scripts/git-hooks` in a bytedesk-marketplace checkout where it is unset. After
+that, every commit, merge or rebase in the main checkout rsyncs the plugins it touched (log:
+`.git/plugin-rsync.log`). After a Codex sync, `trust-codex-hooks` records the new hook hashes
+as trusted so Codex runs them without asking.
+
+A machine that only ever runs Codex still needs one TUI approval of this plugin's own hook: Codex
+trusts nothing on a fresh machine.
+
 ## PATH
 
 ```bash

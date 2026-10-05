@@ -92,7 +92,7 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /git push -u origin/);
     assert.match(doc, /TM_DISPATCH_WORKER/);
     assert.match(doc, /gh pr merge/, "the guard's headline refusal");
-    assert.match(doc, /never merge/i);
+    assert.match(doc, /never merge any PR but its own/i);
     for (const rel of ["README.md", "AGENTS.md", "docs/use-cases.md", "skills/dispatch/SKILL.md", "skills/implement/SKILL.md"]) {
       assert.match(read(rel), /gh pr create/, `${rel} never states the PR finish line`);
     }

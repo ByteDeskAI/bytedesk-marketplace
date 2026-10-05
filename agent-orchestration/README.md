@@ -259,7 +259,7 @@ The `agent-orchestrate` skill drives the public MCP surface:
 | Lifecycle | `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events` |
 | Control | `orchestration_cancel`, `orchestration_cleanup` |
 | Approval | `orchestration_decision_get`, `orchestration_decision_approve` |
-| Durable mail | `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose` |
+| Durable mail | `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`, `orchestration_mailbox_wait` |
 | Goal feedback | `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile` |
 
 The [goal feedback controller](docs/goal-loop-runtime.md) drives a bounded PM, build, QA,
@@ -420,6 +420,51 @@ packaged roadmap becomes an implicit consumer repository.
 
 Goals and trajectories remain strategic proposals. They cannot execute work, spend budget, reserve
 capacity, or mutate a workspace, and only a human roadmap steward may approve them for commitment.
+
+## Lead and worker autonomy: the shipped allowlist
+
+Leads and workers run routine orchestration commands without a permission prompt and without an
+auto-mode classifier round. You do not need to add global permission rules. The plugin ships this
+as a `PreToolUse(Bash)` hook, `scripts/autonomy-allow.mjs`, wired in `hooks/hooks.json` (TM-369).
+
+**Why a hook.** A plugin cannot ship permission allow rules: a plugin's `settings.json` applies only
+`agent` and `subagentStatusLine` ([plugins reference](https://code.claude.com/docs/en/plugins-reference)).
+A `PreToolUse` hook that returns `permissionDecision: "allow"` "bypasses the permission prompt"
+([hooks](https://code.claude.com/docs/en/hooks)). On Claude Code 2.1.289 we checked this live, from a
+plugin hook. In `default` mode, a hook-approved command ran and the same-shaped control was denied.
+In `auto` mode, the debug log showed `Hook approved tool use for Bash, bypassing permission prompt`
+with a 4 ms decision, against 534 ms for the classifier-reviewed control.
+
+**What it approves.** It approves only one simple command, with no `;`, `&`, `|`, `<`, `>`,
+backtick, `$`, backslash or newline anywhere. One exception applies: a trailing heredoc with a
+quoted delimiter (`<<'EOF'`) is treated as data.
+
+| Command | Approved |
+|---|---|
+| `ao-topology <verb> …` | Every verb except those in the gated list below |
+| `agent-orchestration doctor\|status\|session-open`, `agent-orchestration services status\|ensure\|probe` | Yes |
+| `tm <verb> …`, `.bytedesk/task-management/bin/tm <verb> …` | Every verb. This matches Ryan's `Bash(tm *)` decision of 2026-09-25 |
+| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Read-only only. Not approved: `#(…)` formats, `display-message -I`, `-f` |
+
+**What stays gated.** The hook never approves these commands. They go through the normal
+permission flow (a prompt, or the auto-mode classifier). This keeps the authorization classes of
+ADR-0001 (`fleet/docs/adr/0001-hierarchical-authorization.md`):
+
+- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup`. These verbs keep
+  their own delegation checks. A lead that should run them unprompted gets the per-lead rules from
+  `ao-topology permissions install` (see `docs/repository-leads.md`).
+- **Operator-only:** `ao-topology delegate grant|revoke` and `ao-topology permissions …`.
+- **Repo-destructive and external:** every `git`, `gh`, deploy and secrets command. This includes
+  force pushes, history rewrites, branch deletion, releases, deploys and secret reads. None of these
+  is on the list.
+- **Anything compound:** for example, `tm board && git push --force` falls through as a whole.
+
+**Boundaries.** The hook only ever answers "allow" or says nothing. It never blocks a command, and
+any error falls through to the normal flow. Claude Code still applies your `deny` and `ask` rules
+after a hook allows a command ([permissions](https://code.claude.com/docs/en/permissions#extend-permissions-with-hooks)).
+Critical-path `rm` commands are still refused. Agents launched with `auto_approve` (the default,
+TM-214) skip prompts entirely, so this hook matters for the sessions that do not: your own lead
+session, and agents with `auto_approve: false`.
 
 ## Safety model
 

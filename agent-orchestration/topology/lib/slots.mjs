@@ -442,12 +442,18 @@ export async function notifyGrants(events, { consumer, env = process.env, home =
   const rung = [];
   for (const event of events.filter((item) => item.type === "granted")) {
     const { sendStandingMessage } = await import("./standing-mailbox.mjs");
-    // The id is derived from the grant, so a retried tick delivers nothing twice.
-    const id = createHash("sha256").update(`slot-grant:${event.name}:${event.ticket}:${event.agent_id}`).digest("hex").slice(0, 32);
-    const result = await sendStandingMessage({ consumer, to: event.agent_id, id, subject: `serial slot ${event.name}`,
+    const { SUPERVISOR_SENDER } = await import("./nats-outage.mjs");
+    // The id is derived from the grant, so a retried tick delivers nothing twice. TM-314: `v2`, because
+    // grants sent before the supervisor identity are on disk as permanent `source_identity_required`
+    // holds under the v1 id, and the same id with a different envelope is TOPOLOGY_MESSAGE_ID_CONFLICT.
+    const id = createHash("sha256").update(`slot-grant:v2:${event.name}:${event.ticket}:${event.agent_id}`).digest("hex").slice(0, 32);
+    // TM-314: a system notice is sent as the supervisor of this repository, like the NATS outage
+    // notice. With no sender every grant was held permanently and the grantee never heard of it.
+    const result = await sendStandingMessage({ consumer, fromProject: consumer, from: SUPERVISOR_SENDER, to: event.agent_id, id, subject: `serial slot ${event.name}`,
       body: `SERIAL SLOT GRANTED: ${event.name} to ${event.agent_id} for ${event.reason}\n\nYou now hold the ${event.name} slot. Do the work in the same turn you read this. Release it with \`ao-topology slot release ${event.name}\` when you are done — the next holder is granted mechanically on the following tick, so nobody is waiting on you to hand it over by hand.`,
     }, { env, home }).catch((error) => ({ status: "failed", reason: error?.code ?? String(error) }));
-    rung.push({ ticket: event.ticket, agent_id: event.agent_id, status: result.status });
+    // A held grant is not a sent one: the reason travels with it, so a caller can tell the two apart.
+    rung.push({ ticket: event.ticket, agent_id: event.agent_id, status: result.status, ...(result.status === "delivered" ? {} : { reason: result.reason ?? null }) });
   }
   return rung;
 }

@@ -36,6 +36,7 @@ import { dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent, resolveAgentRef } from "./agents.mjs";
 import { readLeadRegistration } from "./lead.mjs";
 import { sendStandingMessage } from "./standing-mailbox.mjs";
+import { SUPERVISOR_SENDER } from "./nats-outage.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
 import { composerFormat, LATE_ACK_GRACE_MS, wakeForProbe } from "./delivery.mjs";
@@ -1609,7 +1610,8 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     'No verdict was recorded and nothing was approved. Check the reviewer session and its prompt, then request the review again;',
     'a new request replaces this failed one.',
   ].join('\n');
-  return deliver({ id: createHash('sha256').update(`review-failed:${request.nonce}`).digest('hex').slice(0, 32), consumer, to: leadId,
+  // TM-314: sent as the supervisor (`v2` id); with no sender it was held permanently as `source_identity_required`.
+  return deliver({ id: createHash('sha256').update(`review-failed:v2:${request.nonce}`).digest('hex').slice(0, 32), consumer, fromProject: consumer, from: SUPERVISOR_SENDER, to: leadId,
     subject: `review request failed: ${request.task}`, body, task: request.task, provenance: { source: 'ao-topology review' } }, { env, home })
     .then(sent => ({ status: sent?.status ?? 'sent', to: leadId, message_id: sent?.envelope?.id ?? null }))
     .catch(error => ({ status: 'failed', to: leadId, reason: error?.code ?? String(error) }));

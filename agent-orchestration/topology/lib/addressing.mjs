@@ -13,8 +13,10 @@
 // Expansion happens at exactly one place: inside `sendMessage`, before the per-recipient loop.
 // `forwardMessageToWorkflow` routes back through `sendMessage`, so a forwarding agent cannot bypass
 // admission by control flow rather than by convention.
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { invariant } from "./util.mjs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { invariant, readJson } from "./util.mjs";
 import { expandFanout } from "./mailbox.mjs";
 
 /**
@@ -170,4 +172,104 @@ export async function expandAddresses({
     `${tokens.join(", ")} resolves to ${order.length} recipients; the limit is ${limit}. Nothing was sent — address a smaller audience, or raise it with --max-recipients if this repository can carry it.`,
   );
   return order;
+}
+
+// ── Standing mail: a repository's lead, by path or slug (TM-271) ─────────────────────────────────
+
+/**
+ * Every repository this host knows: the services list (`repos.json`) and every lead registration.
+ * A slug is the main checkout's directory name, so all linked worktrees of one repository share it.
+ */
+export async function registeredRepositories({ env = process.env, home = homedir() } = {}) {
+  // Loaded on use, like the presence directory above: nothing that does not address a repository pays.
+  const { readServiceRepos } = await import("./services-client.mjs");
+  const { leadRegistryDir } = await import("./lead.mjs");
+  const { repositoryConsumer } = await import("./repoid.mjs");
+  const byKey = new Map();
+  const add = (key, root) => { if (key && root && !byKey.has(key)) byKey.set(key, { key, root, slug: basename(root) }); };
+  for (const repo of await readServiceRepos(env, home)) add(repo.key, await repositoryConsumer(repo.consumer).catch(() => repo.consumer));
+  const dir = leadRegistryDir(env, home);
+  for (const name of (await readdir(dir).catch(() => [])).filter((n) => /^[0-9a-f]{16}\.json$/.test(n))) {
+    const id = (await readJson(join(dir, name)).catch(() => null))?.repo_id;
+    if (typeof id === "string" && id) add(name.slice(0, -5), basename(id) === ".git" ? dirname(id) : id);
+  }
+  return [...byKey.values()];
+}
+
+/** `lead@<slug|path>` is shorthand for `--to-repo <slug|path>`. */
+export function repoLeadRef(to) {
+  const match = typeof to === "string" ? /^lead@(.+)$/.exec(to) : null;
+  return match ? match[1] : null;
+}
+
+/**
+ * Resolve a repository named by path or slug to its root and registered lead. Refuses an unknown or
+ * ambiguous name and a repository with no lead: nothing is sent to a guess.
+ */
+export async function resolveRepoLead(ref, { env = process.env, home = homedir(), cwd = process.cwd() } = {}) {
+  invariant(typeof ref === "string" && ref.trim(), "TOPOLOGY_REPO_REQUIRED", "Name the repository by path or slug (--to-repo <path|slug>).");
+  const { repositoryConsumer, canonicalRepoId, repoKey } = await import("./repoid.mjs");
+  const { readLeadRegistration } = await import("./lead.mjs");
+  const known = await registeredRepositories({ env, home });
+  let root;
+  if (isAbsolute(ref) || ref.startsWith(".") || ref.includes("/")) {
+    const path = resolve(cwd, ref);
+    invariant(await stat(path).then((s) => s.isDirectory(), () => false), "TOPOLOGY_REPO_UNKNOWN", `${path} is not a directory, so it names no repository. Nothing was sent.`);
+    root = await repositoryConsumer(path);
+  } else {
+    const matches = known.filter((repo) => repo.slug === ref || repo.key === ref);
+    const names = known.map((repo) => repo.slug).sort().join(", ") || "none";
+    invariant(matches.length > 0, "TOPOLOGY_REPO_UNKNOWN", `No registered repository is named "${ref}" (registered: ${names}). Pass its path instead. Nothing was sent.`);
+    invariant(matches.length === 1, "TOPOLOGY_REPO_AMBIGUOUS", `"${ref}" names ${matches.length} registered repositories (${matches.map((repo) => repo.root).join(", ")}). Pass the path instead. Nothing was sent.`);
+    root = matches[0].root;
+  }
+  const lead = (await readLeadRegistration({ consumer: root, env, home }).catch(() => null))?.record?.agent_id ?? null;
+  invariant(lead, "TOPOLOGY_REPO_NO_LEAD", `${root} has no registered lead, so there is nobody to address. Start one with \`ao-topology lead ensure --consumer ${root}\`. Nothing was sent.`);
+  return { consumer: root, lead, key: repoKey((await canonicalRepoId(root)).id) };
+}
+
+/** TM-372: the standing-mail broadcast audience — every registered repository's lead. */
+export const ALL_LEADS = "@all-leads";
+
+/**
+ * Every registered repository's lead, one target per repository. Same rules as `expandAddresses`:
+ * the sender is never its own recipient (the loop guard), an audience that reaches nobody is refused,
+ * and one wider than the limit is refused, never truncated.
+ */
+async function allLeads({ from, env, home, maxRecipients }) {
+  const { readLeadRegistration } = await import("./lead.mjs");
+  const targets = [];
+  for (const repo of await registeredRepositories({ env, home })) {
+    // A deleted checkout keeps its registration; it has no inbox to reach, so it is not addressed.
+    if (!(await stat(repo.root).then((s) => s.isDirectory(), () => false))) continue;
+    const lead = (await readLeadRegistration({ consumer: repo.root, env, home }).catch(() => null))?.record?.agent_id ?? null;
+    if (lead && lead !== from) targets.push({ consumer: repo.root, to: lead, key: repo.key });
+  }
+  invariant(targets.length > 0, "TOPOLOGY_BROADCAST_EMPTY", `${ALL_LEADS} names nobody right now: no registered repository has a lead other than the sender. Nothing was sent.`);
+  const limit = Number.isInteger(maxRecipients) && maxRecipients > 0 ? maxRecipients : MAX_BROADCAST;
+  invariant(
+    targets.length <= limit,
+    "TOPOLOGY_BROADCAST_TOO_WIDE",
+    `${ALL_LEADS} resolves to ${targets.length} recipients; the limit is ${limit}. Nothing was sent — address the leads you need by --to-repo, or raise it with --max-recipients.`,
+  );
+  return targets;
+}
+
+/**
+ * The ONE standing-mail resolver every send entry shares. Returns `[{ consumer, to, key? }]`:
+ * the literal recipient in `consumer` (unchanged), a repository's lead (`--to-repo`, `lead@<repo>`),
+ * or every registered repository's lead (`@all-leads`). Every refusal happens here, before any send.
+ */
+export async function resolveStandingTargets({ to, toRepo = null, consumer, from = null, env = process.env, home = homedir(), cwd = process.cwd(), maxRecipients = MAX_BROADCAST } = {}) {
+  if (to === ALL_LEADS) {
+    invariant(!toRepo, "TOPOLOGY_ADDRESS_CONFLICT", `Pass --to-repo or --to ${ALL_LEADS}, not both.`);
+    return allLeads({ from, env, home, maxRecipients });
+  }
+  const ref = toRepo ?? repoLeadRef(to);
+  if (ref !== null) {
+    invariant(!toRepo || !to, "TOPOLOGY_ADDRESS_CONFLICT", "Pass --to-repo or --to, not both: --to-repo already names the recipient (that repository's lead).");
+    const target = await resolveRepoLead(ref, { env, home, cwd });
+    return [{ consumer: target.consumer, to: target.lead, key: target.key }];
+  }
+  return [{ consumer, to }];
 }

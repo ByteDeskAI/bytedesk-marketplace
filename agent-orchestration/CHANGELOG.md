@@ -31,6 +31,78 @@
   otherwise go to the lead as before. With no live bound worker, same-repo mail is held
   `task_worker_unbound` (retryable).
 
+- **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
+  hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
+  orchestration commands. These are `ao-topology` verbs, `agent-orchestration`
+  doctor/status/session-open/services status, `tm`, and read-only `tmux`
+  (`capture-pane`, `list-panes`, `display-message -p` and similar). Leads can therefore spawn
+  workers, file tasks and read panes with no prompt, no classifier round and no global rule edits.
+  A plugin cannot ship permission allow rules, so this hook is the mechanism. We verified it live
+  on Claude Code 2.1.289 in `default` and `auto` modes. It approves only a single simple command.
+  It never approves `manage integrate|record-landing|cleanup`, `delegate grant|revoke`,
+  `permissions`, or any `git`, `gh`, deploy or secrets command. It never blocks, and the user's
+  `deny` and `ask` rules still apply. The README section "Lead and worker autonomy" documents it.
+
+- **`mailbox wait` blocks on a standing message's reply (TM-352, EP-028).**
+  `ao-topology mailbox wait <id> [--timeout 20m] [--poll 2s]` prints the reply as JSON and exits 0.
+  A timeout prints `ok: false` with code `TOPOLOGY_MAILBOX_WAIT_TIMEOUT`, names the message and
+  exits 2; a permanently held message returns at once as `TOPOLOGY_MESSAGE_UNDELIVERABLE`; an
+  unknown id is the error `TOPOLOGY_MESSAGE_NOT_FOUND` (exit 1), never `ok: true`. The new MCP tool
+  `orchestration_mailbox_wait` does the same within 55 seconds and reports a timeout as a tool
+  error. It polls; a KV watch is TM-311. `dist/` is rebuilt so the shipped MCP lists the tool.
+- **Standing mail rings its recipient on arrival (TM-351, EP-028).** Each supervisor tick rings
+  the pane of every agent whose standing mail was delivered, through `ringMessage`, so an idle
+  agent no longer has to poll `mailbox inbox`. The ring is a pointer naming the message id and the
+  exact `ao-topology mailbox inbox --consumer <repo> --agent <id>` command, never the body. An
+  unsafe composer, a missing pane or an adapter with no measured composer holds the ring, and the
+  next tick retries it; nothing is ever typed into a non-empty composer. A marker under
+  `standing-mailbox/rings/` makes the ring once per message across ticks and restarts, mail the
+  agent already read or answered is never rung, and each agent gets at most one ring per tick. The
+  tick report lists the outcomes under `mail_rings`.
+- **Address a repository's lead by path or slug (TM-271, EP-028).** `mailbox send --to-repo
+  <path|slug>` and `--to lead@<path|slug>` resolve the repository against the registered
+  repositories (`services/repos.json` and every lead registration) and send to its registered
+  lead. `send` accepts the same forms and hands them to `mailbox send`, so both entries share one
+  resolver (`resolveStandingTargets` in `addressing.mjs`) and no run is needed. An unknown or
+  ambiguous name and a repository with no lead are refused (`TOPOLOGY_REPO_UNKNOWN`,
+  `TOPOLOGY_REPO_AMBIGUOUS`, `TOPOLOGY_REPO_NO_LEAD`), exit 1, nothing written.
+- **`@all-leads` broadcast for standing mail (TM-372, EP-028).** `mailbox send --to @all-leads`
+  (and `send --to @all-leads`) sends one ordinary standing message to every registered
+  repository's lead, each admitted on its own. It honours the broadcast rules in `addressing.mjs`:
+  the sender is never its own recipient, an audience that reaches nobody is refused, and more than
+  24 recipients (`--max-recipients`) is refused, never truncated. A given `--id` becomes one id per
+  repository, so a retried broadcast dedupes per recipient.
+- **Every session gets an AO identity (TM-353, EP-028).** A plugin SessionStart hook
+  (`topology/session-hook.mjs`) mints an 8-character id for any session a launcher did not start,
+  records it under `<state>/sessions/`, and exports `AO_SESSION_AGENT_ID` / `AO_SESSION_CONSUMER`
+  through `CLAUDE_ENV_FILE`. A bare `ao-topology mailbox send` now uses it as the sender instead of
+  holding the mail as `source_identity_required`. It never sets `AO_AGENT_ID`, so a lead named by
+  its census binding keeps its name. `callerIdentity()` in `topology/lib/session-identity.mjs` is
+  the one shared answer to "who is sending".
+- **Recipients outside the agent library resolve through presence (TM-353, EP-028).** Standing
+  mail to a name the library does not know, from the same repository, now resolves to a live
+  presence entry (a Codex pane, by agent id or session name) or to a minted session identity
+  before it is held as `unknown_recipient`. The library still wins.
+- **`lead status --cached`: a non-blocking lead read (TM-209, EP-028).** It answers from proof
+  already on disk, mints no probe, rings nothing and returns in under a second. Every `lead status`
+  result now carries `verdict_source` (`cached`, `late`, `probe`, or `none`) and `proof_age_ms`.
+  Plain `lead status` still rings the lead and waits up to `--ack-timeout` (default 30s) when no
+  proof is stored; the CLI help says so.
+- **A lead mid-turn reads as responsive and busy, not unresponsive (TM-222, EP-021, EP-028).** The
+  plugin's `UserPromptSubmit`, `PostToolUse` and `Stop` hooks write a heartbeat for their tmux pane
+  (`topology/lib/heartbeat.mjs`), with no model turn involved. A heartbeat from the lead's exact
+  binding (socket, server pid, pane id, and the pane pid among the hook's ancestors) that is younger
+  than `AO_LEAD_HEARTBEAT_TTL_MS` (default 5 minutes) proves the lead alive. `leadState` then
+  reports `responsive` with `verdict_source: "heartbeat"` and `busy`, and the pane is not rung. A
+  dead pane, a respawned pane, another pane's heartbeat or a stale one still reads as before, and
+  the nonce probe remains the proof when no heartbeat exists. Outside tmux the hook writes nothing.
+- **Held `no_lead` mail launches the destination's lead (TM-354, EP-028).** A `leads_not_ready`
+  hold already asked each side's own supervisor to recover its lead (TM-167). A `no_lead` hold now
+  does the same for the destination only, so the supervisor creates the missing lead through
+  `recoverLead` / `ensureLead`, under the registration lock. Tests cover the whole path: two held
+  messages, six racing supervisor ticks, one lead launched, and both messages delivered to that
+  lead once it is proven ready.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
@@ -85,6 +157,39 @@
   A released claim never lets another session take over a task that was already admitted: that
   returns `ownership-review-required`. A done or landed task is refused with
   `TOPOLOGY_MANAGEMENT_LANDED` instead of having its worktree and claim recreated.
+- **The commit guard allows the plugin declaration that AGENTS.md requires (TM-370, EP-028).**
+  `guard-project-install`, the `git-hook` pre-commit hook and the SessionStart warning blocked
+  every commit in a repository whose `.claude/settings.json` enabled `task-management@bytedesk`,
+  even when it followed the `~/.agents/AGENTS.md` rule to register the marketplace by relative
+  path and declare `enabledPlugins`. That form now passes. Still blocked, as per-project
+  installs: an enabled plugin whose `bytedesk` marketplace the repository does not register
+  (what `claude plugin install --scope project` writes), a `bytedesk` marketplace registered by
+  absolute or `~` path, and a plugin cache committed under `.claude/plugins/`. Each refusal names
+  the problem, the exact fix and the AGENTS.md rule. Superseded by TM-392 (see Removed, above):
+  the guard, the check and the warning are deleted; this entry is history.
+- **System notices are sent as the supervisor and reach the inbox (TM-314, EP-028).** Slot-grant
+  notices, quota incident and failover notices, and failed-review escalations were sent with no
+  sender, so every one was held permanently as `source_identity_required`. They are now sent as
+  `ao-supervisor` from the repository itself, like the NATS outage notice, under `v2` message ids
+  so the old held records do not raise `TOPOLOGY_MESSAGE_ID_CONFLICT`. `notifyGrants` reports a
+  held grant with its reason. Every `sendStandingMessage` caller was audited for a sender.
+- **`mailbox send --dry-run` previews instead of sending (TM-278, EP-028).** The flag was ignored
+  and a real envelope was queued. A dry run now validates, resolves and routes, and prints the
+  would-be envelope, the destination repository and its lead, and `would: deliver` with the
+  recipient or `would: hold` with the reason. It writes, publishes, rings and recovers nothing.
+  Every other send verb (`mailbox forward|reply|dispose|…`, `send`, `reply`) refuses the flag with
+  `TOPOLOGY_DRY_RUN_UNSUPPORTED` instead of ignoring it.
+- **The standing-mail sender is the session's identity, not a claim (TM-356, EP-028).**
+  `mailbox send`, `mailbox forward` and the MCP `orchestration_mailbox_send` took `from` from
+  `--from`, `AO_AGENT_ID` or the tool's `from` field, so any caller could send as any agent. The
+  sender is now the launcher's `AO_AGENT_ID` and `AO_CONSUMER`, the proof standing replies already
+  require (`sessionIdentity` in `standing-mailbox.mjs`). An explicit `--from`, `--from-project`,
+  `from` or `consumerCwd` that differs is refused with `TOPOLOGY_SENDER_MISMATCH`. MCP
+  `orchestration_mailbox_receive` and `orchestration_mailbox_dispose` act only for that identity,
+  and their `agent` field (like `from`) is now optional. A session with no identity is refused
+  with `TOPOLOGY_SOURCE_IDENTITY_REQUIRED`, naming what is missing, before anything is written.
+  The `dist/` bundles are rebuilt.
+
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
