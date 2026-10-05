@@ -53,7 +53,8 @@ export function reworkGovernance(id, { revision, p = paths() } = {}) {
   const g = task.governance, { record } = readManagementRecord(task, p);
   const last = (record.events || []).filter((event) => event.event === "rework").at(-1);
   if (!fullRevision(revision) || !record.started || record.state !== "working" || record.finish ||
-    record.workflow_run_id !== g.workflowRunId || (record.lead_id || record.owner) !== g.leadId || last?.revision !== revision) {
+    record.workflow_run_id !== g.workflowRunId || (record.lead_id || record.owner) !== g.leadId || last?.revision !== revision ||
+    record.worktree !== task.worktree || record.branch !== task.branch) {
     throw new Error(`${id}: run ao-topology manage rework --task ${id}; tm rework only reflects a rework the producer recorded for the reviewed revision`);
   }
   if (g.state === "working" && g.reworks?.at(-1)?.revision === revision) return task;

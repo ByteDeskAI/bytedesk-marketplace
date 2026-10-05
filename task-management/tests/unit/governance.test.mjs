@@ -191,6 +191,11 @@ describe("governed completion is shared by every task write surface", () => {
     f.record.events = [{ event: "rework", revision: "0".repeat(40) }]; save(f.path, f.record);
     assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a rework of another revision");
     f.record.events.push({ event: "rework", revision: f.revision }); save(f.path, f.record);
+    save(f.path, { ...f.record, branch: "some/other-branch" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another branch");
+    save(f.path, { ...f.record, worktree: "/elsewhere" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another worktree");
+    save(f.path, f.record);
     process.env.TM_DISPATCH_WORKER = "1";
     assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /dispatched worker/);
     delete process.env.TM_DISPATCH_WORKER;

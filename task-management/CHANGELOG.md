@@ -5,7 +5,8 @@
 - **`tm rework <id> --revision <full SHA>` returns a governed task to working after review requests
   changes (TM-347).** It only reflects a rework the producer recorded (`ao-topology manage rework`):
   the management record must be `working`, carry no finish, and name this revision in its latest
-  `rework` event, and the task must be `ready-for-review` at that revision. The governed state goes
+  `rework` event, the record must name the task's own worktree and branch, and the task must be
+  `ready-for-review` at that revision. The governed state goes
   back to `working`, the reviewed revision and the finished dispatch move to `governance.reworks`,
   and the dispatch is cleared so `tm dispatch` admits the next worker. A retry is a no-op; a
   dispatched worker is refused.
