@@ -14,6 +14,7 @@ import { teamcityClient, teamcityTarget } from '../../topology/lib/teamcity.mjs'
 import { page, ntfyTarget } from '../../topology/lib/ntfy.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
 
 const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !agentMarkers({ [k]: '1' }).length));
 const OPERATOR = async () => ['zsh'];
@@ -55,10 +56,19 @@ export async function releaseFixture(t, { management = {}, global = null } = {})
 async function shimPath(t, fx) {
   const realGit = (await run('sh', ['-c', 'command -v git'])).stdout.trim();
   const shim = (name, tail) => writeFile(join(fx.shims, name), `#!/bin/sh\necho "$*" >> ${fx.logs}/${name}.argv\n${tail}\n`, { mode: 0o755 });
-  await shim('git', `exec ${realGit} "$@"`); await shim('gh', 'exit 0'); await shim('systemctl', 'exit 0');
+  // git logs its argv unit-separated (TM-443 adds `-c key=value` pairs whose values hold spaces).
+  await writeFile(join(fx.shims, 'git'), `#!/bin/sh\nprintf '%s\\037' "$@" >> ${fx.logs}/git.argv\necho >> ${fx.logs}/git.argv\nexec ${realGit} "$@"\n`, { mode: 0o755 });
+  await shim('gh', 'exit 0'); await shim('systemctl', 'exit 0');
   const saved = process.env.PATH; process.env.PATH = `${fx.shims}:${saved}`; t.after(() => { process.env.PATH = saved; });
   fx.options.env.PATH = process.env.PATH;
 }
+
+/** TM-443: the git subcommand of each logged call, past the safe-git `-c` pairs and `-C <dir>`. */
+const gitSubcommands = async path => (await lines(path)).map(line => {
+  const argv = line.split('\x1f').filter((_, i, all) => i < all.length - 1 || all[i] !== '');
+  let i = 0; while (i < argv.length && ['-c', '-C'].includes(argv[i])) i += 2;
+  return argv[i];
+});
 
 const refusedFor = async (promise, code, condition) => {
   const error = await promise.then(() => null, e => e);
@@ -76,9 +86,9 @@ test('TM-250 success: cutover runs only deploy-safe, proves the binary switched,
   const result = await cutover(fx.options);
   assert.deepEqual(result.identity, { before: 'build-old', after: 'build-new' });
   assert.deepEqual(await lines(join(fx.logs, 'deploy-safe.sh.log')), ['deploy', 'postflight']);
-  const gitArgv = await lines(join(fx.logs, 'git.argv'));
-  assert.ok(gitArgv.length > 0, 'the git shim recorded calls, so absence below is meaningful');
-  assert.equal(gitArgv.filter(a => /\b(push|tag|commit|merge|reset)\b/.test(a)).length, 0, gitArgv.join('\n'));
+  const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
+  assert.ok(gitArgv.length > 0 && gitArgv.includes('fetch'), 'the git shim recorded calls, so absence below is meaningful');
+  assert.equal(gitArgv.filter(a => ['push', 'tag', 'commit', 'merge', 'reset'].includes(a)).length, 0, gitArgv.join('\n'));
   assert.deepEqual(await lines(join(fx.logs, 'gh.argv')), []); assert.deepEqual(await lines(join(fx.logs, 'systemctl.argv')), []);
   assert.equal(result.authorization.channel, 'operator-explicit'); assert.equal(result.authorization.class, 'external');
   assert.match(await readFile(result.path, 'utf8'), /build-new/);
@@ -89,7 +99,8 @@ test('TM-250 success: cut-release runs the release script then its verify, and a
   const result = await cutRelease(fx.options);
   assert.equal(result.verified, true);
   assert.deepEqual(await lines(join(fx.logs, 'release-gitflow.sh.log')), ['start', 'verify']);
-  assert.equal((await lines(join(fx.logs, 'git.argv'))).filter(a => /\b(push|tag)\b/.test(a)).length, 0);
+  const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
+  assert.ok(gitArgv.includes('fetch')); assert.equal(gitArgv.filter(a => ['push', 'tag'].includes(a)).length, 0, gitArgv.join('\n'));
   assert.deepEqual(await lines(join(fx.logs, 'gh.argv')), []);
 });
 
@@ -309,7 +320,15 @@ test('TM-368 CLI: manage cutover under autonomy publish runs from a managed sess
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /cutover switched build-old -> build-new .*\(autonomy-policy\)/);
   assert.deepEqual(await lines(join(fx.logs, 'deploy-safe.sh.log')), ['deploy', 'postflight']);
-  const gitArgv = await lines(join(fx.logs, 'git.argv'));
-  assert.ok(gitArgv.length > 0); assert.equal(gitArgv.filter(a => /\b(push|tag)\b/.test(a)).length, 0, gitArgv.join('\n'));
+  const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
+  assert.ok(gitArgv.length > 0 && gitArgv.includes('fetch')); assert.equal(gitArgv.filter(a => ['push', 'tag'].includes(a)).length, 0, gitArgv.join('\n'));
   assert.deepEqual(await lines(join(fx.logs, 'gh.argv')), []); assert.deepEqual(await lines(join(fx.logs, 'systemctl.argv')), []);
+});
+
+test('TM-443 config a worker plants in the shared .git/config never runs during release readiness', async t => {
+  const fx = await releaseFixture(t);
+  const planted = await plantGitVectors(fx.consumer, fx.root);
+  const gate = await releaseReadiness(fx.options, 'release');
+  assert.ok(gate.revision, 'readiness reached the git checks');
+  assert.deepEqual(await planted.fired(), [], 'a planted vector ran as the lead');
 });

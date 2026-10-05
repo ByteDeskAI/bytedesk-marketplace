@@ -2,7 +2,6 @@
 // orchestration owns communication and the review/check/landing evidence it contributes.
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
@@ -16,11 +15,13 @@ import { finishCheckEvidence, githubCompare, reviewEligibility, reviewerAvailabi
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
+import { safeGit } from './safe-git.mjs';
 
 const taskId = value => { invariant(/^TM-[0-9]+$/.test(value), 'TOPOLOGY_MANAGEMENT_TASK', 'Expected a task-store TM id.'); return value; };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const list = value => Array.isArray(value) && value.every(nonempty);
-const git = async (cwd, args, allowFailure = false) => run('git', ['-C', cwd, ...args], { allowFailure });
+// TM-443: every git here runs through safe-git, so a worker's planted git config never runs as the lead.
+const git = async (cwd, args, allowFailure = false) => safeGit(cwd, args, { allowFailure });
 const gitText = async (cwd, args) => (await git(cwd, args)).stdout.trim();
 
 /** Store paths the task store and orchestration write into the main checkout on their own.
@@ -59,7 +60,7 @@ export async function mergeInOf(cwd, revision, head, target) {
   if (!base) return null;
   const patchId = async (from, to) => {
     const diff = (await git(cwd, ['diff', '--binary', from, to])).stdout;
-    return diff ? execFileSync('git', ['-C', cwd, 'patch-id', '--stable'], { input: diff, encoding: 'utf8' }).split(' ')[0] : '';
+    return diff ? (await safeGit(cwd, ['patch-id', '--stable'], { input: diff })).stdout.split(' ')[0] : '';
   };
   return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
 }

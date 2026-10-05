@@ -17,6 +17,7 @@ const SHELL_ANCESTRY = async () => ['zsh', 'tmux: server'];
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
+import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
 
 const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
 const NO_SERVER_COMPARE = async () => { throw new Error('no server in the fixture'); };
@@ -142,6 +143,17 @@ test('configured checks, verified local merge and tm cleanup close only the owne
   const cleaned = await cleanupTask(opts); assert.equal(cleaned.cleaned, true);
   assert.ok(calls.indexOf('collect') < calls.indexOf('remove')); assert.ok(calls.indexOf('remove') < calls.indexOf('done'));
   assert.equal((await git(opts.consumer, ['branch', '--list', 'tm/TM-1'])).stdout.trim(), '');
+});
+
+test('TM-443 config a worker plants in the shared .git/config never runs during eligibility or integrate', async t => {
+  const { opts, finish } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  // From here on only governed code runs git: every vector a same-user worker can write is planted.
+  const planted = await plantGitVectors(opts.consumer, join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, '..'));
+  assert.equal((await integrationEligibility(opts)).eligible, true);
+  const integrated = await integrateTask(opts);
+  assert.equal(integrated.merge.landed, report.finish.revision);
+  assert.deepEqual(await planted.fired(), [], 'a planted fsmonitor, hook, pager, external diff, filter or merge driver ran as the lead');
 });
 
 test('dirty, changed and unowned task cleanup preserves work with recovery reason', async t => {

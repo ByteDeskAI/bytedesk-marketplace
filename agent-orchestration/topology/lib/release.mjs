@@ -20,6 +20,7 @@ import { page } from './ntfy.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { teamcityClient, teamcityTarget } from './teamcity.mjs';
 import { fail, nowIso, run, writeJson } from './util.mjs';
+import { safeGit } from './safe-git.mjs';
 
 /** TM-368: the effective autonomy policy for this repository and the config layer that set it. */
 export async function resolveAutonomy(options, loaded = null) {
@@ -33,7 +34,7 @@ async function stop(options, loaded, code, message, details = {}) {
 }
 
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
-const git = (cwd, args) => run('git', ['-C', cwd, ...args], { allowFailure: true });
+const git = (cwd, args) => safeGit(cwd, args, { allowFailure: true }); // TM-443
 
 /** A lead never runs these directly, and neither does a configured step: the step must be the
  * repository's own script. ponytail: argv[0] only; the script itself is the repo's reviewed code. */

@@ -1,5 +1,5 @@
 // `agent-orchestration services install|ensure|status|probe|uninstall` (TM-272).
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -11,6 +11,7 @@ import { controlProcess, dataHome, ensureServices, installProcessCompose, probeS
 import { projectScopeWarning } from "./project-scope.mjs";
 import { selfHeal } from "./self-heal.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
+import { safeGitSync } from "../../topology/lib/safe-git.mjs";
 
 const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
 
@@ -49,7 +50,7 @@ export function healLines(heal) {
 
 /** The project-scope warning for `cwd`'s repository: the guard's predicate at the guard's repo top. */
 export function sessionStartWarning(cwd) {
-  const top = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5_000 });
+  const top = safeGitSync(cwd, ["rev-parse", "--show-toplevel"], { timeout: 5_000 });
   return projectScopeWarning(top.status === 0 ? top.stdout.trim() : cwd);
 }
 

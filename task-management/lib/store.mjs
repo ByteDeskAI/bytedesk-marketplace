@@ -7,7 +7,6 @@
  * objects work but stay on one line; if that ever gets ugly, swap in a real
  * YAML lib behind parseDoc/serializeDoc.
  */
-import { execFileSync } from "node:child_process";
 import { appendFileSync, closeSync, statSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { KINDS, boardId, gitBoardId, gitUser, ensureDirs, paths } from "./paths.mjs";
@@ -16,6 +15,7 @@ import { TRIAGE_LABELS, agentReadiness } from "./completeness.mjs";
 import { notifyEvent } from "./notify-hook.mjs";
 import { assertGovernedMutation } from "./governance-check.mjs";
 import { assertGoalMutation } from "./goal-guard.mjs";
+import { safeGitText } from "./safe-git.mjs";
 
 const DEFAULT_CONFIG = {
   enforce: true,
@@ -1290,11 +1290,7 @@ export function isHostFile(name, rel = "") {
 export function trackedHostFiles(p = paths()) {
   if (!p.root || !p.base) return [];
   try {
-    const out = execFileSync("git", ["ls-files", "-z", "--", p.base], {
-      cwd: p.root,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    });
+    const out = safeGitText(p.root, ["ls-files", "-z", "--", p.base], { raw: true }); // TM-443
     return out
       .split("\0")
       .filter(Boolean)
@@ -1317,10 +1313,7 @@ export function untrackHostFiles(p = paths(), files = null) {
   const targets = files ?? trackedHostFiles(p);
   if (!targets.length || !p.root) return [];
   try {
-    execFileSync("git", ["rm", "-q", "--cached", "-f", "--ignore-unmatch", "--", ...targets], {
-      cwd: p.root,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    safeGitText(p.root, ["rm", "-q", "--cached", "-f", "--ignore-unmatch", "--", ...targets]); // TM-443
     return targets;
   } catch {
     return [];

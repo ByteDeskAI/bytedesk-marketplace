@@ -74,6 +74,44 @@ var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
 var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
+
+// topology/lib/safe-git.mjs
+var SAFE_GIT_CONFIG = Object.freeze([
+  "core.fsmonitor=false",
+  "core.hooksPath=/dev/null",
+  "core.pager=cat",
+  "diff.external=",
+  "core.sshCommand=ssh",
+  "core.askPass=",
+  "core.editor=true",
+  "sequence.editor=true",
+  "core.alternateRefsCommand=true",
+  "uploadpack.packObjectsHook=env",
+  "protocol.ext.allow=never",
+  "gpg.program=gpg",
+  "gpg.ssh.program=ssh-keygen",
+  "gpg.x509.program=gpgsm",
+  "commit.gpgSign=false",
+  "tag.gpgSign=false",
+  "merge.verifySignatures=false",
+  "log.showSignature=false",
+  "submodule.recurse=false",
+  "fetch.recurseSubmodules=false",
+  "gc.auto=0",
+  "maintenance.auto=false",
+  "credential.helper="
+]);
+var DIFF_FAMILY = ["diff", "diff-tree", "diff-index", "diff-files", "log", "show", "format-patch", "whatchanged"];
+var SUBCOMMAND_FLAGS = Object.freeze({
+  fetch: ["--upload-pack=git-upload-pack"],
+  pull: ["--upload-pack=git-upload-pack"],
+  "ls-remote": ["--upload-pack=git-upload-pack"],
+  push: ["--receive-pack=git-receive-pack"],
+  ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
+});
+var GIT = process.platform === "win32" ? "git.exe" : "git";
+
+// src/util.mjs
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
 function isPathWithin(parent, candidate) {
   const rel = (0, import_node_path.relative)((0, import_node_path.resolve)(parent), (0, import_node_path.resolve)(candidate));

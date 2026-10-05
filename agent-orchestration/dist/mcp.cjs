@@ -6925,6 +6925,114 @@ var require_dist = __commonJS({
   }
 });
 
+// topology/lib/safe-git.mjs
+function safeGitEnv(base = process.env) {
+  const env = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" };
+  for (const name of ["GIT_EXTERNAL_DIFF", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"]) delete env[name];
+  return env;
+}
+function driverOverrides(listing) {
+  const out = [], helpers = [];
+  const fields = String(listing || "").split("\0");
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const scope = fields[i], nl = fields[i + 1].indexOf("\n");
+    const key = nl < 0 ? fields[i + 1] : fields[i + 1].slice(0, nl), value = nl < 0 ? "" : fields[i + 1].slice(nl + 1);
+    if (key.includes("=")) continue;
+    if (key.startsWith("credential.")) {
+      if (scope === "global") helpers.push(`${key}=${value}`);
+      continue;
+    }
+    if (!UNTRUSTED_SCOPES.has(scope)) continue;
+    const name = key.slice(key.indexOf(".") + 1, key.lastIndexOf("."));
+    if (key.startsWith("filter.")) out.push(`filter.${name}.clean=`, `filter.${name}.smudge=`, `filter.${name}.process=`, `filter.${name}.required=false`);
+    else out.push(`${key}=false`);
+  }
+  return [...new Set(out), ...helpers];
+}
+function hardenArgs(args) {
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-")) i += ["-C", "-c", "--git-dir", "--work-tree"].includes(args[i]) ? 2 : 1;
+  const extra = Object.hasOwn(SUBCOMMAND_FLAGS, args[i] ?? "") ? SUBCOMMAND_FLAGS[args[i]] : [];
+  return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
+}
+function execAsync(argv, options) {
+  return new Promise((resolve23) => {
+    const child = (0, import_node_child_process.execFile)(
+      GIT,
+      argv,
+      { cwd: options.cwd, env: safeGitEnv(options.env), encoding: "utf8", maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024, timeout: options.timeoutMs ?? 3e4, windowsHide: true },
+      (error51, stdout, stderr) => resolve23({ code: error51 ? error51.killed ? 124 : typeof error51.code === "number" ? error51.code : 1 : 0, stdout: stdout ?? "", stderr: stderr || (error51 ? String(error51.message) : "") })
+    );
+    child.stdin.end(options.input ?? void 0);
+  });
+}
+async function safeGit(cwd, args, options = {}) {
+  const listing = await execAsync(LIST(cwd), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const result2 = await execAsync(safeGitArgv(cwd, args, listing.stdout), options);
+  if (result2.code !== 0 && !options.allowFailure) {
+    throw Object.assign(new Error(`git ${args.join(" ")} exited ${result2.code}: ${result2.stderr.trim()}`), result2);
+  }
+  return result2;
+}
+function safeGitSync(cwd, args, options = {}) {
+  const base = { cwd: options.cwd, env: safeGitEnv(options.env), encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
+  const listing = (0, import_node_child_process.spawnSync)(GIT, LIST(cwd), { ...base, stdio: ["ignore", "pipe", "ignore"] });
+  return (0, import_node_child_process.spawnSync)(GIT, safeGitArgv(cwd, args, listing.stdout), { ...base, input: options.input, stdio: [options.input != null ? "pipe" : "ignore", "pipe", "pipe"] });
+}
+function safeGitText(cwd, args, options = {}) {
+  const result2 = safeGitSync(cwd, args, options);
+  if (result2.error || result2.status !== 0) {
+    throw Object.assign(new Error(`git ${args.join(" ")} exited ${result2.status}: ${String(result2.stderr || result2.error?.message || "").trim()}`), { status: result2.status, stderr: result2.stderr, stdout: result2.stdout });
+  }
+  return options.raw ? result2.stdout : result2.stdout.trim();
+}
+var import_node_child_process, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, UNTRUSTED_SCOPES, pairs, at, LIST, safeGitArgv, GIT;
+var init_safe_git = __esm({
+  "topology/lib/safe-git.mjs"() {
+    import_node_child_process = require("node:child_process");
+    SAFE_GIT_CONFIG = Object.freeze([
+      "core.fsmonitor=false",
+      "core.hooksPath=/dev/null",
+      "core.pager=cat",
+      "diff.external=",
+      "core.sshCommand=ssh",
+      "core.askPass=",
+      "core.editor=true",
+      "sequence.editor=true",
+      "core.alternateRefsCommand=true",
+      "uploadpack.packObjectsHook=env",
+      "protocol.ext.allow=never",
+      "gpg.program=gpg",
+      "gpg.ssh.program=ssh-keygen",
+      "gpg.x509.program=gpgsm",
+      "commit.gpgSign=false",
+      "tag.gpgSign=false",
+      "merge.verifySignatures=false",
+      "log.showSignature=false",
+      "submodule.recurse=false",
+      "fetch.recurseSubmodules=false",
+      "gc.auto=0",
+      "maintenance.auto=false",
+      "credential.helper="
+    ]);
+    DIFF_FAMILY = ["diff", "diff-tree", "diff-index", "diff-files", "log", "show", "format-patch", "whatchanged"];
+    SUBCOMMAND_FLAGS = Object.freeze({
+      fetch: ["--upload-pack=git-upload-pack"],
+      pull: ["--upload-pack=git-upload-pack"],
+      "ls-remote": ["--upload-pack=git-upload-pack"],
+      push: ["--receive-pack=git-receive-pack"],
+      ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
+    });
+    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper)$";
+    UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
+    pairs = (flags) => flags.flatMap((entry) => ["-c", entry]);
+    at = (cwd) => cwd ? ["-C", cwd] : [];
+    LIST = (cwd) => [...pairs(SAFE_GIT_CONFIG), ...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+    safeGitArgv = (cwd, args, listing = "") => [...pairs(SAFE_GIT_CONFIG), ...pairs(driverOverrides(listing)), ...at(cwd), ...hardenArgs(args)];
+    GIT = process.platform === "win32" ? "git.exe" : "git";
+  }
+});
+
 // topology/lib/util.mjs
 var util_exports2 = {};
 __export(util_exports2, {
@@ -6965,7 +7073,7 @@ async function run(command, args, options = {}) {
   const started = performance.now();
   const timeoutMs = options.timeoutMs ?? 3e4;
   try {
-    const result2 = await execFile2(command, args, {
+    const result2 = await execFile3(command, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
       encoding: "utf8",
@@ -7129,16 +7237,16 @@ async function ensureRunsIgnored(runDir) {
   await writeText(marker, "# Orchestration run artifacts: local, not history.\n*\n");
   return marker;
 }
-var import_node_child_process2, import_node_crypto4, import_promises4, import_node_os3, import_node_path7, import_node_util2, execFile2, TopologyError, AO_HOME, AO_HOME_LEGACY;
+var import_node_child_process3, import_node_crypto4, import_promises4, import_node_os3, import_node_path7, import_node_util2, execFile3, TopologyError, AO_HOME, AO_HOME_LEGACY;
 var init_util = __esm({
   "topology/lib/util.mjs"() {
-    import_node_child_process2 = require("node:child_process");
+    import_node_child_process3 = require("node:child_process");
     import_node_crypto4 = require("node:crypto");
     import_promises4 = require("node:fs/promises");
     import_node_os3 = require("node:os");
     import_node_path7 = require("node:path");
     import_node_util2 = require("node:util");
-    execFile2 = (0, import_node_util2.promisify)(import_node_child_process2.execFile);
+    execFile3 = (0, import_node_util2.promisify)(import_node_child_process3.execFile);
     TopologyError = class extends Error {
       constructor(code, message, details = {}) {
         super(message);
@@ -7165,7 +7273,7 @@ __export(repoid_exports, {
 async function canonicalRepoId(consumer) {
   invariant2(consumer && typeof consumer === "string", "TOPOLOGY_REPO_REQUIRED", "A consumer path is required to identify a repository.");
   const abs = (0, import_node_path8.resolve)(consumer);
-  const git3 = await run("git", ["-C", abs, "rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+  const git3 = await safeGit(abs, ["rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
   if (git3.code === 0 && git3.stdout.trim()) {
     const reported = git3.stdout.trim().split("\n")[0];
     const common = (0, import_node_path8.isAbsolute)(reported) ? (0, import_node_path8.resolve)(reported) : (0, import_node_path8.resolve)(abs, reported);
@@ -7224,6 +7332,7 @@ var init_repoid = __esm({
     import_node_os4 = require("node:os");
     import_node_path8 = require("node:path");
     init_util();
+    init_safe_git();
   }
 });
 
@@ -7652,7 +7761,7 @@ function originPath(url2) {
 }
 async function repoIdentity(consumer) {
   const main2 = await repositoryConsumer(consumer);
-  const remote = await run("git", ["-C", main2, "remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "" }));
+  const remote = await safeGit(main2, ["remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "" }));
   const origin = remote.code === 0 ? originPath(remote.stdout) : null;
   if (origin) return { slug: slugPart(origin.split("/").pop(), PART_CAPS.repo) || "repo", origin };
   return { slug: slugPart((0, import_node_path11.basename)(main2), PART_CAPS.repo) || "repo", origin: main2 };
@@ -7728,6 +7837,7 @@ var init_session_names = __esm({
     init_config();
     init_repoid();
     init_util();
+    init_safe_git();
     SEPARATOR = "--";
     PART_CAPS = Object.freeze({ team: 16, node: 24, repo: 32, role: 48, persona: 24 });
     CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -7958,7 +8068,7 @@ async function waitForChannel(channel, timeoutMs, { tmuxServer = null } = {}) {
   if (!(timeoutMs > 0)) return false;
   return new Promise((resolve23) => {
     let settled = false;
-    const child = (0, import_node_child_process3.spawn)(TMUX, [...serverArgs(tmuxServer), "wait-for", channel], { stdio: "ignore", shell: false });
+    const child = (0, import_node_child_process4.spawn)(TMUX, [...serverArgs(tmuxServer), "wait-for", channel], { stdio: "ignore", shell: false });
     const finish = (value) => {
       if (!settled) {
         settled = true;
@@ -8062,8 +8172,8 @@ async function clearAndWaitForShell(pane, channel, timeoutMs = 15e3, { tmuxServe
   if (!signalled) return { ok: false, baseline: "", promptLines: 0 };
   const screen = await captureAll(pane);
   if (screen === null) return { ok: true, baseline: marker, promptLines: 0 };
-  const at = screen.lastIndexOf(marker);
-  const after = at === -1 ? "" : screen.slice(at + marker.length);
+  const at2 = screen.lastIndexOf(marker);
+  const after = at2 === -1 ? "" : screen.slice(at2 + marker.length);
   return { ok: true, baseline: marker, promptLines: after.split("\n").filter((line) => line.trim().length > 0).length };
 }
 function callerServer(env = process.env) {
@@ -8094,10 +8204,10 @@ async function listServerPanes({ tmuxServer, session, env = process.env } = {}) 
     return { serverKey, serverPid: Number(serverPid), sessionId, sessionCreated: Number(sessionCreated), paneId: paneId2, panePid: Number(panePid), sessionName, command, cwd, alive: dead2 === "0", title, identity: parseIdentityFields(identity) };
   });
 }
-var import_node_child_process3, import_node_events, import_node_async_hooks, import_node_path12, IDENTITY_WIDTH, TMUX, selectedServer, LAUNCH_SHELL, MIN_PANE_ROWS, SUBMIT_SETTLE_MS, ROLE_TITLE_FORMAT, ROLE_STATUS_FORMAT, SOCKET_PATH_MAX, SUBSCRIPTION_LINE, ControlClient;
+var import_node_child_process4, import_node_events, import_node_async_hooks, import_node_path12, IDENTITY_WIDTH, TMUX, selectedServer, LAUNCH_SHELL, MIN_PANE_ROWS, SUBMIT_SETTLE_MS, ROLE_TITLE_FORMAT, ROLE_STATUS_FORMAT, SOCKET_PATH_MAX, SUBSCRIPTION_LINE, ControlClient;
 var init_tmux = __esm({
   "topology/lib/tmux.mjs"() {
-    import_node_child_process3 = require("node:child_process");
+    import_node_child_process4 = require("node:child_process");
     import_node_events = require("node:events");
     import_node_async_hooks = require("node:async_hooks");
     import_node_path12 = require("node:path");
@@ -8133,7 +8243,7 @@ var init_tmux = __esm({
             resolveStart(ok);
           };
           try {
-            this.child = (0, import_node_child_process3.spawn)(TMUX, [...serverArgs(this.tmuxServer), "-C", "attach", "-t", `=${this.session}`, "-f", "read-only,ignore-size"], {
+            this.child = (0, import_node_child_process4.spawn)(TMUX, [...serverArgs(this.tmuxServer), "-C", "attach", "-t", `=${this.session}`, "-f", "read-only,ignore-size"], {
               stdio: ["pipe", "pipe", "pipe"]
             });
           } catch {
@@ -8377,7 +8487,7 @@ async function publishGoalLoopWorkflow({ loop, recordPath: recordPath2, ...optio
 }
 async function registeredWorktrees(consumer) {
   const repository = await workflowRepository(consumer);
-  const result2 = await run("git", ["-C", consumer, "worktree", "list", "--porcelain", "-z"], { allowFailure: true, timeoutMs: 1e4 });
+  const result2 = await safeGit(consumer, ["worktree", "list", "--porcelain", "-z"], { allowFailure: true, timeoutMs: 1e4 });
   if (result2.code !== 0) return [repository.root];
   const paths2 = result2.stdout.split("\0").filter((part) => part.startsWith("worktree ")).map((part) => part.slice(9));
   const accepted = [];
@@ -8642,6 +8752,7 @@ var init_discovery = __esm({
     init_repoid();
     init_util();
     init_lockfile();
+    init_safe_git();
     init_incarnation();
     init_tmux();
     WORKFLOW_INDEX_VERSION = 1;
@@ -8980,7 +9091,7 @@ async function parentPid(pid) {
   const stat13 = await (0, import_promises26.readFile)(`/proc/${pid}/stat`, "utf8").catch(() => null);
   if (stat13) return Number(stat13.slice(stat13.lastIndexOf(")") + 2).split(" ")[1]);
   try {
-    return Number((0, import_node_child_process9.execFileSync)("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim()) || null;
+    return Number((0, import_node_child_process10.execFileSync)("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim()) || null;
   } catch {
     return null;
   }
@@ -9007,10 +9118,10 @@ async function recentHeartbeat(dir, binding, { now = Date.now, ttlMs = HEARTBEAT
   if (!(age >= 0 && age < ttlMs)) return null;
   return { age_ms: age, event: beat.event, busy: beat.event !== "Stop" };
 }
-var import_node_child_process9, import_node_crypto15, import_promises26, import_node_path30, HEARTBEAT_TTL_MS;
+var import_node_child_process10, import_node_crypto15, import_promises26, import_node_path30, HEARTBEAT_TTL_MS;
 var init_heartbeat = __esm({
   "topology/lib/heartbeat.mjs"() {
-    import_node_child_process9 = require("node:child_process");
+    import_node_child_process10 = require("node:child_process");
     import_node_crypto15 = require("node:crypto");
     import_promises26 = require("node:fs/promises");
     import_node_path30 = require("node:path");
@@ -9157,7 +9268,7 @@ var init_prompt_lifecycle = __esm({
 // topology/lib/agents.mjs
 function libraryConsumer(consumer) {
   try {
-    const paths2 = (0, import_node_child_process10.execFileSync)("git", ["-C", consumer, "worktree", "list", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const paths2 = safeGitText(consumer, ["worktree", "list", "--porcelain"], { raw: true });
     const first = paths2.split("\n").find((line) => line.startsWith("worktree "));
     return first ? first.slice(9) : consumer;
   } catch {
@@ -9320,10 +9431,9 @@ async function requireAgent(ref, dirs) {
   if (!agent) fail("TOPOLOGY_AGENT_NOT_FOUND", `No agent matches ${JSON.stringify(ref)} in this repo.`);
   return agent;
 }
-var import_node_child_process10, import_node_fs7, import_promises27, import_node_path32, import_node_url3, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
+var import_node_fs7, import_promises27, import_node_path32, import_node_url3, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
 var init_agents = __esm({
   "topology/lib/agents.mjs"() {
-    import_node_child_process10 = require("node:child_process");
     import_node_fs7 = require("node:fs");
     import_promises27 = require("node:fs/promises");
     import_node_path32 = require("node:path");
@@ -9332,6 +9442,7 @@ var init_agents = __esm({
     init_prompt_lifecycle();
     init_util();
     init_identity();
+    init_safe_git();
     AGENTS_KIND = "agents";
     DEFINITION = "agent.json";
     PROMPT = "prompt.md";
@@ -9437,10 +9548,10 @@ function localNatsHome(env = process.env) {
   return env.AO_NATS_HOME || (0, import_node_path34.join)((0, import_node_os10.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
-  const { execFile: execFile5 } = await import("node:child_process");
+  const { execFile: execFile6 } = await import("node:child_process");
   const candidates = [env.AO_NATS_SERVER, (0, import_node_path34.join)((0, import_node_os10.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
   for (const bin of candidates) {
-    const ok = await new Promise((resolve23) => execFile5(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve23(!error51)));
+    const ok = await new Promise((resolve23) => execFile6(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve23(!error51)));
     if (ok) return bin;
   }
   return null;
@@ -26332,8 +26443,8 @@ async function touchFallback(env, home, { source, url: url2 }, { now = Date.now(
     const stale = now - Date.parse(outage.last_fallback_at ?? outage.since) > retireAfterMs / 4;
     if (!stale && outage.holders?.[process.pid]) return state;
     wrote = true;
-    const at = new Date(now).toISOString();
-    return { ...state, outage: { ...outage, last_fallback_at: stale ? at : outage.last_fallback_at, holders: { ...outage.holders, [process.pid]: at } } };
+    const at2 = new Date(now).toISOString();
+    return { ...state, outage: { ...outage, last_fallback_at: stale ? at2 : outage.last_fallback_at, holders: { ...outage.holders, [process.pid]: at2 } } };
   }, { read: { retireAfterMs: Infinity } });
   return wrote;
 }
@@ -26368,7 +26479,7 @@ function selectionView(transport) {
 async function recordTransportSelection(env, selection, home = (0, import_node_os11.homedir)()) {
   await updateTransportState(env, home, (raw) => {
     const previous = settleOutage(raw);
-    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const at2 = (/* @__PURE__ */ new Date()).toISOString();
     let outage = previous?.outage ?? null;
     const open14 = outage && !outage.recovered_at ? outage : null;
     if (selection.fallback) {
@@ -26377,39 +26488,39 @@ async function recordTransportSelection(env, selection, home = (0, import_node_o
         source: selection.fallback.source,
         url: selection.fallback.url,
         error: selection.fallback.error,
-        since: same2 ? open14.since : at,
-        last_fallback_at: at,
+        since: same2 ? open14.since : at2,
+        last_fallback_at: at2,
         recovered_at: null,
-        holders: { ...same2 ? liveHolders(open14.holders) : {}, [process.pid]: at }
+        holders: { ...same2 ? liveHolders(open14.holders) : {}, [process.pid]: at2 }
       };
     } else if (open14 && open14.source === selection.source && open14.url === selection.url) {
       const holders = liveHolders(open14.holders, process.pid);
-      outage = Object.keys(holders).length ? { ...open14, holders, reachable_at: at } : { ...open14, holders, recovered_at: at };
+      outage = Object.keys(holders).length ? { ...open14, holders, reachable_at: at2 } : { ...open14, holders, recovered_at: at2 };
     }
     const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
     if (same) return previous;
-    return { kind: selection.kind, source: selection.source, url: selection.url, fallback: selection.fallback, at, pid: process.pid, outage };
+    return { kind: selection.kind, source: selection.source, url: selection.url, fallback: selection.fallback, at: at2, pid: process.pid, outage };
   });
 }
 async function recordPortConflict(env, home, error51) {
   const url2 = `nats://127.0.0.1:${error51.details?.port}`;
   await updateTransportState(env, home, (previous) => {
-    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const at2 = (/* @__PURE__ */ new Date()).toISOString();
     const open14 = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url2 ? previous.outage : null;
     return {
       kind: "nats",
       source: previous?.source ?? null,
       url: previous?.url ?? null,
       fallback: null,
-      at,
+      at: at2,
       pid: process.pid,
       outage: {
         source: "managed-local",
         url: url2,
         error: String(error51.message).slice(0, 500),
         conflict: { port: error51.details?.port ?? null, holder: error51.details?.holder ?? null },
-        since: open14?.since ?? at,
-        last_fallback_at: at,
+        since: open14?.since ?? at2,
+        last_fallback_at: at2,
         recovered_at: null
       }
     };
@@ -27356,7 +27467,7 @@ async function acceptMailboxDelivery({ consumer, agent, kind = "mail", delivery,
       samePayload(existing, envelope);
       return { ...existing, deduplicated: true };
     }
-    const at = nowIso();
+    const at2 = nowIso();
     const next = {
       schemaVersion: 1,
       messageId: envelope.id,
@@ -27366,8 +27477,8 @@ async function acceptMailboxDelivery({ consumer, agent, kind = "mail", delivery,
       payloadDigest: envelope.payloadDigest,
       envelope,
       status: "accepted",
-      acceptedAt: at,
-      updatedAt: at,
+      acceptedAt: at2,
+      updatedAt: at2,
       subject: delivery.subject ?? null,
       disposition: null
     };
@@ -29322,7 +29433,7 @@ async function verifyPhase(loop, report, options) {
   if (options.verifyPhase) return options.verifyPhase(loop, report);
   const facts = { taskArtifacts: clone2(report.details?.taskArtifacts ?? {}) };
   const inspect = options.managementStatus ?? managementStatus;
-  const ancestor = options.isAncestor ?? (async (source, aggregate) => (await run("git", ["-C", loop.evidenceRoot ?? loop.consumer, "merge-base", "--is-ancestor", source, aggregate], { allowFailure: true })).code === 0);
+  const ancestor = options.isAncestor ?? (async (source, aggregate) => (await safeGit(loop.evidenceRoot ?? loop.consumer, ["merge-base", "--is-ancestor", source, aggregate], { allowFailure: true })).code === 0);
   if (report.phase === "build" || report.phase === "integration") for (const task of report.taskIds) {
     const status = await inspect({ ...options, consumer: loop.consumer, task }), revision = facts.taskArtifacts[task];
     requireGoalLoop(status.management?.finish?.revision === revision.sourceRevision && finishedByCurrentWorker(status.management), "Task lacks a governed finish from its current worker for the exact source revision.", { task });
@@ -29711,6 +29822,7 @@ var init_goal_loop = __esm({
     init_repoid();
     init_lockfile();
     init_util();
+    init_safe_git();
     init_config();
     init_repo_enrollment();
     init_standing_mailbox();
@@ -30344,7 +30456,7 @@ async function mergeInOf(cwd, revision, head, target) {
   if (!base) return null;
   const patchId = async (from, to) => {
     const diff = (await git2(cwd, ["diff", "--binary", from, to])).stdout;
-    return diff ? (0, import_node_child_process14.execFileSync)("git", ["-C", cwd, "patch-id", "--stable"], { input: diff, encoding: "utf8" }).split(" ")[0] : "";
+    return diff ? (await safeGit(cwd, ["patch-id", "--stable"], { input: diff })).stdout.split(" ")[0] : "";
   };
   return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
 }
@@ -31117,14 +31229,14 @@ async function integrateViaPullRequest(options, ctx) {
   let mergeIn = null;
   if (pr) {
     const merged = pr.state === "MERGED", reviewed = approved?.verified_commit || approved?.revision;
-    const at = merged ? `PR #${pr.number} was already merged at ${pr.headRefOid}` : `PR #${pr.number} head ${pr.headRefOid}`;
+    const at2 = merged ? `PR #${pr.number} was already merged at ${pr.headRefOid}` : `PR #${pr.number} head ${pr.headRefOid}`;
     if (pr.baseRefName !== policy.target_branch) refuse("base", `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
       await git2(ctx.store.root, ["fetch", "origin", policy.target_branch, `refs/pull/${pr.number}/head`], true);
       mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch);
     }
-    if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse("head", `${at}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
-    if (revision && pr.headRefOid !== revision && !mergeIn) refuse("head", `${at}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
+    if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse("head", `${at2}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
+    if (revision && pr.headRefOid !== revision && !mergeIn) refuse("head", `${at2}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
     if (!merged) {
       if (pr.mergeable !== "MERGEABLE") refuse("mergeable", `PR #${pr.number} is ${pr.mergeable || "UNKNOWN"}, not MERGEABLE`);
       ci = await ciStatus(gh, repo, pr.number);
@@ -31462,12 +31574,11 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os19, import_node_crypto25, import_node_child_process14, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os19, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os19 = require("node:os");
     import_node_crypto25 = require("node:crypto");
-    import_node_child_process14 = require("node:child_process");
     import_node_path47 = require("node:path");
     import_promises39 = require("node:fs/promises");
     init_tmux();
@@ -31481,13 +31592,14 @@ var init_management = __esm({
     init_workflow_control();
     init_standing_mailbox();
     init_util();
+    init_safe_git();
     taskId = (value) => {
       invariant2(/^TM-[0-9]+$/.test(value), "TOPOLOGY_MANAGEMENT_TASK", "Expected a task-store TM id.");
       return value;
     };
     nonempty = (value) => typeof value === "string" && value.trim().length > 0;
     list = (value) => Array.isArray(value) && value.every(nonempty);
-    git2 = async (cwd, args, allowFailure = false) => run("git", ["-C", cwd, ...args], { allowFailure });
+    git2 = async (cwd, args, allowFailure = false) => safeGit(cwd, args, { allowFailure });
     gitText = async (cwd, args) => (await git2(cwd, args)).stdout.trim();
     INTEGRATION_STORE_PATHS = Object.freeze([".bytedesk/task-management/", ".bytedesk/agent-orchestration/agents/", ".bytedesk/knowledge/.km/"]);
     storePath = (path3) => INTEGRATION_STORE_PATHS.some((prefix) => path3.startsWith(prefix));
@@ -32281,7 +32393,7 @@ async function readBlob(tree, sha2, path3, { peek = false } = {}) {
     return await new Promise((resolve23, reject) => {
       const hash4 = (0, import_node_crypto26.createHash)("sha256");
       let stderr = "", seen = 0, nul = false, stopped = false;
-      const child = (0, import_node_child_process15.spawn)("git", ["-C", tree, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = (0, import_node_child_process14.spawn)("git", ["-C", tree, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
       child.stdout.on("data", (chunk) => {
         if (stopped) return;
         if (!peek) {
@@ -32321,17 +32433,17 @@ async function reviewedFiles(consumer, base, revision) {
 function validateFindings(findings, files) {
   invariant2(Array.isArray(findings), "TOPOLOGY_REVIEWER_FINDINGS", "Findings must be an array.");
   return findings.map((finding, index) => {
-    const at = `Finding ${index + 1}`;
-    invariant2(finding && typeof finding === "object" && !Array.isArray(finding), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must be an object with severity, file, line, claim, evidence and fix.`);
-    invariant2(SEVERITIES.includes(finding.severity), "TOPOLOGY_REVIEWER_FINDINGS", `${at} severity must be one of ${SEVERITIES.join(", ")}.`);
-    invariant2(typeof finding.file === "string" && finding.file.trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must name the file.`);
+    const at2 = `Finding ${index + 1}`;
+    invariant2(finding && typeof finding === "object" && !Array.isArray(finding), "TOPOLOGY_REVIEWER_FINDINGS", `${at2} must be an object with severity, file, line, claim, evidence and fix.`);
+    invariant2(SEVERITIES.includes(finding.severity), "TOPOLOGY_REVIEWER_FINDINGS", `${at2} severity must be one of ${SEVERITIES.join(", ")}.`);
+    invariant2(typeof finding.file === "string" && finding.file.trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at2} must name the file.`);
     const file2 = finding.file.trim().replace(/^\.\//, "");
-    invariant2(files.has(file2) || (0, import_node_path48.basename)(file2) === "CHANGELOG.md", "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file2}, which is not in the reviewed diff (only a CHANGELOG.md may be named without being changed).`, { file: file2 });
-    invariant2(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
+    invariant2(files.has(file2) || (0, import_node_path48.basename)(file2) === "CHANGELOG.md", "TOPOLOGY_REVIEWER_FINDINGS", `${at2} names ${file2}, which is not in the reviewed diff (only a CHANGELOG.md may be named without being changed).`, { file: file2 });
+    invariant2(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at2} line must be a positive integer.`);
     const text = {};
     for (const key of FINDING_TEXT_FIELDS) {
       if (finding.severity === "note" && key !== "claim" && finding[key] === void 0) continue;
-      invariant2(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must state its ${key}.`);
+      invariant2(typeof finding[key] === "string" && finding[key].trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at2} must state its ${key}.`);
       text[key] = finding[key].trim();
     }
     return { severity: finding.severity, file: file2, line: finding.line, ...text };
@@ -32502,10 +32614,10 @@ function normalizeChecks(checks) {
   if (checks == null) return [];
   invariant2(Array.isArray(checks), "TOPOLOGY_REVIEWER_CHECKS", "Check evidence must be an array of {name, command, exit_code, revision, log_tail}.");
   return checks.map((check2, index) => {
-    const at = `Check ${index + 1}`;
-    invariant2(check2 && typeof check2 === "object" && typeof check2.name === "string" && check2.name.trim(), "TOPOLOGY_REVIEWER_CHECKS", `${at} must name the check.`);
-    invariant2(Number.isInteger(check2.exit_code), "TOPOLOGY_REVIEWER_CHECKS", `${at} (${check2.name}) must carry an integer exit_code.`);
-    invariant2(COMMIT_SHA.test(String(check2.revision)), "TOPOLOGY_REVIEWER_CHECKS", `${at} (${check2.name}) must name the full commit it ran at.`);
+    const at2 = `Check ${index + 1}`;
+    invariant2(check2 && typeof check2 === "object" && typeof check2.name === "string" && check2.name.trim(), "TOPOLOGY_REVIEWER_CHECKS", `${at2} must name the check.`);
+    invariant2(Number.isInteger(check2.exit_code), "TOPOLOGY_REVIEWER_CHECKS", `${at2} (${check2.name}) must carry an integer exit_code.`);
+    invariant2(COMMIT_SHA.test(String(check2.revision)), "TOPOLOGY_REVIEWER_CHECKS", `${at2} (${check2.name}) must name the full commit it ran at.`);
     const command = Array.isArray(check2.command) ? check2.command.map(String).join(" ") : String(check2.command ?? "");
     return { name: check2.name.trim(), command, exit_code: check2.exit_code, revision: check2.revision, log_tail: String(check2.log_tail ?? "").slice(-LOG_TAIL_MAX) };
   });
@@ -32848,10 +32960,10 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process15, import_node_crypto26, import_promises40, import_node_os20, import_node_path48, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process14, import_node_crypto26, import_promises40, import_node_os20, import_node_path48, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
-    import_node_child_process15 = require("node:child_process");
+    import_node_child_process14 = require("node:child_process");
     import_node_crypto26 = require("node:crypto");
     import_promises40 = require("node:fs/promises");
     import_node_os20 = require("node:os");
@@ -33641,14 +33753,14 @@ async function quotaTick(options = {}, input = {}) {
     dismissed
   };
 }
-async function openIncident({ identity, key, env, home, consumer, consent, agentId, provider: provider2, pane, pattern, evidence, runDir, at, deliver, lead, log }) {
+async function openIncident({ identity, key, env, home, consumer, consent, agentId, provider: provider2, pane, pattern, evidence, runDir, at: at2, deliver, lead, log }) {
   const path3 = incidentPath({ env, home, key, agentId });
   return withLock(`${path3}.lock`, async () => {
     const prior = await readJson3(path3).catch(() => null);
     if (prior && prior.state === "open") return { ...prior, deduplicated: true };
     const record2 = {
       version: 1,
-      incident_id: mintIncidentId(identity, agentId, at),
+      incident_id: mintIncidentId(identity, agentId, at2),
       repo_id: identity.id,
       agent_id: agentId,
       provider: provider2,
@@ -33659,7 +33771,7 @@ async function openIncident({ identity, key, env, home, consumer, consent, agent
       session: pane.sessionName ?? null,
       pane: pane.paneId ?? null,
       run_dir: runDir ?? null,
-      detected_at: new Date(at).toISOString(),
+      detected_at: new Date(at2).toISOString(),
       recheck_ms: QUOTA_RECHECK_MS,
       announced: null,
       resolved_at: null,
@@ -33787,7 +33899,7 @@ var init_quota = __esm({
     QUOTA_TAIL_LINES = 60;
     QUOTA_SIGNATURE = /usage limit|rate limit|quota|too many requests|429|capacity|overloaded/i;
     clientKey = (pane) => `${pane.serverKey ?? ""}	${pane.sessionName ?? ""}`;
-    mintIncidentId = (identity, agentId, at) => (0, import_node_crypto28.createHash)("sha256").update(`quota:${identity.id}:${agentId}:${at}`).digest("hex").slice(0, 32);
+    mintIncidentId = (identity, agentId, at2) => (0, import_node_crypto28.createHash)("sha256").update(`quota:${identity.id}:${agentId}:${at2}`).digest("hex").slice(0, 32);
   }
 });
 
@@ -34022,8 +34134,8 @@ async function registeredLeadId({ consumer, env = process.env, home = (0, import
 function screenSince(screen, baseline) {
   const text = String(screen ?? "");
   if (!baseline || !String(baseline).trim()) return text;
-  const at = text.lastIndexOf(baseline);
-  return at === -1 ? text : text.slice(at + baseline.length);
+  const at2 = text.lastIndexOf(baseline);
+  return at2 === -1 ? text : text.slice(at2 + baseline.length);
 }
 function lastComposerLine(styledScreen) {
   const lines = String(styledScreen ?? "").split(/\r?\n/);
@@ -35556,7 +35668,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         }
         prompts.push({ agent: agent.id, state: promptState });
       }
-      const listing = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], { allowFailure: true });
+      const listing = await safeGit(consumer, ["worktree", "list", "--porcelain"], { allowFailure: true });
       const roots = /* @__PURE__ */ new Set([consumer, ...listing.stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9))]);
       const runDirs = [], runDirByAgent = /* @__PURE__ */ new Map();
       const runRoots = new Map([...roots].map((checkout) => [(0, import_node_path53.join)(checkout, ".bytedesk/agent-orchestration/runs"), checkout]));
@@ -35758,13 +35870,13 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
   const recordPath2 = (0, import_node_path53.join)(root, `${key}.process.json`);
   const record2 = await readJson3(recordPath2).catch(() => null);
   const tick = await readJson3((0, import_node_path53.join)(root, `${key}.json`)).catch(() => null);
-  const at = tick?.at ? Date.parse(tick.at) : NaN;
+  const at2 = tick?.at ? Date.parse(tick.at) : NaN;
   const alive3 = record2 ? pidAlive(record2.pid) : false;
   const ownerIdentity = owner?.pid ? await processIdentity(owner.pid) : null;
   const ownerAlive = Boolean(owner && pidAlive(owner.pid) && ownerIdentity && ownerIdentity === owner.process_identity);
   const recordOwns = Boolean(record2 && ownerAlive && record2.pid === owner.pid && record2.process_identity === owner.process_identity && record2.lock_token === owner.token);
   const consumerExists = record2?.consumer ? await exists(record2.consumer) : true;
-  const currentTick = Boolean(recordOwns && record2.first_tick_at && tick?.pid === record2.pid && Number.isFinite(at) && at >= Date.parse(record2.started_at));
+  const currentTick = Boolean(recordOwns && record2.first_tick_at && tick?.pid === record2.pid && Number.isFinite(at2) && at2 >= Date.parse(record2.started_at));
   const state = ownerAlive ? recordOwns ? currentTick ? "running" : "starting" : "ownership-record-mismatch" : !record2 ? "never-started" : alive3 ? "running-without-lock" : record2.state === "consumer-gone" ? "retired-consumer-gone" : !consumerExists ? "orphaned" : ["starting", "startup-failed"].includes(record2.state) ? "died-before-first-tick" : "down";
   return {
     repo_id: identity.id,
@@ -35784,11 +35896,11 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
     source_entrypoint: record2?.source_entrypoint ?? null,
     source_fingerprint: record2?.source_fingerprint ?? null,
     restarts: record2?.restarts ?? 0,
-    ready: state === "running" && Number.isFinite(at) && Date.now() - at <= Math.max(3e4, 3 * (tick?.reconcile_min_ms ?? reconcileFloor(env))),
+    ready: state === "running" && Number.isFinite(at2) && Date.now() - at2 <= Math.max(3e4, 3 * (tick?.reconcile_min_ms ?? reconcileFloor(env))),
     failure: record2?.failure ?? null,
     log: record2?.log ?? (0, import_node_path53.join)(root, `${key}.log`),
     last_tick_at: tick?.at ?? null,
-    tick_age_ms: Number.isFinite(at) ? Date.now() - at : null,
+    tick_age_ms: Number.isFinite(at2) ? Date.now() - at2 : null,
     reconcile_min_ms: tick?.reconcile_min_ms ?? reconcileFloor(env),
     transport: tick?.transport ?? null
   };
@@ -35831,7 +35943,7 @@ async function startRepositorySupervision(options) {
     const log = await (0, import_promises44.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
-      const child = (0, import_node_child_process16.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
+      const child = (0, import_node_child_process15.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
       await new Promise((resolve23, reject) => {
         child.once("spawn", resolve23);
         child.once("error", reject);
@@ -35862,12 +35974,12 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path53, import_node_crypto30, import_node_child_process16, import_node_url7, import_node_os25, import_promises44, import_promises45, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path53, import_node_crypto30, import_node_child_process15, import_node_url7, import_node_os25, import_promises44, import_promises45, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path53 = require("node:path");
     import_node_crypto30 = require("node:crypto");
-    import_node_child_process16 = require("node:child_process");
+    import_node_child_process15 = require("node:child_process");
     import_node_url7 = require("node:url");
     import_node_os25 = require("node:os");
     import_promises44 = require("node:fs/promises");
@@ -35888,6 +36000,7 @@ var init_supervision = __esm({
     init_slots();
     init_quota();
     init_util();
+    init_safe_git();
     init_services_client();
     init_orch_transport();
     init_nats_outage();
@@ -35915,8 +36028,8 @@ async function readJsonFile(path3) {
 async function resolveEnrollment({ consumer, env = process.env, home = (0, import_node_os26.homedir)() }) {
   const root = await repositoryConsumer(consumer);
   const identity = await canonicalRepoId(root);
-  const at = { repo_id: identity.id, root };
-  const disabled = (reason) => ({ enrolled: false, source: "disabled", ...at, reason });
+  const at2 = { repo_id: identity.id, root };
+  const disabled = (reason) => ({ enrolled: false, source: "disabled", ...at2, reason });
   const configPath = repoConfigPath(root);
   const config2 = await readJsonFile(configPath);
   if (config2.error) return disabled(`repo config is unreadable, so it is treated as enabled:false (${config2.error})`);
@@ -35927,19 +36040,19 @@ async function resolveEnrollment({ consumer, env = process.env, home = (0, impor
       return disabled(`${configPath}: "enabled" must be true or false, got ${JSON.stringify(raw.enabled)}; treated as enabled:false`);
     }
     if (raw.enabled === false) return disabled(`${configPath} sets enabled:false`);
-    if (raw.enabled === true) return { enrolled: true, source: "repo-config", ...at };
+    if (raw.enabled === true) return { enrolled: true, source: "repo-config", ...at2 };
   }
   const settings = await readJsonFile((0, import_node_path54.join)(root, ".claude", "settings.json"));
   const plugins = settings.value?.enabledPlugins;
   if (plugins && typeof plugins === "object" && Object.entries(plugins).some(([key, on]) => on === true && PLUGIN_KEY.test(key))) {
-    return { enrolled: true, source: "project-plugin", ...at };
+    return { enrolled: true, source: "project-plugin", ...at2 };
   }
   try {
-    if (await readLeadRegistration({ consumer: root, env, home })) return { enrolled: true, source: "lead-registration", ...at };
+    if (await readLeadRegistration({ consumer: root, env, home })) return { enrolled: true, source: "lead-registration", ...at2 };
   } catch {
   }
-  if (identity.kind === "git-common-dir") return { enrolled: true, source: "default", ...at };
-  return { enrolled: false, source: "none", ...at, reason: "not a Git repository, so it is not enrolled by default" };
+  if (identity.kind === "git-common-dir") return { enrolled: true, source: "default", ...at2 };
+  return { enrolled: false, source: "none", ...at2, reason: "not a Git repository, so it is not enrolled by default" };
 }
 async function activateRepository({ consumer, env = process.env, home = (0, import_node_os26.homedir)(), reason = "unspecified", ...options }) {
   let enrollment;
@@ -36057,8 +36170,8 @@ async function recoverLead({
   const p = await recoveryPaths({ consumer: root, env, home });
   const prior = await readJson3(p.state).catch(() => null) ?? {};
   const attempts = prior.attempts ?? 0;
-  const at = now();
-  if (prior.next_retry_at && at < Date.parse(prior.next_retry_at)) return view({ ...prior, action: "backoff" });
+  const at2 = now();
+  if (prior.next_retry_at && at2 < Date.parse(prior.next_retry_at)) return view({ ...prior, action: "backoff" });
   const pending = await readRequests(p.requests);
   const active = pending.length > 0 || prior.verify === true;
   const { AO_LEAD_ID: _lead, ...leadEnv } = env ?? {};
@@ -36072,7 +36185,7 @@ async function recoverLead({
     action,
     attempts: attempts + 1,
     last_error: error51,
-    next_retry_at: new Date(at + retryDelayMs(attempts + 1)).toISOString(),
+    next_retry_at: new Date(at2 + retryDelayMs(attempts + 1)).toISOString(),
     verify: prior.verify === true,
     ...extra
   });
@@ -36117,7 +36230,7 @@ async function recoverLead({
       attempts: attempts + 1,
       last_error: null,
       verify: true,
-      next_retry_at: new Date(at + retryDelayMs(attempts + 1)).toISOString()
+      next_retry_at: new Date(at2 + retryDelayMs(attempts + 1)).toISOString()
     });
   }
   if (result2.action === "reused") return success2();
@@ -36847,24 +36960,24 @@ function liveness(panes) {
   const index = new Set(panes.filter((pane) => pane.alive !== false).map(bindingKey2));
   return (binding) => validBinding(binding) ? index.has(bindingKey2(binding)) : false;
 }
-function reconcile(record2, alive3, at = nowIso()) {
+function reconcile(record2, alive3, at2 = nowIso()) {
   const events = [];
   let holder = record2.holder;
   let queue = record2.queue;
   if (holder && alive3(holder.binding) === false) {
-    events.push({ type: "vacated", at, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason, why: "binding-absent" });
+    events.push({ type: "vacated", at: at2, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason, why: "binding-absent" });
     holder = null;
   }
   const dropped = queue.filter((entry) => alive3(entry.binding) === false);
   if (dropped.length) {
-    for (const entry of dropped) events.push({ type: "dropped", at, name: record2.name, agent_id: entry.agent_id, ticket: entry.ticket, reason: entry.reason, why: "binding-absent" });
+    for (const entry of dropped) events.push({ type: "dropped", at: at2, name: record2.name, agent_id: entry.agent_id, ticket: entry.ticket, reason: entry.reason, why: "binding-absent" });
     queue = queue.filter((entry) => alive3(entry.binding) !== false);
   }
   if (!holder && queue.length) {
     const head = queue[0];
-    holder = { ...head, granted_at: at, granted_binding: head.binding };
+    holder = { ...head, granted_at: at2, granted_binding: head.binding };
     queue = queue.slice(1);
-    events.push({ type: "granted", at, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason });
+    events.push({ type: "granted", at: at2, name: record2.name, agent_id: holder.agent_id, ticket: holder.ticket, reason: holder.reason });
   }
   if (!events.length) return { record: record2, events };
   return { record: { ...record2, holder, queue, history: [...record2.history, ...events].slice(-HISTORY_LIMIT) }, events };
@@ -37254,7 +37367,7 @@ async function durableReplace(path3, text) {
 }
 async function rootCheckout(consumer, identity) {
   if (identity.kind !== "git-common-dir") return (0, import_promises50.realpath)(consumer).catch(() => (0, import_node_path59.resolve)(consumer));
-  const result2 = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], { allowFailure: true });
+  const result2 = await safeGit(consumer, ["worktree", "list", "--porcelain"], { allowFailure: true });
   const first = result2.stdout.split("\n").find((line) => line.startsWith("worktree "));
   invariant2(first, "TOPOLOGY_PRESENCE_REPOSITORY", "Cannot resolve the main repository checkout.");
   return (0, import_promises50.realpath)(first.slice(9));
@@ -37387,7 +37500,7 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
   repositoryRoot ??= await rootCheckout(consumer, identity);
   const roots = [.../* @__PURE__ */ new Set([repositoryRoot, (0, import_node_path59.resolve)(consumer)])];
   if (identity.kind === "git-common-dir") {
-    const listing = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], { allowFailure: true });
+    const listing = await safeGit(consumer, ["worktree", "list", "--porcelain"], { allowFailure: true });
     invariant2(listing.code === 0, "TOPOLOGY_PRESENCE_REPOSITORY", "Cannot enumerate repository worktrees.");
     for (const line of listing.stdout.split("\n")) if (line.startsWith("worktree ")) {
       const root = await (0, import_promises50.realpath)(line.slice(9)).catch(() => null);
@@ -37596,6 +37709,7 @@ var init_presence = __esm({
     init_identity();
     init_session_names();
     init_util();
+    init_safe_git();
     init_discovery();
     PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
     ROLES = /* @__PURE__ */ new Set(["orchestrator", "worker", "designer", "judge", "reviewer", "researcher", "implementer", "image-gen"]);
@@ -38348,8 +38462,8 @@ async function queueDepth(runDir, agentIds) {
   for (const [agent, items] of byAnswerer) {
     let oldest = null;
     for (const item of items) {
-      const at = item.standingId ? item.created_at ? Date.parse(item.created_at) : null : await (0, import_promises53.stat)(item.inbox).then((s) => s.mtimeMs).catch(() => null);
-      if (at != null && (oldest == null || at < oldest)) oldest = at;
+      const at2 = item.standingId ? item.created_at ? Date.parse(item.created_at) : null : await (0, import_promises53.stat)(item.inbox).then((s) => s.mtimeMs).catch(() => null);
+      if (at2 != null && (oldest == null || at2 < oldest)) oldest = at2;
     }
     out.push({
       agent,
@@ -38668,12 +38782,12 @@ async function paneLogOffset(dir) {
   if (!dir) return null;
   return (0, import_promises54.stat)((0, import_node_path62.join)(dir, "pane.log")).then((info) => info.size, () => null);
 }
-async function observeEngagement({ dir, offset, at = Date.now(), engageMs = ENGAGE_MS, now = Date.now() }) {
+async function observeEngagement({ dir, offset, at: at2 = Date.now(), engageMs = ENGAGE_MS, now = Date.now() }) {
   if (offset === null || offset === void 0) return { engaged: null, reason: "no pane.log baseline; engagement is unknown, not inert" };
   const size = await paneLogOffset(dir);
   if (size === null) return { engaged: null, reason: "pane.log disappeared; engagement is unknown, not inert" };
   if (size > offset) return { engaged: true, reason: `pane.log grew ${size - offset} bytes after submit` };
-  if (now - at < engageMs) return { engaged: null, reason: `pane.log has not grown yet, and the ${engageMs}ms window is still open` };
+  if (now - at2 < engageMs) return { engaged: null, reason: `pane.log has not grown yet, and the ${engageMs}ms window is still open` };
   return { engaged: false, reason: `pane.log did not grow within ${engageMs}ms of submit` };
 }
 async function readRingState(runDir, messageId2, agentId) {
@@ -39062,8 +39176,8 @@ async function lateAck(dir, record2, log = () => {
     const bound = probe?.nonce === nonce && probe.repo_id === record2.repo_id && probe.agent_id === record2.agent_id && probe.session === record2.session && ack.session === record2.session && sameIncarnation(probe.binding, record2.binding) && sameIncarnation(ack.binding, record2.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
       if (!readOnly) await Promise.all([(0, import_promises55.rm)((0, import_node_path63.join)(dir, `${nonce}.json`), { force: true }), (0, import_promises55.rm)((0, import_node_path63.join)(dir, name), { force: true })]);
-      const at = Date.parse(ack.created_at);
-      return { nonce, age_ms: Number.isFinite(at) ? Math.max(0, Date.now() - at) : null };
+      const at2 = Date.parse(ack.created_at);
+      return { nonce, age_ms: Number.isFinite(at2) ? Math.max(0, Date.now() - at2) : null };
     }
     log(`${readOnly ? "ignored" : "discarded"} ack for probe ${nonce}: ${!probe ? "the probe was already swept" : !bound ? "the probe or acknowledgement names another or unrecorded incarnation" : "the probe had expired"} \u2014 not proof of a timely answer`);
     if (!readOnly) await Promise.all([(0, import_promises55.rm)((0, import_node_path63.join)(dir, `${nonce}.json`), { force: true }), (0, import_promises55.rm)((0, import_node_path63.join)(dir, name), { force: true })]);
@@ -39944,9 +40058,9 @@ var ParseStatus = class _ParseStatus {
     }
     return { status: status.value, value: arrayValue };
   }
-  static async mergeObjectAsync(status, pairs) {
+  static async mergeObjectAsync(status, pairs2) {
     const syncPairs = [];
-    for (const pair of pairs) {
+    for (const pair of pairs2) {
       const key = await pair.key;
       const value = await pair.value;
       syncPairs.push({
@@ -39956,9 +40070,9 @@ var ParseStatus = class _ParseStatus {
     }
     return _ParseStatus.mergeObjectSync(status, syncPairs);
   }
-  static mergeObjectSync(status, pairs) {
+  static mergeObjectSync(status, pairs2) {
     const finalObject = {};
-    for (const pair of pairs) {
+    for (const pair of pairs2) {
       const { key, value } = pair;
       if (key.status === "aborted")
         return INVALID;
@@ -41803,11 +41917,11 @@ var ZodObject = class _ZodObject extends ZodType {
         }
       }
     }
-    const pairs = [];
+    const pairs2 = [];
     for (const key of shapeKeys) {
       const keyValidator = shape[key];
       const value = ctx.data[key];
-      pairs.push({
+      pairs2.push({
         key: { status: "valid", value: key },
         value: keyValidator._parse(new ParseInputLazyPath(ctx, value, ctx.path, key)),
         alwaysSet: key in ctx.data
@@ -41817,7 +41931,7 @@ var ZodObject = class _ZodObject extends ZodType {
       const unknownKeys = this._def.unknownKeys;
       if (unknownKeys === "passthrough") {
         for (const key of extraKeys) {
-          pairs.push({
+          pairs2.push({
             key: { status: "valid", value: key },
             value: { status: "valid", value: ctx.data[key] }
           });
@@ -41838,7 +41952,7 @@ var ZodObject = class _ZodObject extends ZodType {
       const catchall = this._def.catchall;
       for (const key of extraKeys) {
         const value = ctx.data[key];
-        pairs.push({
+        pairs2.push({
           key: { status: "valid", value: key },
           value: catchall._parse(
             new ParseInputLazyPath(ctx, value, ctx.path, key)
@@ -41851,7 +41965,7 @@ var ZodObject = class _ZodObject extends ZodType {
     if (ctx.common.async) {
       return Promise.resolve().then(async () => {
         const syncPairs = [];
-        for (const pair of pairs) {
+        for (const pair of pairs2) {
           const key = await pair.key;
           const value = await pair.value;
           syncPairs.push({
@@ -41865,7 +41979,7 @@ var ZodObject = class _ZodObject extends ZodType {
         return ParseStatus.mergeObjectSync(status, syncPairs);
       });
     } else {
-      return ParseStatus.mergeObjectSync(status, pairs);
+      return ParseStatus.mergeObjectSync(status, pairs2);
     }
   }
   get shape() {
@@ -42478,20 +42592,20 @@ var ZodRecord = class _ZodRecord extends ZodType {
       });
       return INVALID;
     }
-    const pairs = [];
+    const pairs2 = [];
     const keyType = this._def.keyType;
     const valueType = this._def.valueType;
     for (const key in ctx.data) {
-      pairs.push({
+      pairs2.push({
         key: keyType._parse(new ParseInputLazyPath(ctx, key, ctx.path, key)),
         value: valueType._parse(new ParseInputLazyPath(ctx, ctx.data[key], ctx.path, key)),
         alwaysSet: key in ctx.data
       });
     }
     if (ctx.common.async) {
-      return ParseStatus.mergeObjectAsync(status, pairs);
+      return ParseStatus.mergeObjectAsync(status, pairs2);
     } else {
-      return ParseStatus.mergeObjectSync(status, pairs);
+      return ParseStatus.mergeObjectSync(status, pairs2);
     }
   }
   get element() {
@@ -42533,7 +42647,7 @@ var ZodMap = class extends ZodType {
     }
     const keyType = this._def.keyType;
     const valueType = this._def.valueType;
-    const pairs = [...ctx.data.entries()].map(([key, value], index) => {
+    const pairs2 = [...ctx.data.entries()].map(([key, value], index) => {
       return {
         key: keyType._parse(new ParseInputLazyPath(ctx, key, ctx.path, [index, "key"])),
         value: valueType._parse(new ParseInputLazyPath(ctx, value, ctx.path, [index, "value"]))
@@ -42542,7 +42656,7 @@ var ZodMap = class extends ZodType {
     if (ctx.common.async) {
       const finalMap = /* @__PURE__ */ new Map();
       return Promise.resolve().then(async () => {
-        for (const pair of pairs) {
+        for (const pair of pairs2) {
           const key = await pair.key;
           const value = await pair.value;
           if (key.status === "aborted" || value.status === "aborted") {
@@ -42557,7 +42671,7 @@ var ZodMap = class extends ZodType {
       });
     } else {
       const finalMap = /* @__PURE__ */ new Map();
-      for (const pair of pairs) {
+      for (const pair of pairs2) {
         const key = pair.key;
         const value = pair.value;
         if (key.status === "aborted" || value.status === "aborted") {
@@ -64574,13 +64688,14 @@ function serializeError(error51) {
 }
 
 // src/util.mjs
-var import_node_child_process = require("node:child_process");
+var import_node_child_process2 = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises = require("node:fs/promises");
 var import_node_path2 = require("node:path");
 var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
-var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
+init_safe_git();
+var execFile2 = (0, import_node_util.promisify)(import_node_child_process2.execFile);
 var CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/g;
 function safeCwd() {
   try {
@@ -64591,7 +64706,7 @@ function safeCwd() {
 }
 async function runFile(command, args, options = {}) {
   invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
-  const result2 = await execFile(command, args, {
+  const result2 = await execFile2(command, args, {
     cwd: options.cwd,
     env: options.env,
     encoding: "utf8",
@@ -64602,7 +64717,8 @@ async function runFile(command, args, options = {}) {
   return { stdout: result2.stdout.trim(), stderr: result2.stderr.trim() };
 }
 async function git(cwd, args, options = {}) {
-  return runFile(process.platform === "win32" ? "git.exe" : "/usr/bin/git", ["-C", cwd, ...args], options);
+  const result2 = await safeGit(cwd, args, options);
+  return { stdout: result2.stdout.trim(), stderr: result2.stderr.trim() };
 }
 function assertAbsolutePath(value, fieldName) {
   invariant(typeof value === "string" && value.length > 0, "AO_CONSUMER_CWD_REQUIRED", `${fieldName} is required.`);
@@ -65478,7 +65594,7 @@ var import_node_path16 = __toESM(require("node:path"), 1);
 var import_promises11 = __toESM(require("node:fs/promises"), 1);
 var import_node_os7 = __toESM(require("node:os"), 1);
 var import_node_crypto10 = require("node:crypto");
-var import_node_child_process4 = require("node:child_process");
+var import_node_child_process5 = require("node:child_process");
 var import_node_stream = require("node:stream");
 
 // node_modules/@agentclientprotocol/sdk/dist/schema/index.js
@@ -71278,7 +71394,7 @@ function getAcpxVersion() {
   cachedVersion = resolveAcpxVersion();
   return cachedVersion;
 }
-var execFileAsync = (0, import_node_util3.promisify)(import_node_child_process4.execFile);
+var execFileAsync = (0, import_node_util3.promisify)(import_node_child_process5.execFile);
 function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
@@ -71571,7 +71687,7 @@ async function resolveGeminiCommandArgs(command, args) {
 }
 async function readCommandOutput(command, args, timeoutMs) {
   return await new Promise((resolve23) => {
-    const child = (0, import_node_child_process4.spawn)(command, [...args], buildSpawnCommandOptions(command, {
+    const child = (0, import_node_child_process5.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
         "pipe",
@@ -72269,7 +72385,7 @@ async function spawnTerminalProcess(params, defaultCwd) {
 async function spawnAndWait(spawnCommand, params, defaultCwd) {
   const spawnOptions = buildTerminalSpawnOptions(spawnCommand.command, params.cwd ?? defaultCwd, params.env);
   if (spawnCommand.killProcessGroup) spawnOptions.detached = true;
-  const proc = (0, import_node_child_process4.spawn)(spawnCommand.command, spawnCommand.args, spawnOptions);
+  const proc = (0, import_node_child_process5.spawn)(spawnCommand.command, spawnCommand.args, spawnOptions);
   await waitForSpawn(proc);
   return proc;
 }
@@ -72331,7 +72447,7 @@ function parseProcessListLine(line) {
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
   return await new Promise((resolve23, reject) => {
-    const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
+    const child = (0, import_node_child_process5.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
       "pipe"
@@ -72384,7 +72500,7 @@ async function listProcessGroupPids(processGroupId) {
 }
 async function runProcessGroupListCommand() {
   return await new Promise((resolve23, reject) => {
-    const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
+    const child = (0, import_node_child_process5.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
       "pipe"
@@ -72411,7 +72527,7 @@ async function runProcessGroupListCommand() {
 }
 async function runWindowsProcessListCommand() {
   return await new Promise((resolve23, reject) => {
-    const child = (0, import_node_child_process4.spawn)("powershell.exe", [
+    const child = (0, import_node_child_process5.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
       "-Command",
@@ -72452,7 +72568,7 @@ async function killWindowsProcessTree(pid, signal) {
   ];
   if (signal === "SIGKILL") args.push("/f");
   await new Promise((resolve23) => {
-    const child = (0, import_node_child_process4.spawn)("taskkill", args, {
+    const child = (0, import_node_child_process5.spawn)("taskkill", args, {
       stdio: [
         "ignore",
         "ignore",
@@ -72813,7 +72929,7 @@ var AcpClient = class {
     }
   }
   async spawnAgentProcess(plan) {
-    const spawnedChild = (0, import_node_child_process4.spawn)(plan.spawnCommand, plan.args, buildSpawnCommandOptions(plan.spawnCommand, plan.spawnOptions));
+    const spawnedChild = (0, import_node_child_process5.spawn)(plan.spawnCommand, plan.args, buildSpawnCommandOptions(plan.spawnCommand, plan.spawnOptions));
     try {
       await waitForSpawn$1(spawnedChild);
     } catch (error51) {
@@ -77161,7 +77277,7 @@ var import_node_path23 = require("node:path");
 
 // src/runtime/user-bus.mjs
 var import_promises16 = require("node:fs/promises");
-var import_node_child_process5 = require("node:child_process");
+var import_node_child_process6 = require("node:child_process");
 var USER_MANAGER_EXECUTABLES = /* @__PURE__ */ new Set(["/usr/bin/systemctl", "/usr/bin/systemd-run"]);
 function validateUserManagerCommand(command, args) {
   invariant(USER_MANAGER_EXECUTABLES.has(command), "AO_UNSAFE_USER_MANAGER_COMMAND", "Refusing to execute an unexpected user-manager command.");
@@ -77204,7 +77320,7 @@ async function runUserManagerFile(command, args, options = {}, dependencies = {}
 }
 async function spawnUserManagerFile(command, args, options = {}, dependencies = {}) {
   validateUserManagerCommand(command, args);
-  const spawnProcess = dependencies.spawn ?? import_node_child_process5.spawn;
+  const spawnProcess = dependencies.spawn ?? import_node_child_process6.spawn;
   const env = await canonicalUserBusEnvironment(options.env ?? process.env, dependencies);
   return spawnProcess(command, args, { ...options, env });
 }
@@ -77333,7 +77449,7 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
 };
 
 // src/platform/process-group-runtime.mjs
-var import_node_child_process6 = require("node:child_process");
+var import_node_child_process7 = require("node:child_process");
 var import_promises18 = require("node:fs/promises");
 var import_node_path22 = require("node:path");
 var WORKER_RUNTIME_LIMIT_MS = 8 * 60 * 60 * 1e3;
@@ -77424,7 +77540,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
   /** Spawns the watchdog detached, so it outlives this server, exactly as a systemd scope would. */
   spawnWatchdog({ limitMs, fileSizeBytes, command, cwd, env, stdio }) {
     const watchdog = processGroupWatchdogCommand({ limitMs, graceMs: this.graceMs, fileSizeBytes, command });
-    return (0, import_node_child_process6.spawn)(watchdog.executable, watchdog.args, { cwd, env, detached: true, stdio, shell: false });
+    return (0, import_node_child_process7.spawn)(watchdog.executable, watchdog.args, { cwd, env, detached: true, stdio, shell: false });
   }
   async launch({ runId, pluginRoot, stateRoot: stateRoot3, workerEntrypoint, store, terminalStates, onLaunchFailure }) {
     const logDir = await ensurePrivateDir((0, import_node_path22.join)(stateRoot3, "logs"));
@@ -77731,7 +77847,7 @@ var LinuxRuntimeFactory = class extends PlatformRuntimeFactory {
 };
 
 // src/platform/windows-native-runtime.mjs
-var import_node_child_process7 = require("node:child_process");
+var import_node_child_process8 = require("node:child_process");
 var import_node_path24 = require("node:path");
 var import_promises20 = require("node:fs/promises");
 var WindowsNativeHelperAdapter = class {
@@ -77752,7 +77868,7 @@ var WindowsNativeHelperAdapter = class {
     return stdout ? JSON.parse(stdout) : {};
   }
   spawn(command, args = [], options = {}) {
-    return (0, import_node_child_process7.spawn)(this.executable, this.args(command, args), { windowsHide: true, shell: false, ...options });
+    return (0, import_node_child_process8.spawn)(this.executable, this.args(command, args), { windowsHide: true, shell: false, ...options });
   }
 };
 var WindowsAppContainerSandboxStrategy = class extends ProviderSandboxStrategy {
@@ -77987,8 +78103,8 @@ function sessionCookie(token, maxAgeSeconds = 86400) {
   return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
 }
 function isExpired(expiresAt, now = Date.now()) {
-  const at = Date.parse(expiresAt);
-  return !Number.isFinite(at) || at <= now;
+  const at2 = Date.parse(expiresAt);
+  return !Number.isFinite(at2) || at2 <= now;
 }
 function assertLoopbackBind(address) {
   invariant(address === "127.0.0.1", "AO_SESSION_BIND", "The session host must bind 127.0.0.1 only.", { address });
@@ -77997,7 +78113,7 @@ function assertLoopbackBind(address) {
 // src/session/host.mjs
 var import_node_http = require("node:http");
 var import_node_path27 = require("node:path");
-var import_node_child_process8 = require("node:child_process");
+var import_node_child_process9 = require("node:child_process");
 
 // src/session/http.mjs
 var import_node_fs5 = require("node:fs");
@@ -78427,7 +78543,7 @@ async function openSessionBrowser(url2) {
   if (process.env.AGENT_ORCHESTRATION_OPEN_BROWSER === "0") return false;
   if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
   try {
-    (0, import_node_child_process8.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
+    (0, import_node_child_process9.spawn)("xdg-open", [url2], { stdio: "ignore", detached: true, shell: false }).unref();
     return true;
   } catch {
     return false;
@@ -78562,6 +78678,7 @@ async function defaultOpenLog(stateRoot3) {
 var import_node_crypto39 = require("node:crypto");
 var import_promises59 = require("node:fs/promises");
 init_util();
+init_safe_git();
 var import_node_path69 = require("node:path");
 var import_node_os37 = require("node:os");
 init_repoid();
@@ -78589,7 +78706,7 @@ init_nats_local();
 init_orch_transport();
 
 // src/services/os-registration.mjs
-var import_node_child_process17 = require("node:child_process");
+var import_node_child_process16 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
 var import_promises56 = require("node:fs/promises");
 var import_node_os35 = __toESM(require("node:os"), 1);
@@ -78745,7 +78862,7 @@ async function start({ mode, argv, logPath, run: run2 = defaultRun, uid = proces
 function defaultSpawnDetached(argv, logPath) {
   const log = (0, import_node_fs11.openSync)(logPath, "a", 384);
   try {
-    const child = (0, import_node_child_process17.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
+    const child = (0, import_node_child_process16.spawn)(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", log, log], windowsHide: true });
     child.unref();
     return { pid: child.pid };
   } finally {
@@ -78754,6 +78871,7 @@ function defaultSpawnDetached(argv, logPath) {
 }
 
 // src/services/host-copies.mjs
+init_safe_git();
 var import_node_fs12 = require("node:fs");
 var import_node_path66 = require("node:path");
 var readJsonSync = (path3) => {
@@ -78828,10 +78946,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  return false ? null : "9f6e63e6b043573545bb1033f5852c2344e38fb4668944f2476670a3190007a8";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b";
+  const fingerprint2 = false ? null : "9f6e63e6b043573545bb1033f5852c2344e38fb4668944f2476670a3190007a8";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79150,11 +79268,11 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
 }
 
 // src/services/self-heal.mjs
-var import_node_child_process18 = require("node:child_process");
+var import_node_child_process17 = require("node:child_process");
 var import_node_fs14 = require("node:fs");
 var import_node_path68 = require("node:path");
 var import_node_util5 = require("node:util");
-var execFileP = (0, import_node_util5.promisify)(import_node_child_process18.execFile);
+var execFileP = (0, import_node_util5.promisify)(import_node_child_process17.execFile);
 function parseEtime(text) {
   const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(String(text).trim());
   if (!m) return null;
@@ -79256,7 +79374,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ea48db37d6739c18b6bb55250c35c219bbaed12a11ec85192f9e6c62bc581b0b",
+  sourceFingerprint: false ? null : "9f6e63e6b043573545bb1033f5852c2344e38fb4668944f2476670a3190007a8",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -79279,7 +79397,7 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   return result2;
 }
 async function pluginFreshness({ pluginRoot, home = (0, import_node_os37.homedir)(), env = process.env, timeoutMs = 5e3, deps = {} }) {
-  const exec = deps.run ?? run;
+  const exec = deps.run ?? ((_command, args, options) => safeGit(null, args, options));
   const root = await (0, import_promises59.realpath)(pluginRoot).catch(() => pluginRoot);
   const cached2 = /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
   let installed = null, source = null;
@@ -79298,7 +79416,7 @@ async function pluginFreshness({ pluginRoot, home = (0, import_node_os37.homedir
   const repository = typeof manifest2?.repository === "string" ? manifest2.repository : manifest2?.repository?.url ?? null;
   let remote = null, remoteError = null;
   if (repository) {
-    const listed = await exec("git", ["ls-remote", repository, "refs/heads/main"], { allowFailure: true, timeoutMs, env: { ...env, GIT_TERMINAL_PROMPT: "0" } });
+    const listed = await exec("git", ["ls-remote", "--", repository, "refs/heads/main"], { allowFailure: true, timeoutMs, env: { ...env, GIT_TERMINAL_PROMPT: "0" } });
     remote = listed.code === 0 ? /^([0-9a-f]{40})\s/.exec(listed.stdout)?.[1] ?? null : null;
     if (!remote) remoteError = listed.code === 124 ? `git ls-remote timed out after ${timeoutMs}ms` : (listed.stderr || "no refs/heads/main").trim().slice(0, 300);
   } else remoteError = "plugin.json names no repository";
@@ -79364,8 +79482,8 @@ async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, state
   diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
   const key = repoKey(consumer.commonGitDir);
   const census = await json4((0, import_node_path69.join)(stateRoot3, "census", `${key}.json`));
-  const at = Date.parse(census?.at);
-  const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
+  const at2 = Date.parse(census?.at);
+  const fresh = Number.isFinite(at2) && Date.now() - at2 >= -5e3 && Date.now() - at2 <= Number(census?.staleAfterMs ?? 45e3);
   for (const role of ["lead", "reviewer"]) {
     const record2 = await json4((0, import_node_path69.join)(stateRoot3, `${role}s`, `${key}.json`));
     const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
@@ -80065,12 +80183,12 @@ var OrchestrationService = class {
 };
 
 // src/topology-api.mjs
-var import_node_child_process19 = require("node:child_process");
+var import_node_child_process18 = require("node:child_process");
 var import_node_url8 = require("node:url");
 var TOPOLOGY_CLI = (0, import_node_url8.fileURLToPath)(new URL("../topology/cli.mjs", __aoImportMetaUrl));
 function runTopologyCli(args, { env, cwd, input = "" }) {
   return new Promise((done, reject) => {
-    const child = (0, import_node_child_process19.spawn)(process.execPath, [TOPOLOGY_CLI, ...args, "--json"], { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const child = (0, import_node_child_process18.spawn)(process.execPath, [TOPOLOGY_CLI, ...args, "--json"], { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {

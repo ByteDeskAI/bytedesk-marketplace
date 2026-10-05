@@ -2,13 +2,11 @@
 // It runs the same guard as the PreToolUse hook (scripts/check-no-project-plugin-installs.mjs).
 // The hook finds the plugin at run time from ~/.claude/plugins/installed_plugins.json, not from a path
 // baked in at install time, so it survives plugin updates. It fails open when the plugin cannot be found.
-import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { promisify } from "node:util";
 import { fail } from "./util.mjs";
+import { safeGit } from "./safe-git.mjs";
 
-const exec = promisify(execFile);
 const MARKER = "# ao-topology git-hook: project-install guard";
 
 export const HOOK_SCRIPT = `#!/bin/sh
@@ -30,7 +28,13 @@ node "$check" "$root" || { echo "pre-commit blocked: apply the Fix above (rule: 
 
 async function hookPath(repo) {
   try {
-    const { stdout } = await exec("git", ["-C", repo, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit"]);
+    // TM-443: safe-git pins core.hooksPath to /dev/null so no hook runs. Locating the hook FILE needs
+    // the repository's real setting, read by scope (a scoped read ignores -c) and handed to rev-parse,
+    // which executes nothing.
+    const scoped = async scope => (await safeGit(repo, ["config", scope, "--get", "core.hooksPath"], { allowFailure: true })).stdout.trim();
+    const configured = await scoped("--local") || await scoped("--global");
+    if (!configured) return resolve((await safeGit(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).stdout.trim(), "hooks", "pre-commit");
+    const { stdout } = await safeGit(repo, ["-c", `core.hooksPath=${configured}`, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit"]);
     return resolve(stdout.trim());
   } catch { return fail("TOPOLOGY_NOT_A_GIT_REPO", `${repo} is not a Git repository.`); }
 }

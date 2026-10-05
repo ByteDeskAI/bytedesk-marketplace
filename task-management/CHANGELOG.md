@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Security
+
+- **tm's git calls no longer run config a worker planted in the shared `.git/config` (TM-443, EP-028).**
+  Every git call in `lib/` and `bin/` (governance check, worktree, collect, store, doctor, paths,
+  actor, duplicate, mcp, `tm`, `tm-hook`) now goes through `lib/safe-git.mjs`, a byte-identical copy
+  of agent-orchestration's helper (the plugins never import each other; agent-orchestration's suite
+  fails when the copies differ). It disables fsmonitor, hooks, pager, external diff, textconv,
+  repository-scope filter and merge drivers and credential helpers. The generated `bin/tm` launcher
+  template is the one exception: it must locate `lib/` first and only runs `rev-parse`.
+
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.

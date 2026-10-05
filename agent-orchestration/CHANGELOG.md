@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Host-side git no longer runs config a worker planted in the shared `.git/config` (TM-443, EP-028).**
+  A worker runs as the same OS user and can set `core.fsmonitor`, `core.hooksPath`, `diff.external`,
+  `core.pager`, a filter or merge driver, a credential helper or a remote `uploadpack` in the
+  repository's shared config; the lead's next `git status` (dirty-path check, integration
+  eligibility, release readiness) then ran it as the lead. Every git call in `topology/lib` and
+  `src/` now goes through one helper, `topology/lib/safe-git.mjs`, which pins every executing key
+  on the command line, neutralises repository-scope filter and merge drivers (a merge driver becomes
+  a conflict), keeps only the operator's global credential helpers, forces `--upload-pack` /
+  `--receive-pack`, adds `--no-ext-diff --no-textconv` to diff-family commands, and runs with
+  `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`. `doctor`'s `git ls-remote` passes `--` before
+  the manifest's repository, so a value starting with `-` is never an option. A test plants every
+  vector and runs eligibility, integrate and release readiness; a grep test fails on any raw git
+  spawn outside the helper. Not yet routed: `topology/lib/reviewer.mjs` (owned by another session;
+  allow-listed in the grep test). The global `~/.gitconfig` is trusted by design.
+
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
   `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to

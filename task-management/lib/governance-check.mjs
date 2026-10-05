@@ -1,10 +1,10 @@
 /** Producer-owned review and integration records are the authority for governed completion. */
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./store.mjs";
+import { safeGitText } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
 // TM-221: mirrors agent-orchestration topology/lib/reviewer.mjs SEVERITIES (TM-215); a conformance test holds them equal.
@@ -16,7 +16,7 @@ export const approvableFindings = (findings) => Array.isArray(findings) && findi
 const bindingKeys = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
 const real = (value) => { try { return realpathSync(value); } catch { return resolve(value); } };
 export function governanceGit(root, ...args) {
-  try { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 }).trim(); }
+  try { return safeGitText(root, args, { timeout: 5000 }); } // TM-443
   catch { return null; }
 }
 
@@ -126,8 +126,8 @@ export function mergeInOf(root, revision, head, target) {
   const base = governanceGit(root, "merge-base", revision, integration);
   if (!base) return false;
   const patchId = (from, to) => {
-    const diff = execFileSync("git", ["-C", root, "diff", "--binary", from, to], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
-    return diff ? execFileSync("git", ["-C", root, "patch-id", "--stable"], { input: diff, encoding: "utf8" }).split(" ")[0] : "";
+    const diff = safeGitText(root, ["diff", "--binary", from, to], { raw: true });
+    return diff ? safeGitText(root, ["patch-id", "--stable"], { input: diff }).split(" ")[0] : "";
   };
   try { return patchId(base, revision) === patchId(integration, head); } catch { return false; }
 }
