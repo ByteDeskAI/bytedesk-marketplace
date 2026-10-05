@@ -30,7 +30,7 @@ const expectedToolNames = [
   "orchestration_cleanup",
   "orchestration_decision_get",
   "orchestration_decision_approve",
-  "orchestration_mailbox_send", "orchestration_mailbox_receive", "orchestration_mailbox_list", "orchestration_mailbox_dispose",
+  "orchestration_mailbox_send", "orchestration_mailbox_receive", "orchestration_mailbox_list", "orchestration_mailbox_dispose", "orchestration_mailbox_wait",
   "orchestration_goal_start", "orchestration_goal_status", "orchestration_goal_report", "orchestration_goal_control", "orchestration_goal_reconcile",
 ];
 

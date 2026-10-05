@@ -53,7 +53,7 @@ These names are compatibility contracts:
 - Lifecycle: `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events`
 - Control: `orchestration_cancel`, `orchestration_cleanup`
 - Approval: `orchestration_decision_get`, `orchestration_decision_approve`
-- Durable mail: `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`
+- Durable mail: `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`, `orchestration_mailbox_wait`
 - Goal feedback: `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile`
 
 Goal feedback uses the repository supervisor and standing lead, with Task Management as the

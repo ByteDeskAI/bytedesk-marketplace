@@ -128,6 +128,7 @@ Standing repository services
   mailbox receipts --consumer <repo> [--agent <id>] [--workflow <id>] [--status <state>]
   mailbox dispose --consumer <repo> --agent <id> --message <id> --disposition handled|deferred|rejected
        [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+  mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   census [--json] [--watch]                     what every agent in this repo is doing right now:
                                                 working / needs-input / idle / attention /
@@ -575,6 +576,14 @@ const commands = {
         reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'] }));
     }
     if (sub === 'outbox') return out(await api.readStandingOutbox({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
+    // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
+    if (sub === 'wait') {
+      const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
+      invariant(id, 'TOPOLOGY_MESSAGE_ID_INVALID', 'Pass the message id: mailbox wait <id> [--timeout 20m].');
+      const result = await api.waitForStandingReply({ ...ctx, id, timeoutMs: parseDuration(flags.timeout, 20 * 60_000), pollMs: parseDuration(flags.poll, 2000) });
+      if (!result.ok) process.exitCode = 2;
+      return out(result);
+    }
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     ctx.transport = await selectLiveTransport({ env: process.env });
     try {

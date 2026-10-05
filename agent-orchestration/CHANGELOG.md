@@ -16,6 +16,22 @@
   `permissions`, or any `git`, `gh`, deploy or secrets command. It never blocks, and the user's
   `deny` and `ask` rules still apply. The README section "Lead and worker autonomy" documents it.
 
+- **`mailbox wait` blocks on a standing message's reply (TM-352, EP-028).**
+  `ao-topology mailbox wait <id> [--timeout 20m] [--poll 2s]` prints the reply as JSON and exits 0.
+  A timeout prints `ok: false` with code `TOPOLOGY_MAILBOX_WAIT_TIMEOUT`, names the message and
+  exits 2; a permanently held message returns at once as `TOPOLOGY_MESSAGE_UNDELIVERABLE`; an
+  unknown id is the error `TOPOLOGY_MESSAGE_NOT_FOUND` (exit 1), never `ok: true`. The new MCP tool
+  `orchestration_mailbox_wait` does the same within 55 seconds and reports a timeout as a tool
+  error. It polls; a KV watch is TM-311. `dist/` is rebuilt so the shipped MCP lists the tool.
+- **Standing mail rings its recipient on arrival (TM-351, EP-028).** Each supervisor tick rings
+  the pane of every agent whose standing mail was delivered, through `ringMessage`, so an idle
+  agent no longer has to poll `mailbox inbox`. The ring is a pointer naming the message id and the
+  exact `ao-topology mailbox inbox --consumer <repo> --agent <id>` command, never the body. An
+  unsafe composer, a missing pane or an adapter with no measured composer holds the ring, and the
+  next tick retries it; nothing is ever typed into a non-empty composer. A marker under
+  `standing-mailbox/rings/` makes the ring once per message across ticks and restarts, mail the
+  agent already read or answered is never rung, and each agent gets at most one ring per tick. The
+  tick report lists the outcomes under `mail_rings`.
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or

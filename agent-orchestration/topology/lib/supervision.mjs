@@ -49,7 +49,7 @@ import { listServerPanes } from './tmux.mjs';
 import { lockOwner, processIdentity, withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.mjs';
-import { resumeStandingMessages } from './standing-mailbox.mjs';
+import { resumeStandingMessages, ringStandingMail } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
 import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
@@ -243,6 +243,11 @@ export async function superviseRepository(options, { signal, once = false, inter
      // be recovered is reported with its backoff, never a reason to stop supervising.
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
+     // TM-351: ring each recipient whose standing mail landed, once per message. A held ring (unsafe
+     // composer, no pane) is retried here next tick. Absorbed: a ring failure never stops supervision.
+     const rings=await ringStandingMail({...options,adapters,panes:observed.filter(p=>p.lifecycle!=='dead')
+       .map(p=>({agentId:p.agentId,...p.session,command:seen.find(row=>row.serverKey===p.session.serverKey && row.paneId===p.session.paneId)?.command}))})
+       .catch(error=>[{state:'failed',reason:error?.code ?? String(error)}]);
      // TM-276 / ADR-0031: tell this repository's lead once when the configured NATS goes away and
      // once when it is back. Absorbed like lead recovery: a mail failure is reported, never fatal.
      const natsOutage=await natsOutageTick({...options,env,home}).catch(error=>({status:'failed',reason:error?.code ?? String(error)}));
@@ -251,11 +256,12 @@ export async function superviseRepository(options, { signal, once = false, inter
      const launched=['created','restarted'].includes(recovery.action);
      // Activity means something MOVED, not merely that agents exist: a prompt that is already
      // `current` is a steady state and must not pin the ladder to its busy rung forever.
-     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || launched || goalLoops.some(loop=>loop.changed);
+     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || rings.some(r=>r.notification==='submitted') || launched || goalLoops.some(loop=>loop.changed);
      const report={pid:process.pid,at:new Date().toISOString(),repo_id:identity.id,generation:snapshot.generation,revision:snapshot.revision,
        reconciled:true,reconcile_min_ms:floorMs,activity,
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
+       ...(rings.length ? {mail_rings:rings} : {}),
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {}),
