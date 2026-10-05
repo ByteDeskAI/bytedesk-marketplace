@@ -438,25 +438,50 @@ with a 4 ms decision, against 534 ms for the classifier-reviewed control.
 
 **What it approves.** It approves only one simple command, with no `;`, `&`, `|`, `<`, `>`,
 backtick, `$`, backslash or newline anywhere. One exception applies: a trailing heredoc with a
-quoted delimiter (`<<'EOF'`) is treated as data.
+quoted delimiter (`<<'EOF'`) is treated as data. Each word must be fully quoted or plain: glob,
+brace, tilde and comment characters (`* ? [ { ~ #`) outside quotes, and joined quotes such as
+`"sta"tus`, fall through, because the shell would build a different argv than the one checked.
 
-| Command | Approved |
-|---|---|
-| `ao-topology <verb> …` | Every verb except those in the gated list below |
-| `agent-orchestration doctor\|status\|session-open`, `agent-orchestration services status\|ensure\|probe` | Yes |
-| `tm <verb> …`, `.bytedesk/task-management/bin/tm <verb> …` | Every verb. This matches Ryan's `Bash(tm *)` decision of 2026-09-25 |
-| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Read-only only. Not approved: `#(…)` formats, `display-message -I`, `-f` |
+It is an **allowlist** (TM-432, TM-433). The hook reads `ao-topology` argv with the CLI's own
+`parseArgs` (`topology/lib/util.mjs`), so flags before the verb or subcommand cannot hide it:
+`ao-topology manage --task TM-1 land` is read as `manage land`. A verb or subcommand that is not in
+the table below falls through, including any verb added to the CLI later. Each row carries its
+ADR-0001 class (`fleet/docs/adr/0001-hierarchical-authorization.md`).
+
+| Command | ADR-0001 class | Why it is safe to approve |
+|---|---|---|
+| `ao-topology status`, `capture`, `wait`, `doctor` | Local-blast (read) | Reads run state, a pane capture, reply files, or `which` and version probes |
+| `ao-topology repos list`, `manage status\|assignment\|eligible` | Local-blast (read) | Reads the registry and the management record; read-only `git` |
+| `ao-topology mailbox outbox\|receipts\|wait` | Local-blast (read) | Reads standing-mail records |
+| `ao-topology lead status --cached` | Local-blast (read) | A pure read. Without `--cached` it rings the lead's pane, so it falls through |
+| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply |
+| `ao-topology mailbox send` | Local-blast (report) | Writes one envelope as this session's own identity (TM-356). Delivery and the pointer-only arrival ring (TM-351) belong to admission and the supervisor, not to this command |
+| `agent-orchestration doctor\|status`, `agent-orchestration services status\|probe\|wait` | Local-blast (read) | Health and run status only |
+| `tm <verb> …`, or the realpath of this plugin's sibling `task-management/bin/tm` | Local-blast (board) | Matches Ryan's `Bash(tm *)` decision of 2026-09-25, except `tm config`, `tm override`, `tm init` and every `tm pool` action but `status` |
+| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Local-blast (read) | Not approved: `#(…)` formats, `display-message -I`, `-f` |
+
+A `tm` at any other path falls through, including `.bytedesk/task-management/bin/tm` in a worktree
+(TM-434), because a worker can write any script there. The sibling launcher is compared by
+realpath, so a path that only starts with the same prefix does not match.
 
 **What stays gated.** The hook never approves these commands. They go through the normal
-permission flow (a prompt, or the auto-mode classifier). This keeps the authorization classes of
-ADR-0001 (`fleet/docs/adr/0001-hierarchical-authorization.md`):
+permission flow (a prompt, or the auto-mode classifier). An explicit deny list in the hook wins
+over the allowlist, so a later edit that adds one of these by mistake still cannot approve it:
 
 - **External (deploy and release):** `ao-topology manage cutover|cut-release|land`. See
   [Landing autonomy](#landing-autonomy-pr-merge-publish) below.
-- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup`. These verbs keep
-  their own delegation checks. A lead that should run them unprompted gets the per-lead rules from
-  `ao-topology permissions install` (see `docs/repository-leads.md`).
-- **Operator-only:** `ao-topology delegate grant|revoke` and `ao-topology permissions …`.
+- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup|close|transfer|assign|rework|rebind`
+  and `ao-topology review submit`. These verbs keep their own delegation checks. A lead that should
+  run them unprompted gets the per-lead rules from `ao-topology permissions install` (see
+  `docs/repository-leads.md`).
+- **Pane input, launch and configuration:** `ao-topology send|nudge|launch`, `config set`,
+  `startup install-hooks` and `git-hook install`. They type into another pane, start agents, or
+  write configuration and hooks.
+- **Operator-only:** `ao-topology delegate …`, `ao-topology permissions …`, `tm config`,
+  `tm override`, `tm init` and `tm pool start|stop|resume|run|ensure`.
+- **Not listed, so not approved:** for example `ao-topology census` (self-starts the supervisor),
+  `presence` (publishes files), `manage report` (a finish queues a review run), `agent new` and
+  `session open`. These are Local-blast at most and cost one prompt.
 - **Repo-destructive and external:** every `git`, `gh`, deploy and secrets command. This includes
   force pushes, history rewrites, branch deletion, releases, deploys and secret reads. None of these
   is on the list.
