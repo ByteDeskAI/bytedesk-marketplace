@@ -4,6 +4,17 @@
 
 ### Security
 
+- **A worker's check evidence is labelled "claimed" and never satisfies a required check (TM-430, EP-028).**
+  The finish report's `checks` were filed into the review packet as plain evidence, and under
+  `integrate_via: "pull-request"` the packet was the only required-check gate, so a worker could
+  report `exit_code: 0` for a check that never ran. Every automatic review request (report,
+  retry-review, review sweep) now files them through one helper, `claimedCheckEvidence`, which
+  prefixes the command and log with `[claimed by the worker; not run by the host]`. Integration no
+  longer treats the packet's check evidence as a result (those reasons are reported as
+  `required_checks.claimed_check_reasons`); both integrate paths run the configured argv on the host
+  in a fresh tree (`runRequiredChecks`), and the pull-request path refuses as `checks` before any
+  merge. The packet-side comparison of a run's command with the configured argv belongs to
+  `reviewer.mjs` (another owner) and is not changed here.
 - **A worker can no longer grant itself publish/merge autonomy, rewrite required checks or choose the release argv (TM-442, EP-028).**
   `management.autonomy`, `management.release`, `management.cutover` and `management.required_checks`
   are now honoured only from `.bytedesk/agent-orchestration/config.json` as committed on the server's

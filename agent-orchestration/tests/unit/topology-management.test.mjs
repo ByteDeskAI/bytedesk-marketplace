@@ -140,7 +140,8 @@ test('TM-418 the finish report and retry-review file the worker check runs as ev
   const run1 = { name: 'content', command: ['node', 'check.js'], exit_code: 0, revision, log_tail: 'ok' };
   // A worker-supplied checkEvidence key in the --file is ignored: only report.checks is evidence.
   await workerReport({ ...opts, checkEvidence: [{ name: 'forged', command: 'x', exit_code: 0, revision }], kind: 'finish', report: report(['content passed', run1]) });
-  assert.deepEqual(filed[0].checkEvidence, [{ name: 'content', command: 'node check.js', exit_code: 0, revision, log_tail: 'ok' }]);
+  // TM-430: filed, but labelled as the worker's claim, never as a host result.
+  assert.deepEqual(filed[0].checkEvidence, [{ name: 'content', command: '[claimed by the worker; not run by the host] node check.js', exit_code: 0, revision, log_tail: '[claimed by the worker; not run by the host]\nok' }]);
   await retryReview(opts);
   assert.deepEqual(filed[1].checkEvidence, filed[0].checkEvidence);
 });
@@ -285,6 +286,35 @@ test('TM-444 required checks run in a fresh tree of the finish revision: an igno
   assert.notEqual((await run('git', ['-C', opts.consumer, 'rev-parse', 'HEAD'])).stdout.trim(), report.finish.revision, 'nothing landed');
   const trees = (await run('git', ['-C', opts.consumer, 'worktree', 'list', '--porcelain'])).stdout;
   assert.ok(!/ao-checks-/.test(trees), 'the check tree was removed');
+});
+
+// ── TM-430: only the host's own run of the configured argv satisfies a required check ─────────────
+const CLAIM = revision => [{ name: 'content', command: 'node check.js', exit_code: 0, revision, log_tail: 'all green' }];
+test('TM-430 a worker claim (exit 0, right revision) alone never satisfies a required check: the failing host run refuses', async t => {
+  const { opts, git } = await fixture(t);
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: CLAIM(revision), risks: [], evidence: 'fixture', revision } });
+  // The configured check really fails; the worker said it passed.
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: true, target_branch: 'main', required_checks: [{ name: 'content', argv: [process.execPath, '-e', 'process.exit(7)'] }] } });
+  // A reviewer that counted the claim reports nothing about checks: integrate must still run them.
+  await assert.rejects(integrateTask({ ...opts, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve' } } }) }), { code: 'TOPOLOGY_MANAGEMENT_CHECK_FAILED' });
+  assert.notEqual((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), revision, 'nothing landed');
+});
+
+test('TM-430 a host run of the configured argv satisfies the required check even when the review packet has no evidence', async t => {
+  const { opts, finish } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  const reviewGate = async () => ({ eligible: false, reasons: [`required check content: no evidence`], status: { review: { verdict: 'approve' } } });
+  const gate = await integrationEligibility({ ...opts, reviewGate });
+  assert.equal(gate.eligible, true, gate.reasons.join('; '));
+  assert.deepEqual(gate.required_checks, { satisfied_by: 'host-run-at-integrate', claimed_check_reasons: ['required check content: no evidence'] });
+  const landed = await integrateTask({ ...opts, reviewGate });
+  assert.equal(landed.merge.landed, report.finish.revision);
+  assert.deepEqual(landed.merge.checks.map(c => [c.name, c.code, c.runner]), [['content', 0, 'host']]);
 });
 
 test('TM-442 required checks set only in a worker-writable layer are not honoured: integrate refuses as unconfigured', async t => {
@@ -1323,6 +1353,20 @@ test('TM-249 success: integrate merges the PR with exactly --merge --match-head-
   assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'lead-1');
   // Rerunning is a no-op: nothing merges twice.
   await integrateTask(p.lead); assert.equal(merges(p.state).length, 1);
+});
+
+test('TM-430 pull-request path: the worker\'s claimed check never satisfies a required check; the host run decides before any merge', async t => {
+  const p = await prTask(t);
+  await workerReport({ ...p.opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: CLAIM(p.revision), risks: [], evidence: 'fixture', revision: p.revision } });
+  const policy = check => ({ management: { target_branch: 'main', integrate_via: 'pull-request', required_checks: [{ name: 'content', argv: check }] } });
+  const serving = doc => async args => args[0] === 'api'
+    ? { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify(doc)).toString('base64') }), stderr: '' } : p.gh(args);
+  // The configured check fails on the host: refused by name, nothing merged, whatever the worker claimed.
+  await refusedAs(p, { ...p.lead, gh: serving(policy([process.execPath, '-e', 'process.exit(7)'])) }, 'checks', /Required check content failed/);
+  // The same check passing on the host is what lets the merge happen, and the landing records the run.
+  const landed = await integrateTask({ ...p.lead, gh: serving(policy([process.execPath, '-e', "process.exit(require('fs').readFileSync('code.txt','utf8')==='implemented'?0:1)"])) });
+  assert.equal(merges(p.state).length, 1);
+  assert.deepEqual(landed.merge.required_checks.map(c => [c.name, c.code, c.runner]), [['content', 0, 'host']]);
 });
 
 test('TM-249 close-retry runs the same caller and plan gate: a worker pane and a lead without a grant are refused by name and the task stays open', async t => {

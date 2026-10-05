@@ -64,6 +64,20 @@ export async function mergeInOf(cwd, revision, head, target) {
   return expected && expected === actual ? { head, integration } : null;
 }
 
+/** TM-430: a worker's check runs, labelled as what they are. They are self-reported, so the review
+ * packet shows them as CLAIMED (command and log prefixed) and they never satisfy a required check:
+ * only the host's own run of the configured argv does (runRequiredChecks, in both integrate paths).
+ * Every automatic review request (manage report, retry-review, the supervisor sweep) goes through here. */
+export const CLAIMED = '[claimed by the worker; not run by the host]';
+export function claimedCheckEvidence(report) {
+  return finishCheckEvidence(report).map(check => ({ ...check, command: `${CLAIMED} ${check.command}`.trim(), log_tail: `${CLAIMED}\n${check.log_tail}` }));
+}
+
+/** TM-430: review reasons about check EVIDENCE in the review packet. The packet holds worker claims and
+ * lead-supplied runs, so integration never treats it as a check result: integrate runs the configured
+ * argv itself. These reasons stay visible as `claimed_check_reasons` on the gate. */
+const CHECK_EVIDENCE_REASON = /^(required check |no check evidence is recorded for revision )/;
+
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */
 export async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
@@ -548,7 +562,7 @@ export async function workerReport(options) {
     if (kind === 'finish') {
       await ctx.store.reviewReady?.(task,report.revision);
       try {
-        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [...new Set([prior.owner, owner])], checkEvidence: finishCheckEvidence(report) });
+        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [...new Set([prior.owner, owner])], checkEvidence: claimedCheckEvidence(report) });
         next.review_request = request;
       } catch (error) {
         next.review_blocked = error.message;
@@ -591,7 +605,7 @@ export async function retryReview(options) {
     const record = await loadRecord(ctx.path);
     invariant(record?.state === 'ready-for-review' && record.finish?.revision, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${task} has no finish report awaiting review.`);
     try {
-      record.review_request = await (options.queueReview || requestReview)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner], checkEvidence: finishCheckEvidence(record.finish) });
+      record.review_request = await (options.queueReview || requestReview)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner], checkEvidence: claimedCheckEvidence(record.finish) });
       delete record.review_blocked; delete record.review_blocked_notice;
     } catch (error) { record.review_blocked = error.message; await writeJson(ctx.path, record); throw error; }
     await writeJson(ctx.path, record);
@@ -731,7 +745,7 @@ export async function integrationEligibility(options) {
   // TM-249: every reason carries the condition it fails, so manage integrate refuses each by name.
   const refuse = (condition, reason) => { reasons.push(reason); refusals.push({ condition, reason }); };
   if (!record || record.state !== 'ready-for-review') refuse('protocol', 'task has no completed worker protocol ready for review');
-  let doc, review = null;
+  let doc, review = null, claimedReasons = [];
   try { doc = await ownedTask(ctx, options.task, record?.owner); } catch (error) { refuse('ownership', error.message); }
   const loaded = await loadGovernedConfig(options);
   const policy = loaded.config.management || {};
@@ -748,7 +762,9 @@ export async function integrationEligibility(options) {
     if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch)) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ['status', '--porcelain'])) refuse('dirty', 'task worktree has uncommitted work');
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
-    for (const reason of review.reasons) refuse('review', reason);
+    claimedReasons = review.reasons.filter(reason => CHECK_EVIDENCE_REASON.test(reason));
+    const reviewReasons = review.reasons.filter(reason => !CHECK_EVIDENCE_REASON.test(reason));
+    for (const reason of reviewReasons) refuse('review', reason);
     if (review.eligible !== true && review.reasons.length === 0) refuse('review', 'review eligibility was not established');
     if (!record.base_revision || !list(doc.touches) || !doc.touches.length) refuse('scope', 'approved file scope or task base revision is unavailable');
     else {
@@ -765,7 +781,9 @@ export async function integrationEligibility(options) {
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) refuse('worker', writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
-  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
+  // TM-430: required checks are never satisfied here; integrate runs them on the host (runRequiredChecks).
+  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy,
+    required_checks: { satisfied_by: 'host-run-at-integrate', claimed_check_reasons: claimedReasons } };
 }
 
 /** TM-442: a reason when `revision` changes `management` in the committed repo config relative to its
@@ -982,6 +1000,13 @@ async function integrateViaPullRequest(options, ctx) {
       else if (incoming.stdout.split('\0').some(path => path && storePath(path))) refuse('scope', `the PR changes tool store paths (${INTEGRATION_STORE_PATHS.join(', ')}); land it by hand and record it with manage record-landing`);
     }
   }
+  // TM-430: the PR path's required checks are the host's own run of the configured argv at the approved
+  // revision, never the worker's report (and CI is a separate gate above). Only before a merge.
+  let hostChecks = [];
+  if (!refusals.length && pr.state !== 'MERGED' && Array.isArray(policy.required_checks) && policy.required_checks.length) {
+    try { hostChecks = await runRequiredChecks(ctx.store.root, revision, policy.required_checks); }
+    catch (error) { refuse('checks', `${error.message}${error.details?.checks ? ` (${error.details.checks.map(c => `${c.name}: exit ${c.code}`).join(', ')})` : ''}`); }
+  }
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
     // The only merge this verb performs. Exactly these flags; nothing forces, bypasses or defers.
@@ -998,7 +1023,7 @@ async function integrateViaPullRequest(options, ctx) {
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
-      pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === 'MERGED' }, ...(mergeIn ? { merge_in: mergeIn } : {}), authorization });
+      pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === 'MERGED' }, ...(mergeIn ? { merge_in: mergeIn } : {}), required_checks: hostChecks, authorization });
   } catch (error) {
     fail('TOPOLOGY_INTEGRATE_UNRECORDED', `PR #${pr.number} is merged, but its landing was not recorded: ${error.message}. Do not merge again; rerun manage integrate, which records an already-merged PR.`, { pull_request: pr.number, merged: true, recorded: false });
   }

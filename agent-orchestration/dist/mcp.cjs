@@ -30404,6 +30404,7 @@ var init_workflow_control = __esm({
 // topology/lib/management.mjs
 var management_exports = {};
 __export(management_exports, {
+  CLAIMED: () => CLAIMED,
   INTEGRATION_STORE_PATHS: () => INTEGRATION_STORE_PATHS,
   LEAD_POLICY_PATH: () => LEAD_POLICY_PATH,
   PROTECTED_MANAGEMENT_KEYS: () => PROTECTED_MANAGEMENT_KEYS,
@@ -30413,6 +30414,7 @@ __export(management_exports, {
   assignmentBody: () => assignmentBody,
   assignmentResult: () => assignmentResult,
   bindTaskWorker: () => bindTaskWorker,
+  claimedCheckEvidence: () => claimedCheckEvidence,
   cleanupTask: () => cleanupTask,
   closeTask: () => closeTask,
   deadWorkerState: () => deadWorkerState,
@@ -30462,6 +30464,10 @@ async function mergeInOf(cwd, revision, head, target) {
   const expected = merged.code === 0 ? merged.stdout.split("\n")[0].trim() : "";
   const actual = (await git2(cwd, ["rev-parse", "--verify", "--quiet", `${head}^{tree}`], true)).stdout.trim();
   return expected && expected === actual ? { head, integration } : null;
+}
+function claimedCheckEvidence(report) {
+  return finishCheckEvidence(report).map((check2) => ({ ...check2, command: `${CLAIMED} ${check2.command}`.trim(), log_tail: `${CLAIMED}
+${check2.log_tail}` }));
 }
 async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
@@ -30937,7 +30943,7 @@ async function workerReport(options) {
     if (kind === "finish") {
       await ctx.store.reviewReady?.(task, report.revision);
       try {
-        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [.../* @__PURE__ */ new Set([prior.owner, owner])], checkEvidence: finishCheckEvidence(report) });
+        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [.../* @__PURE__ */ new Set([prior.owner, owner])], checkEvidence: claimedCheckEvidence(report) });
         next.review_request = request;
       } catch (error51) {
         next.review_blocked = error51.message;
@@ -30981,7 +30987,7 @@ async function retryReview(options) {
     const record2 = await loadRecord(ctx.path);
     invariant2(record2?.state === "ready-for-review" && record2.finish?.revision, "TOPOLOGY_MANAGEMENT_PROTOCOL", `${task} has no finish report awaiting review.`);
     try {
-      record2.review_request = await (options.queueReview || requestReview)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner], checkEvidence: finishCheckEvidence(record2.finish) });
+      record2.review_request = await (options.queueReview || requestReview)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner], checkEvidence: claimedCheckEvidence(record2.finish) });
       delete record2.review_blocked;
       delete record2.review_blocked_notice;
     } catch (error51) {
@@ -31086,7 +31092,7 @@ async function integrationEligibility(options) {
     refusals.push({ condition, reason });
   };
   if (!record2 || record2.state !== "ready-for-review") refuse("protocol", "task has no completed worker protocol ready for review");
-  let doc, review = null;
+  let doc, review = null, claimedReasons = [];
   try {
     doc = await ownedTask(ctx, options.task, record2?.owner);
   } catch (error51) {
@@ -31107,7 +31113,9 @@ async function integrationEligibility(options) {
     if (head !== record2.finish.revision && !await mergeInOf(doc.worktree, record2.finish.revision, head, policy.target_branch)) refuse("head", `task changed after finish (approved ${record2.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ["status", "--porcelain"])) refuse("dirty", "task worktree has uncommitted work");
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
-    for (const reason of review.reasons) refuse("review", reason);
+    claimedReasons = review.reasons.filter((reason) => CHECK_EVIDENCE_REASON.test(reason));
+    const reviewReasons = review.reasons.filter((reason) => !CHECK_EVIDENCE_REASON.test(reason));
+    for (const reason of reviewReasons) refuse("review", reason);
     if (review.eligible !== true && review.reasons.length === 0) refuse("review", "review eligibility was not established");
     if (!record2.base_revision || !list(doc.touches) || !doc.touches.length) refuse("scope", "approved file scope or task base revision is unavailable");
     else {
@@ -31124,7 +31132,19 @@ async function integrationEligibility(options) {
     const writer = options.workerState ? await options.workerState(record2) : await taskWorkerState(options, record2);
     if (!writer.owned || writer.active !== false) refuse("worker", writer.reason || "worker ownership or absence of an active writer is unproven");
   }
-  return { eligible: reasons.length === 0, reasons, refusals, record: record2, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    refusals,
+    record: record2,
+    doc,
+    policy,
+    review,
+    delegation,
+    delegationError,
+    autonomy: authority.autonomy,
+    required_checks: { satisfied_by: "host-run-at-integrate", claimed_check_reasons: claimedReasons }
+  };
 }
 async function managementPolicyChange(cwd, revision, target) {
   if (!nonempty(target)) return null;
@@ -31309,6 +31329,14 @@ async function integrateViaPullRequest(options, ctx) {
       else if (incoming.stdout.split("\0").some((path3) => path3 && storePath(path3))) refuse("scope", `the PR changes tool store paths (${INTEGRATION_STORE_PATHS.join(", ")}); land it by hand and record it with manage record-landing`);
     }
   }
+  let hostChecks = [];
+  if (!refusals.length && pr.state !== "MERGED" && Array.isArray(policy.required_checks) && policy.required_checks.length) {
+    try {
+      hostChecks = await runRequiredChecks(ctx.store.root, revision, policy.required_checks);
+    } catch (error51) {
+      refuse("checks", `${error51.message}${error51.details?.checks ? ` (${error51.details.checks.map((c) => `${c.name}: exit ${c.code}`).join(", ")})` : ""}`);
+    }
+  }
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== "MERGED") {
     const result2 = await gh(["pr", "merge", String(pr.number), "--repo", repo, "--merge", "--match-head-commit", pr.headRefOid]);
@@ -31330,6 +31358,7 @@ async function integrateViaPullRequest(options, ctx) {
       target_branch: policy.target_branch,
       pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === "MERGED" },
       ...mergeIn ? { merge_in: mergeIn } : {},
+      required_checks: hostChecks,
       authorization
     });
   } catch (error51) {
@@ -31635,7 +31664,7 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os19, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os19, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os19 = require("node:os");
@@ -31664,6 +31693,8 @@ var init_management = __esm({
     gitText = async (cwd, args) => (await git2(cwd, args)).stdout.trim();
     INTEGRATION_STORE_PATHS = Object.freeze([".bytedesk/task-management/", ".bytedesk/agent-orchestration/agents/", ".bytedesk/knowledge/.km/"]);
     storePath = (path3) => INTEGRATION_STORE_PATHS.some((prefix) => path3.startsWith(prefix));
+    CLAIMED = "[claimed by the worker; not run by the host]";
+    CHECK_EVIDENCE_REASON = /^(required check |no check evidence is recorded for revision )/;
     loadRecord = async (path3) => readJson3(path3).catch((error51) => {
       if (error51.code === "ENOENT") return null;
       throw error51;
@@ -39638,7 +39669,7 @@ async function reviewSweepTick({
       const revision = record2?.finish?.revision;
       if (revision && record2.owner) {
         try {
-          await requestReview2({ consumer, task: f.id, revision, authorAgentIds: [record2.owner], checkEvidence: finishCheckEvidence(record2.finish), env, home });
+          await requestReview2({ consumer, task: f.id, revision, authorAgentIds: [record2.owner], checkEvidence: (await Promise.resolve().then(() => (init_management(), management_exports))).claimedCheckEvidence(record2.finish), env, home });
           out.delivered.push({ key: f.key, action: "review-requested", task: f.id, revision });
           continue;
         } catch (error51) {
@@ -79008,10 +79039,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "465ca80dd187741609d327f33d976dccde5c2061d037203d50b358d3b28fb49c";
+  return false ? null : "c39ce37372feda036510a711a508c3dc9472de28809faada723b901e45990ee5";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "465ca80dd187741609d327f33d976dccde5c2061d037203d50b358d3b28fb49c";
+  const fingerprint2 = false ? null : "c39ce37372feda036510a711a508c3dc9472de28809faada723b901e45990ee5";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79436,7 +79467,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "465ca80dd187741609d327f33d976dccde5c2061d037203d50b358d3b28fb49c",
+  sourceFingerprint: false ? null : "c39ce37372feda036510a711a508c3dc9472de28809faada723b901e45990ee5",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
