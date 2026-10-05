@@ -5,7 +5,7 @@
  * User-scope only. This is a machine tool, not a project one: a repo that enables
  * plugin-rsync@bytedesk in extraKnownMarketplaces is the wrong install.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -234,11 +234,16 @@ function fixGrokInstalls({ home = HOME } = {}) {
     if (!src || !existsSync(join(src, ".claude-plugin", "marketplace.json"))) continue;
     for (const [name, meta] of Object.entries(entry.plugins || {})) {
       const dir = resolve(src, meta?.subdir || name);
-      if (isDir(dir)) bad.push({ name, src: dir });
+      if (isDir(dir)) bad.push({ name, src: dir, original: `${src}#${meta?.subdir || name}` });
     }
   }
   if (!bad.length) return { ok: true, fixed: [] };
   const lock = join(home, ".grok", ".plugin-rsync-fix.lock");
+  // A run killed mid-way leaves its lock; one older than any run could take is reclaimed, or the
+  // repair would be skipped forever.
+  try {
+    if (Date.now() - statSync(lock).mtimeMs > 15 * 60 * 1000) rmdirSync(lock);
+  } catch {}
   try {
     mkdirSync(lock);
   } catch {
@@ -246,11 +251,16 @@ function fixGrokInstalls({ home = HOME } = {}) {
   }
   try {
     const fixed = [];
-    for (const { name, src } of bad) {
-      const un = spawnSync("grok", ["plugin", "uninstall", name], { encoding: "utf8", timeout: 300000 });
+    const grok = (...args) => spawnSync("grok", ["plugin", ...args], { encoding: "utf8", timeout: 300000 });
+    for (const { name, src, original } of bad) {
+      const un = grok("uninstall", name);
       if (un.error) return { ok: false, fixed, err: `grok: ${un.error.code || un.error.message}` };
-      const inst = spawnSync("grok", ["plugin", "install", "--trust", src], { encoding: "utf8", timeout: 300000 });
-      if (inst.status !== 0) return { ok: false, fixed, err: `grok plugin install ${src}: ${(inst.stderr || inst.stdout || "").trim()}` };
+      const inst = grok("install", "--trust", src);
+      if (inst.status !== 0) {
+        // Put the old install back rather than leave the plugin missing.
+        const back = grok("install", "--trust", original);
+        return { ok: false, fixed, err: `grok plugin install ${src}: ${(inst.stderr || inst.stdout || "").trim()}; restored ${original}: ${back.status === 0 ? "ok" : "FAILED"}` };
+      }
       fixed.push(name);
     }
     return { ok: true, fixed };
