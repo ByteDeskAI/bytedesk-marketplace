@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-## [0.16.0] — 2026-10-05
-
-### Changed
-
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
   `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to
@@ -17,16 +13,7 @@
   the pids from `heartbeat.mjs` `ancestorPids` instead of walking the tree itself. The shared walk
   gained the `ps` fallback delegation had, so the heartbeat and prompt lifecycle also see the full
   chain where `/proc` is absent (macOS).
-- **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`
-  gains a "Keep work moving: no stalled agents" section. Agents talk to each other through the
-  mailbox within and across repositories, and terminal typing or a human relay is a filed defect.
-  A problem in another component goes to its owner as a ticket plus a mailbox notice, followed by
-  `plugin-rsync` once the fix lands. No agent ends a turn waiting on a person when a recommended
-  option or a standing operator rule answers the question. Agents clear the stalls they find:
-  stale tasks, dirty trees, paused pools, unadmitted ready tasks and silent workers. Rules stay
-  general, and task-specific detail stays on the task. `roles/worker.md` now lets a worker
-  message other agents through the mailbox about its own task, instead of forbidding all
-  messages.
+
 - **Skill cleanup: fewer, clearer entry points (TM-377, EP-028).** `roadmap-orchestrator` is now
   `roadmap-governance` (it governs `ROADMAP.md`; it never orchestrated agents); its description
   names the old name so `$roadmap-orchestrator` still resolves, and host wiring removes the Kimi link
@@ -35,8 +22,6 @@
   `skills/setup-agent-orchestration/scripts/install-host.mjs`. `orchestration-conduct` is marked
   not user-invokable (it is the conductor's internal protocol). `goal-feedback-loop` now has
   trigger phrases and an argument hint.
-
-### Added
 
 - **One doctor for AO, task-management and the services (TM-379, EP-028).** `agent-orchestration
   doctor` now leads its JSON with a `combined` block and exits 1 when any present part is
@@ -152,6 +137,71 @@
   the recovery: `manage admit`. A refused `tm dispatch` in start-worker is now
   `TOPOLOGY_MANAGEMENT_DISPATCH` carrying tm's message, not a Node stack trace.
 
+- **The standing-mail arrival ring rings only unread mail the inbox would show (TM-419, EP-028).**
+  On its first live tick the TM-351 ring sent a lead about 20 pointers for mail it had handled
+  weeks earlier, or that `mailbox inbox` could not show: records from before NATS publication
+  existed. The ring and the inbox listing now share one predicate (`standingInboxShows` /
+  `standingUnread`): under NATS only broker-published records count, and any receipt (accepted,
+  deferred, handled, rejected) or reply means the mail is not unread. The first run for a
+  repository also writes a watermark under `standing-mailbox/rings/`, so mail delivered before it
+  never rings. `dist/` is rebuilt.
+- **Run mail delivered over NATS also lands as an inbox file (TM-409, EP-028).** `send` with the
+  NATS transport now writes the message into the recipient's inbox directory after the publish
+  succeeds, and the delivery names an outbox path. The message tells the recipient it may reply
+  on NATS or write its reply to that outbox file. A file-only reviewer therefore receives
+  NATS-delivered mail.
+- **`wait` accepts a file reply to a NATS-delivered message (TM-410, EP-028).** `pendingReplies`
+  and `waitForReplies` treat a NATS-delivered message as answered when its outbox reply file has
+  content, as well as when a NATS reply exists. The file reply is returned with its path.
+- **`prompt ack` works from a child shell of the agent's pane (TM-411, EP-028).** The ack used to
+  bind to the pane named by `$TMUX_PANE`, and was refused with `TOPOLOGY_PROMPT_ACK_INVALID` from
+  an agent's Bash tool shell. It now binds to the pane whose process is an ancestor of the caller,
+  using the same `/proc` ancestry walk as the TM-222 heartbeat (`ancestorPids`, now exported), and
+  still requires the recorded incarnation. Any caller outside that pane's process tree is refused,
+  including one that sets `TMUX_PANE` by hand.
+- **TM-241 review-patch follow-ups (TM-260, EP-028).** Four fixes to how the reviewed patch is
+  built, all in `reviewPatch`, which the review range and the TM-257 legacy check now share:
+  - **Size cap.** The over-cap refusal never fired: it matched `ERR_CHILD_PROCESS_STDOUT_MAXBUFFER`,
+    but Node reports `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. It now fires and reports bytes, not UTF-16
+    units. `AO_REVIEW_PATCH_MAX_BYTES` lowers the 64 MiB cap.
+  - **Binary classification.** A file is binary when its own first 8000 bytes hold a NUL (git's
+    own test). The range's `.gitattributes` no longer decides, because the author controls it. Text
+    files are diffed with `--text`, so `*.mjs binary` cannot hide source in the manifest.
+  - **Legacy hash path.** A landed pre-TM-257 request is reproduced with the same builder. A
+    binary range in the current format verifies, and an approval in an older format asks for a
+    re-review (`TOPOLOGY_REVIEWER_REREVIEW`).
+  - **Manifest paths.** Paths are JSON-encoded, so a newline or tab in a filename cannot forge a
+    row.
+
+  Binary ranges now hash differently from TM-241, so their approvals need a re-review. Text-only
+  ranges hash exactly as before.
+- **A network blip no longer flips an approved review (TM-259, EP-028).** Once the server has
+  verified a task revision's effective review base, the host records it in
+  `<state>/management/<repo>/<task>.bases.json` and reuses it for that exact (task, revision). So
+  supervision and eligibility sweeps make no GitHub call for a recorded revision, and a rate
+  limit or outage can no longer fall back to the admitted base and report an approved task as
+  "review does not cover the complete admitted task range". A fallback is never recorded, so a
+  first derivation with the server down still fails closed to the admitted base. A recorded base
+  that is not between the admitted base and the revision is ignored. The GitHub repository itself
+  was already pinned by TM-263.
+
+## [0.16.0] — 2026-10-05
+
+### Changed
+
+- **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`
+  gains a "Keep work moving: no stalled agents" section. Agents talk to each other through the
+  mailbox within and across repositories, and terminal typing or a human relay is a filed defect.
+  A problem in another component goes to its owner as a ticket plus a mailbox notice, followed by
+  `plugin-rsync` once the fix lands. No agent ends a turn waiting on a person when a recommended
+  option or a standing operator rule answers the question. Agents clear the stalls they find:
+  stale tasks, dirty trees, paused pools, unadmitted ready tasks and silent workers. Rules stay
+  general, and task-specific detail stays on the task. `roles/worker.md` now lets a worker
+  message other agents through the mailbox about its own task, instead of forbidding all
+  messages.
+
+### Added
+
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
   `failover` restarts one, and when `session open` starts a durable session, ao copies each named
@@ -229,54 +279,6 @@
   `dist/` is rebuilt.
 
 ### Fixed
-
-- **The standing-mail arrival ring rings only unread mail the inbox would show (TM-419, EP-028).**
-  On its first live tick the TM-351 ring sent a lead about 20 pointers for mail it had handled
-  weeks earlier, or that `mailbox inbox` could not show: records from before NATS publication
-  existed. The ring and the inbox listing now share one predicate (`standingInboxShows` /
-  `standingUnread`): under NATS only broker-published records count, and any receipt (accepted,
-  deferred, handled, rejected) or reply means the mail is not unread. The first run for a
-  repository also writes a watermark under `standing-mailbox/rings/`, so mail delivered before it
-  never rings. `dist/` is rebuilt.
-- **Run mail delivered over NATS also lands as an inbox file (TM-409, EP-028).** `send` with the
-  NATS transport now writes the message into the recipient's inbox directory after the publish
-  succeeds, and the delivery names an outbox path. The message tells the recipient it may reply
-  on NATS or write its reply to that outbox file. A file-only reviewer therefore receives
-  NATS-delivered mail.
-- **`wait` accepts a file reply to a NATS-delivered message (TM-410, EP-028).** `pendingReplies`
-  and `waitForReplies` treat a NATS-delivered message as answered when its outbox reply file has
-  content, as well as when a NATS reply exists. The file reply is returned with its path.
-- **`prompt ack` works from a child shell of the agent's pane (TM-411, EP-028).** The ack used to
-  bind to the pane named by `$TMUX_PANE`, and was refused with `TOPOLOGY_PROMPT_ACK_INVALID` from
-  an agent's Bash tool shell. It now binds to the pane whose process is an ancestor of the caller,
-  using the same `/proc` ancestry walk as the TM-222 heartbeat (`ancestorPids`, now exported), and
-  still requires the recorded incarnation. Any caller outside that pane's process tree is refused,
-  including one that sets `TMUX_PANE` by hand.
-- **TM-241 review-patch follow-ups (TM-260, EP-028).** Four fixes to how the reviewed patch is
-  built, all in `reviewPatch`, which the review range and the TM-257 legacy check now share:
-  - **Size cap.** The over-cap refusal never fired: it matched `ERR_CHILD_PROCESS_STDOUT_MAXBUFFER`,
-    but Node reports `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. It now fires and reports bytes, not UTF-16
-    units. `AO_REVIEW_PATCH_MAX_BYTES` lowers the 64 MiB cap.
-  - **Binary classification.** A file is binary when its own first 8000 bytes hold a NUL (git's
-    own test). The range's `.gitattributes` no longer decides, because the author controls it. Text
-    files are diffed with `--text`, so `*.mjs binary` cannot hide source in the manifest.
-  - **Legacy hash path.** A landed pre-TM-257 request is reproduced with the same builder. A
-    binary range in the current format verifies, and an approval in an older format asks for a
-    re-review (`TOPOLOGY_REVIEWER_REREVIEW`).
-  - **Manifest paths.** Paths are JSON-encoded, so a newline or tab in a filename cannot forge a
-    row.
-
-  Binary ranges now hash differently from TM-241, so their approvals need a re-review. Text-only
-  ranges hash exactly as before.
-- **A network blip no longer flips an approved review (TM-259, EP-028).** Once the server has
-  verified a task revision's effective review base, the host records it in
-  `<state>/management/<repo>/<task>.bases.json` and reuses it for that exact (task, revision). So
-  supervision and eligibility sweeps make no GitHub call for a recorded revision, and a rate
-  limit or outage can no longer fall back to the admitted base and report an approved task as
-  "review does not cover the complete admitted task range". A fallback is never recorded, so a
-  first derivation with the server down still fails closed to the admitted base. A recorded base
-  that is not between the admitted base and the revision is ignored. The GitHub repository itself
-  was already pinned by TM-263.
 
 - **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
   review range, the patch, the binary manifest and the files a finding may name now resolve from
