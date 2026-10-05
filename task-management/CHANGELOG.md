@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Security
+
+- **`tm ticket` no longer runs a launcher found in another repo (TM-446, EP-028).** Filing a
+  ticket, reporting progress to its origin, the event bridge and the pool's collect path all ran
+  `<repo>/.bytedesk/task-management/bin/tm` with the caller's environment, and `<repo>` came from a
+  task's `origin` field or a path argument — both writable by a worker. They now always run this
+  plugin's own `bin/tm` with `TM_ROOT` set to the other store. The other repo must also be
+  registered with agent-orchestration or be a sibling of this one; anything else is refused and
+  logged as `ticket_refused`.
+
+### Changed
+
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.

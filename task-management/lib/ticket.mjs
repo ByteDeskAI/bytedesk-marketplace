@@ -5,13 +5,15 @@
  * target's lead, wakes the target's pool, and later reports the ticket's progress back to the
  * origin task and the origin lead.
  *
- * Every write to another repo goes through THAT repo's own `bin/tm`, run with an argv array and
- * `TM_ROOT` pointed at it: this process never opens a foreign store. agent-orchestration is reached
+ * Every write to another repo goes through THIS plugin's own `bin/tm`, run with an argv array and
+ * `TM_ROOT` pointed at it: this process never opens a foreign store, and never executes code that
+ * lives in one (TM-446). The other repo must be registered with agent-orchestration or be a sibling
+ * of this one; anything else is refused and logged as `ticket_refused`. agent-orchestration is reached
  * only through its `ao-topology` CLI, and only when it is installed — nothing here imports it, and
  * every step that needs it degrades to "not sent, here is why" when it is absent.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +38,13 @@ export function ladderPriority(value = "medium") {
 }
 
 const hasStore = (dir) => existsSync(join(dir, STORE));
+const real = (dir) => {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return resolve(dir);
+  }
+};
 
 /** agent-orchestration's registered repos (its `services/repos.json`), read as a file — never imported. */
 function aoRepos(env = process.env) {
@@ -51,6 +60,26 @@ function aoRepos(env = process.env) {
 }
 
 /**
+ * TM-446: may this module act on `dir`? Only a repo with a store that agent-orchestration has
+ * registered, or a sibling of this store's repo — the same two rules resolveTarget's slugs use. A
+ * path a task or a caller supplies is otherwise attacker-chosen: a worker can write any task's
+ * `origin` and any directory it likes.
+ */
+export function knownRepo(dir, p = paths(), env = process.env) {
+  if (typeof dir !== "string" || !isAbsolute(dir) || !hasStore(dir)) return false;
+  const at = real(dir);
+  if (aoRepos(env).some((r) => real(r.consumer) === at)) return true;
+  return Boolean(p.root) && dirname(at) === dirname(real(p.root));
+}
+
+/** Log and build the refusal for a repo knownRepo turned down. */
+function refuse(dir, why, p, fields = {}) {
+  const reason = `refusing ${dir}: ${why} — only a repo registered with agent-orchestration or a sibling of this one`;
+  logEvent("ticket_refused", { ...fields, repo: String(dir), reason }, p);
+  return reason;
+}
+
+/**
  * The target repo's root, from: an explicit path; a slug in AO's repo registry; a sibling of this
  * repo with a task-management store. Ambiguity is refused — a ticket is never filed on a guess.
  */
@@ -60,6 +89,7 @@ export function resolveTarget(spec, p = paths(), env = process.env) {
   const asPath = isAbsolute(ref) ? ref : resolve(process.cwd(), ref);
   if ((isAbsolute(ref) || ref.startsWith(".") || ref.includes("/")) && existsSync(asPath)) {
     if (!hasStore(asPath)) throw new Error(`${asPath} has no task-management store (${STORE}) to file a ticket on`);
+    if (!knownRepo(asPath, p, env)) throw new Error(refuse(asPath, "not a known repo", p, { target: ref }));
     return asPath;
   }
   const slug = ref.toLowerCase();
@@ -77,12 +107,15 @@ export function resolveTarget(spec, p = paths(), env = process.env) {
   throw new Error(`no repo named "${ref}" with a task-management store (looked: agent-orchestration repos.json, siblings in ${parent ?? "(none)"}) — pass its path`);
 }
 
-/** Run another repo's own `tm` — its launcher when present, else this plugin's — against ITS store. */
+/**
+ * Run THIS plugin's `tm` against another repo's store. Never the target's own launcher (TM-446):
+ * `<repo>/.bytedesk/task-management/bin/tm` is a file in a directory a task or a worker chose, and
+ * running it would hand this caller's environment — a lead's, a pool's — to whoever wrote it.
+ */
 export function runTm(root, args, { env = process.env } = {}) {
-  const launcher = join(root, STORE, "bin", "tm");
   const childEnv = { ...env, TM_ROOT: root };
   delete childEnv.CLAUDE_PROJECT_DIR; // inherited, and would outrank cwd — TM_ROOT already decides
-  const res = spawnSync(process.execPath, [existsSync(launcher) ? launcher : SELF_TM, ...args], {
+  const res = spawnSync(process.execPath, [SELF_TM, ...args], {
     cwd: root,
     env: childEnv,
     encoding: "utf8",
@@ -200,6 +233,8 @@ export function notifyOrigin(id, { kind, key = kind, detail = "" }, p = paths())
   const task = read(id, p);
   if (!task?.origin?.repo) return { ok: false, reason: `${id} has no origin — it was not filed with tm ticket` };
   if (!EVENT_KINDS.includes(kind)) throw new Error(`unknown event "${kind}" — use one of: ${EVENT_KINDS.join(", ")}`);
+  // Before the key is recorded: a refused origin is not a reported one.
+  if (!knownRepo(task.origin.repo, p)) return { ok: false, refused: true, reason: refuse(task.origin.repo, "the origin is not a known repo", p, { id, kind }) };
   let fresh = !(task.originNotified || []).includes(key);
   // Re-checked under the lock, so two notifiers racing on one event send it once.
   if (fresh) {
