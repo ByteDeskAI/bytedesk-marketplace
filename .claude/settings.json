@@ -52,6 +52,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/graft-hooks.cjs\" session-start",
             "timeout": 8000
+          },
+          {
+            "type": "command",
+            "command": "git -C \"${CLAUDE_PROJECT_DIR:-.}\" config core.hooksPath >/dev/null || git -C \"${CLAUDE_PROJECT_DIR:-.}\" config core.hooksPath scripts/git-hooks",
+            "timeout": 5000
           }
         ]
       }
