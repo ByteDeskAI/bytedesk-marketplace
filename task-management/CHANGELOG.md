@@ -15,7 +15,15 @@
   - `Authorization: <any scheme> <value>`, `X-Auth*` headers, whole-word `pass=` and `key=`, and
     the prose `secret <value>`.
 
-  The shapes live in one fixture, `tests/fixtures/redaction-shapes.mjs` (39 shapes).
+  A final review round added these shapes:
+  - `curl -u`, `--auth`, `redis-cli -a`, `docker login -p|-P`, and token-only URL userinfo;
+  - the whole of a long `AIza` key, and `ya29.` and `hf_` tokens;
+  - Azure `AccountKey=`, and `sig=`, `signature=` and `X-Amz-Signature=`;
+  - `passphrase`, `--passphrase`, `session_id`, `sid`, `otp` and `pin`;
+  - `PGPASSWORD <value>`, "token is <v>" and "secret is <v>";
+  - JSON values that contain escaped quotes, redacted whole.
+
+  The shapes live in one fixture, `tests/fixtures/redaction-shapes.mjs` (64 shapes).
   `test-enhance-mine.sh` uses it twice. It runs each shape through `redact`. It also plants every
   shape in the fixture transcript and asserts that no secret reaches the report, the state file or
   the board.

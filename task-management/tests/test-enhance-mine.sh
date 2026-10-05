@@ -145,12 +145,12 @@ import { redact } from '$PLUGIN_ROOT/lib/enhance-mine.mjs';
 import { SHAPES } from '$SHAPES';
 for (const [input, secret] of SHAPES) console.log((redact(input).includes(secret) ? 'LEAK ' : 'ok ') + secret + ' -> ' + redact(input));
 console.log('rows ' + SHAPES.length);
-console.log(redact('tmux capture-pane -p -t %3 and mkdir -p /tmp/x and git checkout -b feature and monkey=1 sort_key=name stay'));")"
+console.log(redact('tmux capture-pane -p -t %3 and mkdir -p /tmp/x and git checkout -b feature and monkey=1 sort_key=name and --author Ada and ssh://deploy@host and design=x spin=2 and the token expired stay'));")"
 ROWS="$(grep -c '^ok \|^LEAK ' <<<"$TABLE")"
 [[ "$ROWS" -ge 8 && "$TABLE" == *"rows $ROWS"* ]] && ok "the redaction table ran $ROWS shapes" || no "the redaction table ran every shape" "$TABLE"
 lacks "$TABLE" "LEAK " "every shape in the table is fully redacted"
 grep '^LEAK ' <<<"$TABLE" | sed 's/^/     /'
-has "$TABLE" "capture-pane -p -t %3 and mkdir -p /tmp/x and git checkout -b feature and monkey=1 sort_key=name stay" "bare -p and -b flags, monkey= and sort_key= are left alone"
+has "$TABLE" "capture-pane -p -t %3 and mkdir -p /tmp/x and git checkout -b feature and monkey=1 sort_key=name and --author Ada and ssh://deploy@host and design=x spin=2 and the token expired stay" "ordinary flags, names, user@host and prose are left alone"
 
 
 echo "  $PASS passed, $FAIL failed"
