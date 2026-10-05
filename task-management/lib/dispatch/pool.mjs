@@ -640,12 +640,24 @@ export async function runPool({ p = paths(), intervalSeconds = null, registry = 
       // sleep starts, and withLock scopes itself to single writes regardless.
       const seconds = intervalSeconds ?? Number(cfg.dispatch?.pollSeconds ?? 30);
       if (stopping || !(seconds > 0)) break;
+      // TM-357: `tm ticket` from another repo drops `pool.wake` in this store; consuming it (the
+      // unlink succeeds once) ends the sleep within a second instead of a full poll.
       await new Promise((resolve) => {
-        const timer = setTimeout(resolve, seconds * 1000);
-        wake = () => {
+        const done = () => {
           clearTimeout(timer);
+          clearInterval(watch);
           resolve();
         };
+        const timer = setTimeout(done, seconds * 1000);
+        const watch = setInterval(() => {
+          try {
+            unlinkSync(join(p.base, "pool.wake"));
+            done();
+          } catch {
+            /* no wake */
+          }
+        }, 1000);
+        wake = done;
       });
       wake = null;
       if (stopping) break;

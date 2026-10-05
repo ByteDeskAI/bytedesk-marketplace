@@ -33,6 +33,8 @@ export const CATALOG = {
     claims_swept: { group: "recommended", label: "A claim expired and work was abandoned", priority: "default", tags: "ghost" },
     dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
     task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
+    ticket_filed: { group: "recommended", label: "A ticket was filed on another repo's board", priority: "default", tags: "outbox_tray" },
+    origin_notified: { group: "recommended", label: "A cross-repo ticket's progress was reported to its origin", priority: "default", tags: "incoming_envelope" },
     "ready-for-review": { group: "recommended", label: "A governed task is ready for independent review", priority: "default", tags: "eyes" },
     dispatch_retained: { group: "recommended", label: "A failed launch retained its task checkout and evidence", priority: "default", tags: "inbox_tray" },
     dispatch_retry: { group: "recommended", label: "A failed worker's task was reopened for an automatic retry", priority: "default", tags: "repeat" },

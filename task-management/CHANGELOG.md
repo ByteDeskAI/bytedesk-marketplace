@@ -42,6 +42,33 @@
   internally and prints one JSON result: exit 0 when the condition holds, 2 on timeout (with the
   last state seen), 1 on a bad argument. The pool and collect skills point to it instead of a
   `sleep` loop, which the harness blocks.
+- **`tm ticket` files cross-repo work on the target repo's own board (TM-381, EP-028).**
+  `tm ticket <path|slug> "<title>" --ac … [--priority critical|high|…] [--from-task TM-n]`, and
+  the MCP tool `tm_ticket`. The target is an explicit path, a slug in agent-orchestration's
+  `services/repos.json` (read as a file, never imported), or a sibling directory with a store. The
+  task is created by the TARGET's own `bin/tm task new` (argv array, `TM_ROOT` pinned), with
+  `origin: {repo, board, task, agent}` (new `task new --origin <json>`) and a `blocks` cross-ref
+  back. `--from-task` adds a `blocked by <board>#TM-n` link on the origin task. Until it is
+  removed, the store's shared dependency check (`dependenciesMet`) treats it as unresolved, so the
+  task is out of `tm next`, `tm_next` and the pool, and `tm why` reports it. `critical` maps to `highest`. `tm link` accepts `<board>#<id>` refs and
+  `--remove`; a board with no git remote is named `<dir>#TM-n`.
+
+- **A ticket notifies the target lead and wakes the target pool (TM-357, EP-028).** When
+  agent-orchestration is installed, `tm ticket` sends one standing mail through
+  `ao-topology mailbox send --to-repo <target> --subject "ticket TM-n (priority)"`. Without it the
+  ticket is still filed and the output says no mail was sent. The target's pool is woken by a
+  `pool.wake` file (git-ignored) plus `tm pool ensure`. `runPool`'s sleep checks for that file
+  every second and consumes it, so a woken pool ticks within about a second, not 30 s.
+
+- **A ticket's progress reaches the origin task and lead (TM-359, EP-028).** PR opened, review,
+  merged, published, failed and done each add one comment on the origin task (through the ORIGIN's
+  own `tm comment`) and send one standing mail to the origin lead. Merged and done remove the
+  origin's cross-repo blocker. The store's event bridge (`notify-hook.mjs`) hears `done`,
+  `task_result` (failure, or a recorded PR) and `git_link` (a PR URL) on every surface. It spawns
+  `tm ticket notify` detached, only for tasks that carry `origin`. Review verdicts and publishes
+  are reported with `tm ticket event <id> review|published|merged <detail>`. Each event is sent at
+  most once (`originNotified` markers on the ticket). Sandbox test: `tests/test-ticket.sh`. Demo:
+  `scripts/demo-cross-repo-ticket.sh`.
 
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads

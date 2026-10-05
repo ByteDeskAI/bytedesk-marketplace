@@ -174,7 +174,8 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
 
     if (note) addComment(id, note, { author: `worker:${task.dispatched.backend}`, p });
     mutate(id, (doc) => ({ dispatched: { ...doc.dispatched, collected: { dispatchedAt: task.dispatched.at ?? null, run: task.dispatched.run ?? null, outcome: final, at: now() } } }), p);
-    logEvent("task_result", { id, run: task.dispatched.run ?? null, outcome: final }, p);
+    // `pr` rides on the event so a ticket's origin hears "PR opened" (TM-359, lib/ticket.mjs).
+    logEvent("task_result", { id, run: task.dispatched.run ?? null, outcome: final, ...(pr ? { pr } : {}) }, p);
     // summary rides along so the pool's brake can see a quota-shaped failure (TM-175).
     return { ok: true, id, outcome: final, downgraded: final !== outcome, parked, summary: note, failureScope: scope, ...(retry ? { retry } : {}), ...(pr ? { pr } : {}) };
   } catch (err) {
