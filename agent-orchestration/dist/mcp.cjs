@@ -28478,6 +28478,14 @@ var init_repo_enrollment = __esm({
 });
 
 // topology/lib/lead-recovery.mjs
+var lead_recovery_exports = {};
+__export(lead_recovery_exports, {
+  RETRY_DELAYS_MS: () => RETRY_DELAYS_MS,
+  leadRecoveryStatus: () => leadRecoveryStatus,
+  recoverLead: () => recoverLead,
+  requestLeadRecovery: () => requestLeadRecovery,
+  retryDelayMs: () => retryDelayMs
+});
 function retryDelayMs(attempts) {
   const n = Math.max(1, Math.trunc(Number(attempts)) || 1);
   return RETRY_DELAYS_MS[Math.min(n, RETRY_DELAYS_MS.length) - 1];
@@ -28513,6 +28521,17 @@ function view(record2) {
     alert: record2.alert ?? null,
     ...record2.verify ? { verify: true } : {},
     ...record2.reverified_alive ? { reverified_alive: true } : {}
+  };
+}
+async function leadRecoveryStatus({ consumer, env = process.env, home = (0, import_node_os16.homedir)() }) {
+  const p = await recoveryPaths({ consumer, env, home });
+  const record2 = await readJson3(p.state).catch(() => null);
+  return {
+    repo_id: p.identity.id,
+    ...view(record2 ?? {}),
+    pending_requests: (await readRequests(p.requests)).length,
+    updated_at: record2?.updated_at ?? null,
+    state_path: p.state
   };
 }
 function deadExternalAlert(record2, root) {
@@ -37522,7 +37541,7 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
     panes.set(bindingKey3(pane), pane);
   }
   const agents = /* @__PURE__ */ new Map();
-  const add = (record2, { agentId, kind = "role-session", runRole = null, roleName = null, membership: member = null, enrollment = "enrolled", spawn: spawn12 = null } = {}) => {
+  const add = (record2, { agentId, kind = "role-session", runRole = null, roleName = null, membership: member = null, enrollment = "enrolled", spawn: spawn13 = null } = {}) => {
     const binding = bindingOf(record2);
     if (!validBinding2(binding)) return;
     const pane = panes.get(bindingKey3(binding));
@@ -37530,10 +37549,10 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
     const def = library.get(agentId);
     if (!idValid(agentId)) agentId = (0, import_node_crypto34.createHash)("sha256").update(bindingKey3(binding)).digest("hex").slice(0, 8);
     const observed = pane.identity?.agent ? sessionIdentity({ name: pane.sessionName, meta: pane.identity }) : null;
-    invariant2(kind !== "spawn" || (observed ? observed.agentId === agentId : pane.sessionName === `${agentId}-${spawn12}`), "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation; refusing an invalid snapshot.");
-    if (kind === "spawn" && pane.sessionName !== `${agentId}-${spawn12}`) {
+    invariant2(kind !== "spawn" || (observed ? observed.agentId === agentId : pane.sessionName === `${agentId}-${spawn13}`), "TOPOLOGY_PRESENCE_SPAWN", "Spawn metadata disagrees with the observed incarnation; refusing an invalid snapshot.");
+    if (kind === "spawn" && pane.sessionName !== `${agentId}-${spawn13}`) {
       kind = "run";
-      spawn12 = null;
+      spawn13 = null;
     }
     const key = bindingKey3(binding);
     let entry = agents.get(key);
@@ -37561,7 +37580,7 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
       enrollment,
       lifecycle,
       readinessCheckedAt: typeof (record2.readiness_checked_at ?? record2.readinessCheckedAt) === "string" ? record2.readiness_checked_at ?? record2.readinessCheckedAt : null,
-      session: { kind, ...Object.fromEntries(PRESENCE_BINDING_FIELDS.map((k) => [k, pane[k]])), sessionName: pane.sessionName, spawn: spawn12 },
+      session: { kind, ...Object.fromEntries(PRESENCE_BINDING_FIELDS.map((k) => [k, pane[k]])), sessionName: pane.sessionName, spawn: spawn13 },
       memberships: member ? [member] : [],
       primaryRunId: member?.runId ?? null
     };
@@ -37571,9 +37590,9 @@ async function collectPresenceAgents({ consumer, repositoryRoot, identity, env =
   for (const record2 of [...runs.values()].sort((a, b) => a.run_id.localeCompare(b.run_id))) {
     const member = await membership(record2, identity.id);
     for (const agent of record2.agents ?? []) {
-      const spawn12 = typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
+      const spawn13 = typeof agent.spawn === "string" && /^[a-f0-9]{7}$/.test(agent.spawn) ? agent.spawn : null;
       const declared = typeof agent.role === "string" && agent.role ? agent.role : null;
-      add(agent, { agentId: agent.agent_id ?? agent.id, kind: spawn12 ? "spawn" : "run", spawn: spawn12, runRole: ROLES.has(declared) ? declared : NEAREST_RUN_ROLE, roleName: declared, membership: member });
+      add(agent, { agentId: agent.agent_id ?? agent.id, kind: spawn13 ? "spawn" : "run", spawn: spawn13, runRole: ROLES.has(declared) ? declared : NEAREST_RUN_ROLE, roleName: declared, membership: member });
     }
   }
   for (const record2 of pending) {
@@ -62267,7 +62286,7 @@ var StdioServerTransport = class {
 
 // src/mcp.mjs
 var import_node_path70 = require("node:path");
-var import_node_url7 = require("node:url");
+var import_node_url8 = require("node:url");
 
 // src/service.mjs
 var import_promises59 = require("node:fs/promises");
@@ -77486,10 +77505,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  return false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  const fingerprint2 = false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77914,7 +77933,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6",
+  sourceFingerprint: false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -78678,6 +78697,41 @@ var OrchestrationService = class {
 };
 
 // src/topology-api.mjs
+var import_node_child_process17 = require("node:child_process");
+var import_node_url7 = require("node:url");
+var TOPOLOGY_CLI = (0, import_node_url7.fileURLToPath)(new URL("../topology/cli.mjs", __aoImportMetaUrl));
+function runTopologyCli(args, { env, cwd, input = "" }) {
+  return new Promise((done, reject) => {
+    const child = (0, import_node_child_process17.spawn)(process.execPath, [TOPOLOGY_CLI, ...args, "--json"], { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", async (code) => {
+      const { fail: fail3 } = await Promise.resolve().then(() => (init_util(), util_exports2));
+      let value;
+      try {
+        value = JSON.parse(stdout);
+      } catch {
+        return reject(Object.assign(new Error(`ao-topology ${args[0]} exited ${code}: ${(stderr || stdout).trim().slice(-2e3)}`), { code: "TOPOLOGY_CLI_FAILED" }));
+      }
+      if (value?.ok === false && value.code) {
+        try {
+          fail3(value.code, value.message, value.details);
+        } catch (error51) {
+          return reject(error51);
+        }
+      }
+      done({ exitCode: code, value });
+    });
+    child.stdin.end(input);
+  });
+}
 function createTopologyApi(service) {
   const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: service.stateRoot };
   const context4 = async (input) => {
@@ -78688,7 +78742,55 @@ function createTopologyApi(service) {
     const { sessionIdentity: sessionIdentity3 } = await Promise.resolve().then(() => (init_standing_mailbox(), standing_mailbox_exports));
     return sessionIdentity3({ env, agent, consumer: options.consumer });
   };
+  const runArgs = (input, options) => ["--run", input.runDir, "--consumer", options.consumer];
   return {
+    async runMailSend(input) {
+      const options = await context4(input);
+      const sender = await me(input.from, options);
+      const args = ["send", ...runArgs(input, options), "--from", sender.agent, "--to", input.to.join(","), "--stage", input.stage ?? "message"];
+      for (const key of ["subject", "task"]) if (input[key]) args.push(`--${key}`, input[key]);
+      const { exitCode, value } = await runTopologyCli(args, { env, cwd: options.consumer, input: input.body });
+      return { ...value, undelivered: exitCode === 3 };
+    },
+    async runMailReply(input) {
+      const options = await context4(input);
+      const { agent } = await me(input.agent, options);
+      return (await runTopologyCli(
+        ["reply", ...runArgs(input, options), "--agent", agent, "--message", input.messageId],
+        { env, cwd: options.consumer, input: input.body }
+      )).value;
+    },
+    async runMailWait(input) {
+      const options = await context4(input);
+      const args = ["wait", ...runArgs(input, options), "--timeout", `${input.timeoutMs ?? 55e3}ms`, "--poll", `${input.pollIntervalMs ?? 2e3}ms`, "--quiet"];
+      if (input.from?.length) args.push("--from", input.from.join(","));
+      if (input.messageId) args.push("--message", input.messageId);
+      const { value } = await runTopologyCli(args, { env, cwd: options.consumer });
+      if (!value.ok) {
+        const { fail: fail3 } = await Promise.resolve().then(() => (init_util(), util_exports2));
+        fail3("TOPOLOGY_WAIT_TIMEOUT", `No reply within ${input.timeoutMs ?? 55e3}ms; still pending: ${(value.pending ?? []).map((item) => `${item.agent}:${item.id}`).join(", ")}`, value);
+      }
+      return value;
+    },
+    async leadStatus(input) {
+      const options = await context4(input);
+      const { leadState: leadState2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
+      const { leadRecoveryStatus: leadRecoveryStatus2 } = await Promise.resolve().then(() => (init_lead_recovery(), lead_recovery_exports));
+      const state = await leadState2({
+        consumer: options.consumer,
+        env,
+        pluginRoot: options.pluginRoot,
+        ...input.cached ? { readOnly: true, ackTimeoutMs: 0 } : { ackTimeoutMs: input.ackTimeoutMs ?? 3e4 }
+      });
+      return { ...state, recovery: await leadRecoveryStatus2({ consumer: options.consumer, env }) };
+    },
+    async sessionHandoff(input) {
+      const options = await context4(input);
+      return (await runTopologyCli(
+        ["session", "handoff", input.agent, "--file", input.file, "--consumer", options.consumer],
+        { env, cwd: options.consumer }
+      )).value;
+    },
     async mailboxSend(input) {
       const options = await context4(input);
       const sender = await me(input.from, options);
@@ -78974,8 +79076,12 @@ async function createServer2(options = {}) {
   register2(server, service, "orchestration_status", "Get a run after proving it belongs to the explicit consumer repository.", runFields, runData, service.getRun);
   register2(server, service, "orchestration_list", "List runs belonging only to the explicit consumer repository.", { consumerCwd }, external_exports.array(runData), service.list);
   register2(server, service, "orchestration_events", "Read durable run events after a sequence number.", { ...runFields, after: external_exports.number().int().nonnegative().optional() }, external_exports.array(eventData), service.events);
-  register2(server, service, "orchestration_wait", "Wait up to 55 seconds for a run state change or terminal result.", { ...runFields, timeoutMs: external_exports.number().int().positive().max(55e3).optional(), pollIntervalMs: external_exports.number().int().positive().max(2e3).optional() }, runData, service.wait);
-  register2(server, service, "orchestration_send", "Start a cancellable child run that continues the final read-only provider session with a scoped follow-up message.", { ...runFields, message: external_exports.string().min(1), timeoutMs: external_exports.number().int().positive().max(72e5).optional() }, followupData, service.send);
+  const runWaitFields = { ...runFields, timeoutMs: external_exports.number().int().positive().max(55e3).optional(), pollIntervalMs: external_exports.number().int().positive().max(2e3).optional() };
+  const runFollowupFields = { ...runFields, message: external_exports.string().min(1), timeoutMs: external_exports.number().int().positive().max(72e5).optional() };
+  register2(server, service, "orchestration_run_wait", "Wait up to 55 seconds for a provider run's state change or terminal result. For agent mail use orchestration_run_mail_wait or orchestration_mailbox_wait.", runWaitFields, runData, service.wait);
+  register2(server, service, "orchestration_run_followup", "Start a cancellable child run that continues the final read-only provider session with a scoped follow-up message. For agent mail use orchestration_run_mail_send or orchestration_mailbox_send.", runFollowupFields, followupData, service.send);
+  register2(server, service, "orchestration_wait", "Deprecated alias of orchestration_run_wait (provider runs, not agent mail).", runWaitFields, runData, service.wait);
+  register2(server, service, "orchestration_send", "Deprecated alias of orchestration_run_followup (provider runs, not agent mail).", runFollowupFields, followupData, service.send);
   register2(server, service, "orchestration_cancel", "Idempotently request cancellation and terminate the verified worker process group when active.", runFields, runData, service.cancel);
   register2(server, service, "orchestration_cleanup", "Permanently discard and remove a terminal run worktree through Git after repository ownership checks.", runFields, cleanupData, service.cleanup);
   register2(server, service, "orchestration_decision_get", "Return the attributed evidence and approval state for an architecture decision run.", runFields, decisionData, service.decision);
@@ -78995,6 +79101,66 @@ async function createServer2(options = {}) {
     runId: external_exports.string().optional(),
     taskId: external_exports.string().optional()
   };
+  const runMailFields = { consumerCwd, runDir: external_exports.string().min(1).describe("Absolute run directory (contains run.json) belonging to consumerCwd.") };
+  register2(
+    server,
+    topology,
+    "orchestration_run_mail_send",
+    "Send a message to agents in a topology run (ao-topology send), as this session's own agent (AO_AGENT_ID). Rings each recipient pane; `undelivered: true` means the pointer did not land.",
+    {
+      ...runMailFields,
+      from: agent.optional(),
+      to: external_exports.array(external_exports.string().min(1).max(160)).min(1),
+      stage: external_exports.string().regex(/^[a-z][a-z0-9-]{0,39}$/).optional(),
+      body: external_exports.string().min(1).max(131072),
+      subject: external_exports.string().optional(),
+      task: external_exports.string().optional()
+    },
+    external_exports.object({ ok: external_exports.literal(true), id: external_exports.string() }).passthrough(),
+    topology.runMailSend
+  );
+  register2(
+    server,
+    topology,
+    "orchestration_run_mail_reply",
+    "Reply to a run message (ao-topology reply) as this session's own agent; the launcher's AO_AGENT_TOKEN proves it.",
+    { ...runMailFields, agent: agent.optional(), messageId: external_exports.string().min(1).max(200), body: external_exports.string().min(1).max(131072) },
+    external_exports.object({ ok: external_exports.literal(true), reply: external_exports.string() }).passthrough(),
+    topology.runMailReply
+  );
+  register2(
+    server,
+    topology,
+    "orchestration_run_mail_wait",
+    "Wait up to 55 seconds for replies to run mail (ao-topology wait). A timeout is an error naming what is still pending.",
+    {
+      ...runMailFields,
+      from: external_exports.array(external_exports.string().min(1)).optional(),
+      messageId: external_exports.string().optional(),
+      timeoutMs: external_exports.number().int().positive().max(55e3).optional(),
+      pollIntervalMs: external_exports.number().int().positive().max(5e3).optional()
+    },
+    external_exports.object({ ok: external_exports.literal(true), replies: external_exports.array(record2) }).passthrough(),
+    topology.runMailWait
+  );
+  register2(
+    server,
+    topology,
+    "orchestration_lead_status",
+    "Report the repository lead (ao-topology lead status). cached: true answers from proof on disk in under a second and mints no probe; otherwise a probe waits at most ackTimeoutMs (default 30s).",
+    { consumerCwd, cached: external_exports.boolean().optional(), ackTimeoutMs: external_exports.number().int().positive().max(55e3).optional() },
+    record2,
+    topology.leadStatus
+  );
+  register2(
+    server,
+    topology,
+    "orchestration_session_handoff",
+    "Point an agent's live session at a handoff file (ao-topology session handoff).",
+    { consumerCwd, agent: external_exports.string().min(1).max(160), file: external_exports.string().min(1) },
+    record2,
+    topology.sessionHandoff
+  );
   register2(
     server,
     topology,
@@ -79121,7 +79287,7 @@ process.stdout.on("error", (error51) => {
   if (error51?.code === "EPIPE") process.exit(0);
   throw error51;
 });
-if (process.argv[1] && (0, import_node_path70.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path70.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path70.resolve)((0, import_node_url8.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path70.resolve)(process.argv[1])) {
   main().catch((error51) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error51))}
 `);

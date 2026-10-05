@@ -16,7 +16,7 @@ name a provider or when multiple independent workstreams need bounded scopes.
 Before `orchestration_spawn`, define the provider, exact task, expected result, permission profile, timeout,
 and whether the session is one-shot or persistent. Default to read-only. Parallelize only independent
 work, preserve provider attribution, wait for every requested result, and report partial failures
-instead of hiding them. Use `orchestration_send` only for an explicitly persistent, read-only parent whose
+instead of hiding them. Use `orchestration_run_followup` (formerly `orchestration_send`) only for an explicitly persistent, read-only parent whose
 provider supports session loading; otherwise spawn a new run. Use `orchestration_events` for inspectable
 progress, `orchestration_cancel` for in-flight work, and `orchestration_cleanup` only after useful results and evidence
 have been collected.

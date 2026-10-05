@@ -4,6 +4,16 @@
 
 ### Added
 
+- **MCP parity for run mail, lead status and session handoff (TM-355, EP-028).** New tools
+  `orchestration_run_mail_send`, `orchestration_run_mail_reply` and `orchestration_run_mail_wait`
+  run `ao-topology send|reply|wait`, `orchestration_lead_status` reads the lead (`cached: true`
+  answers from proof on disk and mints no probe), and `orchestration_session_handoff` runs
+  `session handoff`. Send and reply act as the server's session identity (`AO_AGENT_ID`); a `from`
+  or `agent` field may only repeat it. The provider-run tools are renamed
+  `orchestration_run_followup` and `orchestration_run_wait`; `orchestration_send` and
+  `orchestration_wait` remain as documented aliases. The closure-contract handoff of TM-311 is not
+  on main and has no tool yet.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`

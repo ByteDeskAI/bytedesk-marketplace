@@ -61187,10 +61187,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  return false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  const fingerprint2 = false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61781,7 +61781,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6",
+  sourceFingerprint: false ? null : "90a1cf080047d5000cd69e476cd8edfa9cea7d397983d3bff670019b220add73",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
