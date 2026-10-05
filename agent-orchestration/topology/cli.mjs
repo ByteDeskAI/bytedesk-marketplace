@@ -142,6 +142,7 @@ Standing repository services
                                                 Without --cached, status with no stored proof rings the
                                                 lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  reviewer request ... [--checks @checks.json]   check evidence [{name,command,exit_code,revision,log_tail}] for the review packet
   reviewer ensure [--provider claude|codex]   reuse the registered or a library reviewer on that provider;
                                                never starts a second live reviewer (TM-364)
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
@@ -761,7 +762,12 @@ const commands = {
     const sub = positional[0] || 'status';
     if (sub === 'status') return out(await api.reviewerAvailability(options));
     if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds, provider: flags.provider && flags.provider !== true ? String(flags.provider) : null }));
-    if (sub === 'request') return out(await api.requestReview(options));
+    if (sub === 'request') {
+      // TM-216: check evidence for the packet, [{name, command, exit_code, revision, log_tail}], inline or @file.json.
+      const text = flags.checks && flags.checks !== true ? String(flags.checks) : null;
+      const checkEvidence = text === null ? null : text.startsWith('@') ? await readJson(absolutize(text.slice(1))) : JSON.parse(text);
+      return out(await api.requestReview({ ...options, checkEvidence }));
+    }
     if (sub === 'collect') return out(await api.collectReview(options));
     if (sub === 'eligible') return out(await api.reviewEligibility(options));
     if (sub === 'ack') return out(await api.reviewerNonceAck({ ...options, nonce: positional[1] }));

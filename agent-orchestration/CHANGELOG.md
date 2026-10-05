@@ -4,6 +4,22 @@
 
 ### Added
 
+- **Review packet, per-repo checklist and revision-bound check evidence (TM-216, EP-028).** Every
+  review request now writes a packet directory beside its `.patch`: `files.txt` (name-status and
+  stat), `files/<path>` (each changed text file at the revision), `task.md` (the task's acceptance
+  criteria and touches, read through the repository's tm launcher when it exists), `checks.json`
+  and `checklist.md`. The packet's `packet_sha256` is recorded on the request, and collection
+  refuses a packet that changed after the request, as it does a changed patch. `checklist.md`
+  lists each `management.required_checks` entry as passed or unsatisfied, followed by the
+  repository's own `.bytedesk/agent-orchestration/review-checklist.md`, read from the consumer
+  checkout and not from the author's worktree. The lead passes check evidence with
+  `ao-topology reviewer request --checks @checks.json`
+  (`[{name, command, exit_code, revision, log_tail}]`). While any required check lacks evidence
+  recorded at the reviewed revision with exit 0, the reviewer cannot approve: submit and record
+  refuse `approve` and the reviewer submits `blocked`. `reviewer eligible` independently refuses a
+  required check with no evidence, evidence recorded at another revision, or a nonzero exit. The
+  reviewer's launch is unchanged: it still cannot write files or run commands.
+
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
   `failover` restarts one, and when `session open` starts a durable session, ao copies each named

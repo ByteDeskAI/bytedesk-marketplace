@@ -723,3 +723,62 @@ test('TM-364 with no registration, a live library reviewer is reattached on its 
   assert.equal(minted.created, true); assert.equal(minted.record.provider, 'claude');
   assert.equal((await g.reviewers()).length, 2, 'the stopped codex reviewer stays; one claude reviewer is added');
 });
+
+// TM-216: the review packet, the per-repo checklist and revision-bound check evidence.
+const taskDoc = async () => ({ title: 'Packet fixture', body: 'Do the thing.', acceptance: [{ text: 'AC one is met', done: false }], touches: ['notes.txt'] });
+async function packetFixture(t, required = null) {
+  const f = await fixture(t);
+  const finish = await commitFile(f, 'notes.txt', 'line one\nline two\n');
+  if (required) await writeJson(join(f.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { required_checks: required.map(name => ({ name, argv: ['true'] })) } });
+  const o = { ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], taskDoc, wake: async () => ({ rang: true }) };
+  return { f, finish, o };
+}
+
+test('TM-216 the packet is written beside the patch and hashed; a changed packet refuses collection', async t => {
+  const { packetDigest } = await import('../../topology/lib/reviewer.mjs');
+  const { f, finish, o } = await packetFixture(t);
+  const request = await requestReview(o);
+  const p = name => readFile(join(request.packet_path, name), 'utf8');
+  assert.match(await p('files.txt'), /^A\tnotes\.txt$/m);
+  assert.equal(await p('files/notes.txt'), 'line one\nline two\n');
+  assert.match(await p('task.md'), /AC one is met/); assert.match(await p('task.md'), /- notes\.txt/);
+  assert.deepEqual(JSON.parse(await p('checks.json')), { revision: finish, required: [], checks: [], unsatisfied: [] });
+  assert.match(await p('checklist.md'), /none configured/);
+  assert.equal(request.packet_sha256, await packetDigest(request.packet_path));
+  assert.equal((await requestReview(o)).nonce, request.nonce, 'an unchanged packet keeps the request');
+  await submitVerdict(f, request);
+  await writeFile(join(request.packet_path, 'files', 'notes.txt'), 'line one\nedited after the request\n');
+  await assert.rejects(collectReview(o), { code: 'TOPOLOGY_REVIEWER_RESPONSE', message: /Review packet changed after the request/ });
+});
+
+test('TM-216 the repository checklist is injected; missing check evidence can only be reviewed as blocked', async t => {
+  const { reviewerProtocolPrompt } = await import('../../topology/lib/reviewer.mjs');
+  const { f, o } = await packetFixture(t, ['unit']);
+  await writeFile(join(f.consumer, '.bytedesk/agent-orchestration/review-checklist.md'), '- Run gofmt on every changed Go file.\n');
+  const request = await requestReview(o);
+  const checklist = await readFile(join(request.packet_path, 'checklist.md'), 'utf8');
+  assert.match(checklist, /Run gofmt on every changed Go file/);
+  assert.match(checklist, /- unit: UNSATISFIED \(unit: no evidence\)/);
+  assert.deepEqual(request.checks_unsatisfied, ['unit: no evidence']);
+  assert.match(reviewerProtocolPrompt({ id: 'r', role: 'reviewer', _dir: '/x' }, f.consumer, '/inbox'), /checklist\.md.*unsatisfied required checks you cannot approve/);
+  await assert.rejects(submitVerdict(f, request, 'approve'), { code: 'TOPOLOGY_REVIEWER_VERDICT', message: /lacks passing evidence for required checks \(unit: no evidence\)/ });
+  await submitVerdict(f, request, 'blocked');
+  assert.equal((await collectReview(o)).verdict, 'blocked');
+  // With evidence at this revision, exit 0, the same reviewer may approve.
+  const passing = await requestReview({ ...o, checkEvidence: [{ name: 'unit', command: ['npm', 'test'], exit_code: 0, revision: o.revision, log_tail: 'ok' }] });
+  assert.notEqual(passing.nonce, request.nonce); assert.deepEqual(passing.checks_unsatisfied, []);
+  await submitVerdict(f, passing, 'approve');
+  assert.equal((await collectReview(o)).verdict, 'approve');
+  await assert.rejects(requestReview({ ...o, checkEvidence: [{ name: 'unit', exit_code: 0, revision: 'abc' }] }), { code: 'TOPOLOGY_REVIEWER_CHECKS' });
+});
+
+test('TM-216 eligibility refuses check evidence recorded at another revision or with a nonzero exit', async t => {
+  const { f, o } = await packetFixture(t);
+  const checks = [{ name: 'unit', command: 'npm test', exit_code: 1, revision: o.revision, log_tail: '1 failing' }, { name: 'lint', command: 'npm run lint', exit_code: 0, revision: f.revision }];
+  const request = await requestReview({ ...o, checkEvidence: checks });
+  await submitVerdict(f, request); await collectReview(o);
+  assert.deepEqual((await reviewEligibility({ ...o, probes: probesUp })).reasons, [], 'nothing required yet');
+  await writeJson(join(f.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { required_checks: [{ name: 'unit', argv: ['true'] }, { name: 'lint', argv: ['true'] }, { name: 'build', argv: ['true'] }] } });
+  const reasons = (await reviewEligibility({ ...o, probes: probesUp })).reasons;
+  assert.deepEqual(reasons, [`required check unit: exited 1 at ${o.revision}`, `required check lint: evidence recorded at ${f.revision}, not ${o.revision}`, 'required check build: no evidence']);
+});
