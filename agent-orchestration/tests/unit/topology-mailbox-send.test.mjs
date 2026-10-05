@@ -11,6 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentsRoot } from '../../topology/lib/agents.mjs';
+import { leadRegistryDir } from '../../topology/lib/lead.mjs';
+import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
+import { readServiceRepos, reposPath } from '../../topology/lib/services-client.mjs';
 import { readStandingInbox, standingMailboxRoot } from '../../topology/lib/standing-mailbox.mjs';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 
@@ -25,6 +28,15 @@ async function repo(root, name, agents) {
   return dir;
 }
 
+/** Register a repository the way services and `lead ensure` do: repos.json, plus a lead record. */
+async function register(env, dir, lead) {
+  const key = repoKey((await canonicalRepoId(dir)).id);
+  const repos = await readServiceRepos(env);
+  await writeJson(reposPath(env), { repos: [...repos, { key, consumer: dir }] });
+  if (lead) await writeJson(join(leadRegistryDir(env), `${key}.json`), { version: 1, repo_id: (await canonicalRepoId(dir)).id, agent_id: lead, mode: 'dedicated' });
+  return key;
+}
+
 async function world(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-mailbox-send-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -32,7 +44,12 @@ async function world(t) {
   Object.assign(env, { TMUX: '', TMUX_TMPDIR: join(root, 'tmux'), HOME: join(root, 'home'),
     AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AGENT_ORCHESTRATION_SERVICES: '0', AO_TRANSPORT: 'file' });
   const alpha = await repo(root, 'alpha', [['lead-a', 'lead'], ['work-a', 'worker']]);
-  return { root, env, alpha, as: (agent, consumer) => ({ ...env, AO_AGENT_ID: agent, AO_CONSUMER: consumer }) };
+  const beta = await repo(root, 'beta', [['lead-b', 'lead']]);
+  const gamma = await repo(root, 'gamma', [['lead-g', 'lead']]);
+  await register(env, alpha, 'lead-a');
+  await register(env, beta, 'lead-b');
+  await register(env, gamma, null); // registered, but no lead
+  return { root, env, alpha, beta, gamma, as: (agent, consumer) => ({ ...env, AO_AGENT_ID: agent, AO_CONSUMER: consumer }) };
 }
 
 function ao(args, env) {
@@ -93,4 +110,41 @@ test('TM-278: every other send verb refuses --dry-run by name and does nothing',
     assert.equal(refused.json.code, 'TOPOLOGY_DRY_RUN_UNSUPPORTED', `${args.slice(0, 2).join(' ')}: ${refused.stdout}`);
   }
   assert.deepEqual(await standingRecords(w.env), []);
+});
+
+test('TM-271: mailbox send and send address a repository lead by slug or path, through one resolver', async (t) => {
+  const w = await world(t);
+  const me = w.as('work-a', w.alpha);
+  // By slug, through `mailbox send`: same repository, so admission delivers to its lead.
+  const bySlug = await ao(['mailbox', 'send', '--to-repo', 'alpha', '--id', 'r-1', '--body', 'hi lead'], me);
+  assert.equal(bySlug.code, 0, bySlug.stderr);
+  assert.deepEqual([bySlug.json.status, bySlug.json.delivered_to, bySlug.json.envelope.to], ['delivered', 'lead-a', 'lead-a']);
+  // By `lead@<slug>`, through the run-less `send` entry.
+  const viaSend = await ao(['send', '--to', 'lead@alpha', '--id', 'r-2', '--body', 'hi again'], me);
+  assert.equal(viaSend.code, 0, viaSend.stderr);
+  assert.deepEqual([viaSend.json.status, viaSend.json.delivered_to], ['delivered', 'lead-a']);
+  const inbox = await readStandingInbox({ consumer: w.alpha, agent: 'lead-a', env: w.env });
+  assert.deepEqual(inbox.map((record) => record.envelope.id).sort(), ['r-1', 'r-2']);
+  // By path, to another repository: the envelope names that repository and its registered lead.
+  const byPath = await ao(['send', '--to-repo', w.beta, '--id', 'r-3', '--body', 'cross', '--dry-run'], me);
+  assert.equal(byPath.code, 0, byPath.stderr);
+  assert.equal(byPath.json.envelope.to, 'lead-b');
+  assert.equal(byPath.json.destination.lead, 'lead-b');
+  assert.equal(byPath.json.envelope.destinationRepoId, (await canonicalRepoId(w.beta)).id);
+});
+
+test('TM-271: an unknown repository or one with no lead is refused and nothing is written', async (t) => {
+  const w = await world(t);
+  for (const [args, code] of [
+    [['mailbox', 'send', '--to-repo', 'no-such-repo'], 'TOPOLOGY_REPO_UNKNOWN'],
+    [['send', '--to', 'lead@no-such-repo'], 'TOPOLOGY_REPO_UNKNOWN'],
+    [['mailbox', 'send', '--to-repo', join(w.root, 'missing')], 'TOPOLOGY_REPO_UNKNOWN'],
+    [['mailbox', 'send', '--to-repo', 'gamma'], 'TOPOLOGY_REPO_NO_LEAD'],
+    [['send', '--to-repo', w.gamma], 'TOPOLOGY_REPO_NO_LEAD'],
+  ]) {
+    const refused = await ao([...args, '--body', 'x'], w.as('work-a', w.alpha));
+    assert.equal(refused.code, 1, `${args.join(' ')}: ${refused.stdout}`);
+    assert.equal(refused.json.code, code, `${args.join(' ')}: ${refused.stdout}`);
+  }
+  assert.deepEqual(await standingRecords(w.env), [], 'nothing was delivered or held');
 });

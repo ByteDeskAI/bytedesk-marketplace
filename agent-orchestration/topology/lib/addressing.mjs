@@ -171,3 +171,75 @@ export async function expandAddresses({
   );
   return order;
 }
+
+// ── Standing mail: a repository's lead, by path or slug (TM-271) ─────────────────────────────────
+
+/**
+ * Every repository this host knows: the services list (`repos.json`) and every lead registration.
+ * A slug is the main checkout's directory name, so all linked worktrees of one repository share it.
+ */
+export async function registeredRepositories({ env = process.env, home = homedir() } = {}) {
+  const { readdir } = await import("node:fs/promises");
+  const { basename, dirname, join } = await import("node:path");
+  const { readServiceRepos } = await import("./services-client.mjs");
+  const { leadRegistryDir } = await import("./lead.mjs");
+  const { repositoryConsumer } = await import("./repoid.mjs");
+  const { readJson } = await import("./util.mjs");
+  const byKey = new Map();
+  const add = (key, root) => { if (key && root && !byKey.has(key)) byKey.set(key, { key, root, slug: basename(root) }); };
+  for (const repo of await readServiceRepos(env, home)) add(repo.key, await repositoryConsumer(repo.consumer).catch(() => repo.consumer));
+  const dir = leadRegistryDir(env, home);
+  for (const name of (await readdir(dir).catch(() => [])).filter((n) => /^[0-9a-f]{16}\.json$/.test(n))) {
+    const id = (await readJson(join(dir, name)).catch(() => null))?.repo_id;
+    if (typeof id === "string" && id) add(name.slice(0, -5), basename(id) === ".git" ? dirname(id) : id);
+  }
+  return [...byKey.values()];
+}
+
+/** `lead@<slug|path>` is shorthand for `--to-repo <slug|path>`. */
+export function repoLeadRef(to) {
+  const match = typeof to === "string" ? /^lead@(.+)$/.exec(to) : null;
+  return match ? match[1] : null;
+}
+
+/**
+ * Resolve a repository named by path or slug to its root and registered lead. Refuses an unknown or
+ * ambiguous name and a repository with no lead: nothing is sent to a guess.
+ */
+export async function resolveRepoLead(ref, { env = process.env, home = homedir(), cwd = process.cwd() } = {}) {
+  invariant(typeof ref === "string" && ref.trim(), "TOPOLOGY_REPO_REQUIRED", "Name the repository by path or slug (--to-repo <path|slug>).");
+  const { stat } = await import("node:fs/promises");
+  const { isAbsolute, resolve } = await import("node:path");
+  const { repositoryConsumer, canonicalRepoId, repoKey } = await import("./repoid.mjs");
+  const { readLeadRegistration } = await import("./lead.mjs");
+  const known = await registeredRepositories({ env, home });
+  let root;
+  if (isAbsolute(ref) || ref.startsWith(".") || ref.includes("/")) {
+    const path = resolve(cwd, ref);
+    invariant(await stat(path).then((s) => s.isDirectory(), () => false), "TOPOLOGY_REPO_UNKNOWN", `${path} is not a directory, so it names no repository. Nothing was sent.`);
+    root = await repositoryConsumer(path);
+  } else {
+    const matches = known.filter((repo) => repo.slug === ref || repo.key === ref);
+    const names = known.map((repo) => repo.slug).sort().join(", ") || "none";
+    invariant(matches.length > 0, "TOPOLOGY_REPO_UNKNOWN", `No registered repository is named "${ref}" (registered: ${names}). Pass its path instead. Nothing was sent.`);
+    invariant(matches.length === 1, "TOPOLOGY_REPO_AMBIGUOUS", `"${ref}" names ${matches.length} registered repositories (${matches.map((repo) => repo.root).join(", ")}). Pass the path instead. Nothing was sent.`);
+    root = matches[0].root;
+  }
+  const lead = (await readLeadRegistration({ consumer: root, env, home }).catch(() => null))?.record?.agent_id ?? null;
+  invariant(lead, "TOPOLOGY_REPO_NO_LEAD", `${root} has no registered lead, so there is nobody to address. Start one with \`ao-topology lead ensure --consumer ${root}\`. Nothing was sent.`);
+  return { consumer: root, lead, key: repoKey((await canonicalRepoId(root)).id) };
+}
+
+/**
+ * The ONE standing-mail resolver every send entry shares. Returns `[{ consumer, to, key? }]`:
+ * the literal recipient in `consumer` (unchanged), a repository's lead (`--to-repo`, `lead@<repo>`).
+ */
+export async function resolveStandingTargets({ to, toRepo = null, consumer, env = process.env, home = homedir(), cwd = process.cwd() } = {}) {
+  const ref = toRepo ?? repoLeadRef(to);
+  if (ref !== null) {
+    invariant(!toRepo || !to, "TOPOLOGY_ADDRESS_CONFLICT", "Pass --to-repo or --to, not both: --to-repo already names the recipient (that repository's lead).");
+    const target = await resolveRepoLead(ref, { env, home, cwd });
+    return [{ consumer: target.consumer, to: target.lead, key: target.key }];
+  }
+  return [{ consumer, to }];
+}

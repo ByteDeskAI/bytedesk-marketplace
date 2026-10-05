@@ -156,6 +156,7 @@ Standing repository services
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume|receipts|dispose [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   mailbox send ... --dry-run          resolve, route and print the would-be envelope; writes and publishes nothing
+  mailbox send|send --to-repo <path|slug> (or --to lead@<path|slug>)   address that repository's registered lead
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
@@ -598,7 +599,12 @@ const commands = {
     const input = { consumer: ctx.consumer, fromProject: flags['from-project'] || process.env.AO_CONSUMER,
       from: flags.from || process.env.AO_AGENT_ID, to: flags.to, id: flags.id, body: await bodyFrom(flags),
       task: flags.task, stage: flags.stage, subject: flags.subject, provenance: { source: 'ao-topology CLI' }, via: list(flags.via) };
-    if (sub === 'send') return out(await api.sendStandingMessage(input, { ...ctx, dryRun: flags['dry-run'] !== undefined }));
+    if (sub === 'send') {
+      // TM-271: one resolver for every send entry; `--to-repo` / `lead@<repo>` name a repository's lead.
+      const { resolveStandingTargets } = await import('./lib/addressing.mjs');
+      const [target] = await resolveStandingTargets({ to: flags.to, toRepo: flags['to-repo'], consumer: ctx.consumer, env: process.env, home: ctx.home });
+      return out(await api.sendStandingMessage({ ...input, consumer: target.consumer, to: target.to }, { ...ctx, dryRun: flags['dry-run'] !== undefined }));
+    }
     if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
     fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
     } finally { await closeLiveTransports(); }
@@ -1496,6 +1502,9 @@ const commands = {
   },
 
   async send({ flags }) {
+    // TM-271: a repository's lead is standing mail, not a run member; it goes through `mailbox send`
+    // and its one resolver, with no run needed.
+    if (flags['to-repo'] !== undefined || list(flags.to).some((to) => /^lead@./.test(to))) return commands.mailbox({ flags, positional: ['send'] });
     // TM-278: refused rather than ignored. A run send writes its envelope and rings in one step.
     if (flags['dry-run'] !== undefined) fail('TOPOLOGY_DRY_RUN_UNSUPPORTED', 'send has no dry run; nothing was sent. Use mailbox send --dry-run to preview standing mail.');
     const runDir = await runDirFrom(flags);

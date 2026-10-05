@@ -32,6 +32,14 @@
   `standing-mailbox/rings/` makes the ring once per message across ticks and restarts, mail the
   agent already read or answered is never rung, and each agent gets at most one ring per tick. The
   tick report lists the outcomes under `mail_rings`.
+- **Address a repository's lead by path or slug (TM-271, EP-028).** `mailbox send --to-repo
+  <path|slug>` and `--to lead@<path|slug>` resolve the repository against the registered
+  repositories (`services/repos.json` and every lead registration) and send to its registered
+  lead. `send` accepts the same forms and hands them to `mailbox send`, so both entries share one
+  resolver (`resolveStandingTargets` in `addressing.mjs`) and no run is needed. An unknown or
+  ambiguous name and a repository with no lead are refused (`TOPOLOGY_REPO_UNKNOWN`,
+  `TOPOLOGY_REPO_AMBIGUOUS`, `TOPOLOGY_REPO_NO_LEAD`), exit 1, nothing written.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
