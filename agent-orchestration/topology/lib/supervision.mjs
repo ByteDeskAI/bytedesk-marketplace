@@ -51,6 +51,7 @@ import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
+import { inspectCheckout, repairConsumerCheckout } from './checkout-repair.mjs';
 import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
@@ -102,6 +103,10 @@ function reconcileFloor(env, override) {
 
 export async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {}, onOwned = () => {}, sleepFn = sleep } = {}) {
  const { env=process.env, home=homedir() }=options;
+ // TM-394: a broken checkout (dangling gitdir, missing .git, fsck errors) is repaired BEFORE the
+ // identity below is computed, so the supervisor keys on the repository and not on a bare path.
+ const checkout=await repairConsumerCheckout({consumer:options.consumer,env,home,fsck:true})
+   .catch(error=>({action:'failed',error:error?.code ?? String(error)}));
  const consumer=await repositoryConsumer(options.consumer);
  options={...options,consumer};
  const identity=await canonicalRepoId(consumer), root=join(stateRoot(env,home),'supervision');
@@ -168,6 +173,7 @@ export async function superviseRepository(options, { signal, once = false, inter
    //   null      -> a listing was attempted and failed; every agent is `unknown`
    //   array     -> the listing succeeded; an EMPTY array is a real answer, every agent is dead
    // Collapsing the first two would make a tmux hiccup report every agent dead. `let`, not `=null`.
+   let checkoutReport=checkout;
    const censusMemo=new Map();
    let censusRoster=[], censusRunDirs=[], censusPanes, census=null;
    // Which run dir each run agent belongs to. The quota watch needs it for exactly one reason: a
@@ -241,6 +247,15 @@ export async function superviseRepository(options, { signal, once = false, inter
      // ensures a missing lead or restarts a confirmed-dead managed one, so the mail it was holding can
      // land in this same reconcile. Absorbed the way slots and quota absorb theirs: a lead that cannot
      // be recovered is reported with its backoff, never a reason to stop supervising.
+     // TM-394: a checkout that broke while supervised. Cheap (no fsck). A repair changes the
+     // canonical identity this supervisor is keyed on, so it ends the process and the restart
+     // supervises the repaired repository.
+     const broken=(await inspectCheckout(consumer)).status;
+     if(['dangling-gitdir','orphaned-worktree','unreadable'].includes(broken)) {
+       const repaired=await repairConsumerCheckout({consumer,env,home}).catch(error=>({action:'failed',error:error?.code ?? String(error)}));
+       if(repaired.action==='repaired' && !once) throw Object.assign(new Error(`checkout ${consumer} was repaired; restarting to supervise the repaired repository`),{code:'TOPOLOGY_CHECKOUT_REPAIRED'});
+       checkoutReport=repaired;
+     }
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
      // TM-276 / ADR-0031: tell this repository's lead once when the configured NATS goes away and
@@ -259,6 +274,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {}),
+       ...(checkoutReport && !['healthy','not-a-checkout','absent'].includes(checkoutReport.action) ? {checkout:checkoutReport} : {}),
        transport,...(natsOutage ? {nats_outage:natsOutage} : {})};
      report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
      await writeJson(join(root,`${key}.json`),report);

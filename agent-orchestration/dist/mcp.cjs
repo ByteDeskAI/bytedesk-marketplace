@@ -2907,9 +2907,9 @@ var require_compile = __commonJS({
       if (_sch)
         return _sch;
       const rootId = (0, resolve_1.getFullPath)(this.opts.uriResolver, sch.root.baseId);
-      const { es5, lines } = this.opts.code;
+      const { es5, lines: lines2 } = this.opts.code;
       const { ownProperties } = this.opts;
-      const gen = new codegen_1.CodeGen(this.scope, { es5, lines, ownProperties });
+      const gen = new codegen_1.CodeGen(this.scope, { es5, lines: lines2, ownProperties });
       let _ValidationError;
       if (sch.$async) {
         _ValidationError = gen.scopeValue("Error", {
@@ -2994,7 +2994,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve21.call(this, root, ref);
+      let _sch = resolve22.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3021,7 +3021,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve21(root, ref) {
+    function resolve22(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3652,7 +3652,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve21(baseURI, relativeURI, options) {
+    function resolve22(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
       const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
@@ -3936,7 +3936,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve21,
+      resolve: resolve22,
       resolveComponent,
       equal,
       serialize,
@@ -4076,8 +4076,8 @@ var require_core = __commonJS({
         this._loading = {};
         this._cache = /* @__PURE__ */ new Map();
         opts = this.opts = { ...opts, ...requiredOptions(opts) };
-        const { es5, lines } = this.opts.code;
-        this.scope = new codegen_2.ValueScope({ scope: {}, prefixes: EXT_SCOPE_NAMES, es5, lines });
+        const { es5, lines: lines2 } = this.opts.code;
+        this.scope = new codegen_2.ValueScope({ scope: {}, prefixes: EXT_SCOPE_NAMES, es5, lines: lines2 });
         this.logger = getLogger(opts.logger);
         const formatOpt = opts.validateFormats;
         opts.validateFormats = false;
@@ -7097,9 +7097,9 @@ __export(repoid_exports, {
 async function canonicalRepoId(consumer) {
   invariant2(consumer && typeof consumer === "string", "TOPOLOGY_REPO_REQUIRED", "A consumer path is required to identify a repository.");
   const abs = (0, import_node_path8.resolve)(consumer);
-  const git3 = await run("git", ["-C", abs, "rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
-  if (git3.code === 0 && git3.stdout.trim()) {
-    const reported = git3.stdout.trim().split("\n")[0];
+  const git4 = await run("git", ["-C", abs, "rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+  if (git4.code === 0 && git4.stdout.trim()) {
+    const reported = git4.stdout.trim().split("\n")[0];
     const common = (0, import_node_path8.isAbsolute)(reported) ? (0, import_node_path8.resolve)(reported) : (0, import_node_path8.resolve)(abs, reported);
     const real2 = await (0, import_promises5.realpath)(common).catch(() => common);
     return { id: real2, kind: "git-common-dir", git_common_dir: real2 };
@@ -7777,7 +7777,7 @@ async function setPaneTitle(pane, title) {
 }
 async function sendText(pane, text, submitKeys = ["Enter"]) {
   await tmux(["send-keys", "-t", pane, "-l", "--", text]);
-  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve21) => setTimeout(resolve21, SUBMIT_SETTLE_MS));
+  if (submitKeys.length > 0 && SUBMIT_SETTLE_MS > 0) await new Promise((resolve22) => setTimeout(resolve22, SUBMIT_SETTLE_MS));
   for (const key of submitKeys) await tmux(["send-keys", "-t", pane, key]);
 }
 async function preparePane(pane, { title, log, display = null }) {
@@ -7832,22 +7832,22 @@ function socketPathProblem(env = process.env, uid = process.getuid?.() ?? 0) {
     fix: { note: "Point TMUX_TMPDIR at a short directory \u2014 /tmp/ao-<something> \u2014 rather than a per-session scratch path." }
   };
 }
-async function capture(pane, lines = 60, { escapes = false } = {}) {
-  const args = ["capture-pane", "-p", ...escapes ? ["-e"] : [], "-t", pane, "-S", `-${lines}`];
+async function capture(pane, lines2 = 60, { escapes = false } = {}) {
+  const args = ["capture-pane", "-p", ...escapes ? ["-e"] : [], "-t", pane, "-S", `-${lines2}`];
   const result2 = await tmux(args, { allowFailure: true });
   return result2.code === 0 ? result2.stdout : "";
 }
 async function waitForChannel(channel, timeoutMs, { tmuxServer = null } = {}) {
   tmuxServer ||= selectedServer.getStore();
   if (!(timeoutMs > 0)) return false;
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     let settled = false;
     const child = (0, import_node_child_process3.spawn)(TMUX, [...serverArgs(tmuxServer), "wait-for", channel], { stdio: "ignore", shell: false });
     const finish = (value) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve21(value);
+        resolve22(value);
       }
     };
     const timer = setTimeout(() => {
@@ -8959,8 +8959,8 @@ async function promotePromptForIncarnation({ agent, binding, consumer, session }
     const exact = incarnationOf(binding);
     invariant2(exact, "TOPOLOGY_PROMPT_INCARNATION", "A complete live process incarnation is required before staging its prompt.");
     if (state.status === "queued" || state.status === "restart-required") {
-      const { readFile: readFile32 } = await import("node:fs/promises");
-      const text = await readFile32((0, import_node_path30.join)(agent._dir, "prompt.pending.md"), "utf8");
+      const { readFile: readFile33 } = await import("node:fs/promises");
+      const text = await readFile33((0, import_node_path30.join)(agent._dir, "prompt.pending.md"), "utf8");
       await writeText((0, import_node_path30.join)(agent._dir, "prompt.md"), text);
     }
     const nonce = (0, import_node_crypto15.randomUUID)();
@@ -9199,7 +9199,7 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
 }
 function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
   const cli = (0, import_node_url4.fileURLToPath)(new URL("../../dist/cli.cjs", __aoImportMetaUrl));
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     const child = (0, import_node_child_process10.spawn)(process.execPath, [cli, "services", "ensure", "--json"], {
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -9215,7 +9215,7 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.once("error", (error51) => {
       clearTimeout(timer);
-      resolve21({ ok: false, error: error51.message });
+      resolve22({ ok: false, error: error51.message });
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
@@ -9224,7 +9224,7 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
         report = JSON.parse(stdout);
       } catch {
       }
-      resolve21(code === 0 && report?.ok ? report : { ok: false, code, error: report?.message ?? stderr.trim().slice(-2e3) });
+      resolve22(code === 0 && report?.ok ? report : { ok: false, code, error: report?.message ?? stderr.trim().slice(-2e3) });
     });
   });
 }
@@ -9249,38 +9249,38 @@ async function findNatsServer(env = process.env) {
   const { execFile: execFile5 } = await import("node:child_process");
   const candidates = [env.AO_NATS_SERVER, (0, import_node_path33.join)((0, import_node_os10.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
   for (const bin of candidates) {
-    const ok = await new Promise((resolve21) => execFile5(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve21(!error51)));
+    const ok = await new Promise((resolve22) => execFile5(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve22(!error51)));
     if (ok) return bin;
   }
   return null;
 }
 function canConnect(port) {
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     const socket = import_node_net.default.connect({ host: "127.0.0.1", port }, () => {
       socket.destroy();
-      resolve21(true);
+      resolve22(true);
     });
-    socket.once("error", () => resolve21(false));
+    socket.once("error", () => resolve22(false));
     socket.setTimeout(1e3, () => {
       socket.destroy();
-      resolve21(false);
+      resolve22(false);
     });
   });
 }
 function canBind(port) {
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     const probe = import_node_net.default.createServer();
-    probe.once("error", () => resolve21(false));
-    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve21(true)));
+    probe.once("error", () => resolve22(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve22(true)));
   });
 }
 function natsInfo(port) {
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     let text = "";
     const socket = import_node_net.default.connect({ host: "127.0.0.1", port });
     const done = (value) => {
       socket.destroy();
-      resolve21(value);
+      resolve22(value);
     };
     socket.on("data", (chunk) => {
       text += chunk;
@@ -9301,13 +9301,13 @@ function portHolder(port) {
   const hex3 = port.toString(16).toUpperCase().padStart(4, "0");
   const inodes = /* @__PURE__ */ new Set();
   for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
-    let lines = [];
+    let lines2 = [];
     try {
-      lines = (0, import_node_fs8.readFileSync)(table, "utf8").trim().split("\n").slice(1);
+      lines2 = (0, import_node_fs8.readFileSync)(table, "utf8").trim().split("\n").slice(1);
     } catch {
       continue;
     }
-    for (const line of lines) {
+    for (const line of lines2) {
       const cols = line.trim().split(/\s+/);
       if (cols[1]?.endsWith(`:${hex3}`) && cols[3] === "0A") inodes.add(`socket:[${cols[9]}]`);
     }
@@ -9422,7 +9422,7 @@ async function stopDetached(state, keepPort = null) {
     process.kill(state.pid, "SIGTERM");
   } catch {
   }
-  for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve21) => setTimeout(resolve21, 100));
+  for (let i = 0; i < 50 && await canConnect(state.port); i += 1) await new Promise((resolve22) => setTimeout(resolve22, 100));
 }
 async function prepareLocalNats({ env = process.env } = {}) {
   const home = localNatsHome(env);
@@ -9450,7 +9450,7 @@ function namesNatsServer(pid) {
   }
 }
 async function waitForPort(port, attempts = 50) {
-  for (let i = 0; i < attempts && !await canConnect(port); i += 1) await new Promise((resolve21) => setTimeout(resolve21, 100));
+  for (let i = 0; i < attempts && !await canConnect(port); i += 1) await new Promise((resolve22) => setTimeout(resolve22, 100));
   return canConnect(port);
 }
 async function ensureLocalNats({ env = process.env } = {}) {
@@ -9669,11 +9669,11 @@ var require_core3 = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -9689,7 +9689,7 @@ var require_core3 = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -9900,11 +9900,11 @@ var require_util2 = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -9920,7 +9920,7 @@ var require_util2 = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -9933,14 +9933,14 @@ var require_util2 = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -9999,9 +9999,9 @@ var require_util2 = __commonJS({
     }
     function delay6(ms = 0) {
       let methods2;
-      const p = new Promise((resolve21) => {
+      const p = new Promise((resolve22) => {
         const timer = setTimeout(() => {
-          resolve21();
+          resolve22();
         }, ms);
         const cancel = () => {
           if (timer) {
@@ -10020,18 +10020,18 @@ var require_util2 = __commonJS({
     }
     function deferred() {
       let methods2 = {};
-      const p = new Promise((resolve21, reject) => {
-        methods2 = { resolve: resolve21, reject };
+      const p = new Promise((resolve22, reject) => {
+        methods2 = { resolve: resolve22, reject };
       });
       return Object.assign(p, methods2);
     }
     function debugDeferred() {
       let methods2 = {};
-      const p = new Promise((resolve21, reject) => {
+      const p = new Promise((resolve22, reject) => {
         methods2 = {
           resolve: (v) => {
             console.trace("resolve", v);
-            resolve21(v);
+            resolve22(v);
           },
           reject: (err) => {
             console.trace("reject");
@@ -10528,11 +10528,11 @@ var require_servers = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -10548,7 +10548,7 @@ var require_servers = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -11017,8 +11017,8 @@ var require_headers = __commonJS({
       static decode(a) {
         const mh = new _MsgHdrsImpl();
         const s = encoders_1.TD.decode(a);
-        const lines = s.split("\r\n");
-        const h = lines[0];
+        const lines2 = s.split("\r\n");
+        const h = lines2[0];
         if (h !== HEADER) {
           let str = h.replace(HEADER, "").trim();
           if (str.length > 0) {
@@ -11031,8 +11031,8 @@ var require_headers = __commonJS({
             mh._description = str.trim();
           }
         }
-        if (lines.length >= 1) {
-          lines.slice(1).map((s2) => {
+        if (lines2.length >= 1) {
+          lines2.slice(1).map((s2) => {
             if (s2) {
               const idx = s2.indexOf(":");
               if (idx > -1) {
@@ -15969,11 +15969,11 @@ var require_protocol = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -15989,7 +15989,7 @@ var require_protocol = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -16002,14 +16002,14 @@ var require_protocol = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -16415,12 +16415,12 @@ var require_protocol = __commonJS({
       }
       _doDial(srv) {
         return __awaiter(this, void 0, void 0, function* () {
-          const { resolve: resolve21 } = this.options;
+          const { resolve: resolve22 } = this.options;
           const alts = yield srv.resolve({
             fn: (0, transport_1.getResolveFn)(),
             debug: this.options.debug,
             randomize: !this.options.noRandomize,
-            resolve: resolve21
+            resolve: resolve22
           });
           let lastErr = null;
           for (const a of alts) {
@@ -17178,11 +17178,11 @@ var require_jsbaseclient_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17198,7 +17198,7 @@ var require_jsbaseclient_api = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17308,11 +17308,11 @@ var require_jslister = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17328,7 +17328,7 @@ var require_jslister = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -17809,11 +17809,11 @@ var require_jsmconsumer_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -17829,7 +17829,7 @@ var require_jsmconsumer_api = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -18083,11 +18083,11 @@ var require_jsmsg = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -18103,7 +18103,7 @@ var require_jsmsg = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -18280,11 +18280,11 @@ var require_typedsub = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -18300,7 +18300,7 @@ var require_typedsub = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -19032,11 +19032,11 @@ var require_objectstore = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -19052,7 +19052,7 @@ var require_objectstore = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -19065,14 +19065,14 @@ var require_objectstore = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -19863,11 +19863,11 @@ var require_jsclient = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -19883,7 +19883,7 @@ var require_jsclient = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -20457,10 +20457,10 @@ var require_jsclient = __commonJS({
         this.monitor = new idleheartbeat_monitor_1.IdleHeartbeatMonitor(millis, handler, opts);
       }
       _checkHbOrderConsumer(msg) {
-        const rm15 = msg.headers.get(types_2.JsHeaders.ConsumerStalledHdr);
-        if (rm15 !== "") {
+        const rm16 = msg.headers.get(types_2.JsHeaders.ConsumerStalledHdr);
+        if (rm16 !== "") {
           const nci = this.js.nc;
-          nci.publish(rm15);
+          nci.publish(rm16);
         }
         const lastDelivered = parseInt(msg.headers.get(types_2.JsHeaders.LastConsumerSeqHdr), 10);
         const ordered = this.info.ordered_consumer_sequence;
@@ -20619,11 +20619,11 @@ var require_kv = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -20639,7 +20639,7 @@ var require_kv = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -20652,14 +20652,14 @@ var require_kv = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -21593,11 +21593,11 @@ var require_consumer = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -21613,7 +21613,7 @@ var require_consumer = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -21626,14 +21626,14 @@ var require_consumer = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -22486,11 +22486,11 @@ var require_jsmstream_api = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -22506,7 +22506,7 @@ var require_jsmstream_api = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -22957,11 +22957,11 @@ var require_jsm = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -22977,7 +22977,7 @@ var require_jsm = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -22990,14 +22990,14 @@ var require_jsm = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -23185,11 +23185,11 @@ var require_service = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -23205,7 +23205,7 @@ var require_service = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23678,11 +23678,11 @@ var require_serviceclient = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -23698,7 +23698,7 @@ var require_serviceclient = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23711,14 +23711,14 @@ var require_serviceclient = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -23799,11 +23799,11 @@ var require_nats = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -23819,7 +23819,7 @@ var require_nats = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -23832,14 +23832,14 @@ var require_nats = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -23866,7 +23866,7 @@ var require_nats = __commonJS({
         this.listeners = [];
       }
       static connect(opts = {}) {
-        return new Promise((resolve21, reject) => {
+        return new Promise((resolve22, reject) => {
           const nc = new _NatsConnectionImpl(opts);
           protocol_1.ProtocolHandler.connect(nc.options, nc).then((ph) => {
             nc.protocol = ph;
@@ -23893,7 +23893,7 @@ var require_nats = __commonJS({
                 }
               });
             })();
-            resolve21(nc);
+            resolve22(nc);
           }).catch((err) => {
             reject(err);
           });
@@ -24297,11 +24297,11 @@ var require_bench = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve21) {
-          resolve21(value);
+        return value instanceof P ? value : new P(function(resolve22) {
+          resolve22(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve21, reject) {
+      return new (P || (P = Promise))(function(resolve22, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -24317,7 +24317,7 @@ var require_bench = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve21(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -24330,14 +24330,14 @@ var require_bench = __commonJS({
       }, i);
       function verb(n) {
         i[n] = o[n] && function(v) {
-          return new Promise(function(resolve21, reject) {
-            v = o[n](v), settle(resolve21, reject, v.done, v.value);
+          return new Promise(function(resolve22, reject) {
+            v = o[n](v), settle(resolve22, reject, v.done, v.value);
           });
         };
       }
-      function settle(resolve21, reject, d, v) {
+      function settle(resolve22, reject, d, v) {
         Promise.resolve(v).then(function(v2) {
-          resolve21({ value: v2, done: d });
+          resolve22({ value: v2, done: d });
         }, reject);
       }
     };
@@ -25086,11 +25086,11 @@ var require_node_transport = __commonJS({
     "use strict";
     var __awaiter = exports2 && exports2.__awaiter || function(thisArg, _arguments, P, generator) {
       function adopt(value) {
-        return value instanceof P ? value : new P(function(resolve22) {
-          resolve22(value);
+        return value instanceof P ? value : new P(function(resolve23) {
+          resolve23(value);
         });
       }
-      return new (P || (P = Promise))(function(resolve22, reject) {
+      return new (P || (P = Promise))(function(resolve23, reject) {
         function fulfilled(value) {
           try {
             step(generator.next(value));
@@ -25106,7 +25106,7 @@ var require_node_transport = __commonJS({
           }
         }
         function step(result2) {
-          result2.done ? resolve22(result2.value) : adopt(result2.value).then(fulfilled, rejected);
+          result2.done ? resolve23(result2.value) : adopt(result2.value).then(fulfilled, rejected);
         }
         step((generator = generator.apply(thisArg, _arguments || [])).next());
       });
@@ -25162,8 +25162,8 @@ var require_node_transport = __commonJS({
     var net_1 = require("net");
     var util_1 = require_util2();
     var tls_1 = require("tls");
-    var { resolve: resolve21 } = require("path");
-    var { readFile: readFile32, existsSync: existsSync7 } = require("fs");
+    var { resolve: resolve22 } = require("path");
+    var { readFile: readFile33, existsSync: existsSync7 } = require("fs");
     var dns = require("dns");
     var VERSION = "2.29.3";
     var LANG = "nats.js";
@@ -25277,11 +25277,11 @@ var require_node_transport = __commonJS({
         }
         const d = (0, nats_base_client_1.deferred)();
         try {
-          fn = resolve21(fn);
+          fn = resolve22(fn);
           if (!existsSync7(fn)) {
             d.reject(new Error(`${fn} doesn't exist`));
           }
-          readFile32(fn, (err, data) => {
+          readFile33(fn, (err, data) => {
             if (err) {
               return d.reject(err);
             }
@@ -25901,7 +25901,7 @@ function createFileTransport() {
           };
         }
         if (Date.now() >= deadline) return null;
-        await new Promise((resolve21) => setTimeout(resolve21, 20));
+        await new Promise((resolve22) => setTimeout(resolve22, 20));
       }
     },
     async compareAndSetClaim({ repo, task, body, expectedRevision = 0 }) {
@@ -26021,7 +26021,7 @@ function createFileTransport() {
 }
 function beginFileVerdict(subject, timeoutMs, verdictWaiters, timers) {
   let deliver;
-  const received = new Promise((resolve21, reject) => {
+  const received = new Promise((resolve22, reject) => {
     const timer = setTimeout(() => {
       timers.delete(timer);
       const list3 = verdictWaiters.get(subject) ?? [];
@@ -26035,7 +26035,7 @@ function beginFileVerdict(subject, timeoutMs, verdictWaiters, timers) {
     deliver = (body) => {
       clearTimeout(timer);
       timers.delete(timer);
-      resolve21({ via: "file", subject, body });
+      resolve22({ via: "file", subject, body });
     };
   });
   const list2 = verdictWaiters.get(subject) ?? [];
@@ -26057,9 +26057,9 @@ async function bridgeUnixSocket(socketPath) {
     client2.pipe(upstream);
     upstream.pipe(client2);
   });
-  await new Promise((resolve21, reject) => {
+  await new Promise((resolve22, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve21);
+    server.listen(0, "127.0.0.1", resolve22);
   });
   const { port } = server.address();
   return { server, servers: `nats://127.0.0.1:${port}` };
@@ -26564,7 +26564,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       const sub = nc.subscribe(subject, { max: 1 });
       subscriptions.add(sub);
       await nc.flush();
-      const received = new Promise((resolve21, reject) => {
+      const received = new Promise((resolve22, reject) => {
         const timer = setTimeout(() => {
           timers.delete(timer);
           sub.unsubscribe();
@@ -26579,7 +26579,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
             clearTimeout(timer);
             timers.delete(timer);
             subscriptions.delete(sub);
-            resolve21({ via: "nats", subject: msg.subject || subject, body: sc.decode(msg.data) });
+            resolve22({ via: "nats", subject: msg.subject || subject, body: sc.decode(msg.data) });
             break;
           }
         })().catch((error51) => {
@@ -26613,7 +26613,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       subscriptions.clear();
       await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {
       });
-      if (bridge) await new Promise((resolve21) => bridge.server.close(resolve21));
+      if (bridge) await new Promise((resolve22) => bridge.server.close(resolve22));
     }
   };
   return transport;
@@ -27883,16 +27883,16 @@ async function readTail(path3, maxBytes = 256 * 1024) {
     const start2 = Math.max(0, size - maxBytes);
     const buffer = Buffer.alloc(size - start2);
     await handle.read(buffer, 0, buffer.length, start2);
-    const lines = buffer.toString("utf8").split("\n");
-    if (start2 > 0) lines.shift();
-    return lines.filter((line) => line.trim());
+    const lines2 = buffer.toString("utf8").split("\n");
+    if (start2 > 0) lines2.shift();
+    return lines2.filter((line) => line.trim());
   } finally {
     await handle.close();
   }
 }
-function transcriptTurns(lines, keep = 30) {
+function transcriptTurns(lines2, keep = 30) {
   const turns = [];
-  for (const line of lines) {
+  for (const line of lines2) {
     let entry;
     try {
       entry = JSON.parse(line);
@@ -27939,8 +27939,8 @@ function fallbackHandoff({ agentId, waitedMs, transcript = null, turns = [], pan
 }
 async function holdLock(path3, options) {
   let release;
-  const released = new Promise((resolve21) => {
-    release = resolve21;
+  const released = new Promise((resolve22) => {
+    release = resolve22;
   });
   let done;
   await new Promise((entered, refused) => {
@@ -28051,8 +28051,8 @@ async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, i
 }
 async function readHandoff(record2) {
   if (!record2?.handoff?.path) return null;
-  const { readFile: readFile32 } = await import("node:fs/promises");
-  return readFile32(record2.handoff.path, "utf8").catch(() => null);
+  const { readFile: readFile33 } = await import("node:fs/promises");
+  return readFile33(record2.handoff.path, "utf8").catch(() => null);
 }
 function handoffPointer(path3) {
   return `[ao] Your previous session left a handoff: read ${path3} before continuing.`;
@@ -28405,6 +28405,19 @@ function view(record2) {
     ...record2.reverified_alive ? { reverified_alive: true } : {}
   };
 }
+async function recordCheckoutRepair({ consumer, entry, env = process.env, home = (0, import_node_os16.homedir)() }) {
+  const p = await recoveryPaths({ consumer, env, home });
+  const prior = await readJson3(p.state).catch(() => null) ?? {};
+  await writeJson(p.state, { version: 1, repo_id: p.identity.id, consumer, ...prior, checkout_repair: entry, updated_at: nowIso() });
+  await (0, import_promises35.mkdir)((0, import_node_path44.dirname)(p.journal), { recursive: true });
+  await (0, import_promises35.appendFile)(p.journal, `${JSON.stringify({ at: nowIso(), event: `checkout.${entry.action}`, ...entry })}
+`);
+  return p.state;
+}
+async function readCheckoutRepair({ consumer, env = process.env, home = (0, import_node_os16.homedir)() }) {
+  const p = await recoveryPaths({ consumer, env, home });
+  return (await readJson3(p.state).catch(() => null))?.checkout_repair ?? null;
+}
 function deadExternalAlert(record2, root) {
   const who = record2.agent_name ? `${record2.agent_name} (${record2.agent_id})` : record2.agent_id;
   const assign = `ao-topology lead assign ${record2.agent_id} --session ${record2.session} --consumer ${root}`;
@@ -28443,7 +28456,16 @@ async function recoverLead({
   const { AO_LEAD_ID: _lead, ...leadEnv } = env ?? {};
   const base = { consumer: root, env: leadEnv, home, pluginRoot, probes, log };
   const save = async (fields) => {
-    const record2 = { version: 1, repo_id: p.identity.id, consumer: root, alert: null, verify: false, ...fields, updated_at: nowIso() };
+    const record2 = {
+      version: 1,
+      repo_id: p.identity.id,
+      consumer: root,
+      alert: null,
+      verify: false,
+      ...prior.checkout_repair ? { checkout_repair: prior.checkout_repair } : {},
+      ...fields,
+      updated_at: nowIso()
+    };
     await writeJson(p.state, record2);
     return view(record2);
   };
@@ -29548,8 +29570,8 @@ async function githubPullBase(repoDir, head) {
   return JSON.parse(found.stdout);
 }
 async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare } = {}) {
-  const git3 = (args) => run("git", ["-C", repoDir, ...args], { allowFailure: true });
-  const ancestor = async (a, b) => (await git3(["merge-base", "--is-ancestor", a, b])).code === 0;
+  const git4 = (args) => run("git", ["-C", repoDir, ...args], { allowFailure: true });
+  const ancestor = async (a, b) => (await git4(["merge-base", "--is-ancestor", a, b])).code === 0;
   const compare = typeof serverCompare === "function" ? serverCompare : githubCompare;
   const target = branch ? `integration branch ${branch}` : "default branch";
   const ask = async (from, to) => {
@@ -29570,7 +29592,7 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
   const mb = server.merge_base;
   if (mb !== revision) {
     if (mb === admittedBase) return { base: admittedBase, note: null };
-    invariant2((await git3(["cat-file", "-e", `${mb}^{commit}`])).code === 0, "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not a commit in this repository.");
+    invariant2((await git4(["cat-file", "-e", `${mb}^{commit}`])).code === 0, "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not a commit in this repository.");
     if (await ancestor(mb, admittedBase)) return { base: admittedBase, note: null };
     invariant2(await ancestor(admittedBase, mb) && await ancestor(mb, revision), "TOPOLOGY_REVIEWER_RANGE", `The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the ${target}.`);
     return { base: mb, note: null };
@@ -29580,7 +29602,7 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
   const between = COMMIT_SHA.test(String(candidate)) && candidate !== revision && await ancestor(admittedBase, candidate) && await ancestor(candidate, revision);
   if (recorded) invariant2(between, "TOPOLOGY_REVIEWER_RANGE", "Recorded effective review base is not between the admitted base and the revision.");
   else {
-    const patch = between ? await git3(["diff", "--no-ext-diff", "--no-textconv", "--binary", candidate, revision, "--"]) : null;
+    const patch = between ? await git4(["diff", "--no-ext-diff", "--no-textconv", "--binary", candidate, revision, "--"]) : null;
     invariant2(
       patch?.code === 0 && (0, import_node_crypto22.createHash)("sha256").update(patch.stdout).digest("hex") === reviewed.patch_sha256,
       "TOPOLOGY_REVIEWER_REREVIEW",
@@ -29659,7 +29681,7 @@ async function blobSize(consumer, sha2, path3) {
 }
 function blobSha256(consumer, sha2, path3, size) {
   if (ZERO_BLOB.test(sha2)) return Promise.resolve(null);
-  return new Promise((resolve21, reject) => {
+  return new Promise((resolve22, reject) => {
     const hash4 = (0, import_node_crypto22.createHash)("sha256");
     let stderr = "";
     const child = (0, import_node_child_process12.spawn)("git", ["-C", consumer, "cat-file", "blob", sha2], { stdio: ["ignore", "pipe", "pipe"] });
@@ -29668,7 +29690,7 @@ function blobSha256(consumer, sha2, path3, size) {
       stderr += chunk;
     });
     child.on("error", (error51) => reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes): ${error51.message}.`)));
-    child.on("close", (code) => code === 0 ? resolve21(hash4.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
+    child.on("close", (code) => code === 0 ? resolve22(hash4.digest("hex")) : reject(new TopologyError("TOPOLOGY_REVIEWER_RANGE", `Cannot hash binary file ${path3} (${size} bytes, blob ${sha2}): git exited ${code}${stderr.trim() ? ` \u2014 ${stderr.trim()}` : ""}.`)));
   });
 }
 function renderBinaryManifest(binaryFiles) {
@@ -29994,25 +30016,25 @@ function b64Closed(data) {
 }
 function reviewResponsesOnScreen(screen, nonce) {
   const prefix = `AO_REVIEW ${nonce} `;
-  const lines = String(screen ?? "").split(/\r?\n/);
+  const lines2 = String(screen ?? "").split(/\r?\n/);
   const responses = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = protocolOutputLine(lines[i]);
+  for (let i = 0; i < lines2.length; i++) {
+    const line = protocolOutputLine(lines2[i]);
     if (!line.startsWith(prefix) && line !== prefix.trimEnd()) continue;
-    const next = () => i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) ? protocolOutputLine(lines[i + 1]) : null;
+    const next = () => i + 1 < lines2.length && /^\s+\S/.test(lines2[i + 1]) ? protocolOutputLine(lines2[i + 1]) : null;
     let payload = line.slice(prefix.length).trim();
-    if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines[++i]);
+    if (!payload && next()?.startsWith(B64_PREFIX)) payload = protocolOutputLine(lines2[++i]);
     if (payload.startsWith(B64_PREFIX)) {
-      while (!b64Closed(payload) && /^[A-Za-z0-9+/=]+$/.test(next() ?? "")) payload += protocolOutputLine(lines[++i]);
+      while (!b64Closed(payload) && /^[A-Za-z0-9+/=]+$/.test(next() ?? "")) payload += protocolOutputLine(lines2[++i]);
       const texts2 = [payload];
       texts2.closed = b64Closed(payload);
       responses.push(texts2);
       continue;
     }
-    const raw = [lines[i]], parts = [line.slice(prefix.length)];
-    while (!lenientJson(parts.join("")).closed && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]) && !protocolOutputLine(lines[i + 1]).startsWith("AO_REVIEW ")) {
-      raw.push(lines[++i]);
-      parts.push(protocolOutputLine(lines[i]));
+    const raw = [lines2[i]], parts = [line.slice(prefix.length)];
+    while (!lenientJson(parts.join("")).closed && i + 1 < lines2.length && /^\s+\S/.test(lines2[i + 1]) && !protocolOutputLine(lines2[i + 1]).startsWith("AO_REVIEW ")) {
+      raw.push(lines2[++i]);
+      parts.push(protocolOutputLine(lines2[i]));
     }
     const width = Math.max(...raw.slice(0, -1).map((text) => text.trimEnd().length));
     const prose = (k) => {
@@ -32662,8 +32684,8 @@ function closeQuotaWatch() {
   this.clients.clear();
   this.subscribed.clear();
 }
-async function captureTail(pane, tmux2 = tmux_exports, lines = QUOTA_TAIL_LINES) {
-  const result2 = await tmux2.tmux(["capture-pane", "-p", "-t", pane.paneId, "-S", `-${lines}`], { tmuxServer: pane.serverKey, allowFailure: true });
+async function captureTail(pane, tmux2 = tmux_exports, lines2 = QUOTA_TAIL_LINES) {
+  const result2 = await tmux2.tmux(["capture-pane", "-p", "-t", pane.paneId, "-S", `-${lines2}`], { tmuxServer: pane.serverKey, allowFailure: true });
   return result2.code === 0 ? result2.stdout : null;
 }
 async function armSubscriptions(watch2, watchable, { ControlClientClass, maxClients, log }) {
@@ -32751,7 +32773,7 @@ function approvalCommand({ incident, approver = "<you>" }) {
 function announcement(incident, consent) {
   const command = approvalCommand({ incident });
   const how = incident.evidence === "pane-dead" ? "the pane is dead" : incident.evidence === "probe-unanswered" ? "it did not answer a nonce probe" : "it is not rendering any progress";
-  const lines = [
+  const lines2 = [
     `PROVIDER QUOTA SUSPECTED: ${incident.agent_id} on ${incident.provider}`,
     "",
     `Matched /${incident.pattern}/ on its pane, still present ${incident.recheck_ms}ms later, and ${how}.`,
@@ -32759,15 +32781,15 @@ function announcement(incident, consent) {
     ""
   ];
   if (consent === "auto") {
-    lines.push(
+    lines2.push(
       `failover.consent is "auto": the operator authorised this in advance, in writing, in config, so no`,
       `human turn is needed \u2014 and THIS MESSAGE is the announcement that rule requires, because the rule`,
       `forbids SILENT substitution, not substitution.`
     );
   } else {
-    lines.push(`failover.consent is "ask", so nothing may take this pane over until a human authorises it.`);
+    lines2.push(`failover.consent is "ask", so nothing may take this pane over until a human authorises it.`);
   }
-  lines.push(
+  lines2.push(
     "",
     command ? `To apply:
   ${command}` : `This agent is not in a run roster, so \`failover\` does not apply to it \u2014 a standing agent's provider is changed by reassigning its role (\`ao-topology role reassign\`).`,
@@ -32777,7 +32799,7 @@ function announcement(incident, consent) {
     "  the CONVERSATION does NOT \u2014 a different CLI has a different memory. That is WHY unanswered messages are re-delivered. A cold agent is not a broken one.",
     "  the CLAIM survives via tm's dispatch heartbeat, with a ceiling: claimTtlMinutes defaults to 240 (four hours) against a five-hour quota window. A repo that relies on quota failover raises it above its provider's longest window."
   );
-  return lines.join("\n");
+  return lines2.join("\n");
 }
 async function readIncident({ agentId, identity = null, consumer = null, env = process.env, home = (0, import_node_os24.homedir)() }) {
   const id = identity ?? await canonicalRepoId(consumer);
@@ -33241,14 +33263,14 @@ Begin when you have replied READY: the mission is the inputs above plus the work
 `;
 }
 function launcherScript({ agent, candidate, argv, env }) {
-  const lines = ["#!/usr/bin/env bash", `# Generated by ao-topology. Runs agent ${agent.id} on ${candidateLabel(candidate)} inside its tmux pane.`, "set -u", `cd ${shellQuote(agent.cwd)}`];
+  const lines2 = ["#!/usr/bin/env bash", `# Generated by ao-topology. Runs agent ${agent.id} on ${candidateLabel(candidate)} inside its tmux pane.`, "set -u", `cd ${shellQuote(agent.cwd)}`];
   for (const [key, value] of Object.entries(env)) {
     if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) fail("TOPOLOGY_ENV_INVALID", `Agent ${agent.id}: env name "${key}" is not a valid variable name.`);
-    lines.push(`export ${key}=${shellQuote(value)}`);
+    lines2.push(`export ${key}=${shellQuote(value)}`);
   }
-  lines.push(`printf '\\033]2;%s\\007' ${shellQuote(terminalText(`${agent.id} \xB7 ${agent.role} \xB7 ${candidateLabel(candidate)}`))}`);
-  lines.push(`exec ${argv.map(shellQuote).join(" ")}`);
-  return `${lines.join("\n")}
+  lines2.push(`printf '\\033]2;%s\\007' ${shellQuote(terminalText(`${agent.id} \xB7 ${agent.role} \xB7 ${candidateLabel(candidate)}`))}`);
+  lines2.push(`exec ${argv.map(shellQuote).join(" ")}`);
+  return `${lines2.join("\n")}
 `;
 }
 function runAgentVisual(agent, leadId = null) {
@@ -33271,8 +33293,8 @@ function screenSince(screen, baseline) {
   return at === -1 ? text : text.slice(at + baseline.length);
 }
 function lastComposerLine(styledScreen) {
-  const lines = String(styledScreen ?? "").split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i -= 1) if (/[>\u276f]/.test(lines[i])) return lines[i];
+  const lines2 = String(styledScreen ?? "").split(/\r?\n/);
+  for (let i = lines2.length - 1; i >= 0; i -= 1) if (/[>\u276f]/.test(lines2[i])) return lines2[i];
   return "";
 }
 function evaluateScreen(adapter, screen, { alive: alive2 = true, styled = null } = {}) {
@@ -34471,8 +34493,8 @@ function adapterForPane(adapters, pane) {
   }
   return null;
 }
-async function captureTail2(pane, lines = TAIL_LINES) {
-  const result2 = await tmux(["capture-pane", "-p", "-t", pane.paneId, "-S", `-${lines}`], { tmuxServer: pane.serverKey, allowFailure: true });
+async function captureTail2(pane, lines2 = TAIL_LINES) {
+  const result2 = await tmux(["capture-pane", "-p", "-t", pane.paneId, "-S", `-${lines2}`], { tmuxServer: pane.serverKey, allowFailure: true });
   return result2.code === 0 ? result2.stdout : null;
 }
 async function takeCensus(options = {}, input = {}) {
@@ -34623,17 +34645,17 @@ function duration3(ms) {
 }
 function formatCensus(document) {
   if (!document) return "No census yet. Start the repository supervisor, or run `ao-topology census` again.";
-  const lines = [];
-  if (document.stale) lines.push(`! STALE - last observed ${duration3(document.ageMs ?? 0)} ago; every agent reads as unknown and nothing is dispatchable.`);
+  const lines2 = [];
+  if (document.stale) lines2.push(`! STALE - last observed ${duration3(document.ageMs ?? 0)} ago; every agent reads as unknown and nothing is dispatchable.`);
   for (const agent of document.agents ?? []) {
     const name = agent.displayName && agent.displayName !== "Unenrolled agent" ? agent.displayName : agent.agentId;
     const flags = [agent.edge ? "edge" : null, agent.undeliveredMessages?.length ? `${agent.undeliveredMessages.length} undelivered` : null].filter(Boolean);
     const { roleIcon, roleLabel } = visualOf(agent);
-    lines.push(`${GLYPH[agent.state] ?? "?"} ${roleIcon} ${String(name).padEnd(24)} ${roleLabel.padEnd(16)} ${agent.state.padEnd(14)} ${duration3(agent.durationMs).padStart(7)}  ${agent.reason}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
+    lines2.push(`${GLYPH[agent.state] ?? "?"} ${roleIcon} ${String(name).padEnd(24)} ${roleLabel.padEnd(16)} ${agent.state.padEnd(14)} ${duration3(agent.durationMs).padStart(7)}  ${agent.reason}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
   }
-  if ((document.agents ?? []).length === 0) lines.push("(no agents observed in this repository)");
-  lines.push(`- ${document.captures} capture(s), tick ${document.tickMs}ms, ${(document.agents ?? []).filter((a) => a.dispatchable).length} dispatchable`);
-  return lines.join("\n");
+  if ((document.agents ?? []).length === 0) lines2.push("(no agents observed in this repository)");
+  lines2.push(`- ${document.captures} capture(s), tick ${document.tickMs}ms, ${(document.agents ?? []).filter((a) => a.dispatchable).length} dispatchable`);
+  return lines2.join("\n");
 }
 var import_node_os26, import_node_path54, CENSUS_SCHEMA_VERSION, CENSUS_STATES, DEFAULT_STALE_MS, DEFAULT_INTERVAL_MS, DEFAULT_BUDGET, DEFAULT_MEMO_MS, TAIL_LINES, BRAILLE, MARKERS, bindingKey, visualOf, quotaOnly, memoStore, GLYPH;
 var init_census = __esm({
@@ -34856,8 +34878,8 @@ async function appendJournal(runDir, event) {
 async function readJournal(runDir, limit = 50) {
   const path3 = (0, import_node_path55.join)(runDir, JOURNAL_FILE);
   if (!await exists(path3)) return [];
-  const lines = (await (0, import_promises46.readFile)(path3, "utf8")).trim().split(/\r?\n/).filter(Boolean);
-  return lines.slice(-limit).map((line) => {
+  const lines2 = (await (0, import_promises46.readFile)(path3, "utf8")).trim().split(/\r?\n/).filter(Boolean);
+  return lines2.slice(-limit).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -34928,9 +34950,9 @@ function replyFileName(seq, stage) {
   return `${seq}-${stage}.reply.md`;
 }
 function frontmatter(fields) {
-  const lines = Object.entries(fields).filter(([, value]) => value !== void 0 && value !== null && value !== "").map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`);
+  const lines2 = Object.entries(fields).filter(([, value]) => value !== void 0 && value !== null && value !== "").map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`);
   return `---
-${lines.join("\n")}
+${lines2.join("\n")}
 ---
 `;
 }
@@ -35459,9 +35481,9 @@ function composerEmptyStyled(styledLine) {
   return sawGlyph && realAfterGlyph.replace(/[\s ]+/g, "") === "";
 }
 function composerLineOf(styledScreen) {
-  const lines = String(styledScreen ?? "").split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (PROMPT_GLYPH.test(lines[i].replace(SGR, ""))) return lines[i];
+  const lines2 = String(styledScreen ?? "").split(/\r?\n/);
+  for (let i = lines2.length - 1; i >= 0; i -= 1) {
+    if (PROMPT_GLYPH.test(lines2[i].replace(SGR, ""))) return lines2[i];
   }
   return null;
 }
@@ -36322,18 +36344,18 @@ function describe3(record2, { agentId = null, ticket = null, events = [] } = {})
   };
 }
 function formatSlot(view2) {
-  const lines = [];
+  const lines2 = [];
   for (const event of view2.events ?? []) {
-    if (event.type === "granted") lines.push(`SERIAL SLOT GRANTED: ${event.name} to ${event.agent_id} for ${event.reason}${event.why === "lead-override" ? ` (lead override by ${event.by}, jumping ${event.jumped.map((j) => j.ticket).join(", ") || "nobody"})` : ""}`);
-    if (event.type === "released") lines.push(`SERIAL SLOT RELEASED: ${event.name} by ${event.agent_id}`);
-    if (event.type === "vacated") lines.push(`SERIAL SLOT VACATED: ${event.name} from ${event.agent_id} \u2014 pane gone`);
-    if (event.type === "dropped") lines.push(`SERIAL SLOT DROPPED: ${event.name} ticket ${event.ticket} (${event.agent_id}) \u2014 pane gone`);
+    if (event.type === "granted") lines2.push(`SERIAL SLOT GRANTED: ${event.name} to ${event.agent_id} for ${event.reason}${event.why === "lead-override" ? ` (lead override by ${event.by}, jumping ${event.jumped.map((j) => j.ticket).join(", ") || "nobody"})` : ""}`);
+    if (event.type === "released") lines2.push(`SERIAL SLOT RELEASED: ${event.name} by ${event.agent_id}`);
+    if (event.type === "vacated") lines2.push(`SERIAL SLOT VACATED: ${event.name} from ${event.agent_id} \u2014 pane gone`);
+    if (event.type === "dropped") lines2.push(`SERIAL SLOT DROPPED: ${event.name} ticket ${event.ticket} (${event.agent_id}) \u2014 pane gone`);
   }
-  if (view2.you?.status === "queued") lines.push(`SERIAL SLOT REQUEST: ${view2.name} by ${view2.you.agent_id} \u2014 queued at position ${view2.you.position}, ticket ${view2.you.ticket ?? "?"}`);
+  if (view2.you?.status === "queued") lines2.push(`SERIAL SLOT REQUEST: ${view2.name} by ${view2.you.agent_id} \u2014 queued at position ${view2.you.position}, ticket ${view2.you.ticket ?? "?"}`);
   const holder = view2.holder;
-  lines.push(holder ? `${view2.name}: held by ${holder.agent_id} for ${holder.reason} (${Math.round(holder.held_for_ms / 1e3)}s${holder.overdue ? `, OVERDUE past its declared ${Math.round(holder.expect_ms / 1e3)}s \u2014 a long hold is a human's call, never a reclamation` : ""})` : `${view2.name}: free`);
-  for (const entry of view2.queue ?? []) lines.push(`  ${entry.position}. ${entry.agent_id} ticket ${entry.ticket} \u2014 ${entry.reason}`);
-  return lines.join("\n");
+  lines2.push(holder ? `${view2.name}: held by ${holder.agent_id} for ${holder.reason} (${Math.round(holder.held_for_ms / 1e3)}s${holder.overdue ? `, OVERDUE past its declared ${Math.round(holder.expect_ms / 1e3)}s \u2014 a long hold is a human's call, never a reclamation` : ""})` : `${view2.name}: free`);
+  for (const entry of view2.queue ?? []) lines2.push(`  ${entry.position}. ${entry.agent_id} ticket ${entry.ticket} \u2014 ${entry.reason}`);
+  return lines2.join("\n");
 }
 async function notifyGrants(events, { consumer, env = process.env, home = (0, import_node_os29.homedir)() } = {}) {
   const rung = [];
@@ -36784,9 +36806,321 @@ var init_presence = __esm({
   }
 });
 
+// topology/lib/checkout-repair.mjs
+function cleanEnv(extra = {}) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  return { ...env, GIT_TERMINAL_PROMPT: "0", ...extra };
+}
+async function inspectCheckout(dir, { fsck = false, registered = false } = {}) {
+  const path3 = (0, import_node_path59.resolve)(dir);
+  if (!await exists(path3)) return { path: path3, status: "absent" };
+  const dotgit = (0, import_node_path59.join)(path3, ".git");
+  const entry = await (0, import_promises51.lstat)(dotgit).catch(() => null);
+  if (!entry) return { path: path3, status: registered ? "missing-git" : "not-a-checkout" };
+  if (entry.isFile()) {
+    const match = /^gitdir:\s*(.+?)\s*$/m.exec(await (0, import_promises51.readFile)(dotgit, "utf8").catch(() => ""));
+    if (!match) return { path: path3, status: "unreadable", detail: "the .git file is not a gitdir pointer" };
+    const gitdir = (0, import_node_path59.resolve)(path3, match[1]);
+    if (!await exists(gitdir)) {
+      const owner = /^(.*)[/\\]worktrees[/\\][^/\\]+$/.exec(gitdir)?.[1];
+      if (owner && await exists(owner)) return { path: path3, status: "orphaned-worktree", gitdir, detail: `${owner} still exists; run git worktree repair from it` };
+      return { path: path3, status: "dangling-gitdir", gitdir };
+    }
+  }
+  const probe = await git3(["-C", path3, "rev-parse", "--git-dir"], { timeoutMs: 15e3 });
+  if (probe.code !== 0) return { path: path3, status: "unreadable", detail: probe.stderr.trim().slice(-500) };
+  if (fsck) {
+    const check2 = await git3(["-C", path3, "fsck", "--connectivity-only", "--no-dangling", "--no-progress"], { timeoutMs: 12e4 });
+    if (check2.code !== 0 && check2.code !== 124) return { path: path3, status: "corrupt", detail: check2.stderr.trim().slice(-1e3) };
+  }
+  return { path: path3, status: "healthy" };
+}
+function normalizeRemote(value) {
+  const text = String(value ?? "").trim().replace(/^git\+/, "");
+  if (!text) return null;
+  const short = /^(?:github:)?([\w.-]+\/[\w.-]+)$/.exec(text);
+  return short ? `https://github.com/${short[1].replace(/\.git$/, "")}.git` : text;
+}
+async function knownRemote(dir) {
+  const pkg = await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, "bytedesk-package.yaml"), "utf8").catch(() => null);
+  if (pkg !== null) {
+    let parsed2 = null;
+    try {
+      parsed2 = JSON.parse(pkg);
+    } catch {
+    }
+    const value2 = parsed2 ? parsed2.spec?.repository ?? parsed2.repository : /^\s*"?repository"?\s*:\s*["']?([^"'\s,]+)/m.exec(pkg)?.[1];
+    const remote2 = normalizeRemote(typeof value2 === "object" ? value2?.url : value2);
+    if (remote2) return { remote: remote2, source: "bytedesk-package.yaml" };
+  }
+  const json5 = await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, "package.json"), "utf8").then(JSON.parse).catch(() => null);
+  const value = json5?.repository;
+  const remote = normalizeRemote(typeof value === "object" ? value?.url : value);
+  return remote ? { remote, source: "package.json" } : null;
+}
+async function differences({ gitDir, dir, rev, index }) {
+  await (0, import_promises51.rm)(index, { force: true });
+  const env = { GIT_INDEX_FILE: index };
+  const base = [`--git-dir=${gitDir}`, `--work-tree=${dir}`];
+  if ((await git3([...base, "read-tree", rev], { env })).code !== 0) return null;
+  await git3([...base, "update-index", "-q", "--refresh"], { env, timeoutMs: 3e5 });
+  const changed = await git3([...base, "diff-files", "--name-only"], { env, timeoutMs: 3e5 });
+  const untracked = await git3([...base, "ls-files", "--others", "--exclude-standard"], { env, timeoutMs: 3e5 });
+  if (changed.code !== 0 || untracked.code !== 0) return null;
+  return lines(changed.stdout).length + lines(untracked.stdout).length;
+}
+async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, maxCommits }) {
+  const tags = lines((await git3([`--git-dir=${gitDir}`, "for-each-ref", "--sort=-creatordate", `--count=${maxTags}`, "--format=%(refname:short)", "refs/tags"])).stdout);
+  const commits = lines((await git3([`--git-dir=${gitDir}`, "rev-list", `--max-count=${maxCommits}`, `origin/${defaultBranch}`])).stdout);
+  const candidates = [], seenTrees = /* @__PURE__ */ new Set();
+  for (const label of [...tags, ...commits]) {
+    const resolved = lines((await git3([`--git-dir=${gitDir}`, "rev-parse", `${label}^{commit}`, `${label}^{tree}`])).stdout);
+    if (resolved.length !== 2 || seenTrees.has(resolved[1])) continue;
+    seenTrees.add(resolved[1]);
+    candidates.push({ rev: resolved[0], label });
+  }
+  let best = null;
+  for (const candidate of candidates) {
+    const count = await differences({ gitDir, dir, rev: candidate.rev, index: (0, import_node_path59.join)(scratch, "match.index") });
+    if (count === null) continue;
+    if (!best || count < best.differences) best = { ...candidate, differences: count };
+    if (count === 0) break;
+  }
+  return { best, examined: candidates.length };
+}
+async function collisions(dir, from, to) {
+  const added = (await git3(["-C", dir, "diff", "--no-renames", "--name-only", "-z", "--diff-filter=A", from, to])).stdout.split("\0").filter(Boolean);
+  const hits = [];
+  for (const path3 of added) {
+    const parts = path3.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      if (await (0, import_promises51.lstat)((0, import_node_path59.join)(dir, ...parts.slice(0, i))).then((s) => i === parts.length || !s.isDirectory(), () => false)) {
+        hits.push(path3);
+        break;
+      }
+    }
+  }
+  return hits;
+}
+async function stashSha(dir) {
+  const r = await git3(["-C", dir, "rev-parse", "-q", "--verify", "refs/stash"]);
+  return r.code === 0 ? r.stdout.trim() : null;
+}
+async function dropStash(dir, sha2) {
+  const index = lines((await git3(["-C", dir, "stash", "list", "--format=%H"])).stdout).indexOf(sha2);
+  if (index >= 0) await git3(["-C", dir, "stash", "drop", "-q", `stash@{${index}}`]);
+}
+async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, stamp }) {
+  const origin = await knownRemote(dir);
+  if (!origin) throw new Refusal("TOPOLOGY_CHECKOUT_NO_REMOTE", `${dir} is a broken checkout and names no repository in bytedesk-package.yaml or package.json, so there is nothing to restore it from.`);
+  const scratch = await (0, import_promises51.mkdtemp)((0, import_node_path59.join)((0, import_node_path59.dirname)(dir), `.${(0, import_node_path59.basename)(dir)}.ao-repair-`)).catch((error51) => {
+    throw new Refusal("TOPOLOGY_CHECKOUT_SCRATCH_FAILED", `cannot create a scratch directory beside ${dir}: ${error51.message}`);
+  });
+  let keepScratch = false;
+  try {
+    const clone3 = (0, import_node_path59.join)(scratch, "clone"), cloneGit = (0, import_node_path59.join)(clone3, ".git");
+    const cloned = await git3(["clone", "--no-checkout", "--quiet", origin.remote, clone3], { timeoutMs: 6e5 });
+    if (cloned.code !== 0) throw new Refusal("TOPOLOGY_CHECKOUT_CLONE_FAILED", `cloning ${origin.remote} failed: ${cloned.stderr.trim().slice(-500)}`, { remote: origin.remote });
+    const head = (await git3([`--git-dir=${cloneGit}`, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).stdout.trim();
+    const defaultBranch = head.replace(/^origin\//, "");
+    if (!defaultBranch) throw new Refusal("TOPOLOGY_CHECKOUT_NO_DEFAULT_BRANCH", `${origin.remote} has no default branch`, { remote: origin.remote });
+    const { best, examined } = await closestRevision({ gitDir: cloneGit, dir, scratch, defaultBranch, maxTags, maxCommits });
+    if (!best || best.differences > maxDifferences) {
+      throw new Refusal(
+        "TOPOLOGY_CHECKOUT_NO_CLOSE_REVISION",
+        `no revision of ${origin.remote} is within ${maxDifferences} differing paths of ${dir} (closest: ${best ? `${best.label} with ${best.differences}` : "none"}, ${examined} examined); refusing to guess.`,
+        { remote: origin.remote, closest: best, examined }
+      );
+    }
+    let oldPointer = null;
+    if (found.status === "dangling-gitdir") {
+      oldPointer = (0, import_node_path59.join)(dir, ".git", `ao-repair-old-git-pointer-${stamp}`);
+      await (0, import_promises51.writeFile)((0, import_node_path59.join)(cloneGit, (0, import_node_path59.basename)(oldPointer)), await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, ".git")));
+      await (0, import_promises51.rename)((0, import_node_path59.join)(dir, ".git"), (0, import_node_path59.join)(scratch, "old-git-pointer"));
+    }
+    try {
+      await (0, import_promises51.rename)(cloneGit, (0, import_node_path59.join)(dir, ".git"));
+    } catch (error51) {
+      if (oldPointer) await (0, import_promises51.rename)((0, import_node_path59.join)(scratch, "old-git-pointer"), (0, import_node_path59.join)(dir, ".git")).catch(() => {
+        keepScratch = true;
+      });
+      throw new Refusal("TOPOLOGY_CHECKOUT_ADOPT_FAILED", `could not move the restored .git into ${dir}: ${error51.message}`, { remote: origin.remote, kept_scratch: keepScratch ? scratch : null });
+    }
+    const g = (...args) => git3(["-C", dir, ...args], { timeoutMs: 3e5 });
+    const mixed = await g("reset", "--mixed", "-q", best.rev);
+    if (mixed.code !== 0) {
+      throw new Refusal(
+        "TOPOLOGY_CHECKOUT_RESET_FAILED",
+        `the restored .git is in place in ${dir}, but reset --mixed to ${best.label} failed (${mixed.stderr.trim()}); nothing else was changed.`,
+        { remote: origin.remote, matched: best, repaired_git: true }
+      );
+    }
+    const snapEnv = { GIT_INDEX_FILE: (0, import_node_path59.join)(scratch, "snapshot.index") };
+    await git3(["-C", dir, "read-tree", best.rev], { env: snapEnv });
+    await git3(["-C", dir, "add", "-A"], { env: snapEnv, timeoutMs: 3e5 });
+    const tree = (await git3(["-C", dir, "write-tree"], { env: snapEnv })).stdout.trim();
+    const snapshot = tree ? (await g("commit-tree", tree, "-p", best.rev, "-m", `ao-repair ${stamp}: working tree as found in ${dir}`)).stdout.trim() : "";
+    const backupBranch = `ao-repair/${stamp}`;
+    const branched = snapshot ? await g("branch", backupBranch, snapshot) : { code: 1, stderr: "no snapshot commit" };
+    if (branched.code !== 0) {
+      throw new Refusal(
+        "TOPOLOGY_CHECKOUT_SNAPSHOT_FAILED",
+        `the restored repository is in place at ${best.label}, but the working-tree snapshot failed (${branched.stderr.trim()}); the tree was not advanced.`,
+        { remote: origin.remote, matched: best, repaired_git: true }
+      );
+    }
+    const result2 = {
+      remote: origin.remote,
+      remote_source: origin.source,
+      matched: best,
+      examined,
+      default_branch: defaultBranch,
+      backup_branch: backupBranch,
+      snapshot,
+      old_pointer: oldPointer,
+      stash: null,
+      advance: "done"
+    };
+    const before = await stashSha(dir);
+    const pushed = await g("stash", "push", "-u", "-q", "-m", `ao-repair ${stamp}: local edits against ${best.label}`);
+    if (pushed.code !== 0) {
+      throw new Refusal(
+        "TOPOLOGY_CHECKOUT_STASH_FAILED",
+        `the restored repository is in place at ${best.label} with every local edit on disk and in ${backupBranch}, but stashing failed (${pushed.stderr.trim()}); the tree was not advanced.`,
+        { ...result2, repaired_git: true }
+      );
+    }
+    const after = await stashSha(dir);
+    const created = after && after !== before ? after : null;
+    const blocked = await collisions(dir, best.rev, `origin/${defaultBranch}`);
+    if (blocked.length) Object.assign(result2, { advance: "skipped-ignored-collision", collisions: blocked.slice(0, 20) });
+    else await g("reset", "--hard", "-q", `origin/${defaultBranch}`);
+    if (created) {
+      const applied = await g("stash", "apply", "-q", created);
+      const unmerged = lines((await g("diff", "--name-only", "--diff-filter=U")).stdout);
+      if (applied.code === 0 && !unmerged.length) {
+        await dropStash(dir, created);
+        result2.stash = { sha: created, state: "applied" };
+      } else {
+        await g("reset", "--hard", "-q", result2.advance === "done" ? `origin/${defaultBranch}` : best.rev);
+        result2.stash = { sha: created, state: "kept", conflicts: unmerged.slice(0, 20), message: applied.stderr.trim().slice(-500) };
+      }
+    }
+    result2.head = (await g("rev-parse", "HEAD")).stdout.trim();
+    return result2;
+  } finally {
+    if (!keepScratch) await (0, import_promises51.rm)(scratch, { recursive: true, force: true });
+  }
+}
+async function repairCheckout({
+  dir,
+  registered = false,
+  fsck = false,
+  env = process.env,
+  home = (0, import_node_os31.homedir)(),
+  now = Date.now,
+  maxDifferences = DEFAULT_MAX_DIFFERENCES,
+  maxTags = 50,
+  maxCommits = 200,
+  ensureLead: ensureLead2 = recoverLead
+}) {
+  const path3 = await (0, import_promises51.realpath)((0, import_node_path59.resolve)(dir)).catch(() => (0, import_node_path59.resolve)(dir));
+  const lock = (0, import_node_path59.join)(leadRegistryDir(env, home), `${repoKey(`checkout:${path3}`)}.checkout-repair.lock`);
+  try {
+    return await withLock(lock, async () => {
+      const found = await inspectCheckout(path3, { fsck, registered });
+      if (["healthy", "absent", "not-a-checkout"].includes(found.status)) return { action: found.status, path: path3 };
+      const prior = await readCheckoutRepair({ consumer: path3, env, home });
+      const at = now();
+      if (prior?.action === "refused" && prior.next_retry_at && at < Date.parse(prior.next_retry_at)) return { ...prior, action: "backoff", status: found.status };
+      const stamp = new Date(at).toISOString().replace(/[:.]/g, "-");
+      let entry;
+      try {
+        if (!REPAIRABLE.has(found.status)) {
+          throw new Refusal("TOPOLOGY_CHECKOUT_NOT_REPAIRABLE", `${path3} is ${found.status}${found.detail ? ` (${found.detail})` : ""}; this needs a human, so nothing was changed.`);
+        }
+        entry = {
+          action: "repaired",
+          path: path3,
+          status: found.status,
+          ...found.gitdir ? { gitdir: found.gitdir } : {},
+          ...await performRepair({ found, dir: path3, maxDifferences, maxTags, maxCommits, stamp }),
+          alert: null,
+          at: nowIso()
+        };
+      } catch (error51) {
+        if (!(error51 instanceof Refusal)) throw error51;
+        const attempts = prior?.action === "refused" ? (prior.attempts ?? 0) + 1 : 1;
+        entry = {
+          action: "refused",
+          path: path3,
+          status: found.status,
+          ...found.gitdir ? { gitdir: found.gitdir } : {},
+          ...error51.extra,
+          attempts,
+          next_retry_at: new Date(at + retryDelayMs(attempts)).toISOString(),
+          alert: { code: error51.code, path: path3, message: error51.message },
+          at: nowIso()
+        };
+      }
+      await recordCheckoutRepair({ consumer: path3, entry, env, home });
+      if (entry.action === "repaired" && ensureLead2) {
+        entry.lead = await ensureLead2({ consumer: path3, env, home }).catch((error51) => ({ action: "failed", last_error: `${error51?.code ?? "ERROR"}: ${error51?.message ?? error51}` }));
+      }
+      return entry;
+    }, { timeoutMs: 5e3 });
+  } catch (error51) {
+    if (error51?.code === "TOPOLOGY_LOCK_TIMEOUT") return { action: "busy", path: path3 };
+    throw error51;
+  }
+}
+async function registeredRoots(env, home) {
+  return (await readServiceRepos(env, home)).map((repo) => (0, import_node_path59.resolve)(repo.consumer));
+}
+async function checkoutRoot(consumer, { env = process.env, home = (0, import_node_os31.homedir)() } = {}) {
+  const start2 = (0, import_node_path59.resolve)(consumer), roots = await registeredRoots(env, home);
+  for (let dir = start2; ; dir = (0, import_node_path59.dirname)(dir)) {
+    if (await (0, import_promises51.lstat)((0, import_node_path59.join)(dir, ".git")).then(() => true, () => false)) return { dir, registered: roots.includes(dir) };
+    if ((0, import_node_path59.dirname)(dir) === dir) break;
+  }
+  const root = roots.filter((r) => start2 === r || start2.startsWith(`${r}${import_node_path59.sep}`)).sort((a, b) => b.length - a.length)[0];
+  return root ? { dir: root, registered: true } : null;
+}
+async function repairConsumerCheckout({ consumer, ...options }) {
+  const root = await checkoutRoot(consumer, options);
+  if (!root) return { action: "not-a-checkout", path: (0, import_node_path59.resolve)(consumer) };
+  return repairCheckout({ ...options, dir: root.dir, registered: root.registered });
+}
+var import_promises51, import_node_os31, import_node_path59, DEFAULT_MAX_DIFFERENCES, REPAIRABLE, IDENTITY, git3, lines, Refusal;
+var init_checkout_repair = __esm({
+  "topology/lib/checkout-repair.mjs"() {
+    import_promises51 = require("node:fs/promises");
+    import_node_os31 = require("node:os");
+    import_node_path59 = require("node:path");
+    init_lead();
+    init_lead_recovery();
+    init_lockfile();
+    init_repoid();
+    init_services_client();
+    init_util();
+    DEFAULT_MAX_DIFFERENCES = 50;
+    REPAIRABLE = /* @__PURE__ */ new Set(["dangling-gitdir", "missing-git"]);
+    IDENTITY = ["-c", "user.name=agent-orchestration", "-c", "user.email=agent-orchestration@localhost", "-c", "core.hooksPath=/dev/null"];
+    git3 = (args, { env = {}, timeoutMs = 12e4 } = {}) => run("git", [...IDENTITY, ...args], { env: cleanEnv(env), allowFailure: true, timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+    lines = (text) => text.split("\n").map((line) => line.trim()).filter(Boolean);
+    Refusal = class extends Error {
+      constructor(code, message, extra = {}) {
+        super(message);
+        this.code = code;
+        this.extra = extra;
+      }
+    };
+  }
+});
+
 // topology/lib/nats-outage.mjs
 function canReach(url2, timeoutMs = 1e3) {
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     let target;
     try {
       if (String(url2).startsWith("/")) target = { path: url2 };
@@ -36795,24 +37129,24 @@ function canReach(url2, timeoutMs = 1e3) {
         target = { host: parsed2.hostname, port: Number(parsed2.port) || 4222 };
       }
     } catch {
-      resolve21(false);
+      resolve22(false);
       return;
     }
     const socket = import_node_net3.default.connect(target, () => {
       socket.destroy();
-      resolve21(true);
+      resolve22(true);
     });
-    socket.once("error", () => resolve21(false));
+    socket.once("error", () => resolve22(false));
     socket.setTimeout(timeoutMs, () => {
       socket.destroy();
-      resolve21(false);
+      resolve22(false);
     });
   });
 }
 async function natsOutageTick({
   consumer,
   env = process.env,
-  home = (0, import_node_os31.homedir)(),
+  home = (0, import_node_os32.homedir)(),
   deliver = sendStandingMessage,
   lead = readLeadRegistration,
   reachable = canReach,
@@ -36857,21 +37191,21 @@ async function natsOutageTick({
   if (!leadId) return { kind, status: "skipped", reason: "no lead is registered for this repository" };
   const where = `${outage.url} (${outage.source})`;
   const body = kind === "outage" && outage.conflict ? [
-    `NATS PORT CONFLICT on ${(0, import_node_os31.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
+    `NATS PORT CONFLICT on ${(0, import_node_os32.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`
   ] : kind === "outage" ? [
-    `NATS OUTAGE on ${(0, import_node_os31.hostname)()}: the configured NATS ${where} is unreachable.`,
+    `NATS OUTAGE on ${(0, import_node_os32.hostname)()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `Fallback: ao is working on the managed local NATS ${state.url ?? "on this host"}. Work on this host continues, but agents on other machines that use ${outage.url} do not see this host's mail, claims or presence until it is back.`,
     `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. You will get one more message when it answers again.`
   ] : kind === "retired" ? [
-    `NATS OUTAGE RETIRED on ${(0, import_node_os31.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
+    `NATS OUTAGE RETIRED on ${(0, import_node_os32.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
     `It was not proven reachable. ao is on ${state.url} (${state.source}). The outage began ${outage.since}: ${outage.error}`
   ] : [
-    `NATS RECOVERED on ${(0, import_node_os31.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
+    `NATS RECOVERED on ${(0, import_node_os32.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
     `The outage began ${outage.since}: ${outage.error}`
   ];
   return deliver({
@@ -36885,11 +37219,11 @@ async function natsOutageTick({
     provenance: { source: "ao-topology supervise" }
   }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto33, import_node_os31, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
+var import_node_crypto33, import_node_os32, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto33 = require("node:crypto");
-    import_node_os31 = require("node:os");
+    import_node_os32 = require("node:os");
     import_node_net3 = __toESM(require("node:net"), 1);
     init_repoid();
     init_orch_transport();
@@ -36918,7 +37252,7 @@ __export(supervision_exports, {
 async function sourceIdentity() {
   const implementation = (0, import_node_url6.fileURLToPath)(__aoImportMetaUrl);
   const source_entrypoint = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
-  const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises51.readFile)(source_entrypoint), (0, import_promises51.readFile)(implementation)]);
+  const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises52.readFile)(source_entrypoint), (0, import_promises52.readFile)(implementation)]);
   return { source_entrypoint, source_fingerprint: (0, import_node_crypto34.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
 }
 function nextRung(rung, activity) {
@@ -36932,16 +37266,17 @@ function reconcileFloor(env, override) {
 async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {
 }, onOwned = () => {
 }, sleepFn = sleep } = {}) {
-  const { env = process.env, home = (0, import_node_os32.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os33.homedir)() } = options;
+  const checkout = await repairConsumerCheckout({ consumer: options.consumer, env, home, fsck: true }).catch((error51) => ({ action: "failed", error: error51?.code ?? String(error51) }));
   const consumer = await repositoryConsumer(options.consumer);
   options = { ...options, consumer };
-  const identity = await canonicalRepoId(consumer), root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision");
+  const identity = await canonicalRepoId(consumer), root = (0, import_node_path60.join)(stateRoot2(env, home), "supervision");
   const key = repoKey(identity.id);
   const floorMs = reconcileFloor(env, reconcileMinMs);
   let ownedToken = null;
-  return withLock((0, import_node_path59.join)(root, `${key}.lock`), async (ownership) => {
+  return withLock((0, import_node_path60.join)(root, `${key}.lock`), async (ownership) => {
     ownedToken = ownership.token;
-    const recordPath2 = (0, import_node_path59.join)(root, `${key}.process.json`);
+    const recordPath2 = (0, import_node_path60.join)(root, `${key}.process.json`);
     if (!once) {
       const prior = await readJson3(recordPath2).catch(() => null);
       const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
@@ -36953,7 +37288,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         consumer,
         started_at: (/* @__PURE__ */ new Date()).toISOString(),
         restarts,
-        log: prior?.log ?? (0, import_node_path59.join)(root, `${key}.log`),
+        log: prior?.log ?? (0, import_node_path60.join)(root, `${key}.log`),
         state: "starting",
         ...await sourceIdentity()
       });
@@ -36983,12 +37318,13 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
             return;
           }
           degradedBeats++;
-          await (0, import_promises52.setTimeout)(producer.publishIntervalMs, void 0, { signal: controller.signal }).catch(() => {
+          await (0, import_promises53.setTimeout)(producer.publishIntervalMs, void 0, { signal: controller.signal }).catch(() => {
           });
         }
       }
     })();
     const adapters = await loadAdapters(options.providerDirs ?? providerDirs(options)).catch(() => null);
+    let checkoutReport = checkout;
     const censusMemo = /* @__PURE__ */ new Map();
     let censusRoster = [], censusRunDirs = [], censusPanes, census = null;
     let censusRunDirByAgent = /* @__PURE__ */ new Map();
@@ -37021,21 +37357,21 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       const listing = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], { allowFailure: true });
       const roots = /* @__PURE__ */ new Set([consumer, ...listing.stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9))]);
       const runDirs = [], runDirByAgent = /* @__PURE__ */ new Map();
-      const runRoots = new Map([...roots].map((checkout) => [(0, import_node_path59.join)(checkout, ".bytedesk/agent-orchestration/runs"), checkout]));
+      const runRoots = new Map([...roots].map((checkout2) => [(0, import_node_path60.join)(checkout2, ".bytedesk/agent-orchestration/runs"), checkout2]));
       runRoots.set(durableTopologyRoot({ id: identity.id, key }, { stateHome: stateRoot2(env, home) }), consumer);
-      for (const [runsRoot, checkout] of runRoots) {
-        for (const name of await (0, import_promises51.readdir)(runsRoot).catch(() => [])) {
-          const runDir = (0, import_node_path59.join)(runsRoot, name), runRecord = await readJson3((0, import_node_path59.join)(runDir, "run.json")).catch(() => null);
-          if (!runRecord || (runRecord.repository?.id ?? (await canonicalRepoId(runRecord.consumer || checkout)).id) !== identity.id) continue;
+      for (const [runsRoot, checkout2] of runRoots) {
+        for (const name of await (0, import_promises52.readdir)(runsRoot).catch(() => [])) {
+          const runDir = (0, import_node_path60.join)(runsRoot, name), runRecord = await readJson3((0, import_node_path60.join)(runDir, "run.json")).catch(() => null);
+          if (!runRecord || (runRecord.repository?.id ?? (await canonicalRepoId(runRecord.consumer || checkout2)).id) !== identity.id) continue;
           runDirs.push(runDir);
           for (const entry of runRecord.agents || []) {
             runDirByAgent.set(entry.id, runDir);
             if (!entry.binding || !panes.some((p) => p.alive && ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"].every((k) => p[k] === entry.binding[k]))) continue;
-            const dir = (0, import_node_path59.join)(runDir, "agents", entry.id), definition = await readJson3((0, import_node_path59.join)(dir, "prompt-agent.json")).catch(() => null);
+            const dir = (0, import_node_path60.join)(runDir, "agents", entry.id), definition = await readJson3((0, import_node_path60.join)(dir, "prompt-agent.json")).catch(() => null);
             if (!definition) continue;
             prompts.push({ agent: entry.id, run: runRecord.run_id, state: await refreshPrompt({
               ...options,
-              consumer: await exists(runRecord.consumer || checkout) ? runRecord.consumer || checkout : consumer,
+              consumer: await exists(runRecord.consumer || checkout2) ? runRecord.consumer || checkout2 : consumer,
               agent: { ...definition, _dir: dir },
               live: true,
               session: runRecord.session ?? null,
@@ -37048,6 +37384,12 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       censusRunDirByAgent = runDirByAgent;
       if (heartbeatError) throw heartbeatError;
       const snapshot = latest || await producer.publish();
+      const broken = (await inspectCheckout(consumer)).status;
+      if (["dangling-gitdir", "orphaned-worktree", "unreadable"].includes(broken)) {
+        const repaired = await repairConsumerCheckout({ consumer, env, home }).catch((error51) => ({ action: "failed", error: error51?.code ?? String(error51) }));
+        if (repaired.action === "repaired" && !once) throw Object.assign(new Error(`checkout ${consumer} was repaired; restarting to supervise the repaired repository`), { code: "TOPOLOGY_CHECKOUT_REPAIRED" });
+        checkoutReport = repaired;
+      }
       const recovery = await recoverLead(options).catch((error51) => ({ action: "failed", attempts: null, last_error: error51?.code ?? String(error51), next_retry_at: null }));
       const resumed = await resumeStandingMessages(options);
       const natsOutage = await natsOutageTick({ ...options, env, home }).catch((error51) => ({ status: "failed", reason: error51?.code ?? String(error51) }));
@@ -37069,12 +37411,13 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         ...goalLoops.length ? { goal_loops: goalLoops } : {},
         // Only when there is something to say, like slots and quota: a healthy lead adds no key.
         ...launched || recovery.alert || recovery.woken || recovery.attempts !== 0 ? { lead_recovery: recovery } : {},
+        ...checkoutReport && !["healthy", "not-a-checkout", "absent"].includes(checkoutReport.action) ? { checkout: checkoutReport } : {},
         transport,
         ...natsOutage ? { nats_outage: natsOutage } : {}
       };
       report.reviews = await collectPendingReviews(options).catch((error51) => [{ state: "collection-failed", reason: error51.code ?? error51.message }]);
-      await writeJson((0, import_node_path59.join)(root, `${key}.json`), report);
-      if (!once) await promoteRecord((0, import_node_path59.join)(root, `${key}.process.json`));
+      await writeJson((0, import_node_path60.join)(root, `${key}.json`), report);
+      if (!once) await promoteRecord((0, import_node_path60.join)(root, `${key}.process.json`));
       return { report, activity };
     };
     try {
@@ -37082,7 +37425,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       do {
         if (heartbeatError) throw heartbeatError;
         if (!await exists(consumer)) {
-          if (!once) await retireRecord((0, import_node_path59.join)(root, `${key}.process.json`));
+          if (!once) await retireRecord((0, import_node_path60.join)(root, `${key}.process.json`));
           report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, stopped: "consumer-gone" };
           await onTick(report);
           return report;
@@ -37162,7 +37505,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         if (transportFailures) report = { ...report, transport_failures: transportFailures, transport_error: transportError };
         await onTick(report);
         if (once || signal?.aborted) return report;
-        if (sleepFn === sleep) await (0, import_promises52.setTimeout)(sleepMs, void 0, { signal: controller.signal }).catch((error51) => {
+        if (sleepFn === sleep) await (0, import_promises53.setTimeout)(sleepMs, void 0, { signal: controller.signal }).catch((error51) => {
           if (error51.name !== "AbortError") throw error51;
         });
         else await sleepFn(sleepMs);
@@ -37176,7 +37519,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
     }
   }, { timeoutMs: 100, timeoutCode: "TOPOLOGY_SUPERVISION_OWNED" }).catch(async (error51) => {
     if (!once && ownedToken) {
-      const path3 = (0, import_node_path59.join)(root, `${key}.process.json`), record2 = await readJson3(path3).catch(() => null);
+      const path3 = (0, import_node_path60.join)(root, `${key}.process.json`), record2 = await readJson3(path3).catch(() => null);
       if (record2?.pid === process.pid && record2.lock_token === ownedToken) {
         await writeJson(path3, { ...record2, state: record2.first_tick_at ? "failed" : "startup-failed", stopped_at: (/* @__PURE__ */ new Date()).toISOString(), failure: { code: error51.code ?? "SUPERVISOR_FAILED", message: String(error51.message).slice(0, 2e3) } });
       }
@@ -37209,13 +37552,13 @@ function pidAlive(pid) {
     return true;
   }
 }
-async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os32.homedir)() } = {}) {
+async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os33.homedir)() } = {}) {
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
-  const root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision");
-  const owner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
-  const recordPath2 = (0, import_node_path59.join)(root, `${key}.process.json`);
+  const root = (0, import_node_path60.join)(stateRoot2(env, home), "supervision");
+  const owner = await lockOwner((0, import_node_path60.join)(root, `${key}.lock`));
+  const recordPath2 = (0, import_node_path60.join)(root, `${key}.process.json`);
   const record2 = await readJson3(recordPath2).catch(() => null);
-  const tick = await readJson3((0, import_node_path59.join)(root, `${key}.json`)).catch(() => null);
+  const tick = await readJson3((0, import_node_path60.join)(root, `${key}.json`)).catch(() => null);
   const at = tick?.at ? Date.parse(tick.at) : NaN;
   const alive2 = record2 ? pidAlive(record2.pid) : false;
   const ownerIdentity = owner?.pid ? await processIdentity(owner.pid) : null;
@@ -37244,7 +37587,7 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
     restarts: record2?.restarts ?? 0,
     ready: state === "running" && Number.isFinite(at) && Date.now() - at <= Math.max(3e4, 3 * (tick?.reconcile_min_ms ?? reconcileFloor(env))),
     failure: record2?.failure ?? null,
-    log: record2?.log ?? (0, import_node_path59.join)(root, `${key}.log`),
+    log: record2?.log ?? (0, import_node_path60.join)(root, `${key}.log`),
     last_tick_at: tick?.at ?? null,
     tick_age_ms: Number.isFinite(at) ? Date.now() - at : null,
     reconcile_min_ms: tick?.reconcile_min_ms ?? reconcileFloor(env),
@@ -37252,14 +37595,14 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
   };
 }
 async function startRepositorySupervision(options) {
-  const { env = process.env, home = (0, import_node_os32.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os33.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   const startTimeoutRaw = options.startTimeoutMs ?? env.AO_SUPERVISION_START_TIMEOUT_MS;
   const startTimeoutMs = Number.isFinite(Number(startTimeoutRaw)) && Number(startTimeoutRaw) > 0 ? Number(startTimeoutRaw) : DEFAULT_START_TIMEOUT_MS;
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
-  const root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision"), recordPath2 = (0, import_node_path59.join)(root, `${key}.process.json`), logPath = (0, import_node_path59.join)(root, `${key}.log`);
-  return withLock((0, import_node_path59.join)(root, `${key}.start.lock`), async () => {
-    const owner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
+  const root = (0, import_node_path60.join)(stateRoot2(env, home), "supervision"), recordPath2 = (0, import_node_path60.join)(root, `${key}.process.json`), logPath = (0, import_node_path60.join)(root, `${key}.log`);
+  return withLock((0, import_node_path60.join)(root, `${key}.start.lock`), async () => {
+    const owner = await lockOwner((0, import_node_path60.join)(root, `${key}.lock`));
     if (owner?.pid && await processIdentity(owner.pid) === owner.process_identity) {
       const status = await supervisionStatus({ consumer, env, home });
       return { ...await readJson3(recordPath2).catch(() => owner), consumer, repo_id: identity.id, state: status.state, ready: status.ready };
@@ -37277,21 +37620,21 @@ async function startRepositorySupervision(options) {
         const published = await readJson3(recordPath2).catch(() => null);
         return { ...published, consumer, repo_id: identity.id, state: status.state, ready: status.ready, first_tick_at: status.first_tick_at, managed_by: "process-compose" };
       }
-      await (0, import_promises51.mkdir)(root, { recursive: true });
-      await writeJson((0, import_node_path59.join)(root, `${key}.services-fallback.json`), { at: (/* @__PURE__ */ new Date()).toISOString(), error: ensured.error ?? null, code: ensured.code ?? null });
+      await (0, import_promises52.mkdir)(root, { recursive: true });
+      await writeJson((0, import_node_path60.join)(root, `${key}.services-fallback.json`), { at: (/* @__PURE__ */ new Date()).toISOString(), error: ensured.error ?? null, code: ensured.code ?? null });
     }
     const prior = await readJson3(recordPath2).catch((error51) => {
       if (error51.code === "ENOENT") return null;
       throw error51;
     });
     const cli = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
-    await (0, import_promises51.mkdir)(root, { recursive: true });
-    const log = await (0, import_promises51.open)(logPath, "a");
+    await (0, import_promises52.mkdir)(root, { recursive: true });
+    const log = await (0, import_promises52.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
       const child = (0, import_node_child_process14.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
-      await new Promise((resolve21, reject) => {
-        child.once("spawn", resolve21);
+      await new Promise((resolve22, reject) => {
+        child.once("spawn", resolve22);
         child.once("error", reject);
       });
       await log.write(`
@@ -37301,7 +37644,7 @@ async function startRepositorySupervision(options) {
       child.unref();
       const deadline = Date.now() + startTimeoutMs;
       while (Date.now() <= deadline) {
-        const winner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
+        const winner = await lockOwner((0, import_node_path60.join)(root, `${key}.lock`));
         if (winner?.pid && await processIdentity(winner.pid) === winner.process_identity) {
           const published2 = await readJson3(recordPath2).catch(() => null);
           const status = await supervisionStatus({ consumer, env, home });
@@ -37313,23 +37656,23 @@ async function startRepositorySupervision(options) {
       const published = await readJson3(recordPath2).catch(() => null);
       if (published?.pid === child.pid) return { ...published, ready: false };
       const failure = { ...record2, ready: false, state: pidAlive(child.pid) ? "spawned-awaiting-lock" : "died-before-first-tick" };
-      await writeJson((0, import_node_path59.join)(root, `${key}.startup-${child.pid}.json`), failure);
+      await writeJson((0, import_node_path60.join)(root, `${key}.startup-${child.pid}.json`), failure);
       return failure;
     } finally {
       await log.close();
     }
   });
 }
-var import_node_path59, import_node_crypto34, import_node_child_process14, import_node_url6, import_node_os32, import_promises51, import_promises52, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path60, import_node_crypto34, import_node_child_process14, import_node_url6, import_node_os33, import_promises52, import_promises53, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
-    import_node_path59 = require("node:path");
+    import_node_path60 = require("node:path");
     import_node_crypto34 = require("node:crypto");
     import_node_child_process14 = require("node:child_process");
     import_node_url6 = require("node:url");
-    import_node_os32 = require("node:os");
-    import_promises51 = require("node:fs/promises");
-    import_promises52 = require("node:timers/promises");
+    import_node_os33 = require("node:os");
+    import_promises52 = require("node:fs/promises");
+    import_promises53 = require("node:timers/promises");
     init_presence();
     init_census();
     init_providers();
@@ -37341,6 +37684,7 @@ var init_supervision = __esm({
     init_prompt_lifecycle();
     init_standing_mailbox();
     init_lead_recovery();
+    init_checkout_repair();
     init_reviewer();
     init_goal_loop();
     init_slots();
@@ -42420,14 +42764,14 @@ function toDotPath(_path) {
   return segs.join("");
 }
 function prettifyError(error51) {
-  const lines = [];
+  const lines2 = [];
   const issues = [...error51.issues].sort((a, b) => (a.path ?? []).length - (b.path ?? []).length);
   for (const issue2 of issues) {
-    lines.push(`\u2716 ${issue2.message}`);
+    lines2.push(`\u2716 ${issue2.message}`);
     if (issue2.path?.length)
-      lines.push(`  \u2192 at ${toDotPath(issue2.path)}`);
+      lines2.push(`  \u2192 at ${toDotPath(issue2.path)}`);
   }
-  return lines.join("\n");
+  return lines2.join("\n");
 }
 
 // node_modules/zod/v4/core/parse.js
@@ -43245,9 +43589,9 @@ var Doc = class {
       return;
     }
     const content = arg;
-    const lines = content.split("\n").filter((x) => x);
-    const minIndent = Math.min(...lines.map((x) => x.length - x.trimStart().length));
-    const dedented = lines.map((x) => x.slice(minIndent)).map((x) => " ".repeat(this.indent * 2) + x);
+    const lines2 = content.split("\n").filter((x) => x);
+    const minIndent = Math.min(...lines2.map((x) => x.length - x.trimStart().length));
+    const dedented = lines2.map((x) => x.slice(minIndent)).map((x) => " ".repeat(this.indent * 2) + x);
     for (const line of dedented) {
       this.content.push(line);
     }
@@ -43256,8 +43600,8 @@ var Doc = class {
     const F = Function;
     const args = this?.args;
     const content = this?.content ?? [``];
-    const lines = [...content.map((x) => `  ${x}`)];
-    return new F(...args, lines.join("\n"));
+    const lines2 = [...content.map((x) => `  ${x}`)];
+    return new F(...args, lines2.join("\n"));
   }
 };
 
@@ -59321,7 +59665,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve21) => setTimeout(resolve21, pollInterval));
+        await new Promise((resolve22) => setTimeout(resolve22, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error51) {
@@ -59338,7 +59682,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve21, reject) => {
+    return new Promise((resolve22, reject) => {
       const earlyReject = (error51) => {
         reject(error51);
       };
@@ -59416,7 +59760,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve21(parseResult.data);
+            resolve22(parseResult.data);
           }
         } catch (error51) {
           reject(error51);
@@ -59677,12 +60021,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve21, reject) => {
+    return new Promise((resolve22, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve21, interval);
+      const timeoutId = setTimeout(resolve22, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -60773,7 +61117,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve21) => setTimeout(resolve21, pollInterval));
+      await new Promise((resolve22) => setTimeout(resolve22, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId2);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId2} not found during polling`);
@@ -61437,25 +61781,25 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve21) => {
+    return new Promise((resolve22) => {
       const json5 = serializeMessage(message);
       if (this._stdout.write(json5)) {
-        resolve21();
+        resolve22();
       } else {
-        this._stdout.once("drain", resolve21);
+        this._stdout.once("drain", resolve22);
       }
     });
   }
 };
 
 // src/mcp.mjs
-var import_node_path66 = require("node:path");
+var import_node_path67 = require("node:path");
 var import_node_url7 = require("node:url");
 
 // src/service.mjs
-var import_promises57 = require("node:fs/promises");
-var import_node_os36 = require("node:os");
-var import_node_path65 = require("node:path");
+var import_promises58 = require("node:fs/promises");
+var import_node_os37 = require("node:os");
+var import_node_path66 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -62570,7 +62914,7 @@ function processGroupExists(processGroup) {
 async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve21) => setTimeout(resolve21, pollMs));
+    await new Promise((resolve22) => setTimeout(resolve22, pollMs));
   }
   return !processGroupExists(processGroup);
 }
@@ -62646,12 +62990,12 @@ async function runtimePath(path3, options) {
 
 // src/workspace/repository.mjs
 var readJson2 = (path3) => (0, import_promises3.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
-async function containsOrchestrationPayload(checkoutRoot) {
-  const marketplace = await readJson2((0, import_node_path6.join)(checkoutRoot, ".claude-plugin", "marketplace.json"));
+async function containsOrchestrationPayload(checkoutRoot2) {
+  const marketplace = await readJson2((0, import_node_path6.join)(checkoutRoot2, ".claude-plugin", "marketplace.json"));
   const sources = (Array.isArray(marketplace?.plugins) ? marketplace.plugins : []).filter((entry) => entry?.name === "agent-orchestration" && typeof entry.source === "string").map((entry) => entry.source);
   for (const source of /* @__PURE__ */ new Set([".", "agent-orchestration", ...sources])) {
-    const candidate = await canonicalPath((0, import_node_path6.resolve)(checkoutRoot, source)).catch(() => null);
-    if (!candidate || !isPathWithin(checkoutRoot, candidate)) continue;
+    const candidate = await canonicalPath((0, import_node_path6.resolve)(checkoutRoot2, source)).catch(() => null);
+    if (!candidate || !isPathWithin(checkoutRoot2, candidate)) continue;
     const [pkg, manifest2] = await Promise.all([
       readJson2((0, import_node_path6.join)(candidate, "package.json")),
       readJson2((0, import_node_path6.join)(candidate, ".claude-plugin", "plugin.json"))
@@ -62661,14 +63005,14 @@ async function containsOrchestrationPayload(checkoutRoot) {
   }
   return false;
 }
-async function isOrchestrationSource(checkoutRoot, commonGitDir, pluginRoot) {
+async function isOrchestrationSource(checkoutRoot2, commonGitDir, pluginRoot) {
   if (pluginRoot) {
     const pluginCommon = await git(pluginRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).then(({ stdout }) => canonicalPath(stdout)).catch(() => null);
     if (pluginCommon === commonGitDir) return true;
   }
-  const listing = await git(checkoutRoot, ["worktree", "list", "--porcelain", "-z"]);
+  const listing = await git(checkoutRoot2, ["worktree", "list", "--porcelain", "-z"]);
   const roots = listing.stdout.split("\0").filter((field) => field.startsWith("worktree ")).map((field) => field.slice(9));
-  for (const root of /* @__PURE__ */ new Set([checkoutRoot, ...roots])) {
+  for (const root of /* @__PURE__ */ new Set([checkoutRoot2, ...roots])) {
     const canonical3 = await canonicalPath(root).catch(() => null);
     if (!canonical3) continue;
     const currentCommon = await git(canonical3, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).then(({ stdout }) => canonicalPath(stdout)).catch(() => null);
@@ -62688,38 +63032,38 @@ async function resolveConsumerRepository({ consumerCwd: consumerCwd2, pluginRoot
   ]);
   invariant(!canonicalPluginRoot || !isPathWithin(canonicalPluginRoot, requestedCwd), "AO_PLUGIN_ROOT_IS_NOT_CONSUMER", "consumerCwd cannot be inside the plugin installation or marketplace source.");
   invariant(!canonicalStateRoot || !isPathWithin(canonicalStateRoot, requestedCwd), "AO_STATE_ROOT_IS_NOT_CONSUMER", "consumerCwd cannot be inside the orchestration state root.");
-  let checkoutRoot;
+  let checkoutRoot2;
   try {
-    checkoutRoot = (await git(requestedCwd, ["rev-parse", "--show-toplevel"])).stdout;
+    checkoutRoot2 = (await git(requestedCwd, ["rev-parse", "--show-toplevel"])).stdout;
   } catch (error51) {
     invariant(false, "AO_NOT_A_GIT_REPOSITORY", "consumerCwd must be inside a Git working tree.", { consumerCwd: requestedCwd, cause: error51.message });
   }
-  checkoutRoot = await canonicalPath(checkoutRoot);
-  invariant(!canonicalPluginRoot || !isPathWithin(canonicalPluginRoot, checkoutRoot) && !isPathWithin(checkoutRoot, canonicalPluginRoot), "AO_PLUGIN_ROOT_IS_NOT_CONSUMER", "The plugin installation or marketplace source cannot be used as a consumer repository.");
-  invariant(!canonicalStateRoot || !isPathWithin(canonicalStateRoot, checkoutRoot) && !isPathWithin(checkoutRoot, canonicalStateRoot), "AO_STATE_ROOT_IS_NOT_CONSUMER", "The orchestration state root cannot be used as a consumer repository.");
+  checkoutRoot2 = await canonicalPath(checkoutRoot2);
+  invariant(!canonicalPluginRoot || !isPathWithin(canonicalPluginRoot, checkoutRoot2) && !isPathWithin(checkoutRoot2, canonicalPluginRoot), "AO_PLUGIN_ROOT_IS_NOT_CONSUMER", "The plugin installation or marketplace source cannot be used as a consumer repository.");
+  invariant(!canonicalStateRoot || !isPathWithin(canonicalStateRoot, checkoutRoot2) && !isPathWithin(checkoutRoot2, canonicalStateRoot), "AO_STATE_ROOT_IS_NOT_CONSUMER", "The orchestration state root cannot be used as a consumer repository.");
   const [{ stdout: commonGitDir }, { stdout: baseSha }, { stdout: branch }, { stdout: status }] = await Promise.all([
-    git(checkoutRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-    git(checkoutRoot, ["rev-parse", "HEAD"]),
-    git(checkoutRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ({ stdout: "", stderr: "" })),
-    git(checkoutRoot, ["status", "--porcelain=v1", "--untracked-files=all"])
+    git(checkoutRoot2, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    git(checkoutRoot2, ["rev-parse", "HEAD"]),
+    git(checkoutRoot2, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ({ stdout: "", stderr: "" })),
+    git(checkoutRoot2, ["status", "--porcelain=v1", "--untracked-files=all"])
   ]);
   const canonicalCommonGitDir = await canonicalPath(commonGitDir);
-  invariant(!await isOrchestrationSource(checkoutRoot, canonicalCommonGitDir, canonicalPluginRoot), "AO_MARKETPLACE_IS_NOT_CONSUMER", "The Agent Orchestration source or payload repository cannot be used as its own consumer.");
+  invariant(!await isOrchestrationSource(checkoutRoot2, canonicalCommonGitDir, canonicalPluginRoot), "AO_MARKETPLACE_IS_NOT_CONSUMER", "The Agent Orchestration source or payload repository cannot be used as its own consumer.");
   if (requireClean) {
-    invariant(status === "", "AO_CONSUMER_DIRTY", "The consumer repository must be clean before creating an orchestration worktree.", { checkoutRoot });
+    invariant(status === "", "AO_CONSUMER_DIRTY", "The consumer repository must be clean before creating an orchestration worktree.", { checkoutRoot: checkoutRoot2 });
   }
   return Object.freeze({
     requestedCwd,
-    checkoutRoot,
+    checkoutRoot: checkoutRoot2,
     commonGitDir: canonicalCommonGitDir,
     baseSha,
     branch: branch || null,
     dirty: status !== "",
-    repositoryName: (0, import_node_path5.basename)(checkoutRoot),
+    repositoryName: (0, import_node_path5.basename)(checkoutRoot2),
     // Authority is checkout-scoped, not merely repository-scoped. Linked
     // worktrees share a common Git directory but must not be able to inspect or
     // control one another's runs.
-    repositoryKey: sha256(`${canonicalCommonGitDir}\0${checkoutRoot}`).slice(0, 24)
+    repositoryKey: sha256(`${canonicalCommonGitDir}\0${checkoutRoot2}`).slice(0, 24)
   });
 }
 
@@ -62797,8 +63141,8 @@ var RunStore = class {
     return (0, import_node_path14.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile: writeFile9 } = await import("node:fs/promises");
-    await writeFile9(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile10 } = await import("node:fs/promises");
+    await writeFile10(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -62825,8 +63169,8 @@ var RunStore = class {
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile: writeFile9 } = await import("node:fs/promises");
-    await writeFile9((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile10 } = await import("node:fs/promises");
+    await writeFile10((0, import_node_path14.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
@@ -62904,7 +63248,7 @@ var RunStore = class {
         }
         if (error51?.code !== "EEXIST") throw error51;
         await this.tryBreakStaleLock(path3);
-        await new Promise((resolve21) => setTimeout(resolve21, 10));
+        await new Promise((resolve22) => setTimeout(resolve22, 10));
       }
     }
     invariant(handle, "AO_LOCK_TIMEOUT", `Timed out acquiring run lock for ${runId}.`);
@@ -63072,17 +63416,17 @@ var RunStore = class {
       if (error51?.code === "ENOENT") return "";
       throw error51;
     });
-    const lines = text.split("\n");
+    const lines2 = text.split("\n");
     const events = [];
     let previous = null;
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
+    for (let index = 0; index < lines2.length; index += 1) {
+      const line = lines2[index];
       if (!line) continue;
       let event;
       try {
         event = JSON.parse(line);
       } catch {
-        const isTornFinalLine = index === lines.length - 1 && !text.endsWith("\n");
+        const isTornFinalLine = index === lines2.length - 1 && !text.endsWith("\n");
         invariant(isTornFinalLine, "AO_EVENT_LOG_CORRUPT", `Run ${runId} has a corrupt event log.`);
         break;
       }
@@ -65473,11 +65817,11 @@ var Connection = class {
     const id = this.nextRequestId++;
     let cancel = () => {
     };
-    const response = new Promise((resolve21, reject) => {
+    const response = new Promise((resolve22, reject) => {
       const pendingResponse = {
         resolve: (value) => {
           try {
-            resolve21(mapResponse ? mapResponse(value) : value);
+            resolve22(mapResponse ? mapResponse(value) : value);
           } catch (error51) {
             reject(error51);
           }
@@ -65534,8 +65878,8 @@ var Connection = class {
     this.stream = stream;
     this.staticHandlers = handlers;
     this.allowBatches = options?.allowBatches ?? true;
-    this.closedPromise = new Promise((resolve21) => {
-      this.abortController.signal.addEventListener("abort", () => resolve21());
+    this.closedPromise = new Promise((resolve22) => {
+      this.abortController.signal.addEventListener("abort", () => resolve22());
     });
     void this.receive();
   }
@@ -66272,8 +66616,8 @@ var AsyncQueue = class {
     if (this.failed) {
       return Promise.reject(this.failure);
     }
-    return new Promise((resolve21, reject) => {
-      this.waiters.push({ resolve: resolve21, reject });
+    return new Promise((resolve22, reject) => {
+      this.waiters.push({ resolve: resolve22, reject });
     });
   }
 };
@@ -67885,7 +68229,7 @@ async function withTimeout(promise2, timeoutMs) {
   }
 }
 async function withInterrupt(run2, onInterrupt) {
-  return await new Promise((resolve21, reject) => {
+  return await new Promise((resolve22, reject) => {
     let settled = false;
     const finish = (cb) => {
       if (settled) return;
@@ -67912,7 +68256,7 @@ async function withInterrupt(run2, onInterrupt) {
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     process.once("SIGHUP", onSighup);
-    run2().then((result2) => finish(() => resolve21(result2)), (error51) => finish(() => reject(error51)));
+    run2().then((result2) => finish(() => resolve22(result2)), (error51) => finish(() => reject(error51)));
   });
 }
 function promptCapabilityRequirement(block) {
@@ -68602,11 +68946,11 @@ function isWithinRoot(rootDir, targetPath) {
   return relative6.length === 0 || !relative6.startsWith("..") && !import_node_path16.default.isAbsolute(relative6);
 }
 function toWritePreview(content) {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const visibleLines = lines.slice(0, WRITE_PREVIEW_MAX_LINES);
+  const lines2 = content.replace(/\r\n/g, "\n").split("\n");
+  const visibleLines = lines2.slice(0, WRITE_PREVIEW_MAX_LINES);
   let preview = visibleLines.join("\n");
-  if (lines.length > visibleLines.length) preview += `
-... (${lines.length - visibleLines.length} more lines)`;
+  if (lines2.length > visibleLines.length) preview += `
+... (${lines2.length - visibleLines.length} more lines)`;
   if (preview.length > WRITE_PREVIEW_MAX_CHARS) preview = `${preview.slice(0, WRITE_PREVIEW_MAX_CHARS - 3)}...`;
   return preview;
 }
@@ -68722,12 +69066,12 @@ var FileSystemHandlers = class {
   }
   sliceContent(content, line, limit) {
     if (line == null && limit == null) return content;
-    const lines = content.split("\n");
+    const lines2 = content.split("\n");
     const startIndex = Math.max(0, (line == null ? 1 : Math.max(1, Math.trunc(line))) - 1);
     const maxLines = limit == null ? void 0 : Math.max(0, Math.trunc(limit));
     if (maxLines === 0) return "";
-    const endIndex = maxLines == null ? lines.length : Math.min(lines.length, startIndex + maxLines);
-    return lines.slice(startIndex, endIndex).join("\n");
+    const endIndex = maxLines == null ? lines2.length : Math.min(lines2.length, startIndex + maxLines);
+    return lines2.slice(startIndex, endIndex).join("\n");
   }
   readWindowDetails(line, limit) {
     if (line == null && limit == null) return;
@@ -69127,10 +69471,10 @@ function isoNow$1() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function waitForSpawn$1(child) {
-  return new Promise((resolve21, reject) => {
+  return new Promise((resolve22, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      resolve21();
+      resolve22();
     };
     const onError = (error51) => {
       child.off("spawn", onSpawn);
@@ -69149,7 +69493,7 @@ function requireAgentStdio(child) {
 }
 function waitForChildExit(child, timeoutMs) {
   if (!isChildProcessRunning(child)) return Promise.resolve(true);
-  return new Promise((resolve21) => {
+  return new Promise((resolve22) => {
     let settled = false;
     const timer = setTimeout(() => {
       finish(false);
@@ -69160,7 +69504,7 @@ function waitForChildExit(child, timeoutMs) {
       child.off("close", onExitLike);
       child.off("exit", onExitLike);
       clearTimeout(timer);
-      resolve21(value);
+      resolve22(value);
     };
     const onExitLike = () => {
       finish(true);
@@ -69414,7 +69758,7 @@ async function resolveGeminiCommandArgs(command, args) {
   return [...args];
 }
 async function readCommandOutput(command, args, timeoutMs) {
-  return await new Promise((resolve21) => {
+  return await new Promise((resolve22) => {
     const child = (0, import_node_child_process4.spawn)(command, [...args], buildSpawnCommandOptions(command, {
       stdio: [
         "ignore",
@@ -69433,7 +69777,7 @@ async function readCommandOutput(command, args, timeoutMs) {
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
-      resolve21(value);
+      resolve22(value);
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -69787,10 +70131,10 @@ function trimToUtf8Boundary(buffer, limit) {
   return buffer.subarray(start2);
 }
 function waitForSpawn(process4) {
-  return new Promise((resolve21, reject) => {
+  return new Promise((resolve22, reject) => {
     const onSpawn = () => {
       process4.off("error", onError);
-      resolve21();
+      resolve22();
     };
     const onError = (error51) => {
       process4.off("spawn", onSpawn);
@@ -69808,8 +70152,8 @@ function canPromptForPermission() {
   return process.stdin.isTTY && process.stderr.isTTY;
 }
 function waitMs(ms) {
-  return new Promise((resolve21) => {
-    setTimeout(resolve21, Math.max(0, ms));
+  return new Promise((resolve22) => {
+    setTimeout(resolve22, Math.max(0, ms));
   });
 }
 var TerminalManager = class {
@@ -69849,8 +70193,8 @@ var TerminalManager = class {
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
       let resolveExit = () => {
       };
-      const exitPromise = new Promise((resolve21) => {
-        resolveExit = resolve21;
+      const exitPromise = new Promise((resolve22) => {
+        resolveExit = resolve22;
       });
       const terminal2 = {
         process: proc,
@@ -70174,7 +70518,7 @@ function parseProcessListLine(line) {
 }
 async function runProcessListCommand() {
   if (process.platform === "win32") return await runWindowsProcessListCommand();
-  return await new Promise((resolve21, reject) => {
+  return await new Promise((resolve22, reject) => {
     const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,ppid="], { stdio: [
       "ignore",
       "pipe",
@@ -70193,7 +70537,7 @@ async function runProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve21(stdout);
+        resolve22(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -70227,7 +70571,7 @@ async function listProcessGroupPids(processGroupId) {
   return pids;
 }
 async function runProcessGroupListCommand() {
-  return await new Promise((resolve21, reject) => {
+  return await new Promise((resolve22, reject) => {
     const child = (0, import_node_child_process4.spawn)("ps", ["-eo", "pid=,pgid="], { stdio: [
       "ignore",
       "pipe",
@@ -70246,7 +70590,7 @@ async function runProcessGroupListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve21(stdout);
+        resolve22(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`ps exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -70254,7 +70598,7 @@ async function runProcessGroupListCommand() {
   });
 }
 async function runWindowsProcessListCommand() {
-  return await new Promise((resolve21, reject) => {
+  return await new Promise((resolve22, reject) => {
     const child = (0, import_node_child_process4.spawn)("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -70281,7 +70625,7 @@ async function runWindowsProcessListCommand() {
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve21(stdout);
+        resolve22(stdout);
         return;
       }
       reject(/* @__PURE__ */ new Error(`powershell process list exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderr}`));
@@ -70295,7 +70639,7 @@ async function killWindowsProcessTree(pid, signal) {
     "/t"
   ];
   if (signal === "SIGKILL") args.push("/f");
-  await new Promise((resolve21) => {
+  await new Promise((resolve22) => {
     const child = (0, import_node_child_process4.spawn)("taskkill", args, {
       stdio: [
         "ignore",
@@ -70304,8 +70648,8 @@ async function killWindowsProcessTree(pid, signal) {
       ],
       windowsHide: true
     });
-    child.once("error", () => resolve21());
-    child.once("close", () => resolve21());
+    child.once("error", () => resolve22());
+    child.once("close", () => resolve22());
   });
 }
 function sendSignal(pid, signal) {
@@ -70426,8 +70770,8 @@ function parseAcpJsonMessageLine(line) {
   const message = JSON.parse(line);
   return isAcpMessageObject(message) ? message : void 0;
 }
-function enqueueNdJsonLines(agentCommand, lines, controller) {
-  for (const line of lines) enqueueNdJsonLine(agentCommand, line, controller);
+function enqueueNdJsonLines(agentCommand, lines2, controller) {
+  for (const line of lines2) enqueueNdJsonLine(agentCommand, line, controller);
 }
 function createNdJsonMessageStream(agentCommand, output, input) {
   const textEncoder = new TextEncoder();
@@ -70442,9 +70786,9 @@ function createNdJsonMessageStream(agentCommand, output, input) {
           if (done) break;
           if (!value) continue;
           content += textDecoder.decode(value, { stream: true });
-          const lines = content.split("\n");
-          content = lines.pop() || "";
-          enqueueNdJsonLines(agentCommand, lines, controller);
+          const lines2 = content.split("\n");
+          content = lines2.pop() || "";
+          enqueueNdJsonLines(agentCommand, lines2, controller);
         }
       } finally {
         reader.releaseLock();
@@ -71040,8 +71384,8 @@ var AcpClient = class {
     }
     if (waitMs2 <= 0) return;
     let timer;
-    const timeoutPromise = new Promise((resolve21) => {
-      timer = setTimeout(resolve21, waitMs2);
+    const timeoutPromise = new Promise((resolve22) => {
+      timer = setTimeout(resolve22, waitMs2);
     });
     try {
       return await Promise.race([active.promise.then((response) => response, () => void 0), timeoutPromise]);
@@ -71342,7 +71686,7 @@ var AcpClient = class {
     return error51;
   }
   async runConnectionRequest(run2) {
-    return await new Promise((resolve21, reject) => {
+    return await new Promise((resolve22, reject) => {
       const pending = {
         settled: false,
         reject
@@ -71354,7 +71698,7 @@ var AcpClient = class {
         cb();
       };
       this.pendingConnectionRequests.add(pending);
-      Promise.resolve().then(run2).then((value) => finish(() => resolve21(value)), (error51) => finish(() => reject(error51)));
+      Promise.resolve().then(run2).then((value) => finish(() => resolve22(value)), (error51) => finish(() => reject(error51)));
     });
   }
   rejectPendingConnectionRequests(error51) {
@@ -71469,8 +71813,8 @@ var AcpClient = class {
         await this.sessionUpdateChain;
         if (this.processedSessionUpdates === this.observedSessionUpdates) return;
       }
-      await new Promise((resolve21) => {
-        setTimeout(resolve21, DRAIN_POLL_INTERVAL_MS);
+      await new Promise((resolve22) => {
+        setTimeout(resolve22, DRAIN_POLL_INTERVAL_MS);
       });
     }
     throw new Error(`Timed out waiting for session replay drain after ${normalizedTimeoutMs}ms`);
@@ -73230,14 +73574,14 @@ function shouldReuseExistingRecord(record2, params) {
   return true;
 }
 function createDeferred() {
-  let resolve21;
+  let resolve22;
   let reject;
   return {
     promise: new Promise((res, rej) => {
-      resolve21 = res;
+      resolve22 = res;
       reject = rej;
     }),
-    resolve: resolve21,
+    resolve: resolve22,
     reject
   };
 }
@@ -75261,7 +75605,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker registered its process group.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The worker watchdog exited before the worker registered.", launchState.exited);
-      await new Promise((resolve21) => setTimeout(resolve21, 25));
+      await new Promise((resolve22) => setTimeout(resolve22, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register its process group.", { launcherPid: child.pid });
   }
@@ -75323,7 +75667,7 @@ var ProcessGroupSupervisorStrategy = class extends WorkerSupervisorStrategy {
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.launcherPid && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve21) => setTimeout(resolve21, 25));
+      await new Promise((resolve22) => setTimeout(resolve22, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -75442,7 +75786,7 @@ var SystemdWorkerSupervisorStrategy = class extends ProcessGroupSupervisorStrate
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the supervisor scope.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "systemd-run exited before the worker registered.", launchState.exited);
-      await new Promise((resolve21) => setTimeout(resolve21, 25));
+      await new Promise((resolve22) => setTimeout(resolve22, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its named supervisor scope.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -75517,7 +75861,7 @@ var SystemdWorkerSupervisorStrategy = class extends ProcessGroupSupervisorStrate
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve21) => setTimeout(resolve21, 25));
+      await new Promise((resolve22) => setTimeout(resolve22, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -75655,7 +75999,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
       }
       if (terminalStates.has(run2.state)) throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_MISSING", "The run terminated before its worker acknowledged the Windows Job Object.");
       if (launchState.exited) throw new AgentOrchestrationError("AO_WORKER_LAUNCH_FAILED", "The Windows Job Object supervisor exited before the worker registered.", launchState.exited);
-      await new Promise((resolve21) => setTimeout(resolve21, 25));
+      await new Promise((resolve22) => setTimeout(resolve22, 25));
     }
     throw new AgentOrchestrationError("AO_WORKER_REGISTRATION_TIMEOUT", "Timed out waiting for the worker to register in its Windows Job Object.", { supervisorUnit, launcherPid: child.pid });
   }
@@ -75715,7 +76059,7 @@ var WindowsJobObjectSupervisorStrategy = class extends WorkerSupervisorStrategy 
     const deadline = Date.now() + 5e3;
     let run2 = await store.get(runId);
     while (!run2.worker?.supervisorUnit && !terminalStates.has(run2.state) && Date.now() < deadline) {
-      await new Promise((resolve21) => setTimeout(resolve21, 25));
+      await new Promise((resolve22) => setTimeout(resolve22, 25));
       run2 = await store.get(runId);
     }
     if (terminalStates.has(run2.state)) return run2;
@@ -76204,9 +76548,9 @@ async function startSessionHost({ stateRoot: stateRoot3, uiRoot, port: requested
     port,
     hostNonce,
     bind: `${BIND}:${port}`,
-    close: () => new Promise((resolve21, reject) => {
+    close: () => new Promise((resolve22, reject) => {
       server.closeAllConnections?.();
-      server.close((error51) => error51 ? reject(error51) : resolve21());
+      server.close((error51) => error51 ? reject(error51) : resolve22());
     })
   };
 }
@@ -76235,7 +76579,7 @@ async function listenLoopback(preferred) {
   invariant(false, "AO_SESSION_BIND", "No loopback port is available for the session host.", { lastError: lastError?.message });
 }
 function bindPort(port) {
-  return new Promise((resolve21, reject) => {
+  return new Promise((resolve22, reject) => {
     const server = (0, import_node_http.createServer)();
     const onError = (error51) => {
       server.off("listening", onListening);
@@ -76243,7 +76587,7 @@ function bindPort(port) {
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve21(server);
+      resolve22(server);
     };
     server.once("error", onError);
     server.once("listening", onListening);
@@ -76404,9 +76748,9 @@ async function defaultOpenLog(stateRoot3) {
 
 // src/diagnostics.mjs
 var import_node_crypto36 = require("node:crypto");
-var import_promises56 = require("node:fs/promises");
-var import_node_path64 = require("node:path");
-var import_node_os35 = require("node:os");
+var import_promises57 = require("node:fs/promises");
+var import_node_path65 = require("node:path");
+var import_node_os36 = require("node:os");
 init_repoid();
 init_supervision();
 init_orch_transport();
@@ -76420,11 +76764,11 @@ init_prompts();
 // src/services/services.mjs
 var import_node_crypto35 = require("node:crypto");
 var import_node_fs13 = require("node:fs");
-var import_promises54 = require("node:fs/promises");
+var import_promises55 = require("node:fs/promises");
 var import_node_net4 = __toESM(require("node:net"), 1);
-var import_node_os34 = __toESM(require("node:os"), 1);
-var import_node_path62 = require("node:path");
-var import_promises55 = require("node:timers/promises");
+var import_node_os35 = __toESM(require("node:os"), 1);
+var import_node_path63 = require("node:path");
+var import_promises56 = require("node:timers/promises");
 init_lockfile();
 init_nats_local();
 init_orch_transport();
@@ -76432,9 +76776,9 @@ init_orch_transport();
 // src/services/os-registration.mjs
 var import_node_child_process15 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
-var import_promises53 = require("node:fs/promises");
-var import_node_os33 = __toESM(require("node:os"), 1);
-var import_node_path60 = require("node:path");
+var import_promises54 = require("node:fs/promises");
+var import_node_os34 = __toESM(require("node:os"), 1);
+var import_node_path61 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
 var TASK_NAME = "ByteDesk\\agent-orchestration";
@@ -76446,11 +76790,11 @@ function windowsQuote2(value) {
   const text = String(value);
   return /[\s"]/.test(text) || text === "" ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
-async function registrationMode({ platform = process.platform, home = import_node_os33.default.homedir(), env = process.env } = {}) {
+async function registrationMode({ platform = process.platform, home = import_node_os34.default.homedir(), env = process.env } = {}) {
   if (platform === "darwin") return "launchd";
   if (platform === "win32") return "schtasks";
   if (platform !== "linux") return "detached";
-  if (home !== import_node_os33.default.userInfo().homedir) return "detached";
+  if (home !== import_node_os34.default.userInfo().homedir) return "detached";
   try {
     await canonicalUserBusEnvironment(env);
     return "systemd";
@@ -76458,14 +76802,14 @@ async function registrationMode({ platform = process.platform, home = import_nod
     return "detached";
   }
 }
-function registrationPath({ mode, home = import_node_os33.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
+function registrationPath({ mode, home = import_node_os34.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
-      return (0, import_node_path60.join)(env.XDG_CONFIG_HOME || (0, import_node_path60.join)(home, ".config"), "systemd", "user", UNIT_NAME);
+      return (0, import_node_path61.join)(env.XDG_CONFIG_HOME || (0, import_node_path61.join)(home, ".config"), "systemd", "user", UNIT_NAME);
     case "launchd":
-      return (0, import_node_path60.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
+      return (0, import_node_path61.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
     case "schtasks":
-      return (0, import_node_path60.join)(servicesDir2, "agent-orchestration.task.xml");
+      return (0, import_node_path61.join)(servicesDir2, "agent-orchestration.task.xml");
     default:
       return null;
   }
@@ -76542,7 +76886,7 @@ function renderRegistration({ mode, argv, logPath, path: path3 = "" }) {
 async function defaultRun(mode, args) {
   if (mode === "systemd") return runUserManagerFile("/usr/bin/systemctl", args, { timeoutMs: 3e4 });
   if (mode === "launchd") return runFile("/bin/launchctl", args, { timeoutMs: 3e4 });
-  if (mode === "schtasks") return runFile((0, import_node_path60.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
+  if (mode === "schtasks") return runFile((0, import_node_path61.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
   throw new Error(`No service manager command for mode ${mode}.`);
 }
 var quiet = (promise2) => promise2.then(() => true, () => false);
@@ -76550,11 +76894,11 @@ async function register({ mode, argv, logPath, path: path3, home, env, servicesD
   const file2 = registrationPath({ mode, home, env, servicesDir: servicesDir2 });
   if (!file2) return { changed: false, path: null };
   const text = renderRegistration({ mode, argv, logPath, path: path3 });
-  const current = await (0, import_promises53.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
+  const current = await (0, import_promises54.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
   const normalized = current?.replace(/^\ufeff/, "") ?? null;
   if (normalized === text) return { changed: false, path: file2 };
-  await (0, import_promises53.mkdir)((0, import_node_path60.dirname)(file2), { recursive: true });
-  await (0, import_promises53.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
+  await (0, import_promises54.mkdir)((0, import_node_path61.dirname)(file2), { recursive: true });
+  await (0, import_promises54.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
   switch (mode) {
     case "systemd":
       await run2(mode, ["--user", "daemon-reload"]);
@@ -76596,7 +76940,7 @@ function defaultSpawnDetached(argv, logPath) {
 
 // src/services/host-copies.mjs
 var import_node_fs12 = require("node:fs");
-var import_node_path61 = require("node:path");
+var import_node_path62 = require("node:path");
 var readJsonSync = (path3) => {
   try {
     return JSON.parse((0, import_node_fs12.readFileSync)(path3, "utf8"));
@@ -76611,12 +76955,12 @@ function compareVersions(a, b) {
   return 0;
 }
 function copyIdentity(root) {
-  const version2 = readJsonSync((0, import_node_path61.join)(root, "package.json"))?.version ?? null;
+  const version2 = readJsonSync((0, import_node_path62.join)(root, "package.json"))?.version ?? null;
   return {
     version: version2,
     get fingerprint() {
       try {
-        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs12.readFileSync)((0, import_node_path61.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
+        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs12.readFileSync)((0, import_node_path62.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
       } catch {
         return null;
       }
@@ -76626,26 +76970,26 @@ function copyIdentity(root) {
 
 // src/services/services.mjs
 function readLock(pluginRoot = PLUGIN_ROOT) {
-  return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
+  return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path63.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
-function dataHome({ platform = process.platform, env = process.env, home = import_node_os34.default.homedir() } = {}) {
+function dataHome({ platform = process.platform, env = process.env, home = import_node_os35.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
-  if (platform === "win32") return import_node_path62.win32.join(env.LOCALAPPDATA || import_node_path62.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
-  if (platform === "darwin") return import_node_path62.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
-  return import_node_path62.posix.join(env.XDG_DATA_HOME || import_node_path62.posix.join(home, ".local", "share"), "bytedesk", "agent-orchestration");
+  if (platform === "win32") return import_node_path63.win32.join(env.LOCALAPPDATA || import_node_path63.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
+  if (platform === "darwin") return import_node_path63.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
+  return import_node_path63.posix.join(env.XDG_DATA_HOME || import_node_path63.posix.join(home, ".local", "share"), "bytedesk", "agent-orchestration");
 }
 function servicePaths({ stateRoot: stateRoot3, data }) {
-  const dir = (0, import_node_path62.join)(stateRoot3, "services");
+  const dir = (0, import_node_path63.join)(stateRoot3, "services");
   return {
     dir,
-    logs: (0, import_node_path62.join)(dir, "logs"),
-    project: (0, import_node_path62.join)(dir, "process-compose.yaml"),
-    manager: (0, import_node_path62.join)(dir, "manager.json"),
-    repos: (0, import_node_path62.join)(dir, "repos.json"),
-    token: (0, import_node_path62.join)(dir, "api-token"),
+    logs: (0, import_node_path63.join)(dir, "logs"),
+    project: (0, import_node_path63.join)(dir, "process-compose.yaml"),
+    manager: (0, import_node_path63.join)(dir, "manager.json"),
+    repos: (0, import_node_path63.join)(dir, "repos.json"),
+    token: (0, import_node_path63.join)(dir, "api-token"),
     data,
-    pointer: (0, import_node_path62.join)(data, "current.json"),
-    launcher: (0, import_node_path62.join)(data, "launcher.cjs")
+    pointer: (0, import_node_path63.join)(data, "current.json"),
+    launcher: (0, import_node_path63.join)(data, "launcher.cjs")
   };
 }
 var LAUNCHER_SOURCE = `'use strict';
@@ -76667,16 +77011,16 @@ if (args[0] === 'ao-topology') {
 }
 `;
 function pluginSha(pluginRoot) {
-  const base = (0, import_node_path62.basename)(pluginRoot);
+  const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14";
+  return false ? null : "65e2a613b418cbc509c3a6ebe463c07986e4a1077633b6fdbd440071d583a072";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14";
+  const fingerprint2 = false ? null : "65e2a613b418cbc509c3a6ebe463c07986e4a1077633b6fdbd440071d583a072";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
-      version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
+      version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
     } catch {
       version2 = null;
     }
@@ -76702,15 +77046,15 @@ function choosePointer(previous, candidate, { exists: exists2 = import_node_fs13
 function linkedWorktree(root, { read: read3 = (path3) => (0, import_node_fs13.readFileSync)(path3, "utf8") } = {}) {
   if (!root) return false;
   if (/[\\/]\.(bytedesk|claude)[\\/]worktrees[\\/]/.test(`${root}/`)) return true;
-  for (let dir = root; ; dir = (0, import_node_path62.dirname)(dir)) {
+  for (let dir = root; ; dir = (0, import_node_path63.dirname)(dir)) {
     let text = null;
     try {
-      text = read3((0, import_node_path62.join)(dir, ".git"));
+      text = read3((0, import_node_path63.join)(dir, ".git"));
     } catch (error51) {
       if (error51.code === "EISDIR") return false;
     }
     if (text !== null) return /^gitdir:.*[\\/]worktrees[\\/][^\\/]+\s*$/m.test(text);
-    if ((0, import_node_path62.dirname)(dir) === dir) return false;
+    if ((0, import_node_path63.dirname)(dir) === dir) return false;
   }
 }
 function pointerMoved(previous, pointer) {
@@ -76720,12 +77064,12 @@ function pointerMoved(previous, pointer) {
   return previous.pluginRoot !== pointer.pluginRoot || previous.sha !== pointer.sha;
 }
 async function writeIfChanged(path3, text, mode = 384) {
-  const current = await (0, import_promises54.readFile)(path3, "utf8").catch(() => null);
+  const current = await (0, import_promises55.readFile)(path3, "utf8").catch(() => null);
   if (current === text) return false;
-  await (0, import_promises54.mkdir)((0, import_node_path62.dirname)(path3), { recursive: true });
+  await (0, import_promises55.mkdir)((0, import_node_path63.dirname)(path3), { recursive: true });
   const temp = `${path3}.${process.pid}.tmp`;
-  await (0, import_promises54.writeFile)(temp, text, { mode });
-  await (0, import_promises54.rename)(temp, path3);
+  await (0, import_promises55.writeFile)(temp, text, { mode });
+  await (0, import_promises55.rename)(temp, path3);
   return true;
 }
 var json3 = (value) => `${JSON.stringify(value, null, 2)}
@@ -76733,8 +77077,8 @@ var json3 = (value) => `${JSON.stringify(value, null, 2)}
 async function installProcessCompose({ data, platform = process.platform, arch = process.arch, lock = readLock(), fetchImpl = fetch, extract = extractArchive }) {
   const asset = lock.assets[`${platform}-${arch}`];
   invariant(asset, "AO_SERVICES_UNSUPPORTED_PLATFORM", `No pinned process-compose build for ${platform}-${arch}.`);
-  const binDir = (0, import_node_path62.join)(data, "bin", `process-compose-${lock.version}`);
-  const binary = (0, import_node_path62.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
+  const binDir = (0, import_node_path63.join)(data, "bin", `process-compose-${lock.version}`);
+  const binary = (0, import_node_path63.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
   if ((0, import_node_fs13.existsSync)(binary)) return { binary, installed: false };
   const url2 = `${lock.url}${asset.file}`;
   let bytes;
@@ -76753,32 +77097,32 @@ async function installProcessCompose({ data, platform = process.platform, arch =
     `Refusing ${asset.file}: its SHA-256 does not match the pinned lock.`,
     { expected: asset.sha256, actual, url: url2 }
   );
-  await (0, import_promises54.mkdir)((0, import_node_path62.join)(data, "bin"), { recursive: true });
-  const staging = await (0, import_promises54.mkdtemp)((0, import_node_path62.join)(data, "bin", ".staging-"));
+  await (0, import_promises55.mkdir)((0, import_node_path63.join)(data, "bin"), { recursive: true });
+  const staging = await (0, import_promises55.mkdtemp)((0, import_node_path63.join)(data, "bin", ".staging-"));
   try {
-    const archive = (0, import_node_path62.join)(staging, asset.file);
-    await (0, import_promises54.writeFile)(archive, bytes);
+    const archive = (0, import_node_path63.join)(staging, asset.file);
+    await (0, import_promises55.writeFile)(archive, bytes);
     await extract(archive, staging, platform);
-    const extracted = (0, import_node_path62.join)(staging, (0, import_node_path62.basename)(binary));
-    invariant((0, import_node_fs13.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path62.basename)(binary)}.`);
-    await (0, import_promises54.mkdir)(binDir, { recursive: true });
-    await (0, import_promises54.rename)(extracted, binary);
-    await (0, import_promises54.chmod)(binary, 493);
+    const extracted = (0, import_node_path63.join)(staging, (0, import_node_path63.basename)(binary));
+    invariant((0, import_node_fs13.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path63.basename)(binary)}.`);
+    await (0, import_promises55.mkdir)(binDir, { recursive: true });
+    await (0, import_promises55.rename)(extracted, binary);
+    await (0, import_promises55.chmod)(binary, 493);
   } finally {
-    await (0, import_promises54.rm)(staging, { recursive: true, force: true });
+    await (0, import_promises55.rm)(staging, { recursive: true, force: true });
   }
   return { binary, installed: true };
 }
 async function extractArchive(archive, into, platform) {
-  const tar = platform === "win32" ? (0, import_node_path62.join)(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
+  const tar = platform === "win32" ? (0, import_node_path63.join)(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
   await runFile(tar, ["-xf", archive, "-C", into], { timeoutMs: 6e4 });
 }
 async function pickPort() {
   for (let port = 45100; port < 45200; port += 1) {
-    const free = await new Promise((resolve21) => {
+    const free = await new Promise((resolve22) => {
       const probe = import_node_net4.default.createServer();
-      probe.once("error", () => resolve21(false));
-      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve21(true)));
+      probe.once("error", () => resolve22(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve22(true)));
     });
     if (free) return port;
   }
@@ -76786,7 +77130,7 @@ async function pickPort() {
 }
 function servicePath({ platform, node, home }) {
   if (platform === "win32") return "";
-  return [(0, import_node_path62.dirname)(node), (0, import_node_path62.join)(home, ".local", "bin"), ...platform === "darwin" ? ["/opt/homebrew/bin"] : [], "/usr/local/bin", "/usr/bin", "/bin"].join(":");
+  return [(0, import_node_path63.dirname)(node), (0, import_node_path63.join)(home, ".local", "bin"), ...platform === "darwin" ? ["/opt/homebrew/bin"] : [], "/usr/local/bin", "/usr/bin", "/bin"].join(":");
 }
 var PASSED_THROUGH = ["AO_NATS_HOME", "AO_TRANSPORT", "AO_NATS_URL"];
 function renderProject({ platform = process.platform, node, launcher, stateRoot: stateRoot3, logs, nats = null, repos = [], path: path3 = "", env = {} }) {
@@ -76811,7 +77155,7 @@ function renderProject({ platform = process.platform, node, launcher, stateRoot:
       availability: { restart: "always", backoff_seconds: 2 },
       readiness_probe: probe("session-host"),
       shutdown: { signal: 15, timeout_seconds: 5 },
-      log_location: (0, import_node_path62.join)(logs, "session-host.log"),
+      log_location: (0, import_node_path63.join)(logs, "session-host.log"),
       log_configuration: rotation
     }
   };
@@ -76840,7 +77184,7 @@ function renderProject({ platform = process.platform, node, launcher, stateRoot:
       // repository is gone) and must then stay down; a lock loser exits 75 and a crash exits
       // non-zero, and both are retried with this backoff. max_restarts unset = unlimited.
       availability: { restart: "on_failure", backoff_seconds: 3 },
-      log_location: (0, import_node_path62.join)(logs, `${name}.log`),
+      log_location: (0, import_node_path63.join)(logs, `${name}.log`),
       log_configuration: rotation
     };
   }
@@ -76894,7 +77238,7 @@ async function waitFor(check2, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check2()) return true;
-    await (0, import_promises55.setTimeout)(200);
+    await (0, import_promises56.setTimeout)(200);
   }
   return check2();
 }
@@ -76909,11 +77253,11 @@ async function context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home
   const lock = deps.lock ?? readLock(pluginRoot);
   return { data, paths: paths2, mode, lock, node };
 }
-async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os34.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os35.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const ctx = await context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
-  return withLock((0, import_node_path62.join)(paths2.dir, "ensure.lock"), async () => {
+  return withLock((0, import_node_path63.join)(paths2.dir, "ensure.lock"), async () => {
     const actions = [];
     const { binary, installed } = await (deps.install ?? installProcessCompose)({ data: paths2.data, platform, arch, lock, fetchImpl: deps.fetchImpl });
     if (installed) actions.push("installed");
@@ -76924,8 +77268,8 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
       pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
     };
-    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises54.writeFile)(paths2.token, (0, import_node_crypto35.randomBytes)(24).toString("hex"), { mode: 384 });
-    const token = (await (0, import_promises54.readFile)(paths2.token, "utf8")).trim();
+    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises55.writeFile)(paths2.token, (0, import_node_crypto35.randomBytes)(24).toString("hex"), { mode: 384 });
+    const token = (await (0, import_promises55.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
     let natsError = null;
@@ -76937,7 +77281,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     const path3 = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths2.launcher, stateRoot: stateRoot3, logs: paths2.logs, nats, repos, path: path3, env });
     changed.project = await writeIfChanged(paths2.project, json3(project));
-    const log = (0, import_node_path62.join)(paths2.logs, "process-compose.log");
+    const log = (0, import_node_path63.join)(paths2.logs, "process-compose.log");
     const argv = processComposeArgv({ binary, project: paths2.project, port, token: paths2.token, log });
     const registration = await register({ mode, argv, logPath: log, path: path3, home, env, servicesDir: paths2.dir, run: deps.run });
     changed.registration = registration.changed;
@@ -76993,7 +77337,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
 // src/services/self-heal.mjs
 var import_node_child_process16 = require("node:child_process");
 var import_node_fs14 = require("node:fs");
-var import_node_path63 = require("node:path");
+var import_node_path64 = require("node:path");
 var import_node_util5 = require("node:util");
 var execFileP = (0, import_node_util5.promisify)(import_node_child_process16.execFile);
 function parseEtime(text) {
@@ -77037,7 +77381,7 @@ async function listMcpServers({ platform = process.platform, now = Date.now() } 
     if (!script || !/agent-orchestration/.test(script)) continue;
     const parent = platform === "linux" ? procParent(pid) : null;
     const grandparent = parent ? procParent(parent) : null;
-    servers.push({ pid, startedAt: now - (parseEtime(m[2]) ?? 0), root: (0, import_node_path63.dirname)((0, import_node_path63.dirname)(script)), launchedBy: grandparent ? procComm(grandparent) : null });
+    servers.push({ pid, startedAt: now - (parseEtime(m[2]) ?? 0), root: (0, import_node_path64.dirname)((0, import_node_path64.dirname)(script)), launchedBy: grandparent ? procComm(grandparent) : null });
   }
   return servers;
 }
@@ -77056,12 +77400,12 @@ async function staleMcpServers({ pointer, platform = process.platform, list: lis
     const reasons = [];
     const host = hostOf(server.root);
     let version2 = null;
-    if (!exists2((0, import_node_path63.join)(server.root, "dist", "mcp.cjs"))) reasons.push("its plugin root is gone");
+    if (!exists2((0, import_node_path64.join)(server.root, "dist", "mcp.cjs"))) reasons.push("its plugin root is gone");
     else {
       version2 = copyIdentity(server.root).version;
       if (pointer?.version && compareVersions(version2, pointer.version) < 0) reasons.push(`runs ${version2 ?? "an unknown version"}, the services run ${pointer.version}`);
       try {
-        if (mtime((0, import_node_path63.join)(server.root, "dist", "mcp.cjs")) > server.startedAt + 2e3) reasons.push("its bundle was replaced on disk after it started");
+        if (mtime((0, import_node_path64.join)(server.root, "dist", "mcp.cjs")) > server.startedAt + 2e3) reasons.push("its bundle was replaced on disk after it started");
       } catch {
       }
     }
@@ -77097,11 +77441,11 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14",
+  sourceFingerprint: false ? null : "65e2a613b418cbc509c3a6ebe463c07986e4a1077633b6fdbd440071d583a072",
   version: false ? null : "0.15.4"
 };
-var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
-var fingerprint = (path3) => (0, import_promises56.readFile)(path3).then((bytes) => (0, import_node_crypto36.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
+var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
+var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto36.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
 async function rolePromptEvidence(options, record2, role, repositoryId) {
   const result2 = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
   if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result2;
@@ -77119,10 +77463,10 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   if (result2.state === "current" && !result2.current) result2.state = "stale";
   return result2;
 }
-async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os35.homedir)(), platform = process.platform, deps = {} }) {
+async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
   const pointer = await json4(paths2.pointer);
-  const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path64.join)(paths2.dir, "self-heal.json"))]);
+  const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path65.join)(paths2.dir, "self-heal.json"))]);
   const tmuxSocket = tmuxSocketCheck({ env, platform });
   const transport = await describeTransport(env, home).catch(() => null);
   const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
@@ -77133,7 +77477,7 @@ async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home
   ];
   return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, transport, lastSelfHeal, problems };
 }
-async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os35.homedir)() }) {
+async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)() }) {
   let consumer = null, admission = { provided: Boolean(consumerCwd2), admitted: null };
   if (consumerCwd2) {
     try {
@@ -77143,7 +77487,7 @@ async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, state
       admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
     }
   }
-  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path64.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path64.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json4((0, import_node_path64.join)(pluginRoot, "package.json"))]);
+  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path65.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path65.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json4((0, import_node_path65.join)(pluginRoot, "package.json"))]);
   const effectiveTopologyRoot = stateRoot2(env, home);
   const diagnostics = {
     consumerAdmission: admission,
@@ -77159,11 +77503,11 @@ async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, state
   const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
   diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
   const key = repoKey(consumer.commonGitDir);
-  const census = await json4((0, import_node_path64.join)(stateRoot3, "census", `${key}.json`));
+  const census = await json4((0, import_node_path65.join)(stateRoot3, "census", `${key}.json`));
   const at = Date.parse(census?.at);
   const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
   for (const role of ["lead", "reviewer"]) {
-    const record2 = await json4((0, import_node_path64.join)(stateRoot3, `${role}s`, `${key}.json`));
+    const record2 = await json4((0, import_node_path65.join)(stateRoot3, `${role}s`, `${key}.json`));
     const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
     const reasons = [];
     let responsive2 = false, prompt = { current: false, state: "missing", desiredRevision: null, appliedRevision: null }, roleState = "unknown";
@@ -77220,10 +77564,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths2 = [];
-  const canonicalPluginRoot = await (0, import_promises57.realpath)(pluginRoot).catch(() => (0, import_node_path65.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises57.realpath)(root).catch(() => (0, import_node_path65.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises58.realpath)(pluginRoot).catch(() => (0, import_node_path66.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises58.realpath)(root).catch(() => (0, import_node_path66.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises57.realpath)(candidate).catch(() => (0, import_node_path65.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises58.realpath)(candidate).catch(() => (0, import_node_path66.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths2.includes(resolvedCandidate)) paths2.push(resolvedCandidate);
@@ -77233,7 +77577,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path65.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path66.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -77243,7 +77587,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path65.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path65.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path66.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path66.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot3;
     this.workerEntrypoint = workerEntrypoint;
@@ -77597,7 +77941,7 @@ var OrchestrationService = class {
     while (true) {
       const run2 = await this.getRun(input);
       if (TERMINAL_STATES.has(run2.state) || run2.state === "waiting_for_decision" || Date.now() >= deadline) return run2;
-      await new Promise((resolve21) => setTimeout(resolve21, Math.min(input.pollIntervalMs ?? 250, 2e3)));
+      await new Promise((resolve22) => setTimeout(resolve22, Math.min(input.pollIntervalMs ?? 250, 2e3)));
     }
   }
   async cancel(input) {
@@ -77610,7 +77954,7 @@ var OrchestrationService = class {
     if (run2.worker?.pid && WORKER_STATES.has(run2.state)) {
       const cooperativeDeadline = Date.now() + 2e3;
       while (Date.now() < cooperativeDeadline && processGroupExists(run2.worker.processGroup)) {
-        await new Promise((resolve21) => setTimeout(resolve21, 100));
+        await new Promise((resolve22) => setTimeout(resolve22, 100));
       }
       const stopped = await this.terminateRecordedProcessGroup(run2.worker);
       run2 = await this.store.get(runId);
@@ -77767,11 +78111,11 @@ var OrchestrationService = class {
    * explicitly and falls back only to a directory that still exists.
    */
   async resolveDiscoveryCwd(preferred) {
-    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os36.homedir)()]) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os37.homedir)()]) {
       if (!candidate) continue;
       try {
-        const stats = await (0, import_promises57.stat)(candidate);
-        if (stats.isDirectory()) return await (0, import_promises57.realpath)(candidate).catch(() => candidate);
+        const stats = await (0, import_promises58.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises58.realpath)(candidate).catch(() => candidate);
       } catch {
       }
     }
@@ -78277,7 +78621,7 @@ process.stdout.on("error", (error51) => {
   if (error51?.code === "EPIPE") process.exit(0);
   throw error51;
 });
-if (process.argv[1] && (0, import_node_path66.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path66.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path67.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path67.resolve)(process.argv[1])) {
   main().catch((error51) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error51))}
 `);
