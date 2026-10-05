@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A failed worker is retried with backoff before it parks (TM-363, EP-028).** A task-scoped
+  worker failure (for example, a worker that exited without closing) now reopens the task instead
+  of parking it, up to the new `dispatch.retries` (default 2; 0 parks at once). The pool picks it
+  up again after 1, then 4, then 16 minutes (`retryAt` on the task). Each retry logs a
+  `dispatch_retry` event with the attempt, the limit, `retryAt` and the reason. A worker that
+  reports `blocked` still parks, and provider or backend failures still park and still count
+  toward the pool pause. `failureScope` now treats "usage limit" and "reached your … limit" as
+  provider failures, matching the pool's quota check, so they are never retried.
+
 - **Expedite lane: urgent ready tasks dispatch on the next pool tick, outside `poolWip` (TM-358,
   EP-028).** A `highest`-priority task, or a `high` one labelled `expedite`, takes a slot in a
   separate lane capped by the new `dispatch.expediteWip` (default 2; 0 turns the lane off). It

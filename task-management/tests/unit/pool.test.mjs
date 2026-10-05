@@ -18,7 +18,7 @@ import { listAgents, registerAgent } from "../../lib/agents.mjs";
 import { create, read, seedGitContract, state, update, writeConfig } from "../../lib/store.mjs";
 import { dispatch } from "../../lib/dispatch/index.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
-import { livePool, poolTick, poolable, readPoolPid, releasePoolPid, runPool, writePoolPid } from "../../lib/dispatch/pool.mjs";
+import { livePool, poolTick, poolable, readPoolPid, readPoolState, releasePoolPid, runPool, writePoolPid } from "../../lib/dispatch/pool.mjs";
 
 // The kill-switch tests set this themselves; nothing else may inherit it.
 delete process.env.TM_ENFORCE;
@@ -213,7 +213,7 @@ describe("poolTick — failure isolation", () => {
 
 describe("poolTick — collect before dispatch", () => {
   it("collects a finished worker, freeing its capacity for the same tick", async () => {
-    const p = repoStore({ dispatch: { poolWip: 1 } });
+    const p = repoStore({ dispatch: { poolWip: 1, retries: 0 } }); // the park path; TM-363 retries are tested below
     const a = ready(p, "worker walks away");
     const b = ready(p, "next up");
     const fake = fakeBackend();
@@ -300,6 +300,40 @@ describe("pool.pid — one loop per store", () => {
     const p = store();
     const { readFileSync } = await import("node:fs");
     assert.match(readFileSync(p.gitignore, "utf8"), /^pool\.pid$/m, "the seeded .gitignore covers it");
+  });
+});
+
+describe("poolTick — bounded retry with backoff (TM-363)", () => {
+  it("a task-scoped worker failure waits out its backoff, then the pool re-dispatches it", async () => {
+    const p = repoStore({ dispatch: { retries: 2 } });
+    const a = ready(p, "flaky");
+    const fake = fakeBackend();
+    assert.equal((await dispatch(a, { backend: fake, session: "pool-a", actor: "pool", p })).ok, true);
+    const impls = { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, pp) };
+
+    const t1 = await poolTick({ p, registry: { fake }, caps: {}, impls });
+    assert.equal(t1.collected[0].retry.attempt, 1);
+    assert.equal(read(a, p).status, "open");
+    assert.deepEqual(t1.dispatched, [], "not before retryAt");
+    assert.equal(readPoolState(p).failures, 0, "a task-scoped failure does not feed the brake");
+
+    update(a, { retryAt: new Date(Date.now() - 1000).toISOString() }, p); // the backoff elapses
+    const t2 = await poolTick({ p, registry: { fake }, caps: {}, impls });
+    assert.deepEqual(t2.dispatched.map((d) => d.id), [a], "re-dispatched once the backoff passed");
+    assert.equal(read(a, p).status, "in_progress");
+  });
+
+  it("a system-scoped worker failure parks and still counts toward the pool pause", async () => {
+    const p = repoStore({ dispatch: { retries: 2, maxFailures: 3 } });
+    const a = ready(p, "provider broke");
+    const fake = fakeBackend();
+    assert.equal((await dispatch(a, { backend: fake, session: "pool-a", actor: "pool", p })).ok, true);
+    const impls = { fake: (id, { p: pp }) => recordResult(id, { outcome: "failed", summary: "ECONNREFUSED talking to the backend" }, pp) };
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls });
+    assert.equal(res.collected[0].retry, undefined);
+    assert.equal(read(a, p).status, "parked");
+    assert.equal(readPoolState(p).failures, 1);
   });
 });
 

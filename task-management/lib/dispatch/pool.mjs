@@ -332,7 +332,8 @@ export function isExpedite(task) {
  * excludes blocked and resolved work; claimant excludes live claims.
  */
 export function poolable(p = paths()) {
-  const waiting = nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p));
+  // A worker failure reopened for retry waits out its backoff (TM-363, collect.mjs retryPlan).
+  const waiting = nextTasks(p).filter((t) => (t.labels || []).includes(READY_LABEL) && !claimant(t.id, p) && !(Date.parse(t.retryAt) > Date.now()));
   const admitted = list("task", { status: "in_progress" }, p).filter((t) => {
     if (!t.governance || t.dispatched || !(t.labels || []).includes(READY_LABEL)) return false;
     const gate = governedAdmission(t, p);

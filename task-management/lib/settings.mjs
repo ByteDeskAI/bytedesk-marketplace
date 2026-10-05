@@ -255,6 +255,16 @@ export const CATALOG = [
     help: "A highest-priority task, or a high one labelled expedite, dispatches on the next tick outside poolWip, up to this many at once. It skips touches-disjoint batching but never a path a running task holds. 0 turns the lane off.",
   },
   {
+    key: "dispatch.retries",
+    group: "agents",
+    type: "integer",
+    default: 2,
+    min: 0,
+    max: 10,
+    label: "Retry a failed worker this many times",
+    help: "A task-scoped worker failure reopens the task for the pool after a backoff of 1, 4, then 16 minutes, instead of parking it. Each retry logs dispatch_retry. Provider and backend failures still park and still count toward the pool pause. 0 parks at once.",
+  },
+  {
     key: "dispatch.pollSeconds",
     group: "agents",
     type: "integer",
