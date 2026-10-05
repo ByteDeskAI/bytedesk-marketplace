@@ -17,7 +17,8 @@ For **implementation** tickets only (`ready-for-agent`, no `decision:*`).
    attached as evidence.
 5. Commit, `git push -u origin <the task's tm/ branch>`, then
    `gh pr create --title "<TM-id>: <title>" --body "<what changed, and how you verified it>"`.
-   **Never merge it yourself.** If the push or the PR fails (no remote, no `gh`, auth),
+   Review the diff, wait for required checks, then `gh pr merge <the task's tm/ branch> --merge`
+   (`--admin` only when a required approving review is the sole blocker). If the push or the PR fails (no remote, no `gh`, auth),
    `tm block <id> "<the error>"` instead of closing.
 6. If the task has `governance`, save the handoff's finish JSON outside the task worktree and run
    `ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.

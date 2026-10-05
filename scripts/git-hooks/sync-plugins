@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Rsync every plugin this commit or merge touched into the installed Claude/Codex/Grok caches,
+# so sessions in projects that use them pick up the change without a manual /plugin update.
+# Runs from post-commit, post-merge and post-rewrite (core.hooksPath=scripts/git-hooks). Never fails the git op.
+#
+# ponytail: main checkout only — plugin-rsync copies from the main checkout, so a commit in a
+# worktree reaches the caches when it is merged and pulled here.
+[ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] || exit 0
+root=$(git rev-parse --show-toplevel)
+rsync_bin="$root/plugin-rsync/bin/plugin-rsync" # this checkout's own copy; no PATH install needed
+[ -x "$rsync_bin" ] || exit 0
+# post-merge and a rebase's post-rewrite: ORIG_HEAD is the pre-operation tip. post-commit and an
+# amend: the previous HEAD (an amend fires both hooks; the second sync is a no-op).
+case "$1:$2" in
+  post-commit:* | post-rewrite:amend) before=$(git rev-parse -q --verify "HEAD@{1}" 2>/dev/null) ;;
+  *) before=$(git rev-parse -q --verify ORIG_HEAD 2>/dev/null) ;;
+esac
+[ -n "$before" ] || before=$(git hash-object -t tree /dev/null)
+plugins=$(git diff --name-only "$before" HEAD | cut -d/ -f1 | sort -u | while read -r d; do
+  [ -f "$root/$d/.claude-plugin/plugin.json" ] && echo "$d"; done | paste -sd, -)
+[ -n "$plugins" ] || exit 0
+log="$root/.git/plugin-rsync.log"
+echo "[$(date -Is)] $1 $(git rev-parse --short HEAD): $plugins" >>"$log"
+BYTEDESK_MARKETPLACE="$root" nohup "$rsync_bin" "$plugins" >>"$log" 2>&1 &
+exit 0

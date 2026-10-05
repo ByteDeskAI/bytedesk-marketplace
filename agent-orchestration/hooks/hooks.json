@@ -3,13 +3,27 @@
     "SessionStart": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.cjs\" services ensure --consumer-cwd . --detach",
-            "timeout": 10
-          }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.cjs\" services ensure --consumer-cwd . --detach", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/topology/session-hook.mjs\" SessionStart", "timeout": 10 }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/autonomy-allow.mjs\"" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/topology/session-hook.mjs\" UserPromptSubmit", "timeout": 5 } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/topology/session-hook.mjs\" PostToolUse", "timeout": 5 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/topology/session-hook.mjs\" Stop", "timeout": 5 } ] }
     ]
   }
 }

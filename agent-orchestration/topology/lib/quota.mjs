@@ -38,6 +38,7 @@ import { withLock } from "./lockfile.mjs";
 import { failureOnScreen } from "./providers.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 import { sendStandingMessage } from "./standing-mailbox.mjs";
+import { SUPERVISOR_SENDER } from "./nats-outage.mjs";
 import * as defaultTmux from "./tmux.mjs";
 import { invariant, nowIso, readJson, writeJson } from "./util.mjs";
 
@@ -528,11 +529,14 @@ async function openIncident({ identity, key, env, home, consumer, consent, agent
     }
     // Derived from the incident, so a retried tick delivers nothing twice — same discipline as
     // slot grants and the idle-dispatch assignment pointer.
-    const messageId = createHash("sha256").update(`quota-incident:${record.incident_id}`).digest("hex").slice(0, 32);
+    // TM-314: `v2` with the supervisor as sender; v1 ids are on disk as permanent `source_identity_required` holds.
+    const messageId = createHash("sha256").update(`quota-incident:v2:${record.incident_id}`).digest("hex").slice(0, 32);
     const mail = await deliver(
       {
         id: messageId,
         consumer,
+        fromProject: consumer,
+        from: SUPERVISOR_SENDER,
         to: leadId,
         subject: `provider quota suspected: ${agentId}`,
         body: announcement(record, consent),
@@ -623,7 +627,7 @@ export async function announceFailoverApplied({ consumer, incident, approval, fr
   const registration = await lead({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
   if (!leadId) return { status: "skipped", reason: "no lead is registered for this repository" };
-  const id = createHash("sha256").update(`quota-failover:${incident.incident_id}:${to}`).digest("hex").slice(0, 32);
+  const id = createHash("sha256").update(`quota-failover:v2:${incident.incident_id}:${to}`).digest("hex").slice(0, 32);
   const body = [
     `PROVIDER SUBSTITUTED: ${incident.agent_id} moved from ${from ?? incident.provider} to ${to}.`,
     "",
@@ -635,7 +639,7 @@ export async function announceFailoverApplied({ consumer, incident, approval, fr
     "The CLAIM survived on tm's dispatch heartbeat; claimTtlMinutes defaults to 240 minutes against a",
     "five-hour quota window, so raise it if this repository relies on quota failover.",
   ].join("\n");
-  return deliver({ id, consumer, to: leadId, subject: `provider substituted: ${incident.agent_id}`, body,
+  return deliver({ id, consumer, fromProject: consumer, from: SUPERVISOR_SENDER, to: leadId, subject: `provider substituted: ${incident.agent_id}`, body,
     provenance: { source: "ao-topology failover" } }, { env, home }).catch((error) => ({ status: "failed", reason: error?.code ?? String(error) }));
 }
 

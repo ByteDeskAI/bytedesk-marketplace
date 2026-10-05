@@ -11,8 +11,11 @@ import test from "node:test";
 
 import {
   assertSlotName, byTicket, grantSlot, liveness, reconcile, reconcileSlots,
-  releaseSlot, requestSlot, restampSlotBindings, slotsDir, slotStatus,
+  notifyGrants, releaseSlot, requestSlot, restampSlotBindings, slotsDir, slotStatus,
 } from "../../topology/lib/slots.mjs";
+import { agentsRoot } from "../../topology/lib/agents.mjs";
+import { readStandingInbox } from "../../topology/lib/standing-mailbox.mjs";
+import { writeJson } from "../../topology/lib/util.mjs";
 import { canonicalRepoId } from "../../topology/lib/repoid.mjs";
 import { TopologyError } from "../../topology/lib/util.mjs";
 
@@ -377,4 +380,21 @@ test("the supervise tick skips a slot whose lock is busy rather than blocking on
   const results = await withLock(lock, async () => reconcileSlots({ ...f.ctx, lockTimeoutMs: 100 }));
   assert.deepEqual(results, [], "a busy slot is skipped; the mutation holding the lock reconciles it");
   assert.ok(Date.now() - started < 5000, "and the tick is not parked behind the full lock timeout");
+});
+
+// TM-314: a grant notice with no sender was held forever as `source_identity_required`, so the
+// grantee was never told. Read the grantee's real inbox, not the send result.
+test("a slot grant reaches the grantee's inbox as delivered mail from the supervisor", async (t) => {
+  const f = await setup(t);
+  f.add(1);
+  await writeJson(join(agentsRoot(f.ctx.consumer), "a0000001", "agent.json"), { id: "a0000001", role: "worker", full_name: "a0000001" });
+  const env = { ...f.env, AO_TRANSPORT: "file" };
+  const view = await requestSlot({ ...f.ctx, name: "cutover", agentId: "a0000001", reason: "cutover for TM-314", env: f.as(1, "a0000001") });
+  const rung = await notifyGrants(view.events, { consumer: f.ctx.consumer, env, home: f.ctx.home });
+  assert.deepEqual(rung.map((item) => [item.agent_id, item.status, item.reason]), [["a0000001", "delivered", undefined]]);
+  const inbox = await readStandingInbox({ consumer: f.ctx.consumer, agent: "a0000001", env, home: f.ctx.home });
+  assert.equal(inbox.length, 1);
+  assert.equal(inbox[0].status, "delivered");
+  assert.equal(inbox[0].envelope.from, "ao-supervisor");
+  assert.match(inbox[0].envelope.body, /^SERIAL SLOT GRANTED: cutover to a0000001/);
 });

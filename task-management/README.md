@@ -323,7 +323,7 @@ once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its ow
 (`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`)**,
 attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
-error instead. **A worker never merges**; the PR is where its run ends and a human takes over.
+error instead. **A worker merges only its own PR**, by branch name, after review and green checks; never anyone else's.
 
 **A guard makes that contract hard to break by accident.** A dispatched worker runs
 `--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`,
@@ -388,6 +388,7 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 .bytedesk/task-management/bin/tm cap list [--status open]          the enhancement backlog, best bet first
 .bytedesk/task-management/bin/tm cap accept <CAP-id>               mint the task that builds it, criteria and all
 .bytedesk/task-management/bin/tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
+.bytedesk/task-management/bin/tm enhance-mine [--apply]            mine transcripts + board for issues; dry-run by default
 .bytedesk/task-management/bin/tm evidence <id> <path|->            attach a log/screenshot as proof
 .bytedesk/task-management/bin/tm evidence [<id>] --check           does each attachment still match its source?
 .bytedesk/task-management/bin/tm task new "<title>" --template bug   start from a template
@@ -1005,7 +1006,7 @@ Twenty ship, in three groups:
 
 - **Lifecycle** — `/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override`
 - **Decision-map pipeline** — `map` · `interview` · `research` · `prototype` · `spec` · `tickets` · `implement` · `route`
-- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track`
+- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track` · `enhance-mine`
 
 ## Capabilities — what to build next
 

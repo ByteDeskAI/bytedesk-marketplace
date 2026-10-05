@@ -22,14 +22,14 @@ import { incarnationOf } from './incarnation.mjs';
 import { tmuxFailureTrigger } from './launch.mjs';
 import { adapterFor, loadAdapters, providerDirs } from './providers.mjs';
 import { withServer } from './tmux.mjs';
-import { shellQuote } from './util.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
 import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
-import { invariant, nowIso } from './util.mjs';
-import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications } from './mailbox-receipts.mjs';
+import { callerIdentity, resolvePresentRecipient } from './session-identity.mjs';
+import { invariant, nowIso, shellQuote, sleep } from './util.mjs';
+import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt } from './mailbox-receipts.mjs';
 
 export function standingMailboxRoot({ env = process.env, home = homedir() } = {}) {
   return join(stateRoot(env, home), 'standing-mailbox');
@@ -67,6 +67,9 @@ function readinessOf(state) {
 
 // Holds no retry can change. The envelope is immutable, so its declared source, its repository
 // identities and its ancestry stay what they are, and so does the routing verdict built from them.
+// TM-354: holds a lead can end. Each asks the side's own supervisor to launch or recover its lead
+// (recoverLead, under the registration lock, so repeated asks never start a second lead).
+const RECOVERABLE_HOLDS = new Set(['leads_not_ready', 'no_lead']);
 const PERMANENT_HOLDS = new Set(['source_identity_required', 'repository_identity_changed', 'hop_limit', 'loop', 'coordinator_not_worker']);
 
 function due(record, now, force) {
@@ -89,10 +92,13 @@ async function scheduleRecovery(record, opts) {
   const request = opts.requestRecovery ?? requestLeadRecovery;
   const activate = opts.activate ?? activateRepository;
   const sides = {};
-  for (const [side, consumer] of [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]]) {
+  // TM-354: no_lead is the destination's alone: its library has no lead to vouch for the contact.
+  const candidates = record.reason === 'no_lead' ? [['destination', record.envelope.consumer]]
+    : [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]];
+  for (const [side, consumer] of candidates) {
     if (record.readiness?.[side] === 'responsive') continue;
     try {
-      await request({ consumer, env: opts.env, home: opts.home, reason: 'leads_not_ready', messageId: record.envelope.id });
+      await request({ consumer, env: opts.env, home: opts.home, reason: record.reason, messageId: record.envelope.id });
       const activation = await activate({ consumer, env: opts.env, home: opts.home, reason: 'held-standing-mail' });
       sides[side] = { requested: true, enrolled: activation?.enrollment?.enrolled ?? null, supervision: activation?.supervision ?? null };
     } catch (error) {
@@ -101,8 +107,10 @@ async function scheduleRecovery(record, opts) {
   }
   return sides;
 }
+// TM-354 widened recovery to no_lead; TM-384's ring stays leads_not_ready only (ringDue), since a
+// no_lead hold has no lead pane to ring.
 async function withRecovery(record, opts, { ring = false } = {}) {
-  if (record.status !== 'held' || record.reason !== 'leads_not_ready') return record;
+  if (record.status !== 'held' || !RECOVERABLE_HOLDS.has(record.reason)) return record;
   const recovery = await scheduleRecovery(record, opts);
   return { ...(ring ? await ringHeldLead(record, opts) : record), recovery };
 }
@@ -227,12 +235,18 @@ async function attempt(record, opts) {
     }
     // This is intentionally rerun, including delegationAllows/verifyAgainstStore,
     // for EACH resume. A held record contains no cached grant.
-    const decision = await (opts.router ?? routeMessage)({
+    let decision = await (opts.router ?? routeMessage)({
       consumer: e.consumer, pluginRoot: opts.pluginRoot, home: opts.home, env: opts.env,
       from: e.from, fromProject: sameRepo ? e.consumer : e.fromProject,
       to: e.to, task: e.task, token: e.token, via: e.via,
     });
     if (decision.blocked) return { ...updated, reason: decision.blocked, decision };
+    // TM-353: a name the library does not know may still be a live session here (a Codex pane, a
+    // session's minted identity). Routing only leaves it unresolved for a same-repository sender.
+    if (!decision.resolved && !decision.redirected) {
+      const present = await resolvePresentRecipient({ consumer: e.consumer, to: e.to, env: opts.env, home: opts.home, presence: opts.presence });
+      if (present) decision = { ...decision, resolved: present.agentId, deliver_to: present.agentId, resolved_via: present.source };
+    }
     if (!decision.resolved && !decision.redirected) return { ...updated, reason: 'unknown_recipient', decision };
     if (e.assignment && decision.coordinates_only) return { ...updated, reason: 'coordinator_not_worker', decision };
     const recipient = decision.deliver_to;
@@ -244,6 +258,21 @@ async function attempt(record, opts) {
     // preserve it for recovery, without persisting possibly sensitive error text.
     return { ...updated, reason: 'admission_error', error_code: error.code ?? 'ERROR' };
   }
+}
+
+/** TM-278: the admission a send would get, computed and reported, with nothing written, published,
+ * rung or recovered. Readiness is cached proof read-only, exactly as a real attempt reads it. */
+async function dryRunVerdict(envelope, p, opts) {
+  const existing = await read(p.file);
+  const verdict = await attempt({ version: 1, envelope, status: 'held', attempts: 0 }, { ...opts, readOnly: true });
+  const lead = await readLeadRegistration({ consumer: envelope.consumer, env: opts.env, home: opts.home }).catch(() => null);
+  return { dry_run: true, written: false, envelope,
+    destination: { consumer: envelope.consumer, repo_id: envelope.destinationRepoId, lead: lead?.record?.agent_id ?? null },
+    would: verdict.status === 'delivered' ? 'deliver' : 'hold',
+    delivered_to: verdict.delivered_to ?? null, reason: verdict.reason ?? null,
+    permanent: PERMANENT_HOLDS.has(verdict.reason), readiness: verdict.readiness ?? null,
+    // The same id already on disk is what a real send would dedupe to, or refuse as a conflict.
+    existing: existing ? { status: existing.status, same_content: isDeepStrictEqual({ context: {}, ...existing.envelope }, envelope) } : null };
 }
 
 /** Caller-generated IDs provide retry identity. Reusing an ID with changed
@@ -269,6 +298,7 @@ export async function sendStandingMessage(input, options = {}) {
     assignment: input.assignment === undefined ? isAssignmentStage(input.stage) : input.assignment === true,
   }));
   const p = paths(id, opts);
+  if (opts.dryRun) return dryRunVerdict(envelope, p, opts);
   await mkdir(join(p.root, 'messages'), { recursive: true, mode: 0o700 });
   const settled = await withLock(p.lock, async () => {
     let record = await read(p.file);
@@ -339,6 +369,29 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
     });
   }
   return woken;
+}
+
+/**
+ * TM-356: who this session is, for every mailbox entry that acts as an agent (CLI send and forward,
+ * MCP send, receive and dispose). The identity is the launcher's — AO_AGENT_ID and AO_CONSUMER, the
+ * same proof `recordStandingReply` requires — never a `--from` flag or a tool's `from` field. A
+ * claimed agent or repository that differs is refused, so naming another agent cannot impersonate
+ * it. Host-local protocol enforcement, as for replies: not isolation from a user who rewrites their
+ * own environment.
+ */
+export async function sessionIdentity({ env = process.env, agent = null, consumer = null } = {}) {
+  // TM-353: a launcher identity (AO_AGENT_ID) wins; otherwise the identity SessionStart minted.
+  const caller = callerIdentity(env);
+  invariant(caller?.agentId && caller?.consumer, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED',
+    'source_identity_required: this session has no agent-orchestration identity (neither AO_AGENT_ID/AO_CONSUMER from a launcher nor the session identity minted at SessionStart), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Nothing was done.');
+  invariant(agent === null || agent === undefined || agent === caller.agentId, 'TOPOLOGY_SENDER_MISMATCH',
+    `This session is ${caller.agentId}; it cannot act as ${JSON.stringify(agent)}. Drop the explicit sender, or run as that agent. Nothing was done.`);
+  if (consumer !== null && consumer !== undefined) {
+    const [mine, claimed] = await Promise.all([canonicalRepoId(caller.consumer), canonicalRepoId(String(consumer))]);
+    invariant(mine.id === claimed.id, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session belongs to ${caller.consumer}; it cannot act for ${consumer}. Nothing was done.`);
+  }
+  return { agent: caller.agentId, consumer: resolve(caller.consumer), source: caller.source };
 }
 
 // These are host-local mailbox views, not an authorization boundary. API/CLI
@@ -444,4 +497,75 @@ export async function recordStandingReply({ consumer, messageId, agentId, body, 
     }) });
   }
   return settled.reply;
+}
+
+// TM-351. Delivered standing mail rings its recipient's pane once, so an idle agent learns of it
+// without polling its inbox. The ring is a pointer (message id + the exact read command), never the
+// body, and it goes through `ringMessage`, which holds rather than type into an unsafe composer. A
+// held ring is retried on the next supervisor tick; a marker under rings/ makes it once per message
+// across ticks and restarts. Mail the agent already read (a receipt) or answered is never rung.
+export const STANDING_RING_WINDOW_MS = Number(process.env.AO_STANDING_RING_WINDOW_MS ?? 3000);
+
+export function standingRingPointer(record, consumer) {
+  const e = record.envelope;
+  // The sender is caller-asserted text typed into a terminal: keep printable characters only.
+  const from = String(e.from ?? 'unknown').replace(/[^\x20-\x7e]/g, '?').slice(0, 80);
+  return `[ao] Standing message ${e.id} from ${from}: read it with ao-topology mailbox inbox --consumer ${shellQuote(consumer)} --agent ${shellQuote(record.delivered_to)}`;
+}
+
+/** `panes`: live panes of this repository, `{ agentId, command, ...binding }`. One ring per agent
+ * per call, so a backlog reaches an agent one pointer per tick rather than as a burst. */
+export async function ringStandingMail({ consumer, panes = [], adapters = null, windowMs = STANDING_RING_WINDOW_MS, ringDeps = {}, ...options }) {
+  const identity = await canonicalRepoId(consumer);
+  const { ringMessage } = await import('./delivery.mjs');
+  const { deliverPointer, tmuxFailureTrigger } = await import('./launch.mjs');
+  const { adapterForPane } = await import('./census.mjs');
+  const { withServer } = await import('./tmux.mjs');
+  const ringsDir = join(standingMailboxRoot(options), 'rings');
+  const busy = new Set(), results = [];
+  for (const record of await records(options)) {
+    const id = record.envelope.id, agent = record.delivered_to;
+    if (record.status !== 'delivered' || record.envelope.destinationRepoId !== identity.id || !agent || busy.has(agent)) continue;
+    const marker = join(ringsDir, `${createHash('sha256').update(id).digest('hex')}.json`);
+    const prior = await read(marker);
+    if (prior?.done) continue;
+    const settle = async (fields) => {
+      const next = { id, agent, attempts: (prior?.attempts ?? 0) + (fields.rung ? 1 : 0), at: nowIso(), ...fields };
+      delete next.rung;
+      await mkdir(ringsDir, { recursive: true, mode: 0o700 });
+      await atomicWrite(marker, next);
+      results.push(next);
+    };
+    const seen = record.reply || await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    if (seen) { await settle({ state: 'read', done: true, reason: 'the recipient already read or answered it' }); continue; }
+    const pane = panes.find(p => p.agentId === agent);
+    if (!pane?.paneId || !pane.serverKey) { await settle({ state: 'held', done: false, reason: 'the recipient has no live pane' }); continue; }
+    busy.add(agent);
+    const binding = Object.fromEntries(['serverKey', 'serverPid', 'sessionId', 'sessionCreated', 'paneId', 'panePid'].map(k => [k, pane[k]]));
+    const outcome = await withServer(pane.serverKey, () => ringMessage({ runDir: null, agentId: agent,
+      agent: { id: agent, pane: pane.paneId, binding }, adapter: adapterForPane(adapters, pane),
+      pointer: standingRingPointer(record, consumer), messageId: id, session: null, windowMs,
+      deliverPointer, tmuxFailureTrigger, ...ringDeps }));
+    // Escalated means something was typed and did not land; retyping would double it, so it is final.
+    await settle({ rung: true, state: outcome.delivery.state, notification: outcome.notification,
+      reason: outcome.delivery.reason, done: outcome.rang || outcome.delivery.escalated === true });
+  }
+  return results;
+}
+
+// TM-352. Block until a standing message has a reply. Unknown ids are an error, never ok:true; a
+// permanent hold returns at once, since no reply can ever come. Polls; KV watch is TM-311.
+export async function waitForStandingReply({ id, timeoutMs = 20 * 60_000, pollMs = 2000, ...options }) {
+  const started = Date.now();
+  for (;;) {
+    const record = await readStandingMessage({ id, ...options });
+    invariant(record, 'TOPOLOGY_MESSAGE_NOT_FOUND', `No standing message ${id} exists on this host.`);
+    const base = { id, status: record.status, delivered_to: record.delivered_to ?? null, elapsed_ms: Date.now() - started };
+    if (record.reply) return { ok: true, ...base, reply: record.reply };
+    if (record.permanent) return { ok: false, code: 'TOPOLOGY_MESSAGE_UNDELIVERABLE', ...base, reason: record.reason,
+      message: `Standing message ${id} is permanently held (${record.reason}); no reply can arrive.` };
+    if (Date.now() - started >= timeoutMs) return { ok: false, code: 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT', ...base,
+      message: `No reply to standing message ${id} within ${timeoutMs}ms.` };
+    await sleep(Math.max(0, Math.min(pollMs, timeoutMs - (Date.now() - started))));
+  }
 }
