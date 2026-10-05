@@ -8,5 +8,5 @@ git -C "$top" config core.hooksPath >/dev/null && exit 0
 git -C "$top" config core.hooksPath scripts/git-hooks
 # First time on this machine: also trust the bytedesk plugin hooks in Codex, which otherwise
 # waits for someone to approve each one in its TUI. Backgrounded; never delays the session.
-command -v codex >/dev/null && nohup node "$top/plugin-rsync/bin/plugin-rsync" trust-codex-hooks >/dev/null 2>&1 &
+command -v codex >/dev/null && { nohup node "$top/plugin-rsync/bin/plugin-rsync" trust-codex-hooks >/dev/null 2>&1 & }
 exit 0

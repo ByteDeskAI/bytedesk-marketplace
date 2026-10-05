@@ -179,13 +179,18 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
     } catch {
       return done({ ok: false, err: "codex not runnable" });
     }
+    let settled = false;
     const finish = (r) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       child.kill();
       done(r);
     };
     const timer = setTimeout(() => finish({ ok: false, err: "codex app-server timed out" }), timeoutMs);
     child.on("error", () => finish({ ok: false, err: "codex is not on PATH" }));
+    child.stdin.on("error", () => finish({ ok: false, err: "codex app-server closed its input" }));
+    child.on("exit", (code) => finish({ ok: false, err: `codex app-server exited ${code} before answering` }));
     const send = (m) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`);
     let trusted = [];
     createInterface({ input: child.stdout }).on("line", (line) => {
