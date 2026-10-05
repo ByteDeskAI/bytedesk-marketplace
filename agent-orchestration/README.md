@@ -454,15 +454,34 @@ ADR-0001 class (`fleet/docs/adr/0001-hierarchical-authorization.md`).
 | `ao-topology repos list`, `manage status\|assignment\|eligible` | Local-blast (read) | Reads the registry and the management record; read-only `git` |
 | `ao-topology mailbox outbox\|receipts\|wait` | Local-blast (read) | Reads standing-mail records |
 | `ao-topology lead status --cached` | Local-blast (read) | A pure read. Without `--cached` it rings the lead's pane, so it falls through |
-| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply |
+| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply. `ack`, `reply` and `mailbox inbox` are approved only with no `--agent`, or with `--agent` equal to the caller's `AO_AGENT_ID` or `AO_SESSION_AGENT_ID` |
 | `ao-topology mailbox send` | Local-blast (report) | Writes one envelope as this session's own identity (TM-356). Delivery and the pointer-only arrival ring (TM-351) belong to admission and the supervisor, not to this command |
 | `agent-orchestration doctor\|status`, `agent-orchestration services status\|probe\|wait` | Local-blast (read) | Health and run status only |
-| `tm <verb> …`, or the realpath of this plugin's sibling `task-management/bin/tm` | Local-blast (board) | Matches Ryan's `Bash(tm *)` decision of 2026-09-25, except `tm config`, `tm override`, `tm init` and every `tm pool` action but `status` |
-| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Local-blast (read) | Not approved: `#(…)` formats, `display-message -I`, `-f` |
+| `tm board\|show\|find\|next\|why\|graph\|log\|events\|standup\|stale\|where\|doctor`, `tm pool status` | Local-blast (read) | Read the board. `board` rewrites only `index.json`, a disposable cache. `doctor` falls through with `--fix` (repairs) or `--all` (runs another CLI). `caps` is not approved: it runs `<cli> -V` for every agent CLI on PATH |
+| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Local-blast (read) | Not approved: `#(…)` formats, `display-message -I`, `capture-pane -b` (writes a paste buffer), `-f`. Clustered flags such as `-pI` are checked too |
 
-A `tm` at any other path falls through, including `.bytedesk/task-management/bin/tm` in a worktree
-(TM-434), because a worker can write any script there. The sibling launcher is compared by
-realpath, so a path that only starts with the same prefix does not match.
+**Which program runs (TM-434).** The hook judges the program's realpath, never its name. A bare
+name is resolved the way the shell resolves it: the first executable on `PATH`. `PATH` often holds
+user-writable directories such as `~/bin` and `~/.local/bin` ahead of the plugin's. The command is
+approved only when that realpath is one of these launchers:
+
+- this plugin's `bin/ao-topology` or `bin/agent-orchestration`;
+- the sibling `task-management/bin/tm`.
+
+An absolute path is judged the same way. A relative path, or a `PATH` with an empty or relative
+entry before the match, falls through, because the shell would search the current directory.
+`tmux` is approved only when its realpath and that file's directory are owned by root and are not
+group- or world-writable. A user-owned `tmux`, such as Homebrew's, falls through.
+
+As a result, a `tm` at any other path falls through, including `.bytedesk/task-management/bin/tm`
+in a worktree, because a worker can write any script there. So does a `tm` or `ao-topology` on
+`PATH` that resolves to a different install of the plugin, for example another host's plugin
+cache or a source checkout. Each of those commands then costs one prompt. A path that only starts
+with the same prefix as the launcher does not match.
+
+The hook sees Claude Code's own `PATH`. If your shell profile prepends a directory for the Bash
+tool, the program that runs can differ from the one judged here. If that matters, add a `deny`
+rule.
 
 **What stays gated.** The hook never approves these commands. They go through the normal
 permission flow (a prompt, or the auto-mode classifier). An explicit deny list in the hook wins
@@ -477,8 +496,10 @@ over the allowlist, so a later edit that adds one of these by mistake still cann
 - **Pane input, launch and configuration:** `ao-topology send|nudge|launch`, `config set`,
   `startup install-hooks` and `git-hook install`. They type into another pane, start agents, or
   write configuration and hooks.
-- **Operator-only:** `ao-topology delegate …`, `ao-topology permissions …`, `tm config`,
-  `tm override`, `tm init` and `tm pool start|stop|resume|run|ensure`.
+- **Operator-only:** `ao-topology delegate …` and `ao-topology permissions …`.
+- **Every other `tm` verb:** for example `dispatch` (spawns a worker), `export --out` (writes any
+  path), `ntfy`, `config`, `override`, `init`, `worktree`, `collect`, `agent`, `hook`, `migrate`,
+  `review-sweep`, `done`, `govern`, `task new` and `pool start|stop|resume|run|ensure`.
 - **Not listed, so not approved:** for example `ao-topology census` (self-starts the supervisor),
   `presence` (publishes files), `manage report` (a finish queues a review run), `agent new` and
   `session open`. These are Local-blast at most and cost one prompt.
