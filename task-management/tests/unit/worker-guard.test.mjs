@@ -61,7 +61,7 @@ const BLOCKED = {
   "git-rebase-protected": ["git rebase origin/main main", "git rebase --onto origin/main HEAD~3 master"],
   "git-update-ref-delete": ["git update-ref -d refs/heads/main"],
   "git-stash-destroy": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git stash pop", "git stash pop --index stash@{0}"],
-  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin"],
+  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main"],
   "gh-pr-create-base": ["gh pr create --title x --body y", "gh pr create --base develop --title x", "gh -R o/r pr create --base wrong --fill", "gh pr new --title x", "gh pr new --base develop --title x"],
   "gh-pr-retarget": [
     "gh pr edit 12 --base develop",
@@ -101,7 +101,7 @@ const BLOCKED = {
 
 /** The commit form Claude Code writes by default: a heredoc inside a substitution inside quotes. */
 const CLAUDE_COMMIT = `git commit -m "$(cat <<'EOF'
-TM-177: don't git push --force; gh pr merge stays a human's call
+TM-177: don't git push --force; gh pr merge 12 is not this worker's
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
@@ -128,6 +128,10 @@ describe("guardCommand — the table", () => {
 
   it("allows the finish line and ordinary work", () => {
     const allowed = [
+      `gh pr merge ${OWN} --merge`,
+      `gh pr merge ${OWN} --squash --admin --delete-branch`,
+      "gh pr merge --merge",
+      `gh -R o/r pr merge ${OWN} --merge --subject "TM-001: done"`,
       "git push",
       "git push origin",
       `git push -u origin ${OWN}`,

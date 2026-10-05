@@ -5,8 +5,8 @@
  * a permission prompt, so the harness asks none. That is right for local work — edits, commits,
  * tests — and wrong for the two classes fleet's ADR-0001 (hierarchical authorization) says always
  * need a human: repo-destructive actions (force push, branch or tag delete, history rewrite) and
- * external ones (merge, release, deploy, secrets, outbound messages). A worker's finish line is
- * pushing its OWN branch and opening a PR; a human merges.
+ * external ones (release, deploy, secrets, outbound messages, merging anyone else's PR). A worker's finish line is
+ * pushing its OWN branch, opening a PR, and merging that PR once review and checks pass.
  *
  * This is the classifier the PreToolUse `pre-bash` hook runs, and only in a worker's environment
  * (TM_DISPATCH_WORKER). It reads a Bash command the way a shell splits it — operators, subshells,
@@ -180,7 +180,7 @@ export const RULES = [
     when: git("push", (a, ctx) => !pushesOnlyOwnBranch(a, ctx)),
     reason: (ctx) =>
       ownBranch(ctx)
-        ? `a dispatch worker pushes only its own branch, ${ownBranch(ctx)}, and only HEAD while that branch is checked out. Run \`git push -u origin ${ownBranch(ctx)}\` and open a PR; a human merges.`
+        ? `a dispatch worker pushes only its own branch, ${ownBranch(ctx)}, and only HEAD while that branch is checked out. Run \`git push -u origin ${ownBranch(ctx)}\` and open a PR.`
         : "no own branch is known for this worker (TM_DISPATCH_BRANCH is unset and HEAD is not a task branch), so no push can be confirmed safe. Check out your task's tm/ branch, then push it.",
   },
   { id: "git-branch-delete", tools: ["git"], when: git("branch", (a) => hasLong(a, "--delete") || hasShort(a, "dD")), reason: `deleting a branch is repo-destructive, ${HUMAN}; branches are cleaned up after the merge.` },
@@ -199,7 +199,24 @@ export const RULES = [
   },
 
   // External: merges, releases, repository settings.
-  { id: "gh-pr-merge", tools: ["gh"], when: gh(([a, b]) => a === "pr" && b === "merge"), reason: "merging is a human's call. Open or update your PR and stop there." },
+  {
+    // Operator policy 2026-10-05: a worker merges its OWN PR once its review is clean and required
+    // checks are green. It names the PR by its branch (or none, from the branch checked out), never
+    // by number: a number cannot be tied to this worker's branch from the command line.
+    id: "gh-pr-merge",
+    tools: ["gh"],
+    when: (a, ctx) => {
+      const [sub, verb, target, ...rest] = positionals(a, [...GH_VALUED, "-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit", "-A", "--author-email"]);
+      if (sub !== "pr" || verb !== "merge") return false;
+      const own = ownBranch(ctx);
+      if (!own || rest.length) return true;
+      return target === undefined ? ctx.head !== own : target !== own;
+    },
+    reason: (ctx) =>
+      ownBranch(ctx)
+        ? `a dispatch worker merges only its own PR, named by its branch: \`gh pr merge ${ownBranch(ctx)} --merge\`, after its review is clean and required checks pass.`
+        : "no own branch is known for this worker, so no merge can be confirmed to be its own PR. Check out your task's tm/ branch.",
+  },
   {
     // TM-235: a `gh pr create` with no --base (or the wrong one) targets the repository default
     // branch, not this repo's configured integration branch — that shipped merged develop commits

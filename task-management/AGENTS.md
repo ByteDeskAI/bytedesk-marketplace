@@ -58,8 +58,9 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
   (`.bytedesk/task-management/bin/tm evidence`), then closes (`.bytedesk/task-management/bin/tm done`) or blocks with a
   reason. It never leaves the task `in_progress` — a collector or the reaper will park it as a
   failure, and that lands on the record.
-- **The run ends at a PR; a human merges.** `git push -u origin <the task's tm/ branch>` then
-  `gh pr create --title "<TM-id>: <title>"`. If the push or the PR fails — no remote, no `gh`, no
+- **The run ends at its own merged PR.** `git push -u origin <the task's tm/ branch>`, then
+  `gh pr create --title "<TM-id>: <title>"`, review the diff, wait for required checks, and
+  `gh pr merge <the task's tm/ branch> --merge` (`--admin` only when a required approving review is the sole blocker). If the push or the PR fails — no remote, no `gh`, no
   auth — block with that error instead of closing. `tm collect` looks the PR up for the branch and
   records its url on the task.
 - **A guard enforces that, and it is a guard against accidents.** Dispatched workers run with

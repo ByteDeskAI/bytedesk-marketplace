@@ -66,10 +66,10 @@ For an ungoverned task, the legacy completion contract applies:
 
 The worker ticks AC, **commits, pushes its own branch and opens a PR**
 (`gh pr create --title "<TM-id>: <title>"`), attaches evidence, then `tm done` —
-or `tm block` with the error if the push or the PR failed. **It never merges**; a
-human does that. A PreToolUse guard enforces it: the worker's own branch and
-`gh pr create` are allowed, while force pushes, other branches, deletions,
-history rewrites, `gh pr merge`, releases, secrets and deploys are refused.
+or `tm block` with the error if the push or the PR failed. It then merges **its own** PR once
+review is clean and checks pass. A PreToolUse guard enforces the scope: the worker's own branch,
+`gh pr create` and `gh pr merge <own branch>` are allowed, while force pushes, other branches, deletions,
+history rewrites, merging other PRs, releases, secrets and deploys are refused.
 
 This session runs [[collect]] — which records the PR url on the task when `gh`
 finds one — reaps with [[agent]], and watches [[events]]. Probe first with [[caps]].
