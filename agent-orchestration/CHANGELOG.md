@@ -43,8 +43,13 @@
   branch `ao-repair/<stamp>`. Local edits are stashed, the branch moves to `origin/<default>`, and
   the stash is applied by SHA. If the apply conflicts, upstream wins on disk and the stash is
   kept, never dropped. An ignored file that the advance would overwrite cancels the advance.
-  The repair refuses with an alert, changing nothing, when no remote is known, when no revision
-  is within 50 differing paths, or when the case needs a human. Each attempt is recorded as
+  The repair refuses with an alert, changing nothing, in these cases: no remote is known; the
+  remote is shaped like a git option; or the closest revision has more than the lesser of 50 and
+  10% of its tracked paths differing, or under 90% of them byte-identical. It also refuses when
+  the case needs a human: a pointer target that cannot be stat'ed (anything but ENOENT or
+  ENOTDIR) is `unreadable`, never "gone". An `in-progress` record is written before the stash
+  step. A repair interrupted there is then reported as `TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED`,
+  naming the snapshot branch and the stash, and is never re-run. Each attempt is recorded as
   `checkout_repair` in `leads/<key>.recovery.json` (preserved by lead recovery and shown by
   `lead status`) and in its journal, with backoff. `supervise` repairs at start and checks each
   reconcile, restarting itself after a mid-run repair so it re-keys on the repaired identity.

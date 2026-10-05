@@ -36903,6 +36903,14 @@ function cleanEnv(extra = {}) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   return { ...env, GIT_TERMINAL_PROMPT: "0", ...extra };
 }
+async function pathState(path3) {
+  try {
+    await (0, import_promises51.lstat)(path3);
+    return "present";
+  } catch (error51) {
+    return ["ENOENT", "ENOTDIR"].includes(error51?.code) ? "missing" : error51?.code ?? "EUNKNOWN";
+  }
+}
 async function inspectCheckout(dir, { fsck = false, registered = false } = {}) {
   const path3 = (0, import_node_path59.resolve)(dir);
   if (!await exists(path3)) return { path: path3, status: "absent" };
@@ -36913,9 +36921,13 @@ async function inspectCheckout(dir, { fsck = false, registered = false } = {}) {
     const match = /^gitdir:\s*(.+?)\s*$/m.exec(await (0, import_promises51.readFile)(dotgit, "utf8").catch(() => ""));
     if (!match) return { path: path3, status: "unreadable", detail: "the .git file is not a gitdir pointer" };
     const gitdir = (0, import_node_path59.resolve)(path3, match[1]);
-    if (!await exists(gitdir)) {
+    const target = await pathState(gitdir);
+    if (target !== "present") {
+      if (target !== "missing") return { path: path3, status: "unreadable", gitdir, detail: `${gitdir}: ${target}; cannot prove it is gone` };
       const owner = /^(.*)[/\\]worktrees[/\\][^/\\]+$/.exec(gitdir)?.[1];
-      if (owner && await exists(owner)) return { path: path3, status: "orphaned-worktree", gitdir, detail: `${owner} still exists; run git worktree repair from it` };
+      const ownerState = owner ? await pathState(owner) : "missing";
+      if (ownerState === "present") return { path: path3, status: "orphaned-worktree", gitdir, detail: `${owner} still exists; run git worktree repair from it` };
+      if (ownerState !== "missing") return { path: path3, status: "unreadable", gitdir, detail: `${owner}: ${ownerState}; cannot prove it is gone` };
       return { path: path3, status: "dangling-gitdir", gitdir };
     }
   }
@@ -36958,8 +36970,10 @@ async function differences({ gitDir, dir, rev, index }) {
   await git3([...base, "update-index", "-q", "--refresh"], { env, timeoutMs: 3e5 });
   const changed = await git3([...base, "diff-files", "--name-only"], { env, timeoutMs: 3e5 });
   const untracked = await git3([...base, "ls-files", "--others", "--exclude-standard"], { env, timeoutMs: 3e5 });
-  if (changed.code !== 0 || untracked.code !== 0) return null;
-  return lines(changed.stdout).length + lines(untracked.stdout).length;
+  const tracked = await git3([...base, "ls-files"], { env, timeoutMs: 3e5 });
+  if (changed.code !== 0 || untracked.code !== 0 || tracked.code !== 0) return null;
+  const changedCount = lines(changed.stdout).length, trackedCount = lines(tracked.stdout).length;
+  return { differences: changedCount + lines(untracked.stdout).length, tracked: trackedCount, matching: trackedCount - changedCount };
 }
 async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, maxCommits }) {
   const tags = lines((await git3([`--git-dir=${gitDir}`, "for-each-ref", "--sort=-creatordate", `--count=${maxTags}`, "--format=%(refname:short)", "refs/tags"])).stdout);
@@ -36973,10 +36987,10 @@ async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, m
   }
   let best = null;
   for (const candidate of candidates) {
-    const count = await differences({ gitDir, dir, rev: candidate.rev, index: (0, import_node_path59.join)(scratch, "match.index") });
-    if (count === null) continue;
-    if (!best || count < best.differences) best = { ...candidate, differences: count };
-    if (count === 0) break;
+    const compared = await differences({ gitDir, dir, rev: candidate.rev, index: (0, import_node_path59.join)(scratch, "match.index") });
+    if (compared === null) continue;
+    if (!best || compared.differences < best.differences) best = { ...candidate, ...compared };
+    if (compared.differences === 0) break;
   }
   return { best, examined: candidates.length };
 }
@@ -37002,25 +37016,34 @@ async function dropStash(dir, sha2) {
   const index = lines((await git3(["-C", dir, "stash", "list", "--format=%H"])).stdout).indexOf(sha2);
   if (index >= 0) await git3(["-C", dir, "stash", "drop", "-q", `stash@{${index}}`]);
 }
-async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, stamp }) {
+async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, stamp, env, home, afterStash }) {
   const origin = await knownRemote(dir);
   if (!origin) throw new Refusal("TOPOLOGY_CHECKOUT_NO_REMOTE", `${dir} is a broken checkout and names no repository in bytedesk-package.yaml or package.json, so there is nothing to restore it from.`);
+  if (origin.remote.startsWith("-")) throw new Refusal("TOPOLOGY_CHECKOUT_UNSAFE_REMOTE", `${dir} names the repository ${JSON.stringify(origin.remote)} in ${origin.source}, which git would read as an option; refusing.`);
   const scratch = await (0, import_promises51.mkdtemp)((0, import_node_path59.join)((0, import_node_path59.dirname)(dir), `.${(0, import_node_path59.basename)(dir)}.ao-repair-`)).catch((error51) => {
     throw new Refusal("TOPOLOGY_CHECKOUT_SCRATCH_FAILED", `cannot create a scratch directory beside ${dir}: ${error51.message}`);
   });
   let keepScratch = false;
   try {
     const clone3 = (0, import_node_path59.join)(scratch, "clone"), cloneGit = (0, import_node_path59.join)(clone3, ".git");
-    const cloned = await git3(["clone", "--no-checkout", "--quiet", origin.remote, clone3], { timeoutMs: 6e5 });
+    const cloned = await git3(["clone", "--no-checkout", "--quiet", "--", origin.remote, clone3], { timeoutMs: 6e5 });
     if (cloned.code !== 0) throw new Refusal("TOPOLOGY_CHECKOUT_CLONE_FAILED", `cloning ${origin.remote} failed: ${cloned.stderr.trim().slice(-500)}`, { remote: origin.remote });
     const head = (await git3([`--git-dir=${cloneGit}`, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).stdout.trim();
     const defaultBranch = head.replace(/^origin\//, "");
     if (!defaultBranch) throw new Refusal("TOPOLOGY_CHECKOUT_NO_DEFAULT_BRANCH", `${origin.remote} has no default branch`, { remote: origin.remote });
     const { best, examined } = await closestRevision({ gitDir: cloneGit, dir, scratch, defaultBranch, maxTags, maxCommits });
-    if (!best || best.differences > maxDifferences) {
+    const allowed = best ? Math.min(maxDifferences, Math.floor(best.tracked * 0.1)) : 0;
+    if (best && best.differences <= allowed && best.matching < Math.ceil(best.tracked * 0.9)) {
+      throw new Refusal(
+        "TOPOLOGY_CHECKOUT_LOW_OVERLAP",
+        `only ${best.matching} of ${best.tracked} tracked paths of ${best.label} match ${dir} byte for byte (90% required); refusing to guess.`,
+        { remote: origin.remote, closest: best, examined }
+      );
+    }
+    if (!best || best.differences > allowed) {
       throw new Refusal(
         "TOPOLOGY_CHECKOUT_NO_CLOSE_REVISION",
-        `no revision of ${origin.remote} is within ${maxDifferences} differing paths of ${dir} (closest: ${best ? `${best.label} with ${best.differences}` : "none"}, ${examined} examined); refusing to guess.`,
+        `no revision of ${origin.remote} is close enough to ${dir}: the closest is ${best ? `${best.label} with ${best.differences} differing paths against ${best.tracked} tracked, ${allowed} allowed (the lesser of ${maxDifferences} and 10%)` : "none"}, ${examined} examined; refusing to guess.`,
         { remote: origin.remote, closest: best, examined }
       );
     }
@@ -37073,8 +37096,21 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
       stash: null,
       advance: "done"
     };
+    const stashMessage = `ao-repair ${stamp}: local edits against ${best.label}`;
+    const progress = {
+      action: "in-progress",
+      path: dir,
+      status: found.status,
+      remote: origin.remote,
+      matched: best,
+      backup_branch: backupBranch,
+      snapshot,
+      stash: { message: stashMessage, sha: null },
+      at: nowIso()
+    };
+    await recordCheckoutRepair({ consumer: dir, entry: progress, env, home });
     const before = await stashSha(dir);
-    const pushed = await g("stash", "push", "-u", "-q", "-m", `ao-repair ${stamp}: local edits against ${best.label}`);
+    const pushed = await g("stash", "push", "-u", "-q", "-m", stashMessage);
     if (pushed.code !== 0) {
       throw new Refusal(
         "TOPOLOGY_CHECKOUT_STASH_FAILED",
@@ -37084,6 +37120,8 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
     }
     const after = await stashSha(dir);
     const created = after && after !== before ? after : null;
+    if (created) await recordCheckoutRepair({ consumer: dir, entry: { ...progress, stash: { message: stashMessage, sha: created } }, env, home });
+    await afterStash?.();
     const blocked = await collisions(dir, best.rev, `origin/${defaultBranch}`);
     if (blocked.length) Object.assign(result2, { advance: "skipped-ignored-collision", collisions: blocked.slice(0, 20) });
     else await g("reset", "--hard", "-q", `origin/${defaultBranch}`);
@@ -37114,15 +37152,24 @@ async function repairCheckout({
   maxDifferences = DEFAULT_MAX_DIFFERENCES,
   maxTags = 50,
   maxCommits = 200,
-  ensureLead: ensureLead2 = recoverLead
+  ensureLead: ensureLead2 = recoverLead,
+  afterStash = null
 }) {
   const path3 = await (0, import_promises51.realpath)((0, import_node_path59.resolve)(dir)).catch(() => (0, import_node_path59.resolve)(dir));
   const lock = (0, import_node_path59.join)(leadRegistryDir(env, home), `${repoKey(`checkout:${path3}`)}.checkout-repair.lock`);
   try {
     return await withLock(lock, async () => {
       const found = await inspectCheckout(path3, { fsck, registered });
-      if (["healthy", "absent", "not-a-checkout"].includes(found.status)) return { action: found.status, path: path3 };
+      if (["absent", "not-a-checkout"].includes(found.status)) return { action: found.status, path: path3 };
       const prior = await readCheckoutRepair({ consumer: path3, env, home });
+      if (prior?.action === "in-progress") {
+        return { ...prior, action: "interrupted", status: found.status, alert: {
+          code: "TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED",
+          path: path3,
+          message: `a checkout repair of ${path3} was interrupted after ${prior.at}. Local edits are kept on branch ${prior.backup_branch} (${prior.snapshot})${prior.stash?.sha ? ` and in stash ${prior.stash.sha}` : ` and possibly in a stash named "${prior.stash?.message}"`}. Restore them by hand, then clear checkout_repair from the lead recovery record.`
+        } };
+      }
+      if (found.status === "healthy") return { action: "healthy", path: path3 };
       const at = now();
       if (prior?.action === "refused" && prior.next_retry_at && at < Date.parse(prior.next_retry_at)) return { ...prior, action: "backoff", status: found.status };
       const stamp = new Date(at).toISOString().replace(/[:.]/g, "-");
@@ -37136,7 +37183,7 @@ async function repairCheckout({
           path: path3,
           status: found.status,
           ...found.gitdir ? { gitdir: found.gitdir } : {},
-          ...await performRepair({ found, dir: path3, maxDifferences, maxTags, maxCommits, stamp }),
+          ...await performRepair({ found, dir: path3, maxDifferences, maxTags, maxCommits, stamp, env, home, afterStash }),
           alert: null,
           at: nowIso()
         };
@@ -37182,6 +37229,15 @@ async function repairConsumerCheckout({ consumer, ...options }) {
   const root = await checkoutRoot(consumer, options);
   if (!root) return { action: "not-a-checkout", path: (0, import_node_path59.resolve)(consumer) };
   return repairCheckout({ ...options, dir: root.dir, registered: root.registered });
+}
+async function superviseCheckout({ consumer, env = process.env, home = (0, import_node_os31.homedir)(), once = false, ...options }) {
+  const { status } = await inspectCheckout(consumer);
+  if (!["dangling-gitdir", "orphaned-worktree", "unreadable"].includes(status)) return null;
+  const repaired = await repairConsumerCheckout({ ...options, consumer, env, home }).catch((error51) => ({ action: "failed", error: error51?.code ?? String(error51) }));
+  if (repaired.action === "repaired" && !once) {
+    throw Object.assign(new Error(`checkout ${consumer} was repaired; restarting to supervise the repaired repository`), { code: "TOPOLOGY_CHECKOUT_REPAIRED", details: repaired });
+  }
+  return repaired;
 }
 var import_promises51, import_node_os31, import_node_path59, DEFAULT_MAX_DIFFERENCES, REPAIRABLE, IDENTITY, git3, lines, Refusal;
 var init_checkout_repair = __esm({
@@ -37476,12 +37532,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       censusRunDirByAgent = runDirByAgent;
       if (heartbeatError) throw heartbeatError;
       const snapshot = latest || await producer.publish();
-      const broken = (await inspectCheckout(consumer)).status;
-      if (["dangling-gitdir", "orphaned-worktree", "unreadable"].includes(broken)) {
-        const repaired = await repairConsumerCheckout({ consumer, env, home }).catch((error51) => ({ action: "failed", error: error51?.code ?? String(error51) }));
-        if (repaired.action === "repaired" && !once) throw Object.assign(new Error(`checkout ${consumer} was repaired; restarting to supervise the repaired repository`), { code: "TOPOLOGY_CHECKOUT_REPAIRED" });
-        checkoutReport = repaired;
-      }
+      checkoutReport = await superviseCheckout({ consumer, env, home, once }) ?? checkoutReport;
       const recovery = await recoverLead(options).catch((error51) => ({ action: "failed", attempts: null, last_error: error51?.code ?? String(error51), next_retry_at: null }));
       const resumed = await resumeStandingMessages(options);
       const natsOutage = await natsOutageTick({ ...options, env, home }).catch((error51) => ({ status: "failed", reason: error51?.code ?? String(error51) }));
@@ -77105,10 +77156,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "7dd409bc7a72a6527591232ce1b113b1c9447d90503585e1e6a471ba7f469985";
+  return false ? null : "f1792793b73a328c8c97b98ea728c6bedd1ccbe25d7970ed06826218c96ee9c7";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "7dd409bc7a72a6527591232ce1b113b1c9447d90503585e1e6a471ba7f469985";
+  const fingerprint2 = false ? null : "f1792793b73a328c8c97b98ea728c6bedd1ccbe25d7970ed06826218c96ee9c7";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77533,7 +77584,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "7dd409bc7a72a6527591232ce1b113b1c9447d90503585e1e6a471ba7f469985",
+  sourceFingerprint: false ? null : "f1792793b73a328c8c97b98ea728c6bedd1ccbe25d7970ed06826218c96ee9c7",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

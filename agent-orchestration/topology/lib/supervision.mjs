@@ -51,7 +51,7 @@ import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
-import { inspectCheckout, repairConsumerCheckout } from './checkout-repair.mjs';
+import { repairConsumerCheckout, superviseCheckout } from './checkout-repair.mjs';
 import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
@@ -247,15 +247,8 @@ export async function superviseRepository(options, { signal, once = false, inter
      // ensures a missing lead or restarts a confirmed-dead managed one, so the mail it was holding can
      // land in this same reconcile. Absorbed the way slots and quota absorb theirs: a lead that cannot
      // be recovered is reported with its backoff, never a reason to stop supervising.
-     // TM-394: a checkout that broke while supervised. Cheap (no fsck). A repair changes the
-     // canonical identity this supervisor is keyed on, so it ends the process and the restart
-     // supervises the repaired repository.
-     const broken=(await inspectCheckout(consumer)).status;
-     if(['dangling-gitdir','orphaned-worktree','unreadable'].includes(broken)) {
-       const repaired=await repairConsumerCheckout({consumer,env,home}).catch(error=>({action:'failed',error:error?.code ?? String(error)}));
-       if(repaired.action==='repaired' && !once) throw Object.assign(new Error(`checkout ${consumer} was repaired; restarting to supervise the repaired repository`),{code:'TOPOLOGY_CHECKOUT_REPAIRED'});
-       checkoutReport=repaired;
-     }
+     // TM-394: a checkout that broke while supervised; a repair ends this process (see superviseCheckout).
+     checkoutReport=(await superviseCheckout({consumer,env,home,once})) ?? checkoutReport;
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
      // TM-276 / ADR-0031: tell this repository's lead once when the configured NATS goes away and

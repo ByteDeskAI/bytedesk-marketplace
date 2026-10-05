@@ -58,6 +58,15 @@ const git = (args, { env = {}, timeoutMs = 120_000 } = {}) =>
 const lines = (text) => text.split("\n").map((line) => line.trim()).filter(Boolean);
 
 /**
+ * "present", "missing" (ENOENT or ENOTDIR: provably not there), or the error code. Anything else —
+ * EACCES, EIO, ESTALE, an unmounted network path — proves nothing, and is never read as "gone".
+ */
+async function pathState(path) {
+  try { await lstat(path); return "present"; }
+  catch (error) { return ["ENOENT", "ENOTDIR"].includes(error?.code) ? "missing" : (error?.code ?? "EUNKNOWN"); }
+}
+
+/**
  * What state the checkout at `dir` is in. Cheap unless `fsck` is set. `registered` says whether a
  * missing `.git` is a fault (a registered repository) or simply a directory that is not a checkout.
  */
@@ -71,9 +80,13 @@ export async function inspectCheckout(dir, { fsck = false, registered = false } 
     const match = /^gitdir:\s*(.+?)\s*$/m.exec(await readFile(dotgit, "utf8").catch(() => ""));
     if (!match) return { path, status: "unreadable", detail: "the .git file is not a gitdir pointer" };
     const gitdir = resolve(path, match[1]);
-    if (!(await exists(gitdir))) {
+    const target = await pathState(gitdir);
+    if (target !== "present") {
+      if (target !== "missing") return { path, status: "unreadable", gitdir, detail: `${gitdir}: ${target}; cannot prove it is gone` };
       const owner = /^(.*)[/\\]worktrees[/\\][^/\\]+$/.exec(gitdir)?.[1];
-      if (owner && (await exists(owner))) return { path, status: "orphaned-worktree", gitdir, detail: `${owner} still exists; run git worktree repair from it` };
+      const ownerState = owner ? await pathState(owner) : "missing";
+      if (ownerState === "present") return { path, status: "orphaned-worktree", gitdir, detail: `${owner} still exists; run git worktree repair from it` };
+      if (ownerState !== "missing") return { path, status: "unreadable", gitdir, detail: `${owner}: ${ownerState}; cannot prove it is gone` };
       return { path, status: "dangling-gitdir", gitdir };
     }
   }
@@ -111,7 +124,11 @@ export async function knownRemote(dir) {
   return remote ? { remote, source: "package.json" } : null;
 }
 
-/** How many paths differ between `rev` and the working tree at `dir`, read through a scratch index. */
+/**
+ * How `rev` compares with the working tree at `dir`, read through a scratch index:
+ * { differences, tracked, matching }. `differences` counts tracked paths that are not byte-identical
+ * on disk (changed or deleted) plus untracked, non-ignored files; `matching` = tracked - changed.
+ */
 async function differences({ gitDir, dir, rev, index }) {
   await rm(index, { force: true });
   const env = { GIT_INDEX_FILE: index };
@@ -120,8 +137,10 @@ async function differences({ gitDir, dir, rev, index }) {
   await git([...base, "update-index", "-q", "--refresh"], { env, timeoutMs: 300_000 });
   const changed = await git([...base, "diff-files", "--name-only"], { env, timeoutMs: 300_000 });
   const untracked = await git([...base, "ls-files", "--others", "--exclude-standard"], { env, timeoutMs: 300_000 });
-  if (changed.code !== 0 || untracked.code !== 0) return null;
-  return lines(changed.stdout).length + lines(untracked.stdout).length;
+  const tracked = await git([...base, "ls-files"], { env, timeoutMs: 300_000 });
+  if (changed.code !== 0 || untracked.code !== 0 || tracked.code !== 0) return null;
+  const changedCount = lines(changed.stdout).length, trackedCount = lines(tracked.stdout).length;
+  return { differences: changedCount + lines(untracked.stdout).length, tracked: trackedCount, matching: trackedCount - changedCount };
 }
 
 async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, maxCommits }) {
@@ -136,10 +155,10 @@ async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, m
   }
   let best = null;
   for (const candidate of candidates) {
-    const count = await differences({ gitDir, dir, rev: candidate.rev, index: join(scratch, "match.index") });
-    if (count === null) continue;
-    if (!best || count < best.differences) best = { ...candidate, differences: count };
-    if (count === 0) break;
+    const compared = await differences({ gitDir, dir, rev: candidate.rev, index: join(scratch, "match.index") });
+    if (compared === null) continue;
+    if (!best || compared.differences < best.differences) best = { ...candidate, ...compared };
+    if (compared.differences === 0) break;
   }
   return { best, examined: candidates.length };
 }
@@ -173,9 +192,10 @@ class Refusal extends Error {
   constructor(code, message, extra = {}) { super(message); this.code = code; this.extra = extra; }
 }
 
-async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, stamp }) {
+async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, stamp, env, home, afterStash }) {
   const origin = await knownRemote(dir);
   if (!origin) throw new Refusal("TOPOLOGY_CHECKOUT_NO_REMOTE", `${dir} is a broken checkout and names no repository in bytedesk-package.yaml or package.json, so there is nothing to restore it from.`);
+  if (origin.remote.startsWith("-")) throw new Refusal("TOPOLOGY_CHECKOUT_UNSAFE_REMOTE", `${dir} names the repository ${JSON.stringify(origin.remote)} in ${origin.source}, which git would read as an option; refusing.`);
   // Beside the checkout, never in /tmp: the rename below needs the same filesystem, and a checkout
   // pointing into /tmp is exactly the breakage being repaired.
   const scratch = await mkdtemp(join(dirname(dir), `.${basename(dir)}.ao-repair-`)).catch((error) => {
@@ -184,15 +204,24 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
   let keepScratch = false;
   try {
     const clone = join(scratch, "clone"), cloneGit = join(clone, ".git");
-    const cloned = await git(["clone", "--no-checkout", "--quiet", origin.remote, clone], { timeoutMs: 600_000 });
+    const cloned = await git(["clone", "--no-checkout", "--quiet", "--", origin.remote, clone], { timeoutMs: 600_000 });
     if (cloned.code !== 0) throw new Refusal("TOPOLOGY_CHECKOUT_CLONE_FAILED", `cloning ${origin.remote} failed: ${cloned.stderr.trim().slice(-500)}`, { remote: origin.remote });
     const head = (await git([`--git-dir=${cloneGit}`, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).stdout.trim();
     const defaultBranch = head.replace(/^origin\//, "");
     if (!defaultBranch) throw new Refusal("TOPOLOGY_CHECKOUT_NO_DEFAULT_BRANCH", `${origin.remote} has no default branch`, { remote: origin.remote });
     const { best, examined } = await closestRevision({ gitDir: cloneGit, dir, scratch, defaultBranch, maxTags, maxCommits });
-    if (!best || best.differences > maxDifferences) {
+    // Relative, not absolute: a few differences against a large tree is a match, the same few
+    // against a tiny foreign repository is not. Overlap is checked as well, so a directory that
+    // merely names some repository is never adopted into it.
+    const allowed = best ? Math.min(maxDifferences, Math.floor(best.tracked * 0.1)) : 0;
+    if (best && best.differences <= allowed && best.matching < Math.ceil(best.tracked * 0.9)) {
+      throw new Refusal("TOPOLOGY_CHECKOUT_LOW_OVERLAP",
+        `only ${best.matching} of ${best.tracked} tracked paths of ${best.label} match ${dir} byte for byte (90% required); refusing to guess.`,
+        { remote: origin.remote, closest: best, examined });
+    }
+    if (!best || best.differences > allowed) {
       throw new Refusal("TOPOLOGY_CHECKOUT_NO_CLOSE_REVISION",
-        `no revision of ${origin.remote} is within ${maxDifferences} differing paths of ${dir} (closest: ${best ? `${best.label} with ${best.differences}` : "none"}, ${examined} examined); refusing to guess.`,
+        `no revision of ${origin.remote} is close enough to ${dir}: the closest is ${best ? `${best.label} with ${best.differences} differing paths against ${best.tracked} tracked, ${allowed} allowed (the lesser of ${maxDifferences} and 10%)` : "none"}, ${examined} examined; refusing to guess.`,
         { remote: origin.remote, closest: best, examined });
     }
 
@@ -231,8 +260,14 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
 
     const result = { remote: origin.remote, remote_source: origin.source, matched: best, examined, default_branch: defaultBranch,
       backup_branch: backupBranch, snapshot, old_pointer: oldPointer, stash: null, advance: "done" };
+    // From the stash push until the apply, local edits live only in the stash and the snapshot. A
+    // record written first means a process killed in between leaves a trail, not a clean-looking tree.
+    const stashMessage = `ao-repair ${stamp}: local edits against ${best.label}`;
+    const progress = { action: "in-progress", path: dir, status: found.status, remote: origin.remote, matched: best,
+      backup_branch: backupBranch, snapshot, stash: { message: stashMessage, sha: null }, at: nowIso() };
+    await recordCheckoutRepair({ consumer: dir, entry: progress, env, home });
     const before = await stashSha(dir);
-    const pushed = await g("stash", "push", "-u", "-q", "-m", `ao-repair ${stamp}: local edits against ${best.label}`);
+    const pushed = await g("stash", "push", "-u", "-q", "-m", stashMessage);
     if (pushed.code !== 0) {
       // Without the stash, the reset below would put the edits only in the snapshot. Stop at the match.
       throw new Refusal("TOPOLOGY_CHECKOUT_STASH_FAILED", `the restored repository is in place at ${best.label} with every local edit on disk and in ${backupBranch}, but stashing failed (${pushed.stderr.trim()}); the tree was not advanced.`,
@@ -240,6 +275,8 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
     }
     const after = await stashSha(dir);
     const created = after && after !== before ? after : null;
+    if (created) await recordCheckoutRepair({ consumer: dir, entry: { ...progress, stash: { message: stashMessage, sha: created } }, env, home });
+    await afterStash?.();
     // With local edits stashed, anything the advance would create that is still on disk is an
     // ignored file, which reset --hard would overwrite without a word. Stay at the match instead.
     const blocked = await collisions(dir, best.rev, `origin/${defaultBranch}`);
@@ -271,14 +308,21 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
  * after a repair; pass null to skip it.
  */
 export async function repairCheckout({ dir, registered = false, fsck = false, env = process.env, home = homedir(), now = Date.now,
-  maxDifferences = DEFAULT_MAX_DIFFERENCES, maxTags = 50, maxCommits = 200, ensureLead = recoverLead }) {
+  maxDifferences = DEFAULT_MAX_DIFFERENCES, maxTags = 50, maxCommits = 200, ensureLead = recoverLead, afterStash = null }) {
   const path = await realpath(resolve(dir)).catch(() => resolve(dir));
   const lock = join(leadRegistryDir(env, home), `${repoKey(`checkout:${path}`)}.checkout-repair.lock`);
   try {
     return await withLock(lock, async () => {
       const found = await inspectCheckout(path, { fsck, registered });
-      if (["healthy", "absent", "not-a-checkout"].includes(found.status)) return { action: found.status, path };
+      if (["absent", "not-a-checkout"].includes(found.status)) return { action: found.status, path };
       const prior = await readCheckoutRepair({ consumer: path, env, home });
+      // A repair that never finished: its edits may be only in the stash and the snapshot branch,
+      // and the tree may look healthy. Report it every time; never run over it.
+      if (prior?.action === "in-progress") {
+        return { ...prior, action: "interrupted", status: found.status, alert: { code: "TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED", path,
+          message: `a checkout repair of ${path} was interrupted after ${prior.at}. Local edits are kept on branch ${prior.backup_branch} (${prior.snapshot})${prior.stash?.sha ? ` and in stash ${prior.stash.sha}` : ` and possibly in a stash named "${prior.stash?.message}"`}. Restore them by hand, then clear checkout_repair from the lead recovery record.` } };
+      }
+      if (found.status === "healthy") return { action: "healthy", path };
       const at = now();
       if (prior?.action === "refused" && prior.next_retry_at && at < Date.parse(prior.next_retry_at)) return { ...prior, action: "backoff", status: found.status };
       const stamp = new Date(at).toISOString().replace(/[:.]/g, "-");
@@ -288,7 +332,7 @@ export async function repairCheckout({ dir, registered = false, fsck = false, en
           throw new Refusal("TOPOLOGY_CHECKOUT_NOT_REPAIRABLE", `${path} is ${found.status}${found.detail ? ` (${found.detail})` : ""}; this needs a human, so nothing was changed.`);
         }
         entry = { action: "repaired", path, status: found.status, ...(found.gitdir ? { gitdir: found.gitdir } : {}),
-          ...(await performRepair({ found, dir: path, maxDifferences, maxTags, maxCommits, stamp })), alert: null, at: nowIso() };
+          ...(await performRepair({ found, dir: path, maxDifferences, maxTags, maxCommits, stamp, env, home, afterStash })), alert: null, at: nowIso() };
       } catch (error) {
         if (!(error instanceof Refusal)) throw error;
         const attempts = prior?.action === "refused" ? (prior.attempts ?? 0) + 1 : 1;
@@ -351,10 +395,26 @@ export async function repairRegisteredCheckouts({ env = process.env, home = home
   return reports;
 }
 
+/**
+ * The supervisor's per-reconcile check: cheap (no fsck). A repair changes the canonical identity
+ * the supervisor is keyed on, so outside `once` it throws TOPOLOGY_CHECKOUT_REPAIRED and the process
+ * manager restarts the supervisor under the repaired identity. Returns null for a sound checkout.
+ */
+export async function superviseCheckout({ consumer, env = process.env, home = homedir(), once = false, ...options }) {
+  const { status } = await inspectCheckout(consumer);
+  if (!["dangling-gitdir", "orphaned-worktree", "unreadable"].includes(status)) return null;
+  const repaired = await repairConsumerCheckout({ ...options, consumer, env, home })
+    .catch((error) => ({ action: "failed", error: error?.code ?? String(error) }));
+  if (repaired.action === "repaired" && !once) {
+    throw Object.assign(new Error(`checkout ${consumer} was repaired; restarting to supervise the repaired repository`), { code: "TOPOLOGY_CHECKOUT_REPAIRED", details: repaired });
+  }
+  return repaired;
+}
+
 /** `lead ensure`: repair first, and refuse to mint a lead for a checkout that is still broken. */
 export async function ensureCheckout(options) {
   const report = await repairConsumerCheckout({ fsck: true, ensureLead: null, ...options });
-  if (["refused", "backoff", "busy"].includes(report.action)) {
+  if (["refused", "backoff", "busy", "interrupted"].includes(report.action)) {
     const message = report.alert?.message ?? `${report.path} is a broken checkout (${report.status ?? report.action}); not ensuring a lead for it.`;
     throw Object.assign(new Error(message), { code: "TOPOLOGY_CHECKOUT_BROKEN", details: report });
   }

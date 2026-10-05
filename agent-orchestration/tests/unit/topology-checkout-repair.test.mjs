@@ -2,12 +2,13 @@
 // "remote" is a local bare repository, and no test touches a real checkout.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { inspectCheckout, repairCheckout, repairRegisteredCheckouts } from "../../topology/lib/checkout-repair.mjs";
+import { ensureCheckout, inspectCheckout, repairCheckout, repairRegisteredCheckouts, superviseCheckout } from "../../topology/lib/checkout-repair.mjs";
 import { leadRecoveryStatus } from "../../topology/lib/lead-recovery.mjs";
 import { addServiceRepo } from "../../topology/lib/services-client.mjs";
 import { run } from "../../topology/lib/util.mjs";
@@ -37,16 +38,31 @@ async function treeHash(dir) {
   return hash.digest("hex");
 }
 
+// Enough tracked files that the 10% closeness gate admits a couple of local edits.
+const FILLER = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`filler/f${String(i).padStart(2, "0")}.txt`, `filler ${i}\n`]));
+
+/** A bare repository holding `files` on main, for a foreign or second remote. */
+async function bareRepo(root, name, files) {
+  const bare = join(root, `${name}.git`), seed = join(root, `${name}-seed`);
+  await git("init", "-q", "--bare", "-b", "main", bare);
+  await git("init", "-q", "-b", "main", seed);
+  await writeTree(seed, files);
+  await git("-C", seed, "add", "-A"); await git("-C", seed, "commit", "-qm", "init");
+  await git("-C", seed, "push", "-q", bare, "main");
+  return bare;
+}
+
 /**
  * A bare remote with tag v1 and a later main commit that changes b.txt and adds new.txt, plus a
  * checkout holding v1's files whose `.git` points into a deleted /tmp-style repository.
  */
-async function fixture(t, { repository = "remote", checkoutFiles = null } = {}) {
+async function fixture(t, { repository = "remote", checkoutFiles = null, gitdir = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ao-checkout-repair-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bare = join(root, "remote.git"), seed = join(root, "seed"), checkout = join(root, "checkout");
-  const pkg = JSON.stringify(repository === "remote" ? { name: "fixture", repository: { type: "git", url: bare } } : { name: "fixture" });
-  const v1 = { "package.json": pkg, "a.txt": "alpha\n", "b.txt": "bravo\n", "dir/c.txt": "charlie\n", ".gitignore": "ignored/\n" };
+  const pkg = JSON.stringify(repository === "remote" ? { name: "fixture", repository: { type: "git", url: bare } }
+    : repository === "none" ? { name: "fixture" } : { name: "fixture", repository });
+  const v1 = { "package.json": pkg, "a.txt": "alpha\n", "b.txt": "bravo\n", "dir/c.txt": "charlie\n", ".gitignore": "ignored/\n", ...FILLER };
   await git("init", "-q", "--bare", "-b", "main", bare);
   await git("init", "-q", "-b", "main", seed);
   await writeTree(seed, v1);
@@ -56,7 +72,7 @@ async function fixture(t, { repository = "remote", checkoutFiles = null } = {}) 
   await git("-C", seed, "push", "-q", bare, "main", "--tags");
   await mkdir(checkout);
   await writeTree(checkout, checkoutFiles ?? v1);
-  await writeFile(join(checkout, ".git"), `gitdir: ${join(root, "gone", "repo.git", "worktrees", "checkout")}\n`);
+  await writeFile(join(checkout, ".git"), `gitdir: ${gitdir ?? join(root, "gone", "repo.git", "worktrees", "checkout")}\n`);
   const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
   const leads = [];
   const ensureLead = async (args) => { leads.push(args.consumer); return { action: "created" }; };
@@ -144,7 +160,7 @@ test("(c) no remote known: refused with an alert, nothing changed", async (t) =>
 });
 
 test("(d) no close revision: refused, nothing changed", async (t) => {
-  const f = await fixture(t, { checkoutFiles: { "package.json": "", "x1": "1", "x2": "2", "x3": "3", "x4": "4" } });
+  const f = await fixture(t, { checkoutFiles: { "package.json": "", "x1": "1", "x2": "2", "x3": "3", "x4": "4", ...FILLER } });
   // The package.json above is empty, so name the remote through bytedesk-package.yaml.
   await writeFile(join(f.checkout, "bytedesk-package.yaml"), `{"spec": {"repository": "${f.bare}"}}\n`);
   const before = await treeHash(f.checkout);
@@ -193,4 +209,112 @@ test("a pointer whose owning repository still exists is refused, not re-cloned",
   assert.equal(result.action, "refused");
   assert.equal(result.status, "orphaned-worktree");
   assert.equal(await treeHash(f.checkout), before);
+});
+
+test("a directory naming an unrelated repository is refused, not adopted into it (review repro)", async (t) => {
+  const f = await fixture(t);
+  const foreign = await bareRepo(f.root, "foreign", Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`foreign/${i}.txt`, `foreign ${i}\n`])));
+  const dir = join(f.root, "own");
+  await writeTree(dir, { ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`own/${i}.txt`, `own ${i}\n`])),
+    "package.json": JSON.stringify({ name: "own", repository: foreign }) });
+  await addServiceRepo(dir, { env: f.env });
+  const before = await treeHash(dir);
+  const [report] = await repairRegisteredCheckouts({ env: f.env, ensureLead: f.ensureLead });
+  assert.equal(report.action, "refused", JSON.stringify(report));
+  assert.equal(report.status, "missing-git");
+  assert.equal(report.alert.code, "TOPOLOGY_CHECKOUT_NO_CLOSE_REVISION");
+  assert.equal(await treeHash(dir), before, "nothing changed: no .git adopted, no file touched");
+  assert.deepEqual(f.leads, []);
+});
+
+test("a gitdir that cannot be stat'ed (EACCES) is unreadable and refused, never treated as gone", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ao-checkout-eacces-"));
+  const locked = join(root, "locked");
+  await mkdir(join(locked, "repo.git", "worktrees", "checkout"), { recursive: true });
+  t.after(async () => { await chmod(locked, 0o755).catch(() => {}); await rm(root, { recursive: true, force: true }); });
+  const f = await fixture(t, { gitdir: join(locked, "repo.git", "worktrees", "checkout") });
+  await chmod(locked, 0o000);
+  const before = await treeHash(f.checkout);
+  const result = await repairCheckout({ dir: f.checkout, env: f.env, ensureLead: f.ensureLead });
+  await chmod(locked, 0o755);
+  assert.equal(result.action, "refused", JSON.stringify(result));
+  assert.equal(result.status, "unreadable");
+  assert.equal(result.alert.code, "TOPOLOGY_CHECKOUT_NOT_REPAIRABLE");
+  assert.match(result.alert.message, /EACCES/);
+  assert.equal(await treeHash(f.checkout), before);
+  assert.deepEqual(f.leads, []);
+});
+
+test("a repair killed between stash and apply leaves an in-progress record that is reported, never re-run", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.checkout, "a.txt"), "alpha, edited before the crash\n");
+  const kill = async () => { throw Object.assign(new Error("simulated kill"), { code: "SIMULATED_KILL" }); };
+  await assert.rejects(repairCheckout({ dir: f.checkout, env: f.env, ensureLead: f.ensureLead, afterStash: kill }), { code: "SIMULATED_KILL" });
+  // The crash left the edit only in the stash and the snapshot, and the tree looks healthy.
+  assert.equal(await read(f.checkout, "a.txt"), "alpha\n");
+  assert.equal((await inspectCheckout(f.checkout)).status, "healthy");
+  const after = await treeHash(f.checkout);
+  const result = await repairCheckout({ dir: f.checkout, env: f.env, ensureLead: f.ensureLead });
+  assert.equal(result.action, "interrupted", JSON.stringify(result));
+  assert.equal(result.alert.code, "TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED");
+  assert.ok(result.alert.message.includes(result.backup_branch) && result.alert.message.includes(result.stash.sha), result.alert.message);
+  assert.equal(await blob(f.checkout, `${result.stash.sha}:a.txt`), "alpha, edited before the crash\n");
+  assert.equal(await blob(f.checkout, `${result.backup_branch}:a.txt`), "alpha, edited before the crash\n");
+  assert.equal(await treeHash(f.checkout), after, "the second call changed nothing");
+  await assert.rejects(ensureCheckout({ consumer: f.checkout, env: f.env }), { code: "TOPOLOGY_CHECKOUT_BROKEN" });
+  assert.deepEqual(f.leads, []);
+});
+
+test("a remote shaped like a git option is refused", async (t) => {
+  const f = await fixture(t, { repository: "--upload-pack=touch PWNED" });
+  const before = await treeHash(f.checkout);
+  const result = await repairCheckout({ dir: f.checkout, env: f.env, ensureLead: f.ensureLead });
+  assert.equal(result.action, "refused");
+  assert.equal(result.alert.code, "TOPOLOGY_CHECKOUT_UNSAFE_REMOTE");
+  assert.equal(await treeHash(f.checkout), before);
+  assert.deepEqual(await scratchLeftovers(f.root), []);
+});
+
+test("an ignored file the advance would overwrite keeps the tree at the matched revision", async (t) => {
+  const f = await fixture(t);
+  // Locally ignored new.txt; upstream main adds a tracked new.txt that reset --hard would overwrite.
+  await writeFile(join(f.checkout, ".gitignore"), "ignored/\nnew.txt\n");
+  await writeFile(join(f.checkout, "new.txt"), "my ignored new.txt\n");
+  const result = await repairCheckout({ dir: f.checkout, env: f.env, ensureLead: f.ensureLead });
+  assert.equal(result.action, "repaired", JSON.stringify(result));
+  assert.equal(result.advance, "skipped-ignored-collision");
+  assert.deepEqual(result.collisions, ["new.txt"]);
+  assert.equal(await read(f.checkout, "new.txt"), "my ignored new.txt\n");
+  assert.equal(await read(f.checkout, ".gitignore"), "ignored/\nnew.txt\n");
+  assert.equal(await git("-C", f.checkout, "rev-parse", "HEAD"), result.matched.rev, "the branch stayed at the match");
+  assert.equal(result.stash.state, "applied");
+});
+
+test("supervise: a mid-run repair ends the supervisor so it restarts under the repaired identity", async (t) => {
+  const f = await fixture(t);
+  const healthy = join(f.root, "healthy");
+  await git("clone", "-q", f.bare, healthy);
+  assert.equal(await superviseCheckout({ consumer: healthy, env: f.env, ensureLead: f.ensureLead }), null);
+  await assert.rejects(superviseCheckout({ consumer: f.checkout, env: f.env, ensureLead: f.ensureLead }),
+    (error) => error.code === "TOPOLOGY_CHECKOUT_REPAIRED" && error.details.action === "repaired");
+  assert.equal(await git("-C", f.checkout, "rev-parse", "HEAD"), f.tip);
+  // `once` has no restart to hand over to, so it reports instead of throwing.
+  const g = await fixture(t);
+  assert.equal((await superviseCheckout({ consumer: g.checkout, env: g.env, ensureLead: g.ensureLead, once: true })).action, "repaired");
+});
+
+test("lead ensure refuses with TOPOLOGY_CHECKOUT_BROKEN for a checkout it cannot repair", async (t) => {
+  const f = await fixture(t, { repository: "none" });
+  const cli = join(import.meta.dirname, "..", "..", "topology", "cli.mjs");
+  const home = join(f.root, "home");
+  await mkdir(home);
+  const before = await treeHash(f.checkout);
+  const env = { ...Object.fromEntries(Object.entries(f.env).filter(([k]) => !["TMUX", "TMUX_PANE", "AO_LEAD_ID"].includes(k))), HOME: home, TMUX: "" };
+  const outcome = await new Promise((done) => execFile(process.execPath, [cli, "lead", "ensure", "--consumer", f.checkout],
+    { env, timeout: 60_000 }, (error, stdout, stderr) => done({ code: error?.code ?? 0, text: `${stdout}${stderr}` })));
+  assert.notEqual(outcome.code, 0, outcome.text);
+  assert.match(outcome.text, /TOPOLOGY_CHECKOUT_BROKEN/);
+  assert.equal(await treeHash(f.checkout), before);
+  const leads = await readdir(join(f.root, "state", "leads")).catch(() => []);
+  assert.deepEqual(leads.filter((name) => /^[0-9a-f]{16}\.json$/.test(name)), [], "no lead record was minted");
 });
