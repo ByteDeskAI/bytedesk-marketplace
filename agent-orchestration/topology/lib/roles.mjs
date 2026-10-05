@@ -275,12 +275,12 @@ export async function roleAssign(options) {
   return result;
 }
 
-export async function roleEnsure({ role, agentRef = null, consumer, home = homedir(), env = process.env, pluginRoot = null, probes = null, ackTimeoutMs = undefined, notAgentIds = [], open = openRoleSession, log = () => {} }) {
+export async function roleEnsure({ role, agentRef = null, consumer, home = homedir(), env = process.env, pluginRoot = null, probes = null, ackTimeoutMs = undefined, notAgentIds = [], provider = null, open = openRoleSession, log = () => {} }) {
   kindOf(role);
   const shared = { consumer, home, env, pluginRoot, probes, log, ...(ackTimeoutMs === undefined ? {} : { ackTimeoutMs }) };
   let result;
   if (role === "lead") result = { ...(await ensureLead(shared)), role };
-  else if (role === "reviewer") result = { ...(await ensureReviewer({ ...shared, notAgentIds })), role, action: "ensured" };
+  else if (role === "reviewer") result = { ...(await ensureReviewer({ ...shared, notAgentIds, provider })), role, action: "ensured" };
   else {
     invariant(agentRef, "TOPOLOGY_ROLE_AGENT_REQUIRED", `Name the agent whose session to open: role ensure ${role} <id|"Full Name">.`);
     const agent = await requireAgent(agentRef, dirsFor({ consumer, home, pluginRoot }));

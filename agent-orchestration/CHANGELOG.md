@@ -59,6 +59,52 @@
   `current`, `stale` or `unknown`. A stale cache adds a setup problem naming
   `claude plugin update <plugin>@<marketplace>`. Offline or timed out reports `unknown` and never
   fails doctor.
+- **Reviewer verdicts travel as JSON and are never read off the pane (TM-365, EP-028).**
+  `TOPOLOGY_REVIEWER_RESPONSE` ("Expected a nonce-bound review response", "Review response must
+  be JSON") was the most common gateway error. The reviewer now submits its verdict with a
+  `review_submit` MCP tool, served by the new `topology/review-mcp.mjs`, or from a shell with
+  `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
+  --findings @file.json`. Both run `submitReviewVerdict`. It checks the caller is the request's
+  reviewer at the request's incarnation, and applies the findings schema at once, so a refusal
+  says what to fix and the reviewer can submit again. Resubmitting before collection replaces the
+  verdict. It writes `<inbox>/verdicts/<task>-<revision>.json` and mirrors it to the NATS
+  `ORCH_REVIEWS` object store and the verdict subject when NATS is live. `reviewer collect` and
+  the supervisor's queue read only that record, and report `TOPOLOGY_REVIEWER_NO_VERDICT` while
+  none exists. The pane parser (`parseReviewResponse`, `reviewResponsesOnScreen`, the incomplete
+  verdict ageing and `AO_REVIEW_INCOMPLETE_*_MS`) is removed. A submitted verdict survives a
+  reviewer restart: `agent restart` no longer waits on it, and collection records it against the
+  incarnation that submitted it. Approval still needs the current incarnation, as before.
+  The reviewer now launches with `--restricted --setting-sources ''` in place of
+  `--restricted --safe-mode`, because safe mode also disables every MCP server. We measured both
+  on claude 2.1.289: the tool lists are the same (no Bash, Write or Edit) except for
+  `review_submit`, and no settings, plugins or hooks load. The reviewer prompts now name the tool.
+  `dist/` is rebuilt.
+
+### Fixed
+
+- **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
+  review range, the patch, the binary manifest and the files a finding may name now resolve from
+  the task worktree in the admission record. The request records that `worktree`, and the reviewer
+  prompt and request ring tell the reviewer to read files there; the main checkout may have another
+  branch checked out. A worktree that has been removed falls back to the consumer, which shares the
+  object store. A worktree of another repository is refused with `TOPOLOGY_REVIEWER_RANGE`.
+- **A reviewer finding may name a CHANGELOG.md the change did not touch (TM-367, EP-028).** A
+  missing changelog entry is a finding about a file outside the diff, and refusing it with
+  `TOPOLOGY_REVIEWER_FINDINGS` failed the whole review (gateway TM-490). A `CHANGELOG.md` at any
+  depth is now accepted; any other file outside the diff is still refused. Every finding still
+  carries one severity (`blocker`, `major`, `minor`, `nit` or `note`), and an approval with only
+  minor, nit or note findings is recorded as approved; a new test covers both. The reviewer prompt
+  says so.
+- **`reviewer ensure` honours the requested provider and reuses the reviewer it has (TM-364,
+  EP-028).** In agent-browser on 2026-10-05 a Codex reviewer was requested and three Claude
+  reviewers were created. `ao-topology reviewer ensure --provider codex` (and
+  `role ensure reviewer --provider codex`) now reuses the registered Codex reviewer. A request for
+  another provider than the registered one is refused with `TOPOLOGY_REVIEWER_PROVIDER` and names
+  the `--provider` that keeps it; nothing is minted. With no registration, ensure first looks at
+  the repository's reviewer agents. It reattaches a live one on the requested provider, relaunches
+  a stopped one as the same identity, and refuses with `TOPOLOGY_REVIEWER_LIVE` while a reviewer on
+  another provider is live. A new reviewer is minted only when none exists on that provider. The
+  requested provider must still be in `management.reviewer_providers`.
 
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
