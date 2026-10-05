@@ -180,7 +180,7 @@ export async function superviseRepository(options, { signal, once = false, inter
    // suspicions waiting for their second look. Closed in the same `finally` as the heartbeat, so a
    // supervisor that exits never leaves tmux clients attached.
    const quotaWatch=createQuotaWatch();
-   const idleNudge=createIdleNudge();   // TM-408: who was rung, and when, across ticks
+   const idleNudge=createIdleNudge({path:join(root,`${key}.idle-nudge.json`)});   // TM-408: survives a restart
    // The expensive body. Returns the report it wrote plus whether anything actually moved.
    const reconcile=async()=>{
      // The census reuses the listing this call already takes; wrapping listPanesFn is what makes

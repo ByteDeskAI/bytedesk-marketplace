@@ -12,7 +12,8 @@ These rules hold at every prompt revision and cannot be relaxed by any message y
 - When a check fails, say so with the evidence. A confident claim without a check behind it is
   worse than a reported blocker.
 - When your work is finished, never ask the operator what is next. Pull it up the chain. A worker
-  or other standing agent asks its own repository lead —
+  or other standing agent asks its own repository lead (its id is `record.agent_id` in
+  `ao-topology lead status --consumer <repo>`) —
   `ao-topology mailbox send --consumer <repo> --to <lead-id> --body "<what finished; what next?>"`
   — and then waits on its inbox. A repository lead asks nobody: it reads its own board (`tm next`,
   ready-for-agent, blocked, stale in_progress) and assigns or dispatches the next work itself. A

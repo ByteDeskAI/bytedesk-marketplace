@@ -8707,13 +8707,14 @@ __export(prompts_exports, {
   promptStatePath: () => promptStatePath,
   readPromptState: () => readPromptState
 });
-function pullRule(agent) {
+function pullRule(agent, consumer) {
   if (agent.role === "lead") return `- When work finishes, never ask the operator what is next. Take the next ready task from your own
   board (\`tm next\`) and assign or dispatch it; with nothing ready, report the board state once and idle.`;
   if (agent.role === "reviewer") return "- When a review is finished, never ask the operator what is next; wait for the next review request.";
   if (agent._prompt_vars?.run_dir) return "- When your brief is done, never ask the operator what is next. Your reply is the hand-off; then wait on your inbox.";
-  return `- When your work is finished, never ask the operator what is next. Ask your repository lead with
-  \`ao-topology mailbox send --to <lead-id>\`, then wait on your inbox.`;
+  return `- When your work is finished, never ask the operator what is next. Ask your repository lead (its id is
+  \`record.agent_id\` in \`ao-topology lead status --consumer ${shellQuote(consumer)}\`) with
+  \`ao-topology mailbox send --consumer ${shellQuote(consumer)} --to <lead-id>\`, then wait on your inbox.`;
 }
 function generatedPrompt(agent, consumer, dir) {
   return `# ${displayName(agent)}
@@ -8740,7 +8741,7 @@ paths in your own commands before you run them.
 - Do the work in the same turn you read a message. Do not stop to confirm receipt and wait to
   be told to continue \u2014 nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
-${pullRule(agent)}
+${pullRule(agent, consumer)}
 ${agent.role === "reviewer" ? `- Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
 - Deliver review verdicts through the nonce-bound AO_REVIEW output protocol. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
@@ -8968,8 +8969,8 @@ async function promotePromptForIncarnation({ agent, binding, consumer, session }
     const exact = incarnationOf(binding);
     invariant2(exact, "TOPOLOGY_PROMPT_INCARNATION", "A complete live process incarnation is required before staging its prompt.");
     if (state.status === "queued" || state.status === "restart-required") {
-      const { readFile: readFile32 } = await import("node:fs/promises");
-      const text = await readFile32((0, import_node_path30.join)(agent._dir, "prompt.pending.md"), "utf8");
+      const { readFile: readFile33 } = await import("node:fs/promises");
+      const text = await readFile33((0, import_node_path30.join)(agent._dir, "prompt.pending.md"), "utf8");
       await writeText((0, import_node_path30.join)(agent._dir, "prompt.md"), text);
     }
     const nonce = (0, import_node_crypto15.randomUUID)();
@@ -25172,7 +25173,7 @@ var require_node_transport = __commonJS({
     var util_1 = require_util2();
     var tls_1 = require("tls");
     var { resolve: resolve21 } = require("path");
-    var { readFile: readFile32, existsSync: existsSync7 } = require("fs");
+    var { readFile: readFile33, existsSync: existsSync7 } = require("fs");
     var dns = require("dns");
     var VERSION = "2.29.3";
     var LANG = "nats.js";
@@ -25290,7 +25291,7 @@ var require_node_transport = __commonJS({
           if (!existsSync7(fn)) {
             d.reject(new Error(`${fn} doesn't exist`));
           }
-          readFile32(fn, (err, data) => {
+          readFile33(fn, (err, data) => {
             if (err) {
               return d.reject(err);
             }
@@ -28105,8 +28106,8 @@ async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, i
 }
 async function readHandoff(record2) {
   if (!record2?.handoff?.path) return null;
-  const { readFile: readFile32 } = await import("node:fs/promises");
-  return readFile32(record2.handoff.path, "utf8").catch(() => null);
+  const { readFile: readFile33 } = await import("node:fs/promises");
+  return readFile33(record2.handoff.path, "utf8").catch(() => null);
 }
 function handoffPointer(path3) {
   return `[ao] Your previous session left a handoff: read ${path3} before continuing.`;
@@ -36888,8 +36889,15 @@ var init_presence = __esm({
 // topology/lib/idle-nudge.mjs
 function idleNudgeConfig(config2) {
   const raw = config2?.idle_nudge ?? {};
-  const ms = (value, fallback) => Number.isFinite(value) && value >= 0 ? value : fallback;
-  return { enabled: raw.enabled !== false, backoff_ms: ms(raw.backoff_ms, IDLE_NUDGE_DEFAULTS.backoff_ms), retry_ms: ms(raw.retry_ms, IDLE_NUDGE_DEFAULTS.retry_ms) };
+  const ms = (key) => Number.isFinite(raw[key]) && raw[key] >= 0 ? raw[key] : IDLE_NUDGE_DEFAULTS[key];
+  return {
+    enabled: raw.enabled !== false,
+    min_idle_ms: ms("min_idle_ms"),
+    lead_min_idle_ms: ms("lead_min_idle_ms"),
+    backoff_ms: ms("backoff_ms"),
+    max_backoff_ms: ms("max_backoff_ms"),
+    retry_ms: ms("retry_ms")
+  };
 }
 function nudgeText({ consumer, agentId, leadId, isLead }) {
   if (isLead) {
@@ -36898,8 +36906,47 @@ function nudgeText({ consumer, agentId, leadId, isLead }) {
   const repo = shellQuote(consumer);
   return `${TAG} You are idle. Do not ask the operator what is next. Ask your lead for your next assignment: ao-topology mailbox send --consumer ${repo} --from ${shellQuote(agentId)} --to ${shellQuote(leadId)} --subject next-assignment --body ${shellQuote(ASK_BODY)} then wait on your inbox: ao-topology mailbox inbox --consumer ${repo} --agent ${shellQuote(agentId)}`;
 }
-function createIdleNudge() {
-  return { memory: /* @__PURE__ */ new Map() };
+async function boardFingerprint(consumer) {
+  const dir = (0, import_node_path59.join)(consumer, ".bytedesk", "task-management", "tasks");
+  const names2 = await (0, import_promises51.readdir)(dir).catch(() => null);
+  if (!names2) return null;
+  const hash4 = (0, import_node_crypto33.createHash)("sha256");
+  for (const name of names2.filter((item) => item.endsWith(".md")).sort()) {
+    const text = await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, name), "utf8").catch(() => "");
+    const head = text.split("\n---", 1)[0];
+    const status = /^status:\s*"?([\w-]+)/m.exec(head)?.[1] ?? "";
+    const labels = /^labels:(.*)$/m.exec(head)?.[1] ?? "";
+    if (labels.includes("ready-for-agent") && !FINISHED.has(status)) hash4.update(`${name}:${status}
+`);
+  }
+  return hash4.digest("hex");
+}
+async function mailMark(agentId, { env = process.env, home = (0, import_node_os31.homedir)() } = {}) {
+  const dir = (0, import_node_path59.join)(standingMailboxRoot({ env, home }), "messages");
+  const names2 = await (0, import_promises51.readdir)(dir).catch(() => null);
+  if (!names2) return null;
+  let count = 0;
+  let latest = "";
+  for (const name of names2.filter((item) => item.endsWith(".json"))) {
+    const record2 = await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, name), "utf8").then(JSON.parse).catch(() => null);
+    if (record2?.envelope?.to !== agentId) continue;
+    count += 1;
+    if (String(record2.created_at ?? "") > latest) latest = String(record2.created_at);
+  }
+  return `${count}:${latest}`;
+}
+function createIdleNudge({ path: path3 = null } = {}) {
+  return { memory: /* @__PURE__ */ new Map(), path: path3, loaded: !path3 };
+}
+async function loadState(state) {
+  if (state.loaded) return;
+  state.loaded = true;
+  const doc = await readJson3(state.path).catch(() => null);
+  const agents = doc && typeof doc.agents === "object" && !Array.isArray(doc.agents) ? doc.agents : {};
+  for (const [id, value] of Object.entries(agents)) if (value && typeof value === "object") state.memory.set(id, value);
+}
+async function saveState(state) {
+  if (state.path) await writeJson(state.path, { version: 1, agents: Object.fromEntries(state.memory) }).catch(() => null);
 }
 async function ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, tmux: tmux2 }) {
   if (!isLead && !leadId) return { rang: false, reason: "no registered repository lead to ask" };
@@ -36911,41 +36958,82 @@ async function ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, t
   const result2 = await withServer(row.binding.serverKey, () => wake({ pane: row.binding.paneId, adapter, binding: row.binding, format, text, tmux: tmux2 })).catch((error51) => ({ rang: false, reason: error51?.code ?? String(error51) }));
   return result2?.rang ? { rang: true } : { rang: false, reason: result2?.reason ?? "the composer cannot safely receive a pointer" };
 }
+function floorAfter(rings, settings) {
+  return Math.min(settings.backoff_ms * Math.pow(2, Math.max(rings - 1, 0)), settings.max_backoff_ms);
+}
+function quietEnough(row, isLead, settings, now) {
+  const quietSince = Date.parse(row.needsInputAt ?? row.since);
+  const wanted = isLead ? settings.lead_min_idle_ms : settings.min_idle_ms;
+  return Number.isFinite(quietSince) && now - quietSince >= wanted;
+}
 async function idleNudgeTick(options, { census, panes, adapters, state = createIdleNudge(), now = Date.now(), tmux: tmux2 = tmux, wake = wakeForProbe, config: config2 } = {}) {
   const { consumer, env = process.env, home = (0, import_node_os31.homedir)(), pluginRoot = null } = options;
-  const settings = idleNudgeConfig(config2 !== void 0 ? config2 : (await loadConfig({ consumer, home, env, pluginRoot })).config);
-  if (!settings.enabled || census?.stale || !Array.isArray(panes) || !adapters) return [];
+  if (census?.stale || !Array.isArray(panes) || !adapters) return [];
   const candidates = (census?.agents ?? []).filter((row) => row.dispatchable && row.state === "idle" && !row.runId && row.repoRole !== "reviewer" && row.binding?.paneId);
   if (!candidates.length) return [];
+  const settings = idleNudgeConfig(config2 !== void 0 ? config2 : (await loadConfig({ consumer, home, env, pluginRoot })).config);
+  if (!settings.enabled) return [];
+  await loadState(state);
   const registration = await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
+  const fingerprintOf = options.boardFingerprint ?? (() => boardFingerprint(consumer));
+  const mailOf = options.mailMark ?? ((agentId) => mailMark(agentId, { env, home }));
+  let board;
+  let changed = false;
   const outcomes = [];
   for (const row of candidates) {
-    const prior = state.memory.get(row.agentId);
-    if (prior?.rangSince === row.since) continue;
-    if (prior?.rangAt !== void 0 && now - prior.rangAt < settings.backoff_ms) continue;
-    if (prior?.triedAt !== void 0 && now - prior.triedAt < settings.retry_ms) continue;
+    const prior = state.memory.get(row.agentId) ?? {};
     const isLead = row.agentId === leadId || row.repoRole === "lead";
+    const rang = prior.rangAt !== void 0;
+    if (prior.rangSince === row.since) continue;
+    if (prior.triedAt !== void 0 && now - prior.triedAt < settings.retry_ms) continue;
+    if (!quietEnough(row, isLead, settings, now)) continue;
+    if (rang && now - prior.rangAt < floorAfter(prior.rings ?? 1, settings)) continue;
+    if (board === void 0) board = await fingerprintOf();
+    const mail = await mailOf(row.agentId);
+    if (rang && prior.board === board && prior.mail === mail) continue;
     const outcome = await ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, tmux: tmux2 });
-    state.memory.set(row.agentId, { ...prior, triedAt: now, ...outcome.rang ? { rangAt: now, rangSince: row.since } : {} });
-    outcomes.push({ agent: row.agentId, lead: isLead, ...outcome });
+    changed = true;
+    if (outcome.rang) {
+      const rings = rang && prior.mail === mail ? (prior.rings ?? 1) + 1 : 1;
+      state.memory.set(row.agentId, { rangAt: now, rangSince: row.since, board, mail, rings, triedAt: now });
+      outcomes.push({ agent: row.agentId, lead: isLead, rang: true });
+      continue;
+    }
+    const repeat = prior.refusedSince === row.since && prior.refusedReason === outcome.reason;
+    state.memory.set(row.agentId, { ...prior, triedAt: now, refusedSince: row.since, refusedReason: outcome.reason });
+    if (!repeat) outcomes.push({ agent: row.agentId, lead: isLead, ...outcome });
   }
+  if (changed) await saveState(state);
   return outcomes;
 }
-var import_node_os31, IDLE_NUDGE_DEFAULTS, TAG, ASK_BODY;
+var import_node_crypto33, import_promises51, import_node_os31, import_node_path59, MINUTE, IDLE_NUDGE_DEFAULTS, TAG, ASK_BODY, FINISHED;
 var init_idle_nudge = __esm({
   "topology/lib/idle-nudge.mjs"() {
+    import_node_crypto33 = require("node:crypto");
+    import_promises51 = require("node:fs/promises");
     import_node_os31 = require("node:os");
+    import_node_path59 = require("node:path");
     init_census();
     init_config();
     init_delivery();
     init_launch();
     init_lead();
+    init_standing_mailbox();
     init_tmux();
     init_util();
-    IDLE_NUDGE_DEFAULTS = Object.freeze({ enabled: true, backoff_ms: 30 * 6e4, retry_ms: 6e4 });
+    MINUTE = 6e4;
+    IDLE_NUDGE_DEFAULTS = Object.freeze({
+      enabled: true,
+      min_idle_ms: 10 * MINUTE,
+      lead_min_idle_ms: 30 * MINUTE,
+      backoff_ms: 30 * MINUTE,
+      max_backoff_ms: 8 * 60 * MINUTE,
+      retry_ms: MINUTE
+    });
     TAG = "[ao]";
     ASK_BODY = "Finished my current work; what is my next assignment?";
+    FINISHED = /* @__PURE__ */ new Set(["done", "cancelled", "wontfix"]);
   }
 });
 
@@ -37050,10 +37138,10 @@ async function natsOutageTick({
     provenance: { source: "ao-topology supervise" }
   }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto33, import_node_os32, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
+var import_node_crypto34, import_node_os32, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
-    import_node_crypto33 = require("node:crypto");
+    import_node_crypto34 = require("node:crypto");
     import_node_os32 = require("node:os");
     import_node_net3 = __toESM(require("node:net"), 1);
     init_repoid();
@@ -37063,7 +37151,7 @@ var init_nats_outage = __esm({
     REDIAL_FIRST_MS = 3e4;
     REDIAL_MAX_MS = 15 * 6e4;
     redials = /* @__PURE__ */ new Map();
-    messageId = (kind, key, since) => (0, import_node_crypto33.createHash)("sha256").update(`nats-${kind}:v2:${key}:${since}`).digest("hex").slice(0, 32);
+    messageId = (kind, key, since) => (0, import_node_crypto34.createHash)("sha256").update(`nats-${kind}:v2:${key}:${since}`).digest("hex").slice(0, 32);
     SUPERVISOR_SENDER = "ao-supervisor";
   }
 });
@@ -37083,8 +37171,8 @@ __export(supervision_exports, {
 async function sourceIdentity() {
   const implementation = (0, import_node_url6.fileURLToPath)(__aoImportMetaUrl);
   const source_entrypoint = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
-  const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises51.readFile)(source_entrypoint), (0, import_promises51.readFile)(implementation)]);
-  return { source_entrypoint, source_fingerprint: (0, import_node_crypto34.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
+  const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises52.readFile)(source_entrypoint), (0, import_promises52.readFile)(implementation)]);
+  return { source_entrypoint, source_fingerprint: (0, import_node_crypto35.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
 }
 function nextRung(rung, activity) {
   return activity ? 0 : Math.min(rung + 1, SLEEP_LADDER_MS.length - 1);
@@ -37100,13 +37188,13 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
   const { env = process.env, home = (0, import_node_os33.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   options = { ...options, consumer };
-  const identity = await canonicalRepoId(consumer), root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision");
+  const identity = await canonicalRepoId(consumer), root = (0, import_node_path60.join)(stateRoot2(env, home), "supervision");
   const key = repoKey(identity.id);
   const floorMs = reconcileFloor(env, reconcileMinMs);
   let ownedToken = null;
-  return withLock((0, import_node_path59.join)(root, `${key}.lock`), async (ownership) => {
+  return withLock((0, import_node_path60.join)(root, `${key}.lock`), async (ownership) => {
     ownedToken = ownership.token;
-    const recordPath2 = (0, import_node_path59.join)(root, `${key}.process.json`);
+    const recordPath2 = (0, import_node_path60.join)(root, `${key}.process.json`);
     if (!once) {
       const prior = await readJson3(recordPath2).catch(() => null);
       const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
@@ -37118,7 +37206,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         consumer,
         started_at: (/* @__PURE__ */ new Date()).toISOString(),
         restarts,
-        log: prior?.log ?? (0, import_node_path59.join)(root, `${key}.log`),
+        log: prior?.log ?? (0, import_node_path60.join)(root, `${key}.log`),
         state: "starting",
         ...await sourceIdentity()
       });
@@ -37148,7 +37236,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
             return;
           }
           degradedBeats++;
-          await (0, import_promises52.setTimeout)(producer.publishIntervalMs, void 0, { signal: controller.signal }).catch(() => {
+          await (0, import_promises53.setTimeout)(producer.publishIntervalMs, void 0, { signal: controller.signal }).catch(() => {
           });
         }
       }
@@ -37158,7 +37246,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
     let censusRoster = [], censusRunDirs = [], censusPanes, census = null;
     let censusRunDirByAgent = /* @__PURE__ */ new Map();
     const quotaWatch = createQuotaWatch();
-    const idleNudge = createIdleNudge();
+    const idleNudge = createIdleNudge({ path: (0, import_node_path60.join)(root, `${key}.idle-nudge.json`) });
     const reconcile2 = async () => {
       const seen = [];
       const listPanesFn = async (args) => {
@@ -37187,17 +37275,17 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       const listing = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], { allowFailure: true });
       const roots = /* @__PURE__ */ new Set([consumer, ...listing.stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9))]);
       const runDirs = [], runDirByAgent = /* @__PURE__ */ new Map();
-      const runRoots = new Map([...roots].map((checkout) => [(0, import_node_path59.join)(checkout, ".bytedesk/agent-orchestration/runs"), checkout]));
+      const runRoots = new Map([...roots].map((checkout) => [(0, import_node_path60.join)(checkout, ".bytedesk/agent-orchestration/runs"), checkout]));
       runRoots.set(durableTopologyRoot({ id: identity.id, key }, { stateHome: stateRoot2(env, home) }), consumer);
       for (const [runsRoot, checkout] of runRoots) {
-        for (const name of await (0, import_promises51.readdir)(runsRoot).catch(() => [])) {
-          const runDir = (0, import_node_path59.join)(runsRoot, name), runRecord = await readJson3((0, import_node_path59.join)(runDir, "run.json")).catch(() => null);
+        for (const name of await (0, import_promises52.readdir)(runsRoot).catch(() => [])) {
+          const runDir = (0, import_node_path60.join)(runsRoot, name), runRecord = await readJson3((0, import_node_path60.join)(runDir, "run.json")).catch(() => null);
           if (!runRecord || (runRecord.repository?.id ?? (await canonicalRepoId(runRecord.consumer || checkout)).id) !== identity.id) continue;
           runDirs.push(runDir);
           for (const entry of runRecord.agents || []) {
             runDirByAgent.set(entry.id, runDir);
             if (!entry.binding || !panes.some((p) => p.alive && ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"].every((k) => p[k] === entry.binding[k]))) continue;
-            const dir = (0, import_node_path59.join)(runDir, "agents", entry.id), definition = await readJson3((0, import_node_path59.join)(dir, "prompt-agent.json")).catch(() => null);
+            const dir = (0, import_node_path60.join)(runDir, "agents", entry.id), definition = await readJson3((0, import_node_path60.join)(dir, "prompt-agent.json")).catch(() => null);
             if (!definition) continue;
             prompts.push({ agent: entry.id, run: runRecord.run_id, state: await refreshPrompt({
               ...options,
@@ -37239,8 +37327,8 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         ...natsOutage ? { nats_outage: natsOutage } : {}
       };
       report.reviews = await collectPendingReviews(options).catch((error51) => [{ state: "collection-failed", reason: error51.code ?? error51.message }]);
-      await writeJson((0, import_node_path59.join)(root, `${key}.json`), report);
-      if (!once) await promoteRecord((0, import_node_path59.join)(root, `${key}.process.json`));
+      await writeJson((0, import_node_path60.join)(root, `${key}.json`), report);
+      if (!once) await promoteRecord((0, import_node_path60.join)(root, `${key}.process.json`));
       return { report, activity };
     };
     try {
@@ -37248,7 +37336,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
       do {
         if (heartbeatError) throw heartbeatError;
         if (!await exists(consumer)) {
-          if (!once) await retireRecord((0, import_node_path59.join)(root, `${key}.process.json`));
+          if (!once) await retireRecord((0, import_node_path60.join)(root, `${key}.process.json`));
           report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, stopped: "consumer-gone" };
           await onTick(report);
           return report;
@@ -37332,7 +37420,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
         if (transportFailures) report = { ...report, transport_failures: transportFailures, transport_error: transportError };
         await onTick(report);
         if (once || signal?.aborted) return report;
-        if (sleepFn === sleep) await (0, import_promises52.setTimeout)(sleepMs, void 0, { signal: controller.signal }).catch((error51) => {
+        if (sleepFn === sleep) await (0, import_promises53.setTimeout)(sleepMs, void 0, { signal: controller.signal }).catch((error51) => {
           if (error51.name !== "AbortError") throw error51;
         });
         else await sleepFn(sleepMs);
@@ -37346,7 +37434,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
     }
   }, { timeoutMs: 100, timeoutCode: "TOPOLOGY_SUPERVISION_OWNED" }).catch(async (error51) => {
     if (!once && ownedToken) {
-      const path3 = (0, import_node_path59.join)(root, `${key}.process.json`), record2 = await readJson3(path3).catch(() => null);
+      const path3 = (0, import_node_path60.join)(root, `${key}.process.json`), record2 = await readJson3(path3).catch(() => null);
       if (record2?.pid === process.pid && record2.lock_token === ownedToken) {
         await writeJson(path3, { ...record2, state: record2.first_tick_at ? "failed" : "startup-failed", stopped_at: (/* @__PURE__ */ new Date()).toISOString(), failure: { code: error51.code ?? "SUPERVISOR_FAILED", message: String(error51.message).slice(0, 2e3) } });
       }
@@ -37381,11 +37469,11 @@ function pidAlive(pid) {
 }
 async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os33.homedir)() } = {}) {
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
-  const root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision");
-  const owner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
-  const recordPath2 = (0, import_node_path59.join)(root, `${key}.process.json`);
+  const root = (0, import_node_path60.join)(stateRoot2(env, home), "supervision");
+  const owner = await lockOwner((0, import_node_path60.join)(root, `${key}.lock`));
+  const recordPath2 = (0, import_node_path60.join)(root, `${key}.process.json`);
   const record2 = await readJson3(recordPath2).catch(() => null);
-  const tick = await readJson3((0, import_node_path59.join)(root, `${key}.json`)).catch(() => null);
+  const tick = await readJson3((0, import_node_path60.join)(root, `${key}.json`)).catch(() => null);
   const at = tick?.at ? Date.parse(tick.at) : NaN;
   const alive2 = record2 ? pidAlive(record2.pid) : false;
   const ownerIdentity = owner?.pid ? await processIdentity(owner.pid) : null;
@@ -37414,7 +37502,7 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
     restarts: record2?.restarts ?? 0,
     ready: state === "running" && Number.isFinite(at) && Date.now() - at <= Math.max(3e4, 3 * (tick?.reconcile_min_ms ?? reconcileFloor(env))),
     failure: record2?.failure ?? null,
-    log: record2?.log ?? (0, import_node_path59.join)(root, `${key}.log`),
+    log: record2?.log ?? (0, import_node_path60.join)(root, `${key}.log`),
     last_tick_at: tick?.at ?? null,
     tick_age_ms: Number.isFinite(at) ? Date.now() - at : null,
     reconcile_min_ms: tick?.reconcile_min_ms ?? reconcileFloor(env),
@@ -37427,9 +37515,9 @@ async function startRepositorySupervision(options) {
   const startTimeoutRaw = options.startTimeoutMs ?? env.AO_SUPERVISION_START_TIMEOUT_MS;
   const startTimeoutMs = Number.isFinite(Number(startTimeoutRaw)) && Number(startTimeoutRaw) > 0 ? Number(startTimeoutRaw) : DEFAULT_START_TIMEOUT_MS;
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
-  const root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision"), recordPath2 = (0, import_node_path59.join)(root, `${key}.process.json`), logPath = (0, import_node_path59.join)(root, `${key}.log`);
-  return withLock((0, import_node_path59.join)(root, `${key}.start.lock`), async () => {
-    const owner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
+  const root = (0, import_node_path60.join)(stateRoot2(env, home), "supervision"), recordPath2 = (0, import_node_path60.join)(root, `${key}.process.json`), logPath = (0, import_node_path60.join)(root, `${key}.log`);
+  return withLock((0, import_node_path60.join)(root, `${key}.start.lock`), async () => {
+    const owner = await lockOwner((0, import_node_path60.join)(root, `${key}.lock`));
     if (owner?.pid && await processIdentity(owner.pid) === owner.process_identity) {
       const status = await supervisionStatus({ consumer, env, home });
       return { ...await readJson3(recordPath2).catch(() => owner), consumer, repo_id: identity.id, state: status.state, ready: status.ready };
@@ -37447,16 +37535,16 @@ async function startRepositorySupervision(options) {
         const published = await readJson3(recordPath2).catch(() => null);
         return { ...published, consumer, repo_id: identity.id, state: status.state, ready: status.ready, first_tick_at: status.first_tick_at, managed_by: "process-compose" };
       }
-      await (0, import_promises51.mkdir)(root, { recursive: true });
-      await writeJson((0, import_node_path59.join)(root, `${key}.services-fallback.json`), { at: (/* @__PURE__ */ new Date()).toISOString(), error: ensured.error ?? null, code: ensured.code ?? null });
+      await (0, import_promises52.mkdir)(root, { recursive: true });
+      await writeJson((0, import_node_path60.join)(root, `${key}.services-fallback.json`), { at: (/* @__PURE__ */ new Date()).toISOString(), error: ensured.error ?? null, code: ensured.code ?? null });
     }
     const prior = await readJson3(recordPath2).catch((error51) => {
       if (error51.code === "ENOENT") return null;
       throw error51;
     });
     const cli = (0, import_node_url6.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
-    await (0, import_promises51.mkdir)(root, { recursive: true });
-    const log = await (0, import_promises51.open)(logPath, "a");
+    await (0, import_promises52.mkdir)(root, { recursive: true });
+    const log = await (0, import_promises52.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
     try {
       const child = (0, import_node_child_process14.spawn)(process.execPath, [cli, "supervise", "--consumer", consumer, ...options.tmuxServer ? ["--server", options.tmuxServer] : []], { cwd: consumer, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", log.fd, log.fd] });
@@ -37471,7 +37559,7 @@ async function startRepositorySupervision(options) {
       child.unref();
       const deadline = Date.now() + startTimeoutMs;
       while (Date.now() <= deadline) {
-        const winner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
+        const winner = await lockOwner((0, import_node_path60.join)(root, `${key}.lock`));
         if (winner?.pid && await processIdentity(winner.pid) === winner.process_identity) {
           const published2 = await readJson3(recordPath2).catch(() => null);
           const status = await supervisionStatus({ consumer, env, home });
@@ -37483,23 +37571,23 @@ async function startRepositorySupervision(options) {
       const published = await readJson3(recordPath2).catch(() => null);
       if (published?.pid === child.pid) return { ...published, ready: false };
       const failure = { ...record2, ready: false, state: pidAlive(child.pid) ? "spawned-awaiting-lock" : "died-before-first-tick" };
-      await writeJson((0, import_node_path59.join)(root, `${key}.startup-${child.pid}.json`), failure);
+      await writeJson((0, import_node_path60.join)(root, `${key}.startup-${child.pid}.json`), failure);
       return failure;
     } finally {
       await log.close();
     }
   });
 }
-var import_node_path59, import_node_crypto34, import_node_child_process14, import_node_url6, import_node_os33, import_promises51, import_promises52, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path60, import_node_crypto35, import_node_child_process14, import_node_url6, import_node_os33, import_promises52, import_promises53, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
-    import_node_path59 = require("node:path");
-    import_node_crypto34 = require("node:crypto");
+    import_node_path60 = require("node:path");
+    import_node_crypto35 = require("node:crypto");
     import_node_child_process14 = require("node:child_process");
     import_node_url6 = require("node:url");
     import_node_os33 = require("node:os");
-    import_promises51 = require("node:fs/promises");
-    import_promises52 = require("node:timers/promises");
+    import_promises52 = require("node:fs/promises");
+    import_promises53 = require("node:timers/promises");
     init_presence();
     init_census();
     init_providers();
@@ -61620,13 +61708,13 @@ var StdioServerTransport = class {
 };
 
 // src/mcp.mjs
-var import_node_path66 = require("node:path");
+var import_node_path67 = require("node:path");
 var import_node_url7 = require("node:url");
 
 // src/service.mjs
-var import_promises57 = require("node:fs/promises");
+var import_promises58 = require("node:fs/promises");
 var import_node_os37 = require("node:os");
-var import_node_path65 = require("node:path");
+var import_node_path66 = require("node:path");
 
 // src/policy/catalog.mjs
 function deepFreeze(value) {
@@ -62979,9 +63067,9 @@ var RunStore = class {
   }
   /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
   async listRecoverable() {
-    const { readdir: readdir24, stat: stat11 } = await import("node:fs/promises");
+    const { readdir: readdir25, stat: stat11 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir24((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir25((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const recoverable = [];
     for (const id of ids) {
       const marked = await stat11(this.activeMarkerPath(id)).then(() => true).catch(() => false);
@@ -63157,9 +63245,9 @@ var RunStore = class {
     return snapshot;
   }
   async list() {
-    const { readdir: readdir24 } = await import("node:fs/promises");
+    const { readdir: readdir25 } = await import("node:fs/promises");
     await this.initialize();
-    const ids = (await readdir24((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
+    const ids = (await readdir25((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const settled = await Promise.allSettled(ids.map((id) => this.get(id)));
     const snapshots = [];
     for (const result2 of settled) {
@@ -72543,19 +72631,19 @@ async function connectAndLoadSession(options) {
   let createdFreshSession = false;
   let pendingAgentSessionId = record2.agentSessionId;
   let sessionModels;
-  const loadState = await loadOrCreateRuntimeSession({
+  const loadState2 = await loadOrCreateRuntimeSession({
     client: client2,
     record: record2,
     reusingLoadedSession,
     sameSessionOnly,
     timeoutMs: options.timeoutMs
   });
-  resumed = loadState.resumed;
-  loadError = loadState.loadError;
-  sessionId = loadState.sessionId;
-  createdFreshSession = loadState.createdFreshSession;
-  pendingAgentSessionId = loadState.pendingAgentSessionId;
-  sessionModels = loadState.sessionModels;
+  resumed = loadState2.resumed;
+  loadError = loadState2.loadError;
+  sessionId = loadState2.sessionId;
+  createdFreshSession = loadState2.createdFreshSession;
+  pendingAgentSessionId = loadState2.pendingAgentSessionId;
+  sessionModels = loadState2.sessionModels;
   const preferenceReplay = await replayFreshSessionPreferences({
     client: client2,
     record: record2,
@@ -72573,7 +72661,7 @@ async function connectAndLoadSession(options) {
     verbose: options.verbose,
     suppressWarnings: options.suppressWarnings
   });
-  applyReconnectedModelState(record2, resolveModelsAfterReplay(preferenceReplay, sessionModels), resolveConfigOptionsPresenceAfterReplay(preferenceReplay, loadState.configOptionsPresent), loadState.legacyModelMetadataPresent, createdFreshSession);
+  applyReconnectedModelState(record2, resolveModelsAfterReplay(preferenceReplay, sessionModels), resolveConfigOptionsPresenceAfterReplay(preferenceReplay, loadState2.configOptionsPresent), loadState2.legacyModelMetadataPresent, createdFreshSession);
   options.onSessionIdResolved?.(sessionId);
   return {
     sessionId,
@@ -76574,9 +76662,9 @@ async function defaultOpenLog(stateRoot3) {
 }
 
 // src/diagnostics.mjs
-var import_node_crypto36 = require("node:crypto");
-var import_promises56 = require("node:fs/promises");
-var import_node_path64 = require("node:path");
+var import_node_crypto37 = require("node:crypto");
+var import_promises57 = require("node:fs/promises");
+var import_node_path65 = require("node:path");
 var import_node_os36 = require("node:os");
 init_repoid();
 init_supervision();
@@ -76589,13 +76677,13 @@ init_config();
 init_prompts();
 
 // src/services/services.mjs
-var import_node_crypto35 = require("node:crypto");
+var import_node_crypto36 = require("node:crypto");
 var import_node_fs13 = require("node:fs");
-var import_promises54 = require("node:fs/promises");
+var import_promises55 = require("node:fs/promises");
 var import_node_net4 = __toESM(require("node:net"), 1);
 var import_node_os35 = __toESM(require("node:os"), 1);
-var import_node_path62 = require("node:path");
-var import_promises55 = require("node:timers/promises");
+var import_node_path63 = require("node:path");
+var import_promises56 = require("node:timers/promises");
 init_lockfile();
 init_nats_local();
 init_orch_transport();
@@ -76603,9 +76691,9 @@ init_orch_transport();
 // src/services/os-registration.mjs
 var import_node_child_process15 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
-var import_promises53 = require("node:fs/promises");
+var import_promises54 = require("node:fs/promises");
 var import_node_os34 = __toESM(require("node:os"), 1);
-var import_node_path60 = require("node:path");
+var import_node_path61 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
 var TASK_NAME = "ByteDesk\\agent-orchestration";
@@ -76632,11 +76720,11 @@ async function registrationMode({ platform = process.platform, home = import_nod
 function registrationPath({ mode, home = import_node_os34.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
-      return (0, import_node_path60.join)(env.XDG_CONFIG_HOME || (0, import_node_path60.join)(home, ".config"), "systemd", "user", UNIT_NAME);
+      return (0, import_node_path61.join)(env.XDG_CONFIG_HOME || (0, import_node_path61.join)(home, ".config"), "systemd", "user", UNIT_NAME);
     case "launchd":
-      return (0, import_node_path60.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
+      return (0, import_node_path61.join)(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
     case "schtasks":
-      return (0, import_node_path60.join)(servicesDir2, "agent-orchestration.task.xml");
+      return (0, import_node_path61.join)(servicesDir2, "agent-orchestration.task.xml");
     default:
       return null;
   }
@@ -76713,7 +76801,7 @@ function renderRegistration({ mode, argv, logPath, path: path3 = "" }) {
 async function defaultRun(mode, args) {
   if (mode === "systemd") return runUserManagerFile("/usr/bin/systemctl", args, { timeoutMs: 3e4 });
   if (mode === "launchd") return runFile("/bin/launchctl", args, { timeoutMs: 3e4 });
-  if (mode === "schtasks") return runFile((0, import_node_path60.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
+  if (mode === "schtasks") return runFile((0, import_node_path61.join)(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe"), args, { timeoutMs: 3e4 });
   throw new Error(`No service manager command for mode ${mode}.`);
 }
 var quiet = (promise2) => promise2.then(() => true, () => false);
@@ -76721,11 +76809,11 @@ async function register({ mode, argv, logPath, path: path3, home, env, servicesD
   const file2 = registrationPath({ mode, home, env, servicesDir: servicesDir2 });
   if (!file2) return { changed: false, path: null };
   const text = renderRegistration({ mode, argv, logPath, path: path3 });
-  const current = await (0, import_promises53.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
+  const current = await (0, import_promises54.readFile)(file2, mode === "schtasks" ? "utf16le" : "utf8").catch(() => null);
   const normalized = current?.replace(/^\ufeff/, "") ?? null;
   if (normalized === text) return { changed: false, path: file2 };
-  await (0, import_promises53.mkdir)((0, import_node_path60.dirname)(file2), { recursive: true });
-  await (0, import_promises53.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
+  await (0, import_promises54.mkdir)((0, import_node_path61.dirname)(file2), { recursive: true });
+  await (0, import_promises54.writeFile)(file2, mode === "schtasks" ? Buffer.from(`\uFEFF${text}`, "utf16le") : text, { mode: 384 });
   switch (mode) {
     case "systemd":
       await run2(mode, ["--user", "daemon-reload"]);
@@ -76767,7 +76855,7 @@ function defaultSpawnDetached(argv, logPath) {
 
 // src/services/host-copies.mjs
 var import_node_fs12 = require("node:fs");
-var import_node_path61 = require("node:path");
+var import_node_path62 = require("node:path");
 var readJsonSync = (path3) => {
   try {
     return JSON.parse((0, import_node_fs12.readFileSync)(path3, "utf8"));
@@ -76782,12 +76870,12 @@ function compareVersions(a, b) {
   return 0;
 }
 function copyIdentity(root) {
-  const version2 = readJsonSync((0, import_node_path61.join)(root, "package.json"))?.version ?? null;
+  const version2 = readJsonSync((0, import_node_path62.join)(root, "package.json"))?.version ?? null;
   return {
     version: version2,
     get fingerprint() {
       try {
-        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs12.readFileSync)((0, import_node_path61.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
+        return /false \? null : "([0-9a-f]{64})"/.exec((0, import_node_fs12.readFileSync)((0, import_node_path62.join)(root, "dist", "cli.cjs"), "utf8"))?.[1] ?? null;
       } catch {
         return null;
       }
@@ -76797,26 +76885,26 @@ function copyIdentity(root) {
 
 // src/services/services.mjs
 function readLock(pluginRoot = PLUGIN_ROOT) {
-  return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
+  return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path63.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
 function dataHome({ platform = process.platform, env = process.env, home = import_node_os35.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
-  if (platform === "win32") return import_node_path62.win32.join(env.LOCALAPPDATA || import_node_path62.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
-  if (platform === "darwin") return import_node_path62.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
-  return import_node_path62.posix.join(env.XDG_DATA_HOME || import_node_path62.posix.join(home, ".local", "share"), "bytedesk", "agent-orchestration");
+  if (platform === "win32") return import_node_path63.win32.join(env.LOCALAPPDATA || import_node_path63.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
+  if (platform === "darwin") return import_node_path63.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
+  return import_node_path63.posix.join(env.XDG_DATA_HOME || import_node_path63.posix.join(home, ".local", "share"), "bytedesk", "agent-orchestration");
 }
 function servicePaths({ stateRoot: stateRoot3, data }) {
-  const dir = (0, import_node_path62.join)(stateRoot3, "services");
+  const dir = (0, import_node_path63.join)(stateRoot3, "services");
   return {
     dir,
-    logs: (0, import_node_path62.join)(dir, "logs"),
-    project: (0, import_node_path62.join)(dir, "process-compose.yaml"),
-    manager: (0, import_node_path62.join)(dir, "manager.json"),
-    repos: (0, import_node_path62.join)(dir, "repos.json"),
-    token: (0, import_node_path62.join)(dir, "api-token"),
+    logs: (0, import_node_path63.join)(dir, "logs"),
+    project: (0, import_node_path63.join)(dir, "process-compose.yaml"),
+    manager: (0, import_node_path63.join)(dir, "manager.json"),
+    repos: (0, import_node_path63.join)(dir, "repos.json"),
+    token: (0, import_node_path63.join)(dir, "api-token"),
     data,
-    pointer: (0, import_node_path62.join)(data, "current.json"),
-    launcher: (0, import_node_path62.join)(data, "launcher.cjs")
+    pointer: (0, import_node_path63.join)(data, "current.json"),
+    launcher: (0, import_node_path63.join)(data, "launcher.cjs")
   };
 }
 var LAUNCHER_SOURCE = `'use strict';
@@ -76838,16 +76926,16 @@ if (args[0] === 'ao-topology') {
 }
 `;
 function pluginSha(pluginRoot) {
-  const base = (0, import_node_path62.basename)(pluginRoot);
+  const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "6c2382feed4741879b82a2d23b66319454df50eba84590c5c95403c150880855";
+  return false ? null : "5c983729db2b634e1a0356ae65319ea6bc154b361b512cd86aca409558a73c55";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "6c2382feed4741879b82a2d23b66319454df50eba84590c5c95403c150880855";
+  const fingerprint2 = false ? null : "5c983729db2b634e1a0356ae65319ea6bc154b361b512cd86aca409558a73c55";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
-      version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
+      version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path63.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
     } catch {
       version2 = null;
     }
@@ -76873,15 +76961,15 @@ function choosePointer(previous, candidate, { exists: exists2 = import_node_fs13
 function linkedWorktree(root, { read: read3 = (path3) => (0, import_node_fs13.readFileSync)(path3, "utf8") } = {}) {
   if (!root) return false;
   if (/[\\/]\.(bytedesk|claude)[\\/]worktrees[\\/]/.test(`${root}/`)) return true;
-  for (let dir = root; ; dir = (0, import_node_path62.dirname)(dir)) {
+  for (let dir = root; ; dir = (0, import_node_path63.dirname)(dir)) {
     let text = null;
     try {
-      text = read3((0, import_node_path62.join)(dir, ".git"));
+      text = read3((0, import_node_path63.join)(dir, ".git"));
     } catch (error51) {
       if (error51.code === "EISDIR") return false;
     }
     if (text !== null) return /^gitdir:.*[\\/]worktrees[\\/][^\\/]+\s*$/m.test(text);
-    if ((0, import_node_path62.dirname)(dir) === dir) return false;
+    if ((0, import_node_path63.dirname)(dir) === dir) return false;
   }
 }
 function pointerMoved(previous, pointer) {
@@ -76891,12 +76979,12 @@ function pointerMoved(previous, pointer) {
   return previous.pluginRoot !== pointer.pluginRoot || previous.sha !== pointer.sha;
 }
 async function writeIfChanged(path3, text, mode = 384) {
-  const current = await (0, import_promises54.readFile)(path3, "utf8").catch(() => null);
+  const current = await (0, import_promises55.readFile)(path3, "utf8").catch(() => null);
   if (current === text) return false;
-  await (0, import_promises54.mkdir)((0, import_node_path62.dirname)(path3), { recursive: true });
+  await (0, import_promises55.mkdir)((0, import_node_path63.dirname)(path3), { recursive: true });
   const temp = `${path3}.${process.pid}.tmp`;
-  await (0, import_promises54.writeFile)(temp, text, { mode });
-  await (0, import_promises54.rename)(temp, path3);
+  await (0, import_promises55.writeFile)(temp, text, { mode });
+  await (0, import_promises55.rename)(temp, path3);
   return true;
 }
 var json3 = (value) => `${JSON.stringify(value, null, 2)}
@@ -76904,8 +76992,8 @@ var json3 = (value) => `${JSON.stringify(value, null, 2)}
 async function installProcessCompose({ data, platform = process.platform, arch = process.arch, lock = readLock(), fetchImpl = fetch, extract = extractArchive }) {
   const asset = lock.assets[`${platform}-${arch}`];
   invariant(asset, "AO_SERVICES_UNSUPPORTED_PLATFORM", `No pinned process-compose build for ${platform}-${arch}.`);
-  const binDir = (0, import_node_path62.join)(data, "bin", `process-compose-${lock.version}`);
-  const binary = (0, import_node_path62.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
+  const binDir = (0, import_node_path63.join)(data, "bin", `process-compose-${lock.version}`);
+  const binary = (0, import_node_path63.join)(binDir, platform === "win32" ? "process-compose.exe" : "process-compose");
   if ((0, import_node_fs13.existsSync)(binary)) return { binary, installed: false };
   const url2 = `${lock.url}${asset.file}`;
   let bytes;
@@ -76924,24 +77012,24 @@ async function installProcessCompose({ data, platform = process.platform, arch =
     `Refusing ${asset.file}: its SHA-256 does not match the pinned lock.`,
     { expected: asset.sha256, actual, url: url2 }
   );
-  await (0, import_promises54.mkdir)((0, import_node_path62.join)(data, "bin"), { recursive: true });
-  const staging = await (0, import_promises54.mkdtemp)((0, import_node_path62.join)(data, "bin", ".staging-"));
+  await (0, import_promises55.mkdir)((0, import_node_path63.join)(data, "bin"), { recursive: true });
+  const staging = await (0, import_promises55.mkdtemp)((0, import_node_path63.join)(data, "bin", ".staging-"));
   try {
-    const archive = (0, import_node_path62.join)(staging, asset.file);
-    await (0, import_promises54.writeFile)(archive, bytes);
+    const archive = (0, import_node_path63.join)(staging, asset.file);
+    await (0, import_promises55.writeFile)(archive, bytes);
     await extract(archive, staging, platform);
-    const extracted = (0, import_node_path62.join)(staging, (0, import_node_path62.basename)(binary));
-    invariant((0, import_node_fs13.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path62.basename)(binary)}.`);
-    await (0, import_promises54.mkdir)(binDir, { recursive: true });
-    await (0, import_promises54.rename)(extracted, binary);
-    await (0, import_promises54.chmod)(binary, 493);
+    const extracted = (0, import_node_path63.join)(staging, (0, import_node_path63.basename)(binary));
+    invariant((0, import_node_fs13.existsSync)(extracted), "AO_SERVICES_EXTRACT_FAILED", `${asset.file} did not contain ${(0, import_node_path63.basename)(binary)}.`);
+    await (0, import_promises55.mkdir)(binDir, { recursive: true });
+    await (0, import_promises55.rename)(extracted, binary);
+    await (0, import_promises55.chmod)(binary, 493);
   } finally {
-    await (0, import_promises54.rm)(staging, { recursive: true, force: true });
+    await (0, import_promises55.rm)(staging, { recursive: true, force: true });
   }
   return { binary, installed: true };
 }
 async function extractArchive(archive, into, platform) {
-  const tar = platform === "win32" ? (0, import_node_path62.join)(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
+  const tar = platform === "win32" ? (0, import_node_path63.join)(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
   await runFile(tar, ["-xf", archive, "-C", into], { timeoutMs: 6e4 });
 }
 async function pickPort() {
@@ -76957,7 +77045,7 @@ async function pickPort() {
 }
 function servicePath({ platform, node, home }) {
   if (platform === "win32") return "";
-  return [(0, import_node_path62.dirname)(node), (0, import_node_path62.join)(home, ".local", "bin"), ...platform === "darwin" ? ["/opt/homebrew/bin"] : [], "/usr/local/bin", "/usr/bin", "/bin"].join(":");
+  return [(0, import_node_path63.dirname)(node), (0, import_node_path63.join)(home, ".local", "bin"), ...platform === "darwin" ? ["/opt/homebrew/bin"] : [], "/usr/local/bin", "/usr/bin", "/bin"].join(":");
 }
 var PASSED_THROUGH = ["AO_NATS_HOME", "AO_TRANSPORT", "AO_NATS_URL"];
 function renderProject({ platform = process.platform, node, launcher, stateRoot: stateRoot3, logs, nats = null, repos = [], path: path3 = "", env = {} }) {
@@ -76982,7 +77070,7 @@ function renderProject({ platform = process.platform, node, launcher, stateRoot:
       availability: { restart: "always", backoff_seconds: 2 },
       readiness_probe: probe("session-host"),
       shutdown: { signal: 15, timeout_seconds: 5 },
-      log_location: (0, import_node_path62.join)(logs, "session-host.log"),
+      log_location: (0, import_node_path63.join)(logs, "session-host.log"),
       log_configuration: rotation
     }
   };
@@ -77011,7 +77099,7 @@ function renderProject({ platform = process.platform, node, launcher, stateRoot:
       // repository is gone) and must then stay down; a lock loser exits 75 and a crash exits
       // non-zero, and both are retried with this backoff. max_restarts unset = unlimited.
       availability: { restart: "on_failure", backoff_seconds: 3 },
-      log_location: (0, import_node_path62.join)(logs, `${name}.log`),
+      log_location: (0, import_node_path63.join)(logs, `${name}.log`),
       log_configuration: rotation
     };
   }
@@ -77065,7 +77153,7 @@ async function waitFor(check2, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check2()) return true;
-    await (0, import_promises55.setTimeout)(200);
+    await (0, import_promises56.setTimeout)(200);
   }
   return check2();
 }
@@ -77084,7 +77172,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
   const ctx = await context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
-  return withLock((0, import_node_path62.join)(paths2.dir, "ensure.lock"), async () => {
+  return withLock((0, import_node_path63.join)(paths2.dir, "ensure.lock"), async () => {
     const actions = [];
     const { binary, installed } = await (deps.install ?? installProcessCompose)({ data: paths2.data, platform, arch, lock, fetchImpl: deps.fetchImpl });
     if (installed) actions.push("installed");
@@ -77095,8 +77183,8 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
       launcher: await writeIfChanged(paths2.launcher, LAUNCHER_SOURCE, 420),
       pointer: await writeIfChanged(paths2.pointer, json3(pointer), 420)
     };
-    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises54.writeFile)(paths2.token, (0, import_node_crypto35.randomBytes)(24).toString("hex"), { mode: 384 });
-    const token = (await (0, import_promises54.readFile)(paths2.token, "utf8")).trim();
+    if (!(0, import_node_fs13.existsSync)(paths2.token)) await (0, import_promises55.writeFile)(paths2.token, (0, import_node_crypto36.randomBytes)(24).toString("hex"), { mode: 384 });
+    const token = (await (0, import_promises55.readFile)(paths2.token, "utf8")).trim();
     const previous = await readJson(paths2.manager, null).catch(() => null);
     const port = previous?.port ?? await pickPort();
     let natsError = null;
@@ -77108,7 +77196,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
     const path3 = servicePath({ platform, node, home });
     const { project, unsupported } = renderProject({ platform, node, launcher: paths2.launcher, stateRoot: stateRoot3, logs: paths2.logs, nats, repos, path: path3, env });
     changed.project = await writeIfChanged(paths2.project, json3(project));
-    const log = (0, import_node_path62.join)(paths2.logs, "process-compose.log");
+    const log = (0, import_node_path63.join)(paths2.logs, "process-compose.log");
     const argv = processComposeArgv({ binary, project: paths2.project, port, token: paths2.token, log });
     const registration = await register({ mode, argv, logPath: log, path: path3, home, env, servicesDir: paths2.dir, run: deps.run });
     changed.registration = registration.changed;
@@ -77164,7 +77252,7 @@ async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3,
 // src/services/self-heal.mjs
 var import_node_child_process16 = require("node:child_process");
 var import_node_fs14 = require("node:fs");
-var import_node_path63 = require("node:path");
+var import_node_path64 = require("node:path");
 var import_node_util5 = require("node:util");
 var execFileP = (0, import_node_util5.promisify)(import_node_child_process16.execFile);
 function parseEtime(text) {
@@ -77208,7 +77296,7 @@ async function listMcpServers({ platform = process.platform, now = Date.now() } 
     if (!script || !/agent-orchestration/.test(script)) continue;
     const parent = platform === "linux" ? procParent(pid) : null;
     const grandparent = parent ? procParent(parent) : null;
-    servers.push({ pid, startedAt: now - (parseEtime(m[2]) ?? 0), root: (0, import_node_path63.dirname)((0, import_node_path63.dirname)(script)), launchedBy: grandparent ? procComm(grandparent) : null });
+    servers.push({ pid, startedAt: now - (parseEtime(m[2]) ?? 0), root: (0, import_node_path64.dirname)((0, import_node_path64.dirname)(script)), launchedBy: grandparent ? procComm(grandparent) : null });
   }
   return servers;
 }
@@ -77227,12 +77315,12 @@ async function staleMcpServers({ pointer, platform = process.platform, list: lis
     const reasons = [];
     const host = hostOf(server.root);
     let version2 = null;
-    if (!exists2((0, import_node_path63.join)(server.root, "dist", "mcp.cjs"))) reasons.push("its plugin root is gone");
+    if (!exists2((0, import_node_path64.join)(server.root, "dist", "mcp.cjs"))) reasons.push("its plugin root is gone");
     else {
       version2 = copyIdentity(server.root).version;
       if (pointer?.version && compareVersions(version2, pointer.version) < 0) reasons.push(`runs ${version2 ?? "an unknown version"}, the services run ${pointer.version}`);
       try {
-        if (mtime((0, import_node_path63.join)(server.root, "dist", "mcp.cjs")) > server.startedAt + 2e3) reasons.push("its bundle was replaced on disk after it started");
+        if (mtime((0, import_node_path64.join)(server.root, "dist", "mcp.cjs")) > server.startedAt + 2e3) reasons.push("its bundle was replaced on disk after it started");
       } catch {
       }
     }
@@ -77268,11 +77356,11 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "6c2382feed4741879b82a2d23b66319454df50eba84590c5c95403c150880855",
+  sourceFingerprint: false ? null : "5c983729db2b634e1a0356ae65319ea6bc154b361b512cd86aca409558a73c55",
   version: false ? null : "0.15.4"
 };
-var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
-var fingerprint = (path3) => (0, import_promises56.readFile)(path3).then((bytes) => (0, import_node_crypto36.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
+var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
+var fingerprint = (path3) => (0, import_promises57.readFile)(path3).then((bytes) => (0, import_node_crypto37.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
 async function rolePromptEvidence(options, record2, role, repositoryId) {
   const result2 = { current: false, state: "missing", desiredRevision: null, appliedRevision: null };
   if (!record2 || record2.repo_id !== repositoryId || !incarnationOf(record2.binding)) return result2;
@@ -77293,7 +77381,7 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
 async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
   const pointer = await json4(paths2.pointer);
-  const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path64.join)(paths2.dir, "self-heal.json"))]);
+  const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path65.join)(paths2.dir, "self-heal.json"))]);
   const tmuxSocket = tmuxSocketCheck({ env, platform });
   const transport = await describeTransport(env, home).catch(() => null);
   const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
@@ -77314,7 +77402,7 @@ async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, state
       admission = { provided: true, admitted: false, code: error51.code ?? "AO_CONSUMER_DIAGNOSIS_FAILED", message: error51.message };
     }
   }
-  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path64.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path64.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json4((0, import_node_path64.join)(pluginRoot, "package.json"))]);
+  const [mcp, cli, host, pkg] = await Promise.all([fingerprint((0, import_node_path65.join)(pluginRoot, "dist/mcp.cjs")), fingerprint((0, import_node_path65.join)(pluginRoot, "dist/cli.cjs")), probeSessionHost(stateRoot3), json4((0, import_node_path65.join)(pluginRoot, "package.json"))]);
   const effectiveTopologyRoot = stateRoot2(env, home);
   const diagnostics = {
     consumerAdmission: admission,
@@ -77330,11 +77418,11 @@ async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, state
   const opts = { consumer: consumer.checkoutRoot, pluginRoot, home, env: { ...env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } };
   diagnostics.repositorySupervision = await supervisionStatus(opts).catch((error51) => ({ state: "unknown", error: error51.code ?? error51.message }));
   const key = repoKey(consumer.commonGitDir);
-  const census = await json4((0, import_node_path64.join)(stateRoot3, "census", `${key}.json`));
+  const census = await json4((0, import_node_path65.join)(stateRoot3, "census", `${key}.json`));
   const at = Date.parse(census?.at);
   const fresh = Number.isFinite(at) && Date.now() - at >= -5e3 && Date.now() - at <= Number(census?.staleAfterMs ?? 45e3);
   for (const role of ["lead", "reviewer"]) {
-    const record2 = await json4((0, import_node_path64.join)(stateRoot3, `${role}s`, `${key}.json`));
+    const record2 = await json4((0, import_node_path65.join)(stateRoot3, `${role}s`, `${key}.json`));
     const observed = census?.agents?.find((agent) => agent.agentId === record2?.agent_id && sameIncarnation(agent.session ?? agent.binding, record2?.binding));
     const reasons = [];
     let responsive2 = false, prompt = { current: false, state: "missing", desiredRevision: null, appliedRevision: null }, roleState = "unknown";
@@ -77391,10 +77479,10 @@ function normalizeIntentInput(input) {
 }
 async function externalProviderPaths(pluginRoot, discovered, executableRoots = []) {
   const paths2 = [];
-  const canonicalPluginRoot = await (0, import_promises57.realpath)(pluginRoot).catch(() => (0, import_node_path65.resolve)(pluginRoot));
-  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises57.realpath)(root).catch(() => (0, import_node_path65.resolve)(root))));
+  const canonicalPluginRoot = await (0, import_promises58.realpath)(pluginRoot).catch(() => (0, import_node_path66.resolve)(pluginRoot));
+  const canonicalRoots = await Promise.all(executableRoots.map((root) => (0, import_promises58.realpath)(root).catch(() => (0, import_node_path66.resolve)(root))));
   for (const candidate of discovered) {
-    const resolvedCandidate = await (0, import_promises57.realpath)(candidate).catch(() => (0, import_node_path65.resolve)(candidate));
+    const resolvedCandidate = await (0, import_promises58.realpath)(candidate).catch(() => (0, import_node_path66.resolve)(candidate));
     if (isPathWithin(canonicalPluginRoot, resolvedCandidate)) continue;
     if (!canonicalRoots.some((root) => isPathWithin(root, resolvedCandidate))) continue;
     if (!paths2.includes(resolvedCandidate)) paths2.push(resolvedCandidate);
@@ -77404,7 +77492,7 @@ async function externalProviderPaths(pluginRoot, discovered, executableRoots = [
 async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRunner = runFile, { cwd } = {}) {
   const candidates = [...discovered];
   for (const resolver of adapter.candidateResolvers ?? []) {
-    invariant((0, import_node_path65.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
+    invariant((0, import_node_path66.isAbsolute)(resolver.executable), "AO_PROVIDER_RESOLVER_NOT_ABSOLUTE", "Provider candidate resolvers must use an absolute executable path.");
     try {
       const { stdout } = await resolverRunner(resolver.executable, [...resolver.args], { timeoutMs: 5e3, cwd });
       candidates.push(...stdout.split("\n").map((line) => line.trim()).filter(Boolean));
@@ -77414,7 +77502,7 @@ async function discoverProviderPaths(pluginRoot, adapter, discovered, resolverRu
   return externalProviderPaths(pluginRoot, candidates, adapter.executableRoots);
 }
 var OrchestrationService = class {
-  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path65.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path65.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
+  constructor({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3 = stateRoot(), workerEntrypoint = (0, import_node_path66.join)(pluginRoot, "dist", "cli.cjs"), platformRuntime = createPlatformRuntime({ pluginRoot, stateRoot: stateRoot3 }), maxConcurrentRuns = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_RUNS || 4), maxConcurrentPerProvider = Number(process.env.AGENT_ORCHESTRATION_MAX_CONCURRENT_PER_PROVIDER || 2), autoRecover = true, recoveryGraceMs = 5e3, sessionUiRoot = (0, import_node_path66.join)(pluginRoot, "dist", "session-ui"), requireAttestedApproval = process.env.AGENT_ORCHESTRATION_REQUIRE_ATTESTED_APPROVAL === "1" } = {}) {
     this.pluginRoot = pluginRoot;
     this.stateRoot = stateRoot3;
     this.workerEntrypoint = workerEntrypoint;
@@ -77941,8 +78029,8 @@ var OrchestrationService = class {
     for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os37.homedir)()]) {
       if (!candidate) continue;
       try {
-        const stats = await (0, import_promises57.stat)(candidate);
-        if (stats.isDirectory()) return await (0, import_promises57.realpath)(candidate).catch(() => candidate);
+        const stats = await (0, import_promises58.stat)(candidate);
+        if (stats.isDirectory()) return await (0, import_promises58.realpath)(candidate).catch(() => candidate);
       } catch {
       }
     }
@@ -78448,7 +78536,7 @@ process.stdout.on("error", (error51) => {
   if (error51?.code === "EPIPE") process.exit(0);
   throw error51;
 });
-if (process.argv[1] && (0, import_node_path66.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path66.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path67.resolve)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path67.resolve)(process.argv[1])) {
   main().catch((error51) => {
     process.stderr.write(`[agent-orchestration] ${JSON.stringify(serializeError(error51))}
 `);

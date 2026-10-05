@@ -7,20 +7,36 @@
 - **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule
   is stated in `prompts/common.md`, `prompts/common-reviewer.md`, `prompts/lead.md`, every role
   pack under `roles/`, and the generated Protocol section (which no `replace` can remove): a worker
-  or other standing agent asks its repository lead with `ao-topology mailbox send` and waits on its
-  inbox; a lead reads its own board (`tm next`, ready-for-agent, blocked, stale in_progress) and
-  assigns or dispatches the next work, reporting to the operator only results, still-ask blockers
-  and operator-only decisions, and with nothing ready reports the board state once and idles. The
-  supervisor now rings an idle, dispatchable standing agent once per idle period through the safe
-  bell (`wakeForProbe`; never over a draft, an attention screen or active tool input): a worker
-  with the exact `mailbox send --to` command naming its registered lead, a lead with "pick the next
-  ready task with tm next". Run agents (their conductor routes them) and the read-only reviewer are
-  not rung. New module `topology/lib/idle-nudge.mjs`; the tick reports `idle_nudges` only when it
-  rang or refused someone. Config `idle_nudge`: `enabled` (default `true`; `false` is the off
-  switch), `backoff_ms` (default 30 minutes between two rings of one agent), `retry_ms` (default
-  60 s before a refused ring is tried again). The nudge memory lives in the supervisor process, so
-  a restarted supervisor may ring an already-idle agent once more. The prompt-golden fixtures gain
-  the one generated line.
+  or other standing agent asks its repository lead with `ao-topology mailbox send --consumer
+  <repo> --to <lead-id>` (the id is `record.agent_id` in `ao-topology lead status`) and waits on
+  its inbox; a lead reads its own board (`tm next`, ready-for-agent, blocked, stale in_progress)
+  and assigns or dispatches the next work, reporting to the operator only results, still-ask
+  blockers and operator-only decisions, and with nothing ready reports the board state once and
+  idles. The supervisor rings an idle, dispatchable standing agent through the safe bell
+  (`wakeForProbe`; never over a draft, an attention screen or active tool input): a worker with
+  the exact `mailbox send --to` command naming its registered lead, a lead with "pick the next
+  ready task with tm next". Run agents (their conductor routes them) and the read-only reviewer
+  are not rung. New module `topology/lib/idle-nudge.mjs`; the tick reports `idle_nudges` only
+  when it rang or newly refused someone, and the same refusal is reported once per idle period.
+  - **The census cannot tell an agent that finished from one that stopped to ask a human**: both
+    read needs-input for one tick and idle and dispatchable two seconds later. The minimum idle
+    time is the guard: `min_idle_ms` (default 10 minutes) for a worker and `lead_min_idle_ms`
+    (default 30 minutes) for a lead, which is often the operator's own session, both counted from
+    the end of the agent's work. An unanswered question therefore gets at most one nudge.
+  - **Repeats are change-gated.** After a ring the agent is rung again only when the board's ready
+    set changes (a hash of the `ready-for-agent` task files and their status, read from the task
+    store on disk, with no task-management import) or new standing mail arrives for it, and never
+    sooner than `backoff_ms` (default 30 minutes), doubling per ring up to `max_backoff_ms`
+    (default 8 hours); new mail resets the doubling. `retry_ms` (default 60 s) spaces retries of a
+    refused ring.
+  - **The memory survives a restart**: it is saved atomically beside the supervisor record
+    (`<state>/supervision/<repo-key>.idle-nudge.json`), and a missing or corrupt file reads as
+    empty.
+  - `idle_nudge.enabled` defaults to `true`; `false` is the off switch.
+  - **Not yet live:** the census excludes an agent holding undelivered mail only when a caller
+    feeds `undeliveredMessages`, and nothing does yet (`census.mjs`), so that exclusion is proven
+    by fixture only.
+  - The prompt-golden fixtures gain the one generated line.
 
 ### Removed
 

@@ -28,9 +28,12 @@
   },
   "idle_nudge": {
     "enabled": true,
+    "min_idle_ms": 600000,
+    "lead_min_idle_ms": 1800000,
     "backoff_ms": 1800000,
+    "max_backoff_ms": 28800000,
     "retry_ms": 60000,
-    "_why": "TM-408. The supervisor rings an idle standing agent once per idle period, through the safe bell (never over a draft or a tool prompt): a worker to ask its repository lead for its next assignment over the standing mailbox, a lead to take the next ready task from its own board. backoff_ms is the least time between two rings of one agent; retry_ms is how soon a refused ring is tried again. enabled false is the off switch."
+    "_why": "TM-408. The supervisor rings an idle standing agent through the safe bell (never over a draft or a tool prompt): a worker to ask its repository lead for its next assignment over the standing mailbox, a lead to take the next ready task from its own board. The census cannot tell an agent that finished from one that asked a human, so the guard is time: min_idle_ms (lead_min_idle_ms for a lead) of quiet counted from the end of its work. After a ring the agent is rung again only when the board's ready set changes or new mail arrives for it, and never sooner than backoff_ms, doubling per ring up to max_backoff_ms. retry_ms is how soon a refused ring is tried again. enabled false is the off switch."
   },
   "management": {
     "auto_merge": true,

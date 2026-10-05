@@ -22,8 +22,9 @@ paths in your own commands before you run them.
 - Do the work in the same turn you read a message. Do not stop to confirm receipt and wait to
   be told to continue — nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
-- When your work is finished, never ask the operator what is next. Ask your repository lead with
-  `ao-topology mailbox send --to <lead-id>`, then wait on your inbox.
+- When your work is finished, never ask the operator what is next. Ask your repository lead (its id is
+  `record.agent_id` in `ao-topology lead status --consumer <ROOT>/consumer`) with
+  `ao-topology mailbox send --consumer <ROOT>/consumer --to <lead-id>`, then wait on your inbox.
 - Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
   ao-topology prompt ack gold0001 --consumer <ROOT>/consumer --revision <desired_revision> --nonce <nonce>.
