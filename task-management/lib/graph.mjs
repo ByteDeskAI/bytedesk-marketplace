@@ -106,6 +106,12 @@ export function why(id, p = paths()) {
   if (declared(task)) {
     reasons.push({ kind: "declared", blocking: true, text: `blocked by hand: ${task.blockedReason}` });
   }
+  // TM-381: a ticket on another board (`tm ticket --from-task`). This store cannot read that board,
+  // so the link itself is the blocker until the ticket's merge removes it (TM-359).
+  const foreign = (task.links || []).filter((l) => l.type === "blocked by" && l.board).map((l) => l.id);
+  if (foreign.length) {
+    reasons.push({ kind: "cross-repo", blocking: true, text: `waiting on cross-repo ticket${foreign.length === 1 ? "" : "s"} ${foreign.join(", ")}` });
+  }
   const held = claimant(id, p);
   if (held && held.session && held.session !== sessionId()) {
     reasons.push({

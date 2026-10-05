@@ -40,6 +40,8 @@ import { heartbeatAgent, listAgents, reapAgents, renderAgents } from "./agents.m
 import { dispatch } from "./dispatch/index.mjs";
 import { envRegistry } from "./dispatch/backend.mjs";
 import { collect } from "./dispatch/collect.mjs";
+import { fileTicket } from "./ticket.mjs";
+import { PRIORITIES } from "./store.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.
@@ -912,6 +914,25 @@ export const TOOLS = [
       const links = remove ? removeLink(id, type, to, p) : addLink(id, type, to, p);
       return ok({ id, links });
     },
+  },
+  {
+    name: "tm_ticket",
+    description:
+      "File cross-repo work as a ticket on ANOTHER repo's board (TM-381). The target's own tm creates the task, recording origin {repo, task, agent}; from_task adds a cross-repo blocker on that origin task (tm_why shows it). When agent-orchestration is installed its lead gets standing mail naming the id and priority; the target's pool is woken either way. Progress (PR opened, review, merged, published, failed, done) comes back as comments on from_task. Same mechanics as `tm ticket`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: str("Target repo: an absolute path, or a slug (directory name) found in agent-orchestration's repo registry or beside this repo."),
+        title: str("Short imperative title."),
+        priority: { type: "string", enum: ["critical", ...PRIORITIES], description: "critical maps to highest. high and above take the target's expedite lane." },
+        acceptance: { type: "array", items: { type: "string" }, description: "Acceptance criteria — the target's create gate requires at least one." },
+        body: str("Context for the target lead and worker."),
+        from_task: str("The task in THIS repo that waits on the ticket, e.g. TM-012."),
+      },
+      required: ["target", "title", "acceptance"],
+    },
+    run: ({ target, title, priority = "medium", acceptance = [], body = "", from_task = null }, p) =>
+      ok(fileTicket({ target, title, priority, acceptance, body, fromTask: from_task }, p)),
   },
   {
     name: "tm_graph",

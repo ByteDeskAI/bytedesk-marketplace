@@ -58,7 +58,8 @@ import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score a
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
-import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, labelCatalog, labels, prioritise, rank, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { EVENT_KINDS, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -170,6 +171,7 @@ function renderEvidenceCheck(rows) {
 
 const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --title "<new title>")';
 const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human]';
+const USAGE_TICKET = 'usage: tm ticket <repo-path|slug> "<title>" --ac "<criterion>"... [--priority critical|highest|high|medium|low] [--body <text>] [--from-task TM-n]\n       tm ticket event <id> <' + "pr_opened|review|merged|published|failed|done" + '> [detail]';
 
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
 const CHECKOUT = P.root ? currentCheckout() : process.cwd();
@@ -343,6 +345,19 @@ const VERBS = {
       const hi = rest.indexOf("--human");
       const human = hi !== -1;
       if (human) rest.splice(hi, 1);
+      // --origin '<json>' is written by `tm ticket` in another repo (TM-381): where this task came
+      // from, so its progress can be reported back there.
+      const oi = rest.indexOf("--origin");
+      let origin;
+      if (oi !== -1) {
+        try {
+          origin = JSON.parse(rest[oi + 1]);
+        } catch {
+          origin = null;
+        }
+        if (!origin || typeof origin.repo !== "string") die(`--origin needs a JSON object with a repo path\n${USAGE_TASK_NEW}`);
+        rest.splice(oi, 2);
+      }
       // Any flag left in `rest` is one this verb does not take, and `rest.join(" ")` would bake it
       // into the title. `tm epic new` and `tm edit` already guard this; `task new` did not, which is
       // the same guard-in-one-sibling shape those two were fixed for. Observed: a `--epic EP-018`
@@ -352,7 +367,7 @@ const VERBS = {
       if (stray) die(`unknown option ${stray}\n${USAGE_TASK_NEW}`);
       const title = rest.join(" ");
       if (!title) die(USAGE_TASK_NEW);
-      const base = { title, epic: state(P).activeEpic || null, acceptance: acs.map((text) => ({ text, done: false })), evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp() };
+      const base = { title, epic: state(P).activeEpic || null, acceptance: acs.map((text) => ({ text, done: false })), evidence: [], commits: [], blockedBy: [], blocks: [], ...stamp(), ...(origin ? { origin } : {}) };
       const applied = template ? applyTemplate(template, base, P) : { fields: base, body: "" };
       // An explicit --body wins over the template's starter body; the gate below checks
       // what will actually be created, so a template's own body/criteria satisfy it too.
@@ -1294,10 +1309,17 @@ const VERBS = {
 
   link(id, ...rest) {
     requireInit();
-    // `tm link <id> <sha>` still attaches a commit; `tm link <id> <type> <id>` links tasks.
-    if (rest.length >= 2 && kindOf(rest.at(-1))) {
+    // `tm link <id> <sha>` still attaches a commit; `tm link <id> <type> <id>` links tasks, and
+    // `<type> <board>#<id>` links a task on another board (TM-381). `--remove` drops a typed link.
+    const remove = rest.includes("--remove");
+    rest = rest.filter((a) => a !== "--remove");
+    if (rest.length >= 2 && (kindOf(rest.at(-1)) || foreignRef(rest.at(-1)))) {
       const target = rest.at(-1);
       const type = rest.slice(0, -1).join(" ");
+      if (remove) {
+        removeLink(id, type, target, P);
+        return out(`${id} no longer ${type} ${target}`);
+      }
       addLink(id, type, target, P);
       return out(`${id} ${type} ${target}`);
     }
@@ -1306,6 +1328,58 @@ const VERBS = {
     if ((t.commits || []).includes(ref)) return;
     mutate(id, (doc) => ({ commits: [...new Set([...(doc.commits || []), ref])] }), P);
     out(`${id} ← ${ref}`);
+  },
+
+  /**
+   * Cross-repo work is a ticket on the target repo's board (TM-381). The ticket is filed by the
+   * target's own `tm`, its lead is mailed through agent-orchestration when that is installed
+   * (TM-357), and its progress comes back here as comments and mail (TM-359). lib/ticket.mjs.
+   */
+  ticket(target, ...rest) {
+    requireInit();
+    if (target === "notify") {
+      // Internal: the logEvent bridge (lib/notify-hook.mjs) hands over one event row.
+      const row = JSON.parse(rest[0] || "{}");
+      const ev = originEventFor(row);
+      return ev && row.id ? emit(notifyOrigin(row.id, ev, P), () => `${row.id} → origin: ${ev.kind}`) : undefined;
+    }
+    if (target === "event") {
+      const [id, kind, ...detail] = rest;
+      if (!id || !EVENT_KINDS.includes(kind)) die(USAGE_TICKET);
+      const res = notifyOrigin(id, { kind, key: `${kind}:${detail.join(" ")}`, detail: detail.join(" ") }, P);
+      if (!res.ok) die(res.reason, 2);
+      return emit(res, () => (res.duplicate ? `${id} ${kind}: already reported` : `${id} ${kind} → origin comment ${res.comment === true ? "added" : `not added (${res.comment})`}, mail ${res.mail.sent ? "sent" : `not sent (${res.mail.reason})`}${res.cleared ? ", origin blocker cleared" : ""}`));
+    }
+    const take = (flag) => {
+      const at = rest.indexOf(flag);
+      if (at === -1) return undefined;
+      const v = rest[at + 1];
+      if (v === undefined || v.startsWith("--")) die(USAGE_TICKET);
+      rest.splice(at, 2);
+      return v;
+    };
+    const priority = take("--priority") ?? "medium";
+    const body = take("--body") ?? "";
+    const fromTask = take("--from-task") ?? null;
+    const acceptance = [];
+    for (let v = take("--ac"); v !== undefined; v = take("--ac")) acceptance.push(v);
+    const stray = rest.find((w) => w.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\n${USAGE_TICKET}`);
+    const title = rest.join(" ");
+    if (!target || !title) die(USAGE_TICKET);
+    let res;
+    try {
+      res = fileTicket({ target, title, priority, acceptance, body, fromTask }, P);
+    } catch (err) {
+      die(`tm ticket: ${err.message}`, 2);
+    }
+    emit(res, () =>
+      [
+        `${res.ref} filed on ${res.root} (priority ${res.priority})${fromTask ? ` — ${fromTask} is now blocked by it` : ""}`,
+        `  lead: ${res.mail.sent ? "mailed" : res.mail.reason}`,
+        `  pool: ${res.wake.woke ? `woken (${res.wake.pool})` : `not woken: ${res.wake.reason}`}`,
+      ].join("\n"),
+    );
   },
 
   subtask(id, parent) {
@@ -1771,6 +1845,8 @@ const VERBS = {
         "  type <id> [bug|story|task|spike|chore]   issue type; parent expresses subtask-ness",
         "  estimate <id> <points> | comment <id> <text> | subtask <id> [parent|none]",
         "  link <id> <type> <id> | rank <id> --before|--after <id> | backlog",
+        "  ticket <repo|slug> \"<title>\" --ac <c>... [--priority p] [--from-task TM-n]   file it on another repo's board",
+        "  ticket event <id> pr_opened|review|merged|published|failed|done [detail]   report a ticket's progress to its origin",
         '  sprint [show|new "<name>"|use <id>|add <task>...|rm|done|list]',
         "  next | board | stale | standup [iso] | handoff <id>",
         `  find <words> [field:value]...          fields: ${FIELD_NAMES.join(", ")} (a leading - negates)`,

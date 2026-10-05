@@ -191,7 +191,9 @@ export function addComment(id, text, { author, p = paths() } = {}) {
  * happened to pick, which is how one repo's PRs ended up stapled to another repo's task. Naming
  * the board makes the reference honest and un-resolvable by accident.
  */
-const FOREIGN = /^([\w.-]+\/[\w.-]+)#([A-Z]+-\d+)$/;
+// The owner is optional: a board with no git remote is named by its directory (paths.boardId), and a
+// `tm ticket` between two such repos still needs an honest reference (TM-381).
+const FOREIGN = /^([\w.-]+(?:\/[\w.-]+)?)#([A-Z]+-\d+)$/;
 export const foreignRef = (ref) => {
   const m = FOREIGN.exec(String(ref || ""));
   return m ? { board: m[1].toLowerCase(), id: m[2] } : null;

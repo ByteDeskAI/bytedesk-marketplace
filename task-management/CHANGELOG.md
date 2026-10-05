@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`tm ticket` files cross-repo work on the target repo's own board (TM-381, EP-028).**
+  `tm ticket <path|slug> "<title>" --ac … [--priority critical|high|…] [--from-task TM-n]`, and
+  the MCP tool `tm_ticket`. The target is an explicit path, a slug in agent-orchestration's
+  `services/repos.json` (read as a file, never imported), or a sibling directory with a store. The
+  task is created by the TARGET's own `bin/tm task new` (argv array, `TM_ROOT` pinned), with
+  `origin: {repo, board, task, agent}` (new `task new --origin <json>`) and a `blocks` cross-ref
+  back. `--from-task` adds a `blocked by <board>#TM-n` link on the origin task, and `tm why` now
+  reports it as a blocker. `critical` maps to `highest`. `tm link` accepts `<board>#<id>` refs and
+  `--remove`; a board with no git remote is named `<dir>#TM-n`.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
