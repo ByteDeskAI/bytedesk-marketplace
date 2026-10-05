@@ -56,6 +56,21 @@
   depend on task-management. `ao-topology manage retry-review --task TM-id` re-files the request for
   the recorded finish revision and clears `review_blocked`. The `--summary` line of `manage report`
   names the notice status and the retry verb.
+- **Review packet, per-repo checklist and revision-bound check evidence (TM-216, EP-028).** Every
+  review request now writes a packet directory beside its `.patch`: `files.txt` (name-status and
+  stat), `files/<path>` (each changed text file at the revision), `task.md` (the task's acceptance
+  criteria and touches, read through the repository's tm launcher when it exists), `checks.json`
+  and `checklist.md`. The packet's `packet_sha256` is recorded on the request, and collection
+  refuses a packet that changed after the request, as it does a changed patch. `checklist.md`
+  lists each `management.required_checks` entry as passed or unsatisfied, followed by the
+  repository's own `.bytedesk/agent-orchestration/review-checklist.md`, read from the consumer
+  checkout and not from the author's worktree. The lead passes check evidence with
+  `ao-topology reviewer request --checks @checks.json`
+  (`[{name, command, exit_code, revision, log_tail}]`). While any required check lacks evidence
+  recorded at the reviewed revision with exit 0, the reviewer cannot approve: submit and record
+  refuse `approve` and the reviewer submits `blocked`. `reviewer eligible` independently refuses a
+  required check with no evidence, evidence recorded at another revision, or a nonzero exit. The
+  reviewer's launch is unchanged: it still cannot write files or run commands.
 
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
@@ -149,6 +164,32 @@
   using the same `/proc` ancestry walk as the TM-222 heartbeat (`ancestorPids`, now exported), and
   still requires the recorded incarnation. Any caller outside that pane's process tree is refused,
   including one that sets `TMUX_PANE` by hand.
+- **TM-241 review-patch follow-ups (TM-260, EP-028).** Four fixes to how the reviewed patch is
+  built, all in `reviewPatch`, which the review range and the TM-257 legacy check now share:
+  - **Size cap.** The over-cap refusal never fired: it matched `ERR_CHILD_PROCESS_STDOUT_MAXBUFFER`,
+    but Node reports `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. It now fires and reports bytes, not UTF-16
+    units. `AO_REVIEW_PATCH_MAX_BYTES` lowers the 64 MiB cap.
+  - **Binary classification.** A file is binary when its own first 8000 bytes hold a NUL (git's
+    own test). The range's `.gitattributes` no longer decides, because the author controls it. Text
+    files are diffed with `--text`, so `*.mjs binary` cannot hide source in the manifest.
+  - **Legacy hash path.** A landed pre-TM-257 request is reproduced with the same builder. A
+    binary range in the current format verifies, and an approval in an older format asks for a
+    re-review (`TOPOLOGY_REVIEWER_REREVIEW`).
+  - **Manifest paths.** Paths are JSON-encoded, so a newline or tab in a filename cannot forge a
+    row.
+
+  Binary ranges now hash differently from TM-241, so their approvals need a re-review. Text-only
+  ranges hash exactly as before.
+- **A network blip no longer flips an approved review (TM-259, EP-028).** Once the server has
+  verified a task revision's effective review base, the host records it in
+  `<state>/management/<repo>/<task>.bases.json` and reuses it for that exact (task, revision). So
+  supervision and eligibility sweeps make no GitHub call for a recorded revision, and a rate
+  limit or outage can no longer fall back to the admitted base and report an approved task as
+  "review does not cover the complete admitted task range". A fallback is never recorded, so a
+  first derivation with the server down still fails closed to the admitted base. A recorded base
+  that is not between the admitted base and the revision is ignored. The GitHub repository itself
+  was already pinned by TM-263.
+
 - **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
   review range, the patch, the binary manifest and the files a finding may name now resolve from
   the task worktree in the admission record. The request records that `worktree`, and the reviewer
