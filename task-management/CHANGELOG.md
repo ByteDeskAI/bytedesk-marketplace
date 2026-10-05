@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The governed worker brief asks for check runs in the finish report (TM-418, EP-028).** It tells
+  the worker to run each `management.required_checks` entry at the finish commit and list every run
+  as `{name, command, exit_code, revision}`, and never to list a check it did not run. The review
+  request carries those runs as check evidence.
 - **enhance-mine no longer counts its own report or source code it read (EP-028).** A tool result
   from `tm enhance-mine` itself, or a successful read of source (`grep`, `cat`, `sed -n`, `git diff`,
   Read, Grep), is not evidence of the codes it quotes. Before this, its top themes were partly its

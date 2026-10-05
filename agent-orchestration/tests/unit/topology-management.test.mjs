@@ -112,6 +112,26 @@ test('a refused review request is mailed to the lead with the refusal text and o
   assert.equal(retried.review_blocked, undefined);
 });
 
+test('TM-418 the finish report and retry-review file the worker check runs as evidence; malformed runs are refused', async t => {
+  const { opts, git } = await fixture(t);
+  const filed = [];
+  Object.assign(opts, { queueReview: async request => { filed.push(request); return { nonce: `n-${filed.length}` }; } });
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const report = checks => ({ artifacts: ['code.txt'], checks, risks: [], evidence: 'fixture', revision });
+  await assert.rejects(workerReport({ ...opts, kind: 'finish', report: report([{ name: 'content', exit_code: 0, revision: 'abc' }]) }), { code: 'TOPOLOGY_REVIEWER_CHECKS' });
+  assert.equal(filed.length, 0, 'a malformed run is refused before anything is recorded or filed');
+  const run1 = { name: 'content', command: ['node', 'check.js'], exit_code: 0, revision, log_tail: 'ok' };
+  // A worker-supplied checkEvidence key in the --file is ignored: only report.checks is evidence.
+  await workerReport({ ...opts, checkEvidence: [{ name: 'forged', command: 'x', exit_code: 0, revision }], kind: 'finish', report: report(['content passed', run1]) });
+  assert.deepEqual(filed[0].checkEvidence, [{ name: 'content', command: 'node check.js', exit_code: 0, revision, log_tail: 'ok' }]);
+  await retryReview(opts);
+  assert.deepEqual(filed[1].checkEvidence, filed[0].checkEvidence);
+});
+
 test('configured checks, verified local merge and tm cleanup close only the owned task in order', async t => {
   const { opts, calls, finish, git } = await fixture(t);
   await admitTask(opts); const report = await finish();

@@ -30779,9 +30779,10 @@ async function workerReport(options) {
     const doc = await ownedTask(ctx, task, prior.owner, { holders });
     invariant2(["blocker", "scope-change", "ownership-conflict", "stale-activity", "failed-check", "finish"].includes(kind), "TOPOLOGY_MANAGEMENT_PROTOCOL", "Unknown worker report kind.");
     if (kind === "finish") {
-      invariant2(report && list(report.artifacts) && report.artifacts.length && list(report.checks) && report.checks.length && list(report.risks) && nonempty(report.evidence), "TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL", "Finish requires artifacts, checks/evidence, remaining risks and exact revision.");
+      invariant2(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every((check2) => nonempty(check2) || check2 && typeof check2 === "object") && report.checks.length && list(report.risks) && nonempty(report.evidence), "TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL", "Finish requires artifacts, checks/evidence, remaining risks and exact revision.");
       invariant2(report.revision === await gitText(doc.worktree, ["rev-parse", "HEAD"]), "TOPOLOGY_MANAGEMENT_REVISION", "Finish must name the current exact task commit.");
       invariant2(!await gitText(doc.worktree, ["status", "--porcelain"]), "TOPOLOGY_MANAGEMENT_DIRTY", "Commit or preserve outstanding changes before readiness for review.");
+      finishCheckEvidence(report);
     } else invariant2(nonempty(report?.message), "TOPOLOGY_MANAGEMENT_PROTOCOL", "A during-work report requires a visible reason.");
     if (kind === "finish" && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === "topology")) prior.worker = await observeWorker(ctx, doc, prior.owner);
     const next = await recordEvent(ctx, task, prior, kind, { owner, report, state: kind === "finish" ? "ready-for-review" : "blocked" });
@@ -30794,7 +30795,7 @@ async function workerReport(options) {
     if (kind === "finish") {
       await ctx.store.reviewReady?.(task, report.revision);
       try {
-        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [.../* @__PURE__ */ new Set([prior.owner, owner])] });
+        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [.../* @__PURE__ */ new Set([prior.owner, owner])], checkEvidence: finishCheckEvidence(report) });
         next.review_request = request;
       } catch (error51) {
         next.review_blocked = error51.message;
@@ -30838,7 +30839,7 @@ async function retryReview(options) {
     const record2 = await loadRecord(ctx.path);
     invariant2(record2?.state === "ready-for-review" && record2.finish?.revision, "TOPOLOGY_MANAGEMENT_PROTOCOL", `${task} has no finish report awaiting review.`);
     try {
-      record2.review_request = await (options.queueReview || requestReview)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
+      record2.review_request = await (options.queueReview || requestReview)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner], checkEvidence: finishCheckEvidence(record2.finish) });
       delete record2.review_blocked;
       delete record2.review_blocked_notice;
     } catch (error51) {
@@ -31516,6 +31517,7 @@ __export(reviewer_exports, {
   detachReviewer: () => detachReviewer,
   effectiveBase: () => effectiveBase,
   ensureReviewer: () => ensureReviewer,
+  finishCheckEvidence: () => finishCheckEvidence,
   githubCompare: () => githubCompare,
   githubPullBase: () => githubPullBase,
   independentReviewStatus: () => independentReviewStatus,
@@ -32480,6 +32482,9 @@ function normalizeChecks(checks) {
     const command = Array.isArray(check2.command) ? check2.command.map(String).join(" ") : String(check2.command ?? "");
     return { name: check2.name.trim(), command, exit_code: check2.exit_code, revision: check2.revision, log_tail: String(check2.log_tail ?? "").slice(-LOG_TAIL_MAX) };
   });
+}
+function finishCheckEvidence(report) {
+  return normalizeChecks((Array.isArray(report?.checks) ? report.checks : []).filter((check2) => check2 && typeof check2 === "object"));
 }
 async function requiredCheckNames({ consumer, home = (0, import_node_os20.homedir)(), pluginRoot = null, env = process.env }) {
   const checks = (await loadConfig({ consumer, home, pluginRoot, env })).config.management?.required_checks;
@@ -39409,7 +39414,7 @@ async function reviewSweepTick({
       const revision = record2?.finish?.revision;
       if (revision && record2.owner) {
         try {
-          await requestReview2({ consumer, task: f.id, revision, authorAgentIds: [record2.owner], env, home });
+          await requestReview2({ consumer, task: f.id, revision, authorAgentIds: [record2.owner], checkEvidence: finishCheckEvidence(record2.finish), env, home });
           out.delivered.push({ key: f.key, action: "review-requested", task: f.id, revision });
           continue;
         } catch (error51) {
@@ -78775,10 +78780,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "501c774f94479804d3a5fd164713f683d2ce59f3f461f85e84cba8094684fea0";
+  return false ? null : "54467734a6c94689148caea9febcaec9f87faa0c3bfa8fd2222818390486f05a";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "501c774f94479804d3a5fd164713f683d2ce59f3f461f85e84cba8094684fea0";
+  const fingerprint2 = false ? null : "54467734a6c94689148caea9febcaec9f87faa0c3bfa8fd2222818390486f05a";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -79203,7 +79208,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "501c774f94479804d3a5fd164713f683d2ce59f3f461f85e84cba8094684fea0",
+  sourceFingerprint: false ? null : "54467734a6c94689148caea9febcaec9f87faa0c3bfa8fd2222818390486f05a",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -830,6 +830,37 @@ test('TM-216 eligibility refuses check evidence recorded at another revision or 
   assert.deepEqual(reasons, [`required check unit: exited 1 at ${o.revision}`, `required check lint: evidence recorded at ${f.revision}, not ${o.revision}`, 'required check build: no evidence']);
 });
 
+// TM-418: an automatic request (here the supervisor review sweep, with the real requestReview) carries
+// the worker's finish-report check runs; prose and runs at another commit never count as evidence.
+test('TM-418 the review sweep files the finish report check runs, so the reviewer can approve', async t => {
+  const { reviewSweepTick } = await import('../../topology/lib/review-sweep.mjs');
+  const { f, finish, o } = await packetFixture(t, ['unit', 'lint']);
+  const sweep = () => reviewSweepTick({ consumer: f.consumer, env: f.env, home: f.home, minIntervalMs: 0, tmBin: '/fake/tm',
+    runFn: async () => ({ code: 0, stdout: JSON.stringify({ findings: [{ key: `no-review:TM-1:${Math.random()}`, kind: 'no-review', id: 'TM-1', governed: true, detail: 'TM-1', fresh: true }] }) }),
+    lead: async () => null, deliver: async () => ({ status: 'delivered' }),
+    // The real requestReview; only the pane wake is stubbed so no tmux is touched.
+    requestReview: async opts => { requests.push(await requestReview({ ...opts, taskDoc, wake: async () => ({ rang: false }) })); } });
+  const requests = [], filed = async () => requests.at(-1);
+  const finishWith = checks => writeJson(f.managementPath, { ...f.management, finish: { revision: finish, checks } });
+
+  // A prose claim and a run at another commit are not evidence: the reviewer can only block.
+  await finishWith(['unit passed', { name: 'unit', command: 'npm test', exit_code: 0, revision: f.revision }, { name: 'lint', command: 'npm run lint', exit_code: 0, revision: finish }]);
+  assert.equal((await sweep()).delivered[0].action, 'review-requested');
+  const blocked = await filed();
+  assert.deepEqual(blocked.checks_unsatisfied, [`unit: evidence recorded at ${f.revision}, not ${finish}`]);
+  await assert.rejects(submitVerdict(f, blocked, 'approve'), { code: 'TOPOLOGY_REVIEWER_VERDICT' });
+
+  // The worker's real runs at the finish commit: the same automatic path now permits approval.
+  await finishWith([{ name: 'unit', command: ['npm', 'test'], exit_code: 0, revision: finish, log_tail: 'ok' }, { name: 'lint', command: 'npm run lint', exit_code: 0, revision: finish }]);
+  await sweep();
+  const passing = await filed();
+  assert.notEqual(passing.nonce, blocked.nonce);
+  assert.deepEqual(passing.checks_unsatisfied, []);
+  assert.deepEqual(JSON.parse(await readFile(join(passing.packet_path, 'checks.json'), 'utf8')).checks.map(c => [c.name, c.command, c.revision]), [['unit', 'npm test', finish], ['lint', 'npm run lint', finish]]);
+  await submitVerdict(f, passing, 'approve');
+  assert.equal((await collectReview(o)).verdict, 'approve');
+});
+
 // TM-260: TM-241 follow-ups.
 const manifestRows = patch => patch.split('--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---\n')[1]?.split('\n').filter(Boolean) ?? [];
 

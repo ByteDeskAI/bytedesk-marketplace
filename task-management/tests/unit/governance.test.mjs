@@ -146,7 +146,8 @@ describe("governed completion is shared by every task write surface", () => {
       assert.match(brief, /ao-topology manage report .*--task TM-001 --file/);
       assert.match(brief, /"kind":"finish"/);
       assert.match(brief, /"artifacts":\[/);
-      assert.match(brief, /"checks":\[/);
+      assert.match(brief, /"checks":\[\{"name":.*"exit_code":0,"revision":/);
+      assert.match(brief, /run each management\.required_checks entry at that commit.*Never list a check you did not run/); // TM-418
       assert.match(brief, /"risks":\[\]/);
       assert.match(brief, /"evidence":/);
       assert.match(brief, /queues independent review/);

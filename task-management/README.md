@@ -213,7 +213,11 @@ pick up that admitted task under the same owner. Missing admission holds that ta
 After committing, checking and attaching evidence, the worker saves its finish JSON outside
 the task worktree and submits
 `ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.
-The JSON is `{"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":["<check and result>"],"risks":[],"evidence":"<evidence path>"}}`.
+The JSON is `{"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":[{"name":"<required check>","command":"<command run>","exit_code":0,"revision":"<full commit SHA>","log_tail":"<output tail>"}],"risks":[],"evidence":"<evidence path>"}}`.
+Each structured `checks` entry is a run of one of the repository's `management.required_checks`
+at the finish commit. The review request carries those runs as its check evidence (TM-418), so
+the reviewer can approve only when every required check has a passing run at that commit. A
+prose string in `checks` is kept as a note and never counts as evidence.
 The producer persists the finish, calls `tm review-ready`, and queues a review request bound
 to that revision and reviewer incarnation. A bare `review-ready` call cannot skip this report.
 It keeps its claim while review is pending; `review_blocked` names a producer hold for the lead.
