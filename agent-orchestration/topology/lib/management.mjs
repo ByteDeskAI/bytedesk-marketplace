@@ -11,7 +11,7 @@ import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from 
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
-import { currentReviewStatus, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { INTEGRATION_BRANCH, currentReviewStatus, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -358,11 +358,15 @@ export async function taskWorkerState(options, record) {
 }
 
 /** TM-349: the admission base is merge-base(HEAD, integration branch), never HEAD itself, so commits a
- * worker made before admission stay inside the review range. Candidates, in order: the branch TM-325
- * freezes into the record (the PR base tm recorded), the task PR base on the server,
- * management.target_branch, then the repository default branch (origin/HEAD, else gh). The first
- * candidate whose origin/<name> or local <name> resolves wins; none resolving fails closed. A fresh
- * worktree is unchanged: there the merge-base is HEAD. Falling to a later candidate only widens the range. */
+ * worker made before admission stay inside the review range. Returns { base, source }.
+ *  - server: the TM-325 compare helper names merge_base(branch, HEAD) on the server copy of the
+ *    integration branch (the recorded one, else management.target_branch, else the default branch).
+ *    A worker can write any local ref, so the server answer always wins when there is one.
+ *  - local-fallback: the server cannot answer (no gh, offline, HEAD unpushed). The OLDEST merge-base
+ *    across every resolvable candidate (origin/<name> and <name> for the recorded branch, the target
+ *    branch, the PR base only when it equals one of those, and the default branch), so a forged ref
+ *    can never narrow the range below a genuine one. Recorded on the record for the reviewer.
+ * Nothing resolving fails closed; there is never a HEAD fallback. A fresh worktree is unchanged. */
 async function defaultBranch(options, worktree) {
   const head = await git(worktree, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], true);
   if (head.code === 0 && head.stdout.trim().startsWith('origin/')) return head.stdout.trim().slice('origin/'.length);
@@ -370,16 +374,34 @@ async function defaultBranch(options, worktree) {
   return viewed?.code === 0 ? viewed.stdout.trim() : null;
 }
 async function admissionBase(options, worktree, integration, branch) {
-  const candidates = [integration, (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0],
-    (await loadConfig(options)).config.management?.target_branch, await defaultBranch(options, worktree)];
-  const named = [...new Set(candidates.filter(nonempty).map(name => name.trim()))];
+  const head = await gitText(worktree, ['rev-parse', 'HEAD']);
+  const target = (await loadConfig(options)).config.management?.target_branch;
+  const anchor = [integration, target].find(nonempty) ?? null;
+  if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
+    let server = null;
+    try { server = await (options.serverCompare || githubCompare)(worktree, anchor, head); } catch { /* unanswerable: local fallback below */ }
+    const mb = String(server?.merge_base ?? '');
+    if (/^[a-f0-9]{40,64}$/.test(mb)) {
+      invariant((await git(worktree, ['merge-base', '--is-ancestor', mb, head], true)).code === 0, 'TOPOLOGY_MANAGEMENT_BASE',
+        `The server merge-base ${mb} of ${anchor ?? 'the default branch'} is not a local ancestor of the task HEAD; fetch it and retry admission.`);
+      return { base: mb, source: 'server' };
+    }
+  }
+  // The PR base is worker-chosen: it only counts when it names a branch the repository already trusts.
+  const pull = (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0];
+  const named = [...new Set([integration, target, [integration, target].includes(pull) ? pull : null, await defaultBranch(options, worktree)].filter(nonempty).map(name => name.trim()))];
+  const bases = [];
   for (const name of named) for (const ref of [`refs/remotes/origin/${name}`, `refs/heads/${name}`]) {
     const found = await git(worktree, ['merge-base', 'HEAD', ref], true);
-    if (found.code === 0 && found.stdout.trim()) return found.stdout.trim();
+    if (found.code === 0 && found.stdout.trim()) bases.push(found.stdout.trim());
   }
-  fail('TOPOLOGY_MANAGEMENT_BASE', named.length
+  if (!bases.length) fail('TOPOLOGY_MANAGEMENT_BASE', named.length
     ? `Cannot resolve any integration branch candidate (${named.join(', ')}) to a merge-base with the task HEAD as origin/<name> or <name>; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`
     : 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, no management.target_branch and no repository default branch. Configure management.target_branch.');
+  const unique = [...new Set(bases)];
+  const base = unique.length === 1 ? unique[0] : await gitText(worktree, ['merge-base', '--octopus', ...unique]);
+  invariant(/^[a-f0-9]{40,64}$/.test(base), 'TOPOLOGY_MANAGEMENT_BASE', 'The integration branch candidates share no common ancestor with the task HEAD.');
+  return { base, source: 'local-fallback' };
 }
 
 /** New admission requires readiness before tm start (which enforces dependencies/claim/WIP).
@@ -396,14 +418,21 @@ export async function admitTask(options) {
       return { admitted: false, state: 'ownership-review-required' };
     }
     if (held) ownClaim(held, owner); // TTL expiry never authorizes silent reassignment here.
+    // TM-348 review: a released claim (park, block, defer, reap) is not an invitation. Another session
+    // never takes over a started record, and a done or landed task never gets its worktree or claim back.
+    if (prior?.started && prior.owner !== owner) {
+      await recordEvent(ctx, task, prior, 'ownership-review-required', { owner, existing_owner: prior.owner, worktree: doc.worktree || null, recovery: 'The task was admitted by another session; reconcile ownership with that owner instead of re-admitting.' });
+      return { admitted: false, state: 'ownership-review-required' };
+    }
+    invariant(doc.status !== 'done' && !prior?.merge && !['merged', 'cleaned'].includes(prior?.state), 'TOPOLOGY_MANAGEMENT_LANDED', `${task} is done or landed; admission never recreates its worktree or claim.`);
     if (prior?.owner === owner && prior.started) {
       if (!held) await ctx.store.provision(task);
       const current = await ownedTask(ctx, task, owner);
       // TM-349: a record admitted at a worker commit hides that commit; a resumed admission only ever widens it.
-      const base = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
+      const { base, source } = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
       if (base !== prior.base_revision && (await git(current.worktree, ['merge-base', '--is-ancestor', base, prior.base_revision], true)).code === 0) {
-        const widened = await recordEvent(ctx, task, prior, 'base-widened', { from: prior.base_revision, to: base });
-        widened.base_revision = base; await writeJson(ctx.path, widened);
+        const widened = await recordEvent(ctx, task, prior, 'base-widened', { from: prior.base_revision, to: base, base_source: source });
+        Object.assign(widened, { base_revision: base, base_source: source }); await writeJson(ctx.path, widened);
         return { admitted: true, resumed: true, record: widened };
       }
       return { admitted: true, resumed: true, record: prior };
@@ -418,13 +447,13 @@ export async function admitTask(options) {
     const provisioned = await ownedTask(ctx, task, owner);
     // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
     const recorded = String(provisioned.integrationBranch ?? '').trim(), integration = recorded && recorded !== 'HEAD' ? recorded : null;
-    const base = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
+    const { base, source } = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
     await ctx.store.start(task, provisioned.worktree);
-    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, intent, boundaries, dependencies, checks, files: doc.touches });
+    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
     const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
-    Object.assign(record, { integration_branch: integration, base_revision: base, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
+    Object.assign(record, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
     await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});
     return { admitted: true, record };

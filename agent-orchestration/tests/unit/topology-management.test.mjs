@@ -1651,7 +1651,7 @@ const withTarget = async (opts, target) => {
 test("TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD", async t => {
   const { opts, calls } = await fixture(t);
   await withTarget(opts, "absent-target");
-  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no-such-branch, absent-target/ });
+  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
   await withTarget(opts, null);
   await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
   assert.equal(calls.includes("start"), false, "nothing is started");
@@ -1693,4 +1693,71 @@ test("TM-349: a resumed admission widens a base that hid a worker commit, and ne
   assert.equal(resumed.resumed, true); assert.equal(resumed.record.base_revision, forked);
   assert.equal(resumed.record.events.at(-1).event, "base-widened");
   assert.equal((await admitTask(opts)).record.base_revision, forked, "stable once widened");
+});
+
+// PR #192 review, TM-348: a released claim never lets another session take a started record, and a
+// done or landed task never gets its worktree or claim back.
+test("TM-348 review: a parked task admitted by another session is ownership review, not a takeover", async t => {
+  const { opts, doc, finish, setClaim } = await fixture(t);
+  await admitTask(opts); await finish();
+  doc.status = "parked"; setClaim(null);
+  const peer = await admitTask({ ...opts, owner: "peer" });
+  assert.equal(peer.admitted, false); assert.equal(peer.state, "ownership-review-required");
+  const record = (await managementStatus(opts)).management;
+  assert.equal(record.owner, "author"); assert.equal(record.state, "ready-for-review");
+  opts.store.provision = async () => setClaim({ session: "author", worktree: doc.worktree, branch: doc.branch }); // tm worktree new reuses the checkout
+  assert.equal((await admitTask(opts)).resumed, true, "the owner still resumes");
+});
+
+test("TM-348 review: a done task is never re-provisioned by admission", async t => {
+  const { opts, doc, calls, finish, setClaim } = await fixture(t);
+  await admitTask(opts); await finish(); await integrateTask(opts);
+  assert.equal((await cleanupTask(opts)).cleaned, true);
+  setClaim(null);
+  const before = calls.filter(c => c === "provision").length;
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_LANDED" });
+  doc.status = "open";
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_LANDED" }, "the landed record alone refuses");
+  assert.equal(calls.filter(c => c === "provision").length, before);
+});
+
+// PR #192 review, TM-349: a worker can write any local ref; the server anchor and the oldest
+// local merge-base keep its own commit inside the review range.
+async function forgedRefs(t, { server = null, pull = null } = {}) {
+  const { opts, doc, setClaim, git } = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  const worktree = join(opts.consumer, "..", "task");
+  await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+  await writeFile(join(worktree, "code.txt"), "own"); await git(worktree, ["add", "code.txt"]); await git(worktree, [...id, "commit", "-qm", "own commit"]);
+  const own = (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+  opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+  return { opts, git, forked, own, admit: o => admitTask({ ...opts, ...(server ? { serverCompare: server } : {}), ...(pull ? { serverPullBase: async () => [pull] } : {}), ...o }) };
+}
+
+test("TM-349 review: with the server answering, a forged origin/main and main cannot narrow the base", async t => {
+  const asked = [];
+  const f = await forgedRefs(t, { server: async (dir, from, to) => { asked.push([from, to]); return { status: "diverged", merge_base: f.forked }; } });
+  await f.git(f.opts.consumer, ["update-ref", "refs/remotes/origin/main", f.own]);
+  await f.git(f.opts.consumer, ["update-ref", "refs/heads/main", f.own]);
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.forked); assert.equal(record.base_source, "server");
+  assert.deepEqual(asked, [["main", f.own]], "the server is asked for the target branch against the task HEAD");
+  assert.equal(record.events.at(-1).base_source, "server", "the start event shows the source");
+});
+
+test("TM-349 review: a worker-chosen PR base that differs from the trusted branches is ignored", async t => {
+  const f = await forgedRefs(t, { pull: "evil" });
+  await f.git(f.opts.consumer, ["branch", "evil", f.own]);
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.forked); assert.equal(record.base_source, "local-fallback");
+});
+
+test("TM-349 review: offline, the oldest local merge-base wins, never the first", async t => {
+  const f = await forgedRefs(t);
+  await f.git(f.opts.consumer, ["update-ref", "refs/remotes/origin/main", f.own]);
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.forked, "origin/main is forged to the own commit; local main is older");
+  assert.equal(record.base_source, "local-fallback");
 });

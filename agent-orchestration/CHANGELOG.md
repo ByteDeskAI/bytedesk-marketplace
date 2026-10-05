@@ -22,11 +22,14 @@
   that commit as the base: the review range left it out, and once the task merged its integration
   branch, `reviewer request` refused with `TOPOLOGY_REVIEWER_RANGE`. The base is now
   merge-base(HEAD, integration branch), using the branch TM-325 freezes into the admission record,
-  else the task PR base, else `management.target_branch`, else the repository default branch
-  (`origin/HEAD`, else `gh repo view`). The first candidate that resolves as its remote-tracking
-  ref or local branch wins. A fresh worktree is unchanged, because there the merge-base is HEAD.
-  Admission is refused with `TOPOLOGY_MANAGEMENT_BASE` only when no candidate resolves; it never
-  falls back to HEAD. A resumed
+  else `management.target_branch`, else the repository default branch. The base comes from the
+  server first: the TM-325 compare helper's merge-base of that branch and the task HEAD, because
+  a worker can rewrite any local ref. Only when the server cannot answer does admission use local
+  refs, taking the OLDEST merge-base across every resolvable candidate (`origin/<name>` and
+  `<name>`; the task PR base counts only when it equals the recorded or target branch). The record
+  and the start event carry `base_source: server | local-fallback`. A fresh worktree is unchanged,
+  because there the merge-base is HEAD. Admission is refused with `TOPOLOGY_MANAGEMENT_BASE` only
+  when nothing resolves; it never falls back to HEAD. A resumed
   admission recomputes the base and widens a record written by the old code (event
   `base-widened`); it never narrows one.
 - **A governed task returns to work after an independent review requests changes (TM-347).** A
@@ -48,6 +51,9 @@
   task is re-claimed by the admitting session. A claim held by another session is still refused, and
   an in-progress task with no admission record still returns `ownership-review-required`. The
   ownership refusal now names the session holding the claim (or `none`) and the expected owner.
+  A released claim never lets another session take over a task that was already admitted: that
+  returns `ownership-review-required`. A done or landed task is refused with
+  `TOPOLOGY_MANAGEMENT_LANDED` instead of having its worktree and claim recreated.
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)

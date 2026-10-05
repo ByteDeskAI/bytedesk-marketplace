@@ -905,7 +905,7 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
   return { base: candidate, note: null };
 }
 
-const INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
+export const INTEGRATION_BRANCH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*(?<![./])$/;
 
 /** Admitted and effective base for a task's range: every range and scope caller goes through here. */
 export async function reviewRangeBase({ consumer, task, revision, admittedBase, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = homedir() }) {
