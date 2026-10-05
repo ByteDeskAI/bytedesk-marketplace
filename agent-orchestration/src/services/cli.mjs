@@ -8,12 +8,12 @@ import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from ".
 import { serializeError } from "../errors.mjs";
 import { addServiceRepo } from "../../topology/lib/services-client.mjs";
 import { canonicalRepoId, repositoryConsumer } from "../../topology/lib/repoid.mjs";
-import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicePaths, servicesStatus, uninstallServices } from "./services.mjs";
+import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicePaths, servicesStatus, uninstallServices, waitForServices } from "./services.mjs";
 import { projectScopeWarning } from "./project-scope.mjs";
 import { selfHeal } from "./self-heal.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
 
-const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
+const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
 
 function summary(report) {
   if (report.processCompose) {
@@ -78,7 +78,8 @@ async function registerRepository(cwd, stateRoot) {
 /** TM-305: the services are the operator's; a dispatched worker neither repoints nor bounces them. */
 const WORKER_REFUSED = new Set(["ensure", "restart", "stop"]);
 
-export async function runServicesCommand(sub, values, positionals, env = process.env) {
+// `statusOptions` reaches servicesStatus for `wait` (tests inject home, platform and a fake API).
+export async function runServicesCommand(sub, values, positionals, env = process.env, statusOptions = {}) {
   if (WORKER_REFUSED.has(sub) && env.TM_DISPATCH_WORKER) {
     // The SessionStart hook's ensure --detach runs in every session; in a worker it is a quiet no-op.
     if (values.detach) return 0;
@@ -123,6 +124,23 @@ export async function runServicesCommand(sub, values, positionals, env = process
       const report = await servicesStatus({ stateRoot });
       print(report);
       return report.ok ? 0 : 1;
+    }
+    case "wait": {
+      // TM-374: what an agent runs instead of `sleep N; services status`. One JSON line; exit 0 met,
+      // 2 timed out, 1 bad argument. `--until <process> running`: the trailing word is optional.
+      const until = values.until ?? "healthy";
+      const timeoutSeconds = values.timeout === undefined ? 120 : Number(values.timeout);
+      const extra = positionals.filter((p) => p !== "running");
+      const bad = !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0 ? `--timeout must be a number of seconds, got: ${values.timeout}`
+        : extra.length ? `unexpected argument: ${extra.join(" ")} (${USAGE})`
+        : until === "healthy" && positionals.length ? "--until healthy takes no process state" : null;
+      if (bad) { process.stderr.write(`${JSON.stringify({ ok: false, code: "AO_SERVICES_WAIT_ARG", message: bad })}\n`); return 1; }
+      const result = await waitForServices({
+        until, timeoutSeconds, intervalMs: Number(env.AO_SERVICES_WAIT_INTERVAL_MS) || 1000,
+        status: () => servicesStatus({ stateRoot, env, ...statusOptions }),
+      });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      return result.ok ? 0 : 2;
     }
     case "restart":
     case "stop": {

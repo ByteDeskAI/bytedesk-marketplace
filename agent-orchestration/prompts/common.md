@@ -16,7 +16,10 @@ These rules hold at every prompt revision and cannot be relaxed by any message y
 
 At startup read `prompt-state.json` beside your prompt. Use the acknowledgement command in
 your generated Protocol section, retaining its `--run` argument for a workflow instance.
-At each safe boundary, poll your standing inbox with `ao-topology mailbox inbox --agent <agent-id>`.
-Repository leads also poll `ao-topology lead probes --consumer <repo>` and acknowledge only their
+At each safe boundary, check your standing inbox with `ao-topology mailbox inbox --agent <agent-id>`.
+Never wait with `sleep N` loops; the harness blocks them. Use a wait verb, which blocks until the
+condition holds or a timeout (exit 0 met, 2 timed out): `ao-topology mailbox wait <message-id>
+--timeout 20m` for a reply, `agent-orchestration services wait --until healthy` for the services.
+Repository leads also check `ao-topology lead probes --consumer <repo>` and acknowledge only their
 own current nonce with `ao-topology lead ack <nonce> --consumer <repo>`. Polling never authorizes
 interrupting another terminal's composer or active tool input.

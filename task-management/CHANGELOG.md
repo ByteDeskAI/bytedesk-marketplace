@@ -28,6 +28,20 @@
   dispatch record carries `expedite: true`, so later ticks charge it to `expediteWip` and not to
   `poolWip`. When the lane is full, an urgent task falls back to the normal lane. Normal-priority
   tasks behave as before.
+- **Dispatched workers inherit secrets named in config (TM-375, EP-028).** The tmux backend reads
+  NAMES from `dispatch.passEnv` (tm config) and from `workers.passEnv` in
+  `.bytedesk/agent-orchestration/config.json` when that file exists. It copies the values from the
+  dispatching environment into a 0600 file in a private temp dir; the pane sources it, removes it
+  and then execs the worker. `tmux new-session -e` is not used for these, because it puts values in
+  argv and in the returned `detail.args`. A missing name is reported as `passEnvMissing` on the
+  result and the `dispatched` event. The topology backend already hands its environment to
+  `ao-topology`, which applies the same config.
+
+- **`tm pool wait` replaces sleep-polling around `tm pool status` (TM-374, EP-028).**
+  `tm pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]` polls
+  internally and prints one JSON result: exit 0 when the condition holds, 2 on timeout (with the
+  last state seen), 1 on a bad argument. The pool and collect skills point to it instead of a
+  `sleep` loop, which the harness blocks.
 
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads

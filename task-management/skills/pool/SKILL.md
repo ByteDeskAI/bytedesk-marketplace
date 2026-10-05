@@ -1,8 +1,8 @@
 ---
 name: pool
-description: The pickup loop that dispatches ready-for-agent tasks, on by default, as one detached pool per repository — tm pool once|ensure|start|stop|status|resume, the tm-pool monitor, dispatch.enabled / poolWip / pollSeconds / maxFailures / idleExitMinutes. Use when the user says "start the worker pool", "stop the pool", "pick up ready-for-agent work", "run the dispatch loop", "the pool is paused", "is the pool running", "/pool", or many ready cards should drain without one-shot dispatch.
+description: The pickup loop that dispatches ready-for-agent tasks, on by default, as one detached pool per repository — tm pool once|ensure|start|stop|status|resume|wait, the tm-pool monitor, dispatch.enabled / poolWip / pollSeconds / maxFailures / idleExitMinutes. Use when the user says "start the worker pool", "stop the pool", "pick up ready-for-agent work", "run the dispatch loop", "the pool is paused", "is the pool running", "wait for the pool", "wait until TM-123 is done", "/pool", or many ready cards should drain without one-shot dispatch.
 user-invokable: true
-argument-hint: "[once|ensure|start|stop|status|resume] [--dry-run]"
+argument-hint: "[once|ensure|start|stop|status|resume|wait] [--dry-run]"
 ---
 
 # Pool
@@ -28,7 +28,14 @@ skill to check on it, stop it, or clear its brake. For a single card, [[dispatch
 .bytedesk/task-management/bin/tm pool start
 .bytedesk/task-management/bin/tm pool stop
 .bytedesk/task-management/bin/tm config dispatch.enabled false   # turn it off for this repo
+.bytedesk/task-management/bin/tm pool wait --until done TM-123 --timeout 1800   # block, never sleep-poll
 ```
+
+**Waiting.** Never wrap `tm pool status` in a `sleep` loop; the harness blocks it. `tm pool wait
+--until idle|running|stopped|dispatched <id>|done <id> [--timeout <s>]` (default `idle`, 300 s)
+polls internally and prints one JSON result: exit 0 when the condition holds, 2 on timeout (the
+result names the last state seen), 1 on a bad argument. `idle` means no dispatched worker and
+nothing ready to pick up.
 
 No MCP or HTTP verb. The plugin monitor `tm-pool` runs `tm pool ensure` at
 session start, and so do the user-prompt hook, a `tm config dispatch.*` write and

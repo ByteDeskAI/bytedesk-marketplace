@@ -694,3 +694,48 @@ export function poolLine(p = paths()) {
   const state = inst ? `running (pid ${inst.pid})` : "starting with this session";
   return `pool: on — ${state} · ${poolable(p).length} ready · ${poolWorkers(p).length} working · tm config dispatch.enabled false to stop`;
 }
+
+/** The conditions `tm pool wait --until` accepts; the two that take a task id say so. */
+export const WAIT_CONDITIONS = ["idle", "running", "stopped", "dispatched", "done"];
+
+/**
+ * Is the stated condition true right now? Returns { met, detail } — detail is what a caller
+ * reports while still waiting, so a timeout says how far things got. Throws on a bad condition
+ * or an unknown task, which the CLI turns into exit 1.
+ *
+ *   idle          no dispatched worker in progress and nothing ready to pick up
+ *   running       a pool process is live
+ *   stopped       no pool process is live
+ *   dispatched ID the task carries a dispatch record (the pool or `tm dispatch` handed it out)
+ *   done ID       the task's status is done
+ */
+export function poolCondition(until, id, p = paths()) {
+  if (!WAIT_CONDITIONS.includes(until)) throw new Error(`unknown condition: ${until} (${WAIT_CONDITIONS.join(" | ")})`);
+  if (until === "dispatched" || until === "done") {
+    if (!id) throw new Error(`--until ${until} needs a task id: --until ${until} TM-123`);
+    const doc = read(id, p);
+    if (!doc) throw new Error(`not found: ${id}`);
+    const met = until === "done" ? doc.status === "done" : Boolean(doc.dispatched);
+    return { met, detail: { id, status: doc.status, dispatched: Boolean(doc.dispatched) } };
+  }
+  const st = poolStatus(p);
+  const met = until === "running" ? st.running : until === "stopped" ? !st.running : st.workers === 0 && st.poolable === 0;
+  return { met, detail: { running: st.running, workers: st.workers, poolable: st.poolable, paused: st.paused } };
+}
+
+/**
+ * Block until poolCondition holds or `timeoutSeconds` pass (TM-374). This is what an agent runs
+ * instead of `sleep N; tm pool status` — a harness blocks bare sleeps, and a hand-rolled loop is
+ * one bug per caller. Polls every `intervalMs` (bounded to 0.1–5 s); one result object out.
+ */
+export async function poolWait({ until, id, timeoutSeconds = 300, intervalMs = 1000, p = paths() }) {
+  const started = Date.now();
+  const interval = Math.min(5000, Math.max(100, intervalMs));
+  for (;;) {
+    const { met, detail } = poolCondition(until, id, p);
+    const waitedSeconds = Math.round((Date.now() - started) / 100) / 10;
+    if (met) return { ok: true, until, ...(id ? { id } : {}), waitedSeconds, ...detail };
+    if (Date.now() - started >= timeoutSeconds * 1000) return { ok: false, timedOut: true, until, ...(id ? { id } : {}), waitedSeconds, ...detail };
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}
