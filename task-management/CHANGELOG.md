@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Expedite lane: urgent ready tasks dispatch on the next pool tick, outside `poolWip` (TM-358,
+  EP-028).** A `highest`-priority task, or a `high` one labelled `expedite`, takes a slot in a
+  separate lane capped by the new `dispatch.expediteWip` (default 2; 0 turns the lane off). It
+  skips the touches-disjoint batching, but still refuses any path that a running task, or a task
+  dispatched earlier in the same tick, holds. It runs in its own worktree like every dispatch. The
+  dispatch record carries `expedite: true`, so later ticks charge it to `expediteWip` and not to
+  `poolWip`. When the lane is full, an urgent task falls back to the normal lane. Normal-priority
+  tasks behave as before.
+
 - **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
   EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
   the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:

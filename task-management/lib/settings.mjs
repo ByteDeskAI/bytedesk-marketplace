@@ -245,6 +245,16 @@ export const CATALOG = [
     help: "Cap on pool-spawned agents, independent of the interactive wipLimit. dispatch.backendCaps adds per-backend ceilings.",
   },
   {
+    key: "dispatch.expediteWip",
+    group: "agents",
+    type: "integer",
+    default: 2,
+    min: 0,
+    max: 32,
+    label: "Expedited workers at once",
+    help: "A highest-priority task, or a high one labelled expedite, dispatches on the next tick outside poolWip, up to this many at once. It skips touches-disjoint batching but never a path a running task holds. 0 turns the lane off.",
+  },
+  {
     key: "dispatch.pollSeconds",
     group: "agents",
     type: "integer",

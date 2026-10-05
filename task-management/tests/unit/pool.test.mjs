@@ -302,3 +302,107 @@ describe("pool.pid — one loop per store", () => {
     assert.match(readFileSync(p.gitignore, "utf8"), /^pool\.pid$/m, "the seeded .gitignore covers it");
   });
 });
+
+describe("poolTick — expedite lane (TM-358)", () => {
+  /** A dispatched worker that is still running, charged to the normal lane unless `expedite`. */
+  function running(p, title, { touches, ...extra } = {}) {
+    const t = create("task", { title }, "", p);
+    update(t.id, { status: "in_progress", ...(touches ? { touches } : {}), dispatched: { backend: "tmux", run: `tmux:${t.id}`, session: `s-${t.id}`, at: new Date().toISOString(), ...extra } }, p);
+    return t.id;
+  }
+  const alive = { tmux: () => ({ ok: true, pending: true }) };
+
+  it("a highest-priority ready task dispatches on the next tick even when poolWip is full", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1 } });
+    running(p, "fills the only normal slot");
+    const normal = ready(p, "normal work");
+    const urgent = ready(p, "urgent work", { priority: "highest" });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.equal(res.capacity, 0, "the normal lane is full");
+    assert.deepEqual(res.dispatched.map((d) => d.id), [urgent]);
+    assert.equal(res.dispatched[0].expedite, true);
+    assert.equal(read(urgent, p).dispatched.expedite, true, "stamped so the next tick charges expediteWip");
+    assert.ok(read(urgent, p).worktree, "an expedited task still runs in its own worktree");
+    assert.deepEqual(res.skipped, [{ id: normal, reason: "at capacity" }]);
+  });
+
+  it("a high task needs the expedite label; without it the normal lane applies", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1 } });
+    running(p, "fills the only normal slot");
+    const high = ready(p, "high, no label", { priority: "high" });
+    const flagged = ready(p, "high, flagged", { priority: "high" });
+    update(flagged, { labels: ["ready-for-agent", "expedite"] }, p);
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [flagged]);
+    assert.deepEqual(res.skipped, [{ id: high, reason: "at capacity" }]);
+  });
+
+  it("dispatch.expediteWip caps concurrent expedited workers; the overflow falls back to the normal lane", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1, expediteWip: 2 } });
+    running(p, "an expedited worker already running", { expedite: true });
+    const u1 = ready(p, "urgent one", { priority: "highest" });
+    const u2 = ready(p, "urgent two", { priority: "highest" });
+    const u3 = ready(p, "urgent three", { priority: "highest" });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.equal(res.capacity, 1, "the running expedited worker is not charged to poolWip");
+    // u1 takes the one free expedite slot; u2 overflows into the free normal slot; u3 waits.
+    assert.deepEqual(res.dispatched.map((d) => [d.id, Boolean(d.expedite)]), [[u1, true], [u2, false]]);
+    assert.deepEqual(res.skipped, [{ id: u3, reason: "at capacity" }]);
+  });
+
+  it("skips touches-disjoint batching but never a path a running or just-dispatched task holds", async () => {
+    const p = repoStore({ dispatch: { poolWip: 3 } });
+    const ahead = ready(p, "normal, owns a.ts", { touches: ["src/a.ts"], rank: 1 });
+    const urgent = ready(p, "urgent, also a.ts", { priority: "highest", touches: ["src/a.ts"] });
+    const held = ready(p, "urgent, b.ts is held", { priority: "highest", touches: ["src/b.ts"] });
+    const holder = running(p, "holds b.ts", { touches: ["src/b.ts"] });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [ahead]);
+    const reasons = Object.fromEntries(res.skipped.map((s) => [s.id, s.reason]));
+    assert.equal(reasons[urgent], `touches overlap in_progress ${ahead} (src/a.ts)`);
+    assert.equal(reasons[held], `touches overlap in_progress ${holder} (src/b.ts)`);
+  });
+
+  it("an expedited task that collides only in batching still dispatches", async () => {
+    const p = repoStore({ dispatch: { poolWip: 1 } });
+    running(p, "fills the only normal slot");
+    ready(p, "normal, ranked ahead, same path", { touches: ["src/a.ts"], rank: 1 });
+    const urgent = ready(p, "urgent", { priority: "highest", touches: ["src/a.ts"] });
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {}, impls: alive });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [urgent], "batching put it in a later bin; the lane ignores that");
+  });
+
+  it("normal-priority behaviour is unchanged: no expedite flag, poolWip caps, batching applies", async () => {
+    const p = repoStore({ dispatch: { poolWip: 2 } });
+    const t1 = ready(p, "one", { touches: ["src/same.ts"] });
+    const t2 = ready(p, "two", { touches: ["src/same.ts"] });
+    const t3 = ready(p, "three");
+    const t4 = ready(p, "four");
+    const fake = fakeBackend();
+
+    const res = await poolTick({ p, registry: { fake }, caps: {} });
+
+    assert.deepEqual(res.dispatched.map((d) => d.id), [t1, t3]);
+    assert.ok(res.dispatched.every((d) => !("expedite" in d)));
+    assert.equal(read(t1, p).dispatched.expedite, undefined);
+    assert.deepEqual(res.skipped, [
+      { id: t2, reason: "touches collide with a task ahead of it" },
+      { id: t4, reason: "at capacity" },
+    ]);
+  });
+});
