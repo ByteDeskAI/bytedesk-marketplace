@@ -1641,10 +1641,42 @@ test("TM-349: a late admission records merge-base(HEAD, integration branch), so 
   assert.deepEqual((await git(opts.consumer, ["diff", "--name-only", base, revision])).stdout.trim().split("\n"), ["code.txt"], "the own commit is reviewed; the merged sibling is not");
 });
 
-test("TM-349: an unresolvable integration branch refuses admission instead of falling back to HEAD", async t => {
+// The fixture config with management.target_branch replaced (null removes it).
+const withTarget = async (opts, target) => {
+  const path = join(opts.pluginRoot, "config.defaults.json"), config = await readJson(path);
+  if (target === null) delete config.management.target_branch; else config.management.target_branch = target;
+  await writeJson(path, config);
+};
+
+test("TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD", async t => {
   const { opts, calls } = await fixture(t);
-  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no-such-branch/ });
+  await withTarget(opts, "absent-target");
+  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no-such-branch, absent-target/ });
+  await withTarget(opts, null);
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
   assert.equal(calls.includes("start"), false, "nothing is started");
+});
+
+test("TM-349: with no recorded branch, PR or target_branch, the repository default branch is the admission base", async t => {
+  for (const source of ["origin-head", "gh"]) {
+    const { opts, doc, setClaim, git } = await fixture(t);
+    await withTarget(opts, null);
+    const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+    const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+    const worktree = join(opts.consumer, "..", "task");
+    await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+    await writeFile(join(worktree, "code.txt"), "own"); await git(worktree, ["add", "code.txt"]); await git(worktree, [...id, "commit", "-qm", "own commit"]);
+    Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+    opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+    let gh = opts.gh;
+    if (source === "origin-head") {
+      await git(opts.consumer, ["update-ref", "refs/remotes/origin/main", forked]);
+      await git(opts.consumer, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    } else gh = async args => args[0] === "repo" && args[1] === "view" ? { code: 0, stdout: "main\n", stderr: "" } : opts.gh(args);
+    const admitted = await admitTask({ ...opts, gh });
+    assert.equal(admitted.admitted, true, source);
+    assert.equal(admitted.record.base_revision, forked, `${source}: the merge-base with the default branch, not the own commit`);
+  }
 });
 
 test("TM-349: a resumed admission widens a base that hid a worker commit, and never narrows it", async t => {

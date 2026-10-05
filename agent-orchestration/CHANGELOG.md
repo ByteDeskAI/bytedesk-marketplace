@@ -22,9 +22,11 @@
   that commit as the base: the review range left it out, and once the task merged its integration
   branch, `reviewer request` refused with `TOPOLOGY_REVIEWER_RANGE`. The base is now
   merge-base(HEAD, integration branch), using the branch TM-325 freezes into the admission record,
-  else the task PR base, else `management.target_branch` (remote-tracking ref first, then the local
-  branch). A fresh worktree is unchanged, because there the merge-base is HEAD. An unresolvable
-  branch refuses admission with `TOPOLOGY_MANAGEMENT_BASE`; it never falls back to HEAD. A resumed
+  else the task PR base, else `management.target_branch`, else the repository default branch
+  (`origin/HEAD`, else `gh repo view`). The first candidate that resolves as its remote-tracking
+  ref or local branch wins. A fresh worktree is unchanged, because there the merge-base is HEAD.
+  Admission is refused with `TOPOLOGY_MANAGEMENT_BASE` only when no candidate resolves; it never
+  falls back to HEAD. A resumed
   admission recomputes the base and widens a record written by the old code (event
   `base-widened`); it never narrows one.
 - **A governed task returns to work after an independent review requests changes (TM-347).** A

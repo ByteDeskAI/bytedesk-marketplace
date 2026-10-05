@@ -358,18 +358,28 @@ export async function taskWorkerState(options, record) {
 }
 
 /** TM-349: the admission base is merge-base(HEAD, integration branch), never HEAD itself, so commits a
- * worker made before admission stay inside the review range. The branch is the one TM-325 freezes into
- * the record (the PR base tm recorded), else the task PR base on the server, else
- * management.target_branch. Its remote-tracking ref is preferred over the local branch; both missing
- * fails closed. A fresh worktree is unchanged: there the merge-base is HEAD. */
+ * worker made before admission stay inside the review range. Candidates, in order: the branch TM-325
+ * freezes into the record (the PR base tm recorded), the task PR base on the server,
+ * management.target_branch, then the repository default branch (origin/HEAD, else gh). The first
+ * candidate whose origin/<name> or local <name> resolves wins; none resolving fails closed. A fresh
+ * worktree is unchanged: there the merge-base is HEAD. Falling to a later candidate only widens the range. */
+async function defaultBranch(options, worktree) {
+  const head = await git(worktree, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], true);
+  if (head.code === 0 && head.stdout.trim().startsWith('origin/')) return head.stdout.trim().slice('origin/'.length);
+  const viewed = await (options.gh || defaultGh(worktree))(['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name']).catch(() => null);
+  return viewed?.code === 0 ? viewed.stdout.trim() : null;
+}
 async function admissionBase(options, worktree, integration, branch) {
-  const named = integration || (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0] || (await loadConfig(options)).config.management?.target_branch;
-  invariant(nonempty(named), 'TOPOLOGY_MANAGEMENT_BASE', 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, and management.target_branch is unset. Configure management.target_branch.');
-  for (const ref of [`refs/remotes/origin/${named}`, `refs/heads/${named}`]) {
+  const candidates = [integration, (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0],
+    (await loadConfig(options)).config.management?.target_branch, await defaultBranch(options, worktree)];
+  const named = [...new Set(candidates.filter(nonempty).map(name => name.trim()))];
+  for (const name of named) for (const ref of [`refs/remotes/origin/${name}`, `refs/heads/${name}`]) {
     const found = await git(worktree, ['merge-base', 'HEAD', ref], true);
     if (found.code === 0 && found.stdout.trim()) return found.stdout.trim();
   }
-  fail('TOPOLOGY_MANAGEMENT_BASE', `Cannot resolve the integration branch ${named} (origin/${named} or ${named}) to a merge-base with the task HEAD; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`);
+  fail('TOPOLOGY_MANAGEMENT_BASE', named.length
+    ? `Cannot resolve any integration branch candidate (${named.join(', ')}) to a merge-base with the task HEAD as origin/<name> or <name>; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`
+    : 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, no management.target_branch and no repository default branch. Configure management.target_branch.');
 }
 
 /** New admission requires readiness before tm start (which enforces dependencies/claim/WIP).
