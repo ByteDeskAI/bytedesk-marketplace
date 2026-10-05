@@ -632,7 +632,7 @@ export async function runPool({ p = paths(), intervalSeconds = null, registry = 
        * the pause is on disk, so exiting loses nothing and stops burning a process per repo.
        */
       const idleMinutes = Number(cfg.dispatch?.idleExitMinutes ?? 60);
-      const idle = idleMinutes > 0 && poolWorkers(p).length === 0 && (paused || poolable(p).length === 0);
+      const idle = idleMinutes > 0 && poolIdle(poolWorkers(p).length, poolable(p).length, paused);
       idleSince = idle ? idleSince ?? Date.now() : null;
       if (idleSince && Date.now() - idleSince >= idleMinutes * 60_000) {
         say("pool: idle — exiting");
@@ -709,6 +709,17 @@ export function poolLine(p = paths()) {
   return `pool: on — ${state} · ${poolable(p).length} ready · ${poolWorkers(p).length} working · tm config dispatch.enabled false to stop`;
 }
 
+/**
+ * Idle: no worker, and nothing this pool could pick up. A paused pool's queue is unpickable until
+ * `tm pool resume`. One predicate for the loop's idle exit and `pool wait --until idle` (TM-450).
+ */
+export function poolIdle(workers, poolableCount, paused) {
+  return workers === 0 && (paused || poolableCount === 0);
+}
+
+/** Statuses a dispatched task stops at short of done: the worker is gone and a person is needed. */
+const ENDED_SHORT = new Set(["parked", "blocked"]);
+
 /** The conditions `tm pool wait --until` accepts; the two that take a task id say so. */
 export const WAIT_CONDITIONS = ["idle", "running", "stopped", "dispatched", "done"];
 
@@ -730,10 +741,12 @@ export function poolCondition(until, id, p = paths()) {
     const doc = read(id, p);
     if (!doc) throw new Error(`not found: ${id}`);
     const met = until === "done" ? doc.status === "done" : Boolean(doc.dispatched);
-    return { met, detail: { id, status: doc.status, dispatched: Boolean(doc.dispatched) } };
+    // TM-450: a worker that failed or blocked parks the task; waiting for done would never end.
+    const ended = until === "done" && !met && ENDED_SHORT.has(doc.status) ? doc.status : null;
+    return { met, ...(ended ? { ended } : {}), detail: { id, status: doc.status, dispatched: Boolean(doc.dispatched) } };
   }
   const st = poolStatus(p);
-  const met = until === "running" ? st.running : until === "stopped" ? !st.running : st.workers === 0 && st.poolable === 0;
+  const met = until === "running" ? st.running : until === "stopped" ? !st.running : poolIdle(st.workers, st.poolable, st.paused);
   return { met, detail: { running: st.running, workers: st.workers, poolable: st.poolable, paused: st.paused } };
 }
 
@@ -746,9 +759,10 @@ export async function poolWait({ until, id, timeoutSeconds = 300, intervalMs = 1
   const started = Date.now();
   const interval = Math.min(5000, Math.max(100, intervalMs));
   for (;;) {
-    const { met, detail } = poolCondition(until, id, p);
+    const { met, ended, detail } = poolCondition(until, id, p);
     const waitedSeconds = Math.round((Date.now() - started) / 100) / 10;
     if (met) return { ok: true, until, ...(id ? { id } : {}), waitedSeconds, ...detail };
+    if (ended) return { ok: false, ended, until, id, waitedSeconds, ...detail };
     if (Date.now() - started >= timeoutSeconds * 1000) return { ok: false, timedOut: true, until, ...(id ? { id } : {}), waitedSeconds, ...detail };
     await new Promise((r) => setTimeout(r, interval));
   }

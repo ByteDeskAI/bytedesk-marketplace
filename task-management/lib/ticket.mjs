@@ -170,9 +170,20 @@ export function wakePool(root, detail = {}) {
   return { woke: true, pool: ensure.stdout.trim() || ensure.stderr.trim() };
 }
 
+/**
+ * TM-450: the first word that looks like a flag, or undefined. One rule for the CLI (leftover argv)
+ * and fileTicket (every caller, MCP included), so `--title "X"` never becomes a ticket titled
+ * "--title X" on one surface while the other refuses it.
+ */
+export function strayFlag(words) {
+  return words.find((w) => String(w).startsWith("--"));
+}
+
 /** TM-381 + TM-357: file the ticket, link it both ways, notify the target lead, wake the target pool. */
 export function fileTicket({ target, title, priority = "medium", acceptance = [], body = "", fromTask = null, agent = null } = {}, p = paths()) {
   if (!String(title || "").trim()) throw new Error("a ticket needs a title");
+  const stray = strayFlag(String(title).split(/\s+/));
+  if (stray) throw new Error(`unknown option ${stray} in the title — a flag left in a title is a typo, not text`);
   const level = ladderPriority(priority);
   const root = resolveTarget(target, p);
   if (p.root && resolve(root) === resolve(p.root)) throw new Error("that is this repo — use `tm task new` for local work");
@@ -236,9 +247,12 @@ export function originEventFor(row = {}) {
  * Report one progress event on a ticket to its origin: a comment on the origin task (the ORIGIN's
  * own `tm comment`), standing mail to the origin lead, and on merged/done the origin's blocker is
  * removed. Idempotent: the key is recorded on the ticket before anything is sent, so a repeat is a
- * no-op.
+ * no-op. TM-450: a ticket finishes once, so merged and done are keyed by kind alone — the bridge's
+ * `done` and a manual `tm ticket event <id> done …` are the same event. And a send that reached
+ * nobody (no comment landed, no mail went) gives its key back, so a retry is not a duplicate.
  */
-export function notifyOrigin(id, { kind, key = kind, detail = "" }, p = paths()) {
+export function notifyOrigin(id, { kind, key: given = kind, detail = "" }, p = paths()) {
+  const key = CLEARS.has(kind) ? kind : given;
   const task = read(id, p);
   if (!task?.origin?.repo) return { ok: false, reason: `${id} has no origin — it was not filed with tm ticket` };
   if (!EVENT_KINDS.includes(kind)) throw new Error(`unknown event "${kind}" — use one of: ${EVENT_KINDS.join(", ")}`);
@@ -261,6 +275,7 @@ export function notifyOrigin(id, { kind, key = kind, detail = "" }, p = paths())
   const comment = originTask ? runTm(repo, ["comment", originTask, line]) : { ok: false, stderr: "no origin task" };
   const cleared = originTask && CLEARS.has(kind) ? runTm(repo, ["link", originTask, "blocked", "by", ref, "--remove"]) : null;
   const mail = mailLead(repo, `${ref} ${kind}`, `${line}\n\n${task.title}`);
+  if (!comment.ok && !mail.sent) mutate(id, (doc) => ({ originNotified: (doc.originNotified || []).filter((k) => k !== key) }), p);
   logEvent("origin_notified", { id, kind, key, comment: comment.ok, mail: mail.sent, cleared: cleared?.ok ?? null }, p);
   return { ok: true, kind, key, comment: comment.ok || comment.stderr.trim(), cleared: cleared ? cleared.ok : null, mail };
 }

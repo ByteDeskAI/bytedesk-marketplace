@@ -59,7 +59,7 @@ import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
 import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks, typeOf } from "../lib/issue.mjs";
-import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
+import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor, strayFlag } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -1378,7 +1378,7 @@ const VERBS = {
     const fromTask = take("--from-task") ?? null;
     const acceptance = [];
     for (let v = take("--ac"); v !== undefined; v = take("--ac")) acceptance.push(v);
-    const stray = rest.find((w) => w.startsWith("--"));
+    const stray = strayFlag(rest);
     if (stray) die(`unknown option ${stray}\n${USAGE_TICKET}`);
     const title = rest.join(" ");
     if (!target || !title) die(USAGE_TICKET);
@@ -1721,7 +1721,7 @@ const VERBS = {
     }
     if (action === "wait") {
       // TM-374: the verb an agent runs instead of `sleep N; tm pool status`. One JSON result
-      // always; exit 0 met, 2 timed out, 1 bad argument.
+      // always; exit 0 met, 2 timed out, 3 the task parked or blocked short of done, 1 bad argument.
       const at = rest.indexOf("--until");
       const until = at >= 0 ? rest[at + 1] : "idle";
       const id = at >= 0 && rest[at + 2] && !rest[at + 2].startsWith("--") ? rest[at + 2] : undefined;
@@ -1735,7 +1735,8 @@ const VERBS = {
         die(e.message);
       }
       out(JSON.stringify(res));
-      process.exit(res.ok ? 0 : 2);
+      // TM-450: 3 = the task stopped short of done (parked or blocked) — a person is needed.
+      process.exit(res.ok ? 0 : res.ended ? 3 : 2);
     }
     die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume | wait [--dry-run])`);
   },
@@ -1963,7 +1964,7 @@ const VERBS = {
         "  collect <id>                  pull a dispatched worker's result into the store",
         "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
-        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0) or timeout (exit 2); never sleep-poll",
+        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0), timeout (exit 2) or, for done, the task parks or blocks (exit 3); never sleep-poll",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",

@@ -134,7 +134,7 @@ plant "$D"
 out="$(tm "$A" ticket "$D" "Not yours" --ac "x" 2>&1)"; code=$?
 [[ $code == 2 ]] && has "$out" "refusing $D" "a path target neither registered nor a sibling is refused" || no "a path target neither registered nor a sibling is refused" "exit $code: $out"
 has "$(cat "$A/.bytedesk/task-management/events.jsonl")" '"event":"ticket_refused"' "the refused target is logged"
-lacks "$(tm "$D" list --json 2>&1)" "Not yours" "nothing was filed on the unknown repo"
+lacks "$(cat "$D"/.bytedesk/task-management/tasks/*.md)" "Not yours" "nothing was filed on the unknown repo"
 
 forged="$(tm "$B" task new "forged origin" --body "b" --ac "a" --origin "{\"repo\":\"$D\",\"task\":\"TM-001\"}")"
 fid="$(grep -oE 'TM-[0-9]+' <<<"$forged" | head -1)"
@@ -155,6 +155,23 @@ mutate('$cid', () => ({ dispatched: { backend: 'manual', run: 'r9', at: new Date
 const r = recordResult('$cid', { outcome: 'failed', summary: 'collect path' });
 if (!r.ok) { console.error(JSON.stringify(r)); process.exit(1); }")
 until_has "tm $A show TM-002 --json" "repo-b#$cid failed: worker failed" && ok "a collected result reaches the origin task" || no "a collected result reaches the origin task" "$(tm "$A" show TM-002 --json | field comments)"
+
+# ── TM-450: one dedup key for done; a send that reached nobody can be retried; MCP refuses a stray flag ──
+has "$(tm "$B" ticket event TM-001 done "again by hand")" "already reported" "a manual done after the bridge's done is the same event"
+oid="$(tm "$A" task new "needs a retry" --body "b" --ac "a" | grep -oE "TM-[0-9]+" | head -1)"
+rid="$(tm "$A" ticket "$B" "Retry me" --ac "x" --from-task "$oid" | grep -oE 'TM-[0-9]+' | head -1)"
+chmod u-w "$A/.bytedesk/task-management/tasks"
+TM_TOPOLOGY_BIN="" tm "$B" ticket event "$rid" review "first try" >/dev/null 2>&1
+chmod u+w "$A/.bytedesk/task-management/tasks"
+lacks "$(tm "$A" show "$oid" --json | field comments)" "first try" "the control: the first send reached nobody"
+res="$(TM_TOPOLOGY_BIN="" tm "$B" ticket event "$rid" review "first try")"
+has "$res" "origin comment added" "a send that reached nobody is not recorded as reported, so the retry sends"
+has "$(tm "$A" show "$oid" --json | field comments)" "repo-b#$rid review: first try" "the retry lands on the origin task"
+mcp="$(cd "$A" && TM_ROOT="$A" TM_TOPOLOGY_BIN="" node --input-type=module -e "
+import { callTool } from '$PLUGIN_ROOT/lib/mcp.mjs';
+try { console.log(JSON.stringify(await callTool('tm_ticket', { target: '$B', title: 'Stray flag --priority high', acceptance: ['x'] }))); } catch (e) { console.log('threw: ' + e.message); }" 2>&1)"
+has "$mcp" "unknown option --priority" "MCP tm_ticket refuses a title with a stray flag, as the CLI does"
+lacks "$(cat "$B"/.bytedesk/task-management/tasks/*.md)" "Stray flag" "nothing was filed for it"
 
 [[ ! -e "$MARK" ]] && ok "no planted bin/tm ran on file, notify, the event bridge or collect" || no "no planted bin/tm ran on file, notify, the event bridge or collect" "$(cat "$MARK")"
 

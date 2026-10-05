@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import { launchRun, launcherScript, openRoleSession, passEnvFile, passEnvFor, stagePassEnv } from "../../topology/lib/launch.mjs";
+import { launchRun, launcherScript, openRoleSession, passEnvFile, passEnvFor, retirePassEnv, stagePassEnv } from "../../topology/lib/launch.mjs";
 import { validateConfigShape } from "../../topology/lib/config.mjs";
 import { normalizeAdapter } from "../../topology/lib/providers.mjs";
 import { materializeSpec, validateSpec } from "../../topology/lib/spec.mjs";
@@ -106,6 +106,18 @@ test("TM-448: reserved names are refused from every layer", async (t) => {
   assert.deepEqual(got.names, ["OK_NAME"]);
   assert.deepEqual([...got.refused].sort(), [...reserved].sort());
   assert.match(got.warnings.join("\n"), /refused — reserved names/);
+});
+
+test("TM-450: a staged secrets file whose launcher never ran is removed, without waiting on AO_CONSUMER", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ao-passenv-retire-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const launcher = join(dir, "launch-0.sh");
+  const staged = await stagePassEnv(launcher, ["TM450_SECRET"], { TM450_SECRET: SENTINEL });
+  assert.equal(existsSync(staged.file), true, "the control: the file is staged");
+  const started = Date.now();
+  await retirePassEnv(launcher, { timeoutMs: 300 });
+  assert.equal(existsSync(staged.file), false, "a launcher that never sourced it does not leave it behind");
+  assert.ok(Date.now() - started < 2000);
 });
 
 test("TM-448: the launcher applies the agent's own variables after the secrets file", async (t) => {

@@ -12,6 +12,10 @@
   warnings and session logs. `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`
   and `NODE_OPTIONS` are refused from every layer. A test also pins that the launcher exports the
   agent's own variables after sourcing the secrets file.
+- **A durable session started without `AO_CONSUMER` no longer leaves its secrets file behind
+  (TM-450, EP-028).** The 0600 `<launcher>.env` was removed only after the readiness wait, which
+  runs only with `AO_CONSUMER`. `retirePassEnv` now waits (bounded) for the launcher to consume
+  it and then removes it on the other path too.
 
 ### Changed
 

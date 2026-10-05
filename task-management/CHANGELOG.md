@@ -29,6 +29,16 @@
 
 ### Changed
 
+- **Cross-repo ticket and pool-wait fixes from the EP-028 review (TM-450, EP-028).**
+  - A ticket's `done` and `merged` are keyed by kind alone, so a manual `tm ticket event <id> done …`
+    after the event bridge's `done` is a duplicate rather than a second report.
+  - A progress report that reached nobody (no comment landed and no mail went) gives its dedup key
+    back, so a retry sends instead of reporting "already reported".
+  - `fileTicket` refuses a title holding a stray `--flag`, so MCP `tm_ticket` refuses it as the CLI
+    does. Both use one helper, `strayFlag`.
+  - `tm pool wait --until done <id>` returns at once with exit 3 and `ended` when the task parks or
+    blocks, instead of waiting until the timeout. `--until idle` now counts a paused pool with no
+    workers as idle, using the same predicate (`poolIdle`) as the pool's own idle exit.
 - **The topology backend says which `passEnv` names it does not pass (TM-449, EP-028).** An
   earlier entry and the dispatch skill said topology passes tm's `dispatch.passEnv`. It does not:
   `ao-topology` passes only agent-orchestration's own global `workers.passEnv`, and the spec's
