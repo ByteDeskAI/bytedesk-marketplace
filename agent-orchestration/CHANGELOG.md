@@ -45,6 +45,17 @@
   the sender is never its own recipient, an audience that reaches nobody is refused, and more than
   24 recipients (`--max-recipients`) is refused, never truncated. A given `--id` becomes one id per
   repository, so a retried broadcast dedupes per recipient.
+- **Every session gets an AO identity (TM-353, EP-028).** A plugin SessionStart hook
+  (`topology/session-hook.mjs`) mints an 8-character id for any session a launcher did not start,
+  records it under `<state>/sessions/`, and exports `AO_SESSION_AGENT_ID` / `AO_SESSION_CONSUMER`
+  through `CLAUDE_ENV_FILE`. A bare `ao-topology mailbox send` now uses it as the sender instead of
+  holding the mail as `source_identity_required`. It never sets `AO_AGENT_ID`, so a lead named by
+  its census binding keeps its name. `callerIdentity()` in `topology/lib/session-identity.mjs` is
+  the one shared answer to "who is sending".
+- **Recipients outside the agent library resolve through presence (TM-353, EP-028).** Standing
+  mail to a name the library does not know, from the same repository, now resolves to a live
+  presence entry (a Codex pane, by agent id or session name) or to a minted session identity
+  before it is held as `unknown_recipient`. The library still wins.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

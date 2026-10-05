@@ -3,7 +3,8 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.cjs\" services ensure --consumer-cwd . --detach", "timeout": 10 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.cjs\" services ensure --consumer-cwd . --detach", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/topology/session-hook.mjs\" SessionStart", "timeout": 10 }
         ]
       }
     ],
