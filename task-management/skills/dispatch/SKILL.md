@@ -39,6 +39,13 @@ argv-only, `shell: false`. Tmux also writes `<worktree>/.tm-dispatch-prompt.md`.
 
 Worker env: `TM_SESSION_ID`, `TM_ACTOR` (dispatcher), `TM_ROOT` (repo). Do not override.
 
+Secrets a worker needs (an API key, say) are declared by NAME, never by value: `workers.passEnv`
+in `.bytedesk/agent-orchestration/config.json`, or `tm config dispatch.passEnv '["TYPESAFE_API_KEY"]'`.
+The value is copied from the dispatching session's environment into the worker. Tmux stages it in a
+0600 temp file the pane sources and deletes; topology hands it to `ao-topology`, which does the
+same. A name the dispatching environment lacks is reported as `passEnvMissing` and the dispatch
+continues. Never run `tmux set-environment -g` for a secret.
+
 ## Refusals
 
 not found; `done`/`deleted` (reopen first); no backend (`tried` lists why);

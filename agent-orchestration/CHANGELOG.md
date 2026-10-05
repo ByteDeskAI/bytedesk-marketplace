@@ -4,6 +4,16 @@
 
 ### Added
 
+- **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
+  (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
+  `failover` restarts one, and when `session open` starts a durable session, ao copies each named
+  variable from the launching environment into a 0600 file beside the launcher. The launcher
+  sources and deletes that file. Values never reach the launcher, `run.json`, the journal, events,
+  prompts, tmux's environment or any argv. A name the launching environment lacks is warned about
+  by name, and the launch continues. A session restored later from its record, or a failover run
+  from a process without the variable, starts without it. This replaces running
+  `tmux set-environment -g TYPESAFE_API_KEY` by hand.
+
 - **`services wait` replaces sleep-polling around `services status` (TM-374, EP-028).**
   `agent-orchestration services wait --until healthy|<process> [running] [--timeout <s>]` re-reads
   status at a bounded interval and prints one JSON line: exit 0 when the condition holds, 2 on

@@ -128,6 +128,11 @@ export function validateConfigShape(raw, label) {
     if (raw.prompts.prefix !== undefined) errors.push(...promptEntryErrors(raw.prompts.prefix, `${label}: prompt "prefix"`, { mode: false }));
   }
   if (raw.management !== undefined && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
+  // TM-375: environment variable NAMES a worker inherits from whoever launches it. Never values.
+  if (raw.workers !== undefined && (!isPlainObject(raw.workers) || (raw.workers.passEnv !== undefined
+    && !(Array.isArray(raw.workers.passEnv) && raw.workers.passEnv.every((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))))) {
+    errors.push(`${label}: "workers.passEnv" must be an array of environment variable names (names only, never values)`);
+  }
   // ADR-0030: `node.name` names this node in session names and as its NATS leaf node. AO_NODE_NAME wins.
   if (raw.node !== undefined && (!isPlainObject(raw.node) || (raw.node.name !== undefined && (typeof raw.node.name !== "string" || !raw.node.name.trim())))) {
     errors.push(`${label}: "node" must be an object whose "name" is a nonempty string`);

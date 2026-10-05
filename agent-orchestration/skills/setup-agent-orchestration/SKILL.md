@@ -91,6 +91,22 @@ shows it as `nats.url`. If `nats.conflict` is set, another process holds that po
 a different `nats.port` (an integer from 1024 to 65535) and run `agent-orchestration services ensure`.
 ao ignores the generic `NATS_URL`; use `AO_NATS_URL` to point ao at another server.
 
+### Secrets workers need
+
+Name them in the repository config, never their values:
+
+```json
+{ "workers": { "passEnv": ["TYPESAFE_API_KEY"] } }
+```
+
+in `.bytedesk/agent-orchestration/config.json` (or the global layer; `ao-topology config set`
+writes either). When a run agent or a durable session starts, ao copies each named variable from
+the launching environment into a 0600 file beside the launcher, which the launcher sources and
+deletes. The value never enters the launcher, `run.json`, the journal, a prompt, tmux's
+environment or any argv. A name the launching environment lacks is warned about by name, and the
+launch continues. Never use `tmux set-environment -g` for a secret: every pane on the server
+inherits it.
+
 ## 7. Confirm
 
 Run `AO doctor` again and report the line `OK — ready to launch.` or the remaining problems.
