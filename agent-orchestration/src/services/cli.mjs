@@ -15,13 +15,23 @@ import { withLock } from "../../topology/lib/lockfile.mjs";
 
 const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
 
-function summary(report) {
+export function summary(report) {
   if (report.processCompose) {
     const rows = report.processes.map((p) => `${p.name}=${p.state}${p.ready ? `/${p.ready}` : ""} pid=${p.pid} restarts=${p.restarts}`);
-    return `services: process-compose ${report.processCompose.alive ? "answering" : "not answering"} (${report.registration.mode}, ${report.registration.active ?? "n/a"})${rows.length ? `; ${rows.join("; ")}` : ""}${report.unsupported.length ? `; unsupported: ${report.unsupported.map((u) => u.process).join(", ")}` : ""}`;
+    return [`services: process-compose ${report.processCompose.alive ? "answering" : "not answering"} (${report.registration.mode}, ${report.registration.active ?? "n/a"})${rows.length ? `; ${rows.join("; ")}` : ""}${report.unsupported.length ? `; unsupported: ${report.unsupported.map((u) => u.process).join(", ")}` : ""}`,
+      ...transportLines(report.transport)].join("\n");
   }
   return [`services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`,
     ...healLines(report.selfHeal)].join("\n");
+}
+
+/** TM-309 B3: the transport `--json` already reports, so text status names the NATS in use and any open outage. URLs are stored redacted. */
+export function transportLines(transport) {
+  if (!transport) return [];
+  const lines = [`  transport: ${transport.kind ?? "?"} ${transport.source ?? "none"}${transport.url ? ` ${transport.url}` : ""}${transport.note ? ` (${transport.note})` : ""}`];
+  const outage = transport.outage;
+  if (outage && !outage.recovered_at) lines.push(`  NATS ${outage.conflict ? "port conflict" : "outage"}: ${outage.url} (${outage.source}) since ${outage.since}: ${outage.error}`);
+  return lines;
 }
 
 /** TM-284/285: one line per thing the self-heal changed or a person must act on; nothing when all is current. */
