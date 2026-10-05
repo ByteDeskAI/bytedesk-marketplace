@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boardFingerprint, createIdleNudge, idleNudgeTick, mailMark } from '../../topology/lib/idle-nudge.mjs';
+import { boardFingerprint, createIdleNudge, idleNudgeTick, readBoard } from '../../topology/lib/idle-nudge.mjs';
 import { readStandingInbox, sendStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
 import { repoConfigPath } from '../../topology/lib/config.mjs';
 import { generatedPrompt } from '../../topology/lib/prompts.mjs';
@@ -29,7 +29,7 @@ const row = (agentId, binding, over = {}) => ({ agentId, repoRole: 'member', run
 // Unit tests of the gates below run with no minimum idle time; the minimum has its own test.
 const cfg = (extra = {}) => ({ idle_nudge: { min_idle_ms: 0, lead_min_idle_ms: 0, ...extra } });
 const opts = (over = {}) => ({ consumer: '/fixture/repo', env: {}, home: '/nonexistent', readLead,
-  boardFingerprint: async () => 'board-1', mailMark: async () => '0:', ...over });
+  readBoard: async () => ({ fingerprint: 'board-1', problem: null }), ...over });
 
 // The fake tmux the REAL bell reads. `composer` is 'empty' or 'draft'; every look and send is counted.
 function fakeTmux(composer = 'empty') {
@@ -96,7 +96,6 @@ test('an idle worker is told to ask its lead, and the mail that exact command se
   // Run what the nudge names through the real standing mailbox (file transport, no NATS).
   const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file' };
   const mail = { env, router: async (query) => ({ resolved: query.to, deliver_to: query.to }) };
-  const before = await mailMark('lead1', { env, home: root });
   await sendStandingMessage({ consumer: flag('consumer'), fromProject: flag('consumer'), from: flag('from'), to: flag('to'), subject: flag('subject'), body: flag('body') }, mail);
   const inbox = await readStandingInbox({ consumer, agent: 'lead1', ...mail });
   assert.equal(inbox.length, 1);
@@ -104,9 +103,6 @@ test('an idle worker is told to ask its lead, and the mail that exact command se
   assert.equal(inbox[0].envelope.from, 'w1');
   assert.match(inbox[0].envelope.body, /next assignment/);
   assert.equal((await readStandingInbox({ consumer, agent: 'w1', ...mail })).length, 0);
-  // That mail is what reopens the lead's change gate, and the worker's stays shut.
-  assert.notEqual(await mailMark('lead1', { env, home: root }), before);
-  assert.equal(await mailMark('w1', { env, home: root }), '0:');
 });
 
 test('an idle lead is told to take the next ready task from its own board, not to mail anyone', async () => {
@@ -196,7 +192,7 @@ test('after a ring, a steady board gives no repeat ring and a changed board give
   const fake = fakeTmux();
   const state = createIdleNudge();
   let board = 'board-1';
-  const options = opts({ boardFingerprint: async () => board });
+  const options = opts({ readBoard: async () => ({ fingerprint: board, problem: null }) });
   const at = (ms) => tick({ options, census: { agents: [row('w1', WORKER, { since: later(ms) })] }, tmux: fake, state, now: T0 + ms, config: cfg({ backoff_ms: 10 * MIN }) });
   assert.equal((await at(0))[0].rang, true);
   board = 'board-moved-while-it-sat-there';
@@ -210,23 +206,64 @@ test('after a ring, a steady board gives no repeat ring and a changed board give
   assert.equal(fake.sent.length, 2);
 });
 
-test('new mail reopens the gate, the backoff floor still holds, and it doubles per ring', async () => {
+// The loop the first rework let through: the nudge's own exchange is mail, so a mail-gated nudge
+// re-armed itself every backoff. Real standing mailbox, real task store, real readBoard.
+async function nudgeLoop(t, { reply }) {
+  const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-loop-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, 'repo');
+  const tasks = join(consumer, '.bytedesk', 'task-management', 'tasks');
+  await mkdir(tasks, { recursive: true });
+  const task = (id) => writeFile(join(tasks, `${id}.md`), `---\nid: "${id}"\nstatus: "todo"\nlabels: ["ready-for-agent"]\n---\n`);
+  await task('TM-1');
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AO_TRANSPORT: 'file' };
+  const mail = { env, router: async (query) => ({ resolved: query.to, deliver_to: query.to }) };
+  const options = opts({ consumer, env, home: root, readBoard: undefined });
   const fake = fakeTmux();
+  const state = createIdleNudge({ path: join(root, 'state', 'nudge.json') });
+  const config = cfg({ backoff_ms: 30 * MIN });
+  const at = (ms) => idleNudgeTick(options, { census: { agents: [row('w1', WORKER, { since: later(ms) })] }, panes, adapters, tmux: fake, state, now: T0 + ms, config });
+  const rings = [];
+  const run = async (ms) => {
+    if ((await at(ms)).some((item) => item.rang)) rings.push(ms / MIN);
+  };
+  await run(0);
+  // The worker does what it was told, and the lead answers: two pieces of mail, board unchanged.
+  await sendStandingMessage({ consumer, fromProject: consumer, from: 'w1', to: 'lead1', body: 'what is my next assignment?' }, mail);
+  if (reply) await sendStandingMessage({ consumer, fromProject: consumer, from: 'lead1', to: 'w1', body: 'nothing ready' }, mail);
+  for (let minute = 30; minute <= 360; minute += 30) await run(minute * MIN);
+  assert.deepEqual(rings, [0], 'six hours of a steady board: exactly one ring');
+  await task('TM-2');
+  await run(390 * MIN);
+  await task('TM-3');
+  await run(400 * MIN);
+  await run(420 * MIN);
+  await run(450 * MIN);
+  return rings;
+}
+
+test('the worker asks, the lead replies "nothing ready", the board is steady: no second ring; a later board change gets one, then the floor doubles', async (t) => {
+  assert.deepEqual(await nudgeLoop(t, { reply: true }), [0, 390, 450], 'after ring two the floor is 60 minutes, not 30');
+});
+
+test('control: with no reply at all, the same steady board also gets exactly one ring', async (t) => {
+  assert.deepEqual(await nudgeLoop(t, { reply: false }), [0, 390, 450]);
+});
+
+test('a ring that can never succeed reads neither the task store nor anything else', async () => {
+  let reads = 0;
+  const readBoardCounted = async () => {
+    reads += 1;
+    return { fingerprint: 'b', problem: null };
+  };
+  const fake = fakeTmux();
+  const noLead = opts({ readLead: async () => null, readBoard: readBoardCounted });
+  for (let minute = 0; minute < 10; minute += 1) await tick({ options: noLead, census: { agents: [row('w1', WORKER)] }, tmux: fake, now: T0 + minute * MIN });
+  const bare = new Map([['fixture', { id: 'fixture', command: 'fixture' }]]);
   const state = createIdleNudge();
-  let mail = '0:';
-  let board = 'b0';
-  const options = opts({ mailMark: async () => mail, boardFingerprint: async () => board });
-  const at = (ms) => tick({ options, census: { agents: [row('w1', WORKER, { since: later(ms) })] }, tmux: fake, state, now: T0 + ms, config: cfg({ backoff_ms: 10 * MIN, max_backoff_ms: 100 * MIN }) });
-  assert.equal((await at(0))[0].rang, true);
-  mail = '1:x';
-  assert.deepEqual(await at(5 * MIN), [], 'new mail, but inside the 10-minute floor');
-  assert.equal((await at(10 * MIN))[0].rang, true, 'new mail, floor over');
-  board = 'b1';
-  assert.equal((await at(20 * MIN))[0].rang, true, 'second ring since the mail: floor was 10 minutes');
-  board = 'b2';
-  assert.deepEqual(await at(30 * MIN), [], 'third ring would need 20 minutes');
-  assert.equal((await at(40 * MIN))[0].rang, true);
-  assert.equal(fake.sent.length, 4);
+  for (let minute = 0; minute < 10; minute += 1) await idleNudgeTick(opts({ readBoard: readBoardCounted }), { census: { agents: [row('w1', WORKER)] }, panes, adapters: bare, tmux: fake, state, now: T0 + minute * MIN, config: cfg() });
+  assert.equal(reads, 0);
+  assert.equal(fake.looks + fake.sent.length, 0);
 });
 
 test('a restarted supervisor reloads who it rang and does not re-ring; a corrupt file reads as empty', async (t) => {
@@ -258,19 +295,24 @@ test('the same refusal is reported once per idle period', async () => {
   assert.equal(fake.looks + fake.sent.length, 0);
 });
 
-test('the board fingerprint moves with the ready set, not with body edits', async (t) => {
+test('the board fingerprint moves with the ready set, not with body edits, and matches the label exactly', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-board-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const dir = join(root, '.bytedesk', 'task-management', 'tasks');
   await mkdir(dir, { recursive: true });
   const task = (id, status, labels, body = '') => writeFile(join(dir, `${id}.md`), `---\nid: "${id}"\nstatus: "${status}"\nlabels: ${JSON.stringify(labels)}\n---\n${body}\n`);
-  assert.equal(await boardFingerprint(join(root, 'no-store')), null);
+  assert.deepEqual(await readBoard(join(root, 'no-store')), { fingerprint: null, problem: null });
   await task('TM-1', 'todo', ['ready-for-agent']);
   await task('TM-2', 'todo', ['needs-triage']);
   const first = await boardFingerprint(root);
-  await task('TM-1', 'todo', ['ready-for-agent'], 'a new comment');
+  assert.equal(typeof first, 'string');
+  await task('TM-1', 'todo', ['ready-for-agent'], 'a new comment\nstatus: "done"');
   await task('TM-2', 'in_progress', ['needs-triage']);
   assert.equal(await boardFingerprint(root), first, 'a comment, and a task that is not ready, move nothing');
+  await writeFile(join(dir, 'TM-3.md'), '---\nid: "TM-3"\n---\nquoted from another task:\nstatus: "todo"\nlabels: ["ready-for-agent"]\n');
+  assert.equal(await boardFingerprint(root), first, 'only the frontmatter is read: a body that quotes one is not a ready task');
+  await task('TM-2', 'todo', ['not-ready-for-agent']);
+  assert.equal(await boardFingerprint(root), first, 'a label that merely contains the words is not the label');
   await task('TM-2', 'todo', ['ready-for-agent']);
   const second = await boardFingerprint(root);
   assert.notEqual(second, first, 'a task became ready');
@@ -280,6 +322,26 @@ test('the board fingerprint moves with the ready set, not with body edits', asyn
   assert.equal(await boardFingerprint(root), second);
   await task('TM-1', 'done', ['ready-for-agent']);
   assert.notEqual(await boardFingerprint(root), second, 'a ready task finished');
+});
+
+test('task files with no status line at all are a format change: null, and reported once', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-format-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dir = join(root, '.bytedesk', 'task-management', 'tasks');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'TM-1.md'), '+++\nstate = "todo"\n+++\n');
+  const read = await readBoard(root);
+  assert.equal(read.fingerprint, null);
+  assert.match(read.problem, /no status: line|has a status: line/);
+  const fake = fakeTmux();
+  const state = createIdleNudge();
+  const options = opts({ consumer: root, readBoard: undefined });
+  const at = (ms) => tick({ options, census: { agents: [row('w1', WORKER, { since: later(ms) })] }, tmux: fake, state, now: T0 + ms, config: cfg({ backoff_ms: MIN }) });
+  assert.deepEqual(await at(0), [{ agent: 'w1', lead: false, rang: true }]);
+  const second = await at(10 * MIN);
+  assert.deepEqual(second, [{ board: read.problem }], 'reported, and an unreadable board never reopens the gate');
+  assert.deepEqual(await at(20 * MIN), []);
+  assert.equal(fake.sent.length, 1);
 });
 
 test('the shipped default is on, and idle_nudge.enabled false in the repo layer turns it off', async (t) => {
@@ -320,4 +382,16 @@ test('the pull rule is stated in the common protocols, the lead template, every 
   assert.match(generatedPrompt(agent('lead'), '/c', '/d'), /never ask the operator what is next\. Take the next ready task/);
   assert.match(generatedPrompt(agent('reviewer'), '/c', '/d'), RULE);
   assert.doesNotMatch(generatedPrompt(agent('worker', { _prompt_vars: { run_dir: '/r' } }), '/c', '/d'), /mailbox send/);
+});
+
+test('memory for an agent gone from the census and untried for 7 days is pruned; a recent one is kept', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-prune-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, 'nudge.json');
+  const DAY = 24 * 60 * MIN;
+  await writeFile(path, JSON.stringify({ version: 1, agents: { ghost: { triedAt: T0 - 8 * DAY }, recent: { triedAt: T0 - DAY } } }));
+  const state = createIdleNudge({ path });
+  assert.equal((await tick({ census: { agents: [row('w1', WORKER)] }, tmux: fakeTmux(), state }))[0].rang, true);
+  const saved = JSON.parse(await readFile(path, 'utf8'));
+  assert.deepEqual(Object.keys(saved.agents).sort(), ['recent', 'w1']);
 });

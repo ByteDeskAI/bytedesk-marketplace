@@ -36906,37 +36906,35 @@ function nudgeText({ consumer, agentId, leadId, isLead }) {
   const repo = shellQuote(consumer);
   return `${TAG} You are idle. Do not ask the operator what is next. Ask your lead for your next assignment: ao-topology mailbox send --consumer ${repo} --from ${shellQuote(agentId)} --to ${shellQuote(leadId)} --subject next-assignment --body ${shellQuote(ASK_BODY)} then wait on your inbox: ao-topology mailbox inbox --consumer ${repo} --agent ${shellQuote(agentId)}`;
 }
-async function boardFingerprint(consumer) {
+function labelsOf(value) {
+  try {
+    const parsed2 = JSON.parse(value);
+    if (Array.isArray(parsed2)) return parsed2.map(String);
+  } catch {
+  }
+  return String(value).split(/[\s,"'\[\]]+/).filter(Boolean);
+}
+async function readBoard(consumer) {
   const dir = (0, import_node_path59.join)(consumer, ".bytedesk", "task-management", "tasks");
-  const names2 = await (0, import_promises51.readdir)(dir).catch(() => null);
-  if (!names2) return null;
+  const names2 = (await (0, import_promises51.readdir)(dir).catch(() => [])).filter((item) => item.endsWith(".md")).sort();
+  if (!names2.length) return { fingerprint: null, problem: null };
   const hash4 = (0, import_node_crypto33.createHash)("sha256");
-  for (const name of names2.filter((item) => item.endsWith(".md")).sort()) {
+  let parsed2 = 0;
+  for (const name of names2) {
     const text = await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, name), "utf8").catch(() => "");
     const head = text.split("\n---", 1)[0];
-    const status = /^status:\s*"?([\w-]+)/m.exec(head)?.[1] ?? "";
-    const labels = /^labels:(.*)$/m.exec(head)?.[1] ?? "";
+    const status = /^status:\s*"?([\w-]+)/m.exec(head)?.[1];
+    if (status === void 0) continue;
+    parsed2 += 1;
+    const labels = labelsOf(/^labels:(.*)$/m.exec(head)?.[1] ?? "[]");
     if (labels.includes("ready-for-agent") && !FINISHED.has(status)) hash4.update(`${name}:${status}
 `);
   }
-  return hash4.digest("hex");
-}
-async function mailMark(agentId, { env = process.env, home = (0, import_node_os31.homedir)() } = {}) {
-  const dir = (0, import_node_path59.join)(standingMailboxRoot({ env, home }), "messages");
-  const names2 = await (0, import_promises51.readdir)(dir).catch(() => null);
-  if (!names2) return null;
-  let count = 0;
-  let latest = "";
-  for (const name of names2.filter((item) => item.endsWith(".json"))) {
-    const record2 = await (0, import_promises51.readFile)((0, import_node_path59.join)(dir, name), "utf8").then(JSON.parse).catch(() => null);
-    if (record2?.envelope?.to !== agentId) continue;
-    count += 1;
-    if (String(record2.created_at ?? "") > latest) latest = String(record2.created_at);
-  }
-  return `${count}:${latest}`;
+  if (!parsed2) return { fingerprint: null, problem: `none of ${names2.length} task files under ${dir} has a status: line; the task store format may have changed` };
+  return { fingerprint: hash4.digest("hex"), problem: null };
 }
 function createIdleNudge({ path: path3 = null } = {}) {
-  return { memory: /* @__PURE__ */ new Map(), path: path3, loaded: !path3 };
+  return { memory: /* @__PURE__ */ new Map(), path: path3, loaded: !path3, reported: /* @__PURE__ */ new Set() };
 }
 async function loadState(state) {
   if (state.loaded) return;
@@ -36945,21 +36943,32 @@ async function loadState(state) {
   const agents = doc && typeof doc.agents === "object" && !Array.isArray(doc.agents) ? doc.agents : {};
   for (const [id, value] of Object.entries(agents)) if (value && typeof value === "object") state.memory.set(id, value);
 }
-async function saveState(state) {
+async function saveState(state, present, now) {
+  for (const [id, entry] of state.memory) {
+    if (!present.has(id) && !(now - (entry.triedAt ?? 0) < PRUNE_MS)) state.memory.delete(id);
+  }
   if (state.path) await writeJson(state.path, { version: 1, agents: Object.fromEntries(state.memory) }).catch(() => null);
 }
-async function ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, tmux: tmux2 }) {
-  if (!isLead && !leadId) return { rang: false, reason: "no registered repository lead to ask" };
+function preflight(row, { leadId, isLead, panes, adapters }) {
+  if (!isLead && !leadId) return { refusal: "no registered repository lead to ask" };
   const pane = panes.find((item) => item.paneId === row.binding.paneId && item.serverKey === row.binding.serverKey);
   const adapter = pane ? adapterForPane(adapters, pane) : null;
-  if (ringCapability(adapter) !== "supported") return { rang: false, reason: "the provider has no measured safe composer" };
+  if (ringCapability(adapter) !== "supported") return { refusal: "the provider has no measured safe composer" };
+  return { adapter };
+}
+async function ringOne(row, adapter, { consumer, leadId, isLead, wake, tmux: tmux2 }) {
   const text = nudgeText({ consumer, agentId: row.agentId, leadId, isLead });
   const format = composerFormat(adapter, tmuxFailureTrigger(adapter));
   const result2 = await withServer(row.binding.serverKey, () => wake({ pane: row.binding.paneId, adapter, binding: row.binding, format, text, tmux: tmux2 })).catch((error51) => ({ rang: false, reason: error51?.code ?? String(error51) }));
   return result2?.rang ? { rang: true } : { rang: false, reason: result2?.reason ?? "the composer cannot safely receive a pointer" };
 }
-function floorAfter(rings, settings) {
-  return Math.min(settings.backoff_ms * Math.pow(2, Math.max(rings - 1, 0)), settings.max_backoff_ms);
+function floorAfter(prior, settings, now) {
+  if (now - prior.rangAt >= 2 * settings.max_backoff_ms) return 0;
+  return Math.min(settings.backoff_ms * Math.pow(2, Math.max((prior.rings ?? 1) - 1, 0)), settings.max_backoff_ms);
+}
+function ringsAfter(prior, settings, now) {
+  if (prior.rangAt === void 0 || now - prior.rangAt >= 2 * settings.max_backoff_ms) return 1;
+  return (prior.rings ?? 1) + 1;
 }
 function quietEnough(row, isLead, settings, now) {
   const quietSince = Date.parse(row.needsInputAt ?? row.since);
@@ -36976,11 +36985,16 @@ async function idleNudgeTick(options, { census, panes, adapters, state = createI
   await loadState(state);
   const registration = await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null);
   const leadId = registration?.record?.agent_id ?? null;
-  const fingerprintOf = options.boardFingerprint ?? (() => boardFingerprint(consumer));
-  const mailOf = options.mailMark ?? ((agentId) => mailMark(agentId, { env, home }));
+  const boardOf = options.readBoard ?? (() => readBoard(consumer));
   let board;
   let changed = false;
   const outcomes = [];
+  const refuse = (row, isLead, prior, reason) => {
+    changed = true;
+    const repeat = prior.refusedSince === row.since && prior.refusedReason === reason;
+    state.memory.set(row.agentId, { ...prior, triedAt: now, refusedSince: row.since, refusedReason: reason });
+    if (!repeat) outcomes.push({ agent: row.agentId, lead: isLead, rang: false, reason });
+  };
   for (const row of candidates) {
     const prior = state.memory.get(row.agentId) ?? {};
     const isLead = row.agentId === leadId || row.repoRole === "lead";
@@ -36988,26 +37002,36 @@ async function idleNudgeTick(options, { census, panes, adapters, state = createI
     if (prior.rangSince === row.since) continue;
     if (prior.triedAt !== void 0 && now - prior.triedAt < settings.retry_ms) continue;
     if (!quietEnough(row, isLead, settings, now)) continue;
-    if (rang && now - prior.rangAt < floorAfter(prior.rings ?? 1, settings)) continue;
-    if (board === void 0) board = await fingerprintOf();
-    const mail = await mailOf(row.agentId);
-    if (rang && prior.board === board && prior.mail === mail) continue;
-    const outcome = await ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, tmux: tmux2 });
-    changed = true;
-    if (outcome.rang) {
-      const rings = rang && prior.mail === mail ? (prior.rings ?? 1) + 1 : 1;
-      state.memory.set(row.agentId, { rangAt: now, rangSince: row.since, board, mail, rings, triedAt: now });
-      outcomes.push({ agent: row.agentId, lead: isLead, rang: true });
+    if (rang && now - prior.rangAt < floorAfter(prior, settings, now)) continue;
+    const ready = preflight(row, { leadId, isLead, panes, adapters });
+    if (ready.refusal) {
+      refuse(row, isLead, prior, ready.refusal);
       continue;
     }
-    const repeat = prior.refusedSince === row.since && prior.refusedReason === outcome.reason;
-    state.memory.set(row.agentId, { ...prior, triedAt: now, refusedSince: row.since, refusedReason: outcome.reason });
-    if (!repeat) outcomes.push({ agent: row.agentId, lead: isLead, ...outcome });
+    if (rang) {
+      if (board === void 0) {
+        board = await boardOf();
+        if (board.problem && !state.reported.has(board.problem)) {
+          state.reported.add(board.problem);
+          outcomes.push({ board: board.problem });
+        }
+      }
+      if (prior.board === board.fingerprint) continue;
+    }
+    const outcome = await ringOne(row, ready.adapter, { consumer, leadId, isLead, wake, tmux: tmux2 });
+    if (!outcome.rang) {
+      refuse(row, isLead, prior, outcome.reason);
+      continue;
+    }
+    changed = true;
+    if (board === void 0) board = await boardOf();
+    state.memory.set(row.agentId, { rangAt: now, rangSince: row.since, board: board.fingerprint, rings: ringsAfter(prior, settings, now), triedAt: now });
+    outcomes.push({ agent: row.agentId, lead: isLead, rang: true });
   }
-  if (changed) await saveState(state);
+  if (changed) await saveState(state, new Set((census?.agents ?? []).map((row) => row.agentId)), now);
   return outcomes;
 }
-var import_node_crypto33, import_promises51, import_node_os31, import_node_path59, MINUTE, IDLE_NUDGE_DEFAULTS, TAG, ASK_BODY, FINISHED;
+var import_node_crypto33, import_promises51, import_node_os31, import_node_path59, MINUTE, IDLE_NUDGE_DEFAULTS, TAG, ASK_BODY, FINISHED, PRUNE_MS;
 var init_idle_nudge = __esm({
   "topology/lib/idle-nudge.mjs"() {
     import_node_crypto33 = require("node:crypto");
@@ -37019,7 +37043,6 @@ var init_idle_nudge = __esm({
     init_delivery();
     init_launch();
     init_lead();
-    init_standing_mailbox();
     init_tmux();
     init_util();
     MINUTE = 6e4;
@@ -37034,6 +37057,7 @@ var init_idle_nudge = __esm({
     TAG = "[ao]";
     ASK_BODY = "Finished my current work; what is my next assignment?";
     FINISHED = /* @__PURE__ */ new Set(["done", "cancelled", "wontfix"]);
+    PRUNE_MS = 7 * 24 * 60 * MINUTE;
   }
 });
 
@@ -76928,10 +76952,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "5c983729db2b634e1a0356ae65319ea6bc154b361b512cd86aca409558a73c55";
+  return false ? null : "acbc75dfc1a5270ca3bc5c7e38b664d08c30b0af3bc891e588b3d8854a09f11f";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "5c983729db2b634e1a0356ae65319ea6bc154b361b512cd86aca409558a73c55";
+  const fingerprint2 = false ? null : "acbc75dfc1a5270ca3bc5c7e38b664d08c30b0af3bc891e588b3d8854a09f11f";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77356,7 +77380,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "5c983729db2b634e1a0356ae65319ea6bc154b361b512cd86aca409558a73c55",
+  sourceFingerprint: false ? null : "acbc75dfc1a5270ca3bc5c7e38b664d08c30b0af3bc891e588b3d8854a09f11f",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
