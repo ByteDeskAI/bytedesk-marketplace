@@ -35,6 +35,16 @@ const SECRET_RULES = [
   [/\bxox[abposr]-[A-Za-z0-9-]{10,}/g, "[REDACTED:token]"],
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, "[REDACTED:aws-key]"],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[REDACTED:jwt]"],
+  // TM-435. These run before the key rule below, which would otherwise redact only the scheme word
+  // ("Authorization: [REDACTED] <the actual token>").
+  [/\b(authorization["']?\s*[:=]\s*["']?)(bearer|basic|token)\s+(?!\[REDACTED)[^\s"',;}]+/gi, "$1$2 [REDACTED]"],
+  [/\b(bearer|basic)\s+(?!\[REDACTED)(?=[A-Za-z0-9._~+/-]*[0-9])[A-Za-z0-9._~+/-]{8,}=*/gi, "$1 [REDACTED]"],
+  // scheme://user:pass@host
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s:/@]*:[^\s/@]+@/gi, "$1[REDACTED]@"],
+  // mysql -p<password> (attached; a bare `-p` flag has nothing to redact).
+  [/(^|\s)-p(?!\[REDACTED)\S+/g, "$1-p[REDACTED]"],
+  // NAME=value with an ALLCAPS name: env assignments carry credentials whatever the name says.
+  [/\b([A-Z][A-Z0-9_]*)=(?!\[REDACTED)[^\s"',;}]+/g, "$1=[REDACTED]"],
   // key: value / key=value / "key": "value" where the key names a secret.
   [
     /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?!\[REDACTED)[^\s"',;}]+/gi,

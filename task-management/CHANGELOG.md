@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **enhance-mine redacts bearer tokens, URL credentials, `-p` passwords and `NAME=value` secrets
+  (TM-435, EP-028).** `Authorization: Bearer|Basic|token <value>` now loses the value, not just the
+  scheme word, and so does a standalone `Bearer <token>`. `scheme://user:pass@host` (including an
+  empty user), an attached `-p<password>` and `NAME=value` with an ALLCAPS name are redacted too.
+  A bare `-p` flag is left alone. `test-enhance-mine.sh` checks a 14-row redaction table. It also
+  plants nine of these secrets in the fixture transcript and asserts that none of them reaches the
+  report, the state file or the board. Before this fix, all nine reached it.
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.

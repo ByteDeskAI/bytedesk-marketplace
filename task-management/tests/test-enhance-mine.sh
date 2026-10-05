@@ -42,6 +42,20 @@ cp "$FIXTURE" "$PROJ/sub/subagents/agent-fixture.jsonl"
 TOKEN="gh""p_ABCDEFghijkl0123456789MNOPqrstuvWX99"
 printf '{"type":"user","timestamp":"2026-10-01T10:18:30.000Z","message":{"role":"user","content":"still failing with token %s"}}\n' "$TOKEN" \
   >> "$PROJ/sub/subagents/agent-fixture.jsonl"
+# TM-435: every secret shape the review found, planted twice (minCount 2) so each probe cluster is
+# filed with its line as the sample. Lines stay under the 160-character sample cut, so an unredacted
+# secret WOULD reach the board. Values are assembled here so no committed line looks like a credential.
+B="Bea""rer"; A="Authori""zation"
+PROBES=(
+  "REDACT_PROBE_ONE: $A: $B bearerVAL9x $A: Basic basicVAL9x $A: token tokenVAL9x"
+  "REDACT_PROBE_TWO: https://alice:urlPASS9x@example.com postgres://app:pgURL9x@db/x mysql -u root -pmysqlPW9x"
+  "REDACT_PROBE_THREE: PGPASS=envVAL9x X=shortVAL9x curl -H '$B standaloneVAL9x'"
+)
+for line in "${PROBES[@]}" "${PROBES[@]}"; do
+  printf '{"type":"user","timestamp":"2026-10-01T10:19:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tuR","is_error":true,"content":"Exit code 1\\n%s"}]}}\n' "$line" \
+    >> "$PROJ/sub/subagents/agent-fixture.jsonl"
+done
+PLANTED=(bearerVAL9x basicVAL9x tokenVAL9x urlPASS9x pgURL9x mysqlPW9x envVAL9x shortVAL9x standaloneVAL9x)
 touch -d '30 days ago' "$PROJ/sub/subagents/agent-fixture.jsonl"
 OUT="$(tm enhance-mine)"
 has "$OUT" "transcripts  0 file(s)" "an old transcript is scanned-and-empty, not skipped"
@@ -90,6 +104,11 @@ ALL="$DRY$A1$(tm enhance-mine --json)$(cat "$STORE"/tasks/*.md "$STORE"/capabili
 lacks "$ALL" "hunter2SECRET" "a password in a tool result never reaches output or the board"
 lacks "$ALL" "ghp_ABCDEF" "a GitHub token in a user message never reaches output or the board"
 has "$ALL" "[REDACTED" "the redaction is visible where the secret was"
+BOARD="$(cat "$STORE"/tasks/*.md "$STORE"/capabilities/*.md)"
+for probe in REDACT_PROBE_ONE REDACT_PROBE_TWO REDACT_PROBE_THREE; do
+  has "$BOARD" "$probe" "the $probe cluster reached the board (so its secrets could have)"
+done
+for secret in "${PLANTED[@]}"; do lacks "$ALL" "$secret" "TM-435: $secret never reaches output or the board"; done
 
 # ── re-run: nothing new, nothing filed, nothing commented ──────────────────────
 A2="$(tm enhance-mine --apply)"
@@ -118,6 +137,33 @@ for s in sk-abcdef xoxb-1234 AKIAABCD eyJhbGci swordfish tr0ub4dor letmein deadb
   lacks "$RED" "$s" "redact removes $s"
 done
 has "$RED" "bytedesk-marketplace stays" "redact leaves an ordinary path alone"
+
+# TM-435 table: each shape must lose its whole value, not just a scheme word.
+TABLE="$(node --input-type=module -e "
+import { redact } from '$PLUGIN_ROOT/lib/enhance-mine.mjs';
+const B = 'Bea' + 'rer';
+const rows = [
+  ['Authorization: ' + B + ' abcVAL9xyz', 'abcVAL9xyz'],
+  ['authorization: \"' + B + ' quotedVAL9x\"', 'quotedVAL9x'],
+  ['Authorization: Basic dXNlcjpwYXNz9x==', 'dXNlcjpwYXNz9x'],
+  ['Authorization: token tokVAL9xyz', 'tokVAL9xyz'],
+  ['curl -H \"X-Api: ' + B + ' bareVAL9xyz\"', 'bareVAL9xyz'],
+  ['https://alice:httpPW9x@example.com/repo.git', 'httpPW9x'],
+  ['postgres://app:pgPW9x@db:5432/app', 'pgPW9x'],
+  ['redis://:onlyPW9x@cache:6379', 'onlyPW9x'],
+  ['mysql -u root -pmyPW9x mydb', 'myPW9x'],
+  ['PGPASSWORD=envPW9x psql', 'envPW9x'],
+  ['X=shortPW9x', 'shortPW9x'],
+  ['DEPLOY_KEY=deployPW9x make deploy', 'deployPW9x'],
+  ['DB_PASSWORD: \"letmeinPW9x\"', 'letmeinPW9x'],
+  ['the password is swordfishPW9x', 'swordfishPW9x'],
+];
+for (const [input, secret] of rows) console.log((redact(input).includes(secret) ? 'LEAK ' : 'ok ') + secret + ' -> ' + redact(input));
+console.log('rows ' + rows.length);
+console.log(redact('tmux capture-pane -p -t %3 and mkdir -p /tmp/x stay'));")"
+[[ "$(grep -c '^ok ' <<<"$TABLE")" -ge 8 && "$TABLE" == *"rows 14"* ]] && ok "the redaction table ran 14 shapes" || no "the redaction table ran 14 shapes" "$TABLE"
+lacks "$TABLE" "LEAK " "every shape in the table is fully redacted"
+has "$TABLE" "capture-pane -p -t %3 and mkdir -p /tmp/x stay" "a bare -p flag is left alone"
 
 echo "  $PASS passed, $FAIL failed"
 [[ "$FAIL" == 0 ]]
