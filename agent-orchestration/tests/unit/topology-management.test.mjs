@@ -44,7 +44,7 @@ async function fixture(t) {
   const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
     // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
     // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
-    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
+    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, serverBranchTip: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
   const finish = async () => {
     await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
     await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
@@ -1760,4 +1760,55 @@ test("TM-349 review: offline, the oldest local merge-base wins, never the first"
   const { record } = await f.admit();
   assert.equal(record.base_revision, f.forked, "origin/main is forged to the own commit; local main is older");
   assert.equal(record.base_source, "local-fallback");
+});
+
+// PR #192 re-review (B2): an unpushed worker commit W and forged origin/main + main must still give
+// the true fork point, at admission when the server names the branch tip, else at review.
+async function forgedB2(t) {
+  const f = await forgedRefs(t);
+  await f.git(f.opts.consumer, ["update-ref", "refs/remotes/origin/main", f.own]);
+  await f.git(f.opts.consumer, ["update-ref", "refs/heads/main", f.own]);
+  return f;
+}
+
+test("TM-349 re-review: the server branch tip anchors admission while the task commit is unpushed", async t => {
+  const f = await forgedB2(t);
+  const asked = [];
+  const { record } = await f.admit({ serverBranchTip: async (dir, branch) => { asked.push(branch); return f.forked; } });
+  assert.deepEqual(asked, ["main"]);
+  assert.equal(record.base_revision, f.forked, "the true fork point, not the forged W");
+  assert.equal(record.base_source, "server-tip");
+  await assert.rejects(f.admit({ serverBranchTip: async () => "1".repeat(40) }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /could not be fetched/ }, "a tip absent locally and unfetchable refuses");
+});
+
+test("TM-349 re-review: a forged local-fallback base is widened at review once the server answers", async t => {
+  const f = await forgedB2(t);
+  const { reviewRangeBase } = await import("../../topology/lib/reviewer.mjs");
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.own); assert.equal(record.base_source, "local-fallback", "offline at admission the forged refs win");
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  await writeFile(join(record.worktree, "more.txt"), "more"); await f.git(record.worktree, ["add", "more.txt"]); await f.git(record.worktree, [...id, "commit", "-qm", "after admit"]);
+  const revision = (await f.git(record.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  const range = await reviewRangeBase({ consumer: f.opts.consumer, task: "TM-1", revision, admittedBase: record.base_revision, serverCompare: async () => ({ status: "diverged", merge_base: f.forked }), serverPullBase: async () => [], env: f.opts.env, home: f.opts.home });
+  assert.equal(range.effective_base, f.forked);
+  assert.deepEqual((await f.git(f.opts.consumer, ["diff", "--name-only", range.effective_base, revision])).stdout.trim().split("\n").sort(), ["code.txt", "more.txt"], "W is inside the review range");
+  const narrow = await reviewRangeBase({ consumer: f.opts.consumer, task: "TM-1", revision, admittedBase: record.base_revision, serverCompare: async () => ({ status: "diverged", merge_base: revision }), serverPullBase: async () => [], env: f.opts.env, home: f.opts.home });
+  assert.notEqual(narrow.effective_base, revision, "a server answer is never used to narrow");
+});
+
+test("TM-349 re-review: unrelated candidate histories are refused by name, not with a raw command error", async t => {
+  const { opts, doc, setClaim, git } = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const worktree = join(opts.consumer, "..", "task");
+  await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+  await git(worktree, ["checkout", "-q", "--orphan", "orphan"]);
+  await writeFile(join(worktree, "other.txt"), "unrelated"); await git(worktree, ["add", "other.txt"]); await git(worktree, [...id, "commit", "-qm", "unrelated root"]);
+  const orphan = (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  await git(worktree, ["checkout", "-q", "tm/TM-1"]);
+  await git(worktree, [...id, "merge", "-q", "--no-edit", "--allow-unrelated-histories", "orphan"]);
+  await git(opts.consumer, ["update-ref", "refs/remotes/origin/orphan", orphan]);
+  await git(opts.consumer, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/orphan"]);
+  Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+  opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /share no common ancestor/ });
 });

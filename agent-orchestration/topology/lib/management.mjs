@@ -11,7 +11,7 @@ import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from 
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
-import { INTEGRATION_BRANCH, currentReviewStatus, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { INTEGRATION_BRANCH, currentReviewStatus, githubBranchTip, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -359,13 +359,16 @@ export async function taskWorkerState(options, record) {
 
 /** TM-349: the admission base is merge-base(HEAD, integration branch), never HEAD itself, so commits a
  * worker made before admission stay inside the review range. Returns { base, source }.
+ *  - server-tip: the anchor branch tip on the pinned server (githubBranchTip), fetched if absent;
+ *    merge-base(HEAD, tip). Primary, because it works while the task commits are still unpushed.
  *  - server: the TM-325 compare helper names merge_base(branch, HEAD) on the server copy of the
  *    integration branch (the recorded one, else management.target_branch, else the default branch).
  *    A worker can write any local ref, so the server answer always wins when there is one.
  *  - local-fallback: the server cannot answer (no gh, offline, HEAD unpushed). The OLDEST merge-base
  *    across every resolvable candidate (origin/<name> and <name> for the recorded branch, the target
  *    branch, the PR base only when it equals one of those, and the default branch), so a forged ref
- *    can never narrow the range below a genuine one. Recorded on the record for the reviewer.
+ *    can never narrow the range below a genuine one. Recorded on the record; the review range widens a
+ *    local-fallback base to the server merge-base once the server can answer (reviewer.effectiveBase).
  * Nothing resolving fails closed; there is never a HEAD fallback. A fresh worktree is unchanged. */
 async function defaultBranch(options, worktree) {
   const head = await git(worktree, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], true);
@@ -378,6 +381,17 @@ async function admissionBase(options, worktree, integration, branch) {
   const target = (await loadConfig(options)).config.management?.target_branch;
   const anchor = [integration, target].find(nonempty) ?? null;
   if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
+    // Primary: the anchor branch tip on the pinned server. It needs nothing of the task pushed.
+    let tip = null;
+    try { tip = String(await (options.serverBranchTip || githubBranchTip)(worktree, anchor) ?? ''); } catch { /* unreachable: compare, then local */ }
+    if (/^[a-f0-9]{40,64}$/.test(tip)) {
+      const local = async () => (await git(worktree, ['cat-file', '-e', `${tip}^{commit}`], true)).code === 0;
+      if (!(await local())) await git(worktree, ['fetch', '--quiet', 'origin', tip], true);
+      invariant(await local(), 'TOPOLOGY_MANAGEMENT_BASE', `The server tip ${tip} of ${anchor ?? 'the default branch'} is not in this repository and could not be fetched from origin; fetch it and retry admission.`);
+      const found = await git(worktree, ['merge-base', 'HEAD', tip], true);
+      invariant(found.code === 0 && found.stdout.trim(), 'TOPOLOGY_MANAGEMENT_BASE', `The task HEAD shares no history with the server tip ${tip} of ${anchor ?? 'the default branch'}.`);
+      return { base: found.stdout.trim(), source: 'server-tip' };
+    }
     let server = null;
     try { server = await (options.serverCompare || githubCompare)(worktree, anchor, head); } catch { /* unanswerable: local fallback below */ }
     const mb = String(server?.merge_base ?? '');
@@ -399,8 +413,9 @@ async function admissionBase(options, worktree, integration, branch) {
     ? `Cannot resolve any integration branch candidate (${named.join(', ')}) to a merge-base with the task HEAD as origin/<name> or <name>; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`
     : 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, no management.target_branch and no repository default branch. Configure management.target_branch.');
   const unique = [...new Set(bases)];
-  const base = unique.length === 1 ? unique[0] : await gitText(worktree, ['merge-base', '--octopus', ...unique]);
-  invariant(/^[a-f0-9]{40,64}$/.test(base), 'TOPOLOGY_MANAGEMENT_BASE', 'The integration branch candidates share no common ancestor with the task HEAD.');
+  const octopus = unique.length === 1 ? { code: 0, stdout: unique[0] } : await git(worktree, ['merge-base', '--octopus', ...unique], true);
+  const base = octopus.code === 0 ? octopus.stdout.trim() : '';
+  invariant(/^[a-f0-9]{40,64}$/.test(base), 'TOPOLOGY_MANAGEMENT_BASE', `The integration branch candidates (${named.join(', ')}) share no common ancestor with the task HEAD; refusing rather than guessing a base.`);
   return { base, source: 'local-fallback' };
 }
 

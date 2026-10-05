@@ -22,12 +22,16 @@
   that commit as the base: the review range left it out, and once the task merged its integration
   branch, `reviewer request` refused with `TOPOLOGY_REVIEWER_RANGE`. The base is now
   merge-base(HEAD, integration branch), using the branch TM-325 freezes into the admission record,
-  else `management.target_branch`, else the repository default branch. The base comes from the
-  server first: the TM-325 compare helper's merge-base of that branch and the task HEAD, because
-  a worker can rewrite any local ref. Only when the server cannot answer does admission use local
-  refs, taking the OLDEST merge-base across every resolvable candidate (`origin/<name>` and
+  else `management.target_branch`, else the repository default branch. A worker can rewrite any
+  local ref, so the base comes from the server first: the tip of that branch on the pinned
+  repository (`gh api repos/<repo>/branches/<branch>`, fetched from origin if absent), then
+  merge-base(HEAD, tip), `base_source: server-tip`. This works while the task commits are still
+  unpushed. Next is the TM-325 compare helper (`server`). Only when the server cannot answer does
+  admission use local refs, taking the OLDEST merge-base across every resolvable candidate (`origin/<name>` and
   `<name>`; the task PR base counts only when it equals the recorded or target branch). The record
-  and the start event carry `base_source: server | local-fallback`. A fresh worktree is unchanged,
+  and the start event carry `base_source`. A `local-fallback` base is only a floor: once the
+  server can answer, the review range widens to the server merge-base when it is older, and never
+  narrows. Candidates with unrelated histories are refused by name. A fresh worktree is unchanged,
   because there the merge-base is HEAD. Admission is refused with `TOPOLOGY_MANAGEMENT_BASE` only
   when nothing resolves; it never falls back to HEAD. A resumed
   admission recomputes the base and widens a record written by the old code (event

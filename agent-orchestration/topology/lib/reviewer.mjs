@@ -836,6 +836,16 @@ export async function githubCompare(repoDir, from, to) {
   return JSON.parse(found.stdout);
 }
 
+/** TM-349: the tip commit of `branch` (null = the default branch) on the pinned repository. Unlike
+ * githubCompare it needs nothing of the task on the server, so an unpushed task still anchors. */
+export async function githubBranchTip(repoDir, branch) {
+  const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 10_000 };
+  const { repo, branch: fallback } = await pinnedGithubRepo(repoDir, args => run('gh', args, opts));
+  const found = await run('gh', ['api', `repos/${repo}/branches/${encodeURIComponent(branch ?? fallback)}`, '--jq', '.commit.sha'], opts);
+  if (found.code !== 0) throw new Error(`gh branch lookup failed: ${(found.stderr || found.stdout || `exit ${found.code}`).trim().split('\n')[0]}`);
+  return found.stdout.trim();
+}
+
 /** TM-325: the base branch of every PR (any state) whose head is `head`, from the pinned repository. */
 export async function githubPullBase(repoDir, head) {
   const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 10_000 };
@@ -861,7 +871,7 @@ export async function githubPullBase(repoDir, head) {
  *     a note saying why. Failing closed only ever widens the range.
  * Same-uid limit: a process running as this user can still replace gh or the remote config.
  */
-export async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare } = {}) {
+export async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare, widen = false } = {}) {
   const git = args => run('git', ['-C', repoDir, ...args], { allowFailure: true });
   const ancestor = async (a, b) => (await git(['merge-base', '--is-ancestor', a, b])).code === 0;
   const compare = typeof serverCompare === 'function' ? serverCompare : githubCompare;
@@ -885,7 +895,9 @@ export async function effectiveBase(repoDir, admittedBase, revision, { recorded 
   if (mb !== revision) {
     if (mb === admittedBase) return { base: admittedBase, note: null };
     invariant((await git(['cat-file', '-e', `${mb}^{commit}`])).code === 0, 'TOPOLOGY_REVIEWER_RANGE', 'The server merge-base is not a commit in this repository.');
-    if (await ancestor(mb, admittedBase)) return { base: admittedBase, note: null };
+    // TM-349: an admission base taken from worker-writable local refs is only a floor the server can
+    // lower: when the server merge-base is older, the range widens to it. It never narrows.
+    if (await ancestor(mb, admittedBase)) return widen ? { base: mb, note: `The admission base ${admittedBase} came from local refs; the server ${target} merge-base ${mb} is older, so the range starts there.` } : { base: admittedBase, note: null };
     invariant(await ancestor(admittedBase, mb) && await ancestor(mb, revision), 'TOPOLOGY_REVIEWER_RANGE', `The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the ${target}.`);
     return { base: mb, note: null };
   }
@@ -921,7 +933,7 @@ export async function reviewRangeBase({ consumer, task, revision, admittedBase, 
   }
   const request = await readJson(join(await reviewerInboxRoot(consumer, env, home), 'requests', `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson(join(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
-  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
+  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare, widen: management?.base_source === 'local-fallback' });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
 
