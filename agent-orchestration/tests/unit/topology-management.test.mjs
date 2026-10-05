@@ -44,7 +44,7 @@ async function fixture(t) {
   const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
     // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
     // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
-    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
+    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, serverBranchTip: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
   const finish = async () => {
     await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
     await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
@@ -65,6 +65,22 @@ test('new admission requires reviewer, task scope, ownership and complete protoc
   setClaim(null); const result = await admitTask(opts);
   assert.equal(result.admitted, true); assert.deepEqual(calls, ['provision', 'start', 'start']);
   await admitTask(opts); assert.equal(calls.filter(c => c === 'provision').length, 1);
+});
+
+test('TM-348: a recorded worktree with no claim is provisioned (re-claimed) once and admitted', async t => {
+  const { opts, doc, calls, setClaim, git } = await fixture(t);
+  // An earlier tm worktree new left the worktree and branch recorded, then the claim was released.
+  const worktree = join(opts.consumer, '..', 'task');
+  await git(opts.consumer, ['worktree', 'add', '-b', 'tm/TM-1', worktree]);
+  Object.assign(doc, { worktree, branch: 'tm/TM-1', status: 'open' }); setClaim(null);
+  // tm worktree new is idempotent: it claims first and reuses the checkout.
+  opts.store.provision = async () => { calls.push('provision'); setClaim({ session: 'author', worktree, branch: doc.branch }); };
+  const result = await admitTask(opts);
+  assert.equal(result.admitted, true);
+  assert.equal(calls.filter(c => c === 'provision').length, 1);
+  setClaim({ session: 'peer' });
+  await assert.rejects(admitTask(opts), { code: 'TOPOLOGY_MANAGEMENT_OWNERSHIP', message: /held by peer, expected owner author/ });
+  assert.equal(calls.filter(c => c === 'provision').length, 1, 'a claim held by another session is never re-provisioned');
 });
 
 test('adopted active worker is preserved for migration review', async t => {
@@ -828,14 +844,15 @@ function fakeServer(main) {
 // admission. The task file is then edited to name `main`: the range must still come from the admission record.
 async function mergedTask(t, { stray, integration = null }) {
   const { opts, git, doc } = await fixture(t);
-  if (integration) doc.integrationBranch = integration;
+  // TM-349: the integration branch exists at admission (the admission base is resolved against it).
+  if (integration) { doc.integrationBranch = integration; await git(opts.consumer, ['branch', integration]); }
   await admitTask(opts);
   if (integration) doc.integrationBranch = 'main';
   const worktree = (await opts.store.show()).worktree, id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
   const admitted = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
   if (stray) { await writeFile(join(worktree, 'stray.txt'), 'outside'); await git(worktree, ['add', 'stray.txt']); await git(worktree, [...id, 'commit', '-m', 'stray']); }
   if (integration) {
-    await git(opts.consumer, ['checkout', '-q', '-b', integration]);
+    await git(opts.consumer, ['checkout', '-q', integration]);
     await mkdir(join(opts.consumer, '.bytedesk/task-management/tasks'), { recursive: true });
     await writeFile(join(opts.consumer, '.bytedesk/task-management/tasks/TM-1-fixture.md'), '---\nid: "TM-1"\nintegrationBranch: "main"\n---\n');
   }
@@ -1502,4 +1519,296 @@ test('TM-263 (j) record-landing: a server lead_autonomy policy naming another le
   assert.equal((await managementStatus(refused.opts)).management.merge, undefined, 'nothing recorded by a refusal');
   const agreed = await leadServer(t, 'landed');
   assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1'), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
+});
+
+// TM-347: changes_requested -> rework -> a new worker -> re-finish at a new revision -> re-review -> integrate.
+test("TM-347: a governed task returns to working after changes are requested, and only a new revision can be approved", async t => {
+  const { opts, git } = await fixture(t);
+  const { fileURLToPath } = await import("node:url");
+  const { reviewerPaths, reviewsRoot, currentReviewStatus } = await import("../../topology/lib/reviewer.mjs");
+  const { reworkTask, stopTaskWorker } = await import("../../topology/lib/management.mjs");
+  const tmBin = fileURLToPath(new URL("../../../task-management/bin/tm", import.meta.url));
+  const env = { ...opts.env, TM_ROOT: opts.consumer, TM_SESSION_ID: "author", CLAUDE_PROJECT_DIR: opts.consumer };
+  delete env.TM_DISPATCH_WORKER;
+  const tm = async (args, allowFailure = false) => run(tmBin, args, { cwd: opts.consumer, env, allowFailure });
+  const show = async () => JSON.parse((await tm(["show", "TM-001", "--json"])).stdout);
+  await tm(["init"]);
+  await tm(["epic", "new", "Fixture integration"]);
+  await tm(["task", "new", "Implement scoped content change", "--body", "Change code.txt and validate it.", "--ac", "code.txt contains implemented"]);
+  await tm(["label", "TM-001", "ready-for-agent"]);
+  await tm(["touches", "TM-001", "code.txt"]);
+  const reviewer = await reviewerPaths(opts.consumer, opts.env, opts.home);
+  await writeJson(reviewer.recordPath, { agent_id: "reviewer-1", repo_id: reviewer.identity.id, provider: "claude", binding: { serverKey: "/tmp/s", serverPid: 1, sessionId: "$1", sessionCreated: 1, paneId: "%1", panePid: 2 } });
+  const registry = join(opts.consumer, "..", "registry.mjs");
+  await writeFile(registry, `import { spawn } from "node:child_process";
+export default { proc: { name: "proc", available: () => true, spawn: ({ worktree }) => {
+  const child = spawn("sleep", ["60"], { cwd: worktree, detached: true, stdio: "ignore" }); child.unref();
+  return { ok: true, run: "proc:" + child.pid, pid: child.pid };
+} } };`);
+  env.TM_DISPATCH_REGISTRY = registry;
+  const actual = { ...opts, store: undefined, task: "TM-001", tmBin, env, wake: async () => ({ rang: false, reason: "fixture" }) };
+  const dispatch = async () => {
+    const result = JSON.parse((await tm(["dispatch", "TM-001", "--backend", "proc", "--json"])).stdout);
+    t.after(() => { try { process.kill(Number(result.run.slice(5))); } catch {} });
+    return result;
+  };
+  const commit = async text => {
+    const { worktree } = await show();
+    await writeFile(join(worktree, "code.txt"), text); await git(worktree, ["add", "code.txt"]);
+    await git(worktree, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", text]);
+    return (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  };
+  const report = revision => workerReport({ ...actual, kind: "finish", report: { artifacts: ["code.txt"], checks: ["content"], risks: [], evidence: "fixture result", revision } });
+  const reviewsDir = join(await reviewsRoot(opts.consumer, opts.env, opts.home), "TM-001");
+  let clock = Date.parse("2026-10-05T00:00:00Z");
+  const review = async (revision, verdict) => writeJson(join(reviewsDir, `${revision}.json`), { task: "TM-001", revision, verified_commit: revision, verdict, reviewer_id: "reviewer-1", author_agent_ids: ["author"], request_nonce: "n", created_at: new Date(clock += 1000).toISOString(),
+    findings: verdict === "changes_requested" ? [{ severity: "major", file: "code.txt", line: 1, claim: "wrong", evidence: "e", fix: "f" }] : [] });
+
+  assert.equal((await admitTask(actual)).admitted, true);
+  assert.equal((await dispatch()).ok, true);
+  const first = await commit("first attempt");
+  assert.equal((await report(first)).state, "ready-for-review");
+  assert.equal((await show()).governance.state, "ready-for-review");
+  const refusedDispatch = await tm(["dispatch", "TM-001", "--backend", "proc"], true);
+  assert.match(refusedDispatch.stderr, /TM_GOVERNED_ADMISSION_REQUIRED/, "the deadlock this task removes");
+
+  const code = c => ({ code: c });
+  await assert.rejects(reworkTask(actual), code("TOPOLOGY_MANAGEMENT_REWORK"), "a live finished worker is stopped first");
+  await stopTaskWorker({ ...actual, workerState: async () => ({ owned: true, active: false, alive: false, proof: "fixture-exited" }) });
+  await assert.rejects(reworkTask(actual), { code: "TOPOLOGY_MANAGEMENT_REWORK_REVIEW", message: /missing/ }, "no review");
+  await review(first, "approve");
+  await assert.rejects(reworkTask(actual), { code: "TOPOLOGY_MANAGEMENT_REWORK_REVIEW", message: /satisfied/ }, "an approved revision");
+  const other = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await review(other, "changes_requested");
+  await assert.rejects(reworkTask(actual), { code: "TOPOLOGY_MANAGEMENT_REWORK_REVIEW", message: /stale/ }, "a review of another revision");
+  await assert.rejects(reworkTask({ ...actual, owner: "peer" }), code("TOPOLOGY_MANAGEMENT_REWORK"), "only the admitting session");
+  await review(first, "changes_requested");
+  const reworked = await reworkTask(actual);
+  assert.equal(reworked.revision, first);
+  const record = reworked.record;
+  assert.equal(record.state, "working"); assert.equal(record.finish, undefined); assert.equal(record.collected, undefined);
+  assert.ok(record.worktree && record.branch && record.base_revision && record.owner === "author", "owner, worktree, branch and base are kept");
+  const event = record.events.at(-1);
+  assert.equal(event.event, "rework"); assert.equal(event.revision, first); assert.equal(event.review.findings[0].severity, "major");
+  assert.ok(record.events.some(e => e.event === "finish" && e.report.revision === first), "the reviewed finish stays in history");
+  const doc = await show();
+  assert.equal(doc.governance.state, "working"); assert.equal(doc.governance.revision, undefined);
+  assert.equal(doc.governance.reworks.at(-1).revision, first); assert.equal(doc.dispatched, undefined);
+  assert.equal((await reworkTask(actual)).revision, first, "a retry only repeats the store projection");
+  assert.equal((await show()).governance.reworks.length, 1);
+
+  // start-worker is tm dispatch then bind: both now succeed.
+  assert.equal((await dispatch()).ok, true);
+  assert.equal((await bindTaskWorker(actual)).bound, true);
+  await assert.rejects(report(first), { code: "TOPOLOGY_MANAGEMENT_REVISION", message: /changes were requested/ }, "the reviewed revision is never resubmitted");
+  const second = await commit("implemented");
+  assert.equal((await report(second)).state, "ready-for-review");
+  assert.equal((await show()).governance.revision, second);
+
+  // The old verdict never satisfies the new revision, whatever it says and however recent it is.
+  // The operator shell decides integration (TM-248): TM_SESSION_ID would mark a managed session.
+  const gate = () => integrationEligibility({ ...actual, env: opts.env, reviewGate: async g => { const status = await currentReviewStatus(g.consumer, g.task, g.revision, g.env, g.home); return { eligible: status.state === "satisfied", reasons: status.state === "satisfied" ? [] : [`review is ${status.state}`], status }; } });
+  assert.deepEqual((await gate()).refusals.filter(r => r.condition === "review").map(r => r.reason), ["review is stale"]);
+  await review(first, "approve");
+  assert.deepEqual((await gate()).refusals.filter(r => r.condition === "review").map(r => r.reason), ["review is stale"], "an approval of the old revision");
+  await review(second, "approve");
+  const eligible = await gate();
+  assert.equal(eligible.eligible, true, eligible.reasons.join("; "));
+});
+
+// TM-349: admit after the worker already committed; the base is the merge-base, not that commit.
+test("TM-349: a late admission records merge-base(HEAD, integration branch), so the review range keeps the own commit", async t => {
+  const { opts, doc, setClaim, git } = await fixture(t);
+  const { reviewRangeBase } = await import("../../topology/lib/reviewer.mjs");
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const worktree = join(opts.consumer, "..", "task");
+  const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+  await writeFile(join(worktree, "code.txt"), "implemented"); await git(worktree, ["add", "code.txt"]); await git(worktree, [...id, "commit", "-qm", "own commit before admit"]);
+  Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+  opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+  const admitted = await admitTask(opts);
+  assert.equal(admitted.record.base_revision, forked, "the pre-commit merge-base, not the own commit");
+  // The integration branch moves on and the task merges it, then finishes.
+  await writeFile(join(opts.consumer, "sibling.txt"), "landed"); await git(opts.consumer, ["add", "sibling.txt"]); await git(opts.consumer, [...id, "commit", "-qm", "sibling"]);
+  const sibling = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await git(worktree, [...id, "merge", "-q", "--no-edit", "--no-ff", "main"]);
+  const revision = (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  await workerReport({ ...opts, kind: "finish", report: { artifacts: ["code.txt"], checks: ["content"], risks: [], evidence: "fixture", revision } });
+  const serverCompare = async () => ({ status: "diverged", merge_base: sibling });
+  const { effective_base: base } = await reviewRangeBase({ consumer: opts.consumer, task: "TM-1", revision, admittedBase: admitted.record.base_revision, serverCompare, serverPullBase: async () => [], env: opts.env, home: opts.home });
+  assert.equal(base, sibling);
+  assert.deepEqual((await git(opts.consumer, ["diff", "--name-only", base, revision])).stdout.trim().split("\n"), ["code.txt"], "the own commit is reviewed; the merged sibling is not");
+});
+
+// The fixture config with management.target_branch replaced (null removes it).
+const withTarget = async (opts, target) => {
+  const path = join(opts.pluginRoot, "config.defaults.json"), config = await readJson(path);
+  if (target === null) delete config.management.target_branch; else config.management.target_branch = target;
+  await writeJson(path, config);
+};
+
+test("TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD", async t => {
+  const { opts, calls } = await fixture(t);
+  await withTarget(opts, "absent-target");
+  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
+  await withTarget(opts, null);
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
+  assert.equal(calls.includes("start"), false, "nothing is started");
+});
+
+test("TM-349: with no recorded branch, PR or target_branch, the repository default branch is the admission base", async t => {
+  for (const source of ["origin-head", "gh"]) {
+    const { opts, doc, setClaim, git } = await fixture(t);
+    await withTarget(opts, null);
+    const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+    const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+    const worktree = join(opts.consumer, "..", "task");
+    await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+    await writeFile(join(worktree, "code.txt"), "own"); await git(worktree, ["add", "code.txt"]); await git(worktree, [...id, "commit", "-qm", "own commit"]);
+    Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+    opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+    let gh = opts.gh;
+    if (source === "origin-head") {
+      await git(opts.consumer, ["update-ref", "refs/remotes/origin/main", forked]);
+      await git(opts.consumer, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    } else gh = async args => args[0] === "repo" && args[1] === "view" ? { code: 0, stdout: "main\n", stderr: "" } : opts.gh(args);
+    const admitted = await admitTask({ ...opts, gh });
+    assert.equal(admitted.admitted, true, source);
+    assert.equal(admitted.record.base_revision, forked, `${source}: the merge-base with the default branch, not the own commit`);
+  }
+});
+
+test("TM-349: a resumed admission widens a base that hid a worker commit, and never narrows it", async t => {
+  const { opts, doc, git } = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await admitTask(opts);
+  await writeFile(join(doc.worktree, "code.txt"), "implemented"); await git(doc.worktree, ["add", "code.txt"]); await git(doc.worktree, [...id, "commit", "-qm", "own"]);
+  const own = (await git(doc.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  // A record written by the old code: the base is the own commit.
+  const path = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, "management", repoKey((await canonicalRepoId(opts.consumer)).id), "TM-1.json");
+  await writeJson(path, { ...(await readJson(path)), base_revision: own });
+  const resumed = await admitTask(opts);
+  assert.equal(resumed.resumed, true); assert.equal(resumed.record.base_revision, forked);
+  assert.equal(resumed.record.events.at(-1).event, "base-widened");
+  assert.equal((await admitTask(opts)).record.base_revision, forked, "stable once widened");
+});
+
+// PR #192 review, TM-348: a released claim never lets another session take a started record, and a
+// done or landed task never gets its worktree or claim back.
+test("TM-348 review: a parked task admitted by another session is ownership review, not a takeover", async t => {
+  const { opts, doc, finish, setClaim } = await fixture(t);
+  await admitTask(opts); await finish();
+  doc.status = "parked"; setClaim(null);
+  const peer = await admitTask({ ...opts, owner: "peer" });
+  assert.equal(peer.admitted, false); assert.equal(peer.state, "ownership-review-required");
+  const record = (await managementStatus(opts)).management;
+  assert.equal(record.owner, "author"); assert.equal(record.state, "ready-for-review");
+  opts.store.provision = async () => setClaim({ session: "author", worktree: doc.worktree, branch: doc.branch }); // tm worktree new reuses the checkout
+  assert.equal((await admitTask(opts)).resumed, true, "the owner still resumes");
+});
+
+test("TM-348 review: a done task is never re-provisioned by admission", async t => {
+  const { opts, doc, calls, finish, setClaim } = await fixture(t);
+  await admitTask(opts); await finish(); await integrateTask(opts);
+  assert.equal((await cleanupTask(opts)).cleaned, true);
+  setClaim(null);
+  const before = calls.filter(c => c === "provision").length;
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_LANDED" });
+  doc.status = "open";
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_LANDED" }, "the landed record alone refuses");
+  assert.equal(calls.filter(c => c === "provision").length, before);
+});
+
+// PR #192 review, TM-349: a worker can write any local ref; the server anchor and the oldest
+// local merge-base keep its own commit inside the review range.
+async function forgedRefs(t, { server = null, pull = null } = {}) {
+  const { opts, doc, setClaim, git } = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  const worktree = join(opts.consumer, "..", "task");
+  await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+  await writeFile(join(worktree, "code.txt"), "own"); await git(worktree, ["add", "code.txt"]); await git(worktree, [...id, "commit", "-qm", "own commit"]);
+  const own = (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+  opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+  return { opts, git, forked, own, admit: o => admitTask({ ...opts, ...(server ? { serverCompare: server } : {}), ...(pull ? { serverPullBase: async () => [pull] } : {}), ...o }) };
+}
+
+test("TM-349 review: with the server answering, a forged origin/main and main cannot narrow the base", async t => {
+  const asked = [];
+  const f = await forgedRefs(t, { server: async (dir, from, to) => { asked.push([from, to]); return { status: "diverged", merge_base: f.forked }; } });
+  await f.git(f.opts.consumer, ["update-ref", "refs/remotes/origin/main", f.own]);
+  await f.git(f.opts.consumer, ["update-ref", "refs/heads/main", f.own]);
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.forked); assert.equal(record.base_source, "server");
+  assert.deepEqual(asked, [["main", f.own]], "the server is asked for the target branch against the task HEAD");
+  assert.equal(record.events.at(-1).base_source, "server", "the start event shows the source");
+});
+
+test("TM-349 review: a worker-chosen PR base that differs from the trusted branches is ignored", async t => {
+  const f = await forgedRefs(t, { pull: "evil" });
+  await f.git(f.opts.consumer, ["branch", "evil", f.own]);
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.forked); assert.equal(record.base_source, "local-fallback");
+});
+
+test("TM-349 review: offline, the oldest local merge-base wins, never the first", async t => {
+  const f = await forgedRefs(t);
+  await f.git(f.opts.consumer, ["update-ref", "refs/remotes/origin/main", f.own]);
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.forked, "origin/main is forged to the own commit; local main is older");
+  assert.equal(record.base_source, "local-fallback");
+});
+
+// PR #192 re-review (B2): an unpushed worker commit W and forged origin/main + main must still give
+// the true fork point, at admission when the server names the branch tip, else at review.
+async function forgedB2(t) {
+  const f = await forgedRefs(t);
+  await f.git(f.opts.consumer, ["update-ref", "refs/remotes/origin/main", f.own]);
+  await f.git(f.opts.consumer, ["update-ref", "refs/heads/main", f.own]);
+  return f;
+}
+
+test("TM-349 re-review: the server branch tip anchors admission while the task commit is unpushed", async t => {
+  const f = await forgedB2(t);
+  const asked = [];
+  const { record } = await f.admit({ serverBranchTip: async (dir, branch) => { asked.push(branch); return f.forked; } });
+  assert.deepEqual(asked, ["main"]);
+  assert.equal(record.base_revision, f.forked, "the true fork point, not the forged W");
+  assert.equal(record.base_source, "server-tip");
+  await assert.rejects(f.admit({ serverBranchTip: async () => "1".repeat(40) }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /could not be fetched/ }, "a tip absent locally and unfetchable refuses");
+});
+
+test("TM-349 re-review: a forged local-fallback base is widened at review once the server answers", async t => {
+  const f = await forgedB2(t);
+  const { reviewRangeBase } = await import("../../topology/lib/reviewer.mjs");
+  const { record } = await f.admit();
+  assert.equal(record.base_revision, f.own); assert.equal(record.base_source, "local-fallback", "offline at admission the forged refs win");
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  await writeFile(join(record.worktree, "more.txt"), "more"); await f.git(record.worktree, ["add", "more.txt"]); await f.git(record.worktree, [...id, "commit", "-qm", "after admit"]);
+  const revision = (await f.git(record.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  const range = await reviewRangeBase({ consumer: f.opts.consumer, task: "TM-1", revision, admittedBase: record.base_revision, serverCompare: async () => ({ status: "diverged", merge_base: f.forked }), serverPullBase: async () => [], env: f.opts.env, home: f.opts.home });
+  assert.equal(range.effective_base, f.forked);
+  assert.deepEqual((await f.git(f.opts.consumer, ["diff", "--name-only", range.effective_base, revision])).stdout.trim().split("\n").sort(), ["code.txt", "more.txt"], "W is inside the review range");
+  const narrow = await reviewRangeBase({ consumer: f.opts.consumer, task: "TM-1", revision, admittedBase: record.base_revision, serverCompare: async () => ({ status: "diverged", merge_base: revision }), serverPullBase: async () => [], env: f.opts.env, home: f.opts.home });
+  assert.notEqual(narrow.effective_base, revision, "a server answer is never used to narrow");
+});
+
+test("TM-349 re-review: unrelated candidate histories are refused by name, not with a raw command error", async t => {
+  const { opts, doc, setClaim, git } = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const worktree = join(opts.consumer, "..", "task");
+  await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+  await git(worktree, ["checkout", "-q", "--orphan", "orphan"]);
+  await writeFile(join(worktree, "other.txt"), "unrelated"); await git(worktree, ["add", "other.txt"]); await git(worktree, [...id, "commit", "-qm", "unrelated root"]);
+  const orphan = (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  await git(worktree, ["checkout", "-q", "tm/TM-1"]);
+  await git(worktree, [...id, "merge", "-q", "--no-edit", "--allow-unrelated-histories", "orphan"]);
+  await git(opts.consumer, ["update-ref", "refs/remotes/origin/orphan", orphan]);
+  await git(opts.consumer, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/orphan"]);
+  Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+  opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /share no common ancestor/ });
 });

@@ -34,6 +34,7 @@ export const CATALOG = {
     dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
     task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
     "ready-for-review": { group: "recommended", label: "A governed task is ready for independent review", priority: "default", tags: "eyes" },
+    reworked: { group: "recommended", label: "A governed task went back to work after review requested changes", priority: "default", tags: "repeat" },
     dispatch_retained: { group: "recommended", label: "A failed launch retained its task checkout and evidence", priority: "default", tags: "inbox_tray" },
     dispatch_reconciled: { group: "recommended", label: "A task's native workflow reference was recovered", priority: "default", tags: "link" },
     epic_auto_closed: { group: "recommended", label: "An epic closed itself — every task done", priority: "default", tags: "tada" },

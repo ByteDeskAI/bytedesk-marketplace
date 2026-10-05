@@ -74,7 +74,7 @@ import { heartbeatAgent, listAgents, reapDeadWorkers, renderAgents } from "../li
 import { getPath, readConfigDocument, setPath, writeConfigDocument } from "../lib/settings.mjs";
 import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
-import { governTask, readyForReview } from "../lib/governance.mjs";
+import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWorkers, poolable, readPoolState, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
@@ -590,6 +590,13 @@ const VERBS = {
     const at = args.indexOf("--revision");
     const task = readyForReview(id, { revision: at < 0 ? null : args[at + 1], p: P });
     out(JSON_OUT ? JSON.stringify(task.governance) : `${id} ready-for-review — independent review and an integration decision remain required`);
+  },
+
+  rework(id, ...args) {
+    requireInit();
+    const at = args.indexOf("--revision");
+    const task = reworkGovernance(id, { revision: at < 0 ? null : args[at + 1], p: P });
+    out(JSON_OUT ? JSON.stringify(task.governance) : `${id} back to working after review of ${task.governance.reworks.at(-1).revision}; dispatch the next worker`);
   },
 
   done(id) {
@@ -1776,6 +1783,7 @@ const VERBS = {
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
+        "  rework <id> --revision <full SHA>         reflect the producer rework after changes_requested",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
         "  reopen <id> [why]             bring a done task back, and its epic with it",

@@ -44,6 +44,47 @@
 
 ### Fixed
 
+- **A late `manage admit` no longer hides the worker commits from review (TM-349).** Admission
+  recorded `base_revision` as the task HEAD, so a task admitted after its worker had committed used
+  that commit as the base: the review range left it out, and once the task merged its integration
+  branch, `reviewer request` refused with `TOPOLOGY_REVIEWER_RANGE`. The base is now
+  merge-base(HEAD, integration branch), using the branch TM-325 freezes into the admission record,
+  else `management.target_branch`, else the repository default branch. A worker can rewrite any
+  local ref, so the base comes from the server first: the tip of that branch on the pinned
+  repository (`gh api repos/<repo>/branches/<branch>`, fetched from origin if absent), then
+  merge-base(HEAD, tip), `base_source: server-tip`. This works while the task commits are still
+  unpushed. Next is the TM-325 compare helper (`server`). Only when the server cannot answer does
+  admission use local refs, taking the OLDEST merge-base across every resolvable candidate (`origin/<name>` and
+  `<name>`; the task PR base counts only when it equals the recorded or target branch). The record
+  and the start event carry `base_source`. A `local-fallback` base is only a floor: once the
+  server can answer, the review range widens to the server merge-base when it is older, and never
+  narrows. Candidates with unrelated histories are refused by name. A fresh worktree is unchanged,
+  because there the merge-base is HEAD. Admission is refused with `TOPOLOGY_MANAGEMENT_BASE` only
+  when nothing resolves; it never falls back to HEAD. A resumed
+  admission recomputes the base and widens a record written by the old code (event
+  `base-widened`); it never narrows one.
+- **A governed task returns to work after an independent review requests changes (TM-347).** A
+  finish report set the management record and the governed task to `ready-for-review`, and nothing
+  set them back, so `tm dispatch` and `manage start-worker` refused every new worker with
+  `TM_GOVERNED_ADMISSION_REQUIRED` and the task deadlocked. The new `manage rework --task TM-id`
+  returns the task to `working` only when the latest review is `changes_requested` for the exact
+  current finish revision and the finished worker is stopped. It records a `rework` event binding
+  the findings to the reviewed revision, clears the finish and keeps owner, worktree, branch and
+  base, then runs the new `tm rework`, which resets the governed state and archives the finished
+  dispatch so the next worker can be dispatched. The next finish must name a new revision; the
+  reviewed one is refused. Integration already keys reviews on the exact revision, and a new test
+  proves an earlier verdict, even a later-dated approval of the old revision, never satisfies it.
+- **`manage admit` no longer dead-ends on a task whose worktree is recorded but whose claim was
+  released (TM-348).** Admission provisioned only when no worktree was recorded, so a task left with
+  a worktree by an earlier `tm worktree new`, or parked or blocked since, skipped provisioning and
+  was refused with `TOPOLOGY_MANAGEMENT_OWNERSHIP`. Admission, and a resumed admission, now run
+  `tm worktree new` whenever no claim is held. That verb claims first and reuses the checkout, so the
+  task is re-claimed by the admitting session. A claim held by another session is still refused, and
+  an in-progress task with no admission record still returns `ownership-review-required`. The
+  ownership refusal now names the session holding the claim (or `none`) and the expected owner.
+  A released claim never lets another session take over a task that was already admitted: that
+  returns `ownership-review-required`. A done or landed task is refused with
+  `TOPOLOGY_MANAGEMENT_LANDED` instead of having its worktree and claim recreated.
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)

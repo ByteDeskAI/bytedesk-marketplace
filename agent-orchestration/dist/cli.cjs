@@ -22187,6 +22187,7 @@ var init_standing_mailbox = __esm({
 // topology/lib/reviewer.mjs
 var reviewer_exports = {};
 __export(reviewer_exports, {
+  INTEGRATION_BRANCH: () => INTEGRATION_BRANCH,
   PROBE_POLL_MS: () => PROBE_POLL_MS,
   PROBE_TIMEOUT_MS: () => PROBE_TIMEOUT_MS,
   REVIEW_INCOMPLETE_BOUND_MS: () => REVIEW_INCOMPLETE_BOUND_MS,
@@ -22202,6 +22203,7 @@ __export(reviewer_exports, {
   detachReviewer: () => detachReviewer,
   effectiveBase: () => effectiveBase,
   ensureReviewer: () => ensureReviewer,
+  githubBranchTip: () => githubBranchTip,
   githubCompare: () => githubCompare,
   githubPullBase: () => githubPullBase,
   independentReviewStatus: () => independentReviewStatus,
@@ -22754,6 +22756,13 @@ async function githubCompare(repoDir, from, to) {
   if (found.code !== 0) throw new Error(`gh compare failed: ${first(found)}`);
   return JSON.parse(found.stdout);
 }
+async function githubBranchTip(repoDir, branch) {
+  const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 1e4 };
+  const { repo, branch: fallback } = await pinnedGithubRepo(repoDir, (args) => run("gh", args, opts));
+  const found = await run("gh", ["api", `repos/${repo}/branches/${encodeURIComponent(branch ?? fallback)}`, "--jq", ".commit.sha"], opts);
+  if (found.code !== 0) throw new Error(`gh branch lookup failed: ${(found.stderr || found.stdout || `exit ${found.code}`).trim().split("\n")[0]}`);
+  return found.stdout.trim();
+}
 async function githubPullBase(repoDir, head) {
   const opts = { cwd: repoDir, allowFailure: true, timeoutMs: 1e4 };
   const { repo } = await pinnedGithubRepo(repoDir, (args) => run("gh", args, opts));
@@ -22761,7 +22770,7 @@ async function githubPullBase(repoDir, head) {
   if (found.code !== 0) throw new Error(`gh pr list failed: ${(found.stderr || found.stdout || `exit ${found.code}`).trim().split("\n")[0]}`);
   return JSON.parse(found.stdout);
 }
-async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare } = {}) {
+async function effectiveBase(repoDir, admittedBase, revision, { recorded = null, reviewed = null, branch = null, serverCompare = githubCompare, widen = false } = {}) {
   const git3 = (args) => run("git", ["-C", repoDir, ...args], { allowFailure: true });
   const ancestor = async (a, b) => (await git3(["merge-base", "--is-ancestor", a, b])).code === 0;
   const compare = typeof serverCompare === "function" ? serverCompare : githubCompare;
@@ -22785,7 +22794,7 @@ async function effectiveBase(repoDir, admittedBase, revision, { recorded = null,
   if (mb !== revision) {
     if (mb === admittedBase) return { base: admittedBase, note: null };
     invariant2((await git3(["cat-file", "-e", `${mb}^{commit}`])).code === 0, "TOPOLOGY_REVIEWER_RANGE", "The server merge-base is not a commit in this repository.");
-    if (await ancestor(mb, admittedBase)) return { base: admittedBase, note: null };
+    if (await ancestor(mb, admittedBase)) return widen ? { base: mb, note: `The admission base ${admittedBase} came from local refs; the server ${target} merge-base ${mb} is older, so the range starts there.` } : { base: admittedBase, note: null };
     invariant2(await ancestor(admittedBase, mb) && await ancestor(mb, revision), "TOPOLOGY_REVIEWER_RANGE", `The server merge-base is not between the admitted task base and the revision; the review range cannot exclude the ${target}.`);
     return { base: mb, note: null };
   }
@@ -22821,7 +22830,7 @@ async function reviewRangeBase({ consumer, task, revision, admittedBase, serverC
   }
   const request = await readJson3((0, import_node_path46.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${taskKey}-${revisionKey}.json`)).catch(() => null);
   const reviewed = request?.effective_base ? null : await readJson3((0, import_node_path46.join)(await reviewsRoot(consumer, env, home), taskKey, `${revisionKey}.json`)).catch(() => null);
-  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
+  const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare, widen: management?.base_source === "local-fallback" });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
 async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os18.homedir)() }) {
@@ -24047,6 +24056,8 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     done: async (id, actor = null) => exec(["done", taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(["govern", taskId(id), "--workflow", governance.workflowRunId, "--lead", governance.leadId, "--record", governance.recordPath]),
     reviewReady: async (id, revision) => exec(["review-ready", taskId(id), "--revision", revision]),
+    // TM-347: reflects a producer rework; tm checks the record names this revision.
+    rework: async (id, revision) => exec(["rework", taskId(id), "--revision", revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async (epic) => JSON.parse((await exec(["find", `epic:${epic}`, "kind:task", "--json"])).stdout).filter((t) => t.epic === epic).map((t) => t.id)
   };
@@ -24060,7 +24071,7 @@ async function context(options) {
   return { root, path: path3, store, identity, env, home };
 }
 function ownClaim(claim, owner) {
-  invariant2(claim && claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.");
+  invariant2(claim && claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `Task claim is held by ${claim ? claim.session || "an unknown session" : "none"}, expected owner ${owner || "none"}; reconcile ownership without stealing.`);
 }
 async function ownedTask(ctx, task, owner) {
   const doc = await ctx.store.show(task);
@@ -60529,10 +60540,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136";
+  return false ? null : "eae716e0a618d2838b83026b74e687c93c794b462d27add20fb784bf2050d14a";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136";
+  const fingerprint2 = false ? null : "eae716e0a618d2838b83026b74e687c93c794b462d27add20fb784bf2050d14a";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61123,7 +61134,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136",
+  sourceFingerprint: false ? null : "eae716e0a618d2838b83026b74e687c93c794b462d27add20fb784bf2050d14a",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

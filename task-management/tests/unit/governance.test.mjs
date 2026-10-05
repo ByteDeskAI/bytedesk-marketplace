@@ -9,7 +9,7 @@ import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, read, removeConfigKey, seedGitContract, state, update, write, writeConfig } from "../../lib/store.mjs";
 import { provision, removeWorktree } from "../../lib/worktree.mjs";
-import { governTask, readyForReview } from "../../lib/governance.mjs";
+import { governTask, readyForReview, reworkGovernance } from "../../lib/governance.mjs";
 import { governedCompletion, managementIdentity, REVIEW_SEVERITIES } from "../../lib/governance-check.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
@@ -178,6 +178,34 @@ describe("governed completion is shared by every task write surface", () => {
     const tick = await poolTick({ p: f.p, registry: { fake: backend }, caps: {} });
     assert.equal(tick.dispatched[0]?.id, f.task.id);
     assert.equal(state(f.p).claims[f.task.id].session, "worker-1");
+  });
+
+  it("returns a submitted task to working only after the producer records a rework of that revision (TM-347)", async () => {
+    const f = fixture();
+    const backend = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
+    assert.equal((await dispatch(f.task.id, { p: f.p, backend })).ok, true);
+    submitted(f);
+    assert.equal((await dispatch(f.task.id, { p: f.p, backend })).code, "TM_GOVERNED_ADMISSION_REQUIRED");
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "no producer rework recorded");
+    delete f.record.finish; f.record.state = "working";
+    f.record.events = [{ event: "rework", revision: "0".repeat(40) }]; save(f.path, f.record);
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a rework of another revision");
+    f.record.events.push({ event: "rework", revision: f.revision }); save(f.path, f.record);
+    save(f.path, { ...f.record, branch: "some/other-branch" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another branch");
+    save(f.path, { ...f.record, worktree: "/elsewhere" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another worktree");
+    save(f.path, f.record);
+    process.env.TM_DISPATCH_WORKER = "1";
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /dispatched worker/);
+    delete process.env.TM_DISPATCH_WORKER;
+    const g = reworkGovernance(f.task.id, { revision: f.revision, p: f.p }).governance;
+    assert.equal(g.state, "working"); assert.equal(g.revision, undefined); assert.equal(g.workflowRunId, "workflow-1");
+    assert.equal(g.reworks.length, 1); assert.equal(g.reworks[0].revision, f.revision); assert.equal(g.reworks[0].dispatched.run, "fake:1");
+    assert.equal(read(f.task.id, f.p).dispatched, undefined);
+    assert.equal(reworkGovernance(f.task.id, { revision: f.revision, p: f.p }).governance.reworks.length, 1, "idempotent retry");
+    const again = await dispatch(f.task.id, { p: f.p, backend });
+    assert.equal(again.ok, true, again.reason);
   });
 
   // TM-240: a standing reviewer makes admission the default; only an explicit false opts out.
