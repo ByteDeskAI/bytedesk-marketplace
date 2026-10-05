@@ -324,3 +324,22 @@ test('TM-365 the reviewer is told to submit through the tool, never to print the
   const protocol = reviewerProtocolPrompt({ id: 'rev1', full_name: 'Rae Vance', role: 'reviewer', _dir: '/agents/rev1' }, '/repo', '/inbox');
   assert.match(protocol, /mcp__ao-review__review_submit/); assert.doesNotMatch(protocol, /b64:/);
 });
+
+test('TM-367 every finding carries a severity; minor and nit ride an approval; a CHANGELOG.md finding is accepted', async t => {
+  const f = await fixture(t);
+  // No severity, or one outside the four plus note, is refused.
+  await assert.rejects(submitVerdict(f, await requestReview({ ...f.args, wake: async () => ({ rang: true }) }), 'approve', [finding({ severity: undefined })]), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /severity must be one of blocker, major, minor, nit/ });
+  const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
+  // CHANGELOG.md is not in this diff (only src/a.js is), at the root or in a plugin directory.
+  const changelog = [finding({ file: 'CHANGELOG.md', line: 3, claim: 'No entry for this change.' }), finding({ severity: 'nit', file: 'agent-orchestration/CHANGELOG.md', line: 1 })];
+  await submitVerdict(f, request, 'approve', [finding({ severity: 'nit' }), ...changelog]);
+  const review = await collectReview(f.args);
+  assert.equal(review.verdict, 'approve');
+  assert.deepEqual(review.findings.map(x => [x.severity, x.file]), [['nit', 'src/a.js'], ['minor', 'CHANGELOG.md'], ['nit', 'agent-orchestration/CHANGELOG.md']]);
+  assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'approved');
+  assert.equal((await reviewEligibility({ ...f.args, probes: { alive: async () => true, responsive: async () => true } })).eligible, true);
+  // A major CHANGELOG finding requests changes; other files outside the diff are still refused.
+  assert.equal((await recordReview({ ...f.args, verdict: 'changes_requested', findings: [finding({ severity: 'major', file: 'CHANGELOG.md' })] })).verdict, 'changes_requested');
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [finding({ file: 'README.md' })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS', message: /README\.md, which is not in the reviewed diff/ });
+  await assert.rejects(recordReview({ ...f.args, verdict: 'approve', findings: [finding({ file: 'CHANGELOG.md.bak' })] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
+});

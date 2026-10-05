@@ -42,7 +42,8 @@ Every finding is an object with these six fields:
 
 - `severity` — `blocker` or `major` stops approval; `minor` or `nit` does not. `note` is
   information that needs no action; a note may leave out `evidence` and `fix`.
-- `file` — a path the patch changes. Findings about other files are refused.
+- `file` — a path the patch changes. Findings about other files are refused, except a
+  `CHANGELOG.md`, which you may name when the change needs an entry it does not have.
 - `line` — a positive line number in that file, as its own field (not `file:line`).
 - `claim` — what is wrong.
 - `evidence` — what in the patch or request shows it.

@@ -33,6 +33,13 @@
   prompt and request ring tell the reviewer to read files there; the main checkout may have another
   branch checked out. A worktree that has been removed falls back to the consumer, which shares the
   object store. A worktree of another repository is refused with `TOPOLOGY_REVIEWER_RANGE`.
+- **A reviewer finding may name a CHANGELOG.md the change did not touch (TM-367, EP-028).** A
+  missing changelog entry is a finding about a file outside the diff, and refusing it with
+  `TOPOLOGY_REVIEWER_FINDINGS` failed the whole review (gateway TM-490). A `CHANGELOG.md` at any
+  depth is now accepted; any other file outside the diff is still refused. Every finding still
+  carries one severity (`blocker`, `major`, `minor`, `nit` or `note`), and an approval with only
+  minor, nit or note findings is recorded as approved; a new test covers both. The reviewer prompt
+  says so.
 
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine

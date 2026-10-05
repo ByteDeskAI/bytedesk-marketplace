@@ -85,7 +85,7 @@ export async function reviewerInboxRoot(consumer, env = process.env, home = home
 }
 
 export function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${join(agent._dir, 'prompt.md')} and follow it. At safe boundaries read unexpired probes in ${join(inboxRoot, 'probes')} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${join(inboxRoot, 'requests')}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch, or a CHANGELOG.md>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 
 /**
@@ -1062,6 +1062,9 @@ async function reviewedFiles(consumer, base, revision) {
  * TM-215: a finding is {severity, file, line, claim, evidence, fix}. Anything else is refused, and
  * so is a finding about a file the reviewed diff does not touch — the review covers that range
  * and nothing else. Returns the findings reduced to exactly those six fields.
+ *
+ * TM-367: except a CHANGELOG.md, at any depth. "This change has no changelog entry" is a finding
+ * about a file the diff does NOT touch, and refusing it (TM-490) failed the whole review.
  */
 export function validateFindings(findings, files) {
   invariant(Array.isArray(findings), "TOPOLOGY_REVIEWER_FINDINGS", "Findings must be an array.");
@@ -1071,7 +1074,7 @@ export function validateFindings(findings, files) {
     invariant(SEVERITIES.includes(finding.severity), "TOPOLOGY_REVIEWER_FINDINGS", `${at} severity must be one of ${SEVERITIES.join(", ")}.`);
     invariant(typeof finding.file === "string" && finding.file.trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must name the file.`);
     const file = finding.file.trim().replace(/^\.\//, "");
-    invariant(files.has(file), "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file}, which is not in the reviewed diff.`, { file });
+    invariant(files.has(file) || basename(file) === "CHANGELOG.md", "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file}, which is not in the reviewed diff (only a CHANGELOG.md may be named without being changed).`, { file });
     invariant(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
     const text = {};
     for (const key of FINDING_TEXT_FIELDS) {

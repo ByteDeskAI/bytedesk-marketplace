@@ -29433,7 +29433,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path48.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch, or a CHANGELOG.md>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -30118,7 +30118,7 @@ function validateFindings(findings, files) {
     invariant2(SEVERITIES.includes(finding.severity), "TOPOLOGY_REVIEWER_FINDINGS", `${at} severity must be one of ${SEVERITIES.join(", ")}.`);
     invariant2(typeof finding.file === "string" && finding.file.trim(), "TOPOLOGY_REVIEWER_FINDINGS", `${at} must name the file.`);
     const file2 = finding.file.trim().replace(/^\.\//, "");
-    invariant2(files.has(file2), "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file2}, which is not in the reviewed diff.`, { file: file2 });
+    invariant2(files.has(file2) || (0, import_node_path48.basename)(file2) === "CHANGELOG.md", "TOPOLOGY_REVIEWER_FINDINGS", `${at} names ${file2}, which is not in the reviewed diff (only a CHANGELOG.md may be named without being changed).`, { file: file2 });
     invariant2(Number.isInteger(finding.line) && finding.line > 0, "TOPOLOGY_REVIEWER_FINDINGS", `${at} line must be a positive integer.`);
     const text = {};
     for (const key of FINDING_TEXT_FIELDS) {
@@ -77419,10 +77419,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "cfa548cc92769cf397ba6d1a4b0caf6c472449bcfc01cac31efb7bec05f8bfd4";
+  return false ? null : "0826cbcf143875e11aba1068462f5c7e5008af366070579ea10a53b8a1659460";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "cfa548cc92769cf397ba6d1a4b0caf6c472449bcfc01cac31efb7bec05f8bfd4";
+  const fingerprint2 = false ? null : "0826cbcf143875e11aba1068462f5c7e5008af366070579ea10a53b8a1659460";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77847,7 +77847,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "cfa548cc92769cf397ba6d1a4b0caf6c472449bcfc01cac31efb7bec05f8bfd4",
+  sourceFingerprint: false ? null : "0826cbcf143875e11aba1068462f5c7e5008af366070579ea10a53b8a1659460",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
