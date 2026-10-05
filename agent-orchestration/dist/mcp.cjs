@@ -28973,6 +28973,7 @@ var init_standing_mailbox = __esm({
 // topology/lib/reviewer.mjs
 var reviewer_exports = {};
 __export(reviewer_exports, {
+  INTEGRATION_BRANCH: () => INTEGRATION_BRANCH,
   PROBE_POLL_MS: () => PROBE_POLL_MS,
   PROBE_TIMEOUT_MS: () => PROBE_TIMEOUT_MS,
   REVIEW_INCOMPLETE_BOUND_MS: () => REVIEW_INCOMPLETE_BOUND_MS,
@@ -76671,10 +76672,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4065f9e6b35192f7c2d6a0933b2806e3e35b55d40db61feed9d4e8410fa31eec";
+  return false ? null : "5956abc9c9e9f032e05049844f537ceeda6c69e01c8c1f58b6103cde9d10d1c3";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4065f9e6b35192f7c2d6a0933b2806e3e35b55d40db61feed9d4e8410fa31eec";
+  const fingerprint2 = false ? null : "5956abc9c9e9f032e05049844f537ceeda6c69e01c8c1f58b6103cde9d10d1c3";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77099,7 +77100,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4065f9e6b35192f7c2d6a0933b2806e3e35b55d40db61feed9d4e8410fa31eec",
+  sourceFingerprint: false ? null : "5956abc9c9e9f032e05049844f537ceeda6c69e01c8c1f58b6103cde9d10d1c3",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
