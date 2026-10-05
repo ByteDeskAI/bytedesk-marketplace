@@ -27,6 +27,21 @@
   sourcing the secrets file, so a sourced value can no longer override them. Move any
   `dispatch.passEnv` from repository config to your user config.
 
+- **Review follow-ups to TM-446/447/448/460 (EP-028).**
+  - A dispatched worker's own claim (`TM_DISPATCH_WORKER`) is marked `worker` and keeps the
+    earlier `since`, so a worker's `tm start` no longer looks like its lead re-claiming.
+  - `TMUX_PANE` is dropped for the pool, `runTm` children and collect's lead check, because
+    `ao-topology manage` treats the pane as an identity. `TMUX` is dropped for `runTm` children.
+    Proof-window tunables (`AO_*TTL*_MS`, `AO_*GRACE*_MS`) are dropped too, so a caller cannot
+    widen what counts as a responsive lead.
+  - A ticket's path target and origin are resolved to their real path once, and that path is the
+    one written to.
+  - Mail to a lead carries only the sender identity (`AO_AGENT_ID`, `AO_CONSUMER`,
+    `AO_SESSION_*`) of the caller's agent-orchestration environment.
+  - `passEnv` also refuses `BASH_ENV`, `ENV`, `ZDOTDIR`, `NODE_PATH`, `PYTHONPATH`,
+    `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and
+    `SSH_AUTH_SOCK`.
+
 ### Changed
 
 - **Cross-repo ticket and pool-wait fixes from the EP-028 review (TM-450, EP-028).**

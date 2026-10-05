@@ -90,7 +90,7 @@ export function resolveTarget(spec, p = paths(), env = process.env) {
   if ((isAbsolute(ref) || ref.startsWith(".") || ref.includes("/")) && existsSync(asPath)) {
     if (!hasStore(asPath)) throw new Error(`${asPath} has no task-management store (${STORE}) to file a ticket on`);
     if (!knownRepo(asPath, p, env)) throw new Error(refuse(asPath, "not a known repo", p, { target: ref }));
-    return asPath;
+    return real(asPath); // TM-446 review: run against the path that was checked, not a swappable link
   }
   const slug = ref.toLowerCase();
   const fromAo = [...new Set(aoRepos(env).filter((r) => basename(r.consumer).toLowerCase() === slug || r.key === ref).map((r) => r.consumer))].filter(hasStore);
@@ -115,6 +115,7 @@ export function resolveTarget(spec, p = paths(), env = process.env) {
 export function runTmEnv(root, env = process.env) {
   const childEnv = { ...withoutAoIdentity(env), TM_ROOT: root };
   delete childEnv.CLAUDE_PROJECT_DIR;
+  delete childEnv.TMUX; // no inherited tmux server: the child must not address the caller's
   return childEnv;
 }
 
@@ -144,12 +145,22 @@ export function aoTopologyBin(env = process.env) {
   }
 }
 
+/** AO's sender identity (session-identity.mjs callerIdentity) — all the mail needs of the caller. */
+const SENDER_ENV = ["AO_AGENT_ID", "AO_CONSUMER", "AO_SESSION_AGENT_ID", "AO_SESSION_CONSUMER"];
+
+/** `ao-topology mailbox send`'s env: a runTm child's, plus only who is sending. */
+export function mailEnv(root, env = process.env) {
+  const next = runTmEnv(root, env);
+  for (const k of SENDER_ENV) if (env[k] !== undefined) next[k] = env[k];
+  return next;
+}
+
 /** One standing mail to a repo's lead through AO's CLI. Never throws: { sent, reason?, argv? }. */
 export function mailLead(repoRoot, subject, body, env = process.env) {
   const bin = aoTopologyBin(env);
   if (!bin) return { sent: false, reason: "agent-orchestration is not installed — no mail sent" };
   const argv = ["mailbox", "send", "--to-repo", repoRoot, "--subject", subject, "--body", body];
-  const res = spawnSync(bin, argv, { cwd: repoRoot, env, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
+  const res = spawnSync(bin, argv, { cwd: repoRoot, env: mailEnv(repoRoot, env), encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
   if (res.status === 0) return { sent: true };
   // ao-topology reports refusals as {ok:false,message} on stdout (TM-153), so read both streams.
   const why = `${res.stderr || ""} ${res.stdout || ""}`.trim() || res.error?.message || `exit ${res.status}`;
@@ -269,7 +280,8 @@ export function notifyOrigin(id, { kind, key: given = kind, detail = "" }, p = p
   }
   if (!fresh) return { ok: true, duplicate: true, kind, key };
 
-  const { repo, task: originTask } = task.origin;
+  const { task: originTask } = task.origin;
+  const repo = real(task.origin.repo); // the path knownRepo checked, resolved once
   const ref = `${task.board || storeBoard(p)}#${id}`;
   const line = `${ref} ${kind}${detail ? `: ${detail}` : ""}`;
   const comment = originTask ? runTm(repo, ["comment", originTask, line]) : { ok: false, stderr: "no origin task" };

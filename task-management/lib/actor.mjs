@@ -57,9 +57,20 @@ export function sessionId(env = process.env) {
  */
 const AO_CONFIG = /^AO_(HOME|HOME_LEGACY|TRANSPORT|TOPOLOGY_BIN|TMUX_COMMAND|NATS_[A-Z_]+|NTFY_[A-Z_]+|SERVICES_[A-Z_]+|[A-Z_]+_MS)$/;
 
-/** `env` without agent-orchestration identity — one rule for runTm children and the pool. */
+/**
+ * Tunables that widen what agent-orchestration accepts as proof a lead is alive
+ * (AO_RESPONSIVE_TTL_MS, AO_LEAD_HEARTBEAT_TTL_MS, AO_LEAD_ACK_GRACE_MS): a caller must not be
+ * able to stretch "responsive" for a child that decides ownership on it.
+ */
+const AO_PROOF_WINDOW = /^AO_[A-Z_]*(TTL|GRACE)[A-Z_]*_MS$/;
+
+/**
+ * `env` without agent-orchestration identity — one rule for runTm children, the pool and collect's
+ * lead check. TMUX_PANE goes too: `ao-topology manage` falls back to the pane's bound agent
+ * (delegation.mjs bindingAgentId), so a pane id is an identity.
+ */
 export function withoutAoIdentity(env) {
-  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("AO_") || AO_CONFIG.test(k)));
+  return Object.fromEntries(Object.entries(env).filter(([k]) => k !== "TMUX_PANE" && (!k.startsWith("AO_") || (AO_CONFIG.test(k) && !AO_PROOF_WINDOW.test(k)))));
 }
 
 export function actor(env = process.env) {

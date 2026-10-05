@@ -80,7 +80,7 @@ describe("TM-448 passEnv trusts only user config and never a reserved name", () 
   });
 
   it("reserved names are refused from every layer", () => {
-    const reserved = ["TM_ROOT", "TM_ACTOR", "AO_AGENT_ID", "CLAUDE_CONFIG_DIR", "PATH", "HOME", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND"];
+    const reserved = ["TM_ROOT", "TM_ACTOR", "AO_AGENT_ID", "CLAUDE_CONFIG_DIR", "PATH", "HOME", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND", "BASH_ENV", "ENV", "ZDOTDIR", "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PERL5OPT", "RUBYOPT", "XDG_CONFIG_HOME", "TMUX", "TMUX_PANE", "SSH_AUTH_SOCK"];
     userConfig({ tm: ["TM375_SECRET", ...reserved.slice(0, 5)], ao: reserved.slice(5) });
     try {
       const plan = tmux.passEnvNames({ p: storeWithPassEnv(null, { tm: ["GIT_DIR"], ao: ["AO_CONSUMER"] }) });

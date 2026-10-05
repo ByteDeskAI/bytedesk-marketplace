@@ -11,7 +11,9 @@
   provenance; a name set only in the repository layer is ignored with a warning in launch
   warnings and session logs. `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`
   and `NODE_OPTIONS` are refused from every layer. A test also pins that the launcher exports the
-  agent's own variables after sourcing the secrets file.
+  agent's own variables after sourcing the secrets file. Review follow-up: also refused are
+  `BASH_ENV`, `ENV`, `ZDOTDIR`, `NODE_PATH`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`,
+  `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`.
 - **A durable session started without `AO_CONSUMER` no longer leaves its secrets file behind
   (TM-450, EP-028).** The 0600 `<launcher>.env` was removed only after the readiness wait, which
   runs only with `AO_CONSUMER`. `retirePassEnv` now waits (bounded) for the launcher to consume

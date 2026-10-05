@@ -100,7 +100,7 @@ test("TM-448: repo-tracked workers.passEnv is ignored with a warning; the global
 });
 
 test("TM-448: reserved names are refused from every layer", async (t) => {
-  const reserved = ["TM_ROOT", "AO_AGENT_ID", "AO_CONSUMER", "CLAUDE_CONFIG_DIR", "PATH", "HOME", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND"];
+  const reserved = ["TM_ROOT", "AO_AGENT_ID", "AO_CONSUMER", "CLAUDE_CONFIG_DIR", "PATH", "HOME", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND", "BASH_ENV", "ENV", "ZDOTDIR", "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PERL5OPT", "RUBYOPT", "XDG_CONFIG_HOME", "TMUX", "TMUX_PANE", "SSH_AUTH_SOCK"];
   const { consumer, xdg, home } = await layered(t, { global: ["OK_NAME", ...reserved.slice(0, 6)], repo: reserved.slice(6) });
   const got = await passEnvFor(consumer, { env: { XDG_CONFIG_HOME: xdg }, home });
   assert.deepEqual(got.names, ["OK_NAME"]);

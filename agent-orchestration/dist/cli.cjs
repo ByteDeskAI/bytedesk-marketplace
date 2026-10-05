@@ -27048,7 +27048,7 @@ async function passEnvFor(consumer, { env = process.env, home = (0, import_node_
   const ignored = repo.filter((name) => !RESERVED_ENV.test(name) && !names2.includes(name));
   const warnings = [
     ...ignored.length ? [`workers.passEnv: ${ignored.join(", ")} ignored \u2014 named only in the repository config, which is git-tracked; name it in the global config instead`] : [],
-    ...refused.length ? [`workers.passEnv: ${refused.join(", ")} refused \u2014 reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, NODE_OPTIONS) are never passed`] : []
+    ...refused.length ? [`workers.passEnv: ${refused.join(", ")} refused \u2014 reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, shell/interpreter startup and module paths, XDG_CONFIG_HOME, TMUX, TMUX_PANE, SSH_AUTH_SOCK) are never passed`] : []
   ];
   return { names: names2, missing: names2.filter((name) => typeof env[name] !== "string"), ignored, refused, warnings };
 }
@@ -28245,7 +28245,7 @@ var init_launch = __esm({
     BEGIN_CLAUSE = " Then begin the mission immediately, in the same turn \u2014 do not stop after READY and do not wait for another message. You are the conductor: nobody is going to tell you to start.";
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
     ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-    RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS)$/;
+    RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|XDG_CONFIG_HOME|TMUX|TMUX_PANE|SSH_AUTH_SOCK)$/;
     passEnvFile = (launcher) => `${launcher}.env`;
     ROLE_SESSION_NAME = /^[A-Za-z0-9_-]{1,160}$/;
   }
@@ -62530,10 +62530,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b6fcd5aa2097a12efd70da83d8e513bdcd13eef25d244f66cd958c7eca77473d";
+  return false ? null : "2fb3326c74653b1497daa4487f89aee2fcb08ce29e6a472d56a9e75fef95a8bd";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b6fcd5aa2097a12efd70da83d8e513bdcd13eef25d244f66cd958c7eca77473d";
+  const fingerprint2 = false ? null : "2fb3326c74653b1497daa4487f89aee2fcb08ce29e6a472d56a9e75fef95a8bd";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63150,7 +63150,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b6fcd5aa2097a12efd70da83d8e513bdcd13eef25d244f66cd958c7eca77473d",
+  sourceFingerprint: false ? null : "2fb3326c74653b1497daa4487f89aee2fcb08ce29e6a472d56a9e75fef95a8bd",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

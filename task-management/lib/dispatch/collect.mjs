@@ -29,6 +29,7 @@ import { toolFailureReason } from "./backend.mjs";
 import { claimant, releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
+import { withoutAoIdentity } from "../actor.mjs";
 import { config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { rpcSession } from "./mcp-client.mjs";
@@ -150,7 +151,7 @@ function heldByAdmissionOwner(task, p, { caps = null, exec = spawnSync } = {}) {
     const { record } = readManagementRecord(task, p);
     const claim = claimant(task.id, p);
     if (!record.owner || claim?.session !== record.owner) return false;
-    if (claim.since && task.dispatched?.at && claim.since > task.dispatched.at) return true;
+    if (!claim.worker && claim.since && task.dispatched?.at && claim.since > task.dispatched.at) return true;
     return leadProvenAlive(record.lead_id || record.owner, p, { caps, exec });
   } catch {
     return false;
@@ -160,7 +161,7 @@ function heldByAdmissionOwner(task, p, { caps = null, exec = spawnSync } = {}) {
 function leadProvenAlive(leadId, p, { caps, exec }) {
   const bin = caps ? caps.backends?.topology?.path : detectHostCaps().backends?.topology?.path;
   if (!bin) return false;
-  const res = exec(bin, ["lead", "status", "--cached"], { cwd: p.root, shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: PR_LOOKUP_TIMEOUT_MS });
+  const res = exec(bin, ["lead", "status", "--cached"], { cwd: p.root, env: withoutAoIdentity(process.env), shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: PR_LOOKUP_TIMEOUT_MS });
   if (res?.error) return false;
   const status = JSON.parse(String(res.stdout || "{}"));
   return status.status === "responsive" && status.record?.agent_id === leadId;

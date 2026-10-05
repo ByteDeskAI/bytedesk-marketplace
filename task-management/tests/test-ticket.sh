@@ -173,6 +173,11 @@ try { console.log(JSON.stringify(await callTool('tm_ticket', { target: '$B', tit
 has "$mcp" "unknown option --priority" "MCP tm_ticket refuses a title with a stray flag, as the CLI does"
 lacks "$(cat "$B"/.bytedesk/task-management/tasks/*.md)" "Stray flag" "nothing was filed for it"
 
+# Review: a path target is resolved once and the resolved path is what is written to, so a link
+# swapped after the check cannot redirect the write.
+ln -s "$B" "$PARENT/repo-b-link"
+has "$(tm "$A" ticket "$PARENT/repo-b-link" "Via a link" --ac "x")" "filed on $B " "a linked target is filed on its real path"
+
 [[ ! -e "$MARK" ]] && ok "no planted bin/tm ran on file, notify, the event bridge or collect" || no "no planted bin/tm ran on file, notify, the event bridge or collect" "$(cat "$MARK")"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

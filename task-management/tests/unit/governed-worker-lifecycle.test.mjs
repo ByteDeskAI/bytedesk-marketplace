@@ -76,6 +76,24 @@ describe("TM-247 governed worker lifecycle (task-management)", () => {
     assert.notEqual(read(id, p).status, "in_progress");
   });
 
+  it("TM-460: the worker's own re-claim under the lead's session does not count as the lead's", async () => {
+    const { p, id } = admitted();
+    assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
+    await new Promise((r) => setTimeout(r, 5));
+    // The worker inherits TM_SESSION_ID = the owner's session, then runs `tm start`/`tm claim`.
+    process.env.TM_DISPATCH_WORKER = "1";
+    try {
+      assert.equal(claimTask(id, { session: "lead-session", p }).ok, true);
+    } finally {
+      delete process.env.TM_DISPATCH_WORKER;
+    }
+    assert.equal(state(p).claims[id].worker, true);
+    assert.ok(state(p).claims[id].since <= read(id, p).dispatched.at, "the worker keeps the earlier since");
+    const res = collectTmux(id, { p, spawnImpl: GONE, caps: {} });
+    assert.notEqual(res.heldByLead, true);
+    assert.ok(res.parked || res.retry, "a crashed worker is parked or retried");
+  });
+
   it("TM-460: the owner proven responsive by ao's cached lead status still holds the task", async () => {
     const { p, id } = admitted();
     assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
@@ -86,7 +104,19 @@ describe("TM-247 governed worker lifecycle (task-management)", () => {
       if (bin === "gh") return { status: 1 };
       return { status: 0, stdout: JSON.stringify({ status: "responsive", record: { agent_id: "lead-1" } }) };
     };
-    const res = recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, p, { exec, caps });
+    // The caller's env must not widen "responsive" or lend its identity to the check.
+    const envs = [];
+    const spy = (bin, args, opts) => (envs.push(opts?.env), exec(bin, args, opts));
+    Object.assign(process.env, { AO_RESPONSIVE_TTL_MS: "999999999", AO_AGENT_ID: "caller", TMUX_PANE: "%9" });
+    let res;
+    try {
+      res = recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, p, { exec: spy, caps });
+    } finally {
+      for (const k of ["AO_RESPONSIVE_TTL_MS", "AO_AGENT_ID", "TMUX_PANE"]) delete process.env[k];
+    }
+    const leadEnv = envs.find((e) => e && "PATH" in e);
+    assert.ok(leadEnv, "the lead check runs with an explicit env");
+    for (const k of ["AO_RESPONSIVE_TTL_MS", "AO_AGENT_ID", "TMUX_PANE"]) assert.equal(k in leadEnv, false, `${k} does not reach lead status`);
     assert.equal(res.heldByLead, true, asked.join("\n"));
     assert.ok(asked.includes("/fake/ao-topology lead status --cached"));
     assert.equal(read(id, p).status, "in_progress");

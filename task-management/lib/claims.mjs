@@ -69,8 +69,12 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     const stolenFrom = owned && held.session !== session ? held.session : null;
     // `ts` moves with every heartbeat; `since` is when this claim was TAKEN, which is what
     // collect asks when it decides whether a lead re-claimed after a dispatch (TM-460).
+    // A dispatched worker carries its lead's TM_SESSION_ID, so its own `tm start`/`tm claim` would
+    // otherwise look like the lead re-claiming: it is marked `worker` and keeps the earlier `since`.
     const at = now();
-    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since: at, ...(gateway ? { gateway } : {}) };
+    const worker = Boolean(process.env.TM_DISPATCH_WORKER);
+    const since = worker && live && held.session === session && held.since ? held.since : at;
+    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since, ...(worker ? { worker: true } : {}), ...(gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);
     else logEvent("claim", { id, session }, p);

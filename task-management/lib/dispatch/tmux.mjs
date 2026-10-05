@@ -121,8 +121,8 @@ export function available(caps = null) {
  * refused wherever it is set.
  */
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS)$/;
-const RESERVED_LIST = "TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, NODE_OPTIONS";
+export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|XDG_CONFIG_HOME|TMUX|TMUX_PANE|SSH_AUTH_SOCK)$/;
+const RESERVED_LIST = "TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, shell/interpreter startup and module paths, XDG_CONFIG_HOME, TMUX, TMUX_PANE, SSH_AUTH_SOCK";
 const readNames = (file, pick) => {
   try {
     const raw = pick(JSON.parse(readFileSync(file, "utf8")));

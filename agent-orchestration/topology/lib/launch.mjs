@@ -246,7 +246,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * TM-448: names that steer tm, ao, the harness, the loader or git are never passed, whichever layer
  * names them — a secrets file sourced into a worker must not be able to rename who it is.
  */
-export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS)$/;
+export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|XDG_CONFIG_HOME|TMUX|TMUX_PANE|SSH_AUTH_SOCK)$/;
 
 /**
  * The configured names to pass, which of them the launching environment lacks, and what was set
@@ -268,7 +268,7 @@ export async function passEnvFor(consumer, { env = process.env, home = homedir()
   const ignored = repo.filter((name) => !RESERVED_ENV.test(name) && !names.includes(name));
   const warnings = [
     ...(ignored.length ? [`workers.passEnv: ${ignored.join(", ")} ignored — named only in the repository config, which is git-tracked; name it in the global config instead`] : []),
-    ...(refused.length ? [`workers.passEnv: ${refused.join(", ")} refused — reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, NODE_OPTIONS) are never passed`] : []),
+    ...(refused.length ? [`workers.passEnv: ${refused.join(", ")} refused — reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, shell/interpreter startup and module paths, XDG_CONFIG_HOME, TMUX, TMUX_PANE, SSH_AUTH_SOCK) are never passed`] : []),
   ];
   return { names, missing: names.filter((name) => typeof env[name] !== "string"), ignored, refused, warnings };
 }
