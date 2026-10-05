@@ -60437,10 +60437,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14";
+  return false ? null : "724fd2599993026b83e51a67bd4243797da16d3c68442b8fa3466e4c5a05a9db";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14";
+  const fingerprint2 = false ? null : "724fd2599993026b83e51a67bd4243797da16d3c68442b8fa3466e4c5a05a9db";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61031,7 +61031,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14",
+  sourceFingerprint: false ? null : "724fd2599993026b83e51a67bd4243797da16d3c68442b8fa3466e4c5a05a9db",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -61795,7 +61795,7 @@ var OrchestrationService = class {
 };
 
 // src/services/cli.mjs
-var import_node_child_process18 = require("node:child_process");
+var import_node_child_process19 = require("node:child_process");
 var import_node_fs16 = require("node:fs");
 var import_promises59 = require("node:fs/promises");
 var import_node_os37 = __toESM(require("node:os"), 1);
@@ -61804,17 +61804,54 @@ init_services_client();
 init_repoid();
 
 // src/services/project-scope.mjs
+var import_node_child_process18 = require("node:child_process");
 var import_node_fs15 = require("node:fs");
 var import_node_path66 = require("node:path");
 var DEFAULT_PLUGINS = Object.freeze(["agent-orchestration", "task-management"]);
+var RULE = '~/.agents/AGENTS.md, "Claude Code plugins from a local marketplace"';
 function isGuardedPlugin(id, names2 = DEFAULT_PLUGINS) {
   return id.endsWith("@bytedesk") && (names2.includes("all") || names2.includes(id.slice(0, -"@bytedesk".length)));
 }
+function machinePath(source) {
+  if (source?.source !== "directory" && source?.source !== "file") return false;
+  const path3 = String(source.path ?? "");
+  return path3.startsWith("~") || (0, import_node_path66.isAbsolute)(path3);
+}
 function projectPluginViolations(repoDir, names2 = DEFAULT_PLUGINS) {
-  const file2 = (0, import_node_path66.join)((0, import_node_path66.resolve)(repoDir), ".claude", "settings.json");
-  if (!(0, import_node_fs15.existsSync)(file2)) return [];
-  const settings = JSON.parse((0, import_node_fs15.readFileSync)(file2, "utf8"));
-  return Object.entries(settings.enabledPlugins ?? {}).filter(([id, on]) => isGuardedPlugin(id, names2) && on !== false).map(([id]) => ({ file: file2, id }));
+  const root = (0, import_node_path66.resolve)(repoDir);
+  const file2 = (0, import_node_path66.join)(root, ".claude", "settings.json");
+  const found = [];
+  if ((0, import_node_fs15.existsSync)(file2)) {
+    const settings = JSON.parse((0, import_node_fs15.readFileSync)(file2, "utf8"));
+    const markets = settings.extraKnownMarketplaces ?? {};
+    for (const [id, on] of Object.entries(settings.enabledPlugins ?? {})) {
+      if (!isGuardedPlugin(id, names2) || on === false || markets.bytedesk?.source) continue;
+      found.push({
+        file: file2,
+        id,
+        problem: `enables ${id} but does not register the "bytedesk" marketplace`,
+        fix: `add "extraKnownMarketplaces": {"bytedesk": {"source": {"source": "directory", "path": "../bytedesk-marketplace"}}} (a path relative to the repository), or delete "${id}": true from "enabledPlugins"`
+      });
+    }
+    if (machinePath(markets.bytedesk?.source)) {
+      found.push({
+        file: file2,
+        id: "bytedesk",
+        problem: `registers the "bytedesk" marketplace by machine-specific path ${markets.bytedesk.source.path}`,
+        fix: 'make "path" relative to the repository, for example "../bytedesk-marketplace"'
+      });
+    }
+  }
+  const tracked = (0, import_node_child_process18.spawnSync)("git", ["-C", root, "ls-files", "--", ".claude/plugins"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
+  if (tracked.status === 0 && tracked.stdout.trim()) {
+    found.push({
+      file: (0, import_node_path66.join)(root, ".claude", "plugins"),
+      id: ".claude/plugins",
+      problem: "is a plugin cache committed into the repository",
+      fix: "run `git rm -r --cached .claude/plugins` and add `.claude/plugins/` to .gitignore"
+    });
+  }
+  return found;
 }
 function projectScopeWarning(repoDir) {
   let found;
@@ -61824,11 +61861,11 @@ function projectScopeWarning(repoDir) {
     return null;
   }
   if (!found.length) return null;
-  const { file: file2 } = found[0];
   return [
-    `agent-orchestration: ${file2} enables ${found.map((v) => v.id).join(", ")} at project scope.`,
-    `Every \`git commit\` in this repository will be blocked until it is removed. Fix: delete ${found.map((v) => `"${v.id}": true`).join(" and ")} from "enabledPlugins" in ${file2}`,
-    "(keep it in ~/.claude/settings.json, where these plugins are enabled for every project)."
+    "agent-orchestration: this repository makes a per-project bytedesk plugin install.",
+    "Every `git commit` in this repository will be blocked until it is fixed.",
+    ...found.map((v) => `${v.file} ${v.problem}. Fix: ${v.fix}.`),
+    `Rule: ${RULE}. Registering the marketplace by relative path and declaring enabledPlugins is allowed.`
   ].join("\n");
 }
 
@@ -61858,7 +61895,7 @@ function healLines(heal) {
   return lines;
 }
 function sessionStartWarning(cwd) {
-  const top = (0, import_node_child_process18.spawnSync)("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
+  const top = (0, import_node_child_process19.spawnSync)("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5e3 });
   return projectScopeWarning(top.status === 0 ? top.stdout.trim() : cwd);
 }
 function detach(stateRoot3, consumerCwd) {
@@ -61867,7 +61904,7 @@ function detach(stateRoot3, consumerCwd) {
     (0, import_node_fs16.mkdirSync)(logs, { recursive: true, mode: 448 });
     const log = (0, import_node_fs16.openSync)((0, import_node_path67.join)(logs, "ensure.log"), "a", 384);
     try {
-      (0, import_node_child_process18.spawn)(process.execPath, [process.argv[1], "services", "ensure", "--state-root", stateRoot3, ...consumerCwd ? ["--consumer-cwd", consumerCwd] : []], {
+      (0, import_node_child_process19.spawn)(process.execPath, [process.argv[1], "services", "ensure", "--state-root", stateRoot3, ...consumerCwd ? ["--consumer-cwd", consumerCwd] : []], {
         detached: true,
         stdio: ["ignore", log, log],
         windowsHide: true

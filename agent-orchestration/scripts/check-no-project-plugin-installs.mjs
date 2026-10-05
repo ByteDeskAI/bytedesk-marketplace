@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Guard: the named bytedesk plugins are installed at user scope only. Default: agent-orchestration and task-management.
 // Add more with --plugin <name> (repeatable); `--plugin all` covers every @bytedesk plugin.
-//   check-no-project-plugin-installs.mjs [repoDir ...]   fail if a repo's .claude/settings.json enables one
+//   check-no-project-plugin-installs.mjs [repoDir ...]   fail if a repo makes a per-project install of one; the
+//                                                         AGENTS.md-mandated relative-path marketplace + enabledPlugins passes (TM-370)
 //   check-no-project-plugin-installs.mjs --installs      fail if ~/.claude/plugins/installed_plugins.json holds a non-user install of one
 // Exit 0 clean, 1 violations, 2 unreadable input. Claude Code has no setting that forbids project scope, so this is a check, not a block.
 // The repo predicate lives in src/services/project-scope.mjs, shared with the SessionStart warning (TM-285).
@@ -33,7 +34,7 @@ if (args.includes('--installs')) {
     let found;
     try { found = projectPluginViolations(dir, names); }
     catch (error) { console.error(`cannot read ${join(dir, '.claude', 'settings.json')}: ${error.message}`); process.exit(2); }
-    for (const { file, id } of found) problems.push(`${file}: enables ${id}; enable it in ~/.claude/settings.json instead`);
+    for (const { file, problem, fix } of found) problems.push(`${file} ${problem}. Fix: ${fix}.`);
   }
 }
 

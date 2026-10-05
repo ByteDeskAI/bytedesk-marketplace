@@ -17,6 +17,15 @@
 
 ### Fixed
 
+- **The commit guard allows the plugin declaration that AGENTS.md requires (TM-370, EP-028).**
+  `guard-project-install`, the `git-hook` pre-commit hook and the SessionStart warning blocked
+  every commit in a repository whose `.claude/settings.json` enabled `task-management@bytedesk`,
+  even when it followed the `~/.agents/AGENTS.md` rule to register the marketplace by relative
+  path and declare `enabledPlugins`. That form now passes. Still blocked, as per-project
+  installs: an enabled plugin whose `bytedesk` marketplace the repository does not register
+  (what `claude plugin install --scope project` writes), a `bytedesk` marketplace registered by
+  absolute or `~` path, and a plugin cache committed under `.claude/plugins/`. Each refusal names
+  the problem, the exact fix and the AGENTS.md rule.
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
