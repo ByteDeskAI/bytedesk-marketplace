@@ -55,6 +55,7 @@ import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
+import { createIdleNudge, idleNudgeTick } from './idle-nudge.mjs';
 import { exists, sleep, writeJson, readJson, run } from './util.mjs';
 import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
 import { absorbTransportFailure, describeTransport } from './orch-transport.mjs';
@@ -179,6 +180,7 @@ export async function superviseRepository(options, { signal, once = false, inter
    // suspicions waiting for their second look. Closed in the same `finally` as the heartbeat, so a
    // supervisor that exits never leaves tmux clients attached.
    const quotaWatch=createQuotaWatch();
+   const idleNudge=createIdleNudge();   // TM-408: who was rung, and when, across ticks
    // The expensive body. Returns the report it wrote plus whether anything actually moved.
    const reconcile=async()=>{
      // The census reuses the listing this call already takes; wrapping listPanesFn is what makes
@@ -361,6 +363,12 @@ export async function superviseRepository(options, { signal, once = false, inter
              incidents:(quota.incidents??[]).map(i=>({agent:i.agent_id,provider:i.provider,id:i.incident_id,announced:i.announced?.status??null})),
              dismissed:quota.dismissed??[],unwatched:quota.unwatched??[]}};
          }
+       }
+       // TM-408: an idle standing agent is rung once to pull its next assignment (idle-nudge.mjs).
+       // Absorbed like the quota watch, and reported only when it rang or refused someone.
+       if(Array.isArray(censusPanes)) {
+         const nudges=await idleNudgeTick({...options,env,home},{census,panes:censusPanes,adapters,state:idleNudge}).catch(error=>[{error:error?.code ?? String(error)}]);
+         if(nudges.length) report={...report,idle_nudges:nudges};
        }
        censusPanes=undefined;   // consumed; the next tick reuses L2's or takes its own
        report={...report,census:{at:census.at,tick_ms:census.tickMs,captures:census.captures,

@@ -15,3 +15,8 @@ outbox.
    authorizes a path explicitly.
 6. Do not message other agents. The conductor routes all communication.
 7. Keep terminal chatter short. The reply file is the deliverable.
+
+## When you finish
+
+Never ask the operator what is next. Your reply is the hand-off: write it, then wait on your
+inbox, where whoever briefed you sends the next assignment.

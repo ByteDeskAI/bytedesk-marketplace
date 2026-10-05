@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule
+  is stated in `prompts/common.md`, `prompts/common-reviewer.md`, `prompts/lead.md`, every role
+  pack under `roles/`, and the generated Protocol section (which no `replace` can remove): a worker
+  or other standing agent asks its repository lead with `ao-topology mailbox send` and waits on its
+  inbox; a lead reads its own board (`tm next`, ready-for-agent, blocked, stale in_progress) and
+  assigns or dispatches the next work, reporting to the operator only results, still-ask blockers
+  and operator-only decisions, and with nothing ready reports the board state once and idles. The
+  supervisor now rings an idle, dispatchable standing agent once per idle period through the safe
+  bell (`wakeForProbe`; never over a draft, an attention screen or active tool input): a worker
+  with the exact `mailbox send --to` command naming its registered lead, a lead with "pick the next
+  ready task with tm next". Run agents (their conductor routes them) and the read-only reviewer are
+  not rung. New module `topology/lib/idle-nudge.mjs`; the tick reports `idle_nudges` only when it
+  rang or refused someone. Config `idle_nudge`: `enabled` (default `true`; `false` is the off
+  switch), `backoff_ms` (default 30 minutes between two rings of one agent), `retry_ms` (default
+  60 s before a refused ring is tried again). The nudge memory lives in the supervisor process, so
+  a restarted supervisor may ring an already-idle agent once more. The prompt-golden fixtures gain
+  the one generated line.
+
 ### Removed
 
 - **The project-scope commit guard is gone (TM-392).** `~/.agents/AGENTS.md` lets a repository

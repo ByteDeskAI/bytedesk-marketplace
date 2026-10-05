@@ -8707,6 +8707,14 @@ __export(prompts_exports, {
   promptStatePath: () => promptStatePath,
   readPromptState: () => readPromptState
 });
+function pullRule(agent) {
+  if (agent.role === "lead") return `- When work finishes, never ask the operator what is next. Take the next ready task from your own
+  board (\`tm next\`) and assign or dispatch it; with nothing ready, report the board state once and idle.`;
+  if (agent.role === "reviewer") return "- When a review is finished, never ask the operator what is next; wait for the next review request.";
+  if (agent._prompt_vars?.run_dir) return "- When your brief is done, never ask the operator what is next. Your reply is the hand-off; then wait on your inbox.";
+  return `- When your work is finished, never ask the operator what is next. Ask your repository lead with
+  \`ao-topology mailbox send --to <lead-id>\`, then wait on your inbox.`;
+}
 function generatedPrompt(agent, consumer, dir) {
   return `# ${displayName(agent)}
 
@@ -8732,6 +8740,7 @@ paths in your own commands before you run them.
 - Do the work in the same turn you read a message. Do not stop to confirm receipt and wait to
   be told to continue \u2014 nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
+${pullRule(agent)}
 ${agent.role === "reviewer" ? `- Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
 - Deliver review verdicts through the nonce-bound AO_REVIEW output protocol. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
@@ -36876,6 +36885,70 @@ var init_presence = __esm({
   }
 });
 
+// topology/lib/idle-nudge.mjs
+function idleNudgeConfig(config2) {
+  const raw = config2?.idle_nudge ?? {};
+  const ms = (value, fallback) => Number.isFinite(value) && value >= 0 ? value : fallback;
+  return { enabled: raw.enabled !== false, backoff_ms: ms(raw.backoff_ms, IDLE_NUDGE_DEFAULTS.backoff_ms), retry_ms: ms(raw.retry_ms, IDLE_NUDGE_DEFAULTS.retry_ms) };
+}
+function nudgeText({ consumer, agentId, leadId, isLead }) {
+  if (isLead) {
+    return `${TAG} You are idle. Do not ask the operator what is next: pick the next ready task with tm next (also check ready-for-agent, blocked and stale in_progress) and assign or dispatch it yourself. If nothing is ready, report the board state once and stay idle.`;
+  }
+  const repo = shellQuote(consumer);
+  return `${TAG} You are idle. Do not ask the operator what is next. Ask your lead for your next assignment: ao-topology mailbox send --consumer ${repo} --from ${shellQuote(agentId)} --to ${shellQuote(leadId)} --subject next-assignment --body ${shellQuote(ASK_BODY)} then wait on your inbox: ao-topology mailbox inbox --consumer ${repo} --agent ${shellQuote(agentId)}`;
+}
+function createIdleNudge() {
+  return { memory: /* @__PURE__ */ new Map() };
+}
+async function ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, tmux: tmux2 }) {
+  if (!isLead && !leadId) return { rang: false, reason: "no registered repository lead to ask" };
+  const pane = panes.find((item) => item.paneId === row.binding.paneId && item.serverKey === row.binding.serverKey);
+  const adapter = pane ? adapterForPane(adapters, pane) : null;
+  if (ringCapability(adapter) !== "supported") return { rang: false, reason: "the provider has no measured safe composer" };
+  const text = nudgeText({ consumer, agentId: row.agentId, leadId, isLead });
+  const format = composerFormat(adapter, tmuxFailureTrigger(adapter));
+  const result2 = await withServer(row.binding.serverKey, () => wake({ pane: row.binding.paneId, adapter, binding: row.binding, format, text, tmux: tmux2 })).catch((error51) => ({ rang: false, reason: error51?.code ?? String(error51) }));
+  return result2?.rang ? { rang: true } : { rang: false, reason: result2?.reason ?? "the composer cannot safely receive a pointer" };
+}
+async function idleNudgeTick(options, { census, panes, adapters, state = createIdleNudge(), now = Date.now(), tmux: tmux2 = tmux, wake = wakeForProbe, config: config2 } = {}) {
+  const { consumer, env = process.env, home = (0, import_node_os31.homedir)(), pluginRoot = null } = options;
+  const settings = idleNudgeConfig(config2 !== void 0 ? config2 : (await loadConfig({ consumer, home, env, pluginRoot })).config);
+  if (!settings.enabled || census?.stale || !Array.isArray(panes) || !adapters) return [];
+  const candidates = (census?.agents ?? []).filter((row) => row.dispatchable && row.state === "idle" && !row.runId && row.repoRole !== "reviewer" && row.binding?.paneId);
+  if (!candidates.length) return [];
+  const registration = await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null);
+  const leadId = registration?.record?.agent_id ?? null;
+  const outcomes = [];
+  for (const row of candidates) {
+    const prior = state.memory.get(row.agentId);
+    if (prior?.rangSince === row.since) continue;
+    if (prior?.rangAt !== void 0 && now - prior.rangAt < settings.backoff_ms) continue;
+    if (prior?.triedAt !== void 0 && now - prior.triedAt < settings.retry_ms) continue;
+    const isLead = row.agentId === leadId || row.repoRole === "lead";
+    const outcome = await ringOne(row, { consumer, leadId, isLead, panes, adapters, wake, tmux: tmux2 });
+    state.memory.set(row.agentId, { ...prior, triedAt: now, ...outcome.rang ? { rangAt: now, rangSince: row.since } : {} });
+    outcomes.push({ agent: row.agentId, lead: isLead, ...outcome });
+  }
+  return outcomes;
+}
+var import_node_os31, IDLE_NUDGE_DEFAULTS, TAG, ASK_BODY;
+var init_idle_nudge = __esm({
+  "topology/lib/idle-nudge.mjs"() {
+    import_node_os31 = require("node:os");
+    init_census();
+    init_config();
+    init_delivery();
+    init_launch();
+    init_lead();
+    init_tmux();
+    init_util();
+    IDLE_NUDGE_DEFAULTS = Object.freeze({ enabled: true, backoff_ms: 30 * 6e4, retry_ms: 6e4 });
+    TAG = "[ao]";
+    ASK_BODY = "Finished my current work; what is my next assignment?";
+  }
+});
+
 // topology/lib/nats-outage.mjs
 function canReach(url2, timeoutMs = 1e3) {
   return new Promise((resolve21) => {
@@ -36904,7 +36977,7 @@ function canReach(url2, timeoutMs = 1e3) {
 async function natsOutageTick({
   consumer,
   env = process.env,
-  home = (0, import_node_os31.homedir)(),
+  home = (0, import_node_os32.homedir)(),
   deliver = sendStandingMessage,
   lead = readLeadRegistration,
   reachable = canReach,
@@ -36949,21 +37022,21 @@ async function natsOutageTick({
   if (!leadId) return { kind, status: "skipped", reason: "no lead is registered for this repository" };
   const where = `${outage.url} (${outage.source})`;
   const body = kind === "outage" && outage.conflict ? [
-    `NATS PORT CONFLICT on ${(0, import_node_os31.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
+    `NATS PORT CONFLICT on ${(0, import_node_os32.hostname)()}: ao's managed NATS port ${outage.conflict.port} is held by another process, so ao's NATS is not running here.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`
   ] : kind === "outage" ? [
-    `NATS OUTAGE on ${(0, import_node_os31.hostname)()}: the configured NATS ${where} is unreachable.`,
+    `NATS OUTAGE on ${(0, import_node_os32.hostname)()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `Fallback: ao is working on the managed local NATS ${state.url ?? "on this host"}. Work on this host continues, but agents on other machines that use ${outage.url} do not see this host's mail, claims or presence until it is back.`,
     `Fix the server at ${outage.url}, or remove ${outage.source} from this host's environment. You will get one more message when it answers again.`
   ] : kind === "retired" ? [
-    `NATS OUTAGE RETIRED on ${(0, import_node_os31.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
+    `NATS OUTAGE RETIRED on ${(0, import_node_os32.hostname)()}: nothing on this host has fallen back from ${where} since ${outage.last_fallback_at ?? outage.since}, so ao no longer treats it as configured.`,
     `It was not proven reachable. ao is on ${state.url} (${state.source}). The outage began ${outage.since}: ${outage.error}`
   ] : [
-    `NATS RECOVERED on ${(0, import_node_os31.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
+    `NATS RECOVERED on ${(0, import_node_os32.hostname)()}: ${where} answers again (since ${outage.recovered_at}); ao is ${state.source === outage.source ? "back on it" : `now on ${state.url} (${state.source})`}.`,
     `The outage began ${outage.since}: ${outage.error}`
   ];
   return deliver({
@@ -36977,11 +37050,11 @@ async function natsOutageTick({
     provenance: { source: "ao-topology supervise" }
   }, { env, home }).then((sent) => ({ kind, status: sent?.status ?? "failed", ...sent?.status === "delivered" ? {} : { reason: sent?.reason ?? null }, to: leadId, message_id: id })).catch((error51) => ({ kind, status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_crypto33, import_node_os31, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
+var import_node_crypto33, import_node_os32, import_node_net3, REDIAL_FIRST_MS, REDIAL_MAX_MS, redials, messageId, SUPERVISOR_SENDER;
 var init_nats_outage = __esm({
   "topology/lib/nats-outage.mjs"() {
     import_node_crypto33 = require("node:crypto");
-    import_node_os31 = require("node:os");
+    import_node_os32 = require("node:os");
     import_node_net3 = __toESM(require("node:net"), 1);
     init_repoid();
     init_orch_transport();
@@ -37024,7 +37097,7 @@ function reconcileFloor(env, override) {
 async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {
 }, onOwned = () => {
 }, sleepFn = sleep } = {}) {
-  const { env = process.env, home = (0, import_node_os32.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os33.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   options = { ...options, consumer };
   const identity = await canonicalRepoId(consumer), root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision");
@@ -37085,6 +37158,7 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
     let censusRoster = [], censusRunDirs = [], censusPanes, census = null;
     let censusRunDirByAgent = /* @__PURE__ */ new Map();
     const quotaWatch = createQuotaWatch();
+    const idleNudge = createIdleNudge();
     const reconcile2 = async () => {
       const seen = [];
       const listPanesFn = async (args) => {
@@ -37239,6 +37313,10 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
             } };
           }
         }
+        if (Array.isArray(censusPanes)) {
+          const nudges = await idleNudgeTick({ ...options, env, home }, { census, panes: censusPanes, adapters, state: idleNudge }).catch((error51) => [{ error: error51?.code ?? String(error51) }]);
+          if (nudges.length) report = { ...report, idle_nudges: nudges };
+        }
         censusPanes = void 0;
         report = { ...report, census: {
           at: census.at,
@@ -37301,7 +37379,7 @@ function pidAlive(pid) {
     return true;
   }
 }
-async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os32.homedir)() } = {}) {
+async function supervisionStatus({ consumer, env = process.env, home = (0, import_node_os33.homedir)() } = {}) {
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
   const root = (0, import_node_path59.join)(stateRoot2(env, home), "supervision");
   const owner = await lockOwner((0, import_node_path59.join)(root, `${key}.lock`));
@@ -37344,7 +37422,7 @@ async function supervisionStatus({ consumer, env = process.env, home = (0, impor
   };
 }
 async function startRepositorySupervision(options) {
-  const { env = process.env, home = (0, import_node_os32.homedir)() } = options;
+  const { env = process.env, home = (0, import_node_os33.homedir)() } = options;
   const consumer = await repositoryConsumer(options.consumer);
   const startTimeoutRaw = options.startTimeoutMs ?? env.AO_SUPERVISION_START_TIMEOUT_MS;
   const startTimeoutMs = Number.isFinite(Number(startTimeoutRaw)) && Number(startTimeoutRaw) > 0 ? Number(startTimeoutRaw) : DEFAULT_START_TIMEOUT_MS;
@@ -37412,14 +37490,14 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path59, import_node_crypto34, import_node_child_process14, import_node_url6, import_node_os32, import_promises51, import_promises52, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path59, import_node_crypto34, import_node_child_process14, import_node_url6, import_node_os33, import_promises51, import_promises52, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path59 = require("node:path");
     import_node_crypto34 = require("node:crypto");
     import_node_child_process14 = require("node:child_process");
     import_node_url6 = require("node:url");
-    import_node_os32 = require("node:os");
+    import_node_os33 = require("node:os");
     import_promises51 = require("node:fs/promises");
     import_promises52 = require("node:timers/promises");
     init_presence();
@@ -37437,6 +37515,7 @@ var init_supervision = __esm({
     init_goal_loop();
     init_slots();
     init_quota();
+    init_idle_nudge();
     init_util();
     init_services_client();
     init_orch_transport();
@@ -61546,7 +61625,7 @@ var import_node_url7 = require("node:url");
 
 // src/service.mjs
 var import_promises57 = require("node:fs/promises");
-var import_node_os36 = require("node:os");
+var import_node_os37 = require("node:os");
 var import_node_path65 = require("node:path");
 
 // src/policy/catalog.mjs
@@ -76498,7 +76577,7 @@ async function defaultOpenLog(stateRoot3) {
 var import_node_crypto36 = require("node:crypto");
 var import_promises56 = require("node:fs/promises");
 var import_node_path64 = require("node:path");
-var import_node_os35 = require("node:os");
+var import_node_os36 = require("node:os");
 init_repoid();
 init_supervision();
 init_orch_transport();
@@ -76514,7 +76593,7 @@ var import_node_crypto35 = require("node:crypto");
 var import_node_fs13 = require("node:fs");
 var import_promises54 = require("node:fs/promises");
 var import_node_net4 = __toESM(require("node:net"), 1);
-var import_node_os34 = __toESM(require("node:os"), 1);
+var import_node_os35 = __toESM(require("node:os"), 1);
 var import_node_path62 = require("node:path");
 var import_promises55 = require("node:timers/promises");
 init_lockfile();
@@ -76525,7 +76604,7 @@ init_orch_transport();
 var import_node_child_process15 = require("node:child_process");
 var import_node_fs11 = require("node:fs");
 var import_promises53 = require("node:fs/promises");
-var import_node_os33 = __toESM(require("node:os"), 1);
+var import_node_os34 = __toESM(require("node:os"), 1);
 var import_node_path60 = require("node:path");
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
@@ -76538,11 +76617,11 @@ function windowsQuote2(value) {
   const text = String(value);
   return /[\s"]/.test(text) || text === "" ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
-async function registrationMode({ platform = process.platform, home = import_node_os33.default.homedir(), env = process.env } = {}) {
+async function registrationMode({ platform = process.platform, home = import_node_os34.default.homedir(), env = process.env } = {}) {
   if (platform === "darwin") return "launchd";
   if (platform === "win32") return "schtasks";
   if (platform !== "linux") return "detached";
-  if (home !== import_node_os33.default.userInfo().homedir) return "detached";
+  if (home !== import_node_os34.default.userInfo().homedir) return "detached";
   try {
     await canonicalUserBusEnvironment(env);
     return "systemd";
@@ -76550,7 +76629,7 @@ async function registrationMode({ platform = process.platform, home = import_nod
     return "detached";
   }
 }
-function registrationPath({ mode, home = import_node_os33.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
+function registrationPath({ mode, home = import_node_os34.default.homedir(), env = process.env, servicesDir: servicesDir2 }) {
   switch (mode) {
     case "systemd":
       return (0, import_node_path60.join)(env.XDG_CONFIG_HOME || (0, import_node_path60.join)(home, ".config"), "systemd", "user", UNIT_NAME);
@@ -76720,7 +76799,7 @@ function copyIdentity(root) {
 function readLock(pluginRoot = PLUGIN_ROOT) {
   return JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path62.join)(pluginRoot, "services", "process-compose.lock.json"), "utf8"));
 }
-function dataHome({ platform = process.platform, env = process.env, home = import_node_os34.default.homedir() } = {}) {
+function dataHome({ platform = process.platform, env = process.env, home = import_node_os35.default.homedir() } = {}) {
   if (env.AGENT_ORCHESTRATION_DATA_HOME) return env.AGENT_ORCHESTRATION_DATA_HOME;
   if (platform === "win32") return import_node_path62.win32.join(env.LOCALAPPDATA || import_node_path62.win32.join(home, "AppData", "Local"), "ByteDesk", "agent-orchestration");
   if (platform === "darwin") return import_node_path62.posix.join(home, "Library", "Application Support", "bytedesk", "agent-orchestration");
@@ -76761,10 +76840,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136";
+  return false ? null : "6c2382feed4741879b82a2d23b66319454df50eba84590c5c95403c150880855";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136";
+  const fingerprint2 = false ? null : "6c2382feed4741879b82a2d23b66319454df50eba84590c5c95403c150880855";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77001,7 +77080,7 @@ async function context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home
   const lock = deps.lock ?? readLock(pluginRoot);
   return { data, paths: paths2, mode, lock, node };
 }
-async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os34.default.homedir(), node = process.execPath, deps = {} } = {}) {
+async function ensureServices({ pluginRoot = PLUGIN_ROOT, stateRoot: stateRoot3, env = process.env, platform = process.platform, arch = process.arch, home = import_node_os35.default.homedir(), node = process.execPath, deps = {} } = {}) {
   const ctx = await context3({ pluginRoot, stateRoot: stateRoot3, env, platform, home, node, deps });
   const { paths: paths2, mode, lock } = ctx;
   await ensurePrivateDir(paths2.logs);
@@ -77189,7 +77268,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1d22577e01da763f33cc7cbb44026eb2c46ed1593897e2a24a58fa697e0a0136",
+  sourceFingerprint: false ? null : "6c2382feed4741879b82a2d23b66319454df50eba84590c5c95403c150880855",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises56.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -77211,7 +77290,7 @@ async function rolePromptEvidence(options, record2, role, repositoryId) {
   if (result2.state === "current" && !result2.current) result2.state = "stale";
   return result2;
 }
-async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os35.homedir)(), platform = process.platform, deps = {} }) {
+async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)(), platform = process.platform, deps = {} }) {
   const paths2 = servicePaths({ stateRoot: stateRoot3, data: dataHome({ platform, env, home }) });
   const pointer = await json4(paths2.pointer);
   const [stale, lastSelfHeal] = await Promise.all([(deps.staleMcpServers ?? staleMcpServers)({ pointer, platform }).catch((error51) => ({ supported: false, note: error51.message, servers: [] })), json4((0, import_node_path64.join)(paths2.dir, "self-heal.json"))]);
@@ -77225,7 +77304,7 @@ async function setupDiagnostics({ stateRoot: stateRoot3, env = process.env, home
   ];
   return { servicesPointer: pointer ? { pluginRoot: pointer.pluginRoot, version: pointer.version ?? null } : null, staleMcpServers: stale, tmuxSocket, transport, lastSelfHeal, problems };
 }
-async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os35.homedir)() }) {
+async function runtimeDiagnostics({ consumerCwd: consumerCwd2, pluginRoot, stateRoot: stateRoot3, env = process.env, home = (0, import_node_os36.homedir)() }) {
   let consumer = null, admission = { provided: Boolean(consumerCwd2), admitted: null };
   if (consumerCwd2) {
     try {
@@ -77859,7 +77938,7 @@ var OrchestrationService = class {
    * explicitly and falls back only to a directory that still exists.
    */
   async resolveDiscoveryCwd(preferred) {
-    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os36.homedir)()]) {
+    for (const candidate of [preferred, process.env.PWD, safeCwd(), (0, import_node_os37.homedir)()]) {
       if (!candidate) continue;
       try {
         const stats = await (0, import_promises57.stat)(candidate);
