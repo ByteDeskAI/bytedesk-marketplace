@@ -74,6 +74,16 @@
   recipient or `would: hold` with the reason. It writes, publishes, rings and recovers nothing.
   Every other send verb (`mailbox forward|reply|dispose|…`, `send`, `reply`) refuses the flag with
   `TOPOLOGY_DRY_RUN_UNSUPPORTED` instead of ignoring it.
+- **The standing-mail sender is the session's identity, not a claim (TM-356, EP-028).**
+  `mailbox send`, `mailbox forward` and the MCP `orchestration_mailbox_send` took `from` from
+  `--from`, `AO_AGENT_ID` or the tool's `from` field, so any caller could send as any agent. The
+  sender is now the launcher's `AO_AGENT_ID` and `AO_CONSUMER`, the proof standing replies already
+  require (`sessionIdentity` in `standing-mailbox.mjs`). An explicit `--from`, `--from-project`,
+  `from` or `consumerCwd` that differs is refused with `TOPOLOGY_SENDER_MISMATCH`. MCP
+  `orchestration_mailbox_receive` and `orchestration_mailbox_dispose` act only for that identity,
+  and their `agent` field (like `from`) is now optional. A session with no identity is refused
+  with `TOPOLOGY_SOURCE_IDENTITY_REQUIRED`, naming what is missing, before anything is written.
+  The `dist/` bundles are rebuilt.
 
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default

@@ -303,6 +303,27 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
   return woken;
 }
 
+/**
+ * TM-356: who this session is, for every mailbox entry that acts as an agent (CLI send and forward,
+ * MCP send, receive and dispose). The identity is the launcher's — AO_AGENT_ID and AO_CONSUMER, the
+ * same proof `recordStandingReply` requires — never a `--from` flag or a tool's `from` field. A
+ * claimed agent or repository that differs is refused, so naming another agent cannot impersonate
+ * it. Host-local protocol enforcement, as for replies: not isolation from a user who rewrites their
+ * own environment.
+ */
+export async function sessionIdentity({ env = process.env, agent = null, consumer = null } = {}) {
+  invariant(env.AO_AGENT_ID && env.AO_CONSUMER, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED',
+    'source_identity_required: this session has no agent-orchestration identity (AO_AGENT_ID and AO_CONSUMER are not set), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Run it from an agent that ao launched. Nothing was done.');
+  invariant(agent === null || agent === undefined || agent === env.AO_AGENT_ID, 'TOPOLOGY_SENDER_MISMATCH',
+    `This session is ${env.AO_AGENT_ID}; it cannot act as ${JSON.stringify(agent)}. Drop the explicit sender, or run as that agent. Nothing was done.`);
+  if (consumer !== null && consumer !== undefined) {
+    const [mine, claimed] = await Promise.all([canonicalRepoId(env.AO_CONSUMER), canonicalRepoId(String(consumer))]);
+    invariant(mine.id === claimed.id, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session belongs to ${env.AO_CONSUMER}; it cannot act for ${consumer}. Nothing was done.`);
+  }
+  return { agent: env.AO_AGENT_ID, consumer: resolve(env.AO_CONSUMER) };
+}
+
 // These are host-local mailbox views, not an authorization boundary. API/CLI
 // callers must establish the current agent identity before returning bodies.
 export async function readStandingInbox({ consumer, agent, transport = null, env = process.env, limit = 100, ...options }) {

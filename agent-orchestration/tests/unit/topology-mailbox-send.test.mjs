@@ -148,3 +148,57 @@ test('TM-271: an unknown repository or one with no lead is refused and nothing i
   }
   assert.deepEqual(await standingRecords(w.env), [], 'nothing was delivered or held');
 });
+
+test('TM-356: mailbox send and forward take the sender from the session; a spoofed --from is refused', async (t) => {
+  const w = await world(t);
+  const me = w.as('work-a', w.alpha);
+  for (const [args, env, code] of [
+    [['mailbox', 'send', '--consumer', w.alpha, '--from', 'lead-a', '--to', 'lead-a'], me, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'send', '--consumer', w.alpha, '--from-project', w.beta, '--to', 'lead-a'], me, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'forward', '--consumer', w.alpha, '--from', 'lead-a', '--parent', 'p', '--to', 'lead-a'], me, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['send', '--to-repo', 'alpha', '--from', 'lead-a'], me, 'TOPOLOGY_SENDER_MISMATCH'],
+    // No session identity at all: a flag cannot supply one.
+    [['mailbox', 'send', '--consumer', w.alpha, '--from', 'work-a', '--from-project', w.alpha, '--to', 'lead-a'], w.env, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED'],
+  ]) {
+    const refused = await ao([...args, '--body', 'spoof'], env);
+    assert.equal(refused.code, 1, `${args.join(' ')}: ${refused.stdout}`);
+    assert.equal(refused.json.code, code, `${args.join(' ')}: ${refused.stdout}`);
+  }
+  assert.deepEqual(await standingRecords(w.env), [], 'no refused send left a record');
+  // Repeating the session's own identity is allowed, and the envelope carries it.
+  const sent = await ao(['mailbox', 'send', '--consumer', w.alpha, '--from', 'work-a', '--to', 'lead-a', '--id', 'own', '--body', 'mine'], me);
+  assert.equal(sent.code, 0, sent.stderr);
+  assert.deepEqual([sent.json.status, sent.json.envelope.from, sent.json.envelope.fromProject], ['delivered', 'work-a', w.alpha]);
+});
+
+test('TM-356: MCP mailbox send, receive and dispose act only as the session identity', async (t) => {
+  const w = await world(t);
+  const { createTopologyApi } = await import('../../src/topology-api.mjs');
+  const saved = { AO_AGENT_ID: process.env.AO_AGENT_ID, AO_CONSUMER: process.env.AO_CONSUMER };
+  t.after(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  // The adapter reads the session identity from its own process environment, as the MCP server does.
+  const apiAs = (agent, consumer) => {
+    if (agent) Object.assign(process.env, { AO_AGENT_ID: agent, AO_CONSUMER: consumer }); else { delete process.env.AO_AGENT_ID; delete process.env.AO_CONSUMER; }
+    return createTopologyApi({ stateRoot: w.env.AGENT_ORCHESTRATION_STATE_HOME, pluginRoot: null, resolveConsumer: async (cwd) => ({ requestedCwd: cwd }) });
+  };
+  const worker = apiAs('work-a', w.alpha);
+  const lead = apiAs('lead-a', w.alpha);
+  const anonymous = apiAs(null);
+  const mail = { consumerCwd: w.alpha, to: 'lead-a', body: 'via mcp' };
+  await assert.rejects(worker.mailboxSend({ ...mail, id: 'm-spoof', from: 'lead-a' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(worker.mailboxSend({ ...mail, id: 'm-elsewhere', consumerCwd: w.beta }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(anonymous.mailboxSend({ ...mail, id: 'm-anon', from: 'work-a' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
+  assert.deepEqual(await standingRecords(w.env), [], 'no refused tool call left a record');
+  const sent = await worker.mailboxSend({ ...mail, id: 'm-1' });
+  assert.deepEqual([sent.status, sent.envelope.from], ['delivered', 'work-a']);
+  // Receive and dispose: only the session's own inbox.
+  await assert.rejects(worker.mailboxReceive({ consumerCwd: w.alpha, agent: 'lead-a' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(anonymous.mailboxReceive({ consumerCwd: w.alpha, agent: 'lead-a' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
+  const received = await lead.mailboxReceive({ consumerCwd: w.alpha });
+  assert.deepEqual(received.map((record) => record.envelope.id), ['m-1']);
+  await assert.rejects(worker.mailboxDispose({ consumerCwd: w.alpha, agent: 'lead-a', messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(anonymous.mailboxDispose({ consumerCwd: w.alpha, agent: 'lead-a', messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
+  await assert.rejects(worker.mailboxDispose({ consumerCwd: w.alpha, messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_MAILBOX_RECEIPT_MISSING' }, 'the worker disposes only its own receipts, and it holds none for m-1');
+  const handled = await lead.mailboxDispose({ consumerCwd: w.alpha, messageId: 'm-1', kind: 'mail', disposition: 'handled' });
+  assert.deepEqual([handled.agent, handled.status], ['lead-a', 'handled']);
+});

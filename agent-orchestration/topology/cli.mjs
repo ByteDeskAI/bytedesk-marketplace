@@ -596,8 +596,11 @@ const commands = {
     if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
     if (sub === 'reply') return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: flags.agent || process.env.AO_AGENT_ID, body: await bodyFrom(flags) }));
     if (sub === 'inbox' || sub === 'outbox') return out(await api[sub === 'inbox' ? 'readStandingInbox' : 'readStandingOutbox']({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
-    const input = { consumer: ctx.consumer, fromProject: flags['from-project'] || process.env.AO_CONSUMER,
-      from: flags.from || process.env.AO_AGENT_ID, to: flags.to, id: flags.id, body: await bodyFrom(flags),
+    if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
+    // TM-356: the sender is this session's identity. --from and --from-project may only repeat it.
+    const me = await api.sessionIdentity({ env: process.env, agent: flags.from, consumer: flags['from-project'] });
+    const input = { consumer: ctx.consumer, fromProject: me.consumer,
+      from: me.agent, to: flags.to, id: flags.id, body: await bodyFrom(flags),
       task: flags.task, stage: flags.stage, subject: flags.subject, provenance: { source: 'ao-topology CLI' }, via: list(flags.via) };
     if (sub === 'send') {
       // TM-271: one resolver for every send entry; `--to-repo` / `lead@<repo>` name a repository's lead.
@@ -605,8 +608,7 @@ const commands = {
       const [target] = await resolveStandingTargets({ to: flags.to, toRepo: flags['to-repo'], consumer: ctx.consumer, env: process.env, home: ctx.home });
       return out(await api.sendStandingMessage({ ...input, consumer: target.consumer, to: target.to }, { ...ctx, dryRun: flags['dry-run'] !== undefined }));
     }
-    if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
-    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
+    return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
     } finally { await closeLiveTransports(); }
   },
   async 'goal-loop'({ flags, positional }) {

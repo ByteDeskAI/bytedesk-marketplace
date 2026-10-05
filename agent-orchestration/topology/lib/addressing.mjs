@@ -13,8 +13,10 @@
 // Expansion happens at exactly one place: inside `sendMessage`, before the per-recipient loop.
 // `forwardMessageToWorkflow` routes back through `sendMessage`, so a forwarding agent cannot bypass
 // admission by control flow rather than by convention.
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { invariant } from "./util.mjs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { invariant, readJson } from "./util.mjs";
 import { expandFanout } from "./mailbox.mjs";
 
 /**
@@ -179,12 +181,10 @@ export async function expandAddresses({
  * A slug is the main checkout's directory name, so all linked worktrees of one repository share it.
  */
 export async function registeredRepositories({ env = process.env, home = homedir() } = {}) {
-  const { readdir } = await import("node:fs/promises");
-  const { basename, dirname, join } = await import("node:path");
+  // Loaded on use, like the presence directory above: nothing that does not address a repository pays.
   const { readServiceRepos } = await import("./services-client.mjs");
   const { leadRegistryDir } = await import("./lead.mjs");
   const { repositoryConsumer } = await import("./repoid.mjs");
-  const { readJson } = await import("./util.mjs");
   const byKey = new Map();
   const add = (key, root) => { if (key && root && !byKey.has(key)) byKey.set(key, { key, root, slug: basename(root) }); };
   for (const repo of await readServiceRepos(env, home)) add(repo.key, await repositoryConsumer(repo.consumer).catch(() => repo.consumer));
@@ -208,8 +208,6 @@ export function repoLeadRef(to) {
  */
 export async function resolveRepoLead(ref, { env = process.env, home = homedir(), cwd = process.cwd() } = {}) {
   invariant(typeof ref === "string" && ref.trim(), "TOPOLOGY_REPO_REQUIRED", "Name the repository by path or slug (--to-repo <path|slug>).");
-  const { stat } = await import("node:fs/promises");
-  const { isAbsolute, resolve } = await import("node:path");
   const { repositoryConsumer, canonicalRepoId, repoKey } = await import("./repoid.mjs");
   const { readLeadRegistration } = await import("./lead.mjs");
   const known = await registeredRepositories({ env, home });
