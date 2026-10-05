@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`tm doctor` lists finished work with no review for its current revision (TM-244, EP-028).** A
+  new `unreviewed` warning lists each task that has commits, is done within 7 days or is ready for
+  review, and has no review for its current revision. The warning names the reason: no admission
+  record, `review_blocked: <refusal>`, or never requested. A governed review request that is filed
+  and still outstanding is not listed. The detector is shared with `tm review-sweep`
+  (`unreviewedTasks` in `lib/review-sweep.mjs`), and sweep findings now carry `review` and
+  `reason`. A clean doctor run states how many tasks the review check scanned, and `--json` returns
+  this as `reviewCoverage`. The check reads only task-management's own records, so it works when
+  agent-orchestration is absent.
+
 - **A dispatched worker is told it has no later turn, and a failed one names the work it left
   behind (TM-246, EP-028).** The handoff and the SubagentStart worker brief now render the same
   three rules: do the task in your own session, never end your turn while a background agent or

@@ -415,11 +415,53 @@ export async function workerReport(options) {
       try {
         const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [owner] });
         next.review_request = request;
-      } catch (error) { next.review_blocked = error.message; }
+      } catch (error) {
+        next.review_blocked = error.message;
+        // TM-244: before the task-store comment, so the lead hears it even when task-management is absent or failing.
+        next.review_blocked_notice = await noticeReviewBlocked(ctx, options, next, report.revision, error);
+      }
       await writeJson(ctx.path, next);
       await ctx.store.comment(task, JSON.stringify({ event: 'review-queued', request: next.review_request || null, blocked: next.review_blocked || null }));
     }
     return next;
+  });
+}
+
+export const RETRY_REVIEW_VERB = 'ao-topology manage retry-review --task';
+/**
+ * TM-244: a finish whose review request was refused tells the owning lead, once per task revision,
+ * through standing mail (agent-orchestration's own channel, so it works with task-management
+ * absent). Never throws: the finish is already recorded, and a failed notice is reported on it.
+ */
+async function noticeReviewBlocked(ctx, options, record, revision, error) {
+  const to = record.lead_id;
+  if (!to) return { status: 'skipped', reason: 'no lead recorded on the management record' };
+  const id = createHash('sha256').update(`review-blocked:v1:${repoKey(ctx.identity.id)}:${options.task}:${revision}`).digest('hex').slice(0, 32);
+  const body = [
+    `REVIEW NOT FILED: ${options.task} finished at ${revision} but its review request was refused.`,
+    `Refusal: ${error.code ? `${error.code}: ` : ''}${error.message}`,
+    `Fix the cause, then retry: ${RETRY_REVIEW_VERB} ${options.task}`,
+  ].join('\n');
+  try {
+    const sent = await (options.notifyLead || sendStandingMessage)({ id, consumer: options.consumer, fromProject: options.consumer, from: 'ao-management', to,
+      subject: `review blocked: ${options.task}`, body, task: options.task, provenance: { source: 'ao-topology manage report' } }, { env: ctx.env, home: ctx.home });
+    return { to, message_id: id, status: sent?.status ?? 'unknown', ...(sent?.reason ? { reason: sent.reason } : {}) };
+  } catch (failure) { return { to, message_id: id, status: 'failed', reason: failure?.code ?? String(failure?.message ?? failure) }; }
+}
+
+/** TM-244: the lead's one retry for a refused review request. Re-files it for the recorded finish revision. */
+export async function retryReview(options) {
+  const ctx = await context(options), { task } = options;
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record = await loadRecord(ctx.path);
+    invariant(record?.state === 'ready-for-review' && record.finish?.revision, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${task} has no finish report awaiting review.`);
+    try {
+      record.review_request = await (options.queueReview || requestReview)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
+      delete record.review_blocked; delete record.review_blocked_notice;
+    } catch (error) { record.review_blocked = error.message; await writeJson(ctx.path, record); throw error; }
+    await writeJson(ctx.path, record);
+    await ctx.store.comment(task, JSON.stringify({ event: 'review-queued', request: record.review_request, blocked: null }));
+    return record;
   });
 }
 
