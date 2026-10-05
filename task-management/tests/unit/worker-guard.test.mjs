@@ -61,7 +61,7 @@ const BLOCKED = {
   "git-rebase-protected": ["git rebase origin/main main", "git rebase --onto origin/main HEAD~3 master"],
   "git-update-ref-delete": ["git update-ref -d refs/heads/main"],
   "git-stash-destroy": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git stash pop", "git stash pop --index stash@{0}"],
-  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main"],
+  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main", "gh pr merge --merge", `git checkout tm/TM-2-y && gh pr merge`, `gh pr merge -R evil/repo ${OWN}`, `gh pr merge --repo=evil/repo ${OWN}`, `gh -R evil/r pr merge ${OWN}`, `GH_REPO=evil/repo gh pr merge ${OWN}`, `env GH_HOST=x gh pr merge ${OWN}`, `gh pr merge ${OWN} -d`, `gh pr merge ${OWN} --delete-branch`],
   "gh-pr-create-base": ["gh pr create --title x --body y", "gh pr create --base develop --title x", "gh -R o/r pr create --base wrong --fill", "gh pr new --title x", "gh pr new --base develop --title x"],
   "gh-pr-retarget": [
     "gh pr edit 12 --base develop",
@@ -129,9 +129,8 @@ describe("guardCommand — the table", () => {
   it("allows the finish line and ordinary work", () => {
     const allowed = [
       `gh pr merge ${OWN} --merge`,
-      `gh pr merge ${OWN} --squash --admin --delete-branch`,
-      "gh pr merge --merge",
-      `gh -R o/r pr merge ${OWN} --merge --subject "TM-001: done"`,
+      `gh pr merge ${OWN} --squash --admin`,
+      `gh pr merge ${OWN} --merge --subject "TM-001: done"`,
       "git push",
       "git push origin",
       `git push -u origin ${OWN}`,

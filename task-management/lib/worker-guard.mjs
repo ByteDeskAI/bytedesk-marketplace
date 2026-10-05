@@ -201,20 +201,25 @@ export const RULES = [
   // External: merges, releases, repository settings.
   {
     // Operator policy 2026-10-05: a worker merges its OWN PR once its review is clean and required
-    // checks are green. It names the PR by its branch (or none, from the branch checked out), never
-    // by number: a number cannot be tied to this worker's branch from the command line.
+    // checks are green — named by its branch, in this repository, keeping the branch. A bare merge
+    // resolves the PR from whatever is checked out when gh runs (a `git checkout` earlier in the
+    // same line, an upstream set to another branch), and a number cannot be tied to this worker,
+    // so both are refused. -R/--repo or a GH_REPO/GH_HOST prefix would merge a same-named PR
+    // elsewhere; --delete-branch is a branch delete.
+    // ponytail: --admin is allowed (the review this worker cannot give itself) but it also overrides
+    // failing checks, which this string classifier cannot see; the handoff forbids that. An
+    // `export GH_REPO=…` in an earlier command is not seen either. Upgrade: a token without admin.
     id: "gh-pr-merge",
     tools: ["gh"],
     when: (a, ctx) => {
       const [sub, verb, target, ...rest] = positionals(a, [...GH_VALUED, "-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit", "-A", "--author-email"]);
       if (sub !== "pr" || verb !== "merge") return false;
       const own = ownBranch(ctx);
-      if (!own || rest.length) return true;
-      return target === undefined ? ctx.head !== own : target !== own;
+      return !own || target !== own || rest.length > 0 || ctx.ghOverride || a.includes("-R") || hasLong(a, "--repo", "--delete-branch") || hasShort(a, "d");
     },
     reason: (ctx) =>
       ownBranch(ctx)
-        ? `a dispatch worker merges only its own PR, named by its branch: \`gh pr merge ${ownBranch(ctx)} --merge\`, after its review is clean and required checks pass.`
+        ? `a dispatch worker merges only its own PR, named by its branch, in this repository, keeping the branch: \`gh pr merge ${ownBranch(ctx)} --merge\` — after its review is clean and required checks pass. No PR number, no -R/--repo/GH_REPO, no --delete-branch.`
         : "no own branch is known for this worker, so no merge can be confirmed to be its own PR. Check out your task's tm/ branch.",
   },
   {
@@ -500,8 +505,12 @@ const WRAPPERS = {
  */
 function unwrap(words) {
   const w = [...words];
+  let ghOverride = false; // a GH_REPO/GH_HOST assignment points gh at another repository
   for (let pass = 0; pass < 16; pass++) {
-    while (w.length && (KEYWORDS.has(w[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]))) w.shift();
+    while (w.length && (KEYWORDS.has(w[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]))) {
+      if (/^GH_(REPO|HOST)=/.test(w[0])) ghOverride = true;
+      w.shift();
+    }
     if (!w.length || NOT_RUN.has(w[0])) return null;
     if (/[$`]/.test(w[0])) return { unknown: w.join(" ") };
     const name = basename(w[0]);
@@ -544,7 +553,7 @@ function unwrap(words) {
       }
       return { tool: "git", args: w.slice(k), elsewhere };
     }
-    return { tool: name, args: w.slice(1), elsewhere: false };
+    return { tool: name, args: w.slice(1), elsewhere: false, ghOverride };
   }
   return { unknown: w.join(" ") };
 }
@@ -574,7 +583,7 @@ function check(src, ctx, depth) {
       if (FAIL_SAFE.test(cmd.unknown)) return UNREADABLE(`\`${cmd.unknown}\` runs a command named by an expansion, which`);
       continue;
     }
-    const here = cmd.elsewhere ? { ...ctx, head: null } : ctx;
+    const here = { ...(cmd.elsewhere ? { ...ctx, head: null } : ctx), ghOverride: cmd.ghOverride };
     for (const rule of RULES) {
       if (rule.tools.includes(cmd.tool) && rule.when(cmd.args, here)) {
         return block(rule.id, typeof rule.reason === "function" ? rule.reason(here) : rule.reason);
