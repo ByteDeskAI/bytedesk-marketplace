@@ -8,7 +8,8 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -163,6 +164,62 @@ function runRsync(src, dest, dry) {
   return { ok: true };
 }
 
+/**
+ * Codex runs a plugin hook only once its hash is trusted in ~/.codex/config.toml, and asks for that
+ * trust in its TUI. Ask Codex's own app-server which bytedesk plugin hooks are untrusted and write
+ * their current hashes back through its config API, so a synced hook runs in the next session.
+ * Only `<plugin>@bytedesk` hooks are touched: this marketplace is the operator's own code.
+ * ponytail: speaks app-server JSON-RPC by hand; a codex CLI verb for hook trust would replace it.
+ */
+function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
+  return new Promise((done) => {
+    let child;
+    try {
+      child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      return done({ ok: false, err: "codex not runnable" });
+    }
+    let settled = false;
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      done(r);
+    };
+    const timer = setTimeout(() => finish({ ok: false, err: "codex app-server timed out" }), timeoutMs);
+    child.on("error", () => finish({ ok: false, err: "codex is not on PATH" }));
+    child.stdin.on("error", () => finish({ ok: false, err: "codex app-server closed its input" }));
+    child.on("exit", (code) => finish({ ok: false, err: `codex app-server exited ${code} before answering` }));
+    const send = (m) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`);
+    let trusted = [];
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      let m;
+      try {
+        m = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (m.id === 1) {
+        send({ method: "initialized" });
+        send({ id: 2, method: "hooks/list", params: { cwds: [cwd] } });
+      } else if (m.id === 2) {
+        if (m.error) return finish({ ok: false, err: m.error.message });
+        const state = {};
+        for (const h of (m.result?.data || []).flatMap((d) => d.hooks || [])) {
+          if (h.trustStatus !== "trusted" && /@bytedesk$/.test(h.pluginId || "") && h.currentHash) state[h.key] = { trusted_hash: h.currentHash };
+        }
+        trusted = Object.keys(state);
+        if (!trusted.length) return finish({ ok: true, trusted });
+        send({ id: 3, method: "config/batchWrite", params: { edits: [{ keyPath: "hooks.state", value: state, mergeStrategy: "upsert" }] } });
+      } else if (m.id === 3) {
+        finish(m.error ? { ok: false, err: m.error.message } : { ok: true, trusted });
+      }
+    });
+    send({ id: 1, method: "initialize", params: { clientInfo: { name: "plugin-rsync", version: "0" } } });
+  });
+}
+
 function help() {
   return `plugin-rsync — refresh installed ByteDesk marketplace plugin caches from source.
 
@@ -173,6 +230,7 @@ function help() {
   --list        print destinations, do not copy
   --dry-run     print rsync argv, do not copy
   install-cli   wrapper in ~/.local/bin (user-scope; never a project)
+  trust-codex-hooks  trust every untrusted <plugin>@bytedesk hook in Codex (also run after each Codex sync)
 
 User-scope only. Do not add plugin-rsync@bytedesk to a repo's extraKnownMarketplaces.
 
@@ -207,7 +265,7 @@ exit 127
   };
 }
 
-function main(argv) {
+async function main(argv) {
   if (argv.includes("-h") || argv.includes("--help")) {
     process.stdout.write(help());
     return 0;
@@ -221,6 +279,12 @@ function main(argv) {
     console.log(`${r.state}: ${pretty(r.target)}`);
     if (!r.onPath) console.log("note: ~/.local/bin is not on PATH");
     return 0;
+  }
+
+  if (argv[0] === "trust-codex-hooks") {
+    const r = await trustCodexHooks();
+    console.log(r.ok ? `codex hooks trusted: ${r.trusted.length ? r.trusted.join(", ") : "none needed"}` : `codex hook trust skipped: ${r.err}`);
+    return r.ok ? 0 : 1;
   }
 
   const dry = argv.includes("--dry-run");
@@ -244,6 +308,7 @@ function main(argv) {
   let copies = 0;
   let missing = 0;
   let failed = 0;
+  let codexSynced = false;
 
   for (const name of selected) {
     const src = sources[name];
@@ -273,13 +338,19 @@ function main(argv) {
       }
       console.log(`  ${row.host.padEnd(6)} ${pretty(row.dest)}  ok`);
       copies += 1;
+      if (row.host === "codex") codexSynced = true;
     }
   }
 
   if (listOnly) return 0;
+  if (codexSynced) {
+    const r = await trustCodexHooks();
+    if (!r.ok) console.log(`codex hook trust skipped: ${r.err}`);
+    else if (r.trusted.length) console.log(`codex hooks trusted: ${r.trusted.join(", ")}`);
+  }
   if (wanted.length && copies === 0 && failed === 0) return 2;
   return failed ? 1 : 0;
 }
 
 const isMain = process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.url));
-if (isMain) process.exit(main(process.argv.slice(2)));
+if (isMain) main(process.argv.slice(2)).then((code) => process.exit(code));

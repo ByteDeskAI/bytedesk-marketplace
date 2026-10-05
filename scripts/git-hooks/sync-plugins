@@ -6,8 +6,9 @@
 # ponytail: main checkout only — plugin-rsync copies from the main checkout, so a commit in a
 # worktree reaches the caches when it is merged and pulled here.
 [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] || exit 0
-command -v plugin-rsync >/dev/null || exit 0
 root=$(git rev-parse --show-toplevel)
+rsync_bin="$root/plugin-rsync/bin/plugin-rsync" # this checkout's own copy; no PATH install needed
+[ -x "$rsync_bin" ] || exit 0
 # post-merge and a rebase's post-rewrite: ORIG_HEAD is the pre-operation tip. post-commit and an
 # amend: the previous HEAD (an amend fires both hooks; the second sync is a no-op).
 case "$1:$2" in
@@ -20,5 +21,5 @@ plugins=$(git diff --name-only "$before" HEAD | cut -d/ -f1 | sort -u | while re
 [ -n "$plugins" ] || exit 0
 log="$root/.git/plugin-rsync.log"
 echo "[$(date -Is)] $1 $(git rev-parse --short HEAD): $plugins" >>"$log"
-BYTEDESK_MARKETPLACE="$root" nohup plugin-rsync "$plugins" >>"$log" 2>&1 &
+BYTEDESK_MARKETPLACE="$root" nohup "$rsync_bin" "$plugins" >>"$log" 2>&1 &
 exit 0
