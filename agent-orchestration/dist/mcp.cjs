@@ -20759,10 +20759,10 @@ var require_jsclient = __commonJS({
         this.monitor = new idleheartbeat_monitor_1.IdleHeartbeatMonitor(millis, handler, opts);
       }
       _checkHbOrderConsumer(msg) {
-        const rm16 = msg.headers.get(types_2.JsHeaders.ConsumerStalledHdr);
-        if (rm16 !== "") {
+        const rm17 = msg.headers.get(types_2.JsHeaders.ConsumerStalledHdr);
+        if (rm17 !== "") {
           const nci = this.js.nc;
-          nci.publish(rm16);
+          nci.publish(rm17);
         }
         const lastDelivered = parseInt(msg.headers.get(types_2.JsHeaders.LastConsumerSeqHdr), 10);
         const ordered = this.info.ordered_consumer_sequence;
@@ -30426,6 +30426,7 @@ __export(management_exports, {
   recordTaskEvent: () => recordTaskEvent,
   releaseAssignment: () => releaseAssignment,
   retryReview: () => retryReview,
+  runRequiredChecks: () => runRequiredChecks,
   serverLeadAutonomy: () => serverLeadAutonomy,
   startTaskWorker: () => startTaskWorker,
   stopTaskWorker: () => stopTaskWorker,
@@ -31098,6 +31099,22 @@ async function integrationEligibility(options) {
   }
   return { eligible: reasons.length === 0, reasons, refusals, record: record2, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
 }
+async function runRequiredChecks(root, revision, required2) {
+  const dir = await (0, import_promises39.mkdtemp)((0, import_node_path47.join)((0, import_node_os19.tmpdir)(), "ao-checks-")), tree = (0, import_node_path47.join)(dir, "tree"), checks = [];
+  try {
+    await git2(root, ["worktree", "add", "--detach", tree, revision]);
+    for (const check2 of required2) {
+      const result2 = await run(check2.argv[0], check2.argv.slice(1), { cwd: tree, allowFailure: true, timeoutMs: check2.timeout_ms || 12e4 });
+      checks.push({ name: check2.name, code: result2.code, revision, runner: "host", tree: "fresh-detached-worktree" });
+      invariant2(result2.code === 0, "TOPOLOGY_MANAGEMENT_CHECK_FAILED", `Required check ${check2.name} failed.`, { checks });
+    }
+    return checks;
+  } finally {
+    await git2(root, ["worktree", "remove", "--force", tree], true);
+    await (0, import_promises39.rm)(dir, { recursive: true, force: true });
+    await git2(root, ["worktree", "prune"], true);
+  }
+}
 async function integrateTask(options) {
   const ctx = await context2(options);
   refuseSelfAssertion(options, await managedSession(options, ctx));
@@ -31114,11 +31131,7 @@ async function integrateTask(options) {
     invariant2((await git2(ctx.store.root, ["merge-base", "--is-ancestor", targetBefore, record2.finish.revision], true)).code === 0, "TOPOLOGY_MANAGEMENT_TARGET", `Cannot fast-forward ${policy.target_branch} to ${record2.finish.revision}; rebase the task onto the target branch and obtain a new review.`);
     const incoming = (await git2(ctx.store.root, ["diff", "--name-only", "-z", targetBefore, record2.finish.revision])).stdout.split("\0").filter(Boolean);
     invariant2(!incoming.some(storePath), "TOPOLOGY_MANAGEMENT_STORE_PATHS", `The landing would change tool store paths (${INTEGRATION_STORE_PATHS.join(", ")}); land it by hand and record it with manage record-landing.`);
-    for (const check2 of policy.required_checks) {
-      const result2 = await run(check2.argv[0], check2.argv.slice(1), { cwd: doc.worktree, allowFailure: true, timeoutMs: check2.timeout_ms || 12e4 });
-      checks.push({ name: check2.name, code: result2.code, revision: record2.finish.revision });
-      invariant2(result2.code === 0, "TOPOLOGY_MANAGEMENT_CHECK_FAILED", `Required check ${check2.name} failed.`, { checks });
-    }
+    checks.push(...await runRequiredChecks(ctx.store.root, record2.finish.revision, policy.required_checks));
     const fresh = await integrationEligibility(options);
     invariant2(fresh.eligible && fresh.record.finish.revision === record2.finish.revision && JSON.stringify(fresh.policy) === JSON.stringify(policy), "TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED", fresh.reasons.join("; ") || "Revision changed during checks.");
     invariant2(await gitText(ctx.store.root, ["symbolic-ref", "--short", "HEAD"]) === policy.target_branch && await gitText(ctx.store.root, ["rev-parse", "HEAD"]) === targetBefore && !(await foreignDirtyPaths(ctx.store.root)).length, "TOPOLOGY_MANAGEMENT_TARGET", "Integration target changed during checks.");
@@ -78946,10 +78959,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "9f6e63e6b043573545bb1033f5852c2344e38fb4668944f2476670a3190007a8";
+  return false ? null : "3f086bb271a14f8ad7ee691075fba262348f49606392a186974b5f7078bfcba5";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "9f6e63e6b043573545bb1033f5852c2344e38fb4668944f2476670a3190007a8";
+  const fingerprint2 = false ? null : "3f086bb271a14f8ad7ee691075fba262348f49606392a186974b5f7078bfcba5";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79374,7 +79387,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "9f6e63e6b043573545bb1033f5852c2344e38fb4668944f2476670a3190007a8",
+  sourceFingerprint: false ? null : "3f086bb271a14f8ad7ee691075fba262348f49606392a186974b5f7078bfcba5",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

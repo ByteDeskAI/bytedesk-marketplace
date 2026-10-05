@@ -1,9 +1,9 @@
 // Task-store-backed management. The task store owns claims, WIP and worktree provisioning;
 // orchestration owns communication and the review/check/landing evidence it contributes.
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
 import { loadConfig } from './config.mjs';
@@ -727,6 +727,28 @@ export async function integrationEligibility(options) {
   return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
 }
 
+/** TM-444: the host runs each required check in a FRESH detached worktree of `revision`, never in the
+ * worker's worktree, where an ignored file (a planted node_modules/.bin/<runner> that exits 0) would
+ * fake a pass that `git status --porcelain` cannot see. The tree is created and removed through
+ * safe-git (no hooks, no repository-scope filters) and holds exactly the committed files. Throws
+ * TOPOLOGY_MANAGEMENT_CHECK_FAILED on the first failure; returns every run otherwise. */
+export async function runRequiredChecks(root, revision, required) {
+  const dir = await mkdtemp(join(tmpdir(), 'ao-checks-')), tree = join(dir, 'tree'), checks = [];
+  try {
+    await git(root, ['worktree', 'add', '--detach', tree, revision]);
+    for (const check of required) {
+      const result = await run(check.argv[0], check.argv.slice(1), { cwd: tree, allowFailure: true, timeoutMs: check.timeout_ms || 120000 });
+      checks.push({ name: check.name, code: result.code, revision, runner: 'host', tree: 'fresh-detached-worktree' });
+      invariant(result.code === 0, 'TOPOLOGY_MANAGEMENT_CHECK_FAILED', `Required check ${check.name} failed.`, { checks });
+    }
+    return checks;
+  } finally {
+    await git(root, ['worktree', 'remove', '--force', tree], true);
+    await rm(dir, { recursive: true, force: true });
+    await git(root, ['worktree', 'prune'], true);
+  }
+}
+
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
 export async function integrateTask(options) {
   const ctx = await context(options);
@@ -744,11 +766,7 @@ export async function integrateTask(options) {
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', targetBefore, record.finish.revision], true)).code === 0, 'TOPOLOGY_MANAGEMENT_TARGET', `Cannot fast-forward ${policy.target_branch} to ${record.finish.revision}; rebase the task onto the target branch and obtain a new review.`);
     const incoming = (await git(ctx.store.root, ['diff', '--name-only', '-z', targetBefore, record.finish.revision])).stdout.split('\0').filter(Boolean);
     invariant(!incoming.some(storePath), 'TOPOLOGY_MANAGEMENT_STORE_PATHS', `The landing would change tool store paths (${INTEGRATION_STORE_PATHS.join(', ')}); land it by hand and record it with manage record-landing.`);
-    for (const check of policy.required_checks) {
-      const result = await run(check.argv[0], check.argv.slice(1), { cwd: doc.worktree, allowFailure: true, timeoutMs: check.timeout_ms || 120000 });
-      checks.push({ name: check.name, code: result.code, revision: record.finish.revision });
-      invariant(result.code === 0, 'TOPOLOGY_MANAGEMENT_CHECK_FAILED', `Required check ${check.name} failed.`, { checks });
-    }
+    checks.push(...await runRequiredChecks(ctx.store.root, record.finish.revision, policy.required_checks));
     // Reread claims, revision and reviewer readiness after potentially long checks.
     const fresh = await integrationEligibility(options);
     invariant(fresh.eligible && fresh.record.finish.revision === record.finish.revision && JSON.stringify(fresh.policy) === JSON.stringify(policy), 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', fresh.reasons.join('; ') || 'Revision changed during checks.');

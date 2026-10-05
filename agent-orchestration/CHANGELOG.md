@@ -4,6 +4,12 @@
 
 ### Security
 
+- **Required checks run in a fresh tree of the finish revision, not in the worker's worktree (TM-444, EP-028).**
+  `manage integrate` ran each `management.required_checks` argv with the worker's worktree as its
+  working directory. `git status --porcelain` hides ignored files, so a planted
+  `node_modules/.bin/<runner>` that exits 0 passed a check that never ran. Checks now run through
+  `runRequiredChecks` in a detached worktree of `record.finish.revision`, created and removed
+  through safe-git, holding only the committed files; each run is recorded with `runner: "host"`.
 - **Host-side git no longer runs config a worker planted in the shared `.git/config` (TM-443, EP-028).**
   A worker runs as the same OS user and can set `core.fsmonitor`, `core.hooksPath`, `diff.external`,
   `core.pager`, a filter or merge driver, a credential helper or a remote `uploadpack` in the

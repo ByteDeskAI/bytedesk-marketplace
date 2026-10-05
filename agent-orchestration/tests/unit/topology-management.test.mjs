@@ -259,6 +259,22 @@ test('TM-240: the reviewer accepts an admitted revision from an agent-orchestrat
   assert.equal(request.base_revision, base); assert.equal(request.state, 'published');
 });
 
+test('TM-444 required checks run in a fresh tree of the finish revision: an ignored fake runner in the worker worktree cannot pass them', async t => {
+  const { opts, finish } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  const doc = await opts.store.show();
+  // The worker plants an IGNORED runner that exits 0; `git status --porcelain` cannot see it.
+  await writeFile(join(opts.consumer, '.git', 'info', 'exclude'), 'node_modules/\n');
+  await mkdir(join(doc.worktree, 'node_modules', '.bin'), { recursive: true });
+  await writeFile(join(doc.worktree, 'node_modules', '.bin', 'runner'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: true, target_branch: 'main', required_checks: [{ name: 'unit', argv: ['./node_modules/.bin/runner'] }] } });
+  assert.equal((await integrationEligibility(opts)).eligible, true, 'the worktree reads clean: the plant is ignored');
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_CHECK_FAILED' });
+  assert.notEqual((await run('git', ['-C', opts.consumer, 'rev-parse', 'HEAD'])).stdout.trim(), report.finish.revision, 'nothing landed');
+  const trees = (await run('git', ['-C', opts.consumer, 'worktree', 'list', '--porcelain'])).stdout;
+  assert.ok(!/ao-checks-/.test(trees), 'the check tree was removed');
+});
+
 test('failed required checks and out-of-scope files prevent integration', async t => {
   const { opts, finish, calls, git } = await fixture(t);
   await admitTask(opts); await finish();
