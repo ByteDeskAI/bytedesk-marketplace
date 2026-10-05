@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **enhance-mine no longer counts its own report or source code it read (EP-028).** A tool result
+  from `tm enhance-mine` itself, or a successful read of source (`grep`, `cat`, `sed -n`, `git diff`,
+  Read, Grep), is not evidence of the codes it quotes. Before this, its top themes were partly its
+  own earlier output. Errors from those commands still count.
+- **`tm why` no longer says a blocked task can be picked up (EP-028).** A ready-for-agent task that
+  cannot start yet reads "ready for an agent once its blockers clear — the pool skips it until
+  then", matching what the pool does.
+
 - **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
   heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
   exit and the claim expired after 240 minutes under a worker that was still running. Each pool
