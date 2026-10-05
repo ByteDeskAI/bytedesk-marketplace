@@ -449,7 +449,7 @@ export function resolveForeign(ref, { landed } = {}, p = paths()) {
     logEvent("upstream_resolved", { id: task.id, ref: written, sha }, p);
     resolved.push(task.id);
   }
-  return { ref: written, sha, resolved, freed: unblockDependents(key, p) };
+  return { ref: written, sha, resolved, freed: unblockDependents(written, p) };
 }
 
 /**

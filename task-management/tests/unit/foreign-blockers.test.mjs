@@ -141,6 +141,15 @@ describe("tm dep with a foreign ref", () => {
 });
 
 describe("tm upstream-resolved", () => {
+  it("logs unblocked with the ref as the caller wrote it, padding kept", () => {
+    const p = store();
+    const a = task(p, "waits on a padded ref");
+    dependencies(a, { add: ["acme/up#TM-010"] }, p);
+    assert.deepEqual(resolveForeign("acme/up#TM-010", { landed: SHA }, p).freed, [a]);
+    const ev = readEvents(p).filter((e) => e.event === "unblocked");
+    assert.deepEqual(ev.map((e) => [e.id, e.by]), [[a, "acme/up#TM-010"]]);
+  });
+
   it("marks every holder, and reopens only tasks whose every blocker is met, emitting unblocked", () => {
     const p = store();
     const free = task(p, "only upstream");
