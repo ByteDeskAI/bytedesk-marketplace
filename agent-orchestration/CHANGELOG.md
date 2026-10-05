@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
+  hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
+  orchestration commands. These are `ao-topology` verbs, `agent-orchestration`
+  doctor/status/session-open/services status, `tm`, and read-only `tmux`
+  (`capture-pane`, `list-panes`, `display-message -p` and similar). Leads can therefore spawn
+  workers, file tasks and read panes with no prompt, no classifier round and no global rule edits.
+  A plugin cannot ship permission allow rules, so this hook is the mechanism. We verified it live
+  on Claude Code 2.1.289 in `default` and `auto` modes. It approves only a single simple command.
+  It never approves `manage integrate|record-landing|cleanup`, `delegate grant|revoke`,
+  `permissions`, or any `git`, `gh`, deploy or secrets command. It never blocks, and the user's
+  `deny` and `ask` rules still apply. The README section "Lead and worker autonomy" documents it.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
