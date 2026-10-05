@@ -64,6 +64,8 @@ for sig in "error-code:TOPOLOGY_LAUNCH_FAILED" "error-code:unknown_recipient" "t
   has "$DRY" "$sig" "dry-run finds $sig"
 done
 has "$DRY" "transcripts  1 file(s)" "the transcript is counted in coverage"
+lacks "$DRY" "TOPOLOGY_SELFQUOTED_CODE" "enhance-mine never counts its own report output"
+lacks "$DRY" "TOPOLOGY_SOURCE_CONSTANT_ONLY" "reading source code is not an occurrence of the codes it defines"
 has "$DRY" "(1 bad lines)" "a partial line is tolerated and counted"
 has "$DRY" "would comment TM-001" "the hand-filed task is matched, not re-filed"
 lacks "$DRY" "user:stop-doing" "meta, sidechain and wrapper messages are not complaints"
