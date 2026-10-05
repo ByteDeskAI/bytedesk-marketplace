@@ -4,6 +4,12 @@
 
 ### Security
 
+- **Review fixes for PR #226 (TM-443, TM-441, EP-028).** `lib/safe-git.mjs` (still byte-identical to
+  agent-orchestration's) neutralises drivers whose names contain `=`, allows only the https, ssh and
+  file transports, refuses repository-scope URL rewriting and LFS transfer agents, and never smudges
+  LFS objects. `mergeInOf` now accepts a merge-in only when its integration parent is on the target
+  branch of the pinned repository on the server (`onServerBranch`, through `gh api .../compare`).
+  Local or `origin` refs no longer count, since a worker can forge them.
 - **Governed completion accepts a merge-in only when its tree is exactly the merge git computes (TM-441, EP-028).**
   `mergeInOf` in `lib/governance-check.mjs` used the whitespace-blind `git patch-id --stable`, so a
   merge could hide `rm -rf / tmp/build` where `rm -rf /tmp/build` was reviewed. It now requires the

@@ -25821,6 +25821,10 @@ var SAFE_GIT_CONFIG = Object.freeze([
   "sequence.editor=true",
   "core.alternateRefsCommand=true",
   "uploadpack.packObjectsHook=env",
+  "protocol.allow=never",
+  "protocol.https.allow=always",
+  "protocol.ssh.allow=always",
+  "protocol.file.allow=always",
   "protocol.ext.allow=never",
   "gpg.program=gpg",
   "gpg.ssh.program=ssh-keygen",
@@ -25843,31 +25847,51 @@ var SUBCOMMAND_FLAGS = Object.freeze({
   push: ["--receive-pack=git-receive-pack"],
   ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
 });
-var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper)$";
+var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
+var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
 var UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
-function safeGitEnv(base = process.env) {
-  const env = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" };
-  for (const name of ["GIT_EXTERNAL_DIFF", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"]) delete env[name];
+var pair = (entry) => {
+  const at2 = entry.indexOf("=");
+  return [entry.slice(0, at2), entry.slice(at2 + 1)];
+};
+function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
+  const env = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" };
+  for (const name of Object.keys(env)) if (name === "GIT_EXTERNAL_DIFF" || name === "GIT_CONFIG_PARAMETERS" || /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
+  env.GIT_CONFIG_COUNT = String(config2.length);
+  config2.forEach(([key, value], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = key;
+    env[`GIT_CONFIG_VALUE_${i}`] = value;
+  });
   return env;
 }
-var pairs = (flags) => flags.flatMap((entry) => ["-c", entry]);
 function driverOverrides(listing) {
-  const out = [], helpers = [];
+  const out = [], resets = [], helpers = [], seen = /* @__PURE__ */ new Set();
   const fields = String(listing || "").split("\0");
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const scope = fields[i], nl = fields[i + 1].indexOf("\n");
     const key = nl < 0 ? fields[i + 1] : fields[i + 1].slice(0, nl), value = nl < 0 ? "" : fields[i + 1].slice(nl + 1);
-    if (key.includes("=")) continue;
     if (key.startsWith("credential.")) {
-      if (scope === "global") helpers.push(`${key}=${value}`);
+      if (scope === "global") helpers.push([key, value]);
+      else if (UNTRUSTED_SCOPES.has(scope)) resets.push([key, ""]);
       continue;
     }
     if (!UNTRUSTED_SCOPES.has(scope)) continue;
+    if (REFUSED_KEYS.test(key)) return { overrides: [], refusal: `the repository's ${scope} config sets ${key}, which host git cannot neutralise; remove it (git config --${scope === "worktree" ? "worktree" : "local"} --unset-all '${key}')` };
     const name = key.slice(key.indexOf(".") + 1, key.lastIndexOf("."));
-    if (key.startsWith("filter.")) out.push(`filter.${name}.clean=`, `filter.${name}.smudge=`, `filter.${name}.process=`, `filter.${name}.required=false`);
-    else out.push(`${key}=false`);
+    const add = (k, v) => {
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push([k, v]);
+      }
+    };
+    if (key.startsWith("filter.")) {
+      add(`filter.${name}.clean`, "");
+      add(`filter.${name}.smudge`, "");
+      add(`filter.${name}.process`, "");
+      add(`filter.${name}.required`, "false");
+    } else add(key, "false");
   }
-  return [...new Set(out), ...helpers];
+  return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
 function hardenArgs(args) {
   let i = 0;
@@ -25876,23 +25900,28 @@ function hardenArgs(args) {
   return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
 }
 var at = (cwd2) => cwd2 ? ["-C", cwd2] : [];
-var LIST = (cwd2) => [...pairs(SAFE_GIT_CONFIG), ...at(cwd2), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
-var safeGitArgv = (cwd2, args, listing = "") => [...pairs(SAFE_GIT_CONFIG), ...pairs(driverOverrides(listing)), ...at(cwd2), ...hardenArgs(args)];
+var LIST = (cwd2) => [...at(cwd2), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+function safeGitPlan(cwd2, args, listing = "") {
+  const { overrides, refusal } = driverOverrides(listing);
+  return { argv: [...at(cwd2), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
+}
 var GIT = process.platform === "win32" ? "git.exe" : "git";
-function execAsync(argv, options) {
+var refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
+function execAsync(argv, config2, options) {
   return new Promise((resolve2) => {
     const child = (0, import_node_child_process2.execFile)(
       GIT,
       argv,
-      { cwd: options.cwd, env: safeGitEnv(options.env), encoding: "utf8", maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024, timeout: options.timeoutMs ?? 3e4, windowsHide: true },
+      { cwd: options.cwd, env: safeGitEnv(options.env, config2), encoding: "utf8", maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024, timeout: options.timeoutMs ?? 3e4, windowsHide: true },
       (error51, stdout, stderr) => resolve2({ code: error51 ? error51.killed ? 124 : typeof error51.code === "number" ? error51.code : 1 : 0, stdout: stdout ?? "", stderr: stderr || (error51 ? String(error51.message) : "") })
     );
     child.stdin.end(options.input ?? void 0);
   });
 }
 async function safeGit(cwd2, args, options = {}) {
-  const listing = await execAsync(LIST(cwd2), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
-  const result = await execAsync(safeGitArgv(cwd2, args, listing.stdout), options);
+  const listing = await execAsync(LIST(cwd2), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const plan = safeGitPlan(cwd2, args, listing.stdout);
+  const result = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
   if (result.code !== 0 && !options.allowFailure) {
     throw Object.assign(new Error(`git ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`), result);
   }

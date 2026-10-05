@@ -45,20 +45,21 @@ export async function foreignDirtyPaths(cwd) {
 
 /** TM-247 (AC9): is `head` a merge-in of the integration branch on top of the approved `revision`?
  * Exactly: a two-parent merge whose first parent IS the revision, whose second parent is on the
- * integration branch (local or origin), and whose TREE is byte-for-byte the tree git itself computes
+ * integration branch AS THE SERVER HAS IT (PR #226 review: never a local or remote-tracking ref, which
+ * a worker writes; `gh api repos/<pinned>/compare/<parent>...<target>` must say ahead or identical),
+ * and whose TREE is byte-for-byte the tree git itself computes
  * for that merge (`git merge-tree --write-tree <revision> <integration>`), so the merge added nothing
  * of its own. TM-441: never patch-id, which ignores whitespace (`rm -rf /tmp/build` and
  * `rm -rf / tmp/build` share one); a conflicted merge has no clean tree and is never a merge-in.
  * Returns { head, integration } or null. task-management governance-check.mjs mirrors it (no import
  * crosses the plugins); a conformance test runs both on one repository.
  * ponytail: one merge-in commit; a chain of merge-ins needs a walk down first parents. */
-export async function mergeInOf(cwd, revision, head, target) {
+export async function mergeInOf(cwd, revision, head, target, { gh = defaultGh(cwd), env = process.env, home = homedir() } = {}) {
   if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
   const parents = (await git(cwd, ['rev-list', '--parents', '-n', '1', head], true)).stdout.trim().split(' ').slice(1);
   if (parents.length !== 2 || parents[0] !== revision) return null;
   const integration = parents[1];
-  const onTarget = async ref => (await git(cwd, ['merge-base', '--is-ancestor', integration, ref], true)).code === 0;
-  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
+  if (!await onServerBranch(gh, cwd, integration, target, { env, home })) return null;
   const merged = await git(cwd, ['merge-tree', '--write-tree', revision, integration], true);
   const expected = merged.code === 0 ? merged.stdout.split('\n')[0].trim() : '';
   const actual = (await git(cwd, ['rev-parse', '--verify', '--quiet', `${head}^{tree}`], true)).stdout.trim();
@@ -78,6 +79,22 @@ export function claimedCheckEvidence(report) {
  * lead-supplied runs, so integration never treats it as a check result: integrate runs the configured
  * argv itself. These reasons stay visible as `claimed_check_reasons` on the gate. */
 const CHECK_EVIDENCE_REASON = /^(required check |no check evidence is recorded for revision )/;
+
+/** PR #226 review: is `sha` on `branch` of the PINNED repository on the server? Read through gh's compare
+ * API (`ahead` or `identical` from sha to branch); any failure, an unpinned or repointed repository, or
+ * another status is no. task-management governance-check.mjs `onServerBranch` mirrors it. */
+export async function onServerBranch(gh, repoDir, sha, branch, options = {}) {
+  return ['ahead', 'identical'].includes((await serverCompareStatus(gh, repoDir, sha, branch, options)).status);
+}
+
+/** { status } of `repos/<pinned>/compare/<sha>...<branch>` on the server, or { status: null, reason }. */
+export async function serverCompareStatus(gh, repoDir, sha, branch, { env = process.env, home = homedir() } = {}) {
+  if (!/^[0-9a-f]{40,64}$/.test(String(sha)) || !nonempty(branch)) return { status: null, reason: 'no commit or branch to compare' };
+  let repo;
+  try { ({ repo } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch (error) { return { status: null, reason: error.message }; }
+  const compared = await ghJson(gh, ['api', `repos/${repo}/compare/${sha}...${encodeURIComponent(branch)}`]);
+  return compared.code === 0 && typeof compared.value?.status === 'string' ? { status: compared.value.status, repo } : { status: null, reason: ghFailure(`gh api compare on ${repo}`, compared) };
+}
 
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */
 export async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
@@ -760,7 +777,7 @@ export async function integrationEligibility(options) {
   if (doc && record?.finish) {
     if (!doc.labels?.includes('ready-for-agent')) refuse('scope', 'task scope is no longer approved');
     const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
-    if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch)) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
+    if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch, { gh: options.gh || defaultGh(ctx.store.root), env: ctx.env, home: ctx.home })) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ['status', '--porcelain'])) refuse('dirty', 'task worktree has uncommitted work');
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     claimedReasons = review.reasons.filter(reason => CHECK_EVIDENCE_REASON.test(reason));
@@ -985,7 +1002,7 @@ async function integrateViaPullRequest(options, ctx) {
     // TM-247 (AC9): a head that only merged the integration branch into the approved revision lands that revision.
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
       await git(ctx.store.root, ['fetch', 'origin', policy.target_branch, `refs/pull/${pr.number}/head`], true);
-      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch);
+      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch, { gh, env: ctx.env, home: ctx.home });
     }
     if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
     if (revision && pr.headRefOid !== revision && !mergeIn) refuse('head', `${at}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
@@ -1123,7 +1140,7 @@ export async function cleanupTask(options) {
       invariant(record.worktree === doc.worktree && record.branch === doc.branch, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task worktree ownership changed.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');
       const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
-      invariant(head === record.merge.revision || await mergeInOf(doc.worktree, record.merge.revision, head, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Task branch changed after integration (landed ${record.merge.revision}, now ${head}).`);
+      invariant(head === record.merge.revision || await mergeInOf(doc.worktree, record.merge.revision, head, record.merge.target_branch, { gh: options.gh || defaultGh(ctx.store.root), env: ctx.env, home: ctx.home }), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Task branch changed after integration (landed ${record.merge.revision}, now ${head}).`);
       invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.merge.revision, `refs/heads/${record.merge.target_branch}`], true)).code === 0, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Merge ancestry is no longer established.');
       const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
       const worker = await observe(record);

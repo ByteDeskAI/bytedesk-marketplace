@@ -66,11 +66,59 @@ test('TM-443 a merge driver planted in repository config is a conflict under saf
 test('TM-443 driverOverrides neutralises repository-scope drivers and re-adds only global credential helpers', () => {
   const listing = ['global', 'credential.https://github.com.helper\n!gh auth git-credential', 'local', 'credential.helper\n!evil',
     'local', 'filter.a.b.clean\nevil', 'worktree', 'merge.m.driver\nevil', 'global', 'filter.lfs.clean\ngit-lfs clean'].join('\0') + '\0';
-  assert.deepEqual(driverOverrides(listing), ['filter.a.b.clean=', 'filter.a.b.smudge=', 'filter.a.b.process=', 'filter.a.b.required=false', 'merge.m.driver=false', 'credential.https://github.com.helper=!gh auth git-credential']);
+  assert.deepEqual(driverOverrides(listing), { refusal: null, overrides: [['filter.a.b.clean', ''], ['filter.a.b.smudge', ''], ['filter.a.b.process', ''], ['filter.a.b.required', 'false'], ['merge.m.driver', 'false'],
+    ['credential.helper', ''], ['credential.https://github.com.helper', '!gh auth git-credential']] });
   assert.ok(SAFE_GIT_CONFIG.includes('credential.helper='), 'helpers are reset before the global ones are re-added');
   assert.deepEqual(hardenArgs(['diff', 'a', 'b']), ['diff', '--no-ext-diff', '--no-textconv', 'a', 'b']);
   assert.deepEqual(hardenArgs(['fetch', 'origin']), ['fetch', '--upload-pack=git-upload-pack', 'origin']);
   assert.deepEqual(hardenArgs(['status']), ['status']);
+});
+
+// ── PR #226 review: driver names containing `=`, worker-chosen transports, LFS ─────────────────────
+const exists = path => readFile(path).then(() => true, () => false);
+test('TM-443 review HIGH-1: a filter or merge driver whose name contains `=` never runs (exact repro)', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const pwned = join(dir, 'PWNED');
+  raw(repo, 'config', 'filter.a=b.smudge', `sh -c 'touch ${pwned}'`);
+  raw(repo, 'config', 'merge.a=b.driver', `sh -c 'touch ${pwned}-merge'`);
+  await writeFile(join(repo, '.git', 'info', 'attributes'), '* filter=a=b merge=a=b\n');
+  const added = safeGitSync(repo, ['worktree', 'add', '--detach', join(dir, 'wt'), 'HEAD']);
+  assert.equal(added.status, 0, added.stderr);
+  assert.equal(await exists(pwned), false, 'filter.a=b.smudge ran during worktree add');
+  raw(repo, 'checkout', '-q', 'feature'); await writeFile(join(repo, 'a.txt'), 'one\nfeature\n'); raw(repo, 'commit', '-qam', 'conflicting'); raw(repo, 'checkout', '-q', 'main');
+  await safeGit(repo, ['merge-tree', '--write-tree', 'side', 'feature'], { allowFailure: true });
+  assert.equal(await exists(`${pwned}-merge`), false, 'merge.a=b.driver ran during merge-tree');
+});
+
+test('TM-443 review MEDIUM: a worker-chosen remote helper (`evil::`) is never run, and URL rewriting refuses the call', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const bin = join(dir, 'bin'), pwned = join(dir, 'PWNED-helper');
+  execFileSync('mkdir', ['-p', bin]);
+  await writeFile(join(bin, 'git-remote-evil'), `#!/bin/sh\ntouch ${pwned}\n`, { mode: 0o755 });
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  raw(repo, 'remote', 'set-url', 'origin', 'evil::x');
+  const fetched = await safeGit(repo, ['fetch', 'origin', 'main'], { allowFailure: true, env });
+  assert.notEqual(fetched.code, 0); assert.match(fetched.stderr, /transport 'evil' not allowed/);
+  assert.equal(await exists(pwned), false, 'git-remote-evil ran');
+  // A file:// origin still fetches (local origins are legitimate), but insteadOf/vcs rewriting is refused outright.
+  raw(repo, 'remote', 'set-url', 'origin', `file://${join(dir, 'origin.git')}`);
+  assert.equal((await safeGit(repo, ['fetch', 'origin', 'main'], { allowFailure: true })).code, 0);
+  raw(repo, 'config', `url.evil::x.insteadOf`, `file://${join(dir, 'origin.git')}`);
+  const rewritten = await safeGit(repo, ['fetch', 'origin', 'main'], { allowFailure: true, env });
+  assert.equal(rewritten.code, 128); assert.match(rewritten.stderr, /safe-git refused .*url\.evil::x\.insteadof/);
+  assert.equal(await exists(pwned), false);
+  raw(repo, 'config', '--unset-all', 'url.evil::x.insteadOf'); raw(repo, 'config', 'remote.origin.vcs', 'evil');
+  assert.match((await safeGit(repo, ['status'], { allowFailure: true })).stderr, /remote\.origin\.vcs/);
+});
+
+test('TM-443 review LOW: LFS never smudges, and a repository-scope LFS transfer agent refuses the call', async t => {
+  const { repo } = await repoWithOrigin(t);
+  const env = (await import('../../topology/lib/safe-git.mjs')).safeGitEnv({});
+  assert.equal(env.GIT_LFS_SKIP_SMUDGE, '1');
+  raw(repo, 'config', 'lfs.customtransfer.evil.path', '/tmp/evil');
+  assert.equal(safeGitSync(repo, ['status']).status, 128);
+  raw(repo, 'config', '--remove-section', 'lfs.customtransfer.evil'); raw(repo, 'config', 'lfs.standalonetransferagent', 'evil');
+  assert.equal(safeGitSync(repo, ['status']).status, 128);
 });
 
 test('TM-443 conformance: task-management carries a byte-identical copy of the helper', async () => {

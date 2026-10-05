@@ -1,4 +1,5 @@
 /** Producer-owned review and integration records are the authority for governed completion. */
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -111,22 +112,38 @@ export function governanceMode(task, p) {
 
 /**
  * TM-247 (AC9): `head` is a merge-in of the integration branch on top of the approved `revision`:
- * a two-parent merge whose first parent IS the revision, whose second parent is on `target` (local or
- * origin), and whose tree equals `git merge-tree --write-tree <revision> <integration>` (TM-441: never
+ * a two-parent merge whose first parent IS the revision, whose second parent is on `target` AS THE
+ * SERVER HAS IT (`onServerBranch`; never a local or remote-tracking ref, which a worker writes), and whose tree equals `git merge-tree --write-tree <revision> <integration>` (TM-441: never
  * patch-id, which is whitespace-blind; a conflicted merge is never a merge-in). Mirrors
  * agent-orchestration topology/lib/management.mjs `mergeInOf` without importing it; a conformance test
  * in agent-orchestration runs both on one repository.
  */
-export function mergeInOf(root, revision, head, target) {
+export function mergeInOf(root, revision, head, target, { onServer = onServerBranch } = {}) {
   if (!head || !revision || head === revision || !target) return false;
   const parents = (governanceGit(root, "rev-list", "--parents", "-n", "1", head) || "").split(" ").slice(1);
   if (parents.length !== 2 || parents[0] !== revision) return false;
   const integration = parents[1];
-  const onTarget = (ref) => governanceGit(root, "merge-base", "--is-ancestor", integration, ref) !== null;
-  if (!onTarget(`refs/heads/${target}`) && !onTarget(`refs/remotes/origin/${target}`)) return false;
+  if (!onServer(root, integration, target)) return false;
   const expected = (governanceGit(root, "merge-tree", "--write-tree", revision, integration) || "").split("\n")[0].trim();
   const actual = governanceGit(root, "rev-parse", "--verify", "--quiet", `${head}^{tree}`);
   return Boolean(expected) && expected === actual;
+}
+
+/**
+ * PR #226 review: is `sha` on `branch` of this repository on the SERVER? The repository is the one
+ * agent-orchestration pinned at <state>/repositories/<key>.github.json (TM-263; read as data, never
+ * imported), asked through `gh api repos/<repo>/compare/<sha>...<branch>`: `ahead` or `identical` is
+ * yes; no pin, no gh, or any other answer is no. Mirrors management.mjs `onServerBranch`.
+ */
+export function onServerBranch(root, sha, branch) {
+  if (!/^[0-9a-f]{40,64}$/.test(String(sha)) || !branch) return false;
+  try {
+    const { root: state, key } = repoIdentity({ root });
+    const repo = JSON.parse(readFileSync(join(state, "repositories", `${key}.github.json`), "utf8")).nameWithOwner;
+    if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return false;
+    const r = spawnSync("gh", ["api", `repos/${repo}/compare/${sha}...${encodeURIComponent(branch)}`], { cwd: root, encoding: "utf8", timeout: 60_000, windowsHide: true });
+    return r.status === 0 && ["ahead", "identical"].includes(JSON.parse(r.stdout)?.status);
+  } catch { return false; }
 }
 
 /** The worktree still holds the reviewed revision, or only merged the integration branch into it. */

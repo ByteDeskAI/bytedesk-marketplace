@@ -4,6 +4,18 @@
 
 ### Security
 
+- **Review fixes for the gate security work (PR #226; TM-443, TM-441, TM-442, EP-028).**
+  - safe-git pins its overrides through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n`, so a filter or merge
+    driver whose name contains `=` (`filter.a=b.smudge`, which `-c` cannot name) is neutralised too.
+  - safe-git allows only the https, ssh and file transports, so a worker-set `evil::` remote never runs
+    `git-remote-evil`. It refuses outright (exit 128) when repository config sets `url.*.insteadOf`,
+    `url.*.pushInsteadOf`, `remote.*.vcs`, `lfs.standalonetransferagent` or `lfs.customtransfer.*`.
+    It never smudges LFS objects (`GIT_LFS_SKIP_SMUDGE=1`), including in the TM-444 check worktrees.
+  - A merge-in's integration parent must be on the target branch of the pinned repository on the
+    server (`gh api .../compare`, ahead or identical), never on a local or remote-tracking ref a
+    worker can forge. task-management uses the same rule.
+  - Release readiness requires the checkout's commit to be the server's branch tip, not merely equal
+    to a worker-chosen `origin`.
 - **`manage transfer` takeover needs lead proof and owner absence (TM-459, EP-028).**
   A session could take ownership of a task as soon as the owner held no live claim, but `tm block`
   or `tm park` releases the claim while the owner is still alive. A takeover (the caller is not the

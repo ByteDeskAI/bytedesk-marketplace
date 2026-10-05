@@ -15,6 +15,7 @@ import { page, ntfyTarget } from '../../topology/lib/ntfy.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
+import { COMPARE, serverCompare } from '../helpers/fake-server.mjs';
 
 const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !agentMarkers({ [k]: '1' }).length));
 const OPERATOR = async () => ['zsh'];
@@ -24,8 +25,10 @@ const lines = async path => (await readFile(path, 'utf8').catch(() => '')).split
 /** A develop checkout synced with a bare origin, its own fake deploy and release scripts committed,
  * and a task store whose epic EP-1 is fully landed unless a test says otherwise. */
 /** TM-442: a fake gh for the pinned repository o/r whose default-branch config is `doc()`. */
-export const serverGh = doc => async args => {
+export const serverGh = (doc, serverRepo = null) => async args => {
   if (args[0] === 'repo' && args[1] === 'view') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'develop' } }), stderr: '' };
+  const compared = serverRepo && args[0] === 'api' && COMPARE.exec(args[1]);
+  if (compared) return { code: 0, stdout: JSON.stringify({ status: serverCompare(serverRepo, compared[1], compared[2]) }), stderr: '' };
   if (args[0] === 'api' && args[1] === 'repos/o/r/contents/.bytedesk/agent-orchestration/config.json?ref=develop') return { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify(await doc())).toString('base64') }), stderr: '' };
   return { code: 1, stdout: '', stderr: `fixture gh: ${args.join(' ')}` };
 };
@@ -63,7 +66,7 @@ export async function releaseFixture(t, { management = {}, global = null, policy
   const store = { epicTasks: async epic => (epic === 'EP-1' ? Object.keys(tasks) : []), show: async id => ({ id, status: tasks[id] }) };
   const server = { management: { ...committed.management, ...policy } };
   const options = { consumer, home: join(root, 'home'), env: { ...operatorEnv(), XDG_CONFIG_HOME: config, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') },
-    ancestors: OPERATOR, store, epic: 'EP-1', authorized: true, gh: serverGh(() => server) };
+    ancestors: OPERATOR, store, epic: 'EP-1', authorized: true, gh: serverGh(() => server, origin) };
   return { root, consumer, logs, shims, git, tasks, options, server };
 }
 
@@ -131,6 +134,21 @@ test('TM-250 refusal sync: develop ahead of origin/develop runs nothing', async 
   const fx = await releaseFixture(t);
   await fx.git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'unpushed']);
   await refusedFor(cutover(fx.options), 'TOPOLOGY_CUTOVER_REFUSED', 'sync');
+  await nothingRan(fx);
+});
+
+test('TM-442 review MEDIUM: "synced with origin" is checked on the server, so a worker-set origin cannot vouch for its own commit', async t => {
+  const fx = await releaseFixture(t);
+  // The worker points origin at a repository it controls, holding one extra commit, and moves develop to it.
+  const fake = join(fx.root, 'fake.git');
+  await run('git', ['clone', '-q', '--bare', fx.consumer, fake]);
+  await fx.git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'worker commit']);
+  await fx.git(['push', '-q', fake, 'develop']);
+  await fx.git(['remote', 'set-url', 'origin', `file://${fake}`]);
+  const gate = await releaseReadiness(fx.options, 'release');
+  const sync = gate.refusals.filter(r => r.condition === 'sync');
+  assert.ok(sync.some(r => /not the tip of develop on the server \(compare says (ahead|diverged)\)/.test(r.reason)), JSON.stringify(gate.refusals));
+  await refusedFor(cutRelease(fx.options), 'TOPOLOGY_RELEASE_REFUSED', 'sync');
   await nothingRan(fx);
 });
 

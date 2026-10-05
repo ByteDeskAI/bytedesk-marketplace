@@ -6926,28 +6926,44 @@ var require_dist = __commonJS({
 });
 
 // topology/lib/safe-git.mjs
-function safeGitEnv(base = process.env) {
-  const env = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" };
-  for (const name of ["GIT_EXTERNAL_DIFF", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"]) delete env[name];
+function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
+  const env = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" };
+  for (const name of Object.keys(env)) if (name === "GIT_EXTERNAL_DIFF" || name === "GIT_CONFIG_PARAMETERS" || /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
+  env.GIT_CONFIG_COUNT = String(config2.length);
+  config2.forEach(([key, value], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = key;
+    env[`GIT_CONFIG_VALUE_${i}`] = value;
+  });
   return env;
 }
 function driverOverrides(listing) {
-  const out = [], helpers = [];
+  const out = [], resets = [], helpers = [], seen = /* @__PURE__ */ new Set();
   const fields = String(listing || "").split("\0");
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const scope = fields[i], nl = fields[i + 1].indexOf("\n");
     const key = nl < 0 ? fields[i + 1] : fields[i + 1].slice(0, nl), value = nl < 0 ? "" : fields[i + 1].slice(nl + 1);
-    if (key.includes("=")) continue;
     if (key.startsWith("credential.")) {
-      if (scope === "global") helpers.push(`${key}=${value}`);
+      if (scope === "global") helpers.push([key, value]);
+      else if (UNTRUSTED_SCOPES.has(scope)) resets.push([key, ""]);
       continue;
     }
     if (!UNTRUSTED_SCOPES.has(scope)) continue;
+    if (REFUSED_KEYS.test(key)) return { overrides: [], refusal: `the repository's ${scope} config sets ${key}, which host git cannot neutralise; remove it (git config --${scope === "worktree" ? "worktree" : "local"} --unset-all '${key}')` };
     const name = key.slice(key.indexOf(".") + 1, key.lastIndexOf("."));
-    if (key.startsWith("filter.")) out.push(`filter.${name}.clean=`, `filter.${name}.smudge=`, `filter.${name}.process=`, `filter.${name}.required=false`);
-    else out.push(`${key}=false`);
+    const add = (k, v) => {
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push([k, v]);
+      }
+    };
+    if (key.startsWith("filter.")) {
+      add(`filter.${name}.clean`, "");
+      add(`filter.${name}.smudge`, "");
+      add(`filter.${name}.process`, "");
+      add(`filter.${name}.required`, "false");
+    } else add(key, "false");
   }
-  return [...new Set(out), ...helpers];
+  return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
 function hardenArgs(args) {
   let i = 0;
@@ -6955,29 +6971,36 @@ function hardenArgs(args) {
   const extra = Object.hasOwn(SUBCOMMAND_FLAGS, args[i] ?? "") ? SUBCOMMAND_FLAGS[args[i]] : [];
   return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
 }
-function execAsync(argv, options) {
+function safeGitPlan(cwd, args, listing = "") {
+  const { overrides, refusal } = driverOverrides(listing);
+  return { argv: [...at(cwd), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
+}
+function execAsync(argv, config2, options) {
   return new Promise((resolve23) => {
     const child = (0, import_node_child_process.execFile)(
       GIT,
       argv,
-      { cwd: options.cwd, env: safeGitEnv(options.env), encoding: "utf8", maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024, timeout: options.timeoutMs ?? 3e4, windowsHide: true },
+      { cwd: options.cwd, env: safeGitEnv(options.env, config2), encoding: "utf8", maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024, timeout: options.timeoutMs ?? 3e4, windowsHide: true },
       (error51, stdout, stderr) => resolve23({ code: error51 ? error51.killed ? 124 : typeof error51.code === "number" ? error51.code : 1 : 0, stdout: stdout ?? "", stderr: stderr || (error51 ? String(error51.message) : "") })
     );
     child.stdin.end(options.input ?? void 0);
   });
 }
 async function safeGit(cwd, args, options = {}) {
-  const listing = await execAsync(LIST(cwd), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
-  const result2 = await execAsync(safeGitArgv(cwd, args, listing.stdout), options);
+  const listing = await execAsync(LIST(cwd), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const plan = safeGitPlan(cwd, args, listing.stdout);
+  const result2 = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
   if (result2.code !== 0 && !options.allowFailure) {
     throw Object.assign(new Error(`git ${args.join(" ")} exited ${result2.code}: ${result2.stderr.trim()}`), result2);
   }
   return result2;
 }
 function safeGitSync(cwd, args, options = {}) {
-  const base = { cwd: options.cwd, env: safeGitEnv(options.env), encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
-  const listing = (0, import_node_child_process.spawnSync)(GIT, LIST(cwd), { ...base, stdio: ["ignore", "pipe", "ignore"] });
-  return (0, import_node_child_process.spawnSync)(GIT, safeGitArgv(cwd, args, listing.stdout), { ...base, input: options.input, stdio: [options.input != null ? "pipe" : "ignore", "pipe", "pipe"] });
+  const base = { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
+  const listing = (0, import_node_child_process.spawnSync)(GIT, LIST(cwd), { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] });
+  const plan = safeGitPlan(cwd, args, listing.stdout);
+  if (plan.refusal) return { status: 128, stdout: "", stderr: refused(args, plan.refusal), error: void 0 };
+  return (0, import_node_child_process.spawnSync)(GIT, plan.argv, { ...base, env: safeGitEnv(options.env, plan.config), input: options.input, stdio: [options.input != null ? "pipe" : "ignore", "pipe", "pipe"] });
 }
 function safeGitText(cwd, args, options = {}) {
   const result2 = safeGitSync(cwd, args, options);
@@ -6986,7 +7009,7 @@ function safeGitText(cwd, args, options = {}) {
   }
   return options.raw ? result2.stdout : result2.stdout.trim();
 }
-var import_node_child_process, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, UNTRUSTED_SCOPES, pairs, at, LIST, safeGitArgv, GIT;
+var import_node_child_process, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, at, LIST, GIT, refused;
 var init_safe_git = __esm({
   "topology/lib/safe-git.mjs"() {
     import_node_child_process = require("node:child_process");
@@ -7001,6 +7024,10 @@ var init_safe_git = __esm({
       "sequence.editor=true",
       "core.alternateRefsCommand=true",
       "uploadpack.packObjectsHook=env",
+      "protocol.allow=never",
+      "protocol.https.allow=always",
+      "protocol.ssh.allow=always",
+      "protocol.file.allow=always",
       "protocol.ext.allow=never",
       "gpg.program=gpg",
       "gpg.ssh.program=ssh-keygen",
@@ -7023,13 +7050,17 @@ var init_safe_git = __esm({
       push: ["--receive-pack=git-receive-pack"],
       ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
     });
-    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper)$";
+    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
+    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
     UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
-    pairs = (flags) => flags.flatMap((entry) => ["-c", entry]);
+    pair = (entry) => {
+      const at2 = entry.indexOf("=");
+      return [entry.slice(0, at2), entry.slice(at2 + 1)];
+    };
     at = (cwd) => cwd ? ["-C", cwd] : [];
-    LIST = (cwd) => [...pairs(SAFE_GIT_CONFIG), ...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
-    safeGitArgv = (cwd, args, listing = "") => [...pairs(SAFE_GIT_CONFIG), ...pairs(driverOverrides(listing)), ...at(cwd), ...hardenArgs(args)];
+    LIST = (cwd) => [...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
     GIT = process.platform === "win32" ? "git.exe" : "git";
+    refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
   }
 });
 
@@ -28358,12 +28389,12 @@ async function holdLock(path3, options) {
     release = resolve23;
   });
   let done;
-  await new Promise((entered, refused) => {
+  await new Promise((entered, refused2) => {
     done = withLock(path3, async () => {
       entered();
       await released;
     }, options);
-    done.catch(refused);
+    done.catch(refused2);
   });
   return async () => {
     release();
@@ -30430,6 +30461,7 @@ __export(management_exports, {
   managementPolicyChange: () => managementPolicyChange,
   managementStatus: () => managementStatus,
   mergeInOf: () => mergeInOf,
+  onServerBranch: () => onServerBranch,
   ownerPresence: () => ownerPresence,
   parseAssignmentReply: () => parseAssignmentReply,
   protectedBranch: () => protectedBranch,
@@ -30438,6 +30470,7 @@ __export(management_exports, {
   releaseAssignment: () => releaseAssignment,
   retryReview: () => retryReview,
   runRequiredChecks: () => runRequiredChecks,
+  serverCompareStatus: () => serverCompareStatus,
   serverLeadAutonomy: () => serverLeadAutonomy,
   serverPolicy: () => serverPolicy,
   startTaskWorker: () => startTaskWorker,
@@ -30458,13 +30491,12 @@ async function foreignDirtyPaths(cwd) {
   }
   return paths2.filter((path3) => path3 && !storePath(path3));
 }
-async function mergeInOf(cwd, revision, head, target) {
+async function mergeInOf(cwd, revision, head, target, { gh = defaultGh(cwd), env = process.env, home = (0, import_node_os20.homedir)() } = {}) {
   if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
   const parents = (await git2(cwd, ["rev-list", "--parents", "-n", "1", head], true)).stdout.trim().split(" ").slice(1);
   if (parents.length !== 2 || parents[0] !== revision) return null;
   const integration = parents[1];
-  const onTarget = async (ref) => (await git2(cwd, ["merge-base", "--is-ancestor", integration, ref], true)).code === 0;
-  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
+  if (!await onServerBranch(gh, cwd, integration, target, { env, home })) return null;
   const merged = await git2(cwd, ["merge-tree", "--write-tree", revision, integration], true);
   const expected = merged.code === 0 ? merged.stdout.split("\n")[0].trim() : "";
   const actual = (await git2(cwd, ["rev-parse", "--verify", "--quiet", `${head}^{tree}`], true)).stdout.trim();
@@ -30473,6 +30505,20 @@ async function mergeInOf(cwd, revision, head, target) {
 function claimedCheckEvidence(report) {
   return finishCheckEvidence(report).map((check2) => ({ ...check2, command: `${CLAIMED} ${check2.command}`.trim(), log_tail: `${CLAIMED}
 ${check2.log_tail}` }));
+}
+async function onServerBranch(gh, repoDir, sha2, branch, options = {}) {
+  return ["ahead", "identical"].includes((await serverCompareStatus(gh, repoDir, sha2, branch, options)).status);
+}
+async function serverCompareStatus(gh, repoDir, sha2, branch, { env = process.env, home = (0, import_node_os20.homedir)() } = {}) {
+  if (!/^[0-9a-f]{40,64}$/.test(String(sha2)) || !nonempty(branch)) return { status: null, reason: "no commit or branch to compare" };
+  let repo;
+  try {
+    ({ repo } = await pinnedGithubRepo(repoDir, gh, { env, home }));
+  } catch (error51) {
+    return { status: null, reason: error51.message };
+  }
+  const compared = await ghJson(gh, ["api", `repos/${repo}/compare/${sha2}...${encodeURIComponent(branch)}`]);
+  return compared.code === 0 && typeof compared.value?.status === "string" ? { status: compared.value.status, repo } : { status: null, reason: ghFailure(`gh api compare on ${repo}`, compared) };
 }
 async function taskStore({ consumer, owner = null, env = process.env, tmBin = null }) {
   const identity = await canonicalRepoId(consumer);
@@ -31115,7 +31161,7 @@ async function integrationEligibility(options) {
   if (doc && record2?.finish) {
     if (!doc.labels?.includes("ready-for-agent")) refuse("scope", "task scope is no longer approved");
     const head = await gitText(doc.worktree, ["rev-parse", "HEAD"]);
-    if (head !== record2.finish.revision && !await mergeInOf(doc.worktree, record2.finish.revision, head, policy.target_branch)) refuse("head", `task changed after finish (approved ${record2.finish.revision}, now ${head}); send a new report and obtain a new review`);
+    if (head !== record2.finish.revision && !await mergeInOf(doc.worktree, record2.finish.revision, head, policy.target_branch, { gh: options.gh || defaultGh(ctx.store.root), env: ctx.env, home: ctx.home })) refuse("head", `task changed after finish (approved ${record2.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ["status", "--porcelain"])) refuse("dirty", "task worktree has uncommitted work");
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record2.finish.revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
     claimedReasons = review.reasons.filter((reason) => CHECK_EVIDENCE_REASON.test(reason));
@@ -31319,7 +31365,7 @@ async function integrateViaPullRequest(options, ctx) {
     if (pr.baseRefName !== policy.target_branch) refuse("base", `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
       await git2(ctx.store.root, ["fetch", "origin", policy.target_branch, `refs/pull/${pr.number}/head`], true);
-      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch);
+      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch, { gh, env: ctx.env, home: ctx.home });
     }
     if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse("head", `${at2}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
     if (revision && pr.headRefOid !== revision && !mergeIn) refuse("head", `${at2}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
@@ -31457,7 +31503,7 @@ async function cleanupTask(options) {
       invariant2(record2.worktree === doc.worktree && record2.branch === doc.branch, "TOPOLOGY_MANAGEMENT_CLEANUP", "Task worktree ownership changed.");
       invariant2(!await gitText(doc.worktree, ["status", "--porcelain"]), "TOPOLOGY_MANAGEMENT_CLEANUP", "Task tree has uncommitted work.");
       const head = await gitText(doc.worktree, ["rev-parse", "HEAD"]);
-      invariant2(head === record2.merge.revision || await mergeInOf(doc.worktree, record2.merge.revision, head, record2.merge.target_branch), "TOPOLOGY_MANAGEMENT_CLEANUP", `Task branch changed after integration (landed ${record2.merge.revision}, now ${head}).`);
+      invariant2(head === record2.merge.revision || await mergeInOf(doc.worktree, record2.merge.revision, head, record2.merge.target_branch, { gh: options.gh || defaultGh(ctx.store.root), env: ctx.env, home: ctx.home }), "TOPOLOGY_MANAGEMENT_CLEANUP", `Task branch changed after integration (landed ${record2.merge.revision}, now ${head}).`);
       invariant2((await git2(ctx.store.root, ["merge-base", "--is-ancestor", record2.merge.revision, `refs/heads/${record2.merge.target_branch}`], true)).code === 0, "TOPOLOGY_MANAGEMENT_CLEANUP", "Merge ancestry is no longer established.");
       const observe = (value) => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
       const worker = await observe(record2);
@@ -39055,7 +39101,7 @@ async function ringMessage({
         composer_empty_after: composerEmptyAfter,
         ...fields
       }));
-      const refused = (gate, finalState) => gate.stale ? terminal2({ state: "held", notification: "stale-binding", reason: gate.reason }) : terminal2({
+      const refused2 = (gate, finalState) => gate.stale ? terminal2({ state: "held", notification: "stale-binding", reason: gate.reason }) : terminal2({
         state: finalState,
         notification: notificationFor({ state: finalState, capability, everSafe }),
         reason: gate.reason,
@@ -39072,7 +39118,7 @@ async function ringMessage({
       if (rung === "wait-safe") {
         const gate = await whenSafe({ pane, adapter, client: client2, subName: `ao-bell-${agentId}`, format, binding: agent?.binding ?? null, timeoutMs: Math.max(0, windowMs - (now() - started)), tmux: tmux2 });
         waited += gate.waited_ms ?? 0;
-        if (!gate.safe) return refused(gate, typed ? state : "held");
+        if (!gate.safe) return refused2(gate, typed ? state : "held");
         composerEmptyAfter = true;
         state = "submitted";
         submittedAt = new Date(now()).toISOString();
@@ -39082,7 +39128,7 @@ async function ringMessage({
       if (rung === "retype") {
         const gate = await whenSafe({ pane, adapter, client: client2, subName: `ao-bell-${agentId}`, format, binding: agent?.binding ?? null, timeoutMs: Math.max(0, windowMs - (now() - started)), tmux: tmux2 });
         waited += gate.waited_ms ?? 0;
-        if (!gate.safe) return refused(gate, typed ? state : "held");
+        if (!gate.safe) return refused2(gate, typed ? state : "held");
         everSafe = true;
         rungs.push(rung);
         attempts += 1;
@@ -39099,7 +39145,7 @@ async function ringMessage({
         }
       } else {
         const gate = await checkResubmitSafe({ pane, adapter, format, binding: agent?.binding ?? null, tmux: tmux2 });
-        if (!gate.safe) return refused(gate, typed ? state : "held");
+        if (!gate.safe) return refused2(gate, typed ? state : "held");
         everSafe = true;
         rungs.push(rung);
         attempts += 1;
@@ -39695,7 +39741,7 @@ async function reviewSweepTick({
   const identity = await canonicalRepoId(consumer), key = repoKey(identity.id);
   const leadId = (await lead({ consumer, env, home }).catch(() => null))?.record?.agent_id ?? null;
   for (const f of fresh) {
-    let refused = null;
+    let refused2 = null;
     if (f.kind === "no-review" && f.governed) {
       const record2 = await readJson3((0, import_node_path64.join)(stateRoot2(env, home), "management", key, `${f.id}.json`)).catch(() => null);
       const revision = record2?.finish?.revision;
@@ -39705,9 +39751,9 @@ async function reviewSweepTick({
           out.delivered.push({ key: f.key, action: "review-requested", task: f.id, revision });
           continue;
         } catch (error51) {
-          refused = `${error51.code ?? "error"}: ${error51.message}`;
+          refused2 = `${error51.code ?? "error"}: ${error51.message}`;
         }
-      } else refused = "no finish revision or owner in the management record";
+      } else refused2 = "no finish revision or owner in the management record";
     }
     if (!leadId) {
       out.delivered.push({ key: f.key, action: "skipped", reason: "no lead is registered for this repository" });
@@ -39717,7 +39763,7 @@ async function reviewSweepTick({
     const body = [
       `REVIEW SWEEP: ${f.detail}${f.pr ? ` (${f.pr})` : ""}.`,
       f.kind === "idle-pr" ? "Move it: review, merge, or close it with a reason." : "It needs an independent review or a recorded decision.",
-      ...refused ? [`A review request was not filed: ${refused}`] : []
+      ...refused2 ? [`A review request was not filed: ${refused2}`] : []
     ].join("\n");
     const sent = await deliver({
       id,
@@ -40183,11 +40229,11 @@ var ParseStatus = class _ParseStatus {
     }
     return { status: status.value, value: arrayValue };
   }
-  static async mergeObjectAsync(status, pairs2) {
+  static async mergeObjectAsync(status, pairs) {
     const syncPairs = [];
-    for (const pair of pairs2) {
-      const key = await pair.key;
-      const value = await pair.value;
+    for (const pair2 of pairs) {
+      const key = await pair2.key;
+      const value = await pair2.value;
       syncPairs.push({
         key,
         value
@@ -40195,10 +40241,10 @@ var ParseStatus = class _ParseStatus {
     }
     return _ParseStatus.mergeObjectSync(status, syncPairs);
   }
-  static mergeObjectSync(status, pairs2) {
+  static mergeObjectSync(status, pairs) {
     const finalObject = {};
-    for (const pair of pairs2) {
-      const { key, value } = pair;
+    for (const pair2 of pairs) {
+      const { key, value } = pair2;
       if (key.status === "aborted")
         return INVALID;
       if (value.status === "aborted")
@@ -40207,7 +40253,7 @@ var ParseStatus = class _ParseStatus {
         status.dirty();
       if (value.status === "dirty")
         status.dirty();
-      if (key.value !== "__proto__" && (typeof value.value !== "undefined" || pair.alwaysSet)) {
+      if (key.value !== "__proto__" && (typeof value.value !== "undefined" || pair2.alwaysSet)) {
         finalObject[key.value] = value.value;
       }
     }
@@ -42042,11 +42088,11 @@ var ZodObject = class _ZodObject extends ZodType {
         }
       }
     }
-    const pairs2 = [];
+    const pairs = [];
     for (const key of shapeKeys) {
       const keyValidator = shape[key];
       const value = ctx.data[key];
-      pairs2.push({
+      pairs.push({
         key: { status: "valid", value: key },
         value: keyValidator._parse(new ParseInputLazyPath(ctx, value, ctx.path, key)),
         alwaysSet: key in ctx.data
@@ -42056,7 +42102,7 @@ var ZodObject = class _ZodObject extends ZodType {
       const unknownKeys = this._def.unknownKeys;
       if (unknownKeys === "passthrough") {
         for (const key of extraKeys) {
-          pairs2.push({
+          pairs.push({
             key: { status: "valid", value: key },
             value: { status: "valid", value: ctx.data[key] }
           });
@@ -42077,7 +42123,7 @@ var ZodObject = class _ZodObject extends ZodType {
       const catchall = this._def.catchall;
       for (const key of extraKeys) {
         const value = ctx.data[key];
-        pairs2.push({
+        pairs.push({
           key: { status: "valid", value: key },
           value: catchall._parse(
             new ParseInputLazyPath(ctx, value, ctx.path, key)
@@ -42090,13 +42136,13 @@ var ZodObject = class _ZodObject extends ZodType {
     if (ctx.common.async) {
       return Promise.resolve().then(async () => {
         const syncPairs = [];
-        for (const pair of pairs2) {
-          const key = await pair.key;
-          const value = await pair.value;
+        for (const pair2 of pairs) {
+          const key = await pair2.key;
+          const value = await pair2.value;
           syncPairs.push({
             key,
             value,
-            alwaysSet: pair.alwaysSet
+            alwaysSet: pair2.alwaysSet
           });
         }
         return syncPairs;
@@ -42104,7 +42150,7 @@ var ZodObject = class _ZodObject extends ZodType {
         return ParseStatus.mergeObjectSync(status, syncPairs);
       });
     } else {
-      return ParseStatus.mergeObjectSync(status, pairs2);
+      return ParseStatus.mergeObjectSync(status, pairs);
     }
   }
   get shape() {
@@ -42717,20 +42763,20 @@ var ZodRecord = class _ZodRecord extends ZodType {
       });
       return INVALID;
     }
-    const pairs2 = [];
+    const pairs = [];
     const keyType = this._def.keyType;
     const valueType = this._def.valueType;
     for (const key in ctx.data) {
-      pairs2.push({
+      pairs.push({
         key: keyType._parse(new ParseInputLazyPath(ctx, key, ctx.path, key)),
         value: valueType._parse(new ParseInputLazyPath(ctx, ctx.data[key], ctx.path, key)),
         alwaysSet: key in ctx.data
       });
     }
     if (ctx.common.async) {
-      return ParseStatus.mergeObjectAsync(status, pairs2);
+      return ParseStatus.mergeObjectAsync(status, pairs);
     } else {
-      return ParseStatus.mergeObjectSync(status, pairs2);
+      return ParseStatus.mergeObjectSync(status, pairs);
     }
   }
   get element() {
@@ -42772,7 +42818,7 @@ var ZodMap = class extends ZodType {
     }
     const keyType = this._def.keyType;
     const valueType = this._def.valueType;
-    const pairs2 = [...ctx.data.entries()].map(([key, value], index) => {
+    const pairs = [...ctx.data.entries()].map(([key, value], index) => {
       return {
         key: keyType._parse(new ParseInputLazyPath(ctx, key, ctx.path, [index, "key"])),
         value: valueType._parse(new ParseInputLazyPath(ctx, value, ctx.path, [index, "value"]))
@@ -42781,9 +42827,9 @@ var ZodMap = class extends ZodType {
     if (ctx.common.async) {
       const finalMap = /* @__PURE__ */ new Map();
       return Promise.resolve().then(async () => {
-        for (const pair of pairs2) {
-          const key = await pair.key;
-          const value = await pair.value;
+        for (const pair2 of pairs) {
+          const key = await pair2.key;
+          const value = await pair2.value;
           if (key.status === "aborted" || value.status === "aborted") {
             return INVALID;
           }
@@ -42796,9 +42842,9 @@ var ZodMap = class extends ZodType {
       });
     } else {
       const finalMap = /* @__PURE__ */ new Map();
-      for (const pair of pairs2) {
-        const key = pair.key;
-        const value = pair.value;
+      for (const pair2 of pairs) {
+        const key = pair2.key;
+        const value = pair2.value;
         if (key.status === "aborted" || value.status === "aborted") {
           return INVALID;
         }
@@ -79071,10 +79117,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "bb7fbf0066d52a011e64d9b6fec44b4587e69b90fa926b6dd29d3da83e892712";
+  return false ? null : "662682ca0784db008eae6a1ff3dd8d9b21a1c8aacabe97db07ba0500f9359bd5";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "bb7fbf0066d52a011e64d9b6fec44b4587e69b90fa926b6dd29d3da83e892712";
+  const fingerprint2 = false ? null : "662682ca0784db008eae6a1ff3dd8d9b21a1c8aacabe97db07ba0500f9359bd5";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79499,7 +79545,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "bb7fbf0066d52a011e64d9b6fec44b4587e69b90fa926b6dd29d3da83e892712",
+  sourceFingerprint: false ? null : "662682ca0784db008eae6a1ff3dd8d9b21a1c8aacabe97db07ba0500f9359bd5",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
