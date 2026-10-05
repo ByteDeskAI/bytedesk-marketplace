@@ -15,6 +15,15 @@
 
 ### Added
 
+- **`ao-topology repos list|add|remove` makes repository registration explicit (TM-378, EP-028).**
+  Until now a repository got a supervisor only as a SessionStart side effect. `repos list [--json]`
+  shows each entry of the services `repos.json` registry with its supervisor state (running,
+  starting, never-started, down, repository-missing and so on). `repos add [<path>]` registers a
+  git checkout: a linked worktree registers its main checkout, and a plain directory is refused
+  with `TOPOLOGY_REPO_NOT_GIT`. `repos remove [<path>|<key>]` unregisters it by path, worktree path
+  or key, and never deletes the repository or its state. When services are enabled, add and remove
+  run `services ensure` so the supervisor starts or stops at once. `services ensure --consumer-cwd`
+  and `repos add` now share one `registerRepository` in `topology/lib/services-client.mjs`.
 - **`/orchestrate` is one entry point across both plugins (TM-376, EP-028).** The new
   `orchestrate` skill maps each intent (dispatch a task, drain the pool, ticket another repo,
   message one lead or `@all-leads`, wait for a reply, launch a team, ask another model, run a goal,

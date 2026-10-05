@@ -2355,6 +2355,7 @@ var services_client_exports = {};
 __export(services_client_exports, {
   addServiceRepo: () => addServiceRepo,
   readServiceRepos: () => readServiceRepos,
+  registerRepository: () => registerRepository,
   removeServiceRepo: () => removeServiceRepo,
   reposPath: () => reposPath,
   runServicesEnsure: () => runServicesEnsure,
@@ -2383,6 +2384,11 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
     await writeJson(reposPath(env, home), { repos: [...repos, { key, consumer }] });
     return true;
   });
+}
+async function registerRepository(cwd, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
+  const identity = await canonicalRepoId(cwd).catch(() => null);
+  if (identity?.kind !== "git-common-dir") return null;
+  return addServiceRepo(await repositoryConsumer(cwd), { env, home });
 }
 async function removeServiceRepo({ key, consumer }, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
   return withLock(`${reposPath(env, home)}.lock`, async () => {
@@ -61390,10 +61396,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  return false ? null : "4652f9c9d66da97a1938b086ebf496374f283493782d09ea85283a7e11f95201";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  const fingerprint2 = false ? null : "4652f9c9d66da97a1938b086ebf496374f283493782d09ea85283a7e11f95201";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -62010,7 +62016,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871",
+  sourceFingerprint: false ? null : "4652f9c9d66da97a1938b086ebf496374f283493782d09ea85283a7e11f95201",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -62825,7 +62831,6 @@ var import_promises61 = require("node:fs/promises");
 var import_node_os39 = __toESM(require("node:os"), 1);
 var import_node_path72 = require("node:path");
 init_services_client();
-init_repoid();
 
 // src/services/project-scope.mjs
 var import_node_child_process18 = require("node:child_process");
@@ -62952,11 +62957,6 @@ function detach(stateRoot3, consumerCwd) {
   }
   return 0;
 }
-async function registerRepository(cwd, stateRoot3) {
-  const identity = await canonicalRepoId(cwd).catch(() => null);
-  if (identity?.kind !== "git-common-dir") return false;
-  return addServiceRepo(await repositoryConsumer(cwd), { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } });
-}
 var WORKER_REFUSED = /* @__PURE__ */ new Set(["ensure", "restart", "stop"]);
 async function runServicesCommand(sub, values, positionals, env = process.env, statusOptions = {}) {
   if (WORKER_REFUSED.has(sub) && env.TM_DISPATCH_WORKER) {
@@ -62991,7 +62991,7 @@ async function runServicesCommand(sub, values, positionals, env = process.env, s
         return detach(stateRoot3, consumerCwd);
       }
       try {
-        if (consumerCwd) await registerRepository(consumerCwd, stateRoot3);
+        if (consumerCwd) await registerRepository(consumerCwd, { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot3 } });
         const report = await ensureServices({ stateRoot: stateRoot3 });
         const dir = servicePaths({ stateRoot: stateRoot3, data: dataHome() }).dir;
         report.selfHeal = await withLock((0, import_node_path72.join)(dir, "self-heal.lock"), () => selfHeal({ pointer: report.pointer, stateRoot: stateRoot3, home: import_node_os39.default.homedir() }), { timeoutMs: 12e4 }).catch((error51) => ({ error: error51.message }));

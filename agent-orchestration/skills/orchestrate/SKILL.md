@@ -36,6 +36,7 @@ work: a task that is dispatched must not also be launched as a team.
 | Drive an admitted goal to proven criteria | `/agent-orchestration:goal-feedback-loop` (`tm goal show <EP-id> --json`, `ao-topology goal-loop list`) | both |
 | See the board | `/task-management:board` → `tm board` | tm |
 | See how a team run is going, or stop it | `/agent-orchestration:orchestration-status` → `ao-topology status --run <run_dir>` | AO |
+| See or change which repositories have a supervisor | `ao-topology repos list`, `ao-topology repos add <path>`, `ao-topology repos remove <path-or-key>` (remove keeps the repository and its state) | AO |
 | Wait for the managed services | `agent-orchestration services wait --until healthy --timeout 120` | AO |
 | Check overall health | `/agent-orchestration:agent-orchestration-doctor`; for the store alone `tm doctor` | either |
 | Find finished work nobody reviewed | `tm review-sweep` (`--apply` files the findings) | tm |

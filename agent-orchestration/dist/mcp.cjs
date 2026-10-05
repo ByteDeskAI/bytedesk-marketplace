@@ -9305,6 +9305,7 @@ var services_client_exports = {};
 __export(services_client_exports, {
   addServiceRepo: () => addServiceRepo,
   readServiceRepos: () => readServiceRepos,
+  registerRepository: () => registerRepository,
   removeServiceRepo: () => removeServiceRepo,
   reposPath: () => reposPath,
   runServicesEnsure: () => runServicesEnsure,
@@ -9333,6 +9334,11 @@ async function addServiceRepo(consumer, { env = process.env, home = (0, import_n
     await writeJson(reposPath(env, home), { repos: [...repos, { key, consumer }] });
     return true;
   });
+}
+async function registerRepository(cwd, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
+  const identity = await canonicalRepoId(cwd).catch(() => null);
+  if (identity?.kind !== "git-common-dir") return null;
+  return addServiceRepo(await repositoryConsumer(cwd), { env, home });
 }
 async function removeServiceRepo({ key, consumer }, { env = process.env, home = (0, import_node_os9.homedir)() } = {}) {
   return withLock(`${reposPath(env, home)}.lock`, async () => {
@@ -77708,10 +77714,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  return false ? null : "4652f9c9d66da97a1938b086ebf496374f283493782d09ea85283a7e11f95201";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  const fingerprint2 = false ? null : "4652f9c9d66da97a1938b086ebf496374f283493782d09ea85283a7e11f95201";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78136,7 +78142,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871",
+  sourceFingerprint: false ? null : "4652f9c9d66da97a1938b086ebf496374f283493782d09ea85283a7e11f95201",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

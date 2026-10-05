@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLock } from './lockfile.mjs';
-import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { canonicalRepoId, repoKey, repositoryConsumer, stateRoot } from './repoid.mjs';
 import { readJson, writeJson } from './util.mjs';
 
 /**
@@ -42,6 +42,19 @@ export async function addServiceRepo(consumer, { env = process.env, home = homed
     await writeJson(reposPath(env, home), { repos: [...repos, { key, consumer }] });
     return true;
   });
+}
+
+/**
+ * Registers `cwd`'s repository for a supervisor. Only a git checkout: a supervisor for an arbitrary
+ * directory would be a permanent process nobody asked for. Linked worktrees share one key, so they
+ * register once, under the main checkout. TM-378: `services ensure --consumer-cwd` and
+ * `ao-topology repos add` share this one rule. Returns true when the list changed, false when it
+ * already held the repository, and null when `cwd` is not a git checkout.
+ */
+export async function registerRepository(cwd, { env = process.env, home = homedir() } = {}) {
+  const identity = await canonicalRepoId(cwd).catch(() => null);
+  if (identity?.kind !== 'git-common-dir') return null;
+  return addServiceRepo(await repositoryConsumer(cwd), { env, home });
 }
 
 /**
