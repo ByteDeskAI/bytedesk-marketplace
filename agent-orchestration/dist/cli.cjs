@@ -23955,6 +23955,8 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     done: async (id, actor = null) => exec(["done", taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(["govern", taskId(id), "--workflow", governance.workflowRunId, "--lead", governance.leadId, "--record", governance.recordPath]),
     reviewReady: async (id, revision) => exec(["review-ready", taskId(id), "--revision", revision]),
+    // TM-347: reflects a producer rework; tm checks the record names this revision.
+    rework: async (id, revision) => exec(["rework", taskId(id), "--revision", revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async (epic) => JSON.parse((await exec(["find", `epic:${epic}`, "kind:task", "--json"])).stdout).filter((t) => t.epic === epic).map((t) => t.id)
   };
@@ -23968,7 +23970,7 @@ async function context(options) {
   return { root, path: path3, store, identity, env, home };
 }
 function ownClaim(claim, owner) {
-  invariant2(claim && claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", "Task claim is missing, unknown, or held by another session; reconcile ownership without stealing.");
+  invariant2(claim && claim.session === owner, "TOPOLOGY_MANAGEMENT_OWNERSHIP", `Task claim is held by ${claim ? claim.session || "an unknown session" : "none"}, expected owner ${owner || "none"}; reconcile ownership without stealing.`);
 }
 async function ownedTask(ctx, task, owner) {
   const doc = await ctx.store.show(task);
@@ -60437,10 +60439,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path62.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14";
+  return false ? null : "29d7b5d02cb02f8cceee052bbc19857b6dfaab9179581b77de0a045c11617996";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14";
+  const fingerprint2 = false ? null : "29d7b5d02cb02f8cceee052bbc19857b6dfaab9179581b77de0a045c11617996";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61031,7 +61033,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2e6425f60c0fdc6a55e1d46e6f3e9547d26f4e3426e97ac4f739be27318a3f14",
+  sourceFingerprint: false ? null : "29d7b5d02cb02f8cceee052bbc19857b6dfaab9179581b77de0a045c11617996",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
