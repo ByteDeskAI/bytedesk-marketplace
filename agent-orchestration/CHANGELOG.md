@@ -54,6 +54,13 @@
   (what `claude plugin install --scope project` writes), a `bytedesk` marketplace registered by
   absolute or `~` path, and a plugin cache committed under `.claude/plugins/`. Each refusal names
   the problem, the exact fix and the AGENTS.md rule.
+- **System notices are sent as the supervisor and reach the inbox (TM-314, EP-028).** Slot-grant
+  notices, quota incident and failover notices, and failed-review escalations were sent with no
+  sender, so every one was held permanently as `source_identity_required`. They are now sent as
+  `ao-supervisor` from the repository itself, like the NATS outage notice, under `v2` message ids
+  so the old held records do not raise `TOPOLOGY_MESSAGE_ID_CONFLICT`. `notifyGrants` reports a
+  held grant with its reason. Every `sendStandingMessage` caller was audited for a sender.
+
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)
