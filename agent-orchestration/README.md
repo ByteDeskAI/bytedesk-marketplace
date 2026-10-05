@@ -499,11 +499,11 @@ refuses inside a dispatched worker session (`TM_DISPATCH_WORKER`).
 
 **What `publish` grants.** Production deploy and release publish are ADR-0001's External class
 (`fleet/docs/adr/0001-hierarchical-authorization.md`). At `publish`, the policy is the operator's
-standing grant for `manage cutover` and `manage cut-release`, so a lead needs no `--authorized`.
-Every record names the grant: `authorization.channel` is `autonomy-policy`, and
-`authorization.granted_by` gives the config layer and file that set `publish`. At `pr` or `merge`,
-these verbs need `--authorized` from an operator shell; a managed agent session cannot self-assert
-it. The policy does not replace integrate's own authority: merging still needs a covering plan
+standing grant for `manage cut-release` only, so a lead needs no `--authorized` to release. The
+record names the grant: `authorization.channel` is `autonomy-policy`, and `authorization.granted_by`
+gives the server source that set `publish`. **`manage cutover` deploys to a live production host, so no
+autonomy level grants it (TM-458):** it always needs `--authorized` from an operator shell. At `pr` or
+`merge`, `cut-release` needs the same. A managed agent session cannot self-assert `--authorized`. The policy does not replace integrate's own authority: merging still needs a covering plan
 grant or the server-side `lead_autonomy` policy (ADR-0027).
 
 **What the release verbs run.** Only the repository's own scripts, configured as argv and run

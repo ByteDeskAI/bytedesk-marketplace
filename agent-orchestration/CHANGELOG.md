@@ -4,6 +4,12 @@
 
 ### Security
 
+- **Autonomy `publish` never grants a production cutover (TM-458, EP-028).**
+  `management.autonomy: "publish"` let `manage cutover` deploy to a live production host with no
+  human, and a test asserted it. `publish` now grants `manage cut-release` only; `manage cutover`
+  always needs `--authorized` from an operator shell (ADR-0001 External class; the standing rule that
+  a production deploy asks first). The former CLI test is inverted: a managed session is refused and
+  nothing is deployed.
 - **`cut-release` waits for the TeamCity build of its own revision (TM-457, EP-028).**
   `waitForBuild` accepted the first finished build of the build type newer than the pre-release
   build, on any branch or revision, so a green develop or pull-request build could pass the release

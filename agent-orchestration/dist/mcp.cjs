@@ -79039,10 +79039,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ee57e2eabe65a16543497f395e424d8e9112f34c8e9d2bb286f2afa15222a969";
+  return false ? null : "660cdddacf0fd692809ed329b04dcb904aeeb1f40d9cbd11f713a808184a729e";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ee57e2eabe65a16543497f395e424d8e9112f34c8e9d2bb286f2afa15222a969";
+  const fingerprint2 = false ? null : "660cdddacf0fd692809ed329b04dcb904aeeb1f40d9cbd11f713a808184a729e";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79467,7 +79467,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ee57e2eabe65a16543497f395e424d8e9112f34c8e9d2bb286f2afa15222a969",
+  sourceFingerprint: false ? null : "660cdddacf0fd692809ed329b04dcb904aeeb1f40d9cbd11f713a808184a729e",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

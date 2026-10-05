@@ -232,12 +232,24 @@ test('TM-368 autonomy defaults to pr, a nearer layer wins, and an unknown value 
   assert.match(loaded.errors[0].message, /management\.autonomy" must be one of pr, merge, publish/);
 });
 
-test('TM-368 under autonomy publish a managed lead cuts over with no --authorized, and the record names the grant layer', async t => {
+test('TM-458 autonomy publish never grants cutover: a managed lead without --authorized is refused and deploys nothing', async t => {
   const fx = await publishFixture(t);
-  const result = await cutover(fx.options);
+  const error = await refusedFor(cutover(fx.options), 'TOPOLOGY_CUTOVER_REFUSED', 'authority');
+  assert.match(error.message, /no autonomy level grants cutover/);
+  await nothingRan(fx);
+  // A managed session cannot self-assert it either.
+  const selfAsserted = await refusedFor(cutover({ ...fx.options, authorized: true }), 'TOPOLOGY_CUTOVER_REFUSED', 'authority');
+  assert.match(selfAsserted.message, /cannot be self-asserted/);
+  // The operator, from a shell, still can; the record says so.
+  const result = await cutover({ ...fx.options, authorized: true, ancestors: OPERATOR });
+  assert.equal(result.authorization.channel, 'operator-explicit'); assert.equal(result.authorization.class, 'external');
+});
+
+test('TM-458 under autonomy publish a managed lead still cuts a release, and the record names the server grant', async t => {
+  const fx = await publishFixture(t);
+  const result = await cutRelease(fx.options);
   assert.equal(result.authorization.channel, 'autonomy-policy');
   assert.deepEqual(result.authorization.granted_by, { scope: 'server-default-branch', path: SERVER_SOURCE });
-  assert.equal(result.authorization.class, 'external');
 });
 
 test('TM-368 autonomy merge does not grant the External class: a managed lead is still refused', async t => {
@@ -273,7 +285,7 @@ test('TM-368 a failed verify (postflight) and a failed cutover postflight each s
   await assert.rejects(cutRelease(fx.options), { code: 'TOPOLOGY_RELEASE_POSTFLIGHT' });
   assert.match(fx.pages[0]?.title ?? '', /TOPOLOGY_RELEASE_POSTFLIGHT/);
   const cut = await publishFixture(t); cut.options.env.POSTFLIGHT_EXIT = '2';
-  await assert.rejects(cutover(cut.options), { code: 'TOPOLOGY_CUTOVER_POSTFLIGHT' });
+  await assert.rejects(cutover({ ...cut.options, authorized: true, ancestors: OPERATOR }), { code: 'TOPOLOGY_CUTOVER_POSTFLIGHT' }); // TM-458: the operator's cutover
   assert.match(cut.pages[0]?.title ?? '', /TOPOLOGY_CUTOVER_POSTFLIGHT/);
 });
 
@@ -343,7 +355,7 @@ test('TM-368 ntfy pages with the env token, falls back to tm variables, and neve
   assert.deepEqual(await page({ title: 't', body: 'b', config: { topic: 'ops' }, env: {}, fetchImpl: async () => { throw new Error('offline'); } }), { sent: false, reason: 'offline' });
 });
 
-test('TM-442 CLI: a global-layer autonomy publish is ignored, so manage cutover from a managed session is refused and runs nothing', async t => {
+test('TM-442/TM-458 CLI (formerly test 21, inverted): manage cutover from a managed session under a publish policy is refused and runs nothing', async t => {
   const fx = await releaseFixture(t, { global: { management: { autonomy: 'publish' } } });
   await shimPath(t, fx);
   await mkdir(join(fx.consumer, '.bytedesk/task-management/bin'), { recursive: true });
@@ -357,7 +369,8 @@ test('TM-442 CLI: a global-layer autonomy publish is ignored, so manage cutover 
   const r = spawnSync(process.execPath, [fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url)), 'manage', 'cutover', '--epic', 'EP-1', '--consumer', fx.consumer, '--summary'], { encoding: 'utf8', env });
   assert.notEqual(r.status, 0, r.stdout);
   assert.match(r.stderr + r.stdout, /TOPOLOGY_CUTOVER_REFUSED/);
-  assert.match(r.stderr + r.stdout, /autonomy is "pr"/, 'the global publish did not count');
+  assert.match(r.stderr + r.stdout, /autonomy is "pr"/, 'the global publish did not count (TM-442)');
+  assert.match(r.stderr + r.stdout, /no autonomy level grants cutover/, 'and no level would have (TM-458)');
   await nothingRan(fx);
   const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
   assert.ok(gitArgv.length > 0 && gitArgv.includes('fetch')); assert.equal(gitArgv.filter(a => ['push', 'tag'].includes(a)).length, 0, gitArgv.join('\n'));

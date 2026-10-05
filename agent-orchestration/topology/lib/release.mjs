@@ -8,7 +8,8 @@
 //                          teamcity?: { build_type, branch?, url?, timeout_ms?, poll_ms? } }
 //
 // TM-368: `management.autonomy` (pr | merge | publish, default pr) drives `manage land`, and at
-// `publish` it is the grant for these External-class verbs; the record names the layer that set it.
+// `publish` it is the grant for cut-release; the record names where it came from. TM-458: it never
+// grants cutover, which always needs an operator shell's --authorized.
 // A stop after anything has run (a failed step, a red or missing TeamCity build, a failed verify or
 // postflight, a missing reviewer approval) pages the operator through ntfy.
 import { homedir } from 'node:os';
@@ -79,12 +80,17 @@ const STEPS = {
 async function externalAuthority(options, env, home, verb, loaded) {
   const base = { decision: verb, class: 'external', adr: 'ADR-0001', at: nowIso() };
   const autonomy = await resolveAutonomy(options, loaded);
-  if (autonomy.level === 'publish') return { authorization: { ...base, channel: 'autonomy-policy', autonomy: autonomy.level, granted_by: { scope: autonomy.scope, path: autonomy.path }, actor: env.AO_AGENT_ID || env.USER || 'lead' } };
+  // TM-458: `publish` is a standing grant for cut-release ONLY. A cutover deploys to a live production
+  // host, and that always asks a human first: an operator shell passing --authorized, every time.
+  if (autonomy.level === 'publish' && verb === 'release') return { authorization: { ...base, channel: 'autonomy-policy', autonomy: autonomy.level, granted_by: { scope: autonomy.scope, path: autonomy.path }, actor: env.AO_AGENT_ID || env.USER || 'lead' } };
   const managed = await managedSessionEvidence({ env, ancestors: options.ancestors, home });
   if (options.authorized === true && !managed.length) return { authorization: { ...base, channel: 'operator-explicit', actor: env.USER || 'operator' } };
+  const grants = verb === 'cutover' ? 'no autonomy level grants cutover (a production deploy always needs the operator)' : `only "publish" grants ${verb}`;
   return { refusal: options.authorized === true
-    ? `--authorized cannot be self-asserted inside a managed agent session (${managed[0]}); autonomy is "${autonomy.level}", and only "publish" grants ${verb}`
-    : `${verb} is an External-class action (ADR-0001); autonomy is "${autonomy.level}", so pass --authorized from an operator shell or set management.autonomy to "publish"` };
+    ? `--authorized cannot be self-asserted inside a managed agent session (${managed[0]}); autonomy is "${autonomy.level}", and ${grants}`
+    : verb === 'cutover'
+      ? `cutover is an External-class production deploy (ADR-0001); autonomy is "${autonomy.level}", and ${grants}: pass --authorized from an operator shell`
+      : `${verb} is an External-class action (ADR-0001); autonomy is "${autonomy.level}", so pass --authorized from an operator shell or set management.autonomy to "publish"` };
 }
 
 /** Read-only gate: every condition is checked and every failure is named, nothing runs. */
