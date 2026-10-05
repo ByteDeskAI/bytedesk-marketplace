@@ -10,8 +10,8 @@ argument-hint: "<task> [--providers claude,grok-build,kimi]"
 Use the bundled `orchestration_*` MCP tools. This host may be Claude Code, Codex, Grok Build, or Kimi
 Code. Do not launch provider CLIs directly and do not claim that a native host subagent changes provider.
 
-If the tools are missing, the current CLI is not wired as a host. Run `install-orchestration-host`
-instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
+If the tools are missing, the current CLI is not wired as a host. Run `setup-agent-orchestration` (its
+"Wire another host" step) instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
 
 ## Process
 

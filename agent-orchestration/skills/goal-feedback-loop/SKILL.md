@@ -1,6 +1,8 @@
 ---
 name: goal-feedback-loop
-description: Coordinate an admitted Task Management goal through PM, governed implementation, independent validation, approved test deployment and dogfood until its accepted criteria are proven.
+description: Coordinate an admitted Task Management goal through PM, governed implementation, independent validation, approved test deployment and dogfood until its accepted criteria are proven. Use when the user says "/goal-feedback-loop", "run the goal loop", "drive EP-n to done", "take this goal end to end", "deploy it to test and dogfood it", "prove the goal", "resume the goal loop", or names an admitted goal epic that should be implemented, validated and dogfooded rather than just planned.
+user-invokable: true
+argument-hint: "<EP-id> [--consumer <repo>]"
 ---
 
 # Goal feedback loop

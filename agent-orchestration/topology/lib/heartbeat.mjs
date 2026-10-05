@@ -9,6 +9,7 @@
 // What binds a heartbeat to an incarnation: the tmux socket and server pid from $TMUX, the pane id
 // from $TMUX_PANE, and the hook's ancestor pids, which must contain the binding's pane pid. A
 // respawned pane keeps its id but not its pid, so an old heartbeat cannot vouch for a new process.
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -27,15 +28,22 @@ export function heartbeatPath(dir, serverKey, paneId) {
   return join(dir, `${createHash("sha256").update(`${serverKey}\0${paneId}`).digest("hex")}.json`);
 }
 
-// ponytail: /proc only. Elsewhere the chain is just our parent, so a pane whose pid is further up
-// (a shell running claude) gets no heartbeat proof and falls back to the nonce probe.
-async function ancestorPids(pid = process.pid) {
+/** A process's parent pid: /proc on Linux, `ps` elsewhere; null when neither can say. */
+async function parentPid(pid) {
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => null);
+  if (stat) return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+  try { return Number(execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim()) || null; } catch { return null; }
+}
+
+/** The ONE process-ancestry walk (TM-416): this pid first, then each parent up to init. The heartbeat,
+ * the prompt lifecycle and delegation's managed-session test (ancestorProcesses) all use it. */
+export async function ancestorPids(pid = process.pid) {
   const pids = [];
-  for (let i = 0; i < 32 && pid > 1; i += 1) {
+  for (let i = 0; i < 64 && pid > 1; i += 1) {
     pids.push(pid);
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => null);
-    if (!stat) { if (i === 0) pids.push(process.ppid); break; }
-    pid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    const parent = await parentPid(pid);
+    if (!parent) { if (i === 0 && pid === process.pid) pids.push(process.ppid); break; }
+    pid = parent;
   }
   return pids;
 }

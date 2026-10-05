@@ -394,6 +394,22 @@ export async function sessionIdentity({ env = process.env, agent = null, consume
   return { agent: caller.agentId, consumer: resolve(caller.consumer), source: caller.source };
 }
 
+/**
+ * TM-419: the one definition of which standing records `mailbox inbox` shows agent X, and of which
+ * of those are unread. The inbox listing and the arrival ring both call these, so a ring can never
+ * point at mail the inbox would not show. Under NATS the inbox is fed by the broker, so only records
+ * actually published there belong to it; a file record from before publication existed never will.
+ */
+export function standingInboxShows(record, { repoId, agent, transportKind }) {
+  return record.status === 'delivered' && record.envelope.destinationRepoId === repoId && Boolean(agent) && record.delivered_to === agent
+    && (transportKind !== 'nats' || record.publication?.status === 'published');
+}
+/** Unread: the inbox would show it, nobody answered it, and the agent holds no receipt for it — any
+ * receipt (accepted, deferred, handled, rejected) means the agent already took it from the inbox. */
+export function standingUnread(record, { receipt, ...scope }) {
+  return standingInboxShows(record, scope) && !record.reply && !receipt;
+}
+
 // These are host-local mailbox views, not an authorization boundary. API/CLI
 // callers must establish the current agent identity before returning bodies.
 export async function readStandingInbox({ consumer, agent, transport = null, env = process.env, limit = 100, ...options }) {
@@ -416,7 +432,8 @@ export async function readStandingInbox({ consumer, agent, transport = null, env
   }
   const identity = await canonicalRepoId(consumer);
   const received = [];
-  for (const record of (await records({ ...options, env })).filter(r => r.status === 'delivered' && r.envelope.destinationRepoId === identity.id && r.delivered_to === agent)) {
+  const scope = { repoId: identity.id, agent, transportKind: active.kind };
+  for (const record of (await records({ ...options, env })).filter(r => standingInboxShows(r, scope))) {
     const receipt = await acceptMailboxDelivery({ consumer, agent, env, ...options,
       delivery: { body: JSON.stringify(standingEnvelope(record)), ack: async () => {} } });
     // Keep the legacy file envelope/admission fields, adding the receipt without
@@ -503,7 +520,9 @@ export async function recordStandingReply({ consumer, messageId, agentId, body, 
 // without polling its inbox. The ring is a pointer (message id + the exact read command), never the
 // body, and it goes through `ringMessage`, which holds rather than type into an unsafe composer. A
 // held ring is retried on the next supervisor tick; a marker under rings/ makes it once per message
-// across ticks and restarts. Mail the agent already read (a receipt) or answered is never rung.
+// across ticks and restarts. Only mail `standingUnread` admits is rung (TM-419), and only mail
+// delivered after the ring first ran for this repository: the first run writes a per-repository
+// watermark, so a backlog that predates the feature never rings.
 export const STANDING_RING_WINDOW_MS = Number(process.env.AO_STANDING_RING_WINDOW_MS ?? 3000);
 
 export function standingRingPointer(record, consumer) {
@@ -521,11 +540,24 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
   const { deliverPointer, tmuxFailureTrigger } = await import('./launch.mjs');
   const { adapterForPane } = await import('./census.mjs');
   const { withServer } = await import('./tmux.mjs');
+  const { selectedTransportEnv, transportMode } = await import('./orch-transport.mjs');
   const ringsDir = join(standingMailboxRoot(options), 'rings');
+  const env = options.env ?? process.env;
+  const transportKind = options.transport?.kind ?? transportMode(selectedTransportEnv(env));
+  const seedFile = join(ringsDir, `seed-${createHash('sha256').update(identity.id).digest('hex')}.json`);
+  let seed = await read(seedFile);
+  if (!seed) {
+    seed = { repoId: identity.id, since: nowIso() };
+    await mkdir(ringsDir, { recursive: true, mode: 0o700 });
+    await atomicWrite(seedFile, seed);
+  }
+  const since = Date.parse(seed.since);
   const busy = new Set(), results = [];
   for (const record of await records(options)) {
     const id = record.envelope.id, agent = record.delivered_to;
-    if (record.status !== 'delivered' || record.envelope.destinationRepoId !== identity.id || !agent || busy.has(agent)) continue;
+    const scope = { repoId: identity.id, agent, transportKind };
+    // Missing delivered_at reads as NaN, which is never >= since: an undated record is backlog.
+    if (!standingInboxShows(record, scope) || !(Date.parse(record.delivered_at) >= since) || busy.has(agent)) continue;
     const marker = join(ringsDir, `${createHash('sha256').update(id).digest('hex')}.json`);
     const prior = await read(marker);
     if (prior?.done) continue;
@@ -536,8 +568,8 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
       await atomicWrite(marker, next);
       results.push(next);
     };
-    const seen = record.reply || await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
-    if (seen) { await settle({ state: 'read', done: true, reason: 'the recipient already read or answered it' }); continue; }
+    const receipt = await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    if (!standingUnread(record, { ...scope, receipt })) { await settle({ state: 'read', done: true, reason: 'the recipient already read or answered it' }); continue; }
     const pane = panes.find(p => p.agentId === agent);
     if (!pane?.paneId || !pane.serverKey) { await settle({ state: 'held', done: false, reason: 'the recipient has no live pane' }); continue; }
     busy.add(agent);

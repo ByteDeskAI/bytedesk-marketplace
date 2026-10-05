@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey } from '../../topology/lib/repoid.mjs';
-import { admitTask, workerReport, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
 // epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
@@ -44,7 +44,9 @@ async function fixture(t) {
   const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
     // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
     // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
-    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, serverBranchTip: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }) };
+    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, serverBranchTip: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }),
+    // TM-244: a refused review mails the lead; fixtures capture it instead of reaching any real mailbox.
+    notifyLead: async () => ({ status: 'held', reason: 'fixture' }) };
   const finish = async () => {
     await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
     await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
@@ -79,7 +81,7 @@ test('TM-348: a recorded worktree with no claim is provisioned (re-claimed) once
   assert.equal(result.admitted, true);
   assert.equal(calls.filter(c => c === 'provision').length, 1);
   setClaim({ session: 'peer' });
-  await assert.rejects(admitTask(opts), { code: 'TOPOLOGY_MANAGEMENT_OWNERSHIP', message: /held by peer, expected owner author/ });
+  await assert.rejects(admitTask(opts), { code: 'TOPOLOGY_MANAGEMENT_OWNERSHIP', message: /held by peer, not the admission owner author/ });
   assert.equal(calls.filter(c => c === 'provision').length, 1, 'a claim held by another session is never re-provisioned');
 });
 
@@ -97,6 +99,53 @@ test('finish survives reviewer outage but merge fails closed and task is never a
   const gate = await integrationEligibility({ ...opts, reviewGate: async () => ({ reasons: ['reviewer unavailable'] }) });
   assert.equal(gate.eligible, false); assert.ok(gate.reasons.includes('reviewer unavailable'));
   await assert.rejects(integrateTask({ ...opts, workerState: async () => ({ owned: true, active: true }) }), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+});
+
+test('a refused review request is mailed to the lead with the refusal text and one retry verb (TM-244)', async t => {
+  const { opts, finish } = await fixture(t);
+  const mail = [];
+  const refusal = Object.assign(new Error('No designated reviewer; preserve the finished task until one is available.'), { code: 'TOPOLOGY_REVIEWER_UNAVAILABLE' });
+  Object.assign(opts, { leadId: 'lead-1', queueReview: async () => { throw refusal; }, notifyLead: async (msg) => { mail.push(msg); return { status: 'held', reason: 'pending_admission' }; } });
+  await admitTask(opts);
+  // task-management gone by the time the review is queued: its comment write fails, and the lead must still have been told.
+  const comment = opts.store.comment;
+  opts.store.comment = async (task, value) => { if (JSON.parse(value).event === 'review-queued') throw new Error('tm is not installed'); return comment(task, value); };
+  await assert.rejects(finish(), /tm is not installed/);
+  opts.store.comment = comment;
+  assert.equal(mail.length, 1);
+  assert.equal(mail[0].to, 'lead-1');
+  assert.match(mail[0].body, /TOPOLOGY_REVIEWER_UNAVAILABLE: No designated reviewer/);
+  assert.match(mail[0].body, /retry: ao-topology manage retry-review --task TM-1$/);
+  const record = await readJson(join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json'));
+  assert.equal(record.review_blocked, refusal.message);
+  assert.deepEqual(record.review_blocked_notice, { to: 'lead-1', message_id: mail[0].id, status: 'held', reason: 'pending_admission' });
+
+  // The documented retry: still refused keeps it blocked; accepted files the request and clears it.
+  await assert.rejects(retryReview(opts), { code: 'TOPOLOGY_REVIEWER_UNAVAILABLE' });
+  const retried = await retryReview({ ...opts, queueReview: async ({ revision }) => ({ nonce: 'n-2', revision }) });
+  assert.equal(retried.review_request.nonce, 'n-2');
+  assert.equal(retried.review_request.revision, record.finish.revision);
+  assert.equal(retried.review_blocked, undefined);
+});
+
+test('TM-418 the finish report and retry-review file the worker check runs as evidence; malformed runs are refused', async t => {
+  const { opts, git } = await fixture(t);
+  const filed = [];
+  Object.assign(opts, { queueReview: async request => { filed.push(request); return { nonce: `n-${filed.length}` }; } });
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const report = checks => ({ artifacts: ['code.txt'], checks, risks: [], evidence: 'fixture', revision });
+  await assert.rejects(workerReport({ ...opts, kind: 'finish', report: report([{ name: 'content', exit_code: 0, revision: 'abc' }]) }), { code: 'TOPOLOGY_REVIEWER_CHECKS' });
+  assert.equal(filed.length, 0, 'a malformed run is refused before anything is recorded or filed');
+  const run1 = { name: 'content', command: ['node', 'check.js'], exit_code: 0, revision, log_tail: 'ok' };
+  // A worker-supplied checkEvidence key in the --file is ignored: only report.checks is evidence.
+  await workerReport({ ...opts, checkEvidence: [{ name: 'forged', command: 'x', exit_code: 0, revision }], kind: 'finish', report: report(['content passed', run1]) });
+  assert.deepEqual(filed[0].checkEvidence, [{ name: 'content', command: 'node check.js', exit_code: 0, revision, log_tail: 'ok' }]);
+  await retryReview(opts);
+  assert.deepEqual(filed[1].checkEvidence, filed[0].checkEvidence);
 });
 
 test('configured checks, verified local merge and tm cleanup close only the owned task in order', async t => {
@@ -1705,7 +1754,8 @@ test("TM-348 review: a parked task admitted by another session is ownership revi
   assert.equal(peer.admitted, false); assert.equal(peer.state, "ownership-review-required");
   const record = (await managementStatus(opts)).management;
   assert.equal(record.owner, "author"); assert.equal(record.state, "ready-for-review");
-  opts.store.provision = async () => setClaim({ session: "author", worktree: doc.worktree, branch: doc.branch }); // tm worktree new reuses the checkout
+  // TM-247: a resumed admission re-claims a released claim through tm start (reclaimAdmission).
+  opts.store.start = async () => { setClaim({ session: "author", worktree: doc.worktree, branch: doc.branch }); doc.status = "in_progress"; };
   assert.equal((await admitTask(opts)).resumed, true, "the owner still resumes");
 });
 
@@ -1834,4 +1884,397 @@ test('TM-360: manage assignment reports a live bound worker, and start-worker su
   assert.deepEqual([live.assigned, live.worker, live.owner], [false, { kind: 'tmux', backend: 'tmux', run: 'tmux:lead-worker' }, 'author']);
   await writeJson(path, { ...record, worker: { kind: 'tmux', run: 'tmux:lead-worker', stopped_at: '2026-10-05T00:00:00Z' } });
   assert.equal((await assignmentResult(opts)).worker, undefined, 'a stopped worker is history, not a holder');
+});
+
+// ── TM-251: cleanup never touches develop, main or release/*, and never a remote branch ─────────
+const recordPath = async opts => join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+for (const branch of ['develop', 'main', 'release/v1.2.0']) {
+  test(`TM-251 cleanup refuses the protected branch ${branch} by name and removes nothing`, async t => {
+    const { opts, finish, calls, git } = await fixture(t);
+    await admitTask(opts); await finish(); await integrateTask(opts);
+    // A record naming a protected branch (a corrupted or hand-edited record): cleanup must refuse it.
+    if (branch !== 'main') await git(opts.consumer, ['branch', branch]);
+    const path = await recordPath(opts), record = await readJson(path);
+    await writeJson(path, { ...record, branch });
+    const result = await cleanupTask(opts);
+    assert.equal(result.cleaned, false);
+    assert.match(result.reason, new RegExp(`protected branch ${branch.replace('/', '\\/')}`));
+    assert.equal(calls.includes('remove'), false); assert.equal(calls.includes('done'), false);
+    assert.equal((await git(opts.consumer, ['branch', '--list', branch])).stdout.trim().replace(/^[*+] /, ''), branch, `${branch} still exists`);
+  });
+}
+
+test('TM-251 cleanup deletes only the local task branch; the remote branch stays', async t => {
+  const { opts, finish, git } = await fixture(t);
+  const origin = join(opts.home, '..', 'origin.git');
+  await run('git', ['init', '-q', '--bare', origin]);
+  await git(opts.consumer, ['remote', 'add', 'origin', origin]);
+  await admitTask(opts); await finish();
+  await git(opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
+  await integrateTask(opts);
+  assert.equal((await cleanupTask(opts)).cleaned, true);
+  assert.equal((await git(opts.consumer, ['branch', '--list', 'tm/TM-1'])).stdout.trim(), '', 'the local branch is gone');
+  assert.match((await run('git', ['-C', origin, 'branch', '--list', 'tm/TM-1'])).stdout, /tm\/TM-1/, 'the remote branch is untouched');
+});
+
+// ── TM-368: management.autonomy drives manage land ──────────────────────────────────────────────
+const { landTask } = await import('../../topology/lib/release.mjs');
+const globalConfig = opts => join(opts.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json');
+const landPager = () => { const pages = []; return { pages, page: async msg => { pages.push(msg); return { sent: true }; } }; };
+
+test('TM-368 autonomy pr (the default) stops at the reviewed PR: land merges nothing', async t => {
+  const { opts, finish, calls } = await fixture(t);
+  await admitTask(opts); await finish();
+  const result = await landTask(opts);
+  assert.equal(result.landed, false); assert.equal(result.stopped, 'pr'); assert.equal(result.autonomy.scope, 'built-in');
+  assert.equal(calls.includes('merge'), false);
+});
+
+test('TM-368 autonomy merge: land integrates through manage integrate and does not publish', async t => {
+  const { opts, finish, calls } = await fixture(t);
+  await writeJson(globalConfig(opts), { management: { autonomy: 'merge' } });
+  await admitTask(opts); const report = await finish();
+  const result = await landTask(opts);
+  assert.equal(result.landed, true); assert.equal(result.merge.revision, report.finish.revision);
+  assert.ok(calls.includes('merge')); assert.equal(calls.includes('publish'), false);
+});
+
+test('TM-368 a missing reviewer approval stops land before merge and pages', async t => {
+  const { opts, finish, calls } = await fixture(t);
+  await writeJson(globalConfig(opts), { management: { autonomy: 'publish' } });
+  await admitTask(opts); await finish();
+  const p = landPager();
+  const error = await landTask({ ...opts, page: p.page, reviewGate: async () => ({ eligible: false, reasons: ['review changes_requested'], status: { review: { verdict: 'changes_requested' } } }) }).then(() => null, e => e);
+  assert.equal(error?.code, 'TOPOLOGY_LAND_REVIEW', error?.message);
+  assert.equal(calls.includes('merge'), false, 'nothing merged');
+  assert.equal(p.pages.length, 1); assert.match(p.pages[0].body, /no reviewer approval \(verdict changes_requested/);
+});
+
+/** A landed task on main, pushed to a bare origin, with fake release scripts and a TeamCity stub. */
+async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhere', task: 'TM-9' } } = {}) {
+  const fx = await fixture(t);
+  const { opts, finish, git, doc } = fx;
+  const root = join(opts.home, '..'), logs = join(root, 'release.log');
+  await writeFile(join(root, 'release.sh'), `#!/bin/sh\necho "$*" >> ${logs}\n`, { mode: 0o755 });
+  await writeJson(globalConfig(opts), { management: { autonomy: 'publish', release: { branch: 'main', argv: [join(root, 'release.sh'), 'start'], verify_argv: [join(root, 'release.sh'), 'verify'], teamcity: { build_type: 'Rel' } } } });
+  await run('git', ['init', '-q', '--bare', join(root, 'origin.git')]);
+  await git(opts.consumer, ['remote', 'add', 'origin', join(root, 'origin.git')]);
+  await admitTask(opts); await finish(); await integrateTask(opts);
+  await git(opts.consumer, ['push', '-q', 'origin', 'main']);
+  if (origin) doc.origin = origin;
+  const events = [], p = landPager();
+  opts.store.epicTasks = async () => ['TM-1'];
+  opts.store.ticketEvent = async (...args) => { events.push(args); };
+  const teamcity = { latestBuildId: async () => 7, waitForBuild: async () => ({ id: 8, number: '9', state: 'finished', status }) };
+  const options = { ...opts, env: { ...opts.env, TEAMCITY_URL: 'https://tc.invalid', TEAMCITY_TOKEN: 'x' }, page: p.page, teamcity, ancestors: async () => ['claude'] };
+  return { ...fx, options, logs, events, pages: p.pages };
+}
+
+test('TM-368 autonomy publish: after the merge, land releases, waits for TeamCity, verifies, records the grant source and notifies the origin', async t => {
+  const fx = await publishLanded(t);
+  const result = await landTask(fx.options);
+  assert.equal(result.published, true, JSON.stringify(result));
+  assert.deepEqual((await readFile(fx.logs, 'utf8')).trim().split('\n'), ['start', 'verify']);
+  const record = await readJson(await recordPath(fx.opts));
+  assert.equal(record.published.authorization.channel, 'autonomy-policy');
+  assert.equal(record.published.authorization.class, 'external');
+  assert.deepEqual(record.published.authorization.granted_by, { scope: 'global', path: globalConfig(fx.opts) });
+  assert.equal(record.published.teamcity.status, 'SUCCESS'); assert.equal(record.published.verified, true);
+  assert.ok(fx.calls.includes('publish'));
+  assert.equal(fx.events.length, 1); assert.deepEqual(fx.events[0].slice(0, 2), ['TM-1', 'published']); assert.match(fx.events[0][2], /artifact verified/);
+  assert.equal(result.origin.notified, true);
+  const again = await landTask(fx.options);
+  assert.equal(again.already, true); assert.equal(fx.events.length, 1, 'a rerun never publishes or notifies twice');
+});
+
+test('TM-368 autonomy publish: a red TeamCity build stops, pages, records no publish and notifies no origin', async t => {
+  const fx = await publishLanded(t, { status: 'FAILURE' });
+  await assert.rejects(landTask(fx.options), { code: 'TOPOLOGY_RELEASE_BUILD_RED' });
+  assert.equal(fx.pages.length, 1);
+  assert.equal((await readJson(await recordPath(fx.opts))).published, undefined);
+  assert.deepEqual(fx.events, []);
+});
+
+test('TM-368 autonomy publish waits while the plan has unlanded tasks, and pages a refused release after merge', async t => {
+  const fx = await publishLanded(t, { origin: null });
+  fx.opts.store.epicTasks = async () => ['TM-1', 'TM-2'];
+  const show = fx.opts.store.show; fx.opts.store.show = async id => (id === 'TM-2' ? { id, status: 'in_progress' } : show(id));
+  const waiting = await landTask(fx.options);
+  assert.equal(waiting.published, false); assert.deepEqual(waiting.waiting, ['TM-2 (in_progress)']);
+  assert.deepEqual(fx.pages, [], 'waiting for the plan is not a page');
+  fx.opts.store.epicTasks = async () => ['TM-1'];
+  await fx.git(fx.opts.consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'unpushed']);
+  await assert.rejects(landTask(fx.options), { code: 'TOPOLOGY_RELEASE_REFUSED' });
+  assert.equal(fx.pages.length, 1); assert.match(fx.pages[0].body, /merged, but publishing stopped: .*sync/);
+});
+
+// ── TM-247: a governed worker that dies before its finish report is retired and replaced ──────────
+// A fixture lead "author" whose tm dispatch stub opens a real pane in an isolated tmux server.
+async function lifecycleFixture(t) {
+  const f = await fixture(t);
+  const s = await paneServer(t, f.opts); if (!s) return null;
+  const { opts, doc } = f;
+  const actual = { ...opts, workerState: undefined, env: s.env };
+  const collected = [], reviews = [];
+  let round = 0;
+  opts.store.dispatch = async task => {
+    round++;
+    await s.tmux(['new-session', '-d', '-s', `tm-${task}-${round}`, '-c', doc.worktree, 'sleep', '120']);
+    doc.dispatched = { backend: 'tmux', run: `tmux:tm-${task}-${round}`, session: 'author' };
+    opts.store.workers = async () => [{ name: 'agent:TM-1', backend: 'tmux', runId: doc.dispatched.run, session: 'author', registeredAt: `round-${round}`, status: 'active', pid: null }];
+    return { ok: true, backend: 'tmux', run: doc.dispatched.run };
+  };
+  opts.store.collect = async task => { collected.push(task); return { ok: true, outcome: doc.status === 'blocked' ? 'blocked' : 'failed' }; };
+  opts.store.start = async () => { doc.status = 'in_progress'; f.setClaim({ session: 'author', worktree: doc.worktree, branch: doc.branch }); };
+  actual.queueReview = async request => { reviews.push(request); return { nonce: `review-${reviews.length}` }; };
+  return { ...f, s, actual, collected, reviews, kill: async run => s.tmux(['kill-session', '-t', run.replace(/^tmux:/, '')]) };
+}
+
+test('TM-247 AC1/AC4: a live worker is never retired; a dead one is retired with its observation and the worktree kept', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  const live = await stopTaskWorker(l.actual);
+  assert.equal(live.stopped, false); assert.match(live.reason, /finish protocol/);
+  assert.equal(l.collected.length, 0, 'nothing is collected from a live worker');
+  assert.ok(await l.s.paneOf(first.run.replace(/^tmux:/, '')), 'the live worker is untouched');
+  await writeFile(join(l.doc.worktree, 'code.txt'), 'half done, uncommitted');
+  await l.kill(first.run);
+  const retired = await stopTaskWorker(l.actual);
+  assert.equal(retired.stopped, true, retired.reason); assert.equal(retired.retired, true);
+  assert.equal(retired.proof, 'observed-pane-exited'); assert.equal(retired.result.outcome, 'exited-without-finish');
+  assert.deepEqual(l.collected, ['TM-1'], 'tm records the dead dispatch through its own collect');
+  const record = (await managementStatus(l.actual)).management;
+  assert.equal(record.worker, undefined);
+  assert.equal(record.previous_workers.length, 1);
+  assert.equal(record.previous_workers[0].run, first.run);
+  assert.equal(record.previous_workers[0].retired.proof, 'observed-pane-exited');
+  assert.ok(record.events.some(e => e.event === 'worker-retired' && /manage start-worker/.test(e.recovery)));
+  assert.equal((await run('cat', [join(l.doc.worktree, 'code.txt')])).stdout, 'half done, uncommitted', 'uncommitted work survives the retire');
+});
+
+test('TM-247 AC2/AC4: after a retire, start-worker binds a successor whose finish queues review under the original base', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  const admitted = await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  await assert.rejects(startTaskWorker(l.actual), /second writer/, 'no successor while the first is bound');
+  await l.kill(first.run);
+  assert.equal((await stopTaskWorker(l.actual)).retired, true);
+  const second = await startTaskWorker(l.actual);
+  assert.equal(second.bound, true, second.reason); assert.notEqual(second.run, first.run);
+  await writeFile(join(l.doc.worktree, 'code.txt'), 'implemented'); await l.git(l.doc.worktree, ['add', 'code.txt']);
+  await l.git(l.doc.worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'successor']);
+  const revision = (await l.git(l.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...l.actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'successor', revision } });
+  assert.equal(finished.state, 'ready-for-review');
+  assert.equal(l.reviews.length, 1, 'the successor finish produced a review request');
+  assert.equal(l.reviews[0].baseRevision, admitted.record.base_revision);
+  assert.equal(l.reviews[0].revision, revision);
+});
+
+test('TM-247 AC3: stop-worker on a task whose claim was released names the re-claim step', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  assert.equal((await startTaskWorker(l.actual)).bound, true);
+  l.doc.status = 'parked'; l.setClaim(null);
+  const refused = await stopTaskWorker(l.actual);
+  assert.equal(refused.stopped, false);
+  assert.doesNotMatch(refused.reason, /reconcile ownership without stealing/);
+  assert.match(refused.reason, /was released/);
+  assert.match(refused.recovery, /ao-topology manage admit --task TM-1/);
+});
+
+test('TM-247 AC6: a refused tm dispatch is a TOPOLOGY_* error carrying tm\'s message, never a raw stack', async t => {
+  const { opts } = await fixture(t);
+  const { startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(opts);
+  opts.store.dispatch = async () => { throw Object.assign(new Error('Command failed: tm dispatch TM-1 --backend tmux --json\n    at ChildProcess.exithandler'), { code: 2, stderr: 'TM-1 is already dispatched to tmux as tmux:tm-TM-1 — collect it first with `tm collect TM-1`.\n' }); };
+  await assert.rejects(startTaskWorker(opts), error => {
+    assert.equal(error.code, 'TOPOLOGY_MANAGEMENT_DISPATCH');
+    assert.match(error.message, /already dispatched to tmux/);
+    assert.doesNotMatch(error.message, /Command failed|exithandler/);
+    return true;
+  });
+});
+
+test('TM-247 AC14/AC15: a worker that ran tm block is retired with its blocker; unblock, then start-worker re-claims and replaces it', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  // The worker runs `tm block`: status blocked, claim released. Then its harness exits.
+  Object.assign(l.doc, { status: 'blocked', blockedReason: 'needs the staging credentials' }); l.setClaim(null);
+  await l.kill(first.run);
+  const retired = await stopTaskWorker(l.actual);
+  assert.equal(retired.retired, true, retired.reason);
+  assert.deepEqual(retired.result, { outcome: 'blocked', reason: 'needs the staging credentials' });
+  assert.equal((await managementStatus(l.actual)).management.previous_workers[0].retired.result.outcome, 'blocked');
+  await assert.rejects(startTaskWorker(l.actual), { code: 'TOPOLOGY_MANAGEMENT_BLOCKED' }, 'a blocked task waits for tm unblock');
+  l.doc.status = 'open'; delete l.doc.blockedReason; // tm unblock
+  const second = await startTaskWorker(l.actual);
+  assert.equal(second.bound, true, second.reason);
+  assert.equal(l.doc.status, 'in_progress', 'start-worker re-claimed through tm start, no manual TM_SESSION_ID');
+});
+
+test('TM-247 AC15: admit resumes an admission whose claim was released, re-claiming it for the owner', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  await admitTask(l.actual);
+  l.doc.status = 'parked'; l.setClaim(null);
+  const resumed = await admitTask(l.actual);
+  assert.equal(resumed.resumed, true);
+  assert.equal(l.doc.status, 'in_progress');
+  assert.equal((await admitTask({ ...l.actual, owner: 'peer' })).admitted, false, 'another session never takes it over');
+});
+
+test('TM-247 AC13: a finish is accepted from the admission owner or the bound worker\'s dispatch session, never a stranger', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { startTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(l.actual);
+  assert.equal((await startTaskWorker(l.actual)).bound, true);
+  // A claim minted under a transient dispatching session before TM-247 (design-system TM-143).
+  l.doc.dispatched = { ...l.doc.dispatched, session: 'dispatch-shell' };
+  l.setClaim({ session: 'dispatch-shell', worktree: l.doc.worktree, branch: l.doc.branch });
+  const blocker = { kind: 'blocker', report: { message: 'waiting on a fixture' } };
+  await assert.rejects(workerReport({ ...l.actual, ...blocker, owner: 'stranger' }), { code: 'TOPOLOGY_MANAGEMENT_PROTOCOL' });
+  assert.equal((await workerReport({ ...l.actual, ...blocker, owner: 'dispatch-shell' })).state, 'blocked', 'the bound worker reports');
+  assert.equal((await workerReport({ ...l.actual, ...blocker })).state, 'blocked', 'the admission owner reports');
+});
+
+// ── TM-247 AC8-AC10: closing a landed task, merge-in heads, record-landing against origin ──────────
+const COMMIT = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q'];
+// main advances with an unrelated file, then the task worktree merges main in on top of its finish.
+async function mergeInFixture(t, { evil = false } = {}) {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const report = await f.finish(); const revision = report.finish.revision;
+  await writeFile(join(f.opts.consumer, 'sibling.txt'), 'landed elsewhere'); await f.git(f.opts.consumer, ['add', 'sibling.txt']);
+  await f.git(f.opts.consumer, [...COMMIT, '-m', 'sibling on main']);
+  await f.git(f.doc.worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'merge', '--no-ff', '--no-commit', 'main']);
+  if (evil) { await writeFile(join(f.doc.worktree, 'code.txt'), 'implemented, then changed inside the merge'); await f.git(f.doc.worktree, ['add', 'code.txt']); }
+  await f.git(f.doc.worktree, [...COMMIT, '-m', 'merge main into task']);
+  const head = (await f.git(f.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  return { ...f, admitted, revision, head };
+}
+
+test('TM-247 AC9 conformance: both plugins agree on what a merge-in of the approved revision is', async t => {
+  const { mergeInOf } = await import('../../topology/lib/management.mjs');
+  const tmCheck = (await import('../../../task-management/lib/governance-check.mjs')).mergeInOf;
+  const clean = await mergeInFixture(t);
+  assert.ok(await mergeInOf(clean.doc.worktree, clean.revision, clean.head, 'main'));
+  assert.equal(tmCheck(clean.doc.worktree, clean.revision, clean.head, 'main'), true);
+  const evil = await mergeInFixture(t, { evil: true });
+  assert.equal(await mergeInOf(evil.doc.worktree, evil.revision, evil.head, 'main'), null, 'a merge that changes the task diff is not a merge-in');
+  assert.equal(tmCheck(evil.doc.worktree, evil.revision, evil.head, 'main'), false);
+  // A second parent that is not on the integration branch is not a merge-in either.
+  await clean.git(clean.opts.consumer, ['checkout', '-q', '-b', 'stray', 'main~1']);
+  await writeFile(join(clean.opts.consumer, 'stray.txt'), 'x'); await clean.git(clean.opts.consumer, ['add', 'stray.txt']);
+  await clean.git(clean.opts.consumer, [...COMMIT, '-m', 'stray']); await clean.git(clean.opts.consumer, ['checkout', '-q', 'main']);
+  await clean.git(clean.doc.worktree, ['reset', '-q', '--hard', clean.revision]);
+  await clean.git(clean.doc.worktree, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'merge stray', 'stray']);
+  const strayHead = (await clean.git(clean.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  assert.equal(await mergeInOf(clean.doc.worktree, clean.revision, strayHead, 'main'), null);
+  assert.equal(tmCheck(clean.doc.worktree, clean.revision, strayHead, 'main'), false);
+});
+
+test('TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion', async t => {
+  const m = await mergeInFixture(t);
+  assert.ok(!(await integrationEligibility(m.opts)).reasons.some(r => /changed after finish/.test(r)), 'a merge-in is the approved revision');
+  await m.git(m.opts.consumer, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'land TM-1', m.head]); // the operator's merge of the PR head
+  const landed = (await m.git(m.opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim();
+  const recorded = await recordLanding({ ...m.opts, actor: 'operator', reason: 'PR merged after a develop merge-in', landed, reviewGate: fullReview(m.admitted.record, m.revision) });
+  assert.equal(recorded.merge.revision, m.revision);
+  const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
+  const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = m.opts.env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const task = { id: 'TM-1', worktree: recorded.worktree, branch: recorded.branch,
+    governance: { version: 1, runtime: 'topology', workflowRunId: recorded.workflow_run_id, leadId: recorded.lead_id, revision: m.revision, state: 'ready-for-review' } };
+  const gate = governedCompletion(task, { root: m.opts.consumer });
+  assert.equal(gate.allow, true, gate.reason);
+  const cleaned = await cleanupTask(m.opts);
+  assert.equal(cleaned.cleaned, true, cleaned.reason);
+});
+
+test('TM-247 AC9: a merge that changed the approved diff is refused, naming the approved and current revisions', async t => {
+  const m = await mergeInFixture(t, { evil: true });
+  const reasons = (await integrationEligibility(m.opts)).reasons.join('; ');
+  assert.match(reasons, new RegExp(`approved ${m.revision}, now ${m.head}`));
+});
+
+test('TM-247 AC10: record-landing resolves the target against origin after a fetch and brings the local branch forward', async t => {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  const origin = join(f.opts.home, 'origin.git');
+  await mkdir(f.opts.home, { recursive: true });
+  await run('git', ['init', '-q', '--bare', origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
+  // Somebody else merges the task on the server; the local main never hears of it.
+  const elsewhere = join(f.opts.home, 'elsewhere');
+  await run('git', ['clone', '-q', '-b', 'main', origin, elsewhere]);
+  await f.git(elsewhere, ['fetch', '-q', f.opts.consumer, revision]);
+  await f.git(elsewhere, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'server merge of TM-1', revision]);
+  await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
+  const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+  await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
+  const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
+  assert.equal(recorded.merge.landed, landed);
+  assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
+});
+
+test('TM-247 AC8: manage close records the landing, stops the worker, cleans up and closes, in that order', async t => {
+  const { opts, finish, git, calls } = await fixture(t);
+  const { closeTask } = await import('../../topology/lib/management.mjs');
+  const admitted = await admitTask(opts); const revision = (await finish()).finish.revision;
+  await git(opts.consumer, ['merge', '--ff-only', revision]);
+  const path = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+  await writeJson(path, { ...await readJson(path), worker: { kind: 'tmux', backend: 'tmux', run: 'tmux:w', owner: 'author', binding: { paneId: '%1', serverKey: '/x' } } });
+  await assert.rejects(closeTask(opts), { code: 'TOPOLOGY_MANAGEMENT_CLOSE' }, 'no landing and no --landed');
+  const closed = await closeTask({ ...opts, landed: 'main', actor: 'operator', reason: 'merged by hand', reviewGate: fullReview(admitted.record, revision) });
+  assert.equal(closed.closed, true, closed.reason);
+  assert.deepEqual(closed.steps, ['recorded-landing', 'worker-stopped', 'cleaned']);
+  const order = ['recorded-landing', 'worker-stopped', 'cleanup', 'done'].map(e => calls.indexOf(e));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), `order: ${calls.join(',')}`);
+  assert.deepEqual((await closeTask(opts)).steps, [], 'a closed task has nothing left to do');
+});
+
+test('TM-247 AC8: after integrate closes the task and releases the claim, stop-worker and cleanup still finish it', async t => {
+  const { opts, finish, calls, setClaim, doc } = await fixture(t);
+  const { stopTaskWorker } = await import('../../topology/lib/management.mjs');
+  await admitTask(opts); await finish(); await integrateTask(opts);
+  doc.status = 'done'; setClaim(null); // tm done released the claim
+  const path = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(opts.consumer)).id), 'TM-1.json');
+  await writeJson(path, { ...await readJson(path), worker: { kind: 'tmux', backend: 'tmux', run: 'tmux:w', owner: 'author', binding: { paneId: '%1', serverKey: '/x' } } });
+  assert.equal((await stopTaskWorker(opts)).stopped, true);
+  const cleaned = await cleanupTask(opts);
+  assert.equal(cleaned.cleaned, true, cleaned.reason);
+  assert.equal(calls.filter(c => c === 'done').length, 0, 'an already-done task is not closed twice');
+  setClaim({ session: 'someone-else' });
+});
+
+test('TM-247 AC7: a recorded ownership transfer moves the admission between leads without stranding its stopped worker', async t => {
+  const l = await lifecycleFixture(t); if (!l) return;
+  const { stopTaskWorker, startTaskWorker, transferTask } = await import('../../topology/lib/management.mjs');
+  const claims = [];
+  l.opts.store.claimFor = async (task, session, cwd, steal) => { claims.push({ session, steal }); l.setClaim({ session, worktree: cwd, branch: l.doc.branch }); };
+  await admitTask(l.actual);
+  const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
+  const reason = { reason: 'the gateway lead session left; marketplace lead takes the review rounds' };
+  await assert.rejects(transferTask({ ...l.actual, ...reason, to: 'lead-2' }), /bound worker that is not stopped/);
+  await l.finish(); await l.kill(first.run);
+  assert.equal((await stopTaskWorker(l.actual)).stopped, true);
+  await assert.rejects(transferTask({ ...l.actual, ...reason, owner: 'lead-2' }), /still holds a live claim/, 'no takeover while the owner holds a live claim');
+  await assert.rejects(transferTask({ ...l.actual, to: 'lead-2' }), /--reason/);
+  await assert.rejects(transferTask({ ...l.actual, ...reason, owner: 'stranger', to: 'lead-2' }), /Only the owner/);
+  const handed = await transferTask({ ...l.actual, ...reason, to: 'lead-2' });
+  assert.deepEqual([handed.from, handed.to, handed.record.owner], ['author', 'lead-2', 'lead-2']);
+  assert.deepEqual(claims, [{ session: 'lead-2', steal: true }]);
+  assert.ok(handed.record.events.some(e => e.event === 'ownership-transfer' && e.by === 'author' && e.reason === reason.reason), 'recorded where both can see it');
+  const state = await taskWorkerState({ ...l.actual, owner: 'lead-2' }, handed.record);
+  assert.equal(state.owned, true, state.reason); assert.equal(state.active, false);
+  // The new owner's claim then expires; a third lead may take over for itself.
+  l.setClaim(null);
+  const taken = await transferTask({ ...l.actual, ...reason, owner: 'lead-3' });
+  assert.equal(taken.record.owner, 'lead-3'); assert.equal(claims.at(-1).steal, false);
 });

@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { readLeadRegistration } from './lead.mjs';
-import { requestReview as fileReview } from './reviewer.mjs';
+import { finishCheckEvidence, requestReview as fileReview } from './reviewer.mjs';
 import { sendStandingMessage } from './standing-mailbox.mjs';
 import { SUPERVISOR_SENDER } from './nats-outage.mjs';
 import { exists, readJson, run } from './util.mjs';
@@ -26,8 +26,8 @@ const lastSweep = new Map();
 
 const noticeId = (key, findingKey) => createHash('sha256').update(`review-sweep:v1:${key}:${findingKey}`).digest('hex').slice(0, 32);
 
-/** The repository's own tm launcher, or null when task-management is not installed there. */
-async function tmLauncher(consumer) {
+/** The repository's own tm launcher, or null when task-management is not installed there. Shared with the combined doctor (TM-379). */
+export async function tmLauncher(consumer) {
   const bin = join(consumer, '.bytedesk/task-management/bin/tm');
   return (await exists(bin)) ? bin : null;
 }
@@ -55,7 +55,7 @@ export async function reviewSweepTick({ consumer, env = process.env, home = home
       const revision = record?.finish?.revision;
       if (revision && record.owner) {
         try {
-          await requestReview({ consumer, task: f.id, revision, authorAgentIds: [record.owner], env, home });
+          await requestReview({ consumer, task: f.id, revision, authorAgentIds: [record.owner], checkEvidence: finishCheckEvidence(record.finish), env, home });
           out.delivered.push({ key: f.key, action: 'review-requested', task: f.id, revision });
           continue;
         } catch (error) { refused = `${error.code ?? 'error'}: ${error.message}`; }

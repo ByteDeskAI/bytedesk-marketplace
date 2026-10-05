@@ -20,7 +20,6 @@ import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent 
 import { displayName, roleVisual } from "./lib/identity.mjs";
 import { sessionIdentity } from "./lib/session-names.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
-import { sameIncarnation } from "./lib/incarnation.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
 import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
 import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
@@ -130,6 +129,9 @@ Standing repository services
        [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
+  repos list [--json]                           registered repositories and each supervisor's state
+  repos add [<path>]                            register a git checkout for a supervisor (default: cwd)
+  repos remove [<path>|<key>]                   unregister it; the repository and its state are kept
   census [--json] [--watch]                     what every agent in this repo is doing right now:
                                                 working / needs-input / idle / attention /
                                                 quota-blocked / dead / unknown
@@ -142,6 +144,7 @@ Standing repository services
                                                 Without --cached, status with no stored proof rings the
                                                 lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  reviewer request ... [--checks @checks.json]   check evidence [{name,command,exit_code,revision,log_tail}] for the review packet
   reviewer ensure [--provider claude|codex]   reuse the registered or a library reviewer on that provider;
                                                never starts a second live reviewer (TM-364)
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
@@ -169,6 +172,11 @@ Standing repository services
                                                the restricted reviewer uses its review_submit tool
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
+  manage close --task <TM-id> [--landed <sha> --reason <text>]   record the landing if none, stop the
+                                               worker, clean up and close, in that order (TM-247)
+  manage transfer --task <TM-id> [--to <session>] --reason <text>   hand the admission to another
+                                               lead (owner), or take over one whose owner's claim
+                                               is no longer live (TM-247)
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
@@ -187,9 +195,25 @@ Standing repository services
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
-  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
+  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected;
+                                        retire one observed dead without a finish (TM-247)
   manage rework --task <TM-id>          after a changes_requested review of the finish revision and a
                                         stopped worker: back to working; the next finish needs a new revision
+  manage cutover|cut-release --epic <EP-id> [--authorized]
+                                               TM-250, External class (ADR-0001): run the repository's
+                                               own management.cutover / management.release argv (e.g.
+                                               deploy-safe.sh, release-gitflow.sh), never a shell, git,
+                                               gh or systemctl. Refused by name unless config, authority,
+                                               branch (develop), clean, synced with origin and every
+                                               task of the epic done all hold. cutover proves the
+                                               running binary switched; cut-release waits for its
+                                               TeamCity build, then runs verify. Under
+                                               management.autonomy "publish" no --authorized is needed.
+  manage land --task <TM-id>             TM-368: the lead's landing path, driven by management.autonomy:
+                                               pr (default) stops at the reviewed PR; merge runs
+                                               integrate; publish also runs cut-release once the plan
+                                               has landed and tells the origin (tm ticket event). A red
+                                               build, failed verify or missing approval pages via ntfy.
   manage <verb> ... --summary             one line instead of JSON (no pipe to jq needed)
   permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run]
                                                OPERATOR-ONLY: allow rules for the lead's governed verbs in
@@ -212,13 +236,26 @@ function manageSummary(verb, task, r) {
     case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
     case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
     case 'rework': return `${task} back to working after changes requested on ${r.revision}; start the next worker with manage start-worker`;
-    case 'stop-worker': return r.stopped ? `${task} worker stopped (${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
-    case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}` : ''}`;
+    case 'stop-worker': return r.stopped ? `${task} worker ${r.retired ? `retired (${r.result?.outcome}${r.result?.reason ? `: ${r.result.reason}` : ''}; ` : 'stopped ('}${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
+    case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}; lead notified: ${r.review_blocked_notice?.status ?? 'no'}; retry: ao-topology manage retry-review --task ${task}` : ''}`;
+    case 'retry-review': return `${task} review re-filed for ${r.finish?.revision} (request ${r.review_request?.nonce ?? '?'})`;
     case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
+    case 'transfer': return `${task} transferred from ${r.from} to ${r.to}`;
+    case 'close': return r.closed ? `${task} closed (${r.steps.join(', ') || 'nothing left to do'})` : `${task} NOT closed at ${r.refused} after [${r.steps.join(', ')}]: ${r.reason} — ${r.recovery}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
   }
+}
+
+/** TM-250 / TM-368: one line for cutover, cut-release and land. */
+function externalSummary(verb, r) {
+  if (verb === 'cutover') return `cutover switched ${r.identity.before} -> ${r.identity.after} at ${r.revision} (${r.authorization.channel}); record ${r.path}`;
+  if (verb === 'cut-release') return `release published and verified at ${r.revision}${r.teamcity ? ` (TeamCity ${r.teamcity.number ?? r.teamcity.id} ${r.teamcity.status})` : ''} (${r.authorization.channel}); record ${r.path}`;
+  const level = `autonomy ${r.autonomy.level} from ${r.autonomy.scope}`;
+  if (!r.landed) return `${r.task} not landed: ${r.reason} (${level})`;
+  if (r.published) return `${r.task} merged and published at ${r.release.revision ?? ''}${r.origin ? `; origin ${r.origin.notified ? 'notified' : `NOT notified: ${r.origin.reason}`}` : ''} (${level})`;
+  return `${r.task} merged${r.waiting ? `; publish waits for ${r.waiting.join(', ')}` : ''} (${level})`;
 }
 
 function list(value) {
@@ -481,6 +518,52 @@ const commands = {
       out({ ok: true, supervising: false, reason: 'retired-consumer-gone', consumer: ctx.consumer, deregistered, reloaded, exit_code: SUPERVISE_EXIT.RETIRED });
     }
     return report;
+  },
+
+  // TM-378: repository registration made explicit. Before this, the only way in was a SessionStart
+  // side effect (`services ensure --consumer-cwd`) and the only way out a supervisor retiring itself.
+  async repos({ flags, positional }) {
+    const client = await import('./lib/services-client.mjs');
+    const { canonicalRepoId, repoKey } = await import('./lib/repoid.mjs');
+    const sub = positional[0] || 'list';
+    // Re-render the process-compose project so the supervisor starts or stops now, not at the next session.
+    const reload = async (changed) => {
+      if (!changed || !client.servicesEnabled()) return { reloaded: false };
+      const ensured = await client.runServicesEnsure();
+      return ensured.ok === true ? { reloaded: true } : { reloaded: false, reload_error: ensured.error ?? 'services ensure failed' };
+    };
+    if (sub === 'list') {
+      const { supervisionStatus } = await import('./lib/supervision.mjs');
+      const repos = await Promise.all((await client.readServiceRepos()).map(async (repo) => {
+        const present = await exists(repo.consumer);
+        const s = present ? await supervisionStatus({ consumer: repo.consumer }).catch((error) => ({ state: 'unknown', error: error.message })) : { state: 'repository-missing' };
+        return { key: repo.key, consumer: repo.consumer, exists: present, supervisor: s.state, ready: s.ready === true, pid: s.pid ?? null,
+          last_tick_at: s.last_tick_at ?? null, ...(s.error ? { error: s.error } : {}) };
+      }));
+      if (flags.json) return out({ ok: true, registry: client.reposPath(), services: client.servicesEnabled(), repos });
+      if (!repos.length) return out(`No repositories registered (${client.reposPath()}). Add one: ao-topology repos add [<path>]`);
+      out(`Registered repositories (${repos.length}) — ${client.reposPath()}`);
+      for (const r of repos) out(`  ${r.ready ? '●' : '○'} ${r.consumer}  [${r.key}] supervisor ${r.supervisor}${r.pid ? ` pid ${r.pid}` : ''}${r.last_tick_at ? ` · last tick ${r.last_tick_at}` : ''}`);
+      return;
+    }
+    const target = absolutize(positional[1] ?? (typeof flags.consumer === 'string' ? flags.consumer : process.cwd()));
+    if (sub === 'add') {
+      const changed = await client.registerRepository(target);
+      if (changed === null) fail('TOPOLOGY_REPO_NOT_GIT', `${target} is not a git checkout; only a repository gets a supervisor.`);
+      const key = repoKey((await canonicalRepoId(target)).id);
+      return out({ ok: true, key, consumer: (await client.readServiceRepos()).find((r) => r.key === key)?.consumer ?? target, registered: changed, ...await reload(changed) });
+    }
+    if (sub === 'remove') {
+      // A key, or a path: a worktree path resolves to its repository's key; a deleted checkout matches by path.
+      const raw = positional[1];
+      const registered = await client.readServiceRepos();
+      const key = registered.some((r) => r.key === raw) ? raw : await canonicalRepoId(target).then((id) => repoKey(id.id)).catch(() => null);
+      const changed = await client.removeServiceRepo({ key, consumer: target });
+      if (!changed) process.exitCode = 1;
+      return out({ ok: changed, key, consumer: target, removed: changed, kept: 'the repository and its agent-orchestration state are untouched',
+        ...(changed ? await reload(changed) : { reason: 'not registered' }) });
+    }
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use repos list|add|remove.');
   },
 
   async census({ flags }) {
@@ -764,7 +847,12 @@ const commands = {
     const sub = positional[0] || 'status';
     if (sub === 'status') return out(await api.reviewerAvailability(options));
     if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds, provider: flags.provider && flags.provider !== true ? String(flags.provider) : null }));
-    if (sub === 'request') return out(await api.requestReview(options));
+    if (sub === 'request') {
+      // TM-216: check evidence for the packet, [{name, command, exit_code, revision, log_tail}], inline or @file.json.
+      const text = flags.checks && flags.checks !== true ? String(flags.checks) : null;
+      const checkEvidence = text === null ? null : text.startsWith('@') ? await readJson(absolutize(text.slice(1))) : JSON.parse(text);
+      return out(await api.requestReview({ ...options, checkEvidence }));
+    }
     if (sub === 'collect') return out(await api.collectReview(options));
     if (sub === 'eligible') return out(await api.reviewEligibility(options));
     if (sub === 'ack') return out(await api.reviewerNonceAck({ ...options, nonce: positional[1] }));
@@ -789,14 +877,23 @@ const commands = {
     const options = { ...supplied, ...ctx, env, task: flags.task || supplied.task, owner: env.TM_SESSION_ID || env.AO_AGENT_ID,
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
-      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
+      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null, to: flags.to || supplied.to || null,
       authorized: flags.authorized === true || supplied.authorized === true,
       // TM-218 worker start/adopt. Adoption is fail-closed; flags never assert idleness or ownership.
-      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null };
-    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', rework:'reworkTask' };
+      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null,
+      epic: flags.epic || supplied.epic || null };
+    // TM-250 / TM-368: the External-class verbs and the autonomy-driven landing live in release.mjs.
+    // They get flags only, never --file content, so a plan list or test hook cannot be supplied.
+    const external = { cutover: 'cutover', 'cut-release': 'cutRelease', land: 'landTask' };
+    if (external[verb]) {
+      const result = await (await import('./lib/release.mjs'))[external[verb]]({ consumer: ctx.consumer, home: ctx.home, pluginRoot: ctx.pluginRoot, env,
+        task: flags.task || null, epic: flags.epic || null, authorized: flags.authorized === true, owner: options.owner });
+      return out(flags.summary ? externalSummary(verb, result) : result);
+    }
+    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|rework|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
@@ -963,7 +1060,7 @@ const commands = {
     // With neither there is no server to look at, so no binding is proven and ack fails closed.
     const promptServer = recordedBinding?.serverKey ?? tmux.callerServer(process.env);
     const panes = promptServer ? await tmux.listServerPanes({ tmuxServer: promptServer }).catch(() => []) : [];
-    const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
+    const currentBinding = await api.callerBinding({ panes, recorded: recordedBinding });
     const expectedSession = promptSession || await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
     if (positional[0] === 'watch') return api.watchPrompts({ ...ctx, agent }, { onChange: out });

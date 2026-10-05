@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveConsumerRepository } from './workspace/repository.mjs';
 import { probeSessionHost } from './session/host.mjs';
-import { canonicalRepoId, repoKey, repoSlug, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
+import { canonicalRepoId, repoKey, repoSlug, repositoryConsumer, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
+import { tmLauncher } from '../topology/lib/review-sweep.mjs';
+import { servicesEnabled } from '../topology/lib/services-client.mjs';
 import { supervisionStatus } from '../topology/lib/supervision.mjs';
 import { describeTransport } from '../topology/lib/orch-transport.mjs';
 import { incarnationOf, sameIncarnation } from '../topology/lib/incarnation.mjs';
@@ -14,7 +16,7 @@ import { reviewerStanding } from '../topology/lib/reviewer.mjs';
 import { agentDirs, resolveAgentRef } from '../topology/lib/agents.mjs';
 import { loadConfig } from '../topology/lib/config.mjs';
 import { composePrompt, readPromptState } from '../topology/lib/prompts.mjs';
-import { dataHome, servicePaths } from './services/services.mjs';
+import { dataHome, servicePaths, servicesCondition, servicesStatus } from './services/services.mjs';
 import { staleMcpServers, tmuxSocketCheck } from './services/self-heal.mjs';
 
 // These values describe the loaded executable even if its installed files have
@@ -80,6 +82,36 @@ export async function pluginFreshness({pluginRoot,home=homedir(),env=process.env
   const status=!installed||!remote?'unknown':remote.startsWith(installed)||installed.startsWith(remote)?'current':'stale';
   return {status,source,installed,originMain:remote,repository,...(remoteError?{error:remoteError}:{}),
     ...(status==='stale'?{advice:source==='cache'?`Installed ${installed.slice(0,12)} is behind origin/main ${remote.slice(0,12)}. Run \`claude plugin update ${cached[2]}@${cached[1]}\` and restart.`:`Checkout HEAD ${installed.slice(0,12)} differs from origin/main ${remote.slice(0,12)}.`}:{})};
+}
+
+/**
+ * TM-379: task-management's store health, through its own CLI (`tm doctor --json`) and never an
+ * import, because the two plugins stay independent. Absent tm is not a failure: `ok: null`.
+ */
+export async function taskManagementHealth({consumerCwd,env=process.env,timeoutMs=60_000,deps={}}) {
+  const root=await repositoryConsumer(consumerCwd).catch(()=>consumerCwd);
+  const bin=await (deps.tmLauncher??tmLauncher)(root);
+  if(!bin) return {present:false,ok:null,root,note:`task-management is not installed in ${root}; store health not checked`};
+  const res=await (deps.run??run)(bin,['doctor','--json'],{cwd:root,allowFailure:true,timeoutMs,env:{...env,TM_ROOT:root,CLAUDE_PROJECT_DIR:root}});
+  let report=null;
+  try { report=JSON.parse(res.stdout); } catch {}
+  if(!Array.isArray(report?.findings)) return {present:true,ok:false,root,error:`tm doctor exited ${res.code}: ${String(res.stderr||res.stdout||'').trim().split('\n')[0]}`};
+  const errors=report.findings.filter(f=>f.level==='error');
+  return {present:true,ok:res.code===0&&errors.length===0,root,errors:errors.length,warnings:report.findings.length-errors.length,
+    problems:errors.slice(0,10).map(f=>f.message??f.kind??JSON.stringify(f))};
+}
+
+/**
+ * TM-379: one answer for AO, task-management and the managed services. `aoOk` is the AO doctor's own
+ * verdict. Plugin freshness (TM-373) is reported and never fails the run, as TM-373 decided.
+ */
+export async function combinedHealth({aoOk,pluginFreshness=null,consumerCwd,stateRoot,env=process.env,deps={}}) {
+  const services=!servicesEnabled(env)?{enabled:false,ok:null,note:'AGENT_ORCHESTRATION_SERVICES=0: services not managed'}
+    :await (deps.servicesStatus??servicesStatus)({stateRoot,env}).then(r=>{ const {met,detail}=servicesCondition(r,'healthy'); return {enabled:true,ok:met,...detail}; })
+      .catch(error=>({enabled:true,ok:false,error:error.message}));
+  const taskManagement=await taskManagementHealth({consumerCwd,env,deps});
+  const parts={agentOrchestration:{ok:aoOk===true},services,taskManagement,pluginFreshness:pluginFreshness?.status??null};
+  return {ok:aoOk===true&&services.ok!==false&&taskManagement.ok!==false,...parts};
 }
 
 /**

@@ -52,7 +52,8 @@ describe("a clean store", () => {
     create("task", { title: "fine", epic: e.id, acceptance: [{ text: "verified", done: false }], evidence: [], blockedBy: [], blocks: [] }, "details\n", p);
 
     assert.deepEqual(diagnose(p), []);
-    assert.equal(render(diagnose(p)), "no problems found");
+    // A clean report says how much the review check looked at (TM-244), so none-found is visible.
+    assert.equal(render(diagnose(p)), "no problems found (review check: 0 finished task(s) with commits in 7d)");
   });
 });
 

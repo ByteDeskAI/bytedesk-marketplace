@@ -14,7 +14,7 @@ import { cleanupScopes, handOverLegacyHost, parseEtime, selfHeal, staleMcpServer
 import { healLines } from "../../src/services/cli.mjs";
 import { sessionSupervisorUnit } from "../../src/session/supervisor.mjs";
 import { setupDiagnostics } from "../../src/diagnostics.mjs";
-import { refreshCopies } from "../../skills/install-orchestration-host/scripts/install-host.mjs";
+import { refreshCopies } from "../../skills/setup-agent-orchestration/scripts/install-host.mjs";
 
 const pluginRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const FP = (c) => c.repeat(64);

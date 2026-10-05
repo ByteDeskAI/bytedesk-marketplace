@@ -6,8 +6,7 @@ import os from "node:os";
 import { join, resolve } from "node:path";
 import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from "../config.mjs";
 import { serializeError } from "../errors.mjs";
-import { addServiceRepo } from "../../topology/lib/services-client.mjs";
-import { canonicalRepoId, repositoryConsumer } from "../../topology/lib/repoid.mjs";
+import { registerRepository } from "../../topology/lib/services-client.mjs";
 import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicePaths, servicesStatus, uninstallServices, waitForServices } from "./services.mjs";
 import { selfHeal } from "./self-heal.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
@@ -67,17 +66,6 @@ function detach(stateRoot, consumerCwd) {
   return 0;
 }
 
-/**
- * The session's own repository gets a supervisor, enrolled or not, as the `ao-topology supervise`
- * monitor gave it before TM-272. Only a git checkout: a supervisor for an arbitrary directory would
- * be a permanent process nobody asked for. Linked worktrees share one key, so they register once.
- */
-async function registerRepository(cwd, stateRoot) {
-  const identity = await canonicalRepoId(cwd).catch(() => null);
-  if (identity?.kind !== "git-common-dir") return false;
-  return addServiceRepo(await repositoryConsumer(cwd), { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot } });
-}
-
 /** TM-305: the services are the operator's; a dispatched worker neither repoints nor bounces them. */
 const WORKER_REFUSED = new Set(["ensure", "restart", "stop"]);
 
@@ -105,7 +93,9 @@ export async function runServicesCommand(sub, values, positionals, env = process
         return detach(stateRoot, consumerCwd);
       }
       try {
-        if (consumerCwd) await registerRepository(consumerCwd, stateRoot);
+        // The session's own repository gets a supervisor, enrolled or not, as the `ao-topology
+        // supervise` monitor gave it before TM-272. One rule, shared with `ao-topology repos add`.
+        if (consumerCwd) await registerRepository(consumerCwd, { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot } });
         const report = await ensureServices({ stateRoot });
         // SessionStart and the monitor can ensure at once; one self-heal at a time, so two never swap the same copy.
         const dir = servicePaths({ stateRoot, data: dataHome() }).dir;

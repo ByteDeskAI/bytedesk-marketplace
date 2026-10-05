@@ -15,10 +15,10 @@ commands.
 | Codex | `.codex-plugin/plugin.json`, `.codex-mcp.json`, `skills/` |
 | Codex custom agent | Explicitly installed template from `templates/codex-agents/` |
 | Grok Build | Same `.mcp.json` / `skills/` / `agents/` as Claude; `grok plugin install` this directory and trust it |
-| Kimi Code | `~/.kimi-code/mcp.json` plus skill/agent links from `skills/install-orchestration-host` |
+| Kimi Code | `~/.kimi-code/mcp.json` plus skill/agent links from `skills/setup-agent-orchestration` |
 
 A host remains itself: a Grok session that orchestrates is still Grok. Only an MCP provider execution
-changes the external model provider. Wire hosts with `skills/install-orchestration-host`.
+changes the external model provider. Wire hosts with `skills/setup-agent-orchestration`.
 
 
 ## tmux topology layer
@@ -158,7 +158,7 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
   and no path back to the source checkout.
 - No absolute symlinks, tracked `node_modules`, generated credentials, or mutable session data.
 - Ship `ROADMAP.md`, `ROADMAP-INVENTORY.json`, `ROADMAP-SOURCES.json`, `scripts/roadmap.mjs`, and
-  `skills/roadmap-orchestrator/` in clean
+  `skills/roadmap-governance/` in clean
   installed-cache copies without shipping the other development scripts.
 - Keep `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `package.json`, README, skills, and
   the MCP schemas synchronized when the public contract changes.

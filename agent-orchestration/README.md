@@ -123,7 +123,7 @@ supervisor. It is idempotent. It:
    build is never overwritten, an equal ordinal is left alone, and so is the same build. The copy is built beside the old one and swapped in by rename, keeping the old
    copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
    inside a git checkout, or when the copy's `node_modules` does not satisfy the new
-   `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
+   `package.json` (run `npm ci` there). `setup-agent-orchestration` (its host-wiring step) does the same from its root;
 7. cleans up after earlier installs (TM-285): stops leaked `agent-orchestration-session-*.scope`
    units whose state root no longer exists, hands the managed state root over from a pre-services
    session host (a 24-hour scope or a hand-run host) and a detached `nats-server`, and never touches
@@ -231,8 +231,8 @@ grok plugin install /absolute/path/to/bytedesk-marketplace/agent-orchestration -
 Kimi Code (and a dry-run of every host):
 
 ```sh
-node skills/install-orchestration-host/scripts/install-host.mjs --dry-run --all
-node skills/install-orchestration-host/scripts/install-host.mjs --host kimi --host grok
+node skills/setup-agent-orchestration/scripts/install-host.mjs --dry-run --all
+node skills/setup-agent-orchestration/scripts/install-host.mjs --host kimi --host grok
 ```
 
 Start a fresh host session after installation so the MCP server and skills are discovered.
@@ -394,8 +394,8 @@ Runs live under `<consumer>/.bytedesk/agent-orchestration/runs/<run_id>/`, which
 
 The installed package includes `ROADMAP.md`, its append-only `ROADMAP-INVENTORY.json` identity
 ledger, its validator, portable `ROADMAP-SOURCES.json` seam integrity data, and the
-`roadmap-orchestrator` skill for reference and discovery. Invoke
-`$roadmap-orchestrator`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
+`roadmap-governance` skill (formerly `roadmap-orchestrator`) for reference and discovery. Invoke
+`$roadmap-governance`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
 task, unlock, trajectory, gap, or goal ID. The skill reads the repository roadmap, runs
 `npm run roadmap:check` (or `node scripts/roadmap.mjs --check`), preserves IDs and reciprocal
 lineage, and validates again after an edit. With no target, it presents at most five eligible
@@ -451,6 +451,8 @@ quoted delimiter (`<<'EOF'`) is treated as data.
 permission flow (a prompt, or the auto-mode classifier). This keeps the authorization classes of
 ADR-0001 (`fleet/docs/adr/0001-hierarchical-authorization.md`):
 
+- **External (deploy and release):** `ao-topology manage cutover|cut-release|land`. See
+  [Landing autonomy](#landing-autonomy-pr-merge-publish) below.
 - **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup`. These verbs keep
   their own delegation checks. A lead that should run them unprompted gets the per-lead rules from
   `ao-topology permissions install` (see `docs/repository-leads.md`).
@@ -466,6 +468,81 @@ after a hook allows a command ([permissions](https://code.claude.com/docs/en/per
 Critical-path `rm` commands are still refused. Agents launched with `auto_approve` (the default,
 TM-214) skip prompts entirely, so this hook matters for the sessions that do not: your own lead
 session, and agents with `auto_approve: false`.
+
+## Landing autonomy: pr, merge, publish
+
+`management.autonomy` sets how far a repository's lead takes a reviewed task on its own (TM-368).
+The lead runs one verb, `ao-topology manage land --task <TM-id>`, and the policy decides the rest.
+
+| `management.autonomy` | What `manage land` does |
+|---|---|
+| `pr` (**default**) | Stops at the reviewed pull request. A human merges it. |
+| `merge` | Runs `manage integrate`, with its own authority and guardrails unchanged. Nothing is released. |
+| `publish` | Integrates, then, once every task of the task's epic has landed, runs `manage cut-release`: the repository's release step, a wait for the TeamCity build it started, and the verify step that proves the published artifact. It then records the publish and tells the origin. |
+
+**Where to set it.** The value comes from the AO layered config. The nearest layer wins:
+the repository's `.bytedesk/agent-orchestration/config.json`, then the global
+`~/.config/agent-orchestration/config.json`, then the shipped default, `pr`. An unknown value makes
+its layer invalid, so it never widens autonomy. To run fully autonomously through publishing on
+your own machine, set it in the global layer:
+
+```json
+{ "management": { "autonomy": "publish", "ntfy": { "topic": "<your topic>" } } }
+```
+
+**What `publish` grants.** Production deploy and release publish are ADR-0001's External class
+(`fleet/docs/adr/0001-hierarchical-authorization.md`). At `publish`, the policy is the operator's
+standing grant for `manage cutover` and `manage cut-release`, so a lead needs no `--authorized`.
+Every record names the grant: `authorization.channel` is `autonomy-policy`, and
+`authorization.granted_by` gives the config layer and file that set `publish`. At `pr` or `merge`,
+these verbs need `--authorized` from an operator shell; a managed agent session cannot self-assert
+it. The policy does not replace integrate's own authority: merging still needs a covering plan
+grant or the server-side `lead_autonomy` policy (ADR-0027).
+
+**What the release verbs run.** Only the repository's own scripts, configured as argv and run
+without a shell. A step whose program is `systemctl`, `git`, `gh`, a shell, `sudo`, `env` or `ssh`
+is refused, so neither a lead nor a config line restarts a host or pushes directly.
+
+```json
+{ "management": {
+  "cutover": { "branch": "develop", "argv": ["<skill>/scripts/deploy-safe.sh", "deploy"],
+               "postflight_argv": ["<skill>/scripts/deploy-safe.sh", "postflight"],
+               "identity_argv": ["<a command that prints the running build's identity>"] },
+  "release": { "branch": "develop", "argv": ["<skill>/scripts/release-gitflow.sh", "start"],
+               "verify_argv": ["<skill>/scripts/release-gitflow.sh", "verify"],
+               "teamcity": { "build_type": "<the publish build configuration id>" } } } }
+```
+
+**Guardrails.** Both verbs refuse by name, and run nothing, unless every condition holds: the
+config is valid, the authority above exists, the checkout is on the configured branch (default
+`develop`), it has no uncommitted work outside the tool store paths, it equals `origin/<branch>`
+after a fetch, and every task of the plan (`--epic`) is done. `cutover` proves the running binary
+switched: `identity_argv` must answer before the deploy and answer differently after it.
+
+**Stops and pages.** Each of these stops the run and pages the operator through ntfy:
+
+- a red TeamCity build, or no finished build before `teamcity.timeout_ms` (default one hour);
+- a failed postflight: the release verify step, or the cutover postflight;
+- a missing reviewer approval, checked by `manage land` before it merges;
+- a failed release or deploy step, and a release refused after the merge.
+
+A plan with tasks still open is not a stop: `manage land` reports `waiting` and publishes when the
+last task lands. Under `publish`, TeamCity is required: set `management.release.teamcity.build_type`,
+and export `TEAMCITY_URL` (or set `teamcity.url`) and `TEAMCITY_TOKEN`. The adapter reads
+`/app/rest/builds` with the token as a bearer header and never writes the token anywhere.
+
+**ntfy.** agent-orchestration sends its own pages, so they work with task-management absent. The
+topic comes from `AO_NTFY_TOPIC` or `management.ntfy.topic`, then task-management's
+`TM_NTFY_TOPIC`. The token comes only from the environment: `AO_NTFY_TOKEN`, then `TM_NTFY_TOKEN`.
+With no topic, the stop still happens and its result says the page was not sent.
+
+**The origin.** When the task is a cross-repo ticket, a successful publish runs
+`tm ticket event <id> published "<detail>"` (TM-359), which comments on the origin task and mails
+the origin's lead.
+
+**Known limit.** The global config file is writable by any process running as you, as are the
+other same-user anchors documented in `docs/repository-leads.md`. A repository-layer edit cannot
+grant `publish` silently: an uncommitted change to it fails the `dirty` guardrail.
 
 ## Safety model
 

@@ -223,7 +223,12 @@ export function renderWhy(w) {
   const out = [`${w.id}  ${w.title}`, `status: ${w.status}   startable: ${w.startable ? "yes" : "no"}`, ""];
   // The agent verdict prints alongside the blockers, marked `→` so it reads as a different kind of
   // statement: it never stops a person starting the task (TM-179).
-  const agent = w.readiness ? [`→ ${w.readiness.text}`] : [];
+  // A ready label on a task that cannot start yet means "ready once unblocked": say so, or the two
+  // lines contradict each other (the pool reads startability through nextTasks and skips it).
+  const verdict = w.readiness && w.readiness.ready && !w.readiness.human && !w.startable
+    ? "ready for an agent once its blockers clear — the pool skips it until then"
+    : w.readiness?.text;
+  const agent = w.readiness ? [`→ ${verdict}`] : [];
 
   if (!w.reasons.length) {
     return [...out, "nothing is holding this up — `.bytedesk/task-management/bin/tm start " + w.id + "`", ...agent].join("\n");

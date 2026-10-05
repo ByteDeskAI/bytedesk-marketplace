@@ -148,6 +148,9 @@ function jsonlFiles(dir, since, acc = []) {
   return acc;
 }
 
+const SELF_REPORT = /\benhance-mine\b/;
+const CODE_READ = /^\s*(?:cd [^;&|]+(?:&&|;)\s*)?(?:grep|rg|cat|sed -n|head|tail|less|git (?:diff|show|log)|gh pr diff|graft)\b/;
+
 async function mineTranscripts(projectRoot, days, add) {
   const src = { source: "transcripts", files: 0, entries: 0, badLines: 0, findings: 0 };
   const base = join(homedir(), ".claude", "projects");
@@ -182,8 +185,8 @@ async function mineTranscripts(projectRoot, days, add) {
       if (e.type === "assistant" && Array.isArray(content)) {
         for (const b of content) {
           if (b?.type !== "tool_use") continue;
-          tools.set(b.id, b.name);
           const cmd = b.name === "Bash" ? String(b.input?.command || "") : "";
+          tools.set(b.id, { name: b.name, cmd });
           for (const [kind, re] of WORKAROUNDS) {
             if (re.test(cmd)) hit({ kind: "workaround", key: kind, sample: cmd });
           }
@@ -191,12 +194,17 @@ async function mineTranscripts(projectRoot, days, add) {
       } else if (e.type === "user") {
         const results = Array.isArray(content) ? content.filter((b) => b?.type === "tool_result") : [];
         for (const r of results) {
+          const origin = tools.get(r.tool_use_id) || {};
+          // Our own report quotes every code it found, and reading source or a diff quotes the
+          // constants it defines: neither is an occurrence. Errors from those commands still count.
+          if (SELF_REPORT.test(origin.cmd || "")) continue;
+          if (r.is_error !== true && (origin.name === "Read" || origin.name === "Grep" || CODE_READ.test(origin.cmd || ""))) continue;
           const text = redact(textOf(r.content));
           const codes = codesIn(text, r.is_error === true);
           for (const { code, line } of codes) hit({ kind: "error-code", key: code, sample: line });
           if (r.is_error === true && !codes.length) {
             const head = headline(text);
-            hit({ kind: "tool-error", key: `${tools.get(r.tool_use_id) || "tool"}: ${normalizeLine(head) || "(no message)"}`, sample: head });
+            hit({ kind: "tool-error", key: `${origin.name || "tool"}: ${normalizeLine(head) || "(no message)"}`, sample: head });
           }
         }
         if (results.length || e.isMeta || e.isSidechain || e.toolUseResult) continue;
