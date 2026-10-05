@@ -73,8 +73,11 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     // otherwise look like the lead re-claiming: it is marked `worker` and keeps the earlier `since`.
     const at = now();
     const worker = Boolean(process.env.TM_DISPATCH_WORKER);
-    const since = worker && live && held.session === session && held.since ? held.since : at;
-    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since, ...(worker ? { worker: true } : {}), ...(gateway ? { gateway } : {}) };
+    const keep = worker && live && held.session === session && held.since;
+    // Kept `since` keeps its `worker` flag, so the flag always describes whoever took `since`.
+    const since = keep ? held.since : at;
+    const taker = keep ? Boolean(held.worker) : worker;
+    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since, ...(taker ? { worker: true } : {}), ...(gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);
     else logEvent("claim", { id, session }, p);

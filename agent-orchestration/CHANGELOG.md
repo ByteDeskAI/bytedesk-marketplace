@@ -13,7 +13,8 @@
   and `NODE_OPTIONS` are refused from every layer. A test also pins that the launcher exports the
   agent's own variables after sourcing the secrets file. Review follow-up: also refused are
   `BASH_ENV`, `ENV`, `ZDOTDIR`, `NODE_PATH`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`,
-  `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`.
+  `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`. With `SSH_AUTH_SOCK` refused, the
+  supported way for a worker to push is an HTTPS `origin` remote with `gh auth setup-git`.
 - **A durable session started without `AO_CONSUMER` no longer leaves its secrets file behind
   (TM-450, EP-028).** The 0600 `<launcher>.env` was removed only after the readiness wait, which
   runs only with `AO_CONSUMER`. `retirePassEnv` now waits (bounded) for the launcher to consume

@@ -140,10 +140,11 @@ function retryPlan(task, final, scope, reviewReady, p) {
  *
  * TM-460: the dispatch itself claims under the admission owner (AC13), so "the owner holds the
  * claim" was true for EVERY governed dispatch, and a worker that crashed after its lead was gone
- * was never parked or retried. The owner's claim counts only with evidence the lead is still
- * there: it claimed again after this dispatch started (`since` is set when a claim is taken, and
- * heartbeats leave it alone), or agent-orchestration proves the lead responsive from proof already
- * on disk (`lead status --cached`: no probe, no ring, no wait). No ao, no proof: not held.
+ * was never parked or retried. The owner's claim counts only when agent-orchestration proves the
+ * lead responsive from proof already on disk (`lead status --cached`: no probe, no ring, no wait).
+ * A re-claim is NOT evidence: the worker carries the lead's TM_SESSION_ID, so it can produce one
+ * (`env -u TM_DISPATCH_WORKER tm start`, or the dashboard API in the lead's process). The claim's
+ * `worker`/`since` fields stay as information only. No ao, no proof: not held.
  */
 function heldByAdmissionOwner(task, p, { caps = null, exec = spawnSync } = {}) {
   if (!task.governance) return false;
@@ -151,7 +152,6 @@ function heldByAdmissionOwner(task, p, { caps = null, exec = spawnSync } = {}) {
     const { record } = readManagementRecord(task, p);
     const claim = claimant(task.id, p);
     if (!record.owner || claim?.session !== record.owner) return false;
-    if (!claim.worker && claim.since && task.dispatched?.at && claim.since > task.dispatched.at) return true;
     return leadProvenAlive(record.lead_id || record.owner, p, { caps, exec });
   } catch {
     return false;

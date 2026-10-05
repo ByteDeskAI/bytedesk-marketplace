@@ -26,10 +26,15 @@
   pane re-applies `TM_ROOT`, `TM_ACTOR`, `TM_SESSION_ID` and the worker markers with `env` after
   sourcing the secrets file, so a sourced value can no longer override them. Move any
   `dispatch.passEnv` from repository config to your user config.
+  - `SSH_AUTH_SOCK` is refused (see the follow-up below), so a worker cannot use your SSH agent.
+    The supported way for a worker to push is an HTTPS `origin` remote with `gh auth setup-git`.
+  - Pools and cross-repo `tm` children no longer receive the `AO_*TTL*_MS` and `AO_*GRACE*_MS`
+    tunables; set them where agent-orchestration itself runs if you need them.
 
 - **Review follow-ups to TM-446/447/448/460 (EP-028).**
   - A dispatched worker's own claim (`TM_DISPATCH_WORKER`) is marked `worker` and keeps the
-    earlier `since`, so a worker's `tm start` no longer looks like its lead re-claiming.
+    earlier `since`; a kept `since` keeps the `worker` flag of whoever took it. Both are
+    information only — collect holds a task for its lead solely on agent-orchestration's proof.
   - `TMUX_PANE` is dropped for the pool, `runTm` children and collect's lead check, because
     `ao-topology manage` treats the pane as an identity. `TMUX` is dropped for `runTm` children.
     Proof-window tunables (`AO_*TTL*_MS`, `AO_*GRACE*_MS`) are dropped too, so a caller cannot
@@ -63,10 +68,10 @@
 - **A crashed governed worker whose lead is gone is parked or retried again (TM-460, EP-028).**
   Because a governed dispatch claims under its admission owner, collect treated every governed
   task as "held by the lead" and left a dead worker's task in progress until the claim expired.
-  The owner's claim now counts only when the owner claimed again after the dispatch started (a
-  claim records `since` when it is taken; heartbeats leave it alone) or `ao-topology lead status
-  --cached` shows that owner's lead responsive. Without agent-orchestration, nothing proves the
-  lead alive, so the task is parked or retried.
+  The owner's claim now counts only when `ao-topology lead status --cached` shows that owner's
+  lead responsive. A re-claim is not evidence: the worker carries the lead's `TM_SESSION_ID`, so it
+  can produce one. Without agent-orchestration, nothing proves the lead alive, so the task is
+  parked or retried.
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.

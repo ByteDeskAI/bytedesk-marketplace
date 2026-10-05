@@ -3,8 +3,9 @@
 // guard that knows a collected dispatch has no worker in flight.
 import { after, afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { dirname } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, read, seedGitContract, state, update, writeConfig } from "../../lib/store.mjs";
@@ -25,6 +26,15 @@ afterEach(() => {
 const save = (path, value) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, JSON.stringify(value)); };
 const fake = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "tmux:tm-fake" }) };
 const GONE = () => ({ status: 1 }); // tmux has-session: the worker's session no longer exists
+
+/** caps naming a fake ao-topology that prints `status` for `lead status --cached`. */
+function fakeAo(status) {
+  const dir = mkdtempSync(join(tmpdir(), "tm460-ao-"));
+  trash.push(dir);
+  const bin = join(dir, "ao-topology");
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s' '${JSON.stringify(status)}'\n`, { mode: 0o755 });
+  return { backends: { topology: { available: true, path: bin } } };
+}
 
 /** An admitted governed task whose admission owner is "lead-session" (the claim starts with it). */
 function admitted() {
@@ -54,9 +64,8 @@ describe("TM-247 governed worker lifecycle (task-management)", () => {
   it("AC12: collecting a dead worker of a lead-held governed task records it and never parks or drops the claim", async () => {
     const { p, id } = admitted();
     assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
-    await new Promise((r) => setTimeout(r, 5));
-    claimTask(id, { session: "lead-session", p }); // TM-460: the lead re-claims after the dispatch
-    const res = collectTmux(id, { p, spawnImpl: GONE, caps: {} });
+    // TM-460: held only on ao's proof that the owner's lead is responsive.
+    const res = collectTmux(id, { p, spawnImpl: GONE, caps: fakeAo({ status: "responsive", record: { agent_id: "lead-1" } }) });
     assert.equal(res.ok, true, res.reason);
     assert.equal(res.outcome, "failed");
     assert.equal(res.parked, false);
@@ -76,22 +85,45 @@ describe("TM-247 governed worker lifecycle (task-management)", () => {
     assert.notEqual(read(id, p).status, "in_progress");
   });
 
-  it("TM-460: the worker's own re-claim under the lead's session does not count as the lead's", async () => {
-    const { p, id } = admitted();
-    assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
-    await new Promise((r) => setTimeout(r, 5));
-    // The worker inherits TM_SESSION_ID = the owner's session, then runs `tm start`/`tm claim`.
+  for (const marker of [true, false]) {
+    it(`TM-460: a re-claim under the lead's session after dispatch is not proof (worker marker ${marker ? "set" : "unset"})`, async () => {
+      const { p, id } = admitted();
+      assert.equal((await dispatch(id, { p, backend: fake, caps: {} })).ok, true);
+      await new Promise((r) => setTimeout(r, 5));
+      // The worker carries TM_SESSION_ID = the owner's; with `env -u TM_DISPATCH_WORKER`, or through
+      // the dashboard API in the lead's process, its claim looks exactly like the lead's.
+      if (marker) process.env.TM_DISPATCH_WORKER = "1";
+      try {
+        assert.equal(claimTask(id, { session: "lead-session", p }).ok, true);
+      } finally {
+        delete process.env.TM_DISPATCH_WORKER;
+      }
+      if (!marker) assert.ok(state(p).claims[id].since > read(id, p).dispatched.at, "the control: a fresh since after dispatch");
+      const res = collectTmux(id, { p, spawnImpl: GONE, caps: {} });
+      assert.notEqual(res.heldByLead, true);
+      assert.ok(res.parked || res.retry, "a crashed worker is parked or retried");
+    });
+  }
+
+  it("TM-460: a kept since keeps the worker flag of whoever took it", () => {
+    const p = paths(tempRepo());
+    trash.push(p.root);
+    ensureDirs(p);
+    // The lead takes the claim; the worker's re-claim keeps since, so the claim is still the lead's.
+    claimTask("TM-901", { session: "lead-session", p });
+    const leadSince = state(p).claims["TM-901"].since;
     process.env.TM_DISPATCH_WORKER = "1";
     try {
-      assert.equal(claimTask(id, { session: "lead-session", p }).ok, true);
+      claimTask("TM-901", { session: "lead-session", p });
+      assert.equal(state(p).claims["TM-901"].since, leadSince);
+      assert.equal(state(p).claims["TM-901"].worker, undefined, "since was taken by the lead, not a worker");
+      // A worker takes a fresh claim; its re-claim keeps both since and the flag.
+      claimTask("TM-902", { session: "lead-session", p });
+      claimTask("TM-902", { session: "lead-session", p });
+      assert.equal(state(p).claims["TM-902"].worker, true);
     } finally {
       delete process.env.TM_DISPATCH_WORKER;
     }
-    assert.equal(state(p).claims[id].worker, true);
-    assert.ok(state(p).claims[id].since <= read(id, p).dispatched.at, "the worker keeps the earlier since");
-    const res = collectTmux(id, { p, spawnImpl: GONE, caps: {} });
-    assert.notEqual(res.heldByLead, true);
-    assert.ok(res.parked || res.retry, "a crashed worker is parked or retried");
   });
 
   it("TM-460: the owner proven responsive by ao's cached lead status still holds the task", async () => {

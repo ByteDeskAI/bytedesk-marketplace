@@ -340,6 +340,23 @@ and mail. It **allows** exactly what the finish line needs — pushing the worke
 refusal names why and what to do instead. It is a guard against accidents, not against an
 adversary: the rules live in one table in `lib/worker-guard.mjs`.
 
+**Secrets a worker needs are named in your user config, never the repository's (TM-448).** Put
+`{"dispatch":{"passEnv":["TYPESAFE_API_KEY"]}}` in `~/.config/task-management/config.json`
+(`$XDG_CONFIG_HOME` if set), or `workers.passEnv` in agent-orchestration's global config. A name in
+a git-tracked `.bytedesk/*/config.json` is ignored with a warning, because a worker's merged PR
+could otherwise add one. Names that steer the worker's identity, loader, shell or credentials are
+refused: `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`, `NODE_OPTIONS`,
+`NODE_PATH`, `BASH_ENV`, `ENV`, `ZDOTDIR`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`,
+`XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`.
+
+- **Workers push over HTTPS with `gh auth`, not over SSH.** `SSH_AUTH_SOCK` is refused, so a worker
+  cannot borrow your SSH agent. Use an HTTPS `origin` remote and run `gh auth setup-git` once, so
+  `git push` authenticates through `gh`'s stored credential.
+- **Proof-window tunables stop at the pool.** A pool started by `tm` (and a `tm` child acting on
+  another repo) no longer inherits agent-orchestration's `AO_*TTL*_MS` and `AO_*GRACE*_MS`
+  variables, so it cannot be told to treat an old lead heartbeat as fresh. Other AO configuration
+  (`AO_HOME`, `AO_NATS_*`, other `AO_*_MS` timeouts) still passes.
+
 The flags, refusals, backend order, config keys, MCP/HTTP twins, and per-harness recipes
 are in [`docs/agent-first.md`](docs/agent-first.md). Skills chain as
 `caps` → `dispatch` → `pool` → `collect` → `agent` → `events`.
