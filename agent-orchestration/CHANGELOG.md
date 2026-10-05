@@ -39,6 +39,12 @@
   resolver (`resolveStandingTargets` in `addressing.mjs`) and no run is needed. An unknown or
   ambiguous name and a repository with no lead are refused (`TOPOLOGY_REPO_UNKNOWN`,
   `TOPOLOGY_REPO_AMBIGUOUS`, `TOPOLOGY_REPO_NO_LEAD`), exit 1, nothing written.
+- **`@all-leads` broadcast for standing mail (TM-372, EP-028).** `mailbox send --to @all-leads`
+  (and `send --to @all-leads`) sends one ordinary standing message to every registered
+  repository's lead, each admitted on its own. It honours the broadcast rules in `addressing.mjs`:
+  the sender is never its own recipient, an audience that reaches nobody is refused, and more than
+  24 recipients (`--max-recipients`) is refused, never truncated. A given `--id` becomes one id per
+  repository, so a retried broadcast dedupes per recipient.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

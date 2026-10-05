@@ -228,11 +228,43 @@ export async function resolveRepoLead(ref, { env = process.env, home = homedir()
   return { consumer: root, lead, key: repoKey((await canonicalRepoId(root)).id) };
 }
 
+/** TM-372: the standing-mail broadcast audience — every registered repository's lead. */
+export const ALL_LEADS = "@all-leads";
+
+/**
+ * Every registered repository's lead, one target per repository. Same rules as `expandAddresses`:
+ * the sender is never its own recipient (the loop guard), an audience that reaches nobody is refused,
+ * and one wider than the limit is refused, never truncated.
+ */
+async function allLeads({ from, env, home, maxRecipients }) {
+  const { readLeadRegistration } = await import("./lead.mjs");
+  const targets = [];
+  for (const repo of await registeredRepositories({ env, home })) {
+    // A deleted checkout keeps its registration; it has no inbox to reach, so it is not addressed.
+    if (!(await stat(repo.root).then((s) => s.isDirectory(), () => false))) continue;
+    const lead = (await readLeadRegistration({ consumer: repo.root, env, home }).catch(() => null))?.record?.agent_id ?? null;
+    if (lead && lead !== from) targets.push({ consumer: repo.root, to: lead, key: repo.key });
+  }
+  invariant(targets.length > 0, "TOPOLOGY_BROADCAST_EMPTY", `${ALL_LEADS} names nobody right now: no registered repository has a lead other than the sender. Nothing was sent.`);
+  const limit = Number.isInteger(maxRecipients) && maxRecipients > 0 ? maxRecipients : MAX_BROADCAST;
+  invariant(
+    targets.length <= limit,
+    "TOPOLOGY_BROADCAST_TOO_WIDE",
+    `${ALL_LEADS} resolves to ${targets.length} recipients; the limit is ${limit}. Nothing was sent — address the leads you need by --to-repo, or raise it with --max-recipients.`,
+  );
+  return targets;
+}
+
 /**
  * The ONE standing-mail resolver every send entry shares. Returns `[{ consumer, to, key? }]`:
- * the literal recipient in `consumer` (unchanged), a repository's lead (`--to-repo`, `lead@<repo>`).
+ * the literal recipient in `consumer` (unchanged), a repository's lead (`--to-repo`, `lead@<repo>`),
+ * or every registered repository's lead (`@all-leads`). Every refusal happens here, before any send.
  */
-export async function resolveStandingTargets({ to, toRepo = null, consumer, env = process.env, home = homedir(), cwd = process.cwd() } = {}) {
+export async function resolveStandingTargets({ to, toRepo = null, consumer, from = null, env = process.env, home = homedir(), cwd = process.cwd(), maxRecipients = MAX_BROADCAST } = {}) {
+  if (to === ALL_LEADS) {
+    invariant(!toRepo, "TOPOLOGY_ADDRESS_CONFLICT", `Pass --to-repo or --to ${ALL_LEADS}, not both.`);
+    return allLeads({ from, env, home, maxRecipients });
+  }
   const ref = toRepo ?? repoLeadRef(to);
   if (ref !== null) {
     invariant(!toRepo || !to, "TOPOLOGY_ADDRESS_CONFLICT", "Pass --to-repo or --to, not both: --to-repo already names the recipient (that repository's lead).");

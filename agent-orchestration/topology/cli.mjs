@@ -157,6 +157,7 @@ Standing repository services
   mailbox send|forward|inbox|outbox|resume|receipts|dispose [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
   mailbox send ... --dry-run          resolve, route and print the would-be envelope; writes and publishes nothing
   mailbox send|send --to-repo <path|slug> (or --to lead@<path|slug>)   address that repository's registered lead
+  mailbox send|send --to @all-leads [--max-recipients <n>]           every registered repository's lead but the sender (limit 24)
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
@@ -604,9 +605,21 @@ const commands = {
       task: flags.task, stage: flags.stage, subject: flags.subject, provenance: { source: 'ao-topology CLI' }, via: list(flags.via) };
     if (sub === 'send') {
       // TM-271: one resolver for every send entry; `--to-repo` / `lead@<repo>` name a repository's lead.
-      const { resolveStandingTargets } = await import('./lib/addressing.mjs');
-      const [target] = await resolveStandingTargets({ to: flags.to, toRepo: flags['to-repo'], consumer: ctx.consumer, env: process.env, home: ctx.home });
-      return out(await api.sendStandingMessage({ ...input, consumer: target.consumer, to: target.to }, { ...ctx, dryRun: flags['dry-run'] !== undefined }));
+      const { ALL_LEADS, resolveStandingTargets } = await import('./lib/addressing.mjs');
+      const maxRecipients = flags['max-recipients'] !== undefined ? Number(flags['max-recipients']) : undefined;
+      const targets = await resolveStandingTargets({ to: flags.to, toRepo: flags['to-repo'], consumer: ctx.consumer, from: me.agent, env: process.env, home: ctx.home, maxRecipients });
+      const options = { ...ctx, dryRun: flags['dry-run'] !== undefined };
+      if (flags.to !== ALL_LEADS) return out(await api.sendStandingMessage({ ...input, consumer: targets[0].consumer, to: targets[0].to }, options));
+      // TM-372: one ordinary standing send per lead, each admitted on its own. A given --id becomes
+      // one id per repository, so a retried broadcast dedupes per recipient.
+      const sent = [];
+      for (const target of targets) {
+        const id = input.id ? `${input.id}:${target.key}` : undefined;
+        sent.push(await api.sendStandingMessage({ ...input, id, consumer: target.consumer, to: target.to }, options)
+          .catch((error) => ({ status: 'failed', reason: error.code ?? 'ERROR', message: error.message, envelope: { consumer: target.consumer, to: target.to } })));
+      }
+      if (sent.some((record) => record.status === 'failed')) process.exitCode = 1;
+      return out({ ok: !sent.some((record) => record.status === 'failed'), audience: ALL_LEADS, recipients: sent.length, sent });
     }
     return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
     } finally { await closeLiveTransports(); }
@@ -1506,7 +1519,7 @@ const commands = {
   async send({ flags }) {
     // TM-271: a repository's lead is standing mail, not a run member; it goes through `mailbox send`
     // and its one resolver, with no run needed.
-    if (flags['to-repo'] !== undefined || list(flags.to).some((to) => /^lead@./.test(to))) return commands.mailbox({ flags, positional: ['send'] });
+    if (flags['to-repo'] !== undefined || list(flags.to).some((to) => /^lead@./.test(to) || to === '@all-leads')) return commands.mailbox({ flags, positional: ['send'] });
     // TM-278: refused rather than ignored. A run send writes its envelope and rings in one step.
     if (flags['dry-run'] !== undefined) fail('TOPOLOGY_DRY_RUN_UNSUPPORTED', 'send has no dry run; nothing was sent. Use mailbox send --dry-run to preview standing mail.');
     const runDir = await runDirFrom(flags);

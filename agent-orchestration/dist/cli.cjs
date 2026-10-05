@@ -27990,6 +27990,7 @@ var init_census = __esm({
 // topology/lib/addressing.mjs
 var addressing_exports = {};
 __export(addressing_exports, {
+  ALL_LEADS: () => ALL_LEADS,
   MAX_BROADCAST: () => MAX_BROADCAST,
   expandAddresses: () => expandAddresses,
   isAudience: () => isAudience,
@@ -28135,7 +28136,28 @@ async function resolveRepoLead(ref, { env = process.env, home = (0, import_node_
   invariant2(lead, "TOPOLOGY_REPO_NO_LEAD", `${root} has no registered lead, so there is nobody to address. Start one with \`ao-topology lead ensure --consumer ${root}\`. Nothing was sent.`);
   return { consumer: root, lead, key: repoKey2((await canonicalRepoId2(root)).id) };
 }
-async function resolveStandingTargets({ to, toRepo = null, consumer, env = process.env, home = (0, import_node_os28.homedir)(), cwd = process.cwd() } = {}) {
+async function allLeads({ from, env, home, maxRecipients }) {
+  const { readLeadRegistration: readLeadRegistration2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
+  const targets = [];
+  for (const repo of await registeredRepositories({ env, home })) {
+    if (!await (0, import_promises46.stat)(repo.root).then((s) => s.isDirectory(), () => false)) continue;
+    const lead = (await readLeadRegistration2({ consumer: repo.root, env, home }).catch(() => null))?.record?.agent_id ?? null;
+    if (lead && lead !== from) targets.push({ consumer: repo.root, to: lead, key: repo.key });
+  }
+  invariant2(targets.length > 0, "TOPOLOGY_BROADCAST_EMPTY", `${ALL_LEADS} names nobody right now: no registered repository has a lead other than the sender. Nothing was sent.`);
+  const limit = Number.isInteger(maxRecipients) && maxRecipients > 0 ? maxRecipients : MAX_BROADCAST;
+  invariant2(
+    targets.length <= limit,
+    "TOPOLOGY_BROADCAST_TOO_WIDE",
+    `${ALL_LEADS} resolves to ${targets.length} recipients; the limit is ${limit}. Nothing was sent \u2014 address the leads you need by --to-repo, or raise it with --max-recipients.`
+  );
+  return targets;
+}
+async function resolveStandingTargets({ to, toRepo = null, consumer, from = null, env = process.env, home = (0, import_node_os28.homedir)(), cwd = process.cwd(), maxRecipients = MAX_BROADCAST } = {}) {
+  if (to === ALL_LEADS) {
+    invariant2(!toRepo, "TOPOLOGY_ADDRESS_CONFLICT", `Pass --to-repo or --to ${ALL_LEADS}, not both.`);
+    return allLeads({ from, env, home, maxRecipients });
+  }
   const ref = toRepo ?? repoLeadRef(to);
   if (ref !== null) {
     invariant2(!toRepo || !to, "TOPOLOGY_ADDRESS_CONFLICT", "Pass --to-repo or --to, not both: --to-repo already names the recipient (that repository's lead).");
@@ -28144,7 +28166,7 @@ async function resolveStandingTargets({ to, toRepo = null, consumer, env = proce
   }
   return [{ consumer, to }];
 }
-var import_promises46, import_node_os28, import_node_path55, MAX_BROADCAST, AUDIENCES;
+var import_promises46, import_node_os28, import_node_path55, MAX_BROADCAST, AUDIENCES, ALL_LEADS;
 var init_addressing = __esm({
   "topology/lib/addressing.mjs"() {
     import_promises46 = require("node:fs/promises");
@@ -28154,6 +28176,7 @@ var init_addressing = __esm({
     init_mailbox();
     MAX_BROADCAST = 24;
     AUDIENCES = "@run, @repo, @role:<role>, @idle";
+    ALL_LEADS = "@all-leads";
   }
 });
 
@@ -60570,10 +60593,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "27563576ece0679187134419a316f7b607a4976e4432f2eb8a101d3c3ce698f0";
+  return false ? null : "69508dce6b235bc6c4d081b77e454e1a49bf2bca9481f3ddd2db3521740d6be3";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "27563576ece0679187134419a316f7b607a4976e4432f2eb8a101d3c3ce698f0";
+  const fingerprint2 = false ? null : "69508dce6b235bc6c4d081b77e454e1a49bf2bca9481f3ddd2db3521740d6be3";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61164,7 +61187,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "27563576ece0679187134419a316f7b607a4976e4432f2eb8a101d3c3ce698f0",
+  sourceFingerprint: false ? null : "69508dce6b235bc6c4d081b77e454e1a49bf2bca9481f3ddd2db3521740d6be3",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

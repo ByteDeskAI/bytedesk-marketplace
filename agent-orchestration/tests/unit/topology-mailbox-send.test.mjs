@@ -202,3 +202,42 @@ test('TM-356: MCP mailbox send, receive and dispose act only as the session iden
   const handled = await lead.mailboxDispose({ consumerCwd: w.alpha, messageId: 'm-1', kind: 'mail', disposition: 'handled' });
   assert.deepEqual([handled.agent, handled.status], ['lead-a', 'handled']);
 });
+
+test('TM-372: --to @all-leads fans out to every registered lead, never back to the sender', async (t) => {
+  const w = await world(t);
+  const sent = await ao(['mailbox', 'send', '--to', '@all-leads', '--id', 'all-1', '--body', 'to every lead'], w.as('work-a', w.alpha));
+  assert.equal(sent.code, 0, sent.stderr);
+  const byLead = Object.fromEntries(sent.json.sent.map((record) => [record.envelope.to, record]));
+  assert.deepEqual(Object.keys(byLead).sort(), ['lead-a', 'lead-b'], 'gamma has no lead, so it is not addressed');
+  assert.equal(byLead['lead-a'].status, 'delivered');
+  assert.equal(byLead['lead-b'].envelope.consumer, w.beta, 'each lead is addressed in its own repository');
+  assert.equal(byLead['lead-b'].reason, 'destination_not_enrolled', 'and admitted on its own: beta opted out');
+  assert.deepEqual((await readStandingInbox({ consumer: w.alpha, agent: 'lead-a', env: w.env })).map((record) => record.envelope.body), ['to every lead']);
+  // The loop guard: a lead broadcasting does not mail itself. Through the run-less `send` entry.
+  const fromLead = await ao(['send', '--to', '@all-leads', '--body', 'from a lead'], w.as('lead-a', w.alpha));
+  assert.equal(fromLead.code, 0, fromLead.stderr);
+  assert.deepEqual(fromLead.json.sent.map((record) => record.envelope.to), ['lead-b']);
+  // The cap refuses, never truncates, and writes nothing.
+  const before = (await standingRecords(w.env)).length;
+  const wide = await ao(['mailbox', 'send', '--to', '@all-leads', '--max-recipients', '1', '--body', 'x'], w.as('work-a', w.alpha));
+  assert.deepEqual([wide.code, wide.json.code], [1, 'TOPOLOGY_BROADCAST_TOO_WIDE'], wide.stdout);
+  assert.equal((await standingRecords(w.env)).length, before);
+});
+
+test('TM-372: @all-leads honours the default 24-recipient cap', async (t) => {
+  const { MAX_BROADCAST, resolveStandingTargets } = await import('../../topology/lib/addressing.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'ao-all-leads-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+  const lead = async (n) => {
+    const dir = join(root, `repo-${n}`);
+    await mkdir(dir, { recursive: true });
+    const id = (await canonicalRepoId(dir)).id;
+    await writeJson(join(leadRegistryDir(env), `${repoKey(id)}.json`), { version: 1, repo_id: id, agent_id: `lead-${n}` });
+  };
+  for (let n = 1; n <= MAX_BROADCAST; n += 1) await lead(n);
+  assert.equal((await resolveStandingTargets({ to: '@all-leads', from: 'someone', env })).length, MAX_BROADCAST, 'exactly the limit is allowed');
+  assert.equal((await resolveStandingTargets({ to: '@all-leads', from: 'lead-1', env })).length, MAX_BROADCAST - 1, 'the sender is excluded');
+  await lead(MAX_BROADCAST + 1);
+  await assert.rejects(resolveStandingTargets({ to: '@all-leads', from: 'someone', env }), { code: 'TOPOLOGY_BROADCAST_TOO_WIDE' });
+});
