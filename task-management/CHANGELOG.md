@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`route` points at `/agent-orchestration:orchestrate` (TM-376, EP-028)** for work that goes to
+  another agent or repository; `route` itself still picks a task-management flow.
+
 - **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
   heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
   exit and the claim expired after 240 minutes under a worker that was still running. Each pool

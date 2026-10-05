@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`/orchestrate` is one entry point across both plugins (TM-376, EP-028).** The new
+  `orchestrate` skill maps each intent (dispatch a task, drain the pool, ticket another repo,
+  message one lead or `@all-leads`, wait for a reply, launch a team, ask another model, run a goal,
+  check status or health, mine for issues) to the one skill or verb that does it, says what still
+  works when task-management or agent-orchestration is absent, and separates the three meanings of
+  "route", "cap" and "agent". `tests/unit/orchestrate-skill.test.mjs` fails when a verb, sub-verb,
+  flag, MCP tool or skill it names does not exist in `topology/cli.mjs`, `src/cli.mjs`, `bin/tm`'s
+  VERBS table or either MCP server.
+
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
   `failover` restarts one, and when `session open` starts a durable session, ao copies each named
