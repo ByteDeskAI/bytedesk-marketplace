@@ -22,7 +22,7 @@ import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
-import { invariant, nowIso, shellQuote } from './util.mjs';
+import { invariant, nowIso, shellQuote, sleep } from './util.mjs';
 import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt } from './mailbox-receipts.mjs';
 
 export function standingMailboxRoot({ env = process.env, home = homedir() } = {}) {
@@ -442,4 +442,21 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
       reason: outcome.delivery.reason, done: outcome.rang || outcome.delivery.escalated === true });
   }
   return results;
+}
+
+// TM-352. Block until a standing message has a reply. Unknown ids are an error, never ok:true; a
+// permanent hold returns at once, since no reply can ever come. Polls; KV watch is TM-311.
+export async function waitForStandingReply({ id, timeoutMs = 20 * 60_000, pollMs = 2000, ...options }) {
+  const started = Date.now();
+  for (;;) {
+    const record = await readStandingMessage({ id, ...options });
+    invariant(record, 'TOPOLOGY_MESSAGE_NOT_FOUND', `No standing message ${id} exists on this host.`);
+    const base = { id, status: record.status, delivered_to: record.delivered_to ?? null, elapsed_ms: Date.now() - started };
+    if (record.reply) return { ok: true, ...base, reply: record.reply };
+    if (record.permanent) return { ok: false, code: 'TOPOLOGY_MESSAGE_UNDELIVERABLE', ...base, reason: record.reason,
+      message: `Standing message ${id} is permanently held (${record.reason}); no reply can arrive.` };
+    if (Date.now() - started >= timeoutMs) return { ok: false, code: 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT', ...base,
+      message: `No reply to standing message ${id} within ${timeoutMs}ms.` };
+    await sleep(Math.max(0, Math.min(pollMs, timeoutMs - (Date.now() - started))));
+  }
 }

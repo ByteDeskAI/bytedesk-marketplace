@@ -26,6 +26,7 @@ const EXPECTED_TOOL_NAMES = [
   "orchestration_mailbox_receive",
   "orchestration_mailbox_list",
   "orchestration_mailbox_dispose",
+  "orchestration_mailbox_wait",
   "orchestration_goal_start",
   "orchestration_goal_status",
   "orchestration_goal_report",
@@ -47,6 +48,8 @@ async function fixture() {
 
   return {
     client,
+    root,
+    stateRoot,
     cleanup: async () => {
       await client.close().catch(() => {});
       await server.close().catch(() => {});
@@ -163,6 +166,34 @@ test("concrete output schemas preserve serialized operation errors", async () =>
     assert.equal(typeof failed.structuredContent.data.code, "string");
     assert.equal(typeof failed.structuredContent.data.message, "string");
     assert.deepEqual(JSON.parse(failed.content[0].text), failed.structuredContent.data);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an unknown id", async () => {
+  const fx = await fixture();
+  try {
+    const { initTempRepo } = await import("../helpers/temp-repo.mjs");
+    const { sendStandingMessage, recordStandingReply } = await import("../../topology/lib/standing-mailbox.mjs");
+    const { writeJson } = await import("../../topology/lib/util.mjs");
+    const { agentsRoot } = await import("../../topology/lib/agents.mjs");
+    const repo = await initTempRepo(join(fx.root, "repo"), { commit: true });
+    const home = join(fx.root, "home");
+    const env = { AGENT_ORCHESTRATION_STATE_HOME: fx.stateRoot };
+    await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "lead", full_name: "lead0001" });
+    const unknown = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "no-such-id", timeoutMs: 100 } });
+    assert.equal(unknown.isError, true, JSON.stringify(unknown.structuredContent));
+    assert.equal(unknown.structuredContent.data.code, "TOPOLOGY_MESSAGE_NOT_FOUND");
+    assert.equal((await sendStandingMessage({ id: "m-mcp", consumer: repo, fromProject: repo, from: "lead0001", to: "lead0001", body: "question" }, { env, home })).status, "delivered");
+    const timedOut = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "m-mcp", timeoutMs: 100, pollIntervalMs: 20 } });
+    assert.equal(timedOut.isError, true);
+    assert.equal(timedOut.structuredContent.data.code, "TOPOLOGY_MAILBOX_WAIT_TIMEOUT");
+    assert.match(timedOut.structuredContent.data.message, /m-mcp/);
+    await recordStandingReply({ consumer: repo, messageId: "m-mcp", agentId: "lead0001", body: "answer", home, env: { ...env, AO_AGENT_ID: "lead0001", AO_CONSUMER: repo } });
+    const answered = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "m-mcp", timeoutMs: 1000 } });
+    assert.equal(answered.isError, undefined);
+    assert.equal(answered.structuredContent.data.reply.body, "answer");
   } finally {
     await fx.cleanup();
   }

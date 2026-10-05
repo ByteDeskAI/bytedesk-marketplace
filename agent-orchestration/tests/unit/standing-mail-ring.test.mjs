@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readStandingInbox, ringStandingMail, sendStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
+import { readStandingInbox, recordStandingReply, ringStandingMail, sendStandingMessage, waitForStandingReply } from '../../topology/lib/standing-mailbox.mjs';
 import { listMailboxReceipts } from '../../topology/lib/mailbox-receipts.mjs';
 import { loadAdapters } from '../../topology/lib/providers.mjs';
 import { agentsRoot } from '../../topology/lib/agents.mjs';
@@ -87,6 +87,22 @@ test('TM-351: mail with no live pane is held, and mail already read is never run
   assert.deepEqual([read.state, read.done], ['read', true]);
 });
 
+test('TM-352: wait returns the reply, times out naming the message, and refuses an unknown id', async t => {
+  const { consumer, env, home, send } = await fixture(t);
+  await send('m-wait');
+  const timeout = await waitForStandingReply({ id: 'm-wait', timeoutMs: 50, pollMs: 10, env, home });
+  assert.equal(timeout.ok, false);
+  assert.equal(timeout.code, 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT');
+  assert.match(timeout.message, /m-wait/);
+  await assert.rejects(waitForStandingReply({ id: 'no-such-id', timeoutMs: 50, env, home }), { code: 'TOPOLOGY_MESSAGE_NOT_FOUND' });
+  const waiting = waitForStandingReply({ id: 'm-wait', timeoutMs: 5000, pollMs: 20, env, home });
+  await recordStandingReply({ consumer, messageId: 'm-wait', agentId: 'lead0001', body: 'the answer', home,
+    env: { ...env, AO_AGENT_ID: 'lead0001', AO_CONSUMER: consumer } });
+  const answered = await waiting;
+  assert.equal(answered.ok, true);
+  assert.equal(answered.reply.body, 'the answer');
+});
+
 test('TM-351: the supervisor tick rings delivered standing mail (wiring, no tmux server)', async t => {
   const root = await mkdtemp(join(tmpdir(), 'standing-ring-supervise-')); t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'repo'), home = join(root, 'home');
@@ -99,4 +115,24 @@ test('TM-351: the supervisor tick rings delivered standing mail (wiring, no tmux
   assert.equal(sent.status, 'delivered');
   const report = await superviseRepository({ consumer: repo, home, env, tmuxServer: `ao-absent-${process.pid}-${Date.now()}` }, { once: true });
   assert.deepEqual(report.mail_rings?.map(r => [r.id, r.agent, r.state, r.reason]), [['m-tick', 'lead0001', 'held', 'the recipient has no live pane']]);
+});
+
+test('TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 on an unknown id, 0 with the reply', async t => {
+  const { consumer, env, home, send } = await fixture(t);
+  await send('m-cli');
+  const { spawnSync } = await import('node:child_process');
+  const cli = (...args) => spawnSync(process.execPath, [join(process.cwd(), 'topology/cli.mjs'), 'mailbox', 'wait', ...args, '--consumer', consumer, '--json'],
+    { env: { ...process.env, ...env, HOME: home, TMUX: '' }, encoding: 'utf8' });
+  const timeout = cli('m-cli', '--timeout', '100ms', '--poll', '20ms');
+  assert.equal(timeout.status, 2, timeout.stderr);
+  assert.equal(JSON.parse(timeout.stdout).code, 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT');
+  assert.match(JSON.parse(timeout.stdout).message, /m-cli/);
+  const unknown = cli('no-such-id', '--timeout', '100ms');
+  assert.equal(unknown.status, 1);
+  assert.equal(JSON.parse(unknown.stdout).ok, false);
+  assert.equal(JSON.parse(unknown.stdout).code, 'TOPOLOGY_MESSAGE_NOT_FOUND');
+  await recordStandingReply({ consumer, messageId: 'm-cli', agentId: 'lead0001', body: 'cli answer', home, env: { ...env, AO_AGENT_ID: 'lead0001', AO_CONSUMER: consumer } });
+  const answered = cli('m-cli', '--timeout', '5s');
+  assert.equal(answered.status, 0, answered.stderr);
+  assert.equal(JSON.parse(answered.stdout).reply.body, 'cli answer');
 });

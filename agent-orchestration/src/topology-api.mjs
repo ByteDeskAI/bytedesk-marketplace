@@ -23,6 +23,14 @@ export function createTopologyApi(service) {
       return readStandingInbox({ ...options, agent: input.agent, limit: input.limit,
         transport: await selectLiveTransport({ env }) });
     },
+    async mailboxWait(input) {
+      const options = await context(input);
+      const { waitForStandingReply } = await import('../topology/lib/standing-mailbox.mjs');
+      const result = await waitForStandingReply({ ...options, id: input.id, timeoutMs: input.timeoutMs ?? 55_000, pollMs: input.pollIntervalMs ?? 2000 });
+      // A timeout or a permanent hold is a tool error naming the message, as the CLI exits non-zero.
+      if (!result.ok) { const { fail } = await import('../topology/lib/util.mjs'); fail(result.code, result.message, result); }
+      return result;
+    },
     async mailboxList(input) {
       const options = await context(input);
       const { listMailboxReceipts } = await import('../topology/lib/mailbox-receipts.mjs');
