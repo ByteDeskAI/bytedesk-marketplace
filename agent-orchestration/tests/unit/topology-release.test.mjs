@@ -204,7 +204,7 @@ const tcEnv = { TEAMCITY_URL: 'https://teamcity.invalid', TEAMCITY_TOKEN: 'tc-se
 const fakeTeamcity = (status = 'SUCCESS') => {
   const seen = [];
   return { seen, latestBuildId: async bt => { seen.push(['latest', bt]); return 7; },
-    waitForBuild: async args => { seen.push(['wait', args.buildType, args.after]); return { id: 8, number: '1.4.0', state: 'finished', status, statusText: status === 'SUCCESS' ? 'ok' : 'Tests failed: 3', webUrl: 'https://teamcity.invalid/build/8' }; } };
+    waitForBuild: async args => { seen.push(['wait', args.buildType, args.after, args.revisions]); return { id: 8, number: '1.4.0', state: 'finished', status, statusText: status === 'SUCCESS' ? 'ok' : 'Tests failed: 3', webUrl: 'https://teamcity.invalid/build/8', branchName: 'develop', revision: args.revisions[0] }; } };
 };
 const pager = () => { const pages = []; return { pages, page: async msg => { pages.push(msg); return { sent: true }; } }; };
 const publishFixture = async (t, extra = {}) => {
@@ -250,8 +250,9 @@ test('TM-368 autonomy merge does not grant the External class: a managed lead is
 test('TM-368 green TeamCity: cut-release waits for the build the release started, then verifies, and records it', async t => {
   const fx = await publishFixture(t);
   const result = await cutRelease(fx.options);
-  assert.deepEqual(fx.options.teamcity.seen, [['latest', TC.build_type], ['wait', TC.build_type, 7]]);
-  assert.deepEqual(result.teamcity, { build_type: TC.build_type, id: 8, number: '1.4.0', status: 'SUCCESS', web_url: 'https://teamcity.invalid/build/8' });
+  const head = (await fx.git(['rev-parse', 'HEAD'])).stdout.trim();
+  assert.deepEqual(fx.options.teamcity.seen, [['latest', TC.build_type], ['wait', TC.build_type, 7, [head]]], 'TM-457: it waits for a build of the release revision');
+  assert.deepEqual(result.teamcity, { build_type: TC.build_type, id: 8, number: '1.4.0', status: 'SUCCESS', web_url: 'https://teamcity.invalid/build/8', revision: head, branch: 'develop' });
   assert.deepEqual(await lines(join(fx.logs, 'release-gitflow.sh.log')), ['start', 'verify']);
   assert.deepEqual(fx.pages, []);
 });
@@ -293,21 +294,43 @@ test('TM-368 the TeamCity adapter reads builds over REST with the env token as a
   const requests = []; let polls = 0;
   const fetchImpl = async (url, init) => {
     requests.push({ url: String(url), auth: init.headers.Authorization }); polls++;
-    const build = polls < 3 ? [{ id: '7', state: 'finished', status: 'SUCCESS' }]
-      : polls < 4 ? [{ id: '8', state: 'running' }, { id: '7', state: 'finished', status: 'SUCCESS' }]
-      : [{ id: '8', number: '42', state: 'finished', status: 'FAILURE' }, { id: '7', state: 'finished' }];
+    const rev = version => ({ revisions: { revision: [{ version }] } }), REL = 'a'.repeat(40);
+    const build = polls < 3 ? [{ id: '7', state: 'finished', status: 'SUCCESS', ...rev(REL) }]
+      : polls < 4 ? [{ id: '8', state: 'running', ...rev(REL) }, { id: '7', state: 'finished', status: 'SUCCESS', ...rev(REL) }]
+      : [{ id: '8', number: '42', state: 'finished', status: 'FAILURE', ...rev(REL) }, { id: '7', state: 'finished', ...rev(REL) }];
     return { ok: true, json: async () => ({ build }) };
   };
   const client = teamcityClient({ ...target, fetchImpl });
   assert.equal(await client.latestBuildId('Rel'), 7);
-  const done = await client.waitForBuild({ buildType: 'Rel', after: 7, pollMs: 1, timeoutMs: 5000 });
+  const done = await client.waitForBuild({ buildType: 'Rel', after: 7, revisions: ['a'.repeat(40)], pollMs: 1, timeoutMs: 5000 });
   assert.equal(done.id, 8); assert.equal(done.status, 'FAILURE');
   assert.ok(polls >= 4, 'it kept polling past the running build');
   assert.ok(requests.every(r => r.auth === 'Bearer secret' && r.url.startsWith('https://tc.invalid/app/rest/builds?')));
   assert.match(decodeURIComponent(requests[0].url), /buildType:\(id:Rel\)/);
-  const timeout = await teamcityClient({ ...target, fetchImpl: async () => ({ ok: true, json: async () => ({ build: [] }) }) }).waitForBuild({ buildType: 'Rel', after: 7, pollMs: 1, timeoutMs: 5 });
+  const timeout = await teamcityClient({ ...target, fetchImpl: async () => ({ ok: true, json: async () => ({ build: [] }) }) }).waitForBuild({ buildType: 'Rel', after: 7, revisions: ['a'.repeat(40)], pollMs: 1, timeoutMs: 5 });
   assert.equal(timeout.timeout, true);
   await assert.rejects(teamcityClient({ ...target, fetchImpl: async () => ({ ok: false, status: 401 }) }).latestBuildId('Rel'), { code: 'TOPOLOGY_TEAMCITY' });
+});
+
+test('TM-457 waitForBuild matches the release revision and branch: a newer green build of another revision or branch never satisfies it', async () => {
+  const REL = 'a'.repeat(40), OTHER = 'b'.repeat(40);
+  let polls = 0;
+  const fetchImpl = async () => {
+    polls++;
+    const build = [
+      { id: '9', state: 'finished', status: 'SUCCESS', branchName: 'develop', revisions: { revision: [{ version: OTHER }] } }, // green, wrong revision
+      { id: '10', state: 'finished', status: 'SUCCESS', branchName: 'feature/x', revisions: { revision: [{ version: REL }] } }, // green, wrong branch
+      ...(polls >= 3 ? [{ id: '11', number: '7.0', state: 'finished', status: 'FAILURE', branchName: 'release/7.0', revisions: { revision: [{ version: REL }] } }] : []),
+    ];
+    return { ok: true, json: async () => ({ build }) };
+  };
+  const client = teamcityClient({ url: 'https://tc.invalid', token: 't', fetchImpl });
+  const matched = await client.waitForBuild({ buildType: 'Rel', after: 8, revisions: [REL], branch: 'release/7.0', pollMs: 1, timeoutMs: 5000 });
+  assert.equal(matched.id, 11, 'the red build of the release, not an earlier green one of something else');
+  assert.equal(matched.status, 'FAILURE'); assert.equal(matched.revision, REL); assert.equal(matched.branchName, 'release/7.0');
+  const none = await client.waitForBuild({ buildType: 'Rel', after: 8, revisions: ['c'.repeat(40)], pollMs: 1, timeoutMs: 5 });
+  assert.equal(none.timeout, true, 'only other revisions finished: the gate waits and times out rather than passing');
+  await assert.rejects(client.waitForBuild({ buildType: 'Rel', after: 8, pollMs: 1, timeoutMs: 5 }), { code: 'TOPOLOGY_TEAMCITY' });
 });
 
 test('TM-368 ntfy pages with the env token, falls back to tm variables, and never throws', async () => {

@@ -5,7 +5,7 @@
 //
 //   management.cutover = { branch, argv, postflight_argv?, identity_argv, timeout_ms? }
 //   management.release = { branch, argv, verify_argv, finish_argv?, timeout_ms?,
-//                          teamcity?: { build_type, url?, timeout_ms?, poll_ms? } }
+//                          teamcity?: { build_type, branch?, url?, timeout_ms?, poll_ms? } }
 //
 // TM-368: `management.autonomy` (pr | merge | publish, default pr) drives `manage land`, and at
 // `publish` it is the grant for these External-class verbs; the record names the layer that set it.
@@ -146,7 +146,7 @@ export async function releaseReadiness(options, kind) {
       else {
         const target = teamcityTarget({ config: tc, env });
         if (target.reason) refuse('teamcity', target.reason);
-        else teamcity = { ...target, build_type: tc.build_type, timeout_ms: tc.timeout_ms, poll_ms: tc.poll_ms };
+        else teamcity = { ...target, build_type: tc.build_type, branch: tc.branch ?? null, timeout_ms: tc.timeout_ms, poll_ms: tc.poll_ms };
       }
     }
   }
@@ -215,7 +215,11 @@ export async function cutRelease(options) {
   const cut = await step(gate, gate.config.argv, 'release'); steps.push(cut);
   if (cut.code !== 0) await stopped('TOPOLOGY_RELEASE_FAILED', `release step ${gate.config.argv.join(' ')} exited ${cut.code}: ${cut.stderr || cut.stdout}`);
   if (tc) {
-    try { build = await client.waitForBuild({ buildType: tc.build_type, after: since, timeoutMs: tc.timeout_ms, pollMs: tc.poll_ms }); }
+    // TM-457: the build must be of THIS release: the revision the checkout was at, or the one the
+    // release step left it at (a gitflow release commits), on the configured branch when one is set.
+    const after = (await git(gate.root, ['rev-parse', 'HEAD'])).stdout.trim();
+    const revisions = [...new Set([gate.revision, after].filter(Boolean))];
+    try { build = await client.waitForBuild({ buildType: tc.build_type, after: since, revisions, branch: tc.branch, timeoutMs: tc.timeout_ms, pollMs: tc.poll_ms }); }
     catch (error) { await stopped('TOPOLOGY_RELEASE_BUILD_UNKNOWN', `the release ran, but TeamCity could not be read: ${error.message}`); }
     if (build.timeout) await stopped('TOPOLOGY_RELEASE_BUILD_TIMEOUT', `no finished TeamCity ${tc.build_type} build after the release${build.build ? ` (build ${build.build.number ?? build.build.id} is ${build.build.state})` : ''}.`, { build: build.build });
     if (build.status !== 'SUCCESS') await stopped('TOPOLOGY_RELEASE_BUILD_RED', `TeamCity ${tc.build_type} build ${build.number ?? build.id} is ${build.status}${build.statusText ? `: ${build.statusText}` : ''}${build.webUrl ? ` (${build.webUrl})` : ''}.`, { build });
@@ -226,7 +230,7 @@ export async function cutRelease(options) {
     const finish = await step(gate, gate.config.finish_argv, 'finish'); steps.push(finish);
     if (finish.code !== 0) await stopped('TOPOLOGY_RELEASE_FAILED', `release finish ${gate.config.finish_argv.join(' ')} exited ${finish.code}: ${finish.stderr || finish.stdout}`);
   }
-  const teamcity = build ? { build_type: tc.build_type, id: build.id, number: build.number ?? null, status: build.status, web_url: build.webUrl ?? null } : null;
+  const teamcity = build ? { build_type: tc.build_type, id: build.id, number: build.number ?? null, status: build.status, web_url: build.webUrl ?? null, revision: build.revision ?? null, branch: build.branchName ?? null } : null;
   return writeRecord(options, gate, 'release', { kind: 'release', at: nowIso(), branch: gate.branch, revision: gate.revision, epic: options.epic ?? null, teamcity, verified: true, steps, authorization: gate.authorization });
 }
 

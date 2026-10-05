@@ -1767,7 +1767,7 @@ async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhe
   const events = [], p = landPager();
   opts.store.epicTasks = async () => ['TM-1'];
   opts.store.ticketEvent = async (...args) => { events.push(args); };
-  const teamcity = { latestBuildId: async () => 7, waitForBuild: async () => ({ id: 8, number: '9', state: 'finished', status }) };
+  const teamcity = { latestBuildId: async () => 7, waitForBuild: async ({ revisions }) => ({ id: 8, number: '9', state: 'finished', status, revision: revisions[0], branchName: 'main' }) };
   const options = { ...opts, env: { ...opts.env, TEAMCITY_URL: 'https://tc.invalid', TEAMCITY_TOKEN: 'x' }, page: p.page, teamcity, ancestors: async () => ['claude'] };
   return { ...fx, options, logs, events, pages: p.pages };
 }

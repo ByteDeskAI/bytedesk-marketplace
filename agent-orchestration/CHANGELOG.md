@@ -4,6 +4,13 @@
 
 ### Security
 
+- **`cut-release` waits for the TeamCity build of its own revision (TM-457, EP-028).**
+  `waitForBuild` accepted the first finished build of the build type newer than the pre-release
+  build, on any branch or revision, so a green develop or pull-request build could pass the release
+  gate while the release build was red. It now requires one of the build's VCS revisions to be the
+  release revision (the checkout's commit, or the commit the release step left it at) and, when
+  `management.release.teamcity.branch` is set, that branch. Builds of anything else are ignored; with
+  none matching, the wait times out and pages. The record names the matched build's revision and branch.
 - **A worker's check evidence is labelled "claimed" and never satisfies a required check (TM-430, EP-028).**
   The finish report's `checks` were filed into the review packet as plain evidence, and under
   `integrate_via: "pull-request"` the packet was the only required-check gate, so a worker could
