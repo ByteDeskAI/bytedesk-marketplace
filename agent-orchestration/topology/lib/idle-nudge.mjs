@@ -126,7 +126,7 @@ export async function boardFingerprint(consumer) {
 }
 
 export function createIdleNudge({ path = null } = {}) {
-  return { memory: new Map(), path, loaded: !path, reported: new Set() };
+  return { memory: new Map(), path, loaded: !path, reported: new Set(), cache: new Map() };
 }
 
 async function loadState(state) {
@@ -184,29 +184,44 @@ function quietEnough(row, isLead, settings, now) {
   return Number.isFinite(quietSince) && now - quietSince >= wanted;
 }
 
+/** A value read at most once per `ms` per state: config, the lead registration, the board. */
+async function cached(state, key, ms, now, read) {
+  const hit = state.cache.get(key);
+  if (hit && now - hit.at < ms && now >= hit.at) return hit.value;
+  const value = await read();
+  state.cache.set(key, { at: now, value });
+  return value;
+}
+
 /**
  * One supervisor tick. `census` is the document the tick just took; `panes` the same listing.
  * Returns only the agents it rang or newly refused, so a quiet repository reports nothing.
+ * Config, the lead registration and the board are each read at most once per `retry_ms`.
  */
 export async function idleNudgeTick(options, { census, panes, adapters, state = createIdleNudge(), now = Date.now(), tmux = defaultTmux, wake = wakeForProbe, config } = {}) {
   const { consumer, env = process.env, home = homedir(), pluginRoot = null } = options;
   if (census?.stale || !Array.isArray(panes) || !adapters) return [];
   const candidates = (census?.agents ?? []).filter((row) => row.dispatchable && row.state === 'idle' && !row.runId && row.repoRole !== 'reviewer' && row.binding?.paneId);
   if (!candidates.length) return [];
-  const settings = idleNudgeConfig(config !== undefined ? config : (await loadConfig({ consumer, home, env, pluginRoot })).config);
+  const cacheMs = state.cache.get('config')?.value?.retry_ms ?? IDLE_NUDGE_DEFAULTS.retry_ms;
+  const settings = config !== undefined ? idleNudgeConfig(config)
+    : await cached(state, 'config', cacheMs, now, async () => idleNudgeConfig((await loadConfig({ consumer, home, env, pluginRoot })).config));
   if (!settings.enabled) return [];
   await loadState(state);
-  const registration = await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null);
-  const leadId = registration?.record?.agent_id ?? null;
-  const boardOf = options.readBoard ?? (() => readBoard(consumer));
+  const leadId = await cached(state, 'lead', settings.retry_ms, now, async () =>
+    (await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null))?.record?.agent_id ?? null);
+  const readBoardOnce = options.readBoard ?? (() => readBoard(consumer));
+  const boardOf = () => cached(state, 'board', settings.retry_ms, now, readBoardOnce);
   let board;
   let changed = false;
   const outcomes = [];
   const refuse = (row, isLead, prior, reason) => {
-    changed = true;
     const repeat = prior.refusedSince === row.since && prior.refusedReason === reason;
     state.memory.set(row.agentId, { ...prior, triedAt: now, refusedSince: row.since, refusedReason: reason });
-    if (!repeat) outcomes.push({ agent: row.agentId, lead: isLead, rang: false, reason });
+    // An unreported repeat changes nothing worth a write: the retry spacing lives in memory.
+    if (repeat) return;
+    changed = true;
+    outcomes.push({ agent: row.agentId, lead: isLead, rang: false, reason });
   };
   for (const row of candidates) {
     const prior = state.memory.get(row.agentId) ?? {};

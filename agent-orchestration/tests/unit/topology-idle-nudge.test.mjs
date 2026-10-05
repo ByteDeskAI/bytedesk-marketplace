@@ -395,3 +395,82 @@ test('memory for an agent gone from the census and untried for 7 days is pruned;
   const saved = JSON.parse(await readFile(path, 'utf8'));
   assert.deepEqual(Object.keys(saved.agents).sort(), ['recent', 'w1']);
 });
+
+// Cost: a supervisor ticks every few seconds for days. These pin how often it touches disk.
+const TICK = 15_000;
+
+test('a rung agent sitting idle for a day reads the board at most once per retry_ms', async () => {
+  let reads = 0;
+  const options = opts({ readBoard: async () => {
+    reads += 1;
+    return { fingerprint: 'steady', problem: null };
+  } });
+  const fake = fakeTmux();
+  const state = createIdleNudge();
+  const config = cfg({ retry_ms: MIN, backoff_ms: 30 * MIN });
+  let ticks = 0;
+  let rings = 0;
+  for (let ms = 0; ms <= 24 * 60 * MIN; ms += TICK) {
+    // After the ring the agent answered and went idle again: a new idle period from minute 1 on.
+    const since = ms < MIN ? SINCE : later(MIN);
+    const out = await tick({ options, census: { agents: [row('w1', WORKER, { since })] }, tmux: fake, state, now: T0 + ms, config });
+    rings += out.filter((item) => item.rang).length;
+    ticks += 1;
+  }
+  assert.equal(rings, 1);
+  assert.ok(reads <= ticks / (MIN / TICK) + 1, `${reads} board reads in ${ticks} ticks`);
+});
+
+test('a refusal repeated every retry_ms does not rewrite the state file', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-writes-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, 'nudge.json');
+  const state = createIdleNudge({ path });
+  const options = opts({ readLead: async () => null });
+  const at = (ms) => tick({ options, census: { agents: [row('w1', WORKER)] }, tmux: fakeTmux(), state, now: T0 + ms, config: cfg({ retry_ms: MIN }) });
+  assert.equal((await at(0)).length, 1, 'the first refusal is reported, and written');
+  await readFile(path, 'utf8');
+  await rm(path);
+  for (let ms = TICK; ms <= 60 * MIN; ms += TICK) assert.deepEqual(await at(ms), []);
+  await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' }, 'an hour of identical refusals wrote nothing');
+});
+
+test('the lead registration is read at most once per retry_ms', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-cache-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, 'repo');
+  await mkdir(dirname(repoConfigPath(consumer)), { recursive: true });
+  await writeFile(repoConfigPath(consumer), JSON.stringify(cfg({ retry_ms: MIN })));
+  let leadReads = 0;
+  const options = opts({ consumer, env: { XDG_CONFIG_HOME: join(root, 'xdg') }, home: join(root, 'home'), pluginRoot: PLUGIN,
+    readLead: async () => {
+      leadReads += 1;
+      return null;
+    } });
+  const state = createIdleNudge();
+  const at = (ms) => idleNudgeTick(options, { census: { agents: [row('w1', WORKER)] }, panes, adapters, tmux: fakeTmux(), state, now: T0 + ms });
+  let ticks = 0;
+  for (let ms = 0; ms < 10 * MIN; ms += TICK) {
+    await at(ms);
+    ticks += 1;
+  }
+  assert.ok(leadReads <= ticks / (MIN / TICK) + 1, `${leadReads} lead reads in ${ticks} ticks`);
+  assert.ok(leadReads >= 2, 'and it is re-read once the cache expires');
+});
+
+test('config is read at most once per retry_ms, so the off switch lands within one retry_ms', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-idle-nudge-config-cache-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, 'repo');
+  await mkdir(dirname(repoConfigPath(consumer)), { recursive: true });
+  await writeFile(repoConfigPath(consumer), JSON.stringify(cfg({ retry_ms: MIN })));
+  const options = opts({ consumer, env: { XDG_CONFIG_HOME: join(root, 'xdg') }, home: join(root, 'home'), pluginRoot: PLUGIN });
+  const state = createIdleNudge();
+  const fake = fakeTmux();
+  const at = (agentId, ms) => idleNudgeTick(options, { census: { agents: [row(agentId, WORKER)] }, panes, adapters, tmux: fake, state, now: T0 + ms });
+  assert.equal((await at('w1', 0))[0].rang, true);
+  await writeFile(repoConfigPath(consumer), JSON.stringify(cfg({ retry_ms: MIN, enabled: false })));
+  assert.equal((await at('w2', 30_000))[0].rang, true, 'inside retry_ms the cached config still says on');
+  assert.deepEqual(await at('w3', 61_000), [], 're-read after retry_ms: off');
+  assert.equal(fake.sent.length, 2);
+});

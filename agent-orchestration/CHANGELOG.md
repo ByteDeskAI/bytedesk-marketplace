@@ -34,7 +34,9 @@
     no measured safe composer) are decided before anything is read, and the board is read only
     for an agent rung before, so a ring that can never succeed reads no task files. A store whose
     task files carry no `status:` line reads as null and is reported once, so a format change is
-    visible. `retry_ms` (default 60 s) spaces retries of a refused ring.
+    visible. `retry_ms` (default 60 s) spaces retries of a refused ring, and is also how long the
+    tick caches config, the lead registration and the board fingerprint, so an agent idle for a
+    day costs at most one board read per minute; a repeated, unreported refusal writes nothing.
   - **The memory survives a restart**: it is saved atomically beside the supervisor record
     (`<state>/supervision/<repo-key>.idle-nudge.json`), and a missing or corrupt file reads as
     empty. An entry for an agent absent from the census and untried for 7 days is pruned.

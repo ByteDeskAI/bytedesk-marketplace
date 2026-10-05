@@ -22211,8 +22211,8 @@ var require_consumer = __commonJS({
         const { stream_name, name } = this._info;
         return this.api.delete(stream_name, name);
       }
-      info(cached2 = false) {
-        if (cached2) {
+      info(cached3 = false) {
+        if (cached3) {
           return Promise.resolve(this._info);
         }
         const { stream_name, name } = this._info;
@@ -22473,13 +22473,13 @@ var require_consumer = __commonJS({
           this.currentConsumer = null;
         });
       }
-      info(cached2) {
+      info(cached3) {
         return __awaiter(this, void 0, void 0, function* () {
           if (this.currentConsumer == null) {
             this.currentConsumer = yield this.resetConsumer(this.startSeq);
             return Promise.resolve(this.currentConsumer);
           }
-          if (cached2 && this.currentConsumer) {
+          if (cached3 && this.currentConsumer) {
             return Promise.resolve(this.currentConsumer);
           }
           return this.api.info(this.stream, this.currentConsumer.name);
@@ -22628,8 +22628,8 @@ var require_jsmstream_api = __commonJS({
           }
         });
       }
-      info(cached2 = false, opts) {
-        if (cached2) {
+      info(cached3 = false, opts) {
+        if (cached3) {
           return Promise.resolve(this._info);
         }
         return this.api.info(this.name, opts).then((si) => {
@@ -29238,8 +29238,8 @@ async function awaitReviewerVerdict({ consumer, repo, nonce, timeoutMs = 2e3, en
 async function reviewerProbeReady({ consumer, record: record2, env = process.env, home = (0, import_node_os18.homedir)(), timeoutMs = PROBE_TIMEOUT_MS, onProbe = null, output = reviewerOutput, wake = defaultWake, adapters = null, alive: alive2 = bindingAlive, readOnly = false, transport = null }) {
   if (!record2?.agent_id || !incarnationOf(record2.binding) || !await alive2(record2)) return false;
   const dir = (0, import_node_path46.join)(await reviewerInboxRoot(consumer, env, home), "probes");
-  const cached2 = await recentReviewerAck(dir, record2);
-  if (cached2) return true;
+  const cached3 = await recentReviewerAck(dir, record2);
+  if (cached3) return true;
   for (const name of await (0, import_promises37.readdir)(dir).catch(() => [])) {
     if (!name.endsWith(".ack.json")) continue;
     const stale = name.slice(0, -".ack.json".length);
@@ -34615,9 +34615,9 @@ async function takeCensus(options = {}, input = {}) {
   const candidates = work.filter((item) => !item.dead && !item.paneMissing && item.pane && busyEvidence(item.title) === null).sort((a, b) => (memo.get(a.memoKey)?.at ?? 0) - (memo.get(b.memoKey)?.at ?? 0));
   let captures = 0;
   for (const item of candidates) {
-    const cached2 = memo.get(item.memoKey);
-    if (cached2 && now - cached2.at < memoMs) {
-      item.tail = cached2.tail;
+    const cached3 = memo.get(item.memoKey);
+    if (cached3 && now - cached3.at < memoMs) {
+      item.tail = cached3.tail;
       continue;
     }
     if (captures >= budget) continue;
@@ -35655,9 +35655,9 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
   const current = async () => sameIncarnation(binding, record2?.binding) && await alive2(record2) && sameIncarnation(binding, record2?.binding);
   if (!record2?.pane || !binding || !await current()) return false;
   const dir = (0, import_node_path56.join)(registryDir, "probes");
-  const cached2 = await recentAck(dir, record2);
-  if (cached2 && await current()) {
-    log(`lead answered ${cached2.age_ms}ms ago; proof reused`);
+  const cached3 = await recentAck(dir, record2);
+  if (cached3 && await current()) {
+    log(`lead answered ${cached3.age_ms}ms ago; proof reused`);
     return true;
   }
   const late2 = await lateAck(dir, record2, log, { readOnly });
@@ -36934,7 +36934,7 @@ async function readBoard(consumer) {
   return { fingerprint: hash4.digest("hex"), problem: null };
 }
 function createIdleNudge({ path: path3 = null } = {}) {
-  return { memory: /* @__PURE__ */ new Map(), path: path3, loaded: !path3, reported: /* @__PURE__ */ new Set() };
+  return { memory: /* @__PURE__ */ new Map(), path: path3, loaded: !path3, reported: /* @__PURE__ */ new Set(), cache: /* @__PURE__ */ new Map() };
 }
 async function loadState(state) {
   if (state.loaded) return;
@@ -36975,25 +36975,34 @@ function quietEnough(row, isLead, settings, now) {
   const wanted = isLead ? settings.lead_min_idle_ms : settings.min_idle_ms;
   return Number.isFinite(quietSince) && now - quietSince >= wanted;
 }
+async function cached2(state, key, ms, now, read3) {
+  const hit = state.cache.get(key);
+  if (hit && now - hit.at < ms && now >= hit.at) return hit.value;
+  const value = await read3();
+  state.cache.set(key, { at: now, value });
+  return value;
+}
 async function idleNudgeTick(options, { census, panes, adapters, state = createIdleNudge(), now = Date.now(), tmux: tmux2 = tmux, wake = wakeForProbe, config: config2 } = {}) {
   const { consumer, env = process.env, home = (0, import_node_os31.homedir)(), pluginRoot = null } = options;
   if (census?.stale || !Array.isArray(panes) || !adapters) return [];
   const candidates = (census?.agents ?? []).filter((row) => row.dispatchable && row.state === "idle" && !row.runId && row.repoRole !== "reviewer" && row.binding?.paneId);
   if (!candidates.length) return [];
-  const settings = idleNudgeConfig(config2 !== void 0 ? config2 : (await loadConfig({ consumer, home, env, pluginRoot })).config);
+  const cacheMs = state.cache.get("config")?.value?.retry_ms ?? IDLE_NUDGE_DEFAULTS.retry_ms;
+  const settings = config2 !== void 0 ? idleNudgeConfig(config2) : await cached2(state, "config", cacheMs, now, async () => idleNudgeConfig((await loadConfig({ consumer, home, env, pluginRoot })).config));
   if (!settings.enabled) return [];
   await loadState(state);
-  const registration = await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null);
-  const leadId = registration?.record?.agent_id ?? null;
-  const boardOf = options.readBoard ?? (() => readBoard(consumer));
+  const leadId = await cached2(state, "lead", settings.retry_ms, now, async () => (await (options.readLead ?? readLeadRegistration)({ consumer, env, home }).catch(() => null))?.record?.agent_id ?? null);
+  const readBoardOnce = options.readBoard ?? (() => readBoard(consumer));
+  const boardOf = () => cached2(state, "board", settings.retry_ms, now, readBoardOnce);
   let board;
   let changed = false;
   const outcomes = [];
   const refuse = (row, isLead, prior, reason) => {
-    changed = true;
     const repeat = prior.refusedSince === row.since && prior.refusedReason === reason;
     state.memory.set(row.agentId, { ...prior, triedAt: now, refusedSince: row.since, refusedReason: reason });
-    if (!repeat) outcomes.push({ agent: row.agentId, lead: isLead, rang: false, reason });
+    if (repeat) return;
+    changed = true;
+    outcomes.push({ agent: row.agentId, lead: isLead, rang: false, reason });
   };
   for (const row of candidates) {
     const prior = state.memory.get(row.agentId) ?? {};
@@ -69809,8 +69818,8 @@ function buildAuthEnvKey(methodId) {
 }
 var authEnvKeyCache = /* @__PURE__ */ new Map();
 function authEnvKey(methodId) {
-  const cached2 = authEnvKeyCache.get(methodId);
-  if (cached2 !== void 0) return cached2;
+  const cached3 = authEnvKeyCache.get(methodId);
+  if (cached3 !== void 0) return cached3;
   const key = buildAuthEnvKey(methodId);
   authEnvKeyCache.set(methodId, key);
   return key;
@@ -76952,10 +76961,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path63.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "acbc75dfc1a5270ca3bc5c7e38b664d08c30b0af3bc891e588b3d8854a09f11f";
+  return false ? null : "ca253c4016a63fc1c1cecedb5e82f433272685636124578837f0f670ae60bc36";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "acbc75dfc1a5270ca3bc5c7e38b664d08c30b0af3bc891e588b3d8854a09f11f";
+  const fingerprint2 = false ? null : "ca253c4016a63fc1c1cecedb5e82f433272685636124578837f0f670ae60bc36";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -77380,7 +77389,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "acbc75dfc1a5270ca3bc5c7e38b664d08c30b0af3bc891e588b3d8854a09f11f",
+  sourceFingerprint: false ? null : "ca253c4016a63fc1c1cecedb5e82f433272685636124578837f0f670ae60bc36",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
