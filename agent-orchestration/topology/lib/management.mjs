@@ -76,6 +76,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async epic => JSON.parse((await exec(['find', `epic:${epic}`, 'kind:task', '--json'])).stdout).filter(t => t.epic === epic).map(t => t.id),
+    // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
+    ticketEvent: async (id, kind, detail) => exec(['ticket', 'event', taskId(id), kind, detail]),
   };
 }
 
@@ -93,6 +95,15 @@ async function recordEvent(ctx, task, prior, event, details) {
   // Comment first: a failed task-store write must never claim the lead received the protocol.
   await ctx.store.comment(task, JSON.stringify(entry));
   const next = { ...prior, task, repo_id: ctx.identity.id, events: [...(prior?.events || []), entry], updated_at: entry.at };
+  await writeJson(ctx.path, next);
+  return next;
+}
+/** TM-368: append one event to a task's management record (comment first, as recordEvent does) and
+ * merge `patch` into the record. Refuses a task with no record: there is nothing to attach it to. */
+export async function recordTaskEvent(options, event, details, patch = {}) {
+  const ctx = await context(options), record = await loadRecord(ctx.path);
+  invariant(record, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${options.task} has no management record to attach ${event} to.`);
+  const next = Object.assign(await recordEvent(ctx, options.task, record, event, details), patch);
   await writeJson(ctx.path, next);
   return next;
 }

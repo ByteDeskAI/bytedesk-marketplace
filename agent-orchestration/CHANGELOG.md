@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Landing autonomy: `management.autonomy` is `pr`, `merge` or `publish` (TM-368, EP-028).** It
+  comes from the AO layered config (repo, then global, then the shipped default `pr`); an unknown
+  value invalidates its layer. The new `ao-topology manage land --task <TM-id>` follows it: `pr`
+  stops at the reviewed PR, `merge` runs `manage integrate`, and `publish` also runs `cut-release`
+  once every task of the epic has landed, then records the publish and runs
+  `tm ticket event <id> published` for a cross-repo ticket's origin (TM-359). At `publish` the
+  policy is the External-class grant (ADR-0001) for `cutover` and `cut-release`; each record names
+  the grant layer and file in `authorization.granted_by`. `cut-release` now waits for the TeamCity
+  build its release started, read through a small REST adapter (`topology/lib/teamcity.mjs`;
+  `TEAMCITY_URL` or config, `TEAMCITY_TOKEN` from the environment only), and requires it under
+  `publish`. A red or missing build, a failed verify or cutover postflight, a missing reviewer
+  approval, a failed step or a release refused after merge stops the run and pages through ntfy
+  (`topology/lib/ntfy.mjs`, AO's own notifier, so it works with task-management absent). The
+  autonomy hook never approves `manage land`. Documented in the README under "Landing autonomy".
+
 - **`manage cutover` and `manage cut-release` wrap deploy-safe and /release behind guardrails
   (TM-250, EP-028).** Both are External-class verbs (ADR-0001). They run only the repository's own
   argv from `management.cutover` / `management.release` (for example `deploy-safe.sh deploy`,

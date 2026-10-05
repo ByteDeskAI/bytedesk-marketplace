@@ -195,7 +195,14 @@ Standing repository services
                                                gh or systemctl. Refused by name unless config, authority,
                                                branch (develop), clean, synced with origin and every
                                                task of the epic done all hold. cutover proves the
-                                               running binary switched; cut-release runs verify.
+                                               running binary switched; cut-release waits for its
+                                               TeamCity build, then runs verify. Under
+                                               management.autonomy "publish" no --authorized is needed.
+  manage land --task <TM-id>             TM-368: the lead's landing path, driven by management.autonomy:
+                                               pr (default) stops at the reviewed PR; merge runs
+                                               integrate; publish also runs cut-release once the plan
+                                               has landed and tells the origin (tm ticket event). A red
+                                               build, failed verify or missing approval pages via ntfy.
   manage <verb> ... --summary             one line instead of JSON (no pipe to jq needed)
   permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run]
                                                OPERATOR-ONLY: allow rules for the lead's governed verbs in
@@ -224,6 +231,16 @@ function manageSummary(verb, task, r) {
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
   }
+}
+
+/** TM-250 / TM-368: one line for cutover, cut-release and land. */
+function externalSummary(verb, r) {
+  if (verb === 'cutover') return `cutover switched ${r.identity.before} -> ${r.identity.after} at ${r.revision} (${r.authorization.channel}); record ${r.path}`;
+  if (verb === 'cut-release') return `release published and verified at ${r.revision}${r.teamcity ? ` (TeamCity ${r.teamcity.number ?? r.teamcity.id} ${r.teamcity.status})` : ''} (${r.authorization.channel}); record ${r.path}`;
+  const level = `autonomy ${r.autonomy.level} from ${r.autonomy.scope}`;
+  if (!r.landed) return `${r.task} not landed: ${r.reason} (${level})`;
+  if (r.published) return `${r.task} merged and published at ${r.release.revision ?? ''}${r.origin ? `; origin ${r.origin.notified ? 'notified' : `NOT notified: ${r.origin.reason}`}` : ''} (${level})`;
+  return `${r.task} merged${r.waiting ? `; publish waits for ${r.waiting.join(', ')}` : ''} (${level})`;
 }
 
 function list(value) {
@@ -799,16 +816,18 @@ const commands = {
       // TM-218 worker start/adopt. Adoption is fail-closed; flags never assert idleness or ownership.
       backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null,
       epic: flags.epic || supplied.epic || null };
-    // TM-250: the External-class verbs live in release.mjs; they take a plan (--epic), not a task.
-    const external = { cutover: 'cutover', 'cut-release': 'cutRelease' };
+    // TM-250 / TM-368: the External-class verbs and the autonomy-driven landing live in release.mjs.
+    // They get flags only, never --file content, so a plan list or test hook cannot be supplied.
+    const external = { cutover: 'cutover', 'cut-release': 'cutRelease', land: 'landTask' };
     if (external[verb]) {
-      const result = await (await import('./lib/release.mjs'))[external[verb]](options);
-      return out(flags.summary ? `${verb} ${result.kind === 'cutover' ? `switched ${result.identity.before} -> ${result.identity.after}` : 'published and verified'} at ${result.revision} (${result.authorization.channel}); record ${result.path}` : result);
+      const result = await (await import('./lib/release.mjs'))[external[verb]]({ consumer: ctx.consumer, home: ctx.home, pluginRoot: ctx.pluginRoot, env,
+        task: flags.task || null, epic: flags.epic || null, authorized: flags.authorized === true, owner: options.owner });
+      return out(flags.summary ? externalSummary(verb, result) : result);
     }
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
       assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release|cutover|cut-release.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },

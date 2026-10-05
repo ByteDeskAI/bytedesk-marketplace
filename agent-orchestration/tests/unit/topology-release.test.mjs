@@ -9,6 +9,11 @@ import { tmpdir } from 'node:os';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { agentMarkers } from '../../topology/lib/delegation.mjs';
 import { cutover, cutRelease, releaseReadiness } from '../../topology/lib/release.mjs';
+import { autonomyOf, loadConfig } from '../../topology/lib/config.mjs';
+import { teamcityClient, teamcityTarget } from '../../topology/lib/teamcity.mjs';
+import { page, ntfyTarget } from '../../topology/lib/ntfy.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !agentMarkers({ [k]: '1' }).length));
 const OPERATOR = async () => ['zsh'];
@@ -164,4 +169,147 @@ test('TM-250 readiness names every failing condition at once', async t => {
   await fx.git(['checkout', '-q', '-b', 'feature']);
   const gate = await releaseReadiness({ ...fx.options, authorized: false, epic: null }, 'cutover');
   assert.deepEqual([...new Set(gate.refusals.map(r => r.condition))].sort(), ['authority', 'branch', 'plan']);
+});
+
+// ── TM-368: the autonomy policy, TeamCity wait, ntfy pages ───────────────────────────────────────
+const TC = { build_type: 'Gateway_ReleasePublish', poll_ms: 1, timeout_ms: 1000 };
+const tcEnv = { TEAMCITY_URL: 'https://teamcity.invalid', TEAMCITY_TOKEN: 'tc-secret' };
+/** A TeamCity stub: build 7 exists before the release; build 8 appears once the release ran. */
+const fakeTeamcity = (status = 'SUCCESS') => {
+  const seen = [];
+  return { seen, latestBuildId: async bt => { seen.push(['latest', bt]); return 7; },
+    waitForBuild: async args => { seen.push(['wait', args.buildType, args.after]); return { id: 8, number: '1.4.0', state: 'finished', status, statusText: status === 'SUCCESS' ? 'ok' : 'Tests failed: 3', webUrl: 'https://teamcity.invalid/build/8' }; } };
+};
+const pager = () => { const pages = []; return { pages, page: async msg => { pages.push(msg); return { sent: true }; } }; };
+const publishFixture = async (t, extra = {}) => {
+  const fx = await releaseFixture(t, { management: { release: { branch: 'develop', argv: ['scripts/release-gitflow.sh', 'start'], verify_argv: ['scripts/release-gitflow.sh', 'verify'], teamcity: TC } },
+    global: { management: { autonomy: 'publish' } }, ...extra });
+  Object.assign(fx.options.env, tcEnv);
+  const p = pager();
+  Object.assign(fx.options, { authorized: false, ancestors: AGENT, page: p.page, teamcity: fakeTeamcity() });
+  return { ...fx, pages: p.pages };
+};
+
+test('TM-368 autonomy defaults to pr, a nearer layer wins, and an unknown value is rejected rather than widening', async t => {
+  const fx = await releaseFixture(t);
+  const pluginRoot = fileURLToPath(new URL('../..', import.meta.url));
+  const load = () => loadConfig({ consumer: fx.consumer, home: fx.options.home, env: fx.options.env, pluginRoot });
+  assert.deepEqual(autonomyOf(await loadConfig({ consumer: fx.consumer, home: fx.options.home, env: fx.options.env })), { level: 'pr', scope: 'built-in', path: null });
+  assert.deepEqual(autonomyOf(await load()).level, 'pr', 'the shipped default is pr');
+  assert.equal(autonomyOf(await load()).scope, 'defaults');
+  const global = join(fx.options.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json');
+  await writeJson(global, { management: { autonomy: 'publish' } });
+  assert.deepEqual(autonomyOf(await load()), { level: 'publish', scope: 'global', path: global });
+  await writeJson(global, { management: { autonomy: 'yolo' } });
+  const loaded = await load();
+  assert.equal(autonomyOf(loaded).level, 'pr');
+  assert.match(loaded.errors[0].message, /management\.autonomy" must be one of pr, merge, publish/);
+});
+
+test('TM-368 under autonomy publish a managed lead cuts over with no --authorized, and the record names the grant layer', async t => {
+  const fx = await publishFixture(t);
+  const result = await cutover(fx.options);
+  assert.equal(result.authorization.channel, 'autonomy-policy');
+  assert.deepEqual(result.authorization.granted_by, { scope: 'global', path: join(fx.options.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json') });
+  assert.equal(result.authorization.class, 'external');
+});
+
+test('TM-368 autonomy merge does not grant the External class: a managed lead is still refused', async t => {
+  const fx = await publishFixture(t, { global: { management: { autonomy: 'merge' } } });
+  const error = await refusedFor(cutover(fx.options), 'TOPOLOGY_CUTOVER_REFUSED', 'authority');
+  assert.match(error.message, /autonomy is "merge"/);
+  await nothingRan(fx);
+});
+
+test('TM-368 green TeamCity: cut-release waits for the build the release started, then verifies, and records it', async t => {
+  const fx = await publishFixture(t);
+  const result = await cutRelease(fx.options);
+  assert.deepEqual(fx.options.teamcity.seen, [['latest', TC.build_type], ['wait', TC.build_type, 7]]);
+  assert.deepEqual(result.teamcity, { build_type: TC.build_type, id: 8, number: '1.4.0', status: 'SUCCESS', web_url: 'https://teamcity.invalid/build/8' });
+  assert.deepEqual(await lines(join(fx.logs, 'release-gitflow.sh.log')), ['start', 'verify']);
+  assert.deepEqual(fx.pages, []);
+});
+
+test('TM-368 red TeamCity build stops the run before verify and pages through ntfy', async t => {
+  const fx = await publishFixture(t);
+  fx.options.teamcity = fakeTeamcity('FAILURE');
+  const error = await cutRelease(fx.options).then(() => null, e => e);
+  assert.equal(error?.code, 'TOPOLOGY_RELEASE_BUILD_RED', error?.message);
+  assert.match(error.message, /Tests failed: 3/);
+  assert.deepEqual(await lines(join(fx.logs, 'release-gitflow.sh.log')), ['start'], 'verify never ran');
+  assert.equal(fx.pages.length, 1); assert.match(fx.pages[0].title, /TOPOLOGY_RELEASE_BUILD_RED/); assert.match(fx.pages[0].body, /Tests failed/);
+  assert.deepEqual(error.details.paged, { sent: true });
+});
+
+test('TM-368 a failed verify (postflight) and a failed cutover postflight each stop and page', async t => {
+  const fx = await publishFixture(t, { management: { release: { branch: 'develop', argv: ['scripts/release-gitflow.sh', 'start'], verify_argv: ['false'], teamcity: TC } } });
+  await assert.rejects(cutRelease(fx.options), { code: 'TOPOLOGY_RELEASE_POSTFLIGHT' });
+  assert.match(fx.pages[0]?.title ?? '', /TOPOLOGY_RELEASE_POSTFLIGHT/);
+  const cut = await publishFixture(t); cut.options.env.POSTFLIGHT_EXIT = '2';
+  await assert.rejects(cutover(cut.options), { code: 'TOPOLOGY_CUTOVER_POSTFLIGHT' });
+  assert.match(cut.pages[0]?.title ?? '', /TOPOLOGY_CUTOVER_POSTFLIGHT/);
+});
+
+test('TM-368 under autonomy publish a release without TeamCity configured or reachable is refused before anything runs', async t => {
+  const fx = await publishFixture(t, { management: { release: { branch: 'develop', argv: ['scripts/release-gitflow.sh', 'start'], verify_argv: ['scripts/release-gitflow.sh', 'verify'] } } });
+  await refusedFor(cutRelease(fx.options), 'TOPOLOGY_RELEASE_REFUSED', 'teamcity');
+  const tokenless = await publishFixture(t); delete tokenless.options.env.TEAMCITY_TOKEN;
+  const error = await refusedFor(cutRelease(tokenless.options), 'TOPOLOGY_RELEASE_REFUSED', 'teamcity');
+  assert.match(error.message, /TEAMCITY_TOKEN is not set/);
+  await nothingRan(fx); await nothingRan(tokenless);
+});
+
+test('TM-368 the TeamCity adapter reads builds over REST with the env token as a bearer header, and waits for a newer finished build', async () => {
+  assert.match(teamcityTarget({ env: {} }).reason, /TEAMCITY_URL/);
+  assert.match(teamcityTarget({ env: { TEAMCITY_URL: 'https://tc.invalid' } }).reason, /TEAMCITY_TOKEN/);
+  const target = teamcityTarget({ config: { url: 'https://tc.invalid/' }, env: { TEAMCITY_TOKEN: 'secret' } });
+  assert.deepEqual(target, { url: 'https://tc.invalid', token: 'secret' });
+  const requests = []; let polls = 0;
+  const fetchImpl = async (url, init) => {
+    requests.push({ url: String(url), auth: init.headers.Authorization }); polls++;
+    const build = polls < 3 ? [{ id: '7', state: 'finished', status: 'SUCCESS' }]
+      : polls < 4 ? [{ id: '8', state: 'running' }, { id: '7', state: 'finished', status: 'SUCCESS' }]
+      : [{ id: '8', number: '42', state: 'finished', status: 'FAILURE' }, { id: '7', state: 'finished' }];
+    return { ok: true, json: async () => ({ build }) };
+  };
+  const client = teamcityClient({ ...target, fetchImpl });
+  assert.equal(await client.latestBuildId('Rel'), 7);
+  const done = await client.waitForBuild({ buildType: 'Rel', after: 7, pollMs: 1, timeoutMs: 5000 });
+  assert.equal(done.id, 8); assert.equal(done.status, 'FAILURE');
+  assert.ok(polls >= 4, 'it kept polling past the running build');
+  assert.ok(requests.every(r => r.auth === 'Bearer secret' && r.url.startsWith('https://tc.invalid/app/rest/builds?')));
+  assert.match(decodeURIComponent(requests[0].url), /buildType:\(id:Rel\)/);
+  const timeout = await teamcityClient({ ...target, fetchImpl: async () => ({ ok: true, json: async () => ({ build: [] }) }) }).waitForBuild({ buildType: 'Rel', after: 7, pollMs: 1, timeoutMs: 5 });
+  assert.equal(timeout.timeout, true);
+  await assert.rejects(teamcityClient({ ...target, fetchImpl: async () => ({ ok: false, status: 401 }) }).latestBuildId('Rel'), { code: 'TOPOLOGY_TEAMCITY' });
+});
+
+test('TM-368 ntfy pages with the env token, falls back to tm variables, and never throws', async () => {
+  assert.deepEqual(ntfyTarget({ env: { TM_NTFY_TOPIC: 'tm-topic', TM_NTFY_TOKEN: 'tk' } }), { server: 'https://ntfy.prod.bytedesk.ai', topic: 'tm-topic', token: 'tk' });
+  assert.equal((await page({ title: 't', body: 'b', env: {} })).sent, false, 'no topic: reported, not thrown');
+  const sent = [];
+  const ok = await page({ title: 'stop', body: 'red build', config: { topic: 'ops' }, env: { AO_NTFY_TOKEN: 'secret' }, fetchImpl: async (url, init) => { sent.push({ url, init }); return { ok: true }; } });
+  assert.deepEqual(ok, { sent: true });
+  assert.equal(sent[0].url, 'https://ntfy.prod.bytedesk.ai/ops'); assert.equal(sent[0].init.headers.Authorization, 'Bearer secret'); assert.equal(sent[0].init.body, 'red build');
+  assert.deepEqual(await page({ title: 't', body: 'b', config: { topic: 'ops' }, env: {}, fetchImpl: async () => { throw new Error('offline'); } }), { sent: false, reason: 'offline' });
+});
+
+test('TM-368 CLI: manage cutover under autonomy publish runs from a managed session; git, gh and systemctl shims record nothing forbidden', async t => {
+  const fx = await releaseFixture(t, { global: { management: { autonomy: 'publish' } } });
+  await shimPath(t, fx);
+  await mkdir(join(fx.consumer, '.bytedesk/task-management/bin'), { recursive: true });
+  const show = 'echo "{\\"id\\":\\"$2\\",\\"status\\":\\"done\\"}"';
+  await writeFile(join(fx.consumer, '.bytedesk/task-management/bin/tm'), ['#!/bin/sh', 'case "$1" in',
+    `  where) echo '{"store":"${join(fx.root, 'store')}"}' ;;`,
+    `  find) echo '[{"id":"TM-1","epic":"EP-1"},{"id":"TM-2","epic":"EP-1"}]' ;;`,
+    `  show) ${show} ;;`, '  *) exit 9 ;;', 'esac', ''].join('\n'), { mode: 0o755 });
+  const env = { ...fx.options.env, HOME: fx.options.home };
+  delete env.TM_DISPATCH_WORKER; delete env.AO_AGENT_ID;
+  const r = spawnSync(process.execPath, [fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url)), 'manage', 'cutover', '--epic', 'EP-1', '--consumer', fx.consumer, '--summary'], { encoding: 'utf8', env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /cutover switched build-old -> build-new .*\(autonomy-policy\)/);
+  assert.deepEqual(await lines(join(fx.logs, 'deploy-safe.sh.log')), ['deploy', 'postflight']);
+  const gitArgv = await lines(join(fx.logs, 'git.argv'));
+  assert.ok(gitArgv.length > 0); assert.equal(gitArgv.filter(a => /\b(push|tag)\b/.test(a)).length, 0, gitArgv.join('\n'));
+  assert.deepEqual(await lines(join(fx.logs, 'gh.argv')), []); assert.deepEqual(await lines(join(fx.logs, 'systemctl.argv')), []);
 });

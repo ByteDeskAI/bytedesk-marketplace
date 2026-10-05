@@ -4,14 +4,33 @@
 // release-gitflow.sh), without a shell, and only after every named guardrail holds.
 //
 //   management.cutover = { branch, argv, postflight_argv?, identity_argv, timeout_ms? }
-//   management.release = { branch, argv, verify_argv, finish_argv?, timeout_ms? }
+//   management.release = { branch, argv, verify_argv, finish_argv?, timeout_ms?,
+//                          teamcity?: { build_type, url?, timeout_ms?, poll_ms? } }
+//
+// TM-368: `management.autonomy` (pr | merge | publish, default pr) drives `manage land`, and at
+// `publish` it is the grant for these External-class verbs; the record names the layer that set it.
+// A stop after anything has run (a failed step, a red or missing TeamCity build, a failed verify or
+// postflight, a missing reviewer approval) pages the operator through ntfy.
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import { loadConfig } from './config.mjs';
+import { autonomyOf, loadConfig } from './config.mjs';
 import { managedSessionEvidence } from './delegation.mjs';
-import { foreignDirtyPaths, taskStore } from './management.mjs';
+import { foreignDirtyPaths, integrateTask, integrationEligibility, recordTaskEvent, taskStore } from './management.mjs';
+import { page } from './ntfy.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
+import { teamcityClient, teamcityTarget } from './teamcity.mjs';
 import { fail, nowIso, run, writeJson } from './util.mjs';
+
+/** TM-368: the effective autonomy policy for this repository and the config layer that set it. */
+export async function resolveAutonomy(options, loaded = null) {
+  return autonomyOf(loaded || await loadConfig(options));
+}
+
+/** Page, then throw: the run stops, and the operator hears about it whether or not ntfy answers. */
+async function stop(options, loaded, code, message, details = {}) {
+  const paged = await (options.page || page)({ title: `agent-orchestration: ${code}`, body: `${options.consumer}\n${message}`, config: loaded?.config?.management?.ntfy || {}, env: options.env || process.env });
+  fail(code, message, { ...details, paged });
+}
 
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const git = (cwd, args) => run('git', ['-C', cwd, ...args], { allowFailure: true });
@@ -31,14 +50,18 @@ const STEPS = {
   release: { required: ['argv', 'verify_argv'], optional: ['finish_argv'] },
 };
 
-/** Every External-class authority this verb has, or a refusal. TM-250: an operator shell passing
- * --authorized. A managed agent session never self-asserts it. */
-async function externalAuthority(options, env, home, verb) {
+/** Every External-class authority this verb has, or a refusal: the autonomy policy at `publish`
+ * (TM-368, the operator's standing grant, recorded with the layer that holds it), or an operator
+ * shell passing --authorized (TM-250). A managed agent session never self-asserts it. */
+async function externalAuthority(options, env, home, verb, loaded) {
+  const base = { decision: verb, class: 'external', adr: 'ADR-0001', at: nowIso() };
+  const autonomy = await resolveAutonomy(options, loaded);
+  if (autonomy.level === 'publish') return { authorization: { ...base, channel: 'autonomy-policy', autonomy: autonomy.level, granted_by: { scope: autonomy.scope, path: autonomy.path }, actor: env.AO_AGENT_ID || env.USER || 'lead' } };
   const managed = await managedSessionEvidence({ env, ancestors: options.ancestors, home });
-  if (options.authorized === true && !managed.length) return { authorization: { decision: verb, class: 'external', adr: 'ADR-0001', channel: 'operator-explicit', actor: env.USER || 'operator', at: nowIso() } };
+  if (options.authorized === true && !managed.length) return { authorization: { ...base, channel: 'operator-explicit', actor: env.USER || 'operator' } };
   return { refusal: options.authorized === true
-    ? `--authorized cannot be self-asserted inside a managed agent session (${managed[0]})`
-    : `${verb} is an External-class action (ADR-0001); pass --authorized from an operator shell` };
+    ? `--authorized cannot be self-asserted inside a managed agent session (${managed[0]}); autonomy is "${autonomy.level}", and only "publish" grants ${verb}`
+    : `${verb} is an External-class action (ADR-0001); autonomy is "${autonomy.level}", so pass --authorized from an operator shell or set management.autonomy to "publish"` };
 }
 
 /** Read-only gate: every condition is checked and every failure is named, nothing runs. */
@@ -71,18 +94,41 @@ export async function releaseReadiness(options, kind) {
     else if (remote !== revision) refuse('sync', `${branch} is at ${revision}, origin/${branch} is at ${remote || 'nothing'}; ${verb} runs only from a checkout synced with origin`);
   }
 
-  // All planned tasks landed: the approved plan is an epic, and every one of its tasks is done.
+  // All planned tasks landed: the approved plan is an epic (or, for a task with no epic, the task
+  // list `manage land` passes), and every one of its tasks is done.
   const epic = options.epic;
-  if (!nonempty(epic)) refuse('plan', `name the approved plan with --epic EP-n; ${verb} runs only when every task in it has landed`);
+  if (!nonempty(epic) && !Array.isArray(options.planTasks)) refuse('plan', `name the approved plan with --epic EP-n; ${verb} runs only when every task in it has landed`);
   else {
     try {
-      const store = options.store || await taskStore(options);
-      const open = [];
-      for (const id of await store.epicTasks(epic)) { const doc = await store.show(id); if (doc.status !== 'done') open.push(`${id} (${doc.status})`); }
-      if (open.length) refuse('plan', `${epic} still has tasks that have not landed: ${open.join(', ')}`);
-    } catch (error) { refuse('plan', `cannot read ${epic} from the task store: ${error.message}`); }
+      const open = await openPlanTasks(options);
+      if (open.length) refuse('plan', `${epic || 'the plan'} still has tasks that have not landed: ${open.join(', ')}`);
+    } catch (error) { refuse('plan', `cannot read ${epic || 'the plan'} from the task store: ${error.message}`); }
   }
-  return { ready: refusals.length === 0, refusals, root, branch, revision, config, authorization, loaded, env };
+
+  // TM-368: a release waits for its TeamCity build. Under the autonomy policy that wait is required,
+  // so a red build can stop the run; an operator may release without one configured.
+  let teamcity = null;
+  if (kind === 'release') {
+    const tc = config.teamcity;
+    if (tc !== undefined || authorization?.channel === 'autonomy-policy') {
+      if (!nonempty(tc?.build_type)) refuse('teamcity', 'configure management.release.teamcity.build_type: under autonomy "publish" a release must wait for its TeamCity build');
+      else {
+        const target = teamcityTarget({ config: tc, env });
+        if (target.reason) refuse('teamcity', target.reason);
+        else teamcity = { ...target, build_type: tc.build_type, timeout_ms: tc.timeout_ms, poll_ms: tc.poll_ms };
+      }
+    }
+  }
+  return { ready: refusals.length === 0, refusals, root, branch, revision, config, authorization, loaded, env, teamcity };
+}
+
+async function openPlanTasks(options) {
+  const store = options.store || await taskStore(options);
+  const ids = nonempty(options.epic) ? await store.epicTasks(options.epic) : options.planTasks;
+  const open = [];
+  // landedTask: the task manage land just merged; its landing is recorded even before tm closes it.
+  for (const id of ids.filter(id => id !== options.landedTask)) { const doc = await store.show(id); if (doc.status !== 'done') open.push(`${id} (${doc.status})`); }
+  return open;
 }
 
 const refuseNamed = (code, verb, refusals) => fail(code, `manage ${verb} refused (${[...new Set(refusals.map(r => r.condition))].join(', ')}): ${refusals.map(r => `${r.condition}: ${r.reason}`).join('; ')}`, { refusals });
@@ -106,34 +152,97 @@ async function writeRecord(options, gate, kind, record) {
 export async function cutover(options) {
   const gate = await releaseReadiness(options, 'cutover');
   if (!gate.ready) refuseNamed('TOPOLOGY_CUTOVER_REFUSED', 'cutover', gate.refusals);
-  const steps = [], stopped = (code, message) => fail(code, message, { steps });
+  const steps = [], stopped = (code, message) => stop(options, gate.loaded, code, message, { steps });
   const probe = async () => { const r = await step(gate, gate.config.identity_argv, 'identity'); steps.push(r); return r.code === 0 ? r.stdout : null; };
   const before = await probe();
-  if (!before) stopped('TOPOLOGY_CUTOVER_REFUSED', 'manage cutover refused (identity): the running binary identity probe gave no answer before cutover, so a switch could not be proven; nothing was deployed.');
+  if (!before) fail('TOPOLOGY_CUTOVER_REFUSED', 'manage cutover refused (identity): the running binary identity probe gave no answer before cutover, so a switch could not be proven; nothing was deployed.', { steps });
   const deploy = await step(gate, gate.config.argv, 'deploy'); steps.push(deploy);
-  if (deploy.code !== 0) stopped('TOPOLOGY_CUTOVER_FAILED', `cutover step ${gate.config.argv.join(' ')} exited ${deploy.code}: ${deploy.stderr || deploy.stdout}`);
+  if (deploy.code !== 0) await stopped('TOPOLOGY_CUTOVER_FAILED', `cutover step ${gate.config.argv.join(' ')} exited ${deploy.code}: ${deploy.stderr || deploy.stdout}`);
   if (gate.config.postflight_argv) {
     const post = await step(gate, gate.config.postflight_argv, 'postflight'); steps.push(post);
-    if (post.code !== 0) stopped('TOPOLOGY_CUTOVER_POSTFLIGHT', `postflight ${gate.config.postflight_argv.join(' ')} exited ${post.code}: ${post.stderr || post.stdout}`);
+    if (post.code !== 0) await stopped('TOPOLOGY_CUTOVER_POSTFLIGHT', `postflight ${gate.config.postflight_argv.join(' ')} exited ${post.code}: ${post.stderr || post.stdout}`);
   }
   const after = await probe();
-  if (!after || after === before) stopped('TOPOLOGY_CUTOVER_NOT_SWITCHED', `the running binary did not switch: identity was ${before} and is ${after ?? 'unreadable'} after cutover.`);
+  if (!after || after === before) await stopped('TOPOLOGY_CUTOVER_NOT_SWITCHED', `the running binary did not switch: identity was ${before} and is ${after ?? 'unreadable'} after cutover.`);
   return writeRecord(options, gate, 'cutover', { kind: 'cutover', at: nowIso(), branch: gate.branch, revision: gate.revision, epic: options.epic, identity: { before, after }, steps, authorization: gate.authorization });
 }
 
 /** TM-250: the repository's /release behind guardrails: from the release branch's source (develop)
- * to release/*, then the configured verify proves the published result. */
+ * to release/*. TM-368: it then waits for the TeamCity build the release started, and the
+ * configured verify proves the published artifact. */
 export async function cutRelease(options) {
   const gate = await releaseReadiness(options, 'release');
   if (!gate.ready) refuseNamed('TOPOLOGY_RELEASE_REFUSED', 'cut-release', gate.refusals);
-  const steps = [], stopped = (code, message) => fail(code, message, { steps });
+  const steps = [], stopped = (code, message, extra = {}) => stop(options, gate.loaded, code, message, { steps, ...extra });
+  const tc = gate.teamcity, client = tc && (options.teamcity || teamcityClient(tc));
+  let since = null, build = null;
+  if (tc) {
+    // Read before anything runs, so a TeamCity that cannot answer refuses with nothing released.
+    try { since = await client.latestBuildId(tc.build_type); }
+    catch (error) { refuseNamed('TOPOLOGY_RELEASE_REFUSED', 'cut-release', [{ condition: 'teamcity', reason: error.message }]); }
+  }
   const cut = await step(gate, gate.config.argv, 'release'); steps.push(cut);
-  if (cut.code !== 0) stopped('TOPOLOGY_RELEASE_FAILED', `release step ${gate.config.argv.join(' ')} exited ${cut.code}: ${cut.stderr || cut.stdout}`);
+  if (cut.code !== 0) await stopped('TOPOLOGY_RELEASE_FAILED', `release step ${gate.config.argv.join(' ')} exited ${cut.code}: ${cut.stderr || cut.stdout}`);
+  if (tc) {
+    try { build = await client.waitForBuild({ buildType: tc.build_type, after: since, timeoutMs: tc.timeout_ms, pollMs: tc.poll_ms }); }
+    catch (error) { await stopped('TOPOLOGY_RELEASE_BUILD_UNKNOWN', `the release ran, but TeamCity could not be read: ${error.message}`); }
+    if (build.timeout) await stopped('TOPOLOGY_RELEASE_BUILD_TIMEOUT', `no finished TeamCity ${tc.build_type} build after the release${build.build ? ` (build ${build.build.number ?? build.build.id} is ${build.build.state})` : ''}.`, { build: build.build });
+    if (build.status !== 'SUCCESS') await stopped('TOPOLOGY_RELEASE_BUILD_RED', `TeamCity ${tc.build_type} build ${build.number ?? build.id} is ${build.status}${build.statusText ? `: ${build.statusText}` : ''}${build.webUrl ? ` (${build.webUrl})` : ''}.`, { build });
+  }
   const verify = await step(gate, gate.config.verify_argv, 'verify'); steps.push(verify);
-  if (verify.code !== 0) stopped('TOPOLOGY_RELEASE_POSTFLIGHT', `release verify ${gate.config.verify_argv.join(' ')} exited ${verify.code}; the published result is not proven: ${verify.stderr || verify.stdout}`);
+  if (verify.code !== 0) await stopped('TOPOLOGY_RELEASE_POSTFLIGHT', `release verify ${gate.config.verify_argv.join(' ')} exited ${verify.code}; the published artifact is not proven: ${verify.stderr || verify.stdout}`);
   if (gate.config.finish_argv) {
     const finish = await step(gate, gate.config.finish_argv, 'finish'); steps.push(finish);
-    if (finish.code !== 0) stopped('TOPOLOGY_RELEASE_FAILED', `release finish ${gate.config.finish_argv.join(' ')} exited ${finish.code}: ${finish.stderr || finish.stdout}`);
+    if (finish.code !== 0) await stopped('TOPOLOGY_RELEASE_FAILED', `release finish ${gate.config.finish_argv.join(' ')} exited ${finish.code}: ${finish.stderr || finish.stdout}`);
   }
-  return writeRecord(options, gate, 'release', { kind: 'release', at: nowIso(), branch: gate.branch, revision: gate.revision, epic: options.epic, verified: true, steps, authorization: gate.authorization });
+  const teamcity = build ? { build_type: tc.build_type, id: build.id, number: build.number ?? null, status: build.status, web_url: build.webUrl ?? null } : null;
+  return writeRecord(options, gate, 'release', { kind: 'release', at: nowIso(), branch: gate.branch, revision: gate.revision, epic: options.epic ?? null, teamcity, verified: true, steps, authorization: gate.authorization });
+}
+
+/** TM-368: the lead's landing path, driven by management.autonomy.
+ *   pr      stop at the reviewed pull request; a human merges.
+ *   merge   manage integrate (its own authority and guardrails unchanged).
+ *   publish integrate, then, once every task of the plan has landed, cut-release (TeamCity wait and
+ *           verify included), record the publish with its grant source, and notify the origin. */
+export async function landTask(options) {
+  const loaded = await loadConfig(options);
+  const autonomy = autonomyOf(loaded), base = { task: options.task, autonomy };
+  if (autonomy.level === 'pr') return { ...base, landed: false, stopped: 'pr', reason: 'autonomy is "pr": the lead stops at the reviewed pull request, and a human merges it' };
+
+  const gate = await integrationEligibility(options);
+  let record = gate.record;
+  if (!['merged', 'cleaned'].includes(record?.state)) {
+    // Missing reviewer approval stops the run and pages. No review computed means the protocol is
+    // incomplete, which integrate refuses by name.
+    if (gate.review) {
+      const verdict = gate.review.status?.review?.verdict, reasons = gate.refusals.filter(r => r.condition === 'review').map(r => r.reason);
+      if (verdict !== 'approve' || reasons.length) await stop(options, loaded, 'TOPOLOGY_LAND_REVIEW', `${options.task} has no reviewer approval (verdict ${verdict ?? 'missing'}${reasons.length ? `; ${reasons.join('; ')}` : ''}); the landing stopped before merge.`);
+    }
+    record = await (options.integrate || integrateTask)(options);
+  }
+  if (autonomy.level === 'merge') return { ...base, landed: true, merge: record.merge };
+  if (record.published) return { ...base, landed: true, published: true, release: record.published, already: true };
+
+  const store = options.store || await taskStore(options);
+  const doc = await store.show(options.task);
+  const plan = doc.epic ? { epic: doc.epic } : { epic: null, planTasks: [options.task] };
+  // This task's own landing is recorded above; the fast-forward path closes it only at cleanup.
+  const waiting = await openPlanTasks({ ...options, ...plan, store, landedTask: options.task });
+  if (waiting.length) return { ...base, landed: true, published: false, waiting, reason: `publish waits until every task of ${plan.epic || options.task} has landed` };
+
+  // A refused release after a merge is still an autonomous run that stopped: page it too. Every
+  // other cut-release stop has already paged.
+  const release = await cutRelease({ ...options, ...plan, store, landedTask: options.task }).catch(async error => {
+    if (error.code === 'TOPOLOGY_RELEASE_REFUSED') await stop(options, loaded, error.code, `${options.task} merged, but publishing stopped: ${error.message}`, error.details);
+    throw error;
+  });
+  const published = { release: release.path, revision: release.revision, teamcity: release.teamcity, verified: release.verified, authorization: release.authorization, at: release.at };
+  await recordTaskEvent({ ...options, store }, 'publish', published, { published });
+  let origin = null;
+  if (doc.origin?.repo) {
+    const detail = `released ${release.revision.slice(0, 12)}${release.teamcity ? `, TeamCity ${release.teamcity.build_type} build ${release.teamcity.number ?? release.teamcity.id} ${release.teamcity.status}` : ''}, artifact verified`;
+    try { await store.ticketEvent(options.task, 'published', detail); origin = { notified: true, detail }; }
+    catch (error) { origin = { notified: false, reason: error.message }; }
+  }
+  return { ...base, landed: true, published: true, release, origin };
 }

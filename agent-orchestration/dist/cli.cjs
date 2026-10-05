@@ -437,9 +437,11 @@ var init_incarnation = __esm({
 var config_exports = {};
 __export(config_exports, {
   ABSENT_REVISION: () => ABSENT_REVISION,
+  AUTONOMY_LEVELS: () => AUTONOMY_LEVELS,
   CONFIG_SCOPES: () => CONFIG_SCOPES,
   PRECEDENCE: () => PRECEDENCE,
   PROMPT_MODES: () => PROMPT_MODES,
+  autonomyOf: () => autonomyOf,
   configLayerPath: () => configLayerPath,
   defaultsConfigPath: () => defaultsConfigPath,
   findTemplate: () => findTemplate,
@@ -494,6 +496,14 @@ function promptEntryErrors(value, where, { mode = true } = {}) {
 function layerWarnings(raw, scope, label = scope) {
   return scope !== "global" && raw?.prompts?.prefix !== void 0 ? [`${label}: "prompts.prefix" is honoured only in the global config layer; ignored here`] : [];
 }
+function autonomyOf(loaded) {
+  for (const scope of PRECEDENCE) {
+    const layer = loaded.layers.find((l) => l.scope === scope && l.ok && l.present);
+    const level = layer?.raw?.management?.autonomy;
+    if (level !== void 0) return { level, scope, path: layer.path };
+  }
+  return { level: "pr", scope: "built-in", path: null };
+}
 function validateConfigShape(raw, label) {
   const errors = [];
   if (!isPlainObject(raw)) return [`${label}: top level must be a JSON object`];
@@ -545,6 +555,9 @@ function validateConfigShape(raw, label) {
     if (raw.prompts.prefix !== void 0) errors.push(...promptEntryErrors(raw.prompts.prefix, `${label}: prompt "prefix"`, { mode: false }));
   }
   if (raw.management !== void 0 && !isPlainObject(raw.management)) errors.push(`${label}: "management" must be an object`);
+  if (isPlainObject(raw.management) && raw.management.autonomy !== void 0 && !AUTONOMY_LEVELS.includes(raw.management.autonomy)) {
+    errors.push(`${label}: "management.autonomy" must be one of ${AUTONOMY_LEVELS.join(", ")}`);
+  }
   if (raw.workers !== void 0 && (!isPlainObject(raw.workers) || raw.workers.passEnv !== void 0 && !(Array.isArray(raw.workers.passEnv) && raw.workers.passEnv.every((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))))) {
     errors.push(`${label}: "workers.passEnv" must be an array of environment variable names (names only, never values)`);
   }
@@ -653,7 +666,7 @@ async function writeConfigLayer(scope, document, { ifRevision = null, ...options
     return { ok: true, scope, path: path3, previous_revision: before.revision, revision: after.revision, warnings: after.warnings };
   });
 }
-var import_node_crypto7, import_promises7, import_node_os5, import_node_path10, isPlainObject, TEMPLATE_KEYS, PROMPT_MODES, PRECEDENCE, ABSENT_REVISION, CONFIG_SCOPES;
+var import_node_crypto7, import_promises7, import_node_os5, import_node_path10, isPlainObject, TEMPLATE_KEYS, PROMPT_MODES, AUTONOMY_LEVELS, PRECEDENCE, ABSENT_REVISION, CONFIG_SCOPES;
 var init_config = __esm({
   "topology/lib/config.mjs"() {
     import_node_crypto7 = require("node:crypto");
@@ -665,6 +678,7 @@ var init_config = __esm({
     isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
     TEMPLATE_KEYS = /* @__PURE__ */ new Set(["role", "cli", "candidates", "model", "prompt", "instructions", "skills", "mcp", "args", "env", "auto_approve", "reports_to", "name"]);
     PROMPT_MODES = ["append", "replace"];
+    AUTONOMY_LEVELS = Object.freeze(["pr", "merge", "publish"]);
     PRECEDENCE = ["repo", "global", "defaults"];
     ABSENT_REVISION = "absent";
     CONFIG_SCOPES = ["global", "repo"];
@@ -24375,7 +24389,9 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     govern: async (id, governance) => exec(["govern", taskId(id), "--workflow", governance.workflowRunId, "--lead", governance.leadId, "--record", governance.recordPath]),
     reviewReady: async (id, revision) => exec(["review-ready", taskId(id), "--revision", revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
-    epicTasks: async (epic) => JSON.parse((await exec(["find", `epic:${epic}`, "kind:task", "--json"])).stdout).filter((t) => t.epic === epic).map((t) => t.id)
+    epicTasks: async (epic) => JSON.parse((await exec(["find", `epic:${epic}`, "kind:task", "--json"])).stdout).filter((t) => t.epic === epic).map((t) => t.id),
+    // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
+    ticketEvent: async (id, kind, detail) => exec(["ticket", "event", taskId(id), kind, detail])
   };
 }
 async function context(options) {
@@ -61390,10 +61406,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  return false ? null : "d2ff05a094438ee80d2739ae22f044d6c19aefa3c1a6e56a7de8b49aaa386261";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  const fingerprint2 = false ? null : "d2ff05a094438ee80d2739ae22f044d6c19aefa3c1a6e56a7de8b49aaa386261";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -62010,7 +62026,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871",
+  sourceFingerprint: false ? null : "d2ff05a094438ee80d2739ae22f044d6c19aefa3c1a6e56a7de8b49aaa386261",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

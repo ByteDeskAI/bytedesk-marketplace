@@ -37,6 +37,7 @@ const REFUSED = [
   // TM-250: External class (deploy, release) is never hook-approved.
   'ao-topology manage cutover --epic EP-1',
   'ao-topology manage cut-release --epic EP-1',
+  'ao-topology manage land --task TM-1',
   'ao-topology delegate grant --to lead --repo . --scope integrate',
   'ao-topology permissions install',
   'agent-orchestration services uninstall',
