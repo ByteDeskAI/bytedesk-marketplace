@@ -20,6 +20,18 @@ import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
 
 const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
+// TM-442: the protected management keys (autonomy, release, cutover, required_checks) are honoured only
+// from the repository config on the server's default branch. The fixture's server (pinned repository
+// o/r, branch main) commits `server.document`, or else the plugin defaults' management block merged
+// with `server.management`, so tests keep writing config.defaults.json as before.
+const SERVER_POLICY_API = 'repos/o/r/contents/.bytedesk/agent-orchestration/config.json?ref=main';
+const fixtureServer = (pluginRoot, server) => async args => {
+  if (args[0] === 'repo' && args[1] === 'view') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
+  if (args[0] !== 'api' || args[1] !== SERVER_POLICY_API) return { code: 1, stdout: '', stderr: 'no such call in the fixture' };
+  const defaults = (await readJson(join(pluginRoot, 'config.defaults.json')).catch(() => ({}))).management || {};
+  const document = server.document ?? { management: { ...defaults, ...server.management } };
+  return { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify(document)).toString('base64') }), stderr: '' };
+};
 const NO_SERVER_COMPARE = async () => { throw new Error('no server in the fixture'); };
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-manage-')); t.after(() => rm(root, { recursive: true, force: true }));
@@ -30,7 +42,7 @@ async function fixture(t) {
   await git(consumer, ['add', 'code.txt']);
   await git(consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'base']);
   const doc = { id: 'TM-1', epic: 'EP-19', status: 'todo', labels: ['ready-for-agent'], touches: ['code.txt'], blockedBy: [] };
-  const calls = []; let claim = null;
+  const calls = []; let claim = null; const server = { document: null, management: {} };
   const store = {
     root: consumer,
     show: async () => ({ ...doc }), claim: async () => claim,
@@ -45,7 +57,7 @@ async function fixture(t) {
   const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
     // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
     // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
-    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }),
+    gh: fixtureServer(pluginRoot, server), serverCompare: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }),
     // TM-244: a refused review mails the lead; fixtures capture it instead of reaching any real mailbox.
     notifyLead: async () => ({ status: 'held', reason: 'fixture' }) };
   const finish = async () => {
@@ -54,7 +66,7 @@ async function fixture(t) {
     const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
     return workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision } });
   };
-  return { opts, doc, calls, finish, git, setClaim: value => { claim = value; } };
+  return { opts, doc, calls, finish, git, server, setClaim: value => { claim = value; } };
 }
 
 test('new admission requires reviewer, task scope, ownership and complete protocol before provisioning', async t => {
@@ -273,6 +285,29 @@ test('TM-444 required checks run in a fresh tree of the finish revision: an igno
   assert.notEqual((await run('git', ['-C', opts.consumer, 'rev-parse', 'HEAD'])).stdout.trim(), report.finish.revision, 'nothing landed');
   const trees = (await run('git', ['-C', opts.consumer, 'worktree', 'list', '--porcelain'])).stdout;
   assert.ok(!/ao-checks-/.test(trees), 'the check tree was removed');
+});
+
+test('TM-442 required checks set only in a worker-writable layer are not honoured: integrate refuses as unconfigured', async t => {
+  const { opts, finish, server } = await fixture(t);
+  await admitTask(opts); await finish();
+  server.document = { management: { target_branch: 'main' } }; // the server's default branch names no checks
+  await writeJson(join(opts.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json'), { management: { required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const gate = await integrationEligibility(opts);
+  assert.ok(gate.refusals.some(r => r.condition === 'config' && /required_checks .*server's default branch/.test(r.reason)), JSON.stringify(gate.refusals));
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+});
+
+test('TM-442 integrate refuses a landing that changes management in the committed repository config', async t => {
+  const { opts, finish, doc, git } = await fixture(t);
+  doc.touches = ['code.txt', '.bytedesk/agent-orchestration/config.json'];
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeJson(join(worktree, '.bytedesk/agent-orchestration/config.json'), { management: { autonomy: 'publish', required_checks: [] } });
+  await git(worktree, ['add', '.bytedesk']); await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'grant myself publish']);
+  await finish();
+  const gate = await integrationEligibility(opts);
+  assert.ok(gate.refusals.some(r => r.condition === 'scope' && /changes "management"/.test(r.reason)), JSON.stringify(gate.refusals));
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /changes "management"/ });
 });
 
 test('failed required checks and out-of-scope files prevent integration', async t => {
@@ -733,8 +768,9 @@ test("this repository's committed management policy raises no policy reasons", a
   const { loadConfig } = await import('../../topology/lib/config.mjs');
   const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
   const pluginRoot = fileURLToPath(new URL('../../', import.meta.url));
-  const { opts, finish } = await fixture(t);
+  const { opts, finish, server } = await fixture(t);
   const loaded = await loadConfig({ consumer: repoRoot, pluginRoot, home: opts.home, env: opts.env });
+  server.document = JSON.parse(await readFile(join(repoRoot, '.bytedesk/agent-orchestration/config.json'), 'utf8'));
   assert.deepEqual(loaded.errors, []);
   assert.equal(loaded.config.management.target_branch, 'main');
   assert.ok(loaded.config.management.required_checks.length >= 6);
@@ -744,7 +780,8 @@ test("this repository's committed management policy raises no policy reasons", a
   await admitTask(policyOpts); await finish();
   const gate = await integrationEligibility(policyOpts);
   assert.deepEqual(gate.reasons.filter(r => /configure management|integration authority|configuration is invalid/.test(r)), []);
-  assert.deepEqual(gate.policy, loaded.config.management);
+  const { autonomy: _shippedDefault, ...honoured } = loaded.config.management; // autonomy only from the server, which sets none
+  assert.deepEqual(gate.policy, honoured);
 });
 
 // ── TM-218: lead-owned worker start, adoption and stop ──────────────────────────
@@ -1489,7 +1526,7 @@ test('TM-263 (d) with the server policy naming the lead, integrate merges withou
   const result = await integrateTask(p.lead);
   const VIEW = ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'];
   assert.deepEqual(p.state.argv, [
-    VIEW, POLICY_API, VIEW,
+    VIEW, POLICY_API, VIEW, POLICY_API, VIEW,
     ['pr', 'list', '--repo', 'o/r', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
     ['pr', 'checks', '7', '--repo', 'o/r', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--repo', 'o/r', '--json', 'name,state,bucket'],
     ['pr', 'merge', '7', '--repo', 'o/r', '--merge', '--match-head-commit', p.revision],
@@ -1649,8 +1686,8 @@ test('TM-368 autonomy pr (the default) stops at the reviewed PR: land merges not
 });
 
 test('TM-368 autonomy merge: land integrates through manage integrate and does not publish', async t => {
-  const { opts, finish, calls } = await fixture(t);
-  await writeJson(globalConfig(opts), { management: { autonomy: 'merge' } });
+  const { opts, finish, calls, server } = await fixture(t);
+  server.management.autonomy = 'merge';
   await admitTask(opts); const report = await finish();
   const result = await landTask(opts);
   assert.equal(result.landed, true); assert.equal(result.merge.revision, report.finish.revision);
@@ -1658,8 +1695,8 @@ test('TM-368 autonomy merge: land integrates through manage integrate and does n
 });
 
 test('TM-368 a missing reviewer approval stops land before merge and pages', async t => {
-  const { opts, finish, calls } = await fixture(t);
-  await writeJson(globalConfig(opts), { management: { autonomy: 'publish' } });
+  const { opts, finish, calls, server } = await fixture(t);
+  server.management.autonomy = 'publish';
   await admitTask(opts); await finish();
   const p = landPager();
   const error = await landTask({ ...opts, page: p.page, reviewGate: async () => ({ eligible: false, reasons: ['review changes_requested'], status: { review: { verdict: 'changes_requested' } } }) }).then(() => null, e => e);
@@ -1673,8 +1710,11 @@ async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhe
   const fx = await fixture(t);
   const { opts, finish, git, doc } = fx;
   const root = join(opts.home, '..'), logs = join(root, 'release.log');
-  await writeFile(join(root, 'release.sh'), `#!/bin/sh\necho "$*" >> ${logs}\n`, { mode: 0o755 });
-  await writeJson(globalConfig(opts), { management: { autonomy: 'publish', release: { branch: 'main', argv: [join(root, 'release.sh'), 'start'], verify_argv: [join(root, 'release.sh'), 'verify'], teamcity: { build_type: 'Rel' } } } });
+  // TM-442: the release step is the repository's own tracked script, named repo-relative.
+  await mkdir(join(opts.consumer, 'scripts'), { recursive: true });
+  await writeFile(join(opts.consumer, 'scripts', 'release.sh'), `#!/bin/sh\necho "$*" >> ${logs}\n`, { mode: 0o755 });
+  await git(opts.consumer, ['add', 'scripts/release.sh']); await git(opts.consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'release script']);
+  Object.assign(fx.server.management, { autonomy: 'publish', release: { branch: 'main', argv: ['scripts/release.sh', 'start'], verify_argv: ['scripts/release.sh', 'verify'], teamcity: { build_type: 'Rel' } } });
   await run('git', ['init', '-q', '--bare', join(root, 'origin.git')]);
   await git(opts.consumer, ['remote', 'add', 'origin', join(root, 'origin.git')]);
   await admitTask(opts); await finish(); await integrateTask(opts);
@@ -1696,7 +1736,7 @@ test('TM-368 autonomy publish: after the merge, land releases, waits for TeamCit
   const record = await readJson(await recordPath(fx.opts));
   assert.equal(record.published.authorization.channel, 'autonomy-policy');
   assert.equal(record.published.authorization.class, 'external');
-  assert.deepEqual(record.published.authorization.granted_by, { scope: 'global', path: globalConfig(fx.opts) });
+  assert.deepEqual(record.published.authorization.granted_by, { scope: 'server-default-branch', path: 'o/r@main:.bytedesk/agent-orchestration/config.json' });
   assert.equal(record.published.teamcity.status, 'SUCCESS'); assert.equal(record.published.verified, true);
   assert.ok(fx.calls.includes('publish'));
   assert.equal(fx.events.length, 1); assert.deepEqual(fx.events[0].slice(0, 2), ['TM-1', 'published']); assert.match(fx.events[0][2], /artifact verified/);

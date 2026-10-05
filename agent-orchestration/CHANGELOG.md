@@ -4,6 +4,20 @@
 
 ### Security
 
+- **A worker can no longer grant itself publish/merge autonomy, rewrite required checks or choose the release argv (TM-442, EP-028).**
+  `management.autonomy`, `management.release`, `management.cutover` and `management.required_checks`
+  are now honoured only from `.bytedesk/agent-orchestration/config.json` as committed on the server's
+  default branch of the pinned repository (read through `gh`, as TM-263 reads `lead_autonomy`). A
+  value for them in the global layer, the plugin defaults or the checkout's working copy, all of
+  which a same-user worker can write, is ignored with a warning; signing is not implemented, so there
+  is no other trusted source. With the server unreadable, autonomy is `pr` and the other three are
+  unconfigured. `manage integrate` refuses a task that changes `management` in that committed file.
+  `ao-topology config set` refuses in a dispatched worker session (the shared `dispatchedWorker`
+  predicate `manage` also uses). Release and cutover `argv[0]` is now an allowlist: a repo-relative
+  path, tracked as an executable at the release revision, whose bytes equal the committed blob;
+  interpreters, shells, `busybox`, `env`, `npx`, `npm`, `deno`, `bun`, absolute paths, `..` and bare
+  `PATH` names are refused. `reviewer.mjs`'s `requiredCheckNames` still reads the local layers for
+  the review packet (owned by another session); integrate no longer depends on it.
 - **A merge-in is accepted only when its tree is exactly the merge git computes (TM-441, EP-028).**
   `mergeInOf` compared `git patch-id --stable`, which ignores whitespace, so a merge of the
   integration branch into the approved revision could carry an unreviewed behaviour change

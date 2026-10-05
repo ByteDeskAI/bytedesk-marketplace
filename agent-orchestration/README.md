@@ -480,15 +480,22 @@ The lead runs one verb, `ao-topology manage land --task <TM-id>`, and the policy
 | `merge` | Runs `manage integrate`, with its own authority and guardrails unchanged. Nothing is released. |
 | `publish` | Integrates, then, once every task of the task's epic has landed, runs `manage cut-release`: the repository's release step, a wait for the TeamCity build it started, and the verify step that proves the published artifact. It then records the publish and tells the origin. |
 
-**Where to set it.** The value comes from the AO layered config. The nearest layer wins:
-the repository's `.bytedesk/agent-orchestration/config.json`, then the global
-`~/.config/agent-orchestration/config.json`, then the shipped default, `pr`. An unknown value makes
-its layer invalid, so it never widens autonomy. To run fully autonomously through publishing on
-your own machine, set it in the global layer:
+**Where to set it (TM-442).** Only in the repository's `.bytedesk/agent-orchestration/config.json`
+as committed on the **server's default branch** of the pinned repository, read through `gh`. The same
+rule covers `management.release`, `management.cutover` and `management.required_checks`. A worker
+agent runs as your OS user and can write the global `~/.config/agent-orchestration/config.json`, the
+plugin defaults and the checkout's working copy, so a value for these keys in any of those layers is
+ignored, with a warning. When the server cannot be read, autonomy is `pr` and release, cutover and
+required checks are unconfigured, so every verb that needs them refuses. A signed operator layer would
+be the other trusted source; signing is not implemented. Commit the policy on the default branch:
 
 ```json
 { "management": { "autonomy": "publish", "ntfy": { "topic": "<your topic>" } } }
 ```
+
+`manage integrate` refuses a task whose change touches `management` in that file: the policy is the
+operator's own change on the default branch, never landed through a task. `ao-topology config set`
+refuses inside a dispatched worker session (`TM_DISPATCH_WORKER`).
 
 **What `publish` grants.** Production deploy and release publish are ADR-0001's External class
 (`fleet/docs/adr/0001-hierarchical-authorization.md`). At `publish`, the policy is the operator's
@@ -500,8 +507,11 @@ it. The policy does not replace integrate's own authority: merging still needs a
 grant or the server-side `lead_autonomy` policy (ADR-0027).
 
 **What the release verbs run.** Only the repository's own scripts, configured as argv and run
-without a shell. A step whose program is `systemctl`, `git`, `gh`, a shell, `sudo`, `env` or `ssh`
-is refused, so neither a lead nor a config line restarts a host or pushes directly.
+without a shell. `argv[0]` must be a repo-relative path (no absolute path, no `..`, no bare name looked
+up on `PATH`) to an executable file tracked at the release revision whose bytes on disk equal the
+committed blob (TM-442). Interpreters and launchers (`node`, `python*`, `perl`, `ruby`, shells,
+`busybox`, `env`, `npx`, `npm`, `deno`, `bun`), `systemctl`, `git`, `gh`, `sudo` and `ssh` are refused
+even as paths, so neither a lead nor a config line restarts a host, pushes directly or runs inline code.
 
 ```json
 { "management": {

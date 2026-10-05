@@ -23461,6 +23461,7 @@ var management_exports = {};
 __export(management_exports, {
   INTEGRATION_STORE_PATHS: () => INTEGRATION_STORE_PATHS,
   LEAD_POLICY_PATH: () => LEAD_POLICY_PATH,
+  PROTECTED_MANAGEMENT_KEYS: () => PROTECTED_MANAGEMENT_KEYS,
   RETRY_REVIEW_VERB: () => RETRY_REVIEW_VERB,
   admitTask: () => admitTask,
   assignTaskToAgent: () => assignTaskToAgent,
@@ -23471,8 +23472,11 @@ __export(management_exports, {
   closeTask: () => closeTask,
   deadWorkerState: () => deadWorkerState,
   foreignDirtyPaths: () => foreignDirtyPaths,
+  governedAutonomy: () => governedAutonomy,
   integrateTask: () => integrateTask,
   integrationEligibility: () => integrationEligibility,
+  loadGovernedConfig: () => loadGovernedConfig,
+  managementPolicyChange: () => managementPolicyChange,
   managementStatus: () => managementStatus,
   mergeInOf: () => mergeInOf,
   parseAssignmentReply: () => parseAssignmentReply,
@@ -23483,6 +23487,7 @@ __export(management_exports, {
   retryReview: () => retryReview,
   runRequiredChecks: () => runRequiredChecks,
   serverLeadAutonomy: () => serverLeadAutonomy,
+  serverPolicy: () => serverPolicy,
   startTaskWorker: () => startTaskWorker,
   stopTaskWorker: () => stopTaskWorker,
   taskStore: () => taskStore,
@@ -24082,20 +24087,43 @@ async function integrationAuthority(options, ctx, policy) {
   return { refusals, delegation, delegationError, autonomy };
 }
 async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = (0, import_node_os19.homedir)() } = {}) {
+  const policy = (await serverPolicy(gh, repoDir, { env, home })).document?.management?.lead_autonomy;
+  return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
+}
+async function serverPolicy(gh, repoDir, { env = process.env, home = (0, import_node_os19.homedir)() } = {}) {
   let repo, branch;
   try {
     ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home }));
-  } catch {
-    return null;
+  } catch (error51) {
+    return { document: null, reason: error51.message };
   }
   const file2 = await ghJson(gh, ["api", `repos/${repo}/contents/${LEAD_POLICY_PATH}?ref=${encodeURIComponent(branch)}`]);
-  if (file2.code !== 0 || typeof file2.value?.content !== "string") return null;
+  if (file2.code !== 0 || typeof file2.value?.content !== "string") return { document: null, reason: `cannot read ${LEAD_POLICY_PATH} on ${repo}@${branch}${file2.error ? `: ${file2.error}` : ""}` };
   try {
-    const policy = JSON.parse(Buffer.from(file2.value.content, "base64").toString("utf8"))?.management?.lead_autonomy;
-    return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
+    return { document: JSON.parse(Buffer.from(file2.value.content, "base64").toString("utf8")), source: `${repo}@${branch}:${LEAD_POLICY_PATH}` };
   } catch {
-    return null;
+    return { document: null, reason: `${LEAD_POLICY_PATH} on ${repo}@${branch} is not valid JSON` };
   }
+}
+async function loadGovernedConfig(options) {
+  const loaded = await loadConfig(options);
+  const server = await serverPolicy(options.gh || defaultGh(options.consumer), options.consumer, { env: options.env || process.env, home: options.home || (0, import_node_os19.homedir)() });
+  const committed = server.document?.management && typeof server.document.management === "object" ? server.document.management : {};
+  const management = { ...loaded.config.management || {} }, warnings = [];
+  for (const key of PROTECTED_MANAGEMENT_KEYS) {
+    const local = management[key];
+    delete management[key];
+    if (Object.hasOwn(committed, key) && !(key === "autonomy" && !AUTONOMY_LEVELS.includes(committed[key]))) management[key] = committed[key];
+    if (local !== void 0 && JSON.stringify(local) !== JSON.stringify(management[key])) {
+      const layers = loaded.layers.filter((l) => l.ok && l.present && l.raw?.management?.[key] !== void 0).map((l) => `${l.scope} (${l.path})`);
+      warnings.push(`management.${key} in ${layers.join(", ") || "a local layer"} is ignored: it is honoured only from ${server.source || `the server's default branch (${server.reason})`} (TM-442)`);
+    }
+  }
+  return { ...loaded, config: { ...loaded.config, management }, warnings, policy: { source: server.source || null, reason: server.reason || null } };
+}
+function governedAutonomy(governed) {
+  const level = governed.config.management?.autonomy;
+  return level ? { level, scope: "server-default-branch", path: governed.policy.source } : { level: "pr", scope: "built-in", path: null };
 }
 async function leadAutonomy(options, ctx, scope) {
   const caller = ctx.env.AO_AGENT_ID;
@@ -24119,14 +24147,14 @@ async function integrationEligibility(options) {
   } catch (error51) {
     refuse("ownership", error51.message);
   }
-  const loaded = await loadConfig(options);
+  const loaded = await loadGovernedConfig(options);
   const policy = loaded.config.management || {};
   if (loaded.errors.length) refuse("config", "management configuration is invalid");
   const viaPullRequest = policy.integrate_via === "pull-request";
   const authority = await integrationAuthority(options, ctx, policy);
   for (const { condition, reason } of authority.refusals) refuse(condition, reason);
   const { delegation, delegationError } = authority;
-  if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some((c) => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse("config", "configure named management.required_checks with executable argv");
+  if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some((c) => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse("config", `configure named management.required_checks with executable argv in ${LEAD_POLICY_PATH} on the server's default branch, the only source honoured (TM-442)${loaded.policy.reason ? `; ${loaded.policy.reason}` : ""}`);
   if (!nonempty(policy.target_branch)) refuse("config", "configure management.target_branch before integration");
   if (doc && record2?.finish) {
     if (!doc.labels?.includes("ready-for-agent")) refuse("scope", "task scope is no longer approved");
@@ -24146,10 +24174,33 @@ async function integrationEligibility(options) {
         refuse("scope", error51.message);
       }
     }
+    const changed = await managementPolicyChange(doc.worktree, record2.finish.revision, policy.target_branch);
+    if (changed) refuse("scope", changed);
     const writer = options.workerState ? await options.workerState(record2) : await taskWorkerState(options, record2);
     if (!writer.owned || writer.active !== false) refuse("worker", writer.reason || "worker ownership or absence of an active writer is unproven");
   }
   return { eligible: reasons.length === 0, reasons, refusals, record: record2, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
+}
+async function managementPolicyChange(cwd, revision, target) {
+  if (!nonempty(target)) return null;
+  let base = "";
+  for (const ref of [`refs/heads/${target}`, `refs/remotes/origin/${target}`]) {
+    base = (await git2(cwd, ["merge-base", revision, ref], true)).stdout.trim();
+    if (base) break;
+  }
+  if (!base) return `cannot find the merge base of ${revision} with ${target}, so a change to ${LEAD_POLICY_PATH} management cannot be ruled out`;
+  const management = async (rev) => {
+    const shown = await git2(cwd, ["cat-file", "-p", `${rev}:${LEAD_POLICY_PATH}`], true);
+    if (shown.code !== 0) return { value: null };
+    try {
+      return { value: JSON.parse(shown.stdout)?.management ?? null };
+    } catch {
+      return { invalid: true };
+    }
+  };
+  const [before, after] = [await management(base), await management(revision)];
+  if (after.invalid || JSON.stringify(before.value) !== JSON.stringify(after.value)) return `the task changes "management" in ${LEAD_POLICY_PATH}; management policy is the operator's change, made on the default branch, never landed through a task (TM-442)`;
+  return null;
 }
 async function runRequiredChecks(root, revision, required2) {
   const dir = await (0, import_promises39.mkdtemp)((0, import_node_path47.join)((0, import_node_os19.tmpdir)(), "ao-checks-")), tree = (0, import_node_path47.join)(dir, "tree"), checks = [];
@@ -24639,7 +24690,7 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os19, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os19, import_node_crypto25, import_node_path47, import_promises39, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os19 = require("node:os");
@@ -24679,6 +24730,7 @@ var init_management = __esm({
     managedSession = (options, ctx) => managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors, home: ctx.home });
     MANAGED_NEEDS_GRANT = "a managed agent session needs a valid standing delegation (an operator plan grant covering this caller, repository and task), whatever management.auto_merge says";
     LEAD_POLICY_PATH = ".bytedesk/agent-orchestration/config.json";
+    PROTECTED_MANAGEMENT_KEYS = Object.freeze(["autonomy", "release", "cutover", "required_checks"]);
     integrationAuthorization = (options, ctx, { record: record2, policy, delegation, autonomy = null, revision }) => ({
       decision: "integrate",
       actor: delegation ? delegation.grantee : autonomy ? autonomy.actor : options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record2.lead_id,
@@ -62637,10 +62689,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "f3ad0adabfb7266729d01529ec2a53efd4e3aac7647062b0065ae6e6655c7155";
+  return false ? null : "465ca80dd187741609d327f33d976dccde5c2061d037203d50b358d3b28fb49c";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "f3ad0adabfb7266729d01529ec2a53efd4e3aac7647062b0065ae6e6655c7155";
+  const fingerprint2 = false ? null : "465ca80dd187741609d327f33d976dccde5c2061d037203d50b358d3b28fb49c";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63257,7 +63309,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "f3ad0adabfb7266729d01529ec2a53efd4e3aac7647062b0065ae6e6655c7155",
+  sourceFingerprint: false ? null : "465ca80dd187741609d327f33d976dccde5c2061d037203d50b358d3b28fb49c",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

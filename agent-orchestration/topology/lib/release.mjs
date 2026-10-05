@@ -12,19 +12,19 @@
 // A stop after anything has run (a failed step, a red or missing TeamCity build, a failed verify or
 // postflight, a missing reviewer approval) pages the operator through ntfy.
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, resolve } from 'node:path';
-import { autonomyOf, loadConfig } from './config.mjs';
+import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
 import { managedSessionEvidence } from './delegation.mjs';
-import { foreignDirtyPaths, integrateTask, integrationEligibility, recordTaskEvent, taskStore } from './management.mjs';
+import { foreignDirtyPaths, governedAutonomy, integrateTask, integrationEligibility, loadGovernedConfig, recordTaskEvent, taskStore } from './management.mjs';
 import { page } from './ntfy.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { teamcityClient, teamcityTarget } from './teamcity.mjs';
 import { fail, nowIso, run, writeJson } from './util.mjs';
 import { safeGit } from './safe-git.mjs';
 
-/** TM-368: the effective autonomy policy for this repository and the config layer that set it. */
+/** TM-368 / TM-442: the effective autonomy policy for this repository and where it came from. Only
+ * the repository config committed on the server's default branch can raise it above "pr". */
 export async function resolveAutonomy(options, loaded = null) {
-  return autonomyOf(loaded || await loadConfig(options));
+  return governedAutonomy(loaded || await loadGovernedConfig(options));
 }
 
 /** Page, then throw: the run stops, and the operator hears about it whether or not ntfy answers. */
@@ -36,13 +36,35 @@ async function stop(options, loaded, code, message, details = {}) {
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const git = (cwd, args) => safeGit(cwd, args, { allowFailure: true }); // TM-443
 
-/** A lead never runs these directly, and neither does a configured step: the step must be the
- * repository's own script. ponytail: argv[0] only; the script itself is the repo's reviewed code. */
-export const FORBIDDEN_EXECUTABLES = Object.freeze(['systemctl', 'launchctl', 'service', 'sudo', 'doas', 'git', 'gh', 'sh', 'bash', 'zsh', 'dash', 'env', 'ssh']);
+/** A lead never runs these directly, and neither does a configured step. TM-442: argv[0] is an
+ * ALLOWLIST, not a denylist: it must be a repo-relative path (no absolute path, no `..`, no bare
+ * command name looked up on PATH) to a script tracked at the release revision, whose working-tree
+ * bytes equal the committed blob (trackedScriptProblem). These names are refused even as paths, since
+ * each would run arbitrary code through its arguments. */
+export const FORBIDDEN_EXECUTABLES = Object.freeze(['systemctl', 'launchctl', 'service', 'sudo', 'doas', 'git', 'gh', 'ssh',
+  'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'busybox', 'env', 'node', 'nodejs', 'npx', 'npm', 'pnpm', 'yarn', 'deno', 'bun',
+  'perl', 'ruby', 'php', 'lua', 'python', 'osascript', 'xargs', 'nohup', 'timeout', 'nice', 'exec', 'eval', 'command']);
+const INTERPRETER = /^(python|pypy|perl|ruby|php|lua|node)[0-9.]*$/;
 export function argvProblem(argv, key) {
   if (!Array.isArray(argv) || !argv.length || !argv.every(nonempty)) return `configure ${key} as a nonempty argv array`;
-  const exe = basename(argv[0]);
-  if (FORBIDDEN_EXECUTABLES.includes(exe)) return `${key} runs ${exe} directly; it must name the repository's own script (deploy-safe.sh, release-gitflow.sh), never ${FORBIDDEN_EXECUTABLES.join(', ')}`;
+  const exe = argv[0], name = basename(exe);
+  if (FORBIDDEN_EXECUTABLES.includes(name) || INTERPRETER.test(name)) return `${key} runs ${name} directly; it must name the repository's own tracked script (deploy-safe.sh, release-gitflow.sh), never an interpreter, shell or ${FORBIDDEN_EXECUTABLES.slice(0, 8).join(', ')}`;
+  if (isAbsolute(exe) || exe.startsWith('~')) return `${key} names an absolute path ${exe}; it must be a repo-relative path to the repository's own tracked script`;
+  if (!exe.includes('/')) return `${key} names ${exe}, which would be looked up on PATH; name the repository's own script by its repo-relative path (for example scripts/${exe})`;
+  if (normalize(exe).split('/').includes('..') || exe.split('/').includes('..')) return `${key} leaves the repository (${exe}); it must be a repo-relative path inside it`;
+  return null;
+}
+
+/** TM-442: argv[0] is a regular executable file tracked at `revision` and the working tree holds exactly
+ * the committed bytes (hash-object without filters), so what runs is the reviewed, committed script. */
+export async function trackedScriptProblem(root, revision, argv, key) {
+  const path = normalize(argv[0]).replace(/^\.\//, '');
+  const listed = (await git(root, ['ls-tree', '-z', revision, '--', path])).stdout.split('\0').filter(Boolean);
+  const [meta] = listed.length === 1 ? listed[0].split('\t') : [];
+  const [mode, type, blob] = (meta || '').split(' ');
+  if (type !== 'blob' || mode !== '100755') return `${key} names ${argv[0]}, which is not an executable script tracked at ${revision}${type ? ` (mode ${mode} ${type})` : ''}`;
+  const disk = await git(root, ['hash-object', '--no-filters', '--', path]);
+  if (disk.code !== 0 || disk.stdout.trim() !== blob) return `${key} script ${path} differs from its committed content at ${revision}; only the committed script runs`;
   return null;
 }
 
@@ -70,9 +92,10 @@ export async function releaseReadiness(options, kind) {
   const env = options.env || process.env, home = options.home || homedir();
   const verb = kind === 'cutover' ? 'cutover' : 'release';
   const refusals = [], refuse = (condition, reason) => refusals.push({ condition, reason });
-  const loaded = await loadConfig(options);
+  const loaded = await loadGovernedConfig(options);
   if (loaded.errors.length) refuse('config', `configuration is invalid: ${loaded.errors.map(e => e.message).join('; ')}`);
   const config = loaded.config.management?.[kind] || {};
+  if (!loaded.config.management?.[kind]) refuse('config', `management.${kind} is honoured only from ${loaded.policy.source || `the repository config on the server's default branch (${loaded.policy.reason})`} (TM-442)`);
   for (const key of STEPS[kind].required) { const problem = argvProblem(config[key], `management.${kind}.${key}`); if (problem) refuse('config', problem); }
   for (const key of STEPS[kind].optional) { if (config[key] !== undefined) { const problem = argvProblem(config[key], `management.${kind}.${key}`); if (problem) refuse('config', problem); } }
   const branch = nonempty(config.branch) ? config.branch : 'develop';
@@ -93,6 +116,13 @@ export async function releaseReadiness(options, kind) {
     const remote = (await git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`])).stdout.trim();
     if (fetched.code !== 0) refuse('sync', `cannot fetch origin/${branch}: ${fetched.stderr.trim()}`);
     else if (remote !== revision) refuse('sync', `${branch} is at ${revision}, origin/${branch} is at ${remote || 'nothing'}; ${verb} runs only from a checkout synced with origin`);
+    if (revision) {
+      for (const key of [...STEPS[kind].required, ...STEPS[kind].optional]) {
+        if (config[key] === undefined || argvProblem(config[key], `management.${kind}.${key}`)) continue;
+        const problem = await trackedScriptProblem(root, revision, config[key], `management.${kind}.${key}`);
+        if (problem) refuse('config', problem);
+      }
+    }
   }
 
   // All planned tasks landed: the approved plan is an epic (or, for a task with no epic, the task
@@ -206,8 +236,8 @@ export async function cutRelease(options) {
  *   publish integrate, then, once every task of the plan has landed, cut-release (TeamCity wait and
  *           verify included), record the publish with its grant source, and notify the origin. */
 export async function landTask(options) {
-  const loaded = await loadConfig(options);
-  const autonomy = autonomyOf(loaded), base = { task: options.task, autonomy };
+  const loaded = await loadGovernedConfig(options);
+  const autonomy = governedAutonomy(loaded), base = { task: options.task, autonomy };
   if (autonomy.level === 'pr') return { ...base, landed: false, stopped: 'pr', reason: 'autonomy is "pr": the lead stops at the reviewed pull request, and a human merges it' };
 
   const gate = await integrationEligibility(options);

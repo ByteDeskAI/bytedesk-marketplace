@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
-import { loadConfig } from './config.mjs';
+import { AUTONOMY_LEVELS, loadConfig } from './config.mjs';
 import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
@@ -654,14 +654,53 @@ export const LEAD_POLICY_PATH = '.bytedesk/agent-orchestration/config.json';
  * or gh default is refused, so the policy is null. Same-uid limit as githubCompare: a process as this
  * user can replace gh. */
 export async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = homedir() } = {}) {
+  const policy = (await serverPolicy(gh, repoDir, { env, home })).document?.management?.lead_autonomy;
+  return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
+}
+
+/** TM-263 / TM-442: the repository config (LEAD_POLICY_PATH) as committed on the SERVER's default
+ * branch of the PINNED repository, read through gh. { document, source } or { document: null, reason }.
+ * Never the local file, the shared .git refs or remote URL: a worker can write all three. */
+export async function serverPolicy(gh, repoDir, { env = process.env, home = homedir() } = {}) {
   let repo, branch;
-  try { ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch { return null; }
+  try { ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch (error) { return { document: null, reason: error.message }; }
   const file = await ghJson(gh, ['api', `repos/${repo}/contents/${LEAD_POLICY_PATH}?ref=${encodeURIComponent(branch)}`]);
-  if (file.code !== 0 || typeof file.value?.content !== 'string') return null;
-  try {
-    const policy = JSON.parse(Buffer.from(file.value.content, 'base64').toString('utf8'))?.management?.lead_autonomy;
-    return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
-  } catch { return null; }
+  if (file.code !== 0 || typeof file.value?.content !== 'string') return { document: null, reason: `cannot read ${LEAD_POLICY_PATH} on ${repo}@${branch}${file.error ? `: ${file.error}` : ''}` };
+  try { return { document: JSON.parse(Buffer.from(file.value.content, 'base64').toString('utf8')), source: `${repo}@${branch}:${LEAD_POLICY_PATH}` }; }
+  catch { return { document: null, reason: `${LEAD_POLICY_PATH} on ${repo}@${branch} is not valid JSON` }; }
+}
+
+/** TM-442: the management keys that grant authority or choose what the lead executes. They are honoured
+ * ONLY from the repository config committed on the server's default branch. A worker runs as the
+ * operator's OS user and can write the global layer (~/.config/agent-orchestration), the plugin
+ * defaults and the checkout's own repo file, so a value there is ignored with a warning. A signed
+ * operator layer would be a second honoured source; signing is not implemented. */
+export const PROTECTED_MANAGEMENT_KEYS = Object.freeze(['autonomy', 'release', 'cutover', 'required_checks']);
+
+/** loadConfig, with PROTECTED_MANAGEMENT_KEYS replaced by the server's committed values (absent when the
+ * server cannot be read: autonomy falls back to "pr", and release, cutover and required checks are
+ * unconfigured, so every verb that needs them refuses). Adds { warnings, policy: { source, reason } }. */
+export async function loadGovernedConfig(options) {
+  const loaded = await loadConfig(options);
+  const server = await serverPolicy(options.gh || defaultGh(options.consumer), options.consumer, { env: options.env || process.env, home: options.home || homedir() });
+  const committed = server.document?.management && typeof server.document.management === 'object' ? server.document.management : {};
+  const management = { ...(loaded.config.management || {}) }, warnings = [];
+  for (const key of PROTECTED_MANAGEMENT_KEYS) {
+    const local = management[key];
+    delete management[key];
+    if (Object.hasOwn(committed, key) && !(key === 'autonomy' && !AUTONOMY_LEVELS.includes(committed[key]))) management[key] = committed[key];
+    if (local !== undefined && JSON.stringify(local) !== JSON.stringify(management[key])) {
+      const layers = loaded.layers.filter(l => l.ok && l.present && l.raw?.management?.[key] !== undefined).map(l => `${l.scope} (${l.path})`);
+      warnings.push(`management.${key} in ${layers.join(', ') || 'a local layer'} is ignored: it is honoured only from ${server.source || `the server's default branch (${server.reason})`} (TM-442)`);
+    }
+  }
+  return { ...loaded, config: { ...loaded.config, management }, warnings, policy: { source: server.source || null, reason: server.reason || null } };
+}
+
+/** TM-442: the effective autonomy and where it came from; "pr" unless the server's default branch says otherwise. */
+export function governedAutonomy(governed) {
+  const level = governed.config.management?.autonomy;
+  return level ? { level, scope: 'server-default-branch', path: governed.policy.source } : { level: 'pr', scope: 'built-in', path: null };
 }
 
 /** TM-263: integrate authority from the server policy, or null. The policy must name the caller and
@@ -694,14 +733,14 @@ export async function integrationEligibility(options) {
   if (!record || record.state !== 'ready-for-review') refuse('protocol', 'task has no completed worker protocol ready for review');
   let doc, review = null;
   try { doc = await ownedTask(ctx, options.task, record?.owner); } catch (error) { refuse('ownership', error.message); }
-  const loaded = await loadConfig(options);
+  const loaded = await loadGovernedConfig(options);
   const policy = loaded.config.management || {};
   if (loaded.errors.length) refuse('config', 'management configuration is invalid');
   const viaPullRequest = policy.integrate_via === 'pull-request';
   const authority = await integrationAuthority(options, ctx, policy);
   for (const { condition, reason } of authority.refusals) refuse(condition, reason);
   const { delegation, delegationError } = authority;
-  if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse('config', 'configure named management.required_checks with executable argv');
+  if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse('config', `configure named management.required_checks with executable argv in ${LEAD_POLICY_PATH} on the server's default branch, the only source honoured (TM-442)${loaded.policy.reason ? `; ${loaded.policy.reason}` : ''}`);
   if (!nonempty(policy.target_branch)) refuse('config', 'configure management.target_branch before integration');
   if (doc && record?.finish) {
     if (!doc.labels?.includes('ready-for-agent')) refuse('scope', 'task scope is no longer approved');
@@ -720,10 +759,33 @@ export async function integrationEligibility(options) {
         if (paths.some(path => !doc.touches.some(scope => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/')))) refuse('scope', 'implementation changed files outside the approved task scope');
       } catch (error) { refuse('scope', error.message); }
     }
+    // TM-442: a task never changes the management policy it is judged by; that is the operator's edit.
+    const changed = await managementPolicyChange(doc.worktree, record.finish.revision, policy.target_branch);
+    if (changed) refuse('scope', changed);
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) refuse('worker', writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
   return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
+}
+
+/** TM-442: a reason when `revision` changes `management` in the committed repo config relative to its
+ * merge base with the integration branch (local, else origin), or null. Unreadable counts as changed. */
+export async function managementPolicyChange(cwd, revision, target) {
+  if (!nonempty(target)) return null;
+  let base = '';
+  for (const ref of [`refs/heads/${target}`, `refs/remotes/origin/${target}`]) {
+    base = (await git(cwd, ['merge-base', revision, ref], true)).stdout.trim();
+    if (base) break;
+  }
+  if (!base) return `cannot find the merge base of ${revision} with ${target}, so a change to ${LEAD_POLICY_PATH} management cannot be ruled out`;
+  const management = async rev => {
+    const shown = await git(cwd, ['cat-file', '-p', `${rev}:${LEAD_POLICY_PATH}`], true);
+    if (shown.code !== 0) return { value: null };
+    try { return { value: JSON.parse(shown.stdout)?.management ?? null }; } catch { return { invalid: true }; }
+  };
+  const [before, after] = [await management(base), await management(revision)];
+  if (after.invalid || JSON.stringify(before.value) !== JSON.stringify(after.value)) return `the task changes "management" in ${LEAD_POLICY_PATH}; management policy is the operator's change, made on the default branch, never landed through a task (TM-442)`;
+  return null;
 }
 
 /** TM-444: the host runs each required check in a FRESH detached worktree of `revision`, never in the
