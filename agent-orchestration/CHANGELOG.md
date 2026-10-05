@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-05
+
 ### Changed
 
 - **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`

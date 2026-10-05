@@ -77486,11 +77486,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
+  return false ? null : "d458cbea60b1714c64b71161992b07be4a1026bf9d1f5138a8cf47292234a518";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6";
-  let version2 = false ? null : "0.15.4";
+  const fingerprint2 = false ? null : "d458cbea60b1714c64b71161992b07be4a1026bf9d1f5138a8cf47292234a518";
+  let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path66.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -77914,8 +77914,8 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4f8a6b0fe95199405b5969135c1bf9f140acf48e02456cdea1727a0d80b1a2d6",
-  version: false ? null : "0.15.4"
+  sourceFingerprint: false ? null : "d458cbea60b1714c64b71161992b07be4a1026bf9d1f5138a8cf47292234a518",
+  version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises58.readFile)(path3).then((bytes) => (0, import_node_crypto37.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
@@ -78963,7 +78963,7 @@ function register2(server, service, name, description, inputSchema, outputDataSc
 }
 async function createServer2(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.15.4" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.16.0" });
   register2(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function() {
     return this.capabilities();
   });
