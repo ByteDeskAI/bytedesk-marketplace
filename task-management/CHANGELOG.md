@@ -9,6 +9,15 @@
 - **`tm why` no longer says a blocked task can be picked up (EP-028).** A ready-for-agent task that
   cannot start yet reads "ready for an agent once its blockers clear — the pool skips it until
   then", matching what the pool does.
+- **`tm doctor --all` is the combined doctor (TM-379, EP-028).** With agent-orchestration
+  installed it runs `agent-orchestration doctor --consumer-cwd <this repo>`, which checks AO, this
+  store (through `tm doctor --json`) and the managed services, and keeps its exit status. Without
+  agent-orchestration it checks this store alone and says that AO and services were not checked
+  (`agentOrchestration.present: false` with `--json`). Plain `tm doctor` is unchanged and never
+  calls AO. Test: `tests/test-doctor-all.sh`.
+
+- **`route` points at `/agent-orchestration:orchestrate` (TM-376, EP-028)** for work that goes to
+  another agent or repository; `route` itself still picks a task-management flow.
 
 - **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
   heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on

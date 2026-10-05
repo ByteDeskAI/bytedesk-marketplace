@@ -14,8 +14,41 @@
   general, and task-specific detail stays on the task. `roles/worker.md` now lets a worker
   message other agents through the mailbox about its own task, instead of forbidding all
   messages.
+- **Skill cleanup: fewer, clearer entry points (TM-377, EP-028).** `roadmap-orchestrator` is now
+  `roadmap-governance` (it governs `ROADMAP.md`; it never orchestrated agents); its description
+  names the old name so `$roadmap-orchestrator` still resolves, and host wiring removes the Kimi link
+  an older install left under the old name. `install-orchestration-host` is merged into
+  `setup-agent-orchestration` as its "Wire another host" step; the script moved to
+  `skills/setup-agent-orchestration/scripts/install-host.mjs`. `orchestration-conduct` is marked
+  not user-invokable (it is the conductor's internal protocol). `goal-feedback-loop` now has
+  trigger phrases and an argument hint.
 
 ### Added
+
+- **One doctor for AO, task-management and the services (TM-379, EP-028).** `agent-orchestration
+  doctor` now leads its JSON with a `combined` block and exits 1 when any present part is
+  unhealthy: `agentOrchestration` (the doctor's own verdict), `services` (process-compose answering
+  and every managed process Running, the same predicate as `services wait --until healthy`;
+  `ok: null` when services are switched off), `taskManagement` (`tm doctor --json` run through the
+  repository's tm launcher, never imported; `ok: null` when tm is absent) and `pluginFreshness`
+  (TM-373, informational). It used to exit 0 whatever it found.
+- **`ao-topology repos list|add|remove` makes repository registration explicit (TM-378, EP-028).**
+  Until now a repository got a supervisor only as a SessionStart side effect. `repos list [--json]`
+  shows each entry of the services `repos.json` registry with its supervisor state (running,
+  starting, never-started, down, repository-missing and so on). `repos add [<path>]` registers a
+  git checkout: a linked worktree registers its main checkout, and a plain directory is refused
+  with `TOPOLOGY_REPO_NOT_GIT`. `repos remove [<path>|<key>]` unregisters it by path, worktree path
+  or key, and never deletes the repository or its state. When services are enabled, add and remove
+  run `services ensure` so the supervisor starts or stops at once. `services ensure --consumer-cwd`
+  and `repos add` now share one `registerRepository` in `topology/lib/services-client.mjs`.
+- **`/orchestrate` is one entry point across both plugins (TM-376, EP-028).** The new
+  `orchestrate` skill maps each intent (dispatch a task, drain the pool, ticket another repo,
+  message one lead or `@all-leads`, wait for a reply, launch a team, ask another model, run a goal,
+  check status or health, mine for issues) to the one skill or verb that does it, says what still
+  works when task-management or agent-orchestration is absent, and separates the three meanings of
+  "route", "cap" and "agent". `tests/unit/orchestrate-skill.test.mjs` fails when a verb, sub-verb,
+  flag, MCP tool or skill it names does not exist in `topology/cli.mjs`, `src/cli.mjs`, `bin/tm`'s
+  VERBS table or either MCP server.
 
 - **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
   (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when

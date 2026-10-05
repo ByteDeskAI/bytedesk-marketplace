@@ -129,6 +129,9 @@ Standing repository services
        [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
+  repos list [--json]                           registered repositories and each supervisor's state
+  repos add [<path>]                            register a git checkout for a supervisor (default: cwd)
+  repos remove [<path>|<key>]                   unregister it; the repository and its state are kept
   census [--json] [--watch]                     what every agent in this repo is doing right now:
                                                 working / needs-input / idle / attention /
                                                 quota-blocked / dead / unknown
@@ -477,6 +480,52 @@ const commands = {
       out({ ok: true, supervising: false, reason: 'retired-consumer-gone', consumer: ctx.consumer, deregistered, reloaded, exit_code: SUPERVISE_EXIT.RETIRED });
     }
     return report;
+  },
+
+  // TM-378: repository registration made explicit. Before this, the only way in was a SessionStart
+  // side effect (`services ensure --consumer-cwd`) and the only way out a supervisor retiring itself.
+  async repos({ flags, positional }) {
+    const client = await import('./lib/services-client.mjs');
+    const { canonicalRepoId, repoKey } = await import('./lib/repoid.mjs');
+    const sub = positional[0] || 'list';
+    // Re-render the process-compose project so the supervisor starts or stops now, not at the next session.
+    const reload = async (changed) => {
+      if (!changed || !client.servicesEnabled()) return { reloaded: false };
+      const ensured = await client.runServicesEnsure();
+      return ensured.ok === true ? { reloaded: true } : { reloaded: false, reload_error: ensured.error ?? 'services ensure failed' };
+    };
+    if (sub === 'list') {
+      const { supervisionStatus } = await import('./lib/supervision.mjs');
+      const repos = await Promise.all((await client.readServiceRepos()).map(async (repo) => {
+        const present = await exists(repo.consumer);
+        const s = present ? await supervisionStatus({ consumer: repo.consumer }).catch((error) => ({ state: 'unknown', error: error.message })) : { state: 'repository-missing' };
+        return { key: repo.key, consumer: repo.consumer, exists: present, supervisor: s.state, ready: s.ready === true, pid: s.pid ?? null,
+          last_tick_at: s.last_tick_at ?? null, ...(s.error ? { error: s.error } : {}) };
+      }));
+      if (flags.json) return out({ ok: true, registry: client.reposPath(), services: client.servicesEnabled(), repos });
+      if (!repos.length) return out(`No repositories registered (${client.reposPath()}). Add one: ao-topology repos add [<path>]`);
+      out(`Registered repositories (${repos.length}) — ${client.reposPath()}`);
+      for (const r of repos) out(`  ${r.ready ? '●' : '○'} ${r.consumer}  [${r.key}] supervisor ${r.supervisor}${r.pid ? ` pid ${r.pid}` : ''}${r.last_tick_at ? ` · last tick ${r.last_tick_at}` : ''}`);
+      return;
+    }
+    const target = absolutize(positional[1] ?? (typeof flags.consumer === 'string' ? flags.consumer : process.cwd()));
+    if (sub === 'add') {
+      const changed = await client.registerRepository(target);
+      if (changed === null) fail('TOPOLOGY_REPO_NOT_GIT', `${target} is not a git checkout; only a repository gets a supervisor.`);
+      const key = repoKey((await canonicalRepoId(target)).id);
+      return out({ ok: true, key, consumer: (await client.readServiceRepos()).find((r) => r.key === key)?.consumer ?? target, registered: changed, ...await reload(changed) });
+    }
+    if (sub === 'remove') {
+      // A key, or a path: a worktree path resolves to its repository's key; a deleted checkout matches by path.
+      const raw = positional[1];
+      const registered = await client.readServiceRepos();
+      const key = registered.some((r) => r.key === raw) ? raw : await canonicalRepoId(target).then((id) => repoKey(id.id)).catch(() => null);
+      const changed = await client.removeServiceRepo({ key, consumer: target });
+      if (!changed) process.exitCode = 1;
+      return out({ ok: changed, key, consumer: target, removed: changed, kept: 'the repository and its agent-orchestration state are untouched',
+        ...(changed ? await reload(changed) : { reason: 'not registered' }) });
+    }
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use repos list|add|remove.');
   },
 
   async census({ flags }) {

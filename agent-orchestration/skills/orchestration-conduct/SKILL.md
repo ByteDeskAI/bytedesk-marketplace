@@ -1,7 +1,8 @@
 ---
 name: orchestration-conduct
-description: The conductor's protocol inside a launched tmux orchestration — write briefs, send them through the mailbox, wait for replies, route to judges, run revision rounds, stop at human gates, and write the final report. Loaded automatically by the orchestrator agent from its BOOTSTRAP.md; also useful when a human wants to drive a run by hand.
-user-invokable: true
+description: The conductor's protocol inside a launched tmux orchestration — write briefs, send them through the mailbox, wait for replies, route to judges, run revision rounds, stop at human gates, and write the final report. Loaded automatically by the orchestrator agent from its BOOTSTRAP.md; also useful when a human wants to drive a run by hand. Internal, not a user entry point; a user who wants to run or drive a team starts at /agent-orchestration:orchestrate or orchestration-launch.
+user-invokable: false
+user-invocable: false
 argument-hint: "(runs inside a launched orchestration; reads $AO_RUN_DIR)"
 ---
 
