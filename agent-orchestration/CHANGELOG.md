@@ -69,6 +69,12 @@
   reports `responsive` with `verdict_source: "heartbeat"` and `busy`, and the pane is not rung. A
   dead pane, a respawned pane, another pane's heartbeat or a stale one still reads as before, and
   the nonce probe remains the proof when no heartbeat exists. Outside tmux the hook writes nothing.
+- **Held `no_lead` mail launches the destination's lead (TM-354, EP-028).** A `leads_not_ready`
+  hold already asked each side's own supervisor to recover its lead (TM-167). A `no_lead` hold now
+  does the same for the destination only, so the supervisor creates the missing lead through
+  `recoverLead` / `ensureLead`, under the registration lock. Tests cover the whole path: two held
+  messages, six racing supervisor ticks, one lead launched, and both messages delivered to that
+  lead once it is proven ready.
 
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,

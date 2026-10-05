@@ -62,6 +62,9 @@ function readinessOf(state) {
 
 // Holds no retry can change. The envelope is immutable, so its declared source, its repository
 // identities and its ancestry stay what they are, and so does the routing verdict built from them.
+// TM-354: holds a lead can end. Each asks the side's own supervisor to launch or recover its lead
+// (recoverLead, under the registration lock, so repeated asks never start a second lead).
+const RECOVERABLE_HOLDS = new Set(['leads_not_ready', 'no_lead']);
 const PERMANENT_HOLDS = new Set(['source_identity_required', 'repository_identity_changed', 'hop_limit', 'loop', 'coordinator_not_worker']);
 
 function due(record, now, force) {
@@ -84,10 +87,13 @@ async function scheduleRecovery(record, opts) {
   const request = opts.requestRecovery ?? requestLeadRecovery;
   const activate = opts.activate ?? activateRepository;
   const sides = {};
-  for (const [side, consumer] of [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]]) {
+  // TM-354: no_lead is the destination's alone: its library has no lead to vouch for the contact.
+  const candidates = record.reason === 'no_lead' ? [['destination', record.envelope.consumer]]
+    : [['source', record.envelope.fromProject], ['destination', record.envelope.consumer]];
+  for (const [side, consumer] of candidates) {
     if (record.readiness?.[side] === 'responsive') continue;
     try {
-      await request({ consumer, env: opts.env, home: opts.home, reason: 'leads_not_ready', messageId: record.envelope.id });
+      await request({ consumer, env: opts.env, home: opts.home, reason: record.reason, messageId: record.envelope.id });
       const activation = await activate({ consumer, env: opts.env, home: opts.home, reason: 'held-standing-mail' });
       sides[side] = { requested: true, enrolled: activation?.enrollment?.enrolled ?? null, supervision: activation?.supervision ?? null };
     } catch (error) {
@@ -97,7 +103,7 @@ async function scheduleRecovery(record, opts) {
   return sides;
 }
 async function withRecovery(record, opts) {
-  if (record.status !== 'held' || record.reason !== 'leads_not_ready') return record;
+  if (record.status !== 'held' || !RECOVERABLE_HOLDS.has(record.reason)) return record;
   return { ...record, recovery: await scheduleRecovery(record, opts) };
 }
 

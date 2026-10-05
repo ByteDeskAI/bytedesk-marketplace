@@ -21773,10 +21773,11 @@ async function scheduleRecovery(record2, opts) {
   const request = opts.requestRecovery ?? requestLeadRecovery;
   const activate = opts.activate ?? activateRepository;
   const sides = {};
-  for (const [side, consumer] of [["source", record2.envelope.fromProject], ["destination", record2.envelope.consumer]]) {
+  const candidates = record2.reason === "no_lead" ? [["destination", record2.envelope.consumer]] : [["source", record2.envelope.fromProject], ["destination", record2.envelope.consumer]];
+  for (const [side, consumer] of candidates) {
     if (record2.readiness?.[side] === "responsive") continue;
     try {
-      await request({ consumer, env: opts.env, home: opts.home, reason: "leads_not_ready", messageId: record2.envelope.id });
+      await request({ consumer, env: opts.env, home: opts.home, reason: record2.reason, messageId: record2.envelope.id });
       const activation = await activate({ consumer, env: opts.env, home: opts.home, reason: "held-standing-mail" });
       sides[side] = { requested: true, enrolled: activation?.enrollment?.enrolled ?? null, supervision: activation?.supervision ?? null };
     } catch (error51) {
@@ -21786,7 +21787,7 @@ async function scheduleRecovery(record2, opts) {
   return sides;
 }
 async function withRecovery(record2, opts) {
-  if (record2.status !== "held" || record2.reason !== "leads_not_ready") return record2;
+  if (record2.status !== "held" || !RECOVERABLE_HOLDS.has(record2.reason)) return record2;
   return { ...record2, recovery: await scheduleRecovery(record2, opts) };
 }
 function standingEnvelope(record2) {
@@ -22131,7 +22132,7 @@ async function recordStandingReply({ consumer, messageId: messageId2, agentId, b
   }
   return settled.reply;
 }
-var import_node_crypto22, import_promises36, import_node_os18, import_node_path47, import_node_util4, PERMANENT_HOLDS;
+var import_node_crypto22, import_promises36, import_node_os18, import_node_path47, import_node_util4, RECOVERABLE_HOLDS, PERMANENT_HOLDS;
 var init_standing_mailbox = __esm({
   "topology/lib/standing-mailbox.mjs"() {
     import_node_crypto22 = require("node:crypto");
@@ -22148,6 +22149,7 @@ var init_standing_mailbox = __esm({
     init_session_identity();
     init_util();
     init_mailbox_receipts();
+    RECOVERABLE_HOLDS = /* @__PURE__ */ new Set(["leads_not_ready", "no_lead"]);
     PERMANENT_HOLDS = /* @__PURE__ */ new Set(["source_identity_required", "repository_identity_changed", "hop_limit", "loop", "coordinator_not_worker"]);
   }
 });
@@ -60512,10 +60514,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path64.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "59c9a829ad64482e99f7eba9065dfc927eb0be51b42d218f99db72e48ca5e801";
+  return false ? null : "ece2c18a473f7a4399da5bc3ca034dea88ae422263136af4f5c3a9fc5ca5ea40";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "59c9a829ad64482e99f7eba9065dfc927eb0be51b42d218f99db72e48ca5e801";
+  const fingerprint2 = false ? null : "ece2c18a473f7a4399da5bc3ca034dea88ae422263136af4f5c3a9fc5ca5ea40";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61106,7 +61108,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "59c9a829ad64482e99f7eba9065dfc927eb0be51b42d218f99db72e48ca5e801",
+  sourceFingerprint: false ? null : "ece2c18a473f7a4399da5bc3ca034dea88ae422263136af4f5c3a9fc5ca5ea40",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises57.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
