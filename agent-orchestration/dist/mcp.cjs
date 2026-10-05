@@ -35739,7 +35739,7 @@ async function sendMessage({ runDir, from, to, stage, body, contract, round, sub
 ` : "";
     const instructions = replySubject ? `
 
-<!-- Reply on NATS subject ${replySubject} with: ao-topology reply --message ${id} -->
+<!-- Reply on NATS subject ${replySubject} with: ao-topology reply --message ${id}, or write your complete reply to: ${outbox} -->
 ` : `
 
 <!-- Write your complete reply to: ${outbox} -->
@@ -35753,8 +35753,8 @@ ${instructions}`;
       requested,
       redirected: Boolean(decision.redirected),
       via: hops,
-      inbox: activeTransport.kind === "file" ? inbox : null,
-      outbox: activeTransport.kind === "file" ? outbox : null,
+      inbox,
+      outbox,
       transport: activeTransport.kind,
       ...activeTransport.kind === "nats" ? { messageId: messageId2, publication: "pending" } : {}
     };
@@ -35796,13 +35796,14 @@ ${instructions}`;
       body: rendered,
       inboxPath: activeTransport.kind === "file" ? inbox : void 0
     });
+    if (activeTransport.kind === "nats") await writeText(inbox, rendered);
     deliveries.push({
       agent: recipient,
       requested,
       redirected: Boolean(decision.redirected),
       via: hops,
-      inbox: activeTransport.kind === "file" ? inbox : null,
-      outbox: activeTransport.kind === "file" ? outbox : null,
+      inbox,
+      outbox,
       subject: published.subject,
       transport: activeTransport.kind,
       ...activeTransport.kind === "nats" ? { messageId: messageId2, publication: "published" } : {}
@@ -77708,10 +77709,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  return false ? null : "afdd4f849171ffcc986e7346d396f9275a0ce2acbaa86bc3474e278c60cf68b1";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871";
+  const fingerprint2 = false ? null : "afdd4f849171ffcc986e7346d396f9275a0ce2acbaa86bc3474e278c60cf68b1";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -78136,7 +78137,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d61d3fa49ae730b30f5f14eb3421644dbdebf9aa89dc7e6cea7de653385c5871",
+  sourceFingerprint: false ? null : "afdd4f849171ffcc986e7346d396f9275a0ce2acbaa86bc3474e278c60cf68b1",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises58.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

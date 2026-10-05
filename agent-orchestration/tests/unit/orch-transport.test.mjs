@@ -1,7 +1,7 @@
 import { natsServerBin } from '../helpers/nats-server.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import net from 'node:net';
@@ -194,10 +194,15 @@ async function threeCases(brokerUrl, stateHome, label) {
     assert.equal(sent.code, 0, sent.stderr || sent.stdout);
     const message = JSON.parse(sent.stdout);
     assert.equal(message.deliveries[0].transport, 'nats');
-    assert.equal(message.deliveries[0].inbox, null);
+    // TM-409: a NATS delivery also materializes the inbox file and names an outbox, so a
+    // file-only reviewer receives it and knows where to write the reply.
     const inboxFile = join(runDir, 'agents', 'agent-b', 'inbox', '001-brief.md');
-    const beforeRead = await inboxStat(inboxFile);
-    assert.equal(beforeRead, 'ENOENT');
+    const outboxFile = join(runDir, 'agents', 'agent-b', 'outbox', '001-brief.reply.md');
+    assert.equal(message.deliveries[0].inbox, inboxFile);
+    assert.equal(message.deliveries[0].outbox, outboxFile);
+    const fileMail = await readFile(inboxFile, 'utf8');
+    assert.match(fileMail, new RegExp(`case-mail-${label}`));
+    assert.equal(fileMail.includes(`write your complete reply to: ${outboxFile}`), true);
     const received = await runCli([
       'mailbox', 'inbox', '--consumer', runDir, '--agent', 'agent-b',
     ], env);
@@ -208,7 +213,7 @@ async function threeCases(brokerUrl, stateHome, label) {
     assert.match(inbox[0].body, new RegExp(`case-mail-${label}`));
     assert.equal(inbox[0].subject, ORCH_LAYOUT.mailSubject(repo, 'agent-b'));
     const afterRead = await inboxStat(inboxFile);
-    assert.equal(afterRead, 'ENOENT');
+    assert.equal(afterRead, 'present');
     console.log(`CASE mail subject=${inbox[0].subject} bucket=${ORCH_LAYOUT.mailStream} inboxStat=${afterRead} body=${label}`);
 
     const listed = await execFileAsync('tmux', [
@@ -344,7 +349,7 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
       const senderFile = join(replyRun, 'agents', 'conductor', 'inbox', '002-note.md');
       const outbox = join(replyRun, 'agents', 'agent-b', 'outbox', `${replyMessage.id}.reply.md`);
       const decoyOutbox = join(replyRun, 'agents', 'agent-b', 'outbox', `${decoyMessage.id}.reply.md`);
-      assert.equal(await inboxStat(senderFile), 'ENOENT');
+      assert.equal(await inboxStat(senderFile), 'present');
       assert.equal(await inboxStat(outbox), 'ENOENT');
       assert.equal(await inboxStat(decoyOutbox), 'ENOENT');
       const done = await runCli([
@@ -360,7 +365,7 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
       assert.equal(doneView.replies[0].transport, 'nats');
       assert.equal(doneView.replies[0].subject, ORCH_LAYOUT.replySubject(replyRepo, 'conductor'));
       assert.equal(await inboxStat(outbox), 'ENOENT');
-      assert.equal(await inboxStat(senderFile), 'ENOENT');
+      assert.equal(await inboxStat(senderFile), 'present');
       console.log(`CASE reply subject=${doneView.replies[0].subject} inboxSubject=${senderMail[0].subject} outboxStat=ENOENT`);
       await rm(replyRun, { recursive: true, force: true });
       const gapEnv = {
@@ -379,13 +384,13 @@ test('NATS cases pass twice, survive a reconnect, and release the client', async
       ], gapEnv);
       assert.equal(gapSent.code, 0, gapSent.stderr || gapSent.stdout);
       const gapFile = join(gapRun, 'agents', 'agent-b', 'inbox', '001-brief.md');
-      assert.equal(await inboxStat(gapFile), 'ENOENT');
+      assert.equal(await inboxStat(gapFile), 'present');
       const gapIn = await runCli(['mailbox', 'inbox', '--consumer', gapRun, '--agent', 'agent-b'], gapEnv);
       assert.equal(gapIn.code, 0, gapIn.stderr || gapIn.stdout);
       const held = JSON.parse(gapIn.stdout);
       assert.equal(held[0]?.body?.includes('held-across-close'), true);
-      assert.equal(await inboxStat(gapFile), 'ENOENT');
-      console.log(`CASE gap subject=${held[0].subject} inboxStat=ENOENT`);
+      assert.equal(await inboxStat(gapFile), 'present');
+      console.log(`CASE gap subject=${held[0].subject} inboxStat=present`);
       await rm(gapRun, { recursive: true, force: true });
     } finally {
       await rm(stateHome, { recursive: true, force: true });
