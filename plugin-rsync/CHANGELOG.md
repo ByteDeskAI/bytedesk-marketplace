@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **`plugin-rsync fix-grok-installs`, run from the session hook in any repo (TM-396).** A Grok
+  install whose Local source is a whole marketplace is re-copied on every Grok start (tens of GB of
+  worktrees) and Grok times out loading plugins, so no hook runs. This reinstalls each such plugin
+  from its own folder; a lock keeps concurrent session starts from racing. No-op otherwise.
 - **Automatic sync on every machine, in Claude, Codex and Grok (TM-391).** A SessionStart hook
   (`hooks/hooks.json`, also declared in `.codex-plugin/plugin.json`) turns on the marketplace's
   `scripts/git-hooks` (`core.hooksPath`) in any bytedesk-marketplace checkout where it is unset, so

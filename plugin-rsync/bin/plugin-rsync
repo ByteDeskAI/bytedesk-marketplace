@@ -5,7 +5,7 @@
  * User-scope only. This is a machine tool, not a project one: a repo that enables
  * plugin-rsync@bytedesk in extraKnownMarketplaces is the wrong install.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -220,6 +220,55 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
   });
 }
 
+/**
+ * A Grok install whose Local source is a whole marketplace (not one plugin folder) is re-copied on
+ * every Grok start — worktrees and all, tens of GB here — and Grok gives up loading plugins, so no
+ * hook runs. Reinstall each such plugin from `<marketplace>/<plugin>`. No-op when none match.
+ * One run at a time (a lock dir), because every session start calls this.
+ */
+function fixGrokInstalls({ home = HOME } = {}) {
+  const reg = readJson(join(home, ".grok", "installed-plugins", "registry.json"), null);
+  const bad = [];
+  for (const entry of Object.values(reg?.repos || {})) {
+    const src = entry?.kind?.type === "Local" ? entry.kind.source_path : null;
+    if (!src || !existsSync(join(src, ".claude-plugin", "marketplace.json"))) continue;
+    for (const [name, meta] of Object.entries(entry.plugins || {})) {
+      const dir = resolve(src, meta?.subdir || name);
+      if (isDir(dir)) bad.push({ name, src: dir, original: `${src}#${meta?.subdir || name}` });
+    }
+  }
+  if (!bad.length) return { ok: true, fixed: [] };
+  const lock = join(home, ".grok", ".plugin-rsync-fix.lock");
+  // A run killed mid-way leaves its lock; one older than any run could take is reclaimed, or the
+  // repair would be skipped forever.
+  try {
+    if (Date.now() - statSync(lock).mtimeMs > 15 * 60 * 1000) rmdirSync(lock);
+  } catch {}
+  try {
+    mkdirSync(lock);
+  } catch {
+    return { ok: true, fixed: [], busy: true };
+  }
+  try {
+    const fixed = [];
+    const grok = (...args) => spawnSync("grok", ["plugin", ...args], { encoding: "utf8", timeout: 300000 });
+    for (const { name, src, original } of bad) {
+      const un = grok("uninstall", name);
+      if (un.error) return { ok: false, fixed, err: `grok: ${un.error.code || un.error.message}` };
+      const inst = grok("install", "--trust", src);
+      if (inst.status !== 0) {
+        // Put the old install back rather than leave the plugin missing.
+        const back = grok("install", "--trust", original);
+        return { ok: false, fixed, err: `grok plugin install ${src}: ${(inst.stderr || inst.stdout || "").trim()}; restored ${original}: ${back.status === 0 ? "ok" : "FAILED"}` };
+      }
+      fixed.push(name);
+    }
+    return { ok: true, fixed };
+  } finally {
+    rmdirSync(lock);
+  }
+}
+
 function help() {
   return `plugin-rsync — refresh installed ByteDesk marketplace plugin caches from source.
 
@@ -231,6 +280,7 @@ function help() {
   --dry-run     print rsync argv, do not copy
   install-cli   wrapper in ~/.local/bin (user-scope; never a project)
   trust-codex-hooks  trust every untrusted <plugin>@bytedesk hook in Codex (also run after each Codex sync)
+  fix-grok-installs  reinstall Grok plugins sourced from a whole marketplace from their own folder
 
 User-scope only. Do not add plugin-rsync@bytedesk to a repo's extraKnownMarketplaces.
 
@@ -281,6 +331,11 @@ async function main(argv) {
     return 0;
   }
 
+  if (argv[0] === "fix-grok-installs") {
+    const r = fixGrokInstalls();
+    console.log(r.ok ? `grok installs fixed: ${r.fixed.length ? r.fixed.join(", ") : r.busy ? "another run is fixing them" : "none needed"}` : `grok install fix failed: ${r.err}`);
+    return r.ok ? 0 : 1;
+  }
   if (argv[0] === "trust-codex-hooks") {
     const r = await trustCodexHooks();
     console.log(r.ok ? `codex hooks trusted: ${r.trusted.length ? r.trusted.join(", ") : "none needed"}` : `codex hook trust skipped: ${r.err}`);
