@@ -29,8 +29,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/runtime/acpx-driver.mjs
 var import_promises5 = require("node:fs/promises");
-var import_node_path5 = require("node:path");
-var import_node_os3 = __toESM(require("node:os"), 1);
+var import_node_path6 = require("node:path");
+var import_node_os4 = __toESM(require("node:os"), 1);
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
 var import_node_fs = __toESM(require("node:fs"), 1);
@@ -25805,11 +25805,13 @@ function getProviderAdapter(providerId2) {
 var import_node_child_process3 = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises4 = require("node:fs/promises");
-var import_node_path4 = require("node:path");
+var import_node_path5 = require("node:path");
 var import_node_util2 = require("node:util");
 
 // topology/lib/safe-git.mjs
 var import_node_child_process2 = require("node:child_process");
+var import_node_os3 = require("node:os");
+var import_node_path4 = require("node:path");
 var SAFE_GIT_CONFIG = Object.freeze([
   "core.fsmonitor=false",
   "core.hooksPath=/dev/null",
@@ -25854,9 +25856,10 @@ var pair = (entry) => {
   const at2 = entry.indexOf("=");
   return [entry.slice(0, at2), entry.slice(at2 + 1)];
 };
+var GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
 function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
-  const env = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" };
-  for (const name of Object.keys(env)) if (name === "GIT_EXTERNAL_DIFF" || name === "GIT_CONFIG_PARAMETERS" || /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
+  const env = Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("GIT_") || GIT_ENV_ALLOWLIST.includes(name)));
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: (0, import_node_path4.join)((0, import_node_os3.homedir)(), ".gitconfig"), GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
   env.GIT_CONFIG_COUNT = String(config2.length);
   config2.forEach(([key, value], i) => {
     env[`GIT_CONFIG_KEY_${i}`] = key;
@@ -25893,6 +25896,7 @@ function driverOverrides(listing) {
   }
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
+var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
 function hardenArgs(args) {
   let i = 0;
   while (i < args.length && args[i].startsWith("-")) i += ["-C", "-c", "--git-dir", "--work-tree"].includes(args[i]) ? 2 : 1;
@@ -25959,13 +25963,13 @@ async function restoreDirectoryWrite(path3) {
   });
   const entries = await (0, import_promises4.readdir)(path3, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
-    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path4.join)(path3, entry.name));
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path5.join)(path3, entry.name));
   }
 }
 
 // src/runtime/acpx-driver.mjs
 async function createEphemeralScratch(kind) {
-  const scratchRoot = process.platform === "win32" ? import_node_os3.default.tmpdir() : "/dev/shm";
+  const scratchRoot = process.platform === "win32" ? import_node_os4.default.tmpdir() : "/dev/shm";
   for (const entry of await (0, import_promises5.readdir)(scratchRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-(?:turn|probe-[a-z0-9-]+)-(\d+)-/.exec(entry.name);
@@ -25973,10 +25977,10 @@ async function createEphemeralScratch(kind) {
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await removeTree((0, import_node_path5.join)(scratchRoot, entry.name));
+      if (error51?.code === "ESRCH") await removeTree((0, import_node_path6.join)(scratchRoot, entry.name));
     }
   }
-  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path5.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
+  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path6.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path3;
 }
 function shellQuote(value) {
@@ -25987,10 +25991,10 @@ function windowsQuote(value) {
 }
 function providerCommandOverrides(pluginRoot2, sandboxEnvironment = {}) {
   if (process.platform === "win32") {
-    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path5.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
+    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path6.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
     return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${launcher2} ${windowsQuote(adapter.providerId)}`]));
   }
-  const launcher = shellQuote((0, import_node_path5.join)(pluginRoot2, "bin", "provider-sandbox"));
+  const launcher = shellQuote((0, import_node_path6.join)(pluginRoot2, "bin", "provider-sandbox"));
   const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ");
   return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote(adapter.providerId)}`]));
 }
@@ -26016,13 +26020,13 @@ var YOLO_MODE_VALUES = Object.freeze(["bypassPermissions", "agent-full-access", 
 async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateRoot2, cwd: cwd2, providerId: providerId2, providerExecutable: providerExecutable2 }) {
   const adapter = getProviderAdapter(providerId2);
   invariant(adapter, "AO_PROVIDER_ADAPTER_MISSING", `No trusted adapter is registered for provider ${providerId2}.`);
-  const probeWorkspace = await ensurePrivateDir((0, import_node_path5.join)(stateRoot2, "probe-workspaces", providerId2, "workspace"));
+  const probeWorkspace = await ensurePrivateDir((0, import_node_path6.join)(stateRoot2, "probe-workspaces", providerId2, "workspace"));
   await git(probeWorkspace, ["init", "-q"]);
-  const probeGitDir = (0, import_node_path5.join)(probeWorkspace, ".git");
+  const probeGitDir = (0, import_node_path6.join)(probeWorkspace, ".git");
   const sandboxTempDir = await createEphemeralScratch(`probe-${providerId2}`);
   const runtime = createProviderRuntime({
     pluginRoot: pluginRoot2,
-    sessionStateDir: (0, import_node_path5.join)(stateRoot2, "probe-sessions", providerId2),
+    sessionStateDir: (0, import_node_path6.join)(stateRoot2, "probe-sessions", providerId2),
     cwd: probeWorkspace,
     commonGitDir: probeGitDir,
     permissionProfile: "read",

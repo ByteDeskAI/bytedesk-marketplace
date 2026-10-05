@@ -2,11 +2,11 @@
 // agent-orchestration's; agent-orchestration's suite checks the two match). This suite stands alone.
 import { after, it } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, git, tempRepo } from "./helpers.mjs";
-import { governanceGit } from "../../lib/governance-check.mjs";
+import { governanceGit, runGh } from "../../lib/governance-check.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const trash = [];
@@ -24,6 +24,19 @@ it("TM-443: a planted fsmonitor, hook, pager, external diff and filter never run
   assert.match(governanceGit(repo, "diff"), /two/);
   const fired = (() => { try { return readFileSync(marker, "utf8"); } catch { return ""; } })();
   assert.equal(fired, "", "a planted vector ran");
+});
+
+it("TM-443 follow-up: governance gh is the root-owned binary at a pinned path; a gh planted first on PATH never runs", () => {
+  const repo = tempRepo(); trash.push(repo);
+  const bin = join(repo, "home-bin"), marker = join(repo, "PLANTED-GH");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), `#!/bin/sh\ntouch '${marker}'\necho planted\n`); chmodSync(join(bin, "gh"), 0o755);
+  const saved = process.env.PATH; process.env.PATH = `${bin}:${saved}`;
+  try {
+    const r = runGh(["--version"], repo);
+    assert.equal(existsSync(marker), false, "the planted ~/bin gh ran");
+    if (r.status === 0) assert.match(r.stdout, /gh version/); else assert.equal(r.status, 127);
+  } finally { process.env.PATH = saved; }
 });
 
 it("TM-443: no raw git spawn outside lib/safe-git.mjs", () => {

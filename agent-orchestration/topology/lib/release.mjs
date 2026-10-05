@@ -15,7 +15,7 @@
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
 import { managedSessionEvidence } from './delegation.mjs';
-import { foreignDirtyPaths, governedAutonomy, serverCompareStatus, integrateTask, integrationEligibility, loadGovernedConfig, recordTaskEvent, taskStore } from './management.mjs';
+import { foreignDirtyPaths, governedAutonomy, hostGh, serverCompareStatus, integrateTask, integrationEligibility, loadGovernedConfig, recordTaskEvent, taskStore } from './management.mjs';
 import { page } from './ntfy.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { teamcityClient, teamcityTarget } from './teamcity.mjs';
@@ -125,7 +125,7 @@ export async function releaseReadiness(options, kind) {
     else {
       // PR #226 review: `origin` is whatever the worker set remote.origin.url to, so "synced with origin"
       // proves nothing alone. The pinned repository on the server must have exactly this commit as the branch tip.
-      const server = await serverCompareStatus(options.gh || (args => run('gh', args, { cwd: root, allowFailure: true, timeoutMs: 60_000 })), root, revision, branch, { env, home });
+      const server = await serverCompareStatus(options.gh || hostGh(root), root, revision, branch, { env, home });
       if (server.status !== 'identical') refuse('sync', `${branch} at ${revision} is not the tip of ${branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); ${verb} runs only from the server's own revision`);
     }
     if (revision) {

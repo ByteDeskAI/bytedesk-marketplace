@@ -16,7 +16,7 @@ import { finishCheckEvidence, githubCompare, reviewEligibility, reviewerAvailabi
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
-import { safeGit } from './safe-git.mjs';
+import { GH_PATHS, safeGit, trustedGh } from './safe-git.mjs';
 
 const taskId = value => { invariant(/^TM-[0-9]+$/.test(value), 'TOPOLOGY_MANAGEMENT_TASK', 'Expected a task-store TM id.'); return value; };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
@@ -892,7 +892,13 @@ export async function integrateTask(options) {
 
 /** The one place gh runs. argv only, never a shell; tests inject options.gh. */
 const GH_TIMEOUT_MS = 60_000;
-const defaultGh = cwd => args => run('gh', args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS });
+// PR #226 follow-up: the root-owned gh at a pinned system path (trustedGh), never the first `gh` on PATH.
+export const hostGh = cwd => {
+  const bin = trustedGh();
+  return async args => (bin ? run(bin, args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS })
+    : { code: 127, stdout: '', stderr: `no root-owned gh at ${GH_PATHS.join(', ')}` });
+};
+const defaultGh = hostGh;
 async function ghJson(gh, args) {
   const result = await gh(args);
   try { return { code: result.code, value: JSON.parse(result.stdout) }; }
@@ -1090,12 +1096,13 @@ export async function recordLanding(options) {
     const landed = resolved.stdout.trim();
     const ancestor = async (a, b) => (await git(ctx.store.root, ['merge-base', '--is-ancestor', a, b], true)).code === 0;
     invariant(await ancestor(revision, landed), 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of ${landed}.`);
-    // TM-247 (AC10): resolve the target on the server after a fetch, not the local ref an operator may
-    // not have pulled; then bring the local branch forward so governed completion can verify it too.
-    const fetched = await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
-    const remote = `refs/remotes/origin/${policy.target_branch}`;
-    const targetRef = fetched.code === 0 && (await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', remote], true)).code === 0 ? remote : `refs/heads/${policy.target_branch}`;
-    invariant(await ancestor(landed, targetRef), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} (checked ${targetRef}${fetched.code === 0 ? ' after a fetch' : `; fetching origin failed: ${fetched.stderr.trim()}`}).`);
+    // TM-247 (AC10) / TM-472: the landing must be on the target branch of the PINNED repository on the
+    // server (gh compare), for every caller including an operator's --authorized: a local or origin ref is
+    // one `git update-ref` away from a worker. Then bring the local branch forward so governed completion
+    // can verify it locally too.
+    const server = await serverCompareStatus(options.gh || defaultGh(ctx.store.root), ctx.store.root, landed, policy.target_branch, ctx);
+    invariant(['ahead', 'identical'].includes(server.status), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); a local or origin ref is not evidence of a landing.`);
+    await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
     if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');

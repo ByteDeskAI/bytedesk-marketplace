@@ -4,6 +4,11 @@
 
 ### Security
 
+- **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
+  `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
+  path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`
+  (byte-identical to agent-orchestration's) keeps only the commit-identity `GIT_*` variables and pins
+  `GIT_CONFIG_GLOBAL` to `~/.gitconfig`.
 - **Review fixes for PR #226 (TM-443, TM-441, EP-028).** `lib/safe-git.mjs` (still byte-identical to
   agent-orchestration's) neutralises drivers whose names contain `=`, allows only the https, ssh and
   file transports, refuses repository-scope URL rewriting and LFS transfer agents, and never smudges

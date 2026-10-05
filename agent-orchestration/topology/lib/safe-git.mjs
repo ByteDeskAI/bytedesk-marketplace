@@ -20,9 +20,16 @@
 //     them can be neutralised by an override, since each is multi-valued or read by git-lfs itself;
 //   - remote.<name>.uploadpack/receivepack are first-value-wins, so no override reaches them: fetch,
 //     pull and ls-remote get --upload-pack=git-upload-pack and push gets --receive-pack=git-receive-pack;
-//   - diff-family commands get --no-ext-diff --no-textconv; env drops GIT_EXTERNAL_DIFF and the
-//     system config (GIT_CONFIG_NOSYSTEM), never prompts (GIT_TERMINAL_PROMPT=0) and never smudges
-//     LFS objects (GIT_LFS_SKIP_SMUDGE=1).
+//   - diff-family commands get --no-ext-diff --no-textconv;
+//   - the environment keeps only an allowlist of GIT_* names (author and committer identity): GIT_DIR,
+//     GIT_SSH_COMMAND, GIT_EXEC_PATH, GIT_ASKPASS, GIT_EXTERNAL_DIFF, GIT_CONFIG_* and every other
+//     caller-supplied GIT_* is dropped. The global config is pinned to the operator's own
+//     ~/.gitconfig (GIT_CONFIG_GLOBAL), the system config is off (GIT_CONFIG_NOSYSTEM), git never
+//     prompts (GIT_TERMINAL_PROMPT=0) and never smudges LFS objects (GIT_LFS_SKIP_SMUDGE=1).
+//
+// `trustedGh()` resolves the gh the host calls the same way the autonomy allowlist resolves tmux
+// (TM-432): a pinned system path whose file and every directory up to `/` are root-owned and not
+// group- or world-writable, never whatever `gh` comes first on PATH.
 //
 // Which repository a fetch reads is still the worker's `remote.origin.url`; nothing here makes its
 // answer trustworthy. Trust decisions compare against the server through gh (TM-441, TM-442).
@@ -35,6 +42,9 @@
 // task-management/lib/safe-git.mjs is a BYTE-IDENTICAL copy (the plugins never import each other); a
 // conformance test fails when they differ. Edit both together.
 import { execFile, spawnSync } from 'node:child_process';
+import { realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 export const SAFE_GIT_CONFIG = Object.freeze([
   'core.fsmonitor=false', 'core.hooksPath=/dev/null', 'core.pager=cat', 'diff.external=',
@@ -56,10 +66,13 @@ const REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.
 const UNTRUSTED_SCOPES = new Set(['local', 'worktree', 'command', 'unknown']);
 const pair = entry => { const at = entry.indexOf('='); return [entry.slice(0, at), entry.slice(at + 1)]; };
 
+/** The only GIT_* names a caller's environment passes through: commit identity, nothing that runs or redirects. */
+export const GIT_ENV_ALLOWLIST = Object.freeze(['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE']);
+
 /** The environment every host git runs in; `config` is the ordered [key, value] list it pins. */
 export function safeGitEnv(base = process.env, config = SAFE_GIT_CONFIG.map(pair)) {
-  const env = { ...base, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GIT_LFS_SKIP_SMUDGE: '1' };
-  for (const name of Object.keys(env)) if (name === 'GIT_EXTERNAL_DIFF' || name === 'GIT_CONFIG_PARAMETERS' || /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
+  const env = Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith('GIT_') || GIT_ENV_ALLOWLIST.includes(name)));
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(homedir(), '.gitconfig'), GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GIT_LFS_SKIP_SMUDGE: '1' });
   env.GIT_CONFIG_COUNT = String(config.length);
   config.forEach(([key, value], i) => { env[`GIT_CONFIG_KEY_${i}`] = key; env[`GIT_CONFIG_VALUE_${i}`] = value; });
   return env;
@@ -88,6 +101,30 @@ export function driverOverrides(listing) {
   }
   // Resets precede the global helpers re-added for the same keys: a helper list is cleared by an empty value.
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
+}
+
+/** The pinned system locations a trusted gh may live at (Debian/Ubuntu, Fedora, Homebrew-on-Linux is user-owned and refused). */
+export const GH_PATHS = Object.freeze(['/usr/bin/gh', '/bin/gh', '/usr/local/bin/gh']);
+/** True when `real` is a pinned path whose file and every directory up to `/` are root-owned and not
+ * group- or world-writable; the rule autonomy-allow applies to tmux (TM-432). */
+export function rootOwnedChain(real, paths = GH_PATHS, stat = statSync) {
+  if (!paths.includes(real)) return false;
+  try {
+    for (let p = real; ; p = dirname(p)) {
+      const s = stat(p);
+      if (s.uid !== 0 || (s.mode & 0o022) !== 0) return false;
+      if (p === '/') return true;
+    }
+  } catch { return false; }
+}
+/** The gh the host runs: the first pinned path whose realpath passes rootOwnedChain, else null. PATH is never consulted. */
+export function trustedGh({ paths = GH_PATHS, stat = statSync, realpath = realpathSync } = {}) {
+  for (const candidate of paths) {
+    let real;
+    try { real = realpath(candidate); } catch { continue; }
+    if (rootOwnedChain(real, paths, stat) && rootOwnedChain(candidate, paths, stat)) return candidate;
+  }
+  return null;
 }
 
 /** Insert the subcommand's hardening flags right after it (global options come first). */

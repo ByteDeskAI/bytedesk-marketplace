@@ -4,6 +4,16 @@
 
 ### Security
 
+- **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**
+  `manage record-landing`, including under an operator's `--authorized`, now requires the landed
+  commit on the pinned repository's target branch on the server (`gh api .../compare`). Before, it
+  trusted `origin/<target>` after a fetch from a worker-chosen `origin`, so a forged ref could report a
+  landing that never happened. safe-git keeps only the commit-identity `GIT_*` variables, so
+  `GIT_DIR`, `GIT_SSH_COMMAND`, `GIT_EXEC_PATH`, `GIT_ASKPASS` and the rest are dropped. It pins
+  `GIT_CONFIG_GLOBAL` to `~/.gitconfig`, so a caller-supplied global config (and its filters) is never
+  read. Host `gh` calls (`hostGh`, also used by release readiness) run only the root-owned `gh` at a
+  pinned system path (`trustedGh`, the root-owned-chain rule the autonomy allowlist applies to tmux),
+  never the first `gh` on `PATH`.
 - **Review fixes for the gate security work (PR #226; TM-443, TM-441, TM-442, EP-028).**
   - safe-git pins its overrides through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n`, so a filter or merge
     driver whose name contains `=` (`filter.a=b.smudge`, which `-c` cannot name) is neutralised too.

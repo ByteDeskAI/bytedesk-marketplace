@@ -30,7 +30,7 @@ const fixtureServer = (pluginRoot, server, consumer) => async args => {
   if (args[0] === 'repo' && args[1] === 'view') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
   // PR #226 review: the server's main is the consumer's main unless a test snapshots it (server.tip).
   const compared = args[0] === 'api' && COMPARE.exec(args[1]);
-  if (compared) return { code: 0, stdout: JSON.stringify({ status: serverCompare(consumer, compared[1], compared[2], server.tip) }), stderr: '' };
+  if (compared) return { code: 0, stdout: JSON.stringify({ status: serverCompare(server.repo || consumer, compared[1], compared[2], server.tip) }), stderr: '' };
   if (args[0] !== 'api' || args[1] !== SERVER_POLICY_API) return { code: 1, stdout: '', stderr: 'no such call in the fixture' };
   const defaults = (await readJson(join(pluginRoot, 'config.defaults.json')).catch(() => ({}))).management || {};
   const document = server.document ?? { management: { ...defaults, ...server.management } };
@@ -1658,14 +1658,12 @@ test('TM-263 (i) after pinning, a repointed remote or gh default refuses integra
 });
 
 test('TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead', async t => {
-  const serverGh = lead => async args => args[0] === 'repo'
-    ? { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' }
-    : { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' };
+  const serverGh = (lead, f) => fakeGh(f.opts.consumer, { fallback: async () => ({ code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' }) });
   const refused = await leadServer(t, 'landed');
-  await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2'), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
+  await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2', refused), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
   assert.equal((await managementStatus(refused.opts)).management.merge, undefined, 'nothing recorded by a refusal');
   const agreed = await leadServer(t, 'landed');
-  assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1'), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
+  assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1', agreed), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
 });
 
 // ── TM-360: tm owns the one duplicate-dispatch guard; ao reports what tm cannot see ─────────────
@@ -2037,10 +2035,11 @@ test('TM-441 review HIGH-2: a forged integration parent (worker-written local an
   const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, home = join(root, 'home');
   assert.equal(await mergeInOf(repo, R, H, 'main', { gh: fakeGh(serverRepo), env, home }), null, 'agent-orchestration accepted a forged integration parent');
   // task-management through its REAL server path: the pin agent-orchestration wrote, and gh on PATH.
+  const { ghResolver } = await import('../../../task-management/lib/governance-check.mjs');
   const bin = await ghShim(await mkdtemp(join(root, 'bin-')), serverRepo);
-  const saved = { PATH: process.env.PATH, STATE: process.env.AGENT_ORCHESTRATION_STATE_HOME };
-  process.env.PATH = `${bin}:${saved.PATH}`; process.env.AGENT_ORCHESTRATION_STATE_HOME = env.AGENT_ORCHESTRATION_STATE_HOME;
-  t.after(() => { process.env.PATH = saved.PATH; if (saved.STATE === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved.STATE; });
+  const saved = { resolve: ghResolver.resolve, STATE: process.env.AGENT_ORCHESTRATION_STATE_HOME };
+  ghResolver.resolve = () => join(bin, 'gh'); process.env.AGENT_ORCHESTRATION_STATE_HOME = env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { ghResolver.resolve = saved.resolve; if (saved.STATE === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved.STATE; });
   assert.equal(tmCheck(repo, R, H, 'main'), false, 'task-management accepted a forged integration parent');
   // Control: the same construction on the server's real main IS a merge-in, in both.
   const realMain = (await run('git', ['-C', serverRepo, 'rev-parse', 'main'])).stdout.trim();
@@ -2059,8 +2058,10 @@ test('TM-247 AC9: a develop merge-in on the approved revision is eligible, lands
   const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
   const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = m.opts.env.AGENT_ORCHESTRATION_STATE_HOME;
   // PR #226 review: tm verifies the merge-in parent on the server through gh; the consumer stands in for it.
-  const savedPath = process.env.PATH; process.env.PATH = `${await ghShim(await mkdtemp(join(tmpdir(), 'ao-gh-')), m.opts.consumer)}:${savedPath}`;
-  t.after(() => { process.env.PATH = savedPath; if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  const { ghResolver } = await import('../../../task-management/lib/governance-check.mjs');
+  const shim = join(await ghShim(await mkdtemp(join(tmpdir(), 'ao-gh-')), m.opts.consumer), 'gh'), savedResolve = ghResolver.resolve;
+  ghResolver.resolve = () => shim;
+  t.after(() => { ghResolver.resolve = savedResolve; if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
   const task = { id: 'TM-1', worktree: recorded.worktree, branch: recorded.branch,
     governance: { version: 1, runtime: 'topology', workflowRunId: recorded.workflow_run_id, leadId: recorded.lead_id, revision: m.revision, state: 'ready-for-review' } };
   const gate = governedCompletion(task, { root: m.opts.consumer });
@@ -2091,6 +2092,7 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
   const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
   await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
+  f.server.repo = origin; // the bare origin is the server
   const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
   assert.equal(recorded.merge.landed, landed);
   assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
@@ -2179,4 +2181,28 @@ test('TM-459 transfer takeover: a released claim is not enough; the caller must 
   await writeJson(heartbeatPath(heartbeatDir(opts.env, opts.home), '/other', '%9'), { serverKey: '/other', paneId: '%9', at: Date.now() - 3_600_000, agent_id: 'author' });
   const taken = await take({ requireLead: async () => 'lead-3' });
   assert.equal(taken.record.owner, 'lead-3'); assert.deepEqual(claims, ['lead-3']);
+});
+
+// ── TM-472: record-landing under --authorized trusts the server, not a forged origin/<target> ───────
+test('TM-472 record-landing refuses a landing that is only on a worker-forged origin/main, even under --authorized', async t => {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  const origin = join(f.opts.home, 'origin.git');
+  await mkdir(f.opts.home, { recursive: true });
+  await run('git', ['init', '-q', '--bare', origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
+  f.server.repo = origin; // the server never received the landing
+  // The worker fabricates a merge commit and points the local remote-tracking ref at it.
+  const tree = (await f.git(f.opts.consumer, ['rev-parse', `${revision}^{tree}`])).stdout.trim();
+  const fake = (await f.git(f.opts.consumer, [...COMMIT.slice(0, 4), 'commit-tree', tree, '-p', 'main', '-p', revision, '-m', 'merged, honestly'])).stdout.trim();
+  await f.git(f.opts.consumer, ['update-ref', 'refs/remotes/origin/main', fake]);
+  // ...and points origin at a repository it controls whose main IS the fake, so the host's fetch "confirms" it.
+  const forged = join(f.opts.home, 'forged.git');
+  await run('git', ['init', '-q', '--bare', forged]);
+  await f.git(f.opts.consumer, ['push', '-q', forged, `${fake}:refs/heads/main`]);
+  await f.git(f.opts.consumer, ['config', 'remote.origin.url', forged]);
+  await assert.rejects(recordLanding({ ...f.opts, authorized: true, actor: 'operator', reason: 'PR merged', landed: fake, reviewGate: fullReview(admitted.record, revision) }),
+    { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: /not on the configured target branch main on the server \(compare says diverged\)/ });
+  assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing recorded');
 });

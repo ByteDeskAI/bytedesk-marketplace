@@ -5,7 +5,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./store.mjs";
-import { safeGitText } from "./safe-git.mjs";
+import { GH_PATHS, safeGitText, trustedGh } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
 // TM-221: mirrors agent-orchestration topology/lib/reviewer.mjs SEVERITIES (TM-215); a conformance test holds them equal.
@@ -141,9 +141,18 @@ export function onServerBranch(root, sha, branch) {
     const { root: state, key } = repoIdentity({ root });
     const repo = JSON.parse(readFileSync(join(state, "repositories", `${key}.github.json`), "utf8")).nameWithOwner;
     if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return false;
-    const r = spawnSync("gh", ["api", `repos/${repo}/compare/${sha}...${encodeURIComponent(branch)}`], { cwd: root, encoding: "utf8", timeout: 60_000, windowsHide: true });
+    const r = runGh(["api", `repos/${repo}/compare/${sha}...${encodeURIComponent(branch)}`], root);
     return r.status === 0 && ["ahead", "identical"].includes(JSON.parse(r.stdout)?.status);
   } catch { return false; }
+}
+
+/** How governance finds gh: the root-owned binary at a pinned system path (safe-git `trustedGh`), never
+ * PATH. A test replaces `ghResolver.resolve`; nothing a worker writes reaches it. */
+export const ghResolver = { resolve: () => trustedGh() };
+export function runGh(args, cwd) {
+  const bin = ghResolver.resolve();
+  if (!bin) return { status: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
+  return spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 60_000, windowsHide: true });
 }
 
 /** The worktree still holds the reviewed revision, or only merged the integration branch into it. */

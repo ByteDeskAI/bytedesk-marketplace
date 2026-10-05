@@ -121,6 +121,44 @@ test('TM-443 review LOW: LFS never smudges, and a repository-scope LFS transfer 
   assert.equal(safeGitSync(repo, ['status']).status, 128);
 });
 
+// ── PR #226 follow-up: environment allowlist and a root-owned gh ───────────────────────────────────
+test('TM-443 follow-up: a caller-supplied GIT_CONFIG_GLOBAL, GIT_DIR, GIT_SSH_COMMAND or GIT_EXEC_PATH never reaches host git', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const { safeGitEnv } = await import('../../topology/lib/safe-git.mjs');
+  const pwned = join(dir, 'PWNED-global'), cfg = join(dir, 'evil-global');
+  await writeFile(cfg, `[filter "g"]\n\tsmudge = sh -c 'touch ${pwned}'\n\trequired = true\n`);
+  await writeFile(join(repo, '.git', 'info', 'attributes'), '* filter=g\n');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: cfg, GIT_DIR: join(dir, 'nowhere'), GIT_SSH_COMMAND: `touch ${pwned}-ssh`, GIT_EXEC_PATH: join(dir, 'nowhere'), GIT_ASKPASS: `touch ${pwned}-ask`, GIT_AUTHOR_NAME: 'Kept' };
+  const added = safeGitSync(repo, ['worktree', 'add', '--detach', join(dir, 'wt-global'), 'HEAD'], { env });
+  assert.equal(added.status, 0, added.stderr);
+  assert.equal(await exists(pwned), false, 'a filter from a caller-supplied GIT_CONFIG_GLOBAL ran');
+  const pinned = safeGitEnv(env);
+  for (const name of ['GIT_DIR', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH', 'GIT_ASKPASS']) assert.equal(pinned[name], undefined, name);
+  assert.equal(pinned.GIT_CONFIG_GLOBAL, join((await import('node:os')).homedir(), '.gitconfig'));
+  assert.equal(pinned.GIT_AUTHOR_NAME, 'Kept', 'commit identity passes through');
+});
+
+test('TM-443 follow-up: host gh is the root-owned binary at a pinned path; a gh planted first on PATH never runs', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { GH_PATHS, rootOwnedChain, trustedGh } = await import('../../topology/lib/safe-git.mjs');
+  const { hostGh } = await import('../../topology/lib/management.mjs');
+  const bin = join(dir, 'home-bin'), marker = join(dir, 'PLANTED-GH');
+  execFileSync('mkdir', ['-p', bin]);
+  await writeFile(join(bin, 'gh'), `#!/bin/sh\ntouch ${marker}\necho planted\n`, { mode: 0o755 });
+  const savedPath = process.env.PATH; process.env.PATH = `${bin}:${savedPath}`; t.after(() => { process.env.PATH = savedPath; });
+  const resolved = trustedGh();
+  assert.ok(resolved === null || GH_PATHS.includes(resolved), `resolved ${resolved}`);
+  const answer = await hostGh(dir)(['--version']);
+  assert.equal(await exists(marker), false, 'the planted ~/bin gh ran');
+  if (resolved) assert.match(answer.stdout, /gh version/); else assert.equal(answer.code, 127);
+  // The rule itself, on injected stats: pinned path only, root-owned, not group/world-writable, all the way up.
+  const rootStat = () => ({ uid: 0, mode: 0o755 });
+  assert.equal(rootOwnedChain('/usr/bin/gh', GH_PATHS, rootStat), true);
+  assert.equal(rootOwnedChain(join(bin, 'gh'), GH_PATHS, rootStat), false, 'not a pinned path, even if root-owned');
+  assert.equal(rootOwnedChain('/usr/bin/gh', GH_PATHS, p => ({ uid: p === '/usr/bin/gh' ? 1000 : 0, mode: 0o755 })), false, 'user-owned file');
+  assert.equal(rootOwnedChain('/usr/bin/gh', GH_PATHS, p => ({ uid: 0, mode: p === '/usr/bin' ? 0o777 : 0o755 })), false, 'world-writable directory');
+});
+
 test('TM-443 conformance: task-management carries a byte-identical copy of the helper', async () => {
   assert.equal(await readFile(join(TM, 'lib/safe-git.mjs'), 'utf8'), await readFile(join(AO, 'topology/lib/safe-git.mjs'), 'utf8'),
     'task-management/lib/safe-git.mjs and agent-orchestration/topology/lib/safe-git.mjs differ; the same guard must apply to every caller (rule 3)');
