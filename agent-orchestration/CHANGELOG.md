@@ -32,6 +32,20 @@
   `standing-mailbox/rings/` makes the ring once per message across ticks and restarts, mail the
   agent already read or answered is never rung, and each agent gets at most one ring per tick. The
   tick report lists the outcomes under `mail_rings`.
+- **Address a repository's lead by path or slug (TM-271, EP-028).** `mailbox send --to-repo
+  <path|slug>` and `--to lead@<path|slug>` resolve the repository against the registered
+  repositories (`services/repos.json` and every lead registration) and send to its registered
+  lead. `send` accepts the same forms and hands them to `mailbox send`, so both entries share one
+  resolver (`resolveStandingTargets` in `addressing.mjs`) and no run is needed. An unknown or
+  ambiguous name and a repository with no lead are refused (`TOPOLOGY_REPO_UNKNOWN`,
+  `TOPOLOGY_REPO_AMBIGUOUS`, `TOPOLOGY_REPO_NO_LEAD`), exit 1, nothing written.
+- **`@all-leads` broadcast for standing mail (TM-372, EP-028).** `mailbox send --to @all-leads`
+  (and `send --to @all-leads`) sends one ordinary standing message to every registered
+  repository's lead, each admitted on its own. It honours the broadcast rules in `addressing.mjs`:
+  the sender is never its own recipient, an audience that reaches nobody is refused, and more than
+  24 recipients (`--max-recipients`) is refused, never truncated. A given `--id` becomes one id per
+  repository, so a retried broadcast dedupes per recipient.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
@@ -54,6 +68,29 @@
   (what `claude plugin install --scope project` writes), a `bytedesk` marketplace registered by
   absolute or `~` path, and a plugin cache committed under `.claude/plugins/`. Each refusal names
   the problem, the exact fix and the AGENTS.md rule.
+- **System notices are sent as the supervisor and reach the inbox (TM-314, EP-028).** Slot-grant
+  notices, quota incident and failover notices, and failed-review escalations were sent with no
+  sender, so every one was held permanently as `source_identity_required`. They are now sent as
+  `ao-supervisor` from the repository itself, like the NATS outage notice, under `v2` message ids
+  so the old held records do not raise `TOPOLOGY_MESSAGE_ID_CONFLICT`. `notifyGrants` reports a
+  held grant with its reason. Every `sendStandingMessage` caller was audited for a sender.
+- **`mailbox send --dry-run` previews instead of sending (TM-278, EP-028).** The flag was ignored
+  and a real envelope was queued. A dry run now validates, resolves and routes, and prints the
+  would-be envelope, the destination repository and its lead, and `would: deliver` with the
+  recipient or `would: hold` with the reason. It writes, publishes, rings and recovers nothing.
+  Every other send verb (`mailbox forward|reply|dispose|…`, `send`, `reply`) refuses the flag with
+  `TOPOLOGY_DRY_RUN_UNSUPPORTED` instead of ignoring it.
+- **The standing-mail sender is the session's identity, not a claim (TM-356, EP-028).**
+  `mailbox send`, `mailbox forward` and the MCP `orchestration_mailbox_send` took `from` from
+  `--from`, `AO_AGENT_ID` or the tool's `from` field, so any caller could send as any agent. The
+  sender is now the launcher's `AO_AGENT_ID` and `AO_CONSUMER`, the proof standing replies already
+  require (`sessionIdentity` in `standing-mailbox.mjs`). An explicit `--from`, `--from-project`,
+  `from` or `consumerCwd` that differs is refused with `TOPOLOGY_SENDER_MISMATCH`. MCP
+  `orchestration_mailbox_receive` and `orchestration_mailbox_dispose` act only for that identity,
+  and their `agent` field (like `from`) is now optional. A session with no identity is refused
+  with `TOPOLOGY_SOURCE_IDENTITY_REQUIRED`, naming what is missing, before anything is written.
+  The `dist/` bundles are rebuilt.
+
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default
   branch only, so a branch that merged its PR base (for example `fix/ao-local-nats-autostart`)

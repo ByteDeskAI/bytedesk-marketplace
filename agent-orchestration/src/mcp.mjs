@@ -260,19 +260,19 @@ export async function createServer(options = {}) {
   const mailboxFields = { consumerCwd, agent: agent.optional(), kind: z.enum(['mail', 'reply']).optional(),
     status: z.enum(['accepted', 'handled', 'deferred', 'rejected']).optional(),
     workflowId: z.string().optional(), runId: z.string().optional(), taskId: z.string().optional() };
-  register(server, topology, 'orchestration_mailbox_send', 'Send a durable inter-agent message through the logical mailbox. Publication, recipient acceptance and task ownership are separate outcomes.',
-    { consumerCwd, destinationConsumerCwd: consumerCwd.optional(), from: agent, to: z.string().min(1).max(512), id: z.string().min(1).max(200), body: z.string().min(1).max(131072),
+  register(server, topology, 'orchestration_mailbox_send', 'Send a durable inter-agent message through the logical mailbox, as this session\'s own agent (AO_AGENT_ID); `from` may only repeat it. Publication, recipient acceptance and task ownership are separate outcomes.',
+    { consumerCwd, destinationConsumerCwd: consumerCwd.optional(), from: agent.optional(), to: z.string().min(1).max(512), id: z.string().min(1).max(200), body: z.string().min(1).max(131072),
       task: z.string().optional(), stage: z.string().optional(), subject: z.string().optional(), context: record.optional() },
     z.object({ envelope: record, status: z.string() }).passthrough(), topology.mailboxSend);
   register(server, topology, 'orchestration_mailbox_receive', 'Receive mail into a durable recipient inbox before broker ACK. This accepts an obligation but does not claim or complete a task. Use mailbox_list for nondestructive inspection.',
-    { consumerCwd, agent, limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
+    { consumerCwd, agent: agent.optional(), limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
   register(server, topology, 'orchestration_mailbox_wait', 'Wait up to 55 seconds for the reply to a standing message. An unknown id, a timeout or a permanently held message is an error naming the message.',
     { consumerCwd, id: z.string().min(1).max(256), timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(5_000).optional() },
     z.object({ ok: z.literal(true), id: z.string(), reply: record }).passthrough(), topology.mailboxWait);
   register(server, topology, 'orchestration_mailbox_list', 'Inspect retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',
     mailboxFields, z.object({ receipts: z.array(receipt) }).passthrough(), topology.mailboxList);
   register(server, topology, 'orchestration_mailbox_dispose', 'Record handled, deferred or rejected disposition for a retained recipient obligation. Task claims and completion remain in Task Management.',
-    { consumerCwd, agent, messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
+    { consumerCwd, agent: agent.optional(), messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
       disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional() }, receipt, topology.mailboxDispose);
   register(server, topology, 'orchestration_goal_start', 'Start a persistent feedback loop for an explicitly admitted Task Management goal, pinned authority and approved deployment recipe.',
     { consumerCwd, goalId: z.string().regex(/^EP-\d+$/), request: record }, loopRecord, topology.goalStart);

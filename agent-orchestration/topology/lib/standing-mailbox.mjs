@@ -16,7 +16,7 @@ import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { leadState } from './lead.mjs';
+import { leadState, readLeadRegistration } from './lead.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
 import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
@@ -192,6 +192,21 @@ async function attempt(record, opts) {
   }
 }
 
+/** TM-278: the admission a send would get, computed and reported, with nothing written, published,
+ * rung or recovered. Readiness is cached proof read-only, exactly as a real attempt reads it. */
+async function dryRunVerdict(envelope, p, opts) {
+  const existing = await read(p.file);
+  const verdict = await attempt({ version: 1, envelope, status: 'held', attempts: 0 }, { ...opts, readOnly: true });
+  const lead = await readLeadRegistration({ consumer: envelope.consumer, env: opts.env, home: opts.home }).catch(() => null);
+  return { dry_run: true, written: false, envelope,
+    destination: { consumer: envelope.consumer, repo_id: envelope.destinationRepoId, lead: lead?.record?.agent_id ?? null },
+    would: verdict.status === 'delivered' ? 'deliver' : 'hold',
+    delivered_to: verdict.delivered_to ?? null, reason: verdict.reason ?? null,
+    permanent: PERMANENT_HOLDS.has(verdict.reason), readiness: verdict.readiness ?? null,
+    // The same id already on disk is what a real send would dedupe to, or refuse as a conflict.
+    existing: existing ? { status: existing.status, same_content: isDeepStrictEqual({ context: {}, ...existing.envelope }, envelope) } : null };
+}
+
 /** Caller-generated IDs provide retry identity. Reusing an ID with changed
  * content, source, destination, or forwarding ancestry is rejected. */
 export async function sendStandingMessage(input, options = {}) {
@@ -215,6 +230,7 @@ export async function sendStandingMessage(input, options = {}) {
     assignment: input.assignment === undefined ? isAssignmentStage(input.stage) : input.assignment === true,
   }));
   const p = paths(id, opts);
+  if (opts.dryRun) return dryRunVerdict(envelope, p, opts);
   await mkdir(join(p.root, 'messages'), { recursive: true, mode: 0o700 });
   const settled = await withLock(p.lock, async () => {
     let record = await read(p.file);
@@ -285,6 +301,27 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
     });
   }
   return woken;
+}
+
+/**
+ * TM-356: who this session is, for every mailbox entry that acts as an agent (CLI send and forward,
+ * MCP send, receive and dispose). The identity is the launcher's — AO_AGENT_ID and AO_CONSUMER, the
+ * same proof `recordStandingReply` requires — never a `--from` flag or a tool's `from` field. A
+ * claimed agent or repository that differs is refused, so naming another agent cannot impersonate
+ * it. Host-local protocol enforcement, as for replies: not isolation from a user who rewrites their
+ * own environment.
+ */
+export async function sessionIdentity({ env = process.env, agent = null, consumer = null } = {}) {
+  invariant(env.AO_AGENT_ID && env.AO_CONSUMER, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED',
+    'source_identity_required: this session has no agent-orchestration identity (AO_AGENT_ID and AO_CONSUMER are not set), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Run it from an agent that ao launched. Nothing was done.');
+  invariant(agent === null || agent === undefined || agent === env.AO_AGENT_ID, 'TOPOLOGY_SENDER_MISMATCH',
+    `This session is ${env.AO_AGENT_ID}; it cannot act as ${JSON.stringify(agent)}. Drop the explicit sender, or run as that agent. Nothing was done.`);
+  if (consumer !== null && consumer !== undefined) {
+    const [mine, claimed] = await Promise.all([canonicalRepoId(env.AO_CONSUMER), canonicalRepoId(String(consumer))]);
+    invariant(mine.id === claimed.id, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session belongs to ${env.AO_CONSUMER}; it cannot act for ${consumer}. Nothing was done.`);
+  }
+  return { agent: env.AO_AGENT_ID, consumer: resolve(env.AO_CONSUMER) };
 }
 
 // These are host-local mailbox views, not an authorization boundary. API/CLI
