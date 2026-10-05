@@ -216,10 +216,14 @@
   `console show` returned every agent's receipt bodies because `listMailboxReceipts` and
   `listMailboxPublications` read a missing `agent` as "all agents". Both now require a bound
   `agent`, or an explicit `allAgents: true`, which only the workflow console and the publication
-  resume loop pass. The console (`workflowDetail`) refuses a dispatched worker, or a launched agent
-  other than the repository's lead, with `TOPOLOGY_OPERATOR_ONLY` before any lookup. MCP
+  resume loop pass. The console (`workflowDetail`) admits only a bare operator shell (no agent
+  identity and a pane the census binds to no agent) or the repository lead proven by
+  `requireLeadCaller`; a dispatched worker, a minted session, a non-lead agent, and an agent that
+  unset `AO_AGENT_ID` in its bound pane are refused with `TOPOLOGY_OPERATOR_ONLY` before any lookup. MCP
   `mailbox_list` passes named fields only, so a tool input cannot carry `allAgents`. The audit test
-  now checks every reader and actor call site in `topology/lib`, `cli.mjs` and `topology-api.mjs`.
+  now checks every reader (including `readStandingMessage`, allowed only in its internal readers)
+  and actor call site in `topology/lib`, `cli.mjs` and `topology-api.mjs`. `standing-mail-ring.test.mjs`
+  is hermetic too: it passes and exits without the suite preload and under any host identity.
 - **Handoff "self" must be proven (TM-463 F2, EP-028).** `AO_AGENT_ID=<target>` alone passed as the
   target. `requireHandoffCaller` (now in `respawn.mjs`) requires `requireGranteeCaller` for self:
   the caller's pane is census-bound to the target and is the caller's ancestor process.

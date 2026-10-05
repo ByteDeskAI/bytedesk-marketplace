@@ -23909,7 +23909,7 @@ async function indexedWorkflow({ consumer, workflowId, ...options }) {
   return { entry, repository: index.repository };
 }
 async function workflowDetail({ consumer, workflowId, ...options }) {
-  await assertOperatorReader({ consumer, env: { ...process.env, ...options.env || {} } });
+  await assertOperatorReader({ consumer, env: gateEnv(options), proof: options.proof });
   const { entry, run: run2, runDir, loop } = await indexedWorkflow({ consumer, workflowId, ...options });
   if (loop) {
     const { goalLoopSummary: goalLoopSummary2 } = await Promise.resolve().then(() => (init_goal_loop(), goal_loop_exports));
@@ -23970,19 +23970,24 @@ async function workflowDetail({ consumer, workflowId, ...options }) {
   messages.push(...await workflowMessages({ consumer, workflowId, ...options }));
   return { workflow: entry, run: safeRun, messages, events: await readJournal(runDir, 200), independentReview, inspection };
 }
-async function assertOperatorReader({ consumer, env = process.env }) {
+async function assertOperatorReader({ consumer, env = process.env, home, proof = {} }) {
   invariant2(!env.TM_DISPATCH_WORKER, "TOPOLOGY_OPERATOR_ONLY", "A dispatched worker session (TM_DISPATCH_WORKER) cannot read every agent's mail in the workflow console. Nothing was read.");
+  const { bindingAgentId: bindingAgentId2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
+  const lookup2 = { consumer, env, ...home ? { home } : {}, ...proof };
+  const bound = await bindingAgentId2(lookup2).catch(() => null);
   const caller = callerIdentity(env);
-  if (caller?.source !== "launcher") return;
-  const lead = await findLead(agentDirs({ consumer })).catch(() => null);
+  if (!caller && !bound) return { as: "operator" };
+  const named = env.AO_AGENT_ID || bound || caller?.agentId;
+  const lead = await requireLeadCaller2({ ...lookup2, env: { ...env, AO_AGENT_ID: named } });
   invariant2(
-    lead?.id && lead.id === caller.agentId,
+    lead,
     "TOPOLOGY_OPERATOR_ONLY",
-    `Agent ${caller.agentId} is not this repository's lead, so it cannot read every agent's mail in the workflow console. Nothing was read.`
+    `This session is ${named}, not this repository's proven lead or a bare operator shell, so it cannot read every agent's mail in the workflow console. Nothing was read.`
   );
+  return { as: "lead", caller: lead };
 }
 async function workflowMessages(options) {
-  await assertOperatorReader({ consumer: options.consumer, env: { ...process.env, ...options.env || {} } });
+  await assertOperatorReader({ consumer: options.consumer, env: gateEnv(options), proof: options.proof });
   const { listMailboxReceipts: listMailboxReceipts2, listMailboxPublications: listMailboxPublications2 } = await Promise.resolve().then(() => (init_mailbox_receipts(), mailbox_receipts_exports));
   const query = { ...options, allAgents: true, env: { ...process.env, ...options.env || {}, AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot2(options.env) } };
   const receipts = await listMailboxReceipts2(query);
@@ -24166,7 +24171,7 @@ async function controlWorkflow({ consumer, request, launch, failover, deliver, s
     return withLock((0, import_node_path45.join)(stateHome, "workflow-operation-locks", repository.key, hash3(request.workflowId || `launch:${payload.workflowName || ""}`)), perform);
   });
 }
-var import_node_crypto25, import_promises37, import_node_path45, TERMINAL4, hash3, errorOf;
+var import_node_crypto25, import_promises37, import_node_path45, TERMINAL4, hash3, errorOf, gateEnv;
 var init_workflow_control = __esm({
   "topology/lib/workflow-control.mjs"() {
     import_node_crypto25 = require("node:crypto");
@@ -24177,7 +24182,6 @@ var init_workflow_control = __esm({
     init_discovery();
     init_incarnation();
     init_repoid();
-    init_agents();
     init_session_identity();
     init_lineage();
     init_util();
@@ -24186,6 +24190,7 @@ var init_workflow_control = __esm({
     TERMINAL4 = /* @__PURE__ */ new Set(["stopped", "succeeded", "completed", "failed", "cancelled", "timed_out", "rejected"]);
     hash3 = (value) => (0, import_node_crypto25.createHash)("sha256").update(value).digest("hex");
     errorOf = (error51) => ({ code: error51.code || "TOPOLOGY_CONTROL_FAILED", message: error51.message });
+    gateEnv = (options) => ({ ...process.env, ...options.env || {}, ...options.stateHome ? { AGENT_ORCHESTRATION_STATE_HOME: options.stateHome } : {} });
   }
 });
 
@@ -62737,10 +62742,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1d2397e7ce9a78a8bfd25016b22afba8d0936b55deb8cb49ee90362129af37a6";
+  return false ? null : "0f3f1071ece0dcecfa87e672291671ee23d277316819f9cffa88f45c64f613a3";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1d2397e7ce9a78a8bfd25016b22afba8d0936b55deb8cb49ee90362129af37a6";
+  const fingerprint2 = false ? null : "0f3f1071ece0dcecfa87e672291671ee23d277316819f9cffa88f45c64f613a3";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63357,7 +63362,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1d2397e7ce9a78a8bfd25016b22afba8d0936b55deb8cb49ee90362129af37a6",
+  sourceFingerprint: false ? null : "0f3f1071ece0dcecfa87e672291671ee23d277316819f9cffa88f45c64f613a3",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

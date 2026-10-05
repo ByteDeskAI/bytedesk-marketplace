@@ -314,7 +314,11 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     join('topology', 'cli.mjs'), join('src', 'topology-api.mjs'),
   ];
   // Readers return bodies; actors send or act as an agent. Each call must carry its binding.
-  const READERS = ['listMailboxReceipts', 'listMailboxPublications', 'readStandingInbox', 'readStandingOutbox', 'waitForStandingReply'];
+  const READERS = ['listMailboxReceipts', 'listMailboxPublications', 'readStandingInbox', 'readStandingOutbox', 'waitForStandingReply', 'readStandingMessage'];
+  // System readers of one record by id, none of which returns the body to a caller-named agent:
+  // wait checks the sender itself after the read; the run bridge and the outage notice are internal.
+  const INTERNAL_READERS = new Set(['topology/lib/standing-mailbox.mjs#waitForStandingReply', 'topology/lib/mailbox.mjs#obligations',
+    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick']);
   const ACTORS = ['sendStandingMessage', 'forwardStandingMessage', 'recordStandingReply', 'setMailboxDisposition'];
   // allAgents: true is allowed only here: the operator console (gated by assertOperatorReader) and
   // the publication resume loop (returns no body).
@@ -340,6 +344,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
       const before = src.slice(Math.max(src.lastIndexOf('\n', at - 1) - 600, 0), at);
       if (READERS.includes(name)) {
         seen.reader += 1;
+        if (name === 'readStandingMessage') { if (!INTERNAL_READERS.has(`${rel}#${fn}`)) problems.push(`${where}: readStandingMessage outside its internal readers`); continue; }
         // An operator read names allAgents: true in the call, or in the `query` it builds just before.
         const all = /allAgents:\s*true/.test(args) || args.trim() === 'query' && /const query = \{[^\n]*allAgents:\s*true/.test(before);
         if (all) { if (!OPERATOR_ONLY.has(`${rel}#${fn}`)) problems.push(`${where}: allAgents outside an operator-only path`); continue; }
@@ -355,7 +360,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     }
   }
   // Coverage, so an empty scan cannot pass: the known entry and library call sites were seen.
-  assert.ok(seen.reader >= 10 && seen.actor >= 6, `the audit saw the call sites (${JSON.stringify(seen)})`);
+  assert.ok(seen.reader >= 14 && seen.actor >= 6, `the audit saw the call sites (${JSON.stringify(seen)})`);
   assert.deepEqual(problems, []);
   // me() is sessionIdentity(), and the CLI's send verb names its sender through sessionIdentity().
   const [api, cli] = await Promise.all([readFile(join(root, 'src/topology-api.mjs'), 'utf8'), readFile(join(root, 'topology/cli.mjs'), 'utf8')]);
@@ -390,6 +395,12 @@ test('TM-464 F1: receipt and publication readers fail closed without a bound age
     assert.doesNotMatch(refused.stdout, /console secret/);
   }
   await assert.rejects(workflowDetail({ consumer: w.alpha, workflowId: 'topology:none', stateHome: env.AGENT_ORCHESTRATION_STATE_HOME, env: { AO_AGENT_ID: 'work-a' } }), { code: 'TOPOLOGY_OPERATOR_ONLY' });
+  // A minted session (no launcher id, no pane) is not the operator either.
+  const minted = await show({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha });
+  assert.deepEqual([minted.code, minted.json?.code], [1, 'TOPOLOGY_OPERATOR_ONLY'], minted.stdout);
+  // A bare operator shell (no identity, no bound pane) passes the gate and reaches the lookup.
+  const bare = await show({});
+  assert.deepEqual([bare.code, bare.json?.code], [1, 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
   // The MCP list tool cannot smuggle allAgents through its input.
   const mcp = await mcpAs(w, { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha });
   const listed = await mcp.mailboxList({ consumerCwd: w.alpha, allAgents: true });
@@ -521,4 +532,33 @@ test('TM-463 F2: handoff self and lead are proven by pane binding and process an
   assert.deepEqual(await check({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha, ...inPane }, proof('lead-a')), { caller: 'lead-a', as: 'lead' });
   // Any other agent, even in its own proven pane: refused.
   await assert.rejects(check({ AO_AGENT_ID: 'other', AO_CONSUMER: w.alpha, ...inPane }, proof('other')), { code: 'TOPOLOGY_HANDOFF_UNAUTHORIZED' });
+});
+
+test('TM-464 F1: the console gate admits only a bare operator shell or the proven lead', async (t) => {
+  const w = await world(t);
+  const { assertOperatorReader } = await import('../../topology/lib/workflow-control.mjs');
+  const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+  const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
+  const proof = (boundTo, leaf = 5151) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf) });
+  const inPane = { TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: PANE.paneId };
+  const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
+  const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
+  // Refused: a minted session, in or out of a pane.
+  await assert.rejects(gate({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha }, proof(null)), refused);
+  await assert.rejects(gate({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha, ...inPane }, proof(null)), refused);
+  // Refused: a launched agent that unset AO_AGENT_ID but still runs in its bound pane.
+  await assert.rejects(gate({ ...inPane }, proof('work-a')), refused);
+  // Refused: a non-lead agent in its own proven pane.
+  await assert.rejects(gate({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha, ...inPane }, proof('work-a')), refused);
+  // Refused: naming the lead without its pane is a claim, not proof.
+  await assert.rejects(gate({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha }, proof('lead-a')), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  // Refused: the lead's pane, but the caller is not a descendant of it.
+  await assert.rejects(gate({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a', 6161)), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  // Allowed: the proven lead, by env name or by its pane binding alone.
+  assert.deepEqual(await gate({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a')), { as: 'lead', caller: 'lead-a' });
+  assert.deepEqual(await gate({ ...inPane }, proof('lead-a')), { as: 'lead', caller: 'lead-a' });
+  // Allowed: a bare operator shell, outside tmux or in a pane the census binds to nobody.
+  assert.deepEqual(await gate({}, proof(null)), { as: 'operator' });
+  assert.deepEqual(await gate({ ...inPane }, proof(null)), { as: 'operator' });
 });

@@ -1,7 +1,7 @@
 // TM-351 / TM-352: the receive side of standing mail. No tmux server is touched: every tmux call
 // goes through a stub, so nothing here can ring a real pane.
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,13 @@ import { agentsRoot } from '../../topology/lib/agents.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
 import { superviseRepository } from '../../topology/lib/supervision.mjs';
 import { initTempRepo } from '../helpers/temp-repo.mjs';
+
+// Hermetic without the suite preload: the file transport (the default is NATS, whose inbox never shows
+// an unpublished file record, so the ring would reach tmux, and whose client holds the process open),
+// no inherited session identity, and every live transport closed so the process exits.
+for (const key of ['AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION_AGENT_ID', 'AO_SESSION_CONSUMER', 'CLAUDE_CODE_SESSION_ID']) delete process.env[key];
+Object.assign(process.env, { AO_TRANSPORT: 'file', AO_NATS_AUTOSTART: '0' });
+after(async () => { const { closeLiveTransports } = await import('../../topology/lib/orch-transport.mjs'); await closeLiveTransports(); });
 
 const READY = { status: 'responsive', record: { agent_id: 'lead0001' }, library_lead: 'lead0001' };
 const BINDING = { serverKey: '/tmp/ao-test-never-a-real-socket', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%9', panePid: 2 };
