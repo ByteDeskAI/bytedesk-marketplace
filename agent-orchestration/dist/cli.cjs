@@ -22488,7 +22488,7 @@ async function reviewerInboxRoot(consumer, env = process.env, home = (0, import_
   return (0, import_node_path48.join)(reviewersRoot(env, home), "inboxes", repoKey((await canonicalRepoId(consumer)).id));
 }
 function reviewerProtocolPrompt(agent, consumer, inboxRoot) {
-  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
+  return `You are ${displayName(agent)} (id "${agent.id}", role: reviewer), the standing code reviewer for ${consumer}. Read ${(0, import_node_path48.join)(agent._dir, "prompt.md")} and follow it. At safe boundaries read unexpired probes in ${(0, import_node_path48.join)(inboxRoot, "probes")} for your agent id and emit exactly AO_REVIEWER_READY followed by a space and the nonce on its own line; the host records the response. Read requests under ${(0, import_node_path48.join)(inboxRoot, "requests")}; read the files under review in the request's worktree path, never the main checkout, which may have another branch checked out; review the complete base_revision..revision patch, never only the final commit (base_revision is the effective base: when the task branch merged the default branch it is that merge-base, so the range excludes code already on the default branch there; admitted_base is the original admission commit), then submit your verdict by calling the ${REVIEW_SUBMIT_TOOL} tool with {"request":"<the request nonce>","verdict":"approve|changes_requested|blocked","findings":[{"severity":"blocker|major|minor|nit|note","file":"<path changed in the patch>","line":<positive integer>,"claim":"...","evidence":"...","fix":"..."}]}; a note may omit evidence and fix. Never print the verdict as your answer instead: the host does not read your pane for verdicts. If the tool refuses, fix what it names and call it again. Approve only when every finding is minor, nit or note; changes_requested needs at least one blocker or major finding. Never execute code or change files.`;
 }
 async function reviewerPaths(consumer, env = process.env, home = (0, import_node_os20.homedir)()) {
   const identity = await canonicalRepoId(consumer);
@@ -23085,6 +23085,12 @@ async function reviewRangeBase({ consumer, task, revision, admittedBase, serverC
   const { base, note } = await effectiveBase(consumer, admittedBase, revision, { recorded: request?.effective_base ?? null, reviewed, branch, serverCompare });
   return { admitted_base: admittedBase, effective_base: base, range_note: note };
 }
+async function taskTree(management, identity, consumer) {
+  const tree = typeof management?.worktree === "string" && management.worktree ? management.worktree : null;
+  if (!tree || !await exists(tree)) return consumer;
+  invariant2((await canonicalRepoId(tree)).id === identity.id, "TOPOLOGY_REVIEWER_RANGE", `The admitted task worktree ${tree} is not a worktree of this repository.`, { worktree: tree });
+  return tree;
+}
 async function trustedReviewRange({ consumer, task, revision, baseRevision = null, serverCompare = githubCompare, serverPullBase = githubPullBase, env = process.env, home = (0, import_node_os20.homedir)() }) {
   const identity = await canonicalRepoId(consumer);
   const path3 = (0, import_node_path48.join)(stateRoot2(env, home), "management", repoKey(identity.id), `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}.json`);
@@ -23092,21 +23098,22 @@ async function trustedReviewRange({ consumer, task, revision, baseRevision = nul
   invariant2(management?.started && management.repo_id === identity.id && management.task === task && management.finish?.revision === revision, "TOPOLOGY_REVIEWER_RANGE", "Review requires the task admission record and its current completed revision.");
   const admitted = management.base_revision;
   invariant2(COMMIT_SHA.test(String(admitted)) && (!baseRevision || baseRevision === admitted), "TOPOLOGY_REVIEWER_RANGE", "Review base must equal the original task admission commit.");
+  const tree = await taskTree(management, identity, consumer);
   for (const [label, rev] of [["admission base", admitted], ["finished revision", revision]]) {
-    const found = await run("git", ["-C", consumer, "cat-file", "-e", `${rev}^{commit}`], { allowFailure: true });
-    invariant2(found.code === 0, "TOPOLOGY_REVIEWER_RANGE", `The ${label} ${rev} is not a commit in ${consumer}; fetch it or re-finish the task.`);
+    const found = await run("git", ["-C", tree, "cat-file", "-e", `${rev}^{commit}`], { allowFailure: true });
+    invariant2(found.code === 0, "TOPOLOGY_REVIEWER_RANGE", `The ${label} ${rev} is not a commit in ${tree}; fetch it or re-finish the task.`);
   }
-  const ancestor = await run("git", ["-C", consumer, "merge-base", "--is-ancestor", admitted, revision], { allowFailure: true });
+  const ancestor = await run("git", ["-C", tree, "merge-base", "--is-ancestor", admitted, revision], { allowFailure: true });
   invariant2(ancestor.code === 0, "TOPOLOGY_REVIEWER_RANGE", "Task admission base must be an ancestor of the finished revision.");
   const { effective_base: base, range_note } = await reviewRangeBase({ consumer, task, revision, admittedBase: admitted, serverCompare, serverPullBase, env, home });
-  const diff = await run("git", ["-C", consumer, "diff", "--no-ext-diff", "--no-textconv", base, revision, "--"], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
+  const diff = await run("git", ["-C", tree, "diff", "--no-ext-diff", "--no-textconv", base, revision, "--"], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
   if (diff.code === "ERR_CHILD_PROCESS_STDOUT_MAXBUFFER") {
     fail("TOPOLOGY_REVIEWER_RANGE", `Task diff exceeds the ${REVIEW_PATCH_MAX_BYTES} byte cap (at least ${diff.stdout.length} bytes read before the cap stopped it).`);
   }
   invariant2(diff.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot produce the task diff: git diff exited ${diff.code}${diff.stderr?.trim() ? ` \u2014 ${diff.stderr.trim()}` : ""}.`);
-  const binaryFiles = await binaryFileManifest(consumer, base, revision);
+  const binaryFiles = await binaryFileManifest(tree, base, revision);
   const patch = binaryFiles.length ? `${diff.stdout}${renderBinaryManifest(binaryFiles)}` : diff.stdout;
-  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256: (0, import_node_crypto24.createHash)("sha256").update(patch).digest("hex"), owner: management.owner, binaryFiles };
+  return { base, admitted_base: admitted, effective_base: base, range_note, patch, patch_sha256: (0, import_node_crypto24.createHash)("sha256").update(patch).digest("hex"), owner: management.owner, binaryFiles, worktree: tree };
 }
 async function binaryFileManifest(consumer, base, revision) {
   const numstat = await run("git", ["-C", consumer, "diff", "--numstat", "-z", "--no-renames", base, revision, "--"], { allowFailure: true });
@@ -23210,7 +23217,7 @@ async function recordReview({ consumer, task, revision, verdict, findings = [], 
   );
   const range = await trustedReviewRange({ consumer, task, revision, baseRevision, serverCompare, serverPullBase, env, home });
   invariant2(authorAgentIds.includes(range.owner) && (!patchHash || patchHash === range.patch_sha256), "TOPOLOGY_REVIEWER_RANGE", "Review authors and patch must match the admitted task range.");
-  const structured = checkVerdict(verdict, findings, await reviewedFiles(consumer, range.base, revision));
+  const structured = checkVerdict(verdict, findings, await reviewedFiles(range.worktree, range.base, revision));
   const record2 = {
     base_revision: range.base,
     admitted_base: range.admitted_base,
@@ -23357,7 +23364,7 @@ async function requestReview({ consumer, task, revision, authorAgentIds, baseRev
       if (prior && prior.state !== "failed" && sameIncarnation(prior.binding, record3.binding) && prior.base_revision === range.base && prior.patch_sha256 === range.patch_sha256 && prior.reviewer_id === record3.agent_id && JSON.stringify(prior.author_agent_ids) === JSON.stringify(authorAgentIds)) return { prior: { ...prior, path: path3 } };
       const patchPath = (0, import_node_path48.join)(dir, `${key}.patch`);
       await writeText(patchPath, range.patch);
-      const request2 = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto24.randomUUID)(), task, revision, repo_id: record3.repo_id, reviewer_id: record3.agent_id, binding: incarnationOf(record3.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
+      const request2 = { base_revision: range.base, admitted_base: range.admitted_base, effective_base: range.effective_base, range_note: rangeNote(range), worktree: range.worktree, patch_path: patchPath, patch_sha256: range.patch_sha256, nonce: (0, import_node_crypto24.randomUUID)(), task, revision, repo_id: record3.repo_id, reviewer_id: record3.agent_id, binding: incarnationOf(record3.binding), author_agent_ids: authorAgentIds, created_at: nowIso() };
       await writeJson(path3, request2);
       return { record: record3, request: request2 };
     });
@@ -23381,7 +23388,7 @@ async function wakeReviewRequest({ consumer, record: record2, request, path: pat
     adapter,
     format: composerFormat(adapter, tmuxFailureTrigger(adapter)),
     binding: record2.binding,
-    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch; its range_note says what the range excludes. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision using read tools only, then submit your verdict with the review_submit tool (request ${request.nonce}).`
+    text: `AO_REVIEW_REQUEST ${request.nonce}: Read ${path3} and its complete patch; its range_note says what the range excludes. Read changed files under its worktree (${request.worktree ?? consumer}), not the main checkout. Binary files are listed in a manifest section (path, old and new blob sha256, size) instead of their bytes; treat that manifest as the record of what changed for those files. Review the requested revision using read tools only, then submit your verdict with the review_submit tool (request ${request.nonce}).`
   });
 }
 function decodeReviewPayload(text) {
@@ -23434,7 +23441,7 @@ async function submitReviewVerdict({ consumer, request: id, verdict, findings = 
     invariant2(current.nonce === request.nonce && !current.collected_at, "TOPOLOGY_REVIEWER_RESPONSE", "This review request was already collected; its verdict cannot change.");
     invariant2(current.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request failed (${current.failure?.reason ?? "no reason recorded"}); the lead must request the review again.`);
     invariant2(VERDICTS.has(verdict), "TOPOLOGY_REVIEWER_VERDICT", `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}.`);
-    const structured = checkVerdict(verdict, findings, await reviewedFiles(consumer, current.base_revision, current.revision));
+    const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision));
     const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
     submitted.mirror = await mirrorVerdict({ consumer, record: record2, submitted, env, transport });
     await writeJson(verdictPath(path3), submitted);
@@ -61113,10 +61120,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path66.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "730d7e16166fe1c70b9983e84b1fb345ecf96ca5dae49273269dd9490657c11b";
+  return false ? null : "cfa548cc92769cf397ba6d1a4b0caf6c472449bcfc01cac31efb7bec05f8bfd4";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "730d7e16166fe1c70b9983e84b1fb345ecf96ca5dae49273269dd9490657c11b";
+  const fingerprint2 = false ? null : "cfa548cc92769cf397ba6d1a4b0caf6c472449bcfc01cac31efb7bec05f8bfd4";
   let version2 = false ? null : "0.15.4";
   if (!version2) {
     try {
@@ -61707,7 +61714,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "730d7e16166fe1c70b9983e84b1fb345ecf96ca5dae49273269dd9490657c11b",
+  sourceFingerprint: false ? null : "cfa548cc92769cf397ba6d1a4b0caf6c472449bcfc01cac31efb7bec05f8bfd4",
   version: false ? null : "0.15.4"
 };
 var json4 = (path3) => (0, import_promises59.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

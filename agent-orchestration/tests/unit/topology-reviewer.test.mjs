@@ -643,3 +643,31 @@ test('TM-257 (h) a pre-TM-257 request after landing verifies the stored review b
   const reasons = (await reviewEligibility({ ...o, revision, probes: probesUp })).reasons;
   assert.ok(reasons.some(reason => /predates TM-257.*re-review is required/.test(reason)), reasons.join('\n'));
 });
+
+test('TM-366 the review reads the worker worktree: a change only there is reviewed, not the main checkout', async t => {
+  const f = await fixture(t);
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  // The worker's worktree is on its own branch; the main checkout stays on the base.
+  const tree = join(f.consumer, '.bytedesk', 'worktrees', 'TM-1');
+  await run('git', ['-C', f.consumer, 'worktree', 'add', '-q', '-b', 'tm/TM-1', tree]);
+  await mkdir(join(tree, 'src'), { recursive: true });
+  await writeFile(join(tree, 'src', 'only-in-worktree.js'), 'export const reviewed = "worker change";\n');
+  const git = args => run('git', ['-C', tree, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args]);
+  await git(['add', '.']); await git(['commit', '-q', '-m', 'worker change']);
+  const revision = (await git(['rev-parse', 'HEAD'])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, worktree: tree, branch: 'tm/TM-1', finish: { revision } });
+  const opts = { ...f, task: 'TM-1', revision, authorAgentIds: ['author'], wake: async () => ({ rang: true }) };
+  const request = await requestReview(opts);
+  assert.equal(request.worktree, tree, 'the request names the worktree the reviewer reads');
+  assert.match(await readFile(request.patch_path, 'utf8'), /worker change/);
+  assert.equal(await readFile(join(request.worktree, 'src', 'only-in-worktree.js'), 'utf8'), 'export const reviewed = "worker change";\n');
+  await assert.rejects(readFile(join(f.consumer, 'src', 'only-in-worktree.js')), { code: 'ENOENT' }, 'the main checkout does not have the change');
+  // A finding about the worktree-only file is accepted, because the files come from the worktree.
+  await submitVerdict(f, request, 'changes_requested', [{ severity: 'major', file: 'src/only-in-worktree.js', line: 1, claim: 'c', evidence: 'e', fix: 'x' }]);
+  const review = await collectReview(opts);
+  assert.equal(review.findings[0].file, 'src/only-in-worktree.js');
+  // A worktree of another repository is refused, never silently reviewed.
+  const other = join(f.home, 'other'); await mkdir(other, { recursive: true }); await run('git', ['init', '-q', other]);
+  await writeJson(f.managementPath, { ...f.management, worktree: other, finish: { revision } });
+  await assert.rejects(requestReview(opts), { code: 'TOPOLOGY_REVIEWER_RANGE', message: /not a worktree of this repository/ });
+});

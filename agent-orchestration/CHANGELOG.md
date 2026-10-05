@@ -25,6 +25,15 @@
   `review_submit`, and no settings, plugins or hooks load. The reviewer prompts now name the tool.
   `dist/` is rebuilt.
 
+### Fixed
+
+- **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
+  review range, the patch, the binary manifest and the files a finding may name now resolve from
+  the task worktree in the admission record. The request records that `worktree`, and the reviewer
+  prompt and request ring tell the reviewer to read files there; the main checkout may have another
+  branch checked out. A worktree that has been removed falls back to the consumer, which shares the
+  object store. A worktree of another repository is refused with `TOPOLOGY_REVIEWER_RANGE`.
+
 - **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
   hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
   orchestration commands. These are `ao-topology` verbs, `agent-orchestration`
