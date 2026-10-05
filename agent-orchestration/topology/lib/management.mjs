@@ -11,7 +11,7 @@ import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from 
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
-import { currentReviewStatus, githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { currentReviewStatus, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -357,6 +357,21 @@ export async function taskWorkerState(options, record) {
   } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
 }
 
+/** TM-349: the admission base is merge-base(HEAD, integration branch), never HEAD itself, so commits a
+ * worker made before admission stay inside the review range. The branch is the one TM-325 freezes into
+ * the record (the PR base tm recorded), else the task PR base on the server, else
+ * management.target_branch. Its remote-tracking ref is preferred over the local branch; both missing
+ * fails closed. A fresh worktree is unchanged: there the merge-base is HEAD. */
+async function admissionBase(options, worktree, integration, branch) {
+  const named = integration || (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0] || (await loadConfig(options)).config.management?.target_branch;
+  invariant(nonempty(named), 'TOPOLOGY_MANAGEMENT_BASE', 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, and management.target_branch is unset. Configure management.target_branch.');
+  for (const ref of [`refs/remotes/origin/${named}`, `refs/heads/${named}`]) {
+    const found = await git(worktree, ['merge-base', 'HEAD', ref], true);
+    if (found.code === 0 && found.stdout.trim()) return found.stdout.trim();
+  }
+  fail('TOPOLOGY_MANAGEMENT_BASE', `Cannot resolve the integration branch ${named} (origin/${named} or ${named}) to a merge-base with the task HEAD; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`);
+}
+
 /** New admission requires readiness before tm start (which enforces dependencies/claim/WIP).
  * An already active adopted worker is never moved; the response schedules ownership review.
  */
@@ -371,7 +386,18 @@ export async function admitTask(options) {
       return { admitted: false, state: 'ownership-review-required' };
     }
     if (held) ownClaim(held, owner); // TTL expiry never authorizes silent reassignment here.
-    if (prior?.owner === owner && prior.started) { if (!held) await ctx.store.provision(task); await ownedTask(ctx, task, owner); return { admitted: true, resumed: true, record: prior }; }
+    if (prior?.owner === owner && prior.started) {
+      if (!held) await ctx.store.provision(task);
+      const current = await ownedTask(ctx, task, owner);
+      // TM-349: a record admitted at a worker commit hides that commit; a resumed admission only ever widens it.
+      const base = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
+      if (base !== prior.base_revision && (await git(current.worktree, ['merge-base', '--is-ancestor', base, prior.base_revision], true)).code === 0) {
+        const widened = await recordEvent(ctx, task, prior, 'base-widened', { from: prior.base_revision, to: base });
+        widened.base_revision = base; await writeJson(ctx.path, widened);
+        return { admitted: true, resumed: true, record: widened };
+      }
+      return { admitted: true, resumed: true, record: prior };
+    }
     invariant(doc.labels?.includes('ready-for-agent') && list(doc.touches) && doc.touches.length, 'TOPOLOGY_MANAGEMENT_SCOPE', 'Task needs approved ready-for-agent scope and declared files/touches.');
     const available = await (options.reviewerReady || reviewerAvailability)(options);
     invariant(available.available, 'TOPOLOGY_MANAGEMENT_REVIEWER', available.reason || 'Designated reviewer is not ready.');
@@ -380,14 +406,15 @@ export async function admitTask(options) {
     // worktree is re-claimed here; a claim held by another session was already refused above.
     if (!held || !doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
     const provisioned = await ownedTask(ctx, task, owner);
+    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
+    const recorded = String(provisioned.integrationBranch ?? '').trim(), integration = recorded && recorded !== 'HEAD' ? recorded : null;
+    const base = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
     await ctx.store.start(task, provisioned.worktree);
     const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
     const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
-    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
-    const integration = String(provisioned.integrationBranch ?? '').trim();
-    Object.assign(record, { integration_branch: integration && integration !== 'HEAD' ? integration : null, base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
+    Object.assign(record, { integration_branch: integration, base_revision: base, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
     await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});
     return { admitted: true, record };

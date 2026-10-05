@@ -1614,3 +1614,50 @@ export default { proc: { name: "proc", available: () => true, spawn: ({ worktree
   const eligible = await gate();
   assert.equal(eligible.eligible, true, eligible.reasons.join("; "));
 });
+
+// TM-349: admit after the worker already committed; the base is the merge-base, not that commit.
+test("TM-349: a late admission records merge-base(HEAD, integration branch), so the review range keeps the own commit", async t => {
+  const { opts, doc, setClaim, git } = await fixture(t);
+  const { reviewRangeBase } = await import("../../topology/lib/reviewer.mjs");
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const worktree = join(opts.consumer, "..", "task");
+  const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await git(opts.consumer, ["worktree", "add", "-q", "-b", "tm/TM-1", worktree]);
+  await writeFile(join(worktree, "code.txt"), "implemented"); await git(worktree, ["add", "code.txt"]); await git(worktree, [...id, "commit", "-qm", "own commit before admit"]);
+  Object.assign(doc, { worktree, branch: "tm/TM-1" }); setClaim(null);
+  opts.store.provision = async () => setClaim({ session: "author", worktree, branch: "tm/TM-1" });
+  const admitted = await admitTask(opts);
+  assert.equal(admitted.record.base_revision, forked, "the pre-commit merge-base, not the own commit");
+  // The integration branch moves on and the task merges it, then finishes.
+  await writeFile(join(opts.consumer, "sibling.txt"), "landed"); await git(opts.consumer, ["add", "sibling.txt"]); await git(opts.consumer, [...id, "commit", "-qm", "sibling"]);
+  const sibling = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await git(worktree, [...id, "merge", "-q", "--no-edit", "--no-ff", "main"]);
+  const revision = (await git(worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  await workerReport({ ...opts, kind: "finish", report: { artifacts: ["code.txt"], checks: ["content"], risks: [], evidence: "fixture", revision } });
+  const serverCompare = async () => ({ status: "diverged", merge_base: sibling });
+  const { effective_base: base } = await reviewRangeBase({ consumer: opts.consumer, task: "TM-1", revision, admittedBase: admitted.record.base_revision, serverCompare, serverPullBase: async () => [], env: opts.env, home: opts.home });
+  assert.equal(base, sibling);
+  assert.deepEqual((await git(opts.consumer, ["diff", "--name-only", base, revision])).stdout.trim().split("\n"), ["code.txt"], "the own commit is reviewed; the merged sibling is not");
+});
+
+test("TM-349: an unresolvable integration branch refuses admission instead of falling back to HEAD", async t => {
+  const { opts, calls } = await fixture(t);
+  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no-such-branch/ });
+  assert.equal(calls.includes("start"), false, "nothing is started");
+});
+
+test("TM-349: a resumed admission widens a base that hid a worker commit, and never narrows it", async t => {
+  const { opts, doc, git } = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  const forked = (await git(opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await admitTask(opts);
+  await writeFile(join(doc.worktree, "code.txt"), "implemented"); await git(doc.worktree, ["add", "code.txt"]); await git(doc.worktree, [...id, "commit", "-qm", "own"]);
+  const own = (await git(doc.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+  // A record written by the old code: the base is the own commit.
+  const path = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, "management", repoKey((await canonicalRepoId(opts.consumer)).id), "TM-1.json");
+  await writeJson(path, { ...(await readJson(path)), base_revision: own });
+  const resumed = await admitTask(opts);
+  assert.equal(resumed.resumed, true); assert.equal(resumed.record.base_revision, forked);
+  assert.equal(resumed.record.events.at(-1).event, "base-widened");
+  assert.equal((await admitTask(opts)).record.base_revision, forked, "stable once widened");
+});
