@@ -11,7 +11,7 @@
  * same graph, because the store's whole thesis is "readable in a PR diff" and
  * GitHub renders Mermaid there.
  */
-import { RESOLVED, config, list, state } from "./store.mjs";
+import { RESOLVED, config, foreignBlockers, list, state } from "./store.mjs";
 import { agentReadiness } from "./completeness.mjs";
 import { claimant } from "./claims.mjs";
 import { paths } from "./paths.mjs";
@@ -108,7 +108,7 @@ export function why(id, p = paths()) {
   }
   // TM-381: a ticket on another board (`tm ticket --from-task`). This store cannot read that board,
   // so the link itself is the blocker until the ticket's merge removes it (TM-359).
-  const foreign = (task.links || []).filter((l) => l.type === "blocked by" && l.board).map((l) => l.id);
+  const foreign = foreignBlockers(task);
   if (foreign.length) {
     reasons.push({ kind: "cross-repo", blocking: true, text: `waiting on cross-repo ticket${foreign.length === 1 ? "" : "s"} ${foreign.join(", ")}` });
   }

@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { currentCheckout, paths } from "./paths.mjs";
 import { claimTask, claimant, releaseClaim } from "./claims.mjs";
 import { actor, actorLabel, sessionId, stamp } from "./actor.mjs";
-import { config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, readEvents, removeCriterion, setCriterion, staleTasks, state, update, writeState } from "./store.mjs";
+import { PRIORITIES, config, create, editTask, kindOf, list, logEvent, moveTask, nextTasks, now, read, readEvents, removeCriterion, setCriterion, staleTasks, state, update, writeState } from "./store.mjs";
 import { gateDone, gateStart, gateTaskCreate } from "./enforce.mjs";
 import { readyForReview } from "./governance.mjs";
 import { COLUMNS, board, collapseLog, handoff, renderHistory, sprintReport, standup, taskLine } from "./render.mjs";
@@ -41,7 +41,6 @@ import { dispatch } from "./dispatch/index.mjs";
 import { envRegistry } from "./dispatch/backend.mjs";
 import { collect } from "./dispatch/collect.mjs";
 import { fileTicket } from "./ticket.mjs";
-import { PRIORITIES } from "./store.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.

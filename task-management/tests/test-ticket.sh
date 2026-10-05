@@ -80,6 +80,17 @@ mcp="$(cd "$A" && TM_ROOT="$A" TM_TOPOLOGY_BIN="" node --input-type=module -e "
 import { callTool } from '$PLUGIN_ROOT/lib/mcp.mjs';
 console.log(JSON.stringify(await callTool('tm_ticket', { target: '$B', title: 'Via MCP', priority: 'high', acceptance: ['works'] })));")"
 has "$mcp" '"ref":"repo-b#TM-004"' "MCP tm_ticket files a ticket with AO absent"
+# Through the real stdio server: the schema (its priority enum is built from the store's ladder)
+# and the handler, end to end.
+rpc="$(cd "$A" && printf '%s\n' \
+  '{"jsonrpc":"2.0","id":0,"method":"initialize"}' \
+  '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"tm_ticket\",\"arguments\":{\"target\":\"$B\",\"title\":\"Via the MCP server\",\"priority\":\"critical\",\"acceptance\":[\"works\"]}}}" \
+  | TM_ROOT="$A" TM_TOPOLOGY_BIN="" node "$PLUGIN_ROOT/bin/tm-mcp" 2>&1)"
+schema="$(grep '"id":1' <<<"$rpc" | node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=r.result.tools.find((x)=>x.name==="tm_ticket");console.log(JSON.stringify(t?.inputSchema?.properties?.priority?.enum))')"
+[[ "$schema" == '["critical","highest","high","medium","low","lowest"]' ]] && ok "the MCP server lists tm_ticket with the priority ladder" || no "the MCP server lists tm_ticket with the priority ladder" "$schema"
+has "$(grep '"id":2' <<<"$rpc")" 'repo-b#TM-005' "the MCP server's tm_ticket call files a ticket"
+[[ "$(tm "$B" show TM-005 --json | field priority)" == "highest" ]] && ok "the MCP-filed ticket is highest" || no "the MCP-filed ticket is highest"
 
 # ── TM-359: progress events reach the origin task and lead ──────────────────
 comments() { tm "$A" show TM-001 --json | field comments; }

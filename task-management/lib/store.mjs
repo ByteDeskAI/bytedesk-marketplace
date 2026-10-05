@@ -1382,7 +1382,18 @@ function blockedByDependency(task) {
   return task.status === "blocked" && !task.blockedReason;
 }
 
+/**
+ * Tickets on another board this task waits on (`tm ticket --from-task`, TM-381): its foreign
+ * `blocked by` links. This store cannot read that board, so the link IS the blocker until the
+ * ticket's merged/done event removes it (TM-359). Shared by nextTasks (so `tm next` and the pool)
+ * and `tm why`.
+ */
+export function foreignBlockers(task) {
+  return (task?.links || []).filter((l) => l.type === "blocked by" && l.board).map((l) => l.id);
+}
+
 function dependenciesMet(task, byId) {
+  if (foreignBlockers(task).length) return false;
   return (task.blockedBy || []).every((d) => {
     const blocker = byId.get(d);
     return !blocker || RESOLVED.has(blocker.status);
