@@ -1821,7 +1821,7 @@ async function mergeInFixture(t, { evil = false } = {}) {
   const admitted = await admitTask(f.opts); const report = await f.finish(); const revision = report.finish.revision;
   await writeFile(join(f.opts.consumer, 'sibling.txt'), 'landed elsewhere'); await f.git(f.opts.consumer, ['add', 'sibling.txt']);
   await f.git(f.opts.consumer, [...COMMIT, '-m', 'sibling on main']);
-  await f.git(f.doc.worktree, ['merge', '--no-ff', '--no-commit', 'main']);
+  await f.git(f.doc.worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'merge', '--no-ff', '--no-commit', 'main']);
   if (evil) { await writeFile(join(f.doc.worktree, 'code.txt'), 'implemented, then changed inside the merge'); await f.git(f.doc.worktree, ['add', 'code.txt']); }
   await f.git(f.doc.worktree, [...COMMIT, '-m', 'merge main into task']);
   const head = (await f.git(f.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
