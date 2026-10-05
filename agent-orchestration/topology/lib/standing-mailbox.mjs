@@ -22,8 +22,8 @@ import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
-import { invariant, nowIso } from './util.mjs';
-import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications } from './mailbox-receipts.mjs';
+import { invariant, nowIso, shellQuote } from './util.mjs';
+import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt } from './mailbox-receipts.mjs';
 
 export function standingMailboxRoot({ env = process.env, home = homedir() } = {}) {
   return join(stateRoot(env, home), 'standing-mailbox');
@@ -390,4 +390,56 @@ export async function recordStandingReply({ consumer, messageId, agentId, body, 
     }) });
   }
   return settled.reply;
+}
+
+// TM-351. Delivered standing mail rings its recipient's pane once, so an idle agent learns of it
+// without polling its inbox. The ring is a pointer (message id + the exact read command), never the
+// body, and it goes through `ringMessage`, which holds rather than type into an unsafe composer. A
+// held ring is retried on the next supervisor tick; a marker under rings/ makes it once per message
+// across ticks and restarts. Mail the agent already read (a receipt) or answered is never rung.
+export const STANDING_RING_WINDOW_MS = Number(process.env.AO_STANDING_RING_WINDOW_MS ?? 3000);
+
+export function standingRingPointer(record, consumer) {
+  const e = record.envelope;
+  return `[ao] Standing message ${e.id} from ${e.from}: read it with ao-topology mailbox inbox --consumer ${shellQuote(consumer)} --agent ${shellQuote(record.delivered_to)}`;
+}
+
+/** `panes`: live panes of this repository, `{ agentId, command, ...binding }`. One ring per agent
+ * per call, so a backlog reaches an agent one pointer per tick rather than as a burst. */
+export async function ringStandingMail({ consumer, panes = [], adapters = null, windowMs = STANDING_RING_WINDOW_MS, ringDeps = {}, ...options }) {
+  const identity = await canonicalRepoId(consumer);
+  const { ringMessage } = await import('./delivery.mjs');
+  const { deliverPointer, tmuxFailureTrigger } = await import('./launch.mjs');
+  const { adapterForPane } = await import('./census.mjs');
+  const { withServer } = await import('./tmux.mjs');
+  const ringsDir = join(standingMailboxRoot(options), 'rings');
+  const busy = new Set(), results = [];
+  for (const record of await records(options)) {
+    const id = record.envelope.id, agent = record.delivered_to;
+    if (record.status !== 'delivered' || record.envelope.destinationRepoId !== identity.id || !agent || busy.has(agent)) continue;
+    const marker = join(ringsDir, `${createHash('sha256').update(id).digest('hex')}.json`);
+    const prior = await read(marker);
+    if (prior?.done) continue;
+    const settle = async (fields) => {
+      const next = { id, agent, attempts: (prior?.attempts ?? 0) + (fields.rung ? 1 : 0), at: nowIso(), ...fields };
+      delete next.rung;
+      await mkdir(ringsDir, { recursive: true, mode: 0o700 });
+      await atomicWrite(marker, next);
+      results.push(next);
+    };
+    const seen = record.reply || await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    if (seen) { await settle({ state: 'read', done: true, reason: 'the recipient already read or answered it' }); continue; }
+    const pane = panes.find(p => p.agentId === agent);
+    if (!pane?.paneId || !pane.serverKey) { await settle({ state: 'held', done: false, reason: 'the recipient has no live pane' }); continue; }
+    busy.add(agent);
+    const binding = Object.fromEntries(['serverKey', 'serverPid', 'sessionId', 'sessionCreated', 'paneId', 'panePid'].map(k => [k, pane[k]]));
+    const outcome = await withServer(pane.serverKey, () => ringMessage({ runDir: null, agentId: agent,
+      agent: { id: agent, pane: pane.paneId, binding }, adapter: adapterForPane(adapters, pane),
+      pointer: standingRingPointer(record, consumer), messageId: id, session: null, windowMs,
+      deliverPointer, tmuxFailureTrigger, ...ringDeps }));
+    // Escalated means something was typed and did not land; retyping would double it, so it is final.
+    await settle({ rung: true, state: outcome.delivery.state, notification: outcome.notification,
+      reason: outcome.delivery.reason, done: outcome.rang || outcome.delivery.escalated === true });
+  }
+  return results;
 }
