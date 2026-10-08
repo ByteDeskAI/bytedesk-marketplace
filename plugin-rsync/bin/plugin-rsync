@@ -171,12 +171,29 @@ function runRsync(src, dest, dry) {
  * Only `<plugin>@bytedesk` hooks are touched: this marketplace is the operator's own code.
  * ponytail: speaks app-server JSON-RPC by hand; a codex CLI verb for hook trust would replace it.
  */
-function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
+function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000, home = HOME } = {}) {
+  // One run at a time. The app-server this spawns may start plugin MCP servers, including ours,
+  // which would start another run: the lock ends that chain. A lock older than any run is stale.
+  const lock = join(home, ".codex", ".plugin-rsync-trust.lock");
+  try {
+    if (Date.now() - statSync(lock).mtimeMs > 2 * 60 * 1000) rmdirSync(lock);
+  } catch {}
+  try {
+    mkdirSync(lock, { recursive: false });
+  } catch (e) {
+    return Promise.resolve(e.code === "EEXIST" ? { ok: true, trusted: [], busy: true } : { ok: false, err: `lock: ${e.code}` });
+  }
+  const unlock = () => {
+    try {
+      rmdirSync(lock);
+    } catch {}
+  };
   return new Promise((done) => {
     let child;
     try {
       child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
+      unlock();
       return done({ ok: false, err: "codex not runnable" });
     }
     let settled = false;
@@ -185,6 +202,7 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
       settled = true;
       clearTimeout(timer);
       child.kill();
+      unlock();
       done(r);
     };
     const timer = setTimeout(() => finish({ ok: false, err: "codex app-server timed out" }), timeoutMs);
@@ -338,7 +356,7 @@ async function main(argv) {
   }
   if (argv[0] === "trust-codex-hooks") {
     const r = await trustCodexHooks();
-    console.log(r.ok ? `codex hooks trusted: ${r.trusted.length ? r.trusted.join(", ") : "none needed"}` : `codex hook trust skipped: ${r.err}`);
+    console.log(r.ok ? `codex hooks trusted: ${r.trusted.length ? r.trusted.join(", ") : r.busy ? "another run is trusting them" : "none needed"}` : `codex hook trust skipped: ${r.err}`);
     return r.ok ? 0 : 1;
   }
 

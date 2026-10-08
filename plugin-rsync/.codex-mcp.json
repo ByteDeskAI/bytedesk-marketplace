@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "plugin-rsync": {
+      "type": "stdio",
+      "command": "./bin/plugin-rsync-mcp",
+      "cwd": "."
+    }
+  }
+}
