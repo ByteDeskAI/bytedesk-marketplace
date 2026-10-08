@@ -98,11 +98,64 @@ function verifyReceipt(record) {
   return record;
 }
 
+/** TM-482: a message that can never be accepted: not an envelope, a bad digest, a body over 1 MiB,
+ * another recipient's mail, an ID reused for different content. Redelivery cannot fix it, and the
+ * broker redelivers a NAKed message first, so a NAK would block every message behind it forever. */
+const poison = error => typeof error?.code === 'string' && (error.code.startsWith('TOPOLOGY_MAILBOX_') || error.code === 'TOPOLOGY_MESSAGE_ID_CONFLICT');
+
+/** Dead-letter the delivery with its reason, then term it (ACK where the transport has no term) so
+ * the inbox moves on. The operator is paged once per distinct message: a redelivery finds the record. */
+async function quarantine({ identity, agent, kind, delivery, error, options }) {
+  const raw = String(delivery.rawBody ?? delivery.body ?? '');
+  const path = join(mailboxLedgerRoot(options), repoKey(identity.id), 'dead-letter', hash(canonical([kind, agent, raw])) + '.json');
+  await ensureDirectory(dirname(path));
+  const record = { schemaVersion: 1, kind, agent, repositoryId: identity.id, code: error.code, reason: String(error.message).slice(0, 2000),
+    subject: delivery.subject ?? null, messageId: delivery.messageId ?? null, rawBody: raw, quarantinedAt: nowIso() };
+  const fresh = await withLock(`${path}.lock`, async () => {
+    if (await read(path)) return false;
+    await write(path, record); return true;
+  });
+  await (delivery.term ?? delivery.ack)();
+  if (fresh) {
+    const notify = options.notify ?? (await import('./ntfy.mjs')).page;
+    await notify({ title: `AO mailbox: quarantined a message for ${agent}`, env: options.env ?? process.env,
+      body: `${error.code}: ${record.reason}\nrepository: ${identity.id}\nsubject: ${record.subject ?? '-'}\ndead letter: ${path}` });
+  }
+  return { quarantined: true, code: error.code, reason: record.reason, deadLetter: path, messageId: record.messageId, notified: fresh };
+}
+
 /** Accept and fsync before ACK. A failure before or during ACK leaves replayable
- * evidence; a later delivery verifies the digest and retains the disposition. */
+ * evidence; a later delivery verifies the digest and retains the disposition.
+ * TM-482: a message that fails validation is quarantined and termed, never thrown for a NAK. Only a
+ * local failure (I/O, a corrupt local receipt) still throws, so the caller NAKs and retries it. */
 export async function acceptMailboxDelivery({ consumer, agent, kind = 'mail', delivery, ...options }) {
   const identity = await identityOf(consumer);
   bounded(agent, 'recipient');
+  let envelope;
+  try { envelope = deliveredEnvelope({ identity, agent, kind, delivery }); }
+  catch (error) { if (poison(error)) return quarantine({ identity, agent, kind, delivery, error, options }); throw error; }
+  const path = recordPath(envelope, 'receipts', options);
+  await ensureDirectory(dirname(path));
+  const record = await withLock(`${path}.lock`, async () => {
+    const existing = await read(path);
+    if (existing) {
+      verifyReceipt(existing);
+      try { samePayload(existing, envelope); } catch (error) { return { conflict: error }; }
+      return { ...existing, deduplicated: true };
+    }
+    const at = nowIso();
+    const next = { schemaVersion: 1, messageId: envelope.id, kind, repositoryId: identity.id, agent,
+      payloadDigest: envelope.payloadDigest, envelope, status: 'accepted', acceptedAt: at, updatedAt: at,
+      subject: delivery.subject ?? null, disposition: null };
+    await write(path, next);
+    return next;
+  });
+  if (record.conflict) return quarantine({ identity, agent, kind, delivery, error: record.conflict, options });
+  await delivery.ack();
+  return verifyReceipt(record);
+}
+
+function deliveredEnvelope({ identity, agent, kind, delivery }) {
   let parsed;
   try { parsed = JSON.parse(delivery.rawBody ?? delivery.body); } catch { parsed = null; }
   let envelope;
@@ -117,20 +170,7 @@ export async function acceptMailboxDelivery({ consumer, agent, kind = 'mail', de
   }
   invariant(envelope.repositoryId === identity.id && envelope.to === agent && envelope.kind === kind,
     'TOPOLOGY_MAILBOX_IDENTITY', 'Envelope does not belong to the requested repository, recipient and mailbox.');
-  const path = recordPath(envelope, 'receipts', options);
-  await ensureDirectory(dirname(path));
-  const record = await withLock(`${path}.lock`, async () => {
-    const existing = await read(path);
-    if (existing) { verifyReceipt(existing); samePayload(existing, envelope); return { ...existing, deduplicated: true }; }
-    const at = nowIso();
-    const next = { schemaVersion: 1, messageId: envelope.id, kind, repositoryId: identity.id, agent,
-      payloadDigest: envelope.payloadDigest, envelope, status: 'accepted', acceptedAt: at, updatedAt: at,
-      subject: delivery.subject ?? null, disposition: null };
-    await write(path, next);
-    return next;
-  });
-  await delivery.ack();
-  return record ? verifyReceipt(record) : null;
+  return envelope;
 }
 
 export async function getMailboxReceipt({ consumer, agent, messageId, kind = 'mail', ...options }) {

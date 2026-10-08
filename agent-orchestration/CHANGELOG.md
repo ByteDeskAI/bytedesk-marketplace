@@ -235,6 +235,14 @@
 
 ### Fixed
 
+- **One invalid NATS message no longer blocks an inbox (TM-482, EP-028).** `acceptMailboxDelivery`
+  NAKed every failure, and JetStream redelivers a NAKed message first, so a blank body, a bad
+  digest, a body over 1 MiB, another recipient's mail or a reused message ID made every later read
+  throw. A message that fails validation (`TOPOLOGY_MAILBOX_*`, `TOPOLOGY_MESSAGE_ID_CONFLICT`) is
+  now written to `<state>/mailbox/v1/<repo>/dead-letter/` with its reason, termed (ACKed where the
+  transport has no term), and paged to the operator through ntfy once per distinct message. Only a
+  local failure still NAKs. The NATS mail and reply deliveries gain `term()`.
+
 - **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
   sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
   with `source_identity_required`. The adapter now reads the record SessionStart wrote for its

@@ -30,13 +30,15 @@ test('accepted obligation survives ACK crash and repeated delivery without dupli
   assert.equal((await listMailboxReceipts({ ...f, status: 'accepted' , allAgents: true })).length, 0);
 });
 
-test('changed immutable content and foreign recipient never ACK; deferred obligations stay visible', async t => {
-  const f = await fixture(t); let acks = 0;
-  const receive = envelope => acceptMailboxDelivery({ ...f, agent: 'worker', delivery: { body: JSON.stringify(envelope), ack: async () => { acks++; } } });
+test('changed immutable content and foreign recipient are quarantined, never accepted; deferred obligations stay visible', async t => {
+  const f = await fixture(t); let acks = 0, terms = 0;
+  const receive = envelope => acceptMailboxDelivery({ ...f, agent: 'worker', notify: async () => {},
+    delivery: { body: JSON.stringify(envelope), ack: async () => { acks++; }, term: async () => { terms++; } } });
   await receive(f.envelope);
-  await assert.rejects(receive(createMailboxEnvelope({ ...f.envelope, body: 'different' })), { code: 'TOPOLOGY_MESSAGE_ID_CONFLICT' });
-  await assert.rejects(receive(createMailboxEnvelope({ ...f.envelope, to: 'other' })), { code: 'TOPOLOGY_MAILBOX_IDENTITY' });
-  assert.equal(acks, 1);
+  assert.equal((await receive(createMailboxEnvelope({ ...f.envelope, body: 'different' }))).code, 'TOPOLOGY_MESSAGE_ID_CONFLICT');
+  assert.equal((await receive(createMailboxEnvelope({ ...f.envelope, to: 'other' }))).code, 'TOPOLOGY_MAILBOX_IDENTITY');
+  assert.equal(acks, 1); assert.equal(terms, 2);
+  assert.equal((await getMailboxReceipt({ ...f, agent: 'worker', messageId: f.envelope.id })).payloadDigest, f.envelope.payloadDigest, 'the accepted original is untouched');
   await setMailboxDisposition({ ...f, agent: 'worker', messageId: f.envelope.id, disposition: 'deferred', reason: 'dependency', retryAt: '2030-01-01T00:00:00.000Z' });
   assert.equal((await listMailboxReceipts({ ...f, workflowId: 'topology:one', taskId: 'TM-1' , allAgents: true }))[0].status, 'deferred');
   assert.equal((await listMailboxReceipts({ ...f, agent: 'other' })).length, 0);
