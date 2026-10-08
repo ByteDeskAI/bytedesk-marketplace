@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **The reviewer tests pin the file transport themselves (TM-471, EP-028).** Two late-ack tests in
+  `topology-reviewer.test.mjs` passed only when the suite preload set `AO_TRANSPORT=file`. Run
+  bare, they used NATS, so no probe file was written and both tests failed. The fixture now sets
+  `AO_TRANSPORT: 'file'` in its own env. Test-only; no runtime change.
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
   `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to
