@@ -62498,7 +62498,8 @@ function keepBuild(copy, fingerprint2, source, ordinalOf) {
   }
   return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
 }
-var looksLikeCopy = (dir) => (0, import_node_fs12.existsSync)((0, import_node_path66.join)(dir, "package.json")) && (0, import_node_fs12.existsSync)((0, import_node_path66.join)(dir, "dist"));
+var PACKAGE = "@bytedesk/agent-orchestration";
+var looksLikeCopy = (dir) => readJsonSync((0, import_node_path66.join)(dir, "package.json"))?.name === PACKAGE && (0, import_node_fs12.existsSync)((0, import_node_path66.join)(dir, "dist"));
 function compareVersions(a, b) {
   const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
   const [x, y] = [parts(a), parts(b)];
@@ -62707,10 +62708,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "802dfae0e5b7af6b7c3b187a2c08813dab5e37d6adcc2c46335b061d83ac0a31";
+  return false ? null : "ddb7aa59b91e6231af709709ab0e952f9aa687cad6a186df2cf2b792bb7bd4a5";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "802dfae0e5b7af6b7c3b187a2c08813dab5e37d6adcc2c46335b061d83ac0a31";
+  const fingerprint2 = false ? null : "ddb7aa59b91e6231af709709ab0e952f9aa687cad6a186df2cf2b792bb7bd4a5";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63327,7 +63328,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "802dfae0e5b7af6b7c3b187a2c08813dab5e37d6adcc2c46335b061d83ac0a31",
+  sourceFingerprint: false ? null : "ddb7aa59b91e6231af709709ab0e952f9aa687cad6a186df2cf2b792bb7bd4a5",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

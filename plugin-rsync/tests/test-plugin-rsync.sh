@@ -190,6 +190,30 @@ rm -f "$SANDBOX/grok.calls"
 printf '%s\n' '{"version":1,"repos":{"bd-alpha":{"kind":{"type":"Local","source_path":"'"$BYTEDESK_MARKETPLACE/alpha"'"},"plugins":{"alpha":{}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
 out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
 [[ ! -e "$SANDBOX/grok.calls" && "$out" == *"none needed"* ]] && ok "fix-grok-installs leaves a per-plugin install alone" || bad "fix-grok-installs no-op" "$out"
+# TM-485: another local marketplace's plugins are never reinstalled, let alone with --trust.
+OTHER="$SANDBOX/other-market"
+mkdir -p "$OTHER/.claude-plugin" "$OTHER/gamma"
+printf '%s\n' '{"name":"someone-else","plugins":[{"name":"gamma","source":"./gamma"}]}' > "$OTHER/.claude-plugin/marketplace.json"
+printf '%s\n' '{"version":1,"repos":{"o-gamma":{"kind":{"type":"Local","source_path":"'"$OTHER"'"},"plugins":{"gamma":{"subdir":"gamma"}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
+[[ ! -e "$SANDBOX/grok.calls" && "$out" == *"none needed"* ]] && ok "fix-grok-installs ignores a marketplace that is not bytedesk" || bad "fix-grok-installs other marketplace" "$out | $(cat "$SANDBOX/grok.calls" 2>/dev/null)"
+# TM-485: an untrusted (disabled) bytedesk entry is reported and never re-trusted.
+printf '%s\n' '{"version":1,"repos":{"bd-alpha":{"kind":{"type":"Local","source_path":"'"$BYTEDESK_MARKETPLACE"'"},"plugins":{"alpha":{"subdir":"alpha"}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
+printf '[plugins]\nenabled = [\n    "x",\n]\ndisabled = ["user/1b36a520/alpha"]\n\n[ui]\ndisabled = ["beta"]\n' > "$HOME/.grok/config.toml"
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
+[[ ! -e "$SANDBOX/grok.calls" && "$out" == *"not trusted"*"alpha"* ]] && ok "fix-grok-installs leaves an untrusted entry alone and says so" || bad "fix-grok-installs untrusted" "$out | $(cat "$SANDBOX/grok.calls" 2>/dev/null)"
+rm -f "$SANDBOX/grok.calls" "$HOME/.grok/config.toml"
+# TM-485: a failed uninstall is reported, and nothing is installed over the old copy.
+cat > "$SANDBOX/fakebin/grok" <<EOF
+#!/bin/sh
+echo "\$*" >> "$SANDBOX/grok.calls"
+[ "\$2" = "uninstall" ] && { echo "plugin is busy" >&2; exit 3; }
+exit 0
+EOF
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1); code=$?
+calls=$(cat "$SANDBOX/grok.calls" 2>/dev/null)
+[[ $code -ne 0 && "$out" == *"uninstall alpha exited 3: plugin is busy"* && "$calls" != *"install --trust"* ]] \
+  && ok "fix-grok-installs reports a failed uninstall and installs nothing" || bad "fix-grok-installs failed uninstall" "$code | $out | $calls"
 teardown
 
 echo

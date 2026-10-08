@@ -49,7 +49,10 @@ function keepBuild(copy, fingerprint, source, ordinalOf) {
   if (a) { const b = ordinalOf(); return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null; }
   return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
 }
-const looksLikeCopy = (dir) => existsSync(join(dir, "package.json")) && existsSync(join(dir, "dist"));
+// TM-485: a refresh replaces the directory and deletes the old one, so only a directory that IS
+// this plugin qualifies; a host config naming any other package with a dist/ must never be touched.
+const PACKAGE = "@bytedesk/agent-orchestration";
+const looksLikeCopy = (dir) => readJsonSync(join(dir, "package.json"))?.name === PACKAGE && existsSync(join(dir, "dist"));
 
 /** Numeric x.y.z comparison; a missing or unparsable version sorts lowest. */
 export function compareVersions(a, b) {

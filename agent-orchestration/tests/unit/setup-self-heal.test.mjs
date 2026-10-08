@@ -82,6 +82,20 @@ test("TM-284: hostCopies finds the codex, grok and kimi copies and nothing else"
   assert.deepEqual(found.map((c) => [c.host, c.root]), [["codex", codex], ["grok", grok], ["kimi", kimi]]);
 });
 
+test("TM-485: a directory that is not this plugin is never a host copy, so never replaced or deleted", async (t) => {
+  const root = await scratch(t, "ao-copies-foreign-");
+  const { home, kimi } = await fakeHome(root, { codex: "0.13.0", grok: "0.13.0", kimi: "0.13.0" });
+  const pkg = JSON.parse(await readFile(join(kimi, "package.json"), "utf8"));
+  await writeFile(join(kimi, "package.json"), JSON.stringify({ ...pkg, name: "someone-elses-tool" }));
+  const before = await snapshot(kimi);
+  const found = hostCopies({ home, env: {} });
+  assert.deepEqual(found.map((c) => c.host), ["codex", "grok"], "the foreign kimi root is not detected");
+  const source = await makeCopy(join(root, "claude-cache", "abc123"), { version: "0.14.0", fingerprint: FP("e") });
+  const report = await refreshHostCopies({ pointer: { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") }, home, env: {} });
+  assert.deepEqual(report.refreshed.map((c) => c.host), ["codex", "grok"]);
+  assert.deepEqual(await snapshot(kimi), before, "the foreign directory is byte-for-byte untouched");
+});
+
 /** Backdate a copy's bundle: the build time the same-version check compares. */
 const builtAt = (dir, seconds) => utimes(join(dir, "dist", "cli.cjs"), seconds, seconds);
 

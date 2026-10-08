@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- **`fix-grok-installs` touches only bytedesk plugins, and never grants trust (TM-485).** It used to
+  reinstall any local marketplace's plugins with `--trust` on every session start. It now acts only
+  on a marketplace whose `marketplace.json` is named `bytedesk`. An entry that was not trusted —
+  `trusted: false`, or listed in `~/.grok/config.toml` `[plugins].disabled`, which is how this Grok
+  records it — is reported and left alone. A failed `grok plugin uninstall` is reported with its
+  exit code and output, and nothing is installed over the old copy.
+
 ### Added
 - **`--json` activation report** (TM-388, ADR-0041). Per plugin: each refreshed cache (`host`, `path`, `changed`) and each changed path from `rsync -i`, classified `live` (bin/ CLIs), `needs-reload` (hooks, skills, commands, agents, monitors, manifests, MCP config, every MCP server and monitor entry point from `.mcp.json`, `.codex-mcp.json` and `monitors/monitors.json` with `./`, `${CLAUDE_PLUGIN_ROOT}/`, `${CODEX_PLUGIN_ROOT}/` or `${PLUGIN_ROOT}/` prefixes, and lib/src/dist when a server or monitor is declared) or a `skipped` host with no install; top-level `reloads_required` per host. With `--dry-run` it previews via `rsync -n`. Report only; never reloads. Default output unchanged.
 - **Codex-only machines trust bytedesk hooks with no TUI approval (TM-480).** Codex starts a

@@ -304,19 +304,38 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000, home = HOME }
  * every Grok start — worktrees and all, tens of GB here — and Grok gives up loading plugins, so no
  * hook runs. Reinstall each such plugin from `<marketplace>/<plugin>`. No-op when none match.
  * One run at a time (a lock dir), because every session start calls this.
+ * TM-485: only the bytedesk marketplace (the operator's own code) is touched, and only an entry
+ * that was trusted is reinstalled with --trust. This Grok replaced trust with enable/disable and
+ * keeps no trust flag in the registry, so a `trusted: false` entry or one in `[plugins].disabled`
+ * counts as untrusted: it is reported and left as it is, never re-trusted.
  */
+/** Plugin names/IDs in ~/.grok/config.toml `[plugins].disabled`. ponytail: regex, not a TOML parser. */
+function grokDisabled(home) {
+  let toml = "";
+  try {
+    toml = readFileSync(join(home, ".grok", "config.toml"), "utf8");
+  } catch {}
+  const section = /^\[plugins\][^\S\n]*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(toml)?.[1] || "";
+  const list = /^\s*disabled\s*=\s*\[([^\]]*)\]/m.exec(section)?.[1] || "";
+  return [...list.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]);
+}
+
 function fixGrokInstalls({ home = HOME } = {}) {
   const reg = readJson(join(home, ".grok", "installed-plugins", "registry.json"), null);
+  const disabled = grokDisabled(home);
   const bad = [];
+  const untrusted = [];
   for (const entry of Object.values(reg?.repos || {})) {
     const src = entry?.kind?.type === "Local" ? entry.kind.source_path : null;
-    if (!src || !existsSync(join(src, ".claude-plugin", "marketplace.json"))) continue;
+    if (!src || readJson(join(src, ".claude-plugin", "marketplace.json"), null)?.name !== "bytedesk") continue;
     for (const [name, meta] of Object.entries(entry.plugins || {})) {
       const dir = resolve(src, meta?.subdir || name);
-      if (isDir(dir)) bad.push({ name, src: dir, original: `${src}#${meta?.subdir || name}` });
+      if (!isDir(dir)) continue;
+      if (entry.trusted === false || meta?.trusted === false || disabled.some((id) => id === name || id.endsWith(`/${name}`))) untrusted.push(name);
+      else bad.push({ name, src: dir, original: `${src}#${meta?.subdir || name}` });
     }
   }
-  if (!bad.length) return { ok: true, fixed: [] };
+  if (!bad.length) return { ok: true, fixed: [], untrusted };
   const lock = join(home, ".grok", ".plugin-rsync-fix.lock");
   // A run killed mid-way leaves its lock; one older than any run could take is reclaimed, or the
   // repair would be skipped forever.
@@ -333,16 +352,18 @@ function fixGrokInstalls({ home = HOME } = {}) {
     const grok = (...args) => spawnSync("grok", ["plugin", ...args], { encoding: "utf8", timeout: 300000 });
     for (const { name, src, original } of bad) {
       const un = grok("uninstall", name);
-      if (un.error) return { ok: false, fixed, err: `grok: ${un.error.code || un.error.message}` };
+      if (un.error) return { ok: false, fixed, untrusted, err: `grok: ${un.error.code || un.error.message}` };
+      // A failed uninstall leaves the old install in place: installing over it would only fail too.
+      if (un.status !== 0) return { ok: false, fixed, untrusted, err: `grok plugin uninstall ${name} exited ${un.status}: ${(un.stderr || un.stdout || "").trim()}; left as it was` };
       const inst = grok("install", "--trust", src);
       if (inst.status !== 0) {
         // Put the old install back rather than leave the plugin missing.
         const back = grok("install", "--trust", original);
-        return { ok: false, fixed, err: `grok plugin install ${src}: ${(inst.stderr || inst.stdout || "").trim()}; restored ${original}: ${back.status === 0 ? "ok" : "FAILED"}` };
+        return { ok: false, fixed, untrusted, err: `grok plugin install ${src}: ${(inst.stderr || inst.stdout || "").trim()}; restored ${original}: ${back.status === 0 ? "ok" : "FAILED"}` };
       }
       fixed.push(name);
     }
-    return { ok: true, fixed };
+    return { ok: true, fixed, untrusted };
   } finally {
     rmdirSync(lock);
   }
@@ -427,6 +448,7 @@ async function main(argv) {
   if (argv[0] === "fix-grok-installs") {
     const r = fixGrokInstalls();
     console.log(r.ok ? `grok installs fixed: ${r.fixed.length ? r.fixed.join(", ") : r.busy ? "another run is fixing them" : "none needed"}` : `grok install fix failed: ${r.err}`);
+    if (r.untrusted?.length) console.log(`grok installs left as they are (not trusted, not re-trusted): ${r.untrusted.join(", ")}`);
     return r.ok ? 0 : 1;
   }
   if (argv[0] === "trust-codex-hooks") {

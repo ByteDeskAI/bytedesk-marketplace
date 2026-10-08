@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **A host copy must be this plugin before it is replaced (TM-485, EP-028).** `hostCopies` took any
+  directory with a `package.json` and a `dist/` as an ao copy, so a Kimi `mcp.json` naming another
+  package's root got that directory replaced and the original deleted. A copy now has to declare
+  `"name": "@bytedesk/agent-orchestration"`; anything else is never detected, so never touched.
+
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
   `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to
