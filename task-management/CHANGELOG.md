@@ -27,6 +27,31 @@
   `test-enhance-mine.sh` uses it twice. It runs each shape through `redact`. It also plants every
   shape in the fixture transcript and asserts that no secret reaches the report, the state file or
   the board.
+- **`tm rework <id> --revision <full SHA>` returns a governed task to working after review requests
+  changes (TM-347).** It only reflects a rework the producer recorded (`ao-topology manage rework`):
+  the management record must be `working`, carry no finish, and name this revision in its latest
+  `rework` event, the record must name the task's own worktree and branch, and the task must be
+  `ready-for-review` at that revision. The governed state goes
+  back to `working`, the reviewed revision and the finished dispatch move to `governance.reworks`,
+  and the dispatch is cleared so `tm dispatch` admits the next worker. A retry is a no-op; a
+  dispatched worker is refused.
+- **A task can wait on a task in another repo's store (TM-382, ADR-0041).**
+  `tm dep <id> owner/repo#TM-n` records the blocker in `foreignBlockers[]`
+  (`{ref, added, resolved: null}`), never in `blockedBy`, and blocks open work. `blockedBy` was
+  unsafe for this: the store treats a blocker it cannot find as resolved. A foreign blocker counts
+  as met only once `tm upstream-resolved <owner/repo#TM-n> --landed <sha>` records the landing
+  commit. That verb marks the blocker on every local task holding it, then reopens a task through
+  the usual unblock pass (emitting `unblocked`) only when all its blockers, local and foreign, are
+  met. A missing, malformed or unresolved foreign entry is unmet in `tm next`, the unblock pass and
+  `tm doctor`'s stuck-blocked check, and `tm why` (and MCP `tm_why`) names each one as a blocking
+  reason. A ref is stored as written (board lowercased, padding kept) and matched
+  numerically, so `A/B#TM-01` and `a/b#TM-1` are one blocker. `tm dep` now refuses an unknown `--flag`; it used to read one
+  as removing a blocker named `-flag`.
+- **`tm task new --filed-by <owner/repo>/<agent>/<task>` (TM-382).** Writes
+  `filedBy {board, agent, task}` and the new `decision:intake` label. That label vetoes
+  `ready-for-agent`, so the pool does not dispatch an intake task until this board's lead or a
+  person removes it.
+
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.

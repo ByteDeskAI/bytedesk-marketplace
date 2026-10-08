@@ -11,7 +11,7 @@
  * same graph, because the store's whole thesis is "readable in a PR diff" and
  * GitHub renders Mermaid there.
  */
-import { RESOLVED, config, foreignBlockers, list, state } from "./store.mjs";
+import { RESOLVED, config, foreignBlockers, list, state, unresolvedForeign } from "./store.mjs";
 import { agentReadiness } from "./completeness.mjs";
 import { claimant } from "./claims.mjs";
 import { paths } from "./paths.mjs";
@@ -101,6 +101,17 @@ export function why(id, p = paths()) {
       kind: "dependency",
       blocking: true,
       text: `waiting on ${chain.length} unresolved blocker${chain.length === 1 ? "" : "s"} (direct: ${direct.join(", ")})`,
+    });
+  }
+  // A task on another board (ADR-0041) is not in byId, so the walk cannot see it. Same predicate
+  // the unblock pass uses, so `why` cannot call startable what `tm next` withholds.
+  for (const f of unresolvedForeign(task)) {
+    const ref = f?.ref ?? "(unreadable foreign blocker)";
+    reasons.push({
+      kind: "foreign",
+      blocking: true,
+      ref,
+      text: `waiting on ${ref} in another repo (unresolved) — \`.bytedesk/task-management/bin/tm upstream-resolved ${ref} --landed <sha>\` records its landing`,
     });
   }
   if (declared(task)) {
