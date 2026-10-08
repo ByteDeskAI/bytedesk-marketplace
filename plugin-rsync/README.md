@@ -46,8 +46,10 @@ that, every commit, merge or rebase in the main checkout rsyncs the plugins it t
 `.git/plugin-rsync.log`). After a Codex sync, `trust-codex-hooks` records the new hook hashes
 as trusted so Codex runs them without asking.
 
-A machine that only ever runs Codex still needs one TUI approval of this plugin's own hook: Codex
-trusts nothing on a fresh machine.
+On a machine that only runs Codex, nothing is trusted at first, so the hook cannot trust itself.
+The plugin's MCP server (no tools) does it instead: Codex starts it without approval, and its start
+runs `trust-codex-hooks`. The first Codex session trusts the hooks; the session hook runs from the
+second.
 
 ## PATH
 

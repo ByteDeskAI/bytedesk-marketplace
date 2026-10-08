@@ -4,6 +4,12 @@
 
 ### Added
 - **`--json` activation report** (TM-388, ADR-0041). Per plugin: each refreshed cache (`host`, `path`, `changed`) and each changed path from `rsync -i`, classified `live` (bin/ CLIs), `needs-reload` (hooks, skills, commands, agents, monitors, manifests, MCP config, every MCP server and monitor entry point from `.mcp.json`, `.codex-mcp.json` and `monitors/monitors.json` with `./`, `${CLAUDE_PLUGIN_ROOT}/`, `${CODEX_PLUGIN_ROOT}/` or `${PLUGIN_ROOT}/` prefixes, and lib/src/dist when a server or monitor is declared) or a `skipped` host with no install; top-level `reloads_required` per host. With `--dry-run` it previews via `rsync -n`. Report only; never reloads. Default output unchanged.
+- **Codex-only machines trust bytedesk hooks with no TUI approval (TM-480).** Codex starts a
+  plugin's MCP server without the per-hook trust its hooks need, so plugin-rsync now ships a
+  tool-less MCP server (`bin/plugin-rsync-mcp`, `.codex-mcp.json`) whose start runs
+  `trust-codex-hooks` and `fix-grok-installs`, detached. The first Codex session trusts the hooks;
+  from the second, the session hook runs. `trust-codex-hooks` now takes a lock, so the app-server
+  it spawns cannot start another run.
 - **`plugin-rsync fix-grok-installs`, run from the session hook in any repo (TM-396).** A Grok
   install whose Local source is a whole marketplace is re-copied on every Grok start (tens of GB of
   worktrees) and Grok times out loading plugins, so no hook runs. This reinstalls each such plugin
