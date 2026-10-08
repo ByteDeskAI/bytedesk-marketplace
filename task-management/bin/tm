@@ -58,7 +58,7 @@ import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score a
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
-import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks, typeOf } from "../lib/issue.mjs";
+import { addComment, addLink, assign, backlog, DECISION_INTAKE, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, resolveForeign, setType, subtasks, TRIAGE_LABELS, typeOf } from "../lib/issue.mjs";
 import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor, strayFlag } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
@@ -77,7 +77,7 @@ import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { liveOwner } from "../lib/dispatch/live-owner.mjs";
 import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
-import { governTask, readyForReview } from "../lib/governance.mjs";
+import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolable, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 
@@ -172,8 +172,11 @@ function renderEvidenceCheck(rows) {
 }
 
 const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --title "<new title>")';
-const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human]';
+const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] [--filed-by <board>/<agent>/<task>]';
 const USAGE_TICKET = 'usage: tm ticket <repo-path|slug> "<title>" --ac "<criterion>"... [--priority critical|highest|high|medium|low] [--body <text>] [--from-task TM-n]\n       tm ticket event <id> <' + "pr_opened|review|merged|published|failed|done" + '> [detail]';
+
+/** One foreign blocker as text: the ref, and the landing sha once `tm upstream-resolved` recorded it. */
+const foreignLine = (f) => `${f?.ref ?? "?"} (${f?.resolved?.sha ? `landed ${f.resolved.sha}` : "unresolved"})`;
 
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
 const CHECKOUT = P.root ? currentCheckout() : process.cwd();
@@ -347,6 +350,17 @@ const VERBS = {
       const hi = rest.indexOf("--human");
       const human = hi !== -1;
       if (human) rest.splice(hi, 1);
+      // --filed-by <board>/<agent>/<task>: another repo's lead filed this (ADR-0041). The board is
+      // owner/repo, so the agent and task are the last two segments. decision:intake vetoes
+      // dispatch until this board's lead or a person removes it.
+      const fi = rest.indexOf("--filed-by");
+      let filedBy;
+      if (fi !== -1) {
+        const m = /^([\w.-]+\/[\w.-]+)\/([^/\s]+)\/([^/\s]+)$/.exec(rest[fi + 1] || "");
+        if (!m) die(`--filed-by needs <owner/repo>/<agent>/<task>, got "${rest[fi + 1] ?? ""}"\n${USAGE_TASK_NEW}`);
+        filedBy = { board: m[1].toLowerCase(), agent: m[2], task: m[3] };
+        rest.splice(fi, 2);
+      }
       // --origin '<json>' is written by `tm ticket` in another repo (TM-381): where this task came
       // from, so its progress can be reported back there.
       const oi = rest.indexOf("--origin");
@@ -379,6 +393,9 @@ const VERBS = {
           labels: [...(applied.fields.labels || []).filter((l) => !TRIAGE_LABELS.includes(l)), "ready-for-human"],
           triagedBy: "human",
         });
+      }
+      if (filedBy) {
+        Object.assign(applied.fields, { filedBy, labels: [...new Set([...(applied.fields.labels || []), DECISION_INTAKE])] });
       }
       const gate = gateTaskCreate(P, { body: applied.body, acceptance: applied.fields.acceptance });
       if (!gate.allow) die(gate.reason, 2);
@@ -620,6 +637,13 @@ const VERBS = {
     const at = args.indexOf("--revision");
     const task = readyForReview(id, { revision: at < 0 ? null : args[at + 1], p: P });
     out(JSON_OUT ? JSON.stringify(task.governance) : `${id} ready-for-review — independent review and an integration decision remain required`);
+  },
+
+  rework(id, ...args) {
+    requireInit();
+    const at = args.indexOf("--revision");
+    const task = reworkGovernance(id, { revision: at < 0 ? null : args[at + 1], p: P });
+    out(JSON_OUT ? JSON.stringify(task.governance) : `${id} back to working after review of ${task.governance.reworks.at(-1).revision}; dispatch the next worker`);
   },
 
   done(id) {
@@ -881,9 +905,15 @@ const VERBS = {
     requireInit();
     if (!read(id, P)) die(`not found: ${id}`);
     if (!args.length) {
-      const rows = read(id, P).blockedBy || [];
-      return emit(rows, () => rows.join("\n") || "(nothing blocking it)");
+      const doc = read(id, P);
+      const local = doc.blockedBy || [];
+      const foreign = doc.foreignBlockers || [];
+      const rows = [...local, ...foreign.map((f) => f?.ref)];
+      return emit(rows, () => [...local, ...foreign.map(foreignLine)].join("\n") || "(nothing blocking it)");
     }
+    // A `--flag` would otherwise be read as removing a blocker named `-flag`, and succeed silently.
+    const stray = args.find((a) => a.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\nusage: tm dep <id> [-]<blocker|owner/repo#TM-n>...`);
     const remove = args.filter((a) => a.startsWith("-")).map((a) => a.slice(1));
     const add = args.filter((a) => !a.startsWith("-"));
     let blockedBy;
@@ -892,10 +922,36 @@ const VERBS = {
     } catch (err) {
       die(err.message, 2);
     }
+    const foreign = (read(id, P).foreignBlockers || []).map(foreignLine);
     out(
-      `${id} blocked by ${blockedBy.join(", ") || "(nothing)"}` +
+      `${id} blocked by ${[...blockedBy, ...foreign].join(", ") || "(nothing)"}` +
         (add.length ? `\n   +${add.join(", ")}` : "") +
         (remove.length ? `\n   -${remove.join(", ")}` : ""),
+    );
+  },
+
+  /**
+   * `tm upstream-resolved <owner/repo#TM-n> --landed <sha>`: a foreign blocker landed (ADR-0041).
+   * Marks it on every local task holding it; the ordinary unblock pass reopens what is now free.
+   */
+  "upstream-resolved"(...args) {
+    requireInit();
+    const usage = "usage: tm upstream-resolved <owner/repo#TM-n> --landed <sha>";
+    const li = args.indexOf("--landed");
+    const landed = li === -1 ? undefined : args[li + 1];
+    if (li !== -1) args.splice(li, 2);
+    const stray = args.find((a) => a.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\n${usage}`);
+    if (args.length !== 1 || landed === undefined || landed.startsWith("--")) die(usage);
+    let res;
+    try {
+      res = resolveForeign(args[0], { landed }, P);
+    } catch (err) {
+      die(err.message, 2);
+    }
+    emit(res, () =>
+      `${res.ref} landed at ${res.sha}: ${res.resolved.length ? `resolved on ${res.resolved.join(", ")}` : "no local task was waiting on it"}` +
+      (res.freed.length ? ` (unblocked: ${res.freed.join(", ")})` : ""),
     );
   },
 
@@ -1918,7 +1974,7 @@ const VERBS = {
         "",
         "  init                          create the store here",
         '  epic new "<title>" [--body <text|->] | use <id> | done <id> | (list)',
-        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] | (list)',
+        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] [--filed-by <board>/<agent>/<task>] | (list)',
         "  triage [--all] [--dry-run]    re-run auto-triage: ready-for-agent or needs-triage; a person's triage label stays",
         '  adr new "<title>"',
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
@@ -1930,12 +1986,14 @@ const VERBS = {
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
+        "  rework <id> --revision <full SHA>         reflect the producer rework after changes_requested",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
         "  evidence <id> <path|-> | evidence [<id>] --check   attach proof, or check it still matches its source",
-        "  link <id> <ref> | dep <id> [-]<blocker>...",
+        "  link <id> <ref> | dep <id> [-]<blocker|owner/repo#TM-n>...",
+        "  upstream-resolved <owner/repo#TM-n> --landed <sha>   a foreign blocker landed; reopens what it freed",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
         "  assign <id> <who> | label <id> [-]<name>... [--force] | label --catalog",
@@ -2139,6 +2197,8 @@ function renderShow(doc) {
   for (const [label, key] of [["blocked by", "blockedBy"], ["blocks", "blocks"], ["evidence", "evidence"], ["commits", "commits"], ["touches", "touches"]]) {
     if ((doc[key] || []).length) lines.push(`${label}: ${doc[key].join(", ")}`);
   }
+  if ((doc.foreignBlockers || []).length) lines.push(`foreign blockers: ${doc.foreignBlockers.map(foreignLine).join(", ")}`);
+  if (doc.filedBy) lines.push(`filed by: ${doc.filedBy.board}/${doc.filedBy.agent}/${doc.filedBy.task}`);
   // Comments were the one first-class field `show` did not print, though it prints labels, links,
   // evidence and commits — so the detail view was missing the discussion about the thing.
   if ((doc.comments || []).length) {
