@@ -24,7 +24,7 @@ import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
 import { callerIdentity, resolvePresentRecipient } from './session-identity.mjs';
 import { invariant, nowIso, shellQuote, sleep } from './util.mjs';
-import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt } from './mailbox-receipts.mjs';
+import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt, escalateUnreadable } from './mailbox-receipts.mjs';
 
 export function standingMailboxRoot({ env = process.env, home = homedir() } = {}) {
   return join(stateRoot(env, home), 'standing-mailbox');
@@ -305,7 +305,12 @@ export async function resumeStandingMessages({ consumer, force = false, errors =
       if (settled) resumed.push(await withRecovery(settled, options));
     } catch (error) { errors.push({ messageId: old.envelope.id, code: error?.code || 'TOPOLOGY_STANDING_RESUME_FAILED' }); }
   }
-  await resumeMailboxPublications({ consumer, force, errors, ...options });
+  // F5: a publication sweep that fails outright is one more reported error; the standing results
+  // already gathered above are still returned.
+  try { await resumeMailboxPublications({ consumer, force, errors, ...options }); }
+  catch (error) { errors.push({ code: error?.code || 'TOPOLOGY_PUBLICATION_RESUME_FAILED' }); }
+  // F6: each skipped unreadable record is escalated to the operator once.
+  await escalateUnreadable(errors, options);
   return resumed;
 }
 
@@ -523,7 +528,7 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
       await atomicWrite(marker, next);
       results.push(next);
     };
-    const receipt = await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    const receipt = await getMailboxReceipt({ consumer, agent, messageId: id, from: record.envelope.from ?? null, env: options.env, home: options.home }).catch(() => null);
     if (!standingUnread(record, { ...scope, receipt })) { await settle({ state: 'read', done: true, reason: 'the recipient already read or answered it' }); continue; }
     const pane = panes.find(p => p.agentId === agent);
     if (!pane?.paneId || !pane.serverKey) { await settle({ state: 'held', done: false, reason: 'the recipient has no live pane' }); continue; }

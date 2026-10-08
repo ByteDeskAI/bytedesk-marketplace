@@ -252,6 +252,22 @@
   unreadable record is reported and skipped by the resume sweep; a scoped reader still fails closed.
   The supervisor tick also absorbs any remaining resume error instead of exiting.
 
+- **Review fixes for the mailbox robustness change (TM-482, TM-483, EP-028).**
+  - `mailbox resume` prints the failures it collected on stderr and exits 1, instead of reporting
+    success.
+  - Receipts are keyed by sender as well, so another sender reusing a predictable reply ID gets its
+    own receipt and can no longer get the real reply dead-lettered. When several senders used one
+    ID, `mailbox dispose --sender` and the MCP `sender` field pick one. Run wire IDs also carry the
+    run's creation time, so a recreated run never reuses an earlier run's IDs.
+  - Operator pages are limited to one per repository, agent and error code per hour, with a count of
+    the suppressed ones; the dead-letter directory keeps the newest 500 records.
+  - A dead letter records `notifiedAt`, and the page is sent before the message is termed, so a
+    crash in between pages on redelivery.
+  - The publication sweep skips and reports an unreadable (including `EACCES`/`EIO`) file or
+    directory, and a sweep that fails outright no longer discards the standing results.
+  - Each unreadable record the sweep skips is paged once per file, under the same hourly limit.
+  - The unit-test preload scrubs `AO_NTFY_*`/`TM_NTFY_*` topic and token variables.
+
 - **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
   sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
   with `source_identity_required`. The adapter now reads the record SessionStart wrote for its

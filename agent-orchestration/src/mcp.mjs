@@ -297,7 +297,8 @@ export async function createServer(options = {}) {
     mailboxFields, z.object({ receipts: z.array(receipt) }).passthrough(), topology.mailboxList);
   register(server, topology, 'orchestration_mailbox_dispose', 'Record handled, deferred or rejected disposition for a retained recipient obligation. Task claims and completion remain in Task Management.',
     { consumerCwd, agent: agent.optional(), messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
-      disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional() }, receipt, topology.mailboxDispose);
+      disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional(),
+      sender: z.string().min(1).max(512).optional().describe('The sender, when several senders used this message ID.') }, receipt, topology.mailboxDispose);
   register(server, topology, 'orchestration_goal_start', 'Start a persistent feedback loop for an explicitly admitted Task Management goal, pinned authority and approved deployment recipe.',
     { consumerCwd, goalId: z.string().regex(/^EP-\d+$/), request: record }, loopRecord, topology.goalStart);
   register(server, topology, 'orchestration_goal_status', 'Inspect a goal loop or list this repository\'s loops without launching work or consuming mail.',

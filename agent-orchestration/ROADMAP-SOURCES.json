@@ -18,8 +18,8 @@
       ]
     },
     "src/mcp.mjs": {
-      "sha256": "ef0c8d02c3b31e4f832fdcaf3e1c140acfd8167090e622d61fe0bb464c201feb",
-      "lineCount": 334,
+      "sha256": "ac2b76db2272665b3db3889e6a9878f747a070a1c1380356d463c50557fef49b",
+      "lineCount": 335,
       "anchors": [
         "\"orchestration_capabilities\"",
         "\"orchestration_decision_approve\"",

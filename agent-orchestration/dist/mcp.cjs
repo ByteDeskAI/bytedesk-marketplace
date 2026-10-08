@@ -8977,8 +8977,8 @@ function heartbeatPath(dir, serverKey, paneId2) {
   return (0, import_node_path30.join)(dir, `${(0, import_node_crypto15.createHash)("sha256").update(`${serverKey}\0${paneId2}`).digest("hex")}.json`);
 }
 async function parentPid(pid) {
-  const stat13 = await (0, import_promises26.readFile)(`/proc/${pid}/stat`, "utf8").catch(() => null);
-  if (stat13) return Number(stat13.slice(stat13.lastIndexOf(")") + 2).split(" ")[1]);
+  const stat14 = await (0, import_promises26.readFile)(`/proc/${pid}/stat`, "utf8").catch(() => null);
+  if (stat14) return Number(stat14.slice(stat14.lastIndexOf(")") + 2).split(" ")[1]);
   try {
     return Number((0, import_node_child_process9.execFileSync)("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim()) || null;
   } catch {
@@ -29286,10 +29286,10 @@ async function writeReviewPacket({ dir, consumer, task, revision, range, checks,
   await (0, import_promises34.rm)(dir, { recursive: true, force: true });
   const git3 = (args) => run("git", ["-C", range.worktree, ...args], { allowFailure: true, maxBuffer: REVIEW_PATCH_MAX_BYTES });
   const status = await git3(["diff", "--name-status", "--no-renames", range.base, revision, "--"]);
-  const stat13 = await git3(["diff", "--stat", "--no-renames", range.base, revision, "--"]);
-  invariant2(status.code === 0 && stat13.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot list the changed files for the review packet: git exited ${status.code || stat13.code}.`);
+  const stat14 = await git3(["diff", "--stat", "--no-renames", range.base, revision, "--"]);
+  invariant2(status.code === 0 && stat14.code === 0, "TOPOLOGY_REVIEWER_RANGE", `Cannot list the changed files for the review packet: git exited ${status.code || stat14.code}.`);
   await writeText((0, import_node_path43.join)(dir, "files.txt"), `${status.stdout}
-${stat13.stdout}`);
+${stat14.stdout}`);
   const binary = new Set(range.binaryFiles.map((file2) => file2.path));
   for (const path3 of await reviewedFiles(range.worktree, range.base, revision)) {
     if (binary.has(path3)) continue;
@@ -32385,10 +32385,10 @@ async function registeredAgentPane(env, home) {
   return null;
 }
 async function processName(pid) {
-  const stat13 = await (0, import_promises38.readFile)(`/proc/${pid}/stat`, "utf8").catch(() => null);
-  if (stat13) {
+  const stat14 = await (0, import_promises38.readFile)(`/proc/${pid}/stat`, "utf8").catch(() => null);
+  if (stat14) {
     const argv0 = (await (0, import_promises38.readFile)(`/proc/${pid}/cmdline`, "utf8").catch(() => "")).split("\0").filter(Boolean);
-    return [stat13.slice(stat13.indexOf("(") + 1, stat13.lastIndexOf(")")), ...argv0.slice(0, 2)].join(" ");
+    return [stat14.slice(stat14.indexOf("(") + 1, stat14.lastIndexOf(")")), ...argv0.slice(0, 2)].join(" ");
   }
   try {
     return (0, import_node_child_process15.execFileSync)("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).trim() || null;
@@ -35752,7 +35752,12 @@ async function resumeStandingMessages({ consumer, force = false, errors = [], ..
       errors.push({ messageId: old.envelope.id, code: error51?.code || "TOPOLOGY_STANDING_RESUME_FAILED" });
     }
   }
-  await resumeMailboxPublications({ consumer, force, errors, ...options });
+  try {
+    await resumeMailboxPublications({ consumer, force, errors, ...options });
+  } catch (error51) {
+    errors.push({ code: error51?.code || "TOPOLOGY_PUBLICATION_RESUME_FAILED" });
+  }
+  await escalateUnreadable(errors, options);
   return resumed;
 }
 async function wakeStandingMessages({ ids = [], ...options }) {
@@ -35954,7 +35959,7 @@ async function ringStandingMail({ consumer, panes = [], adapters = null, windowM
       await atomicWrite(marker, next);
       results.push(next);
     };
-    const receipt2 = await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    const receipt2 = await getMailboxReceipt({ consumer, agent, messageId: id, from: record2.envelope.from ?? null, env: options.env, home: options.home }).catch(() => null);
     if (!standingUnread(record2, { ...scope, receipt: receipt2 })) {
       await settle({ state: "read", done: true, reason: "the recipient already read or answered it" });
       continue;
@@ -36157,8 +36162,8 @@ async function callerRunsInPane(binding, { pid = process.pid, readStat = (p) => 
   if (!Number.isSafeInteger(target) || target <= 1) return false;
   for (let i = 0; i < 64 && Number.isSafeInteger(pid) && pid > 1; i++) {
     if (pid === target) return true;
-    const stat13 = await readStat(pid);
-    pid = Number(stat13.slice(stat13.lastIndexOf(")") + 2).split(" ")[1]);
+    const stat14 = await readStat(pid);
+    pid = Number(stat14.slice(stat14.lastIndexOf(")") + 2).split(" ")[1]);
   }
   return false;
 }
@@ -37572,10 +37577,12 @@ var mailbox_receipts_exports = {};
 __export(mailbox_receipts_exports, {
   acceptMailboxDelivery: () => acceptMailboxDelivery,
   createMailboxEnvelope: () => createMailboxEnvelope,
+  escalateUnreadable: () => escalateUnreadable,
   getMailboxReceipt: () => getMailboxReceipt,
   listMailboxPublications: () => listMailboxPublications,
   listMailboxReceipts: () => listMailboxReceipts,
   mailboxLedgerRoot: () => mailboxLedgerRoot,
+  pageOperator: () => pageOperator,
   publishMailboxEnvelope: () => publishMailboxEnvelope,
   resumeMailboxPublications: () => resumeMailboxPublications,
   setMailboxDisposition: () => setMailboxDisposition
@@ -37617,6 +37624,28 @@ function recordPath(envelope, area, options) {
     area,
     hash3(canonical2([envelope.kind, envelope.to, envelope.id])) + ".json"
   );
+}
+function receiptPath(envelope, options) {
+  return (0, import_node_path59.join)(
+    mailboxLedgerRoot(options),
+    repoKey(envelope.repositoryId),
+    "receipts",
+    hash3(canonical2(["receipt", envelope.kind, envelope.to, envelope.from ?? null, envelope.id])) + ".json"
+  );
+}
+async function receiptsFor({ repositoryId, agent, kind, messageId: messageId2, from }, options) {
+  const dir = (0, import_node_path59.join)(mailboxLedgerRoot(options), repoKey(repositoryId), "receipts"), found = [];
+  for (const file2 of await (0, import_promises52.readdir)(dir).catch((error51) => {
+    if (error51.code === "ENOENT") return [];
+    throw error51;
+  })) {
+    if (!file2.endsWith(".json")) continue;
+    const record2 = await read2((0, import_node_path59.join)(dir, file2));
+    if (record2?.agent !== agent || record2.kind !== kind || record2.messageId !== messageId2) continue;
+    if (from !== void 0 && (record2.envelope?.from ?? null) !== from) continue;
+    found.push({ path: (0, import_node_path59.join)(dir, file2), record: record2 });
+  }
+  return found;
 }
 async function read2(path3) {
   try {
@@ -37679,40 +37708,90 @@ function verifyReceipt(record2) {
   );
   return record2;
 }
+async function pageOperator({ key, title, body, ...options }) {
+  try {
+    const path3 = (0, import_node_path59.join)(mailboxLedgerRoot(options), "pages", hash3(canonical2(key)) + ".json");
+    await ensureDirectory((0, import_node_path59.dirname)(path3));
+    const now = (options.now ?? Date.now)();
+    const decision = await withLock(`${path3}.lock`, async () => {
+      const state = await read2(path3).catch(() => null) ?? { lastPagedAt: null, suppressed: 0 };
+      if (state.lastPagedAt && now - Date.parse(state.lastPagedAt) < PAGE_INTERVAL_MS) {
+        await write(path3, { ...state, suppressed: state.suppressed + 1 });
+        return { send: false };
+      }
+      await write(path3, { lastPagedAt: new Date(now).toISOString(), suppressed: 0 });
+      return { send: true, suppressed: state.suppressed };
+    });
+    if (!decision.send) return { sent: false, reason: "rate_limited" };
+    const notify = options.notify ?? (await Promise.resolve().then(() => (init_ntfy(), ntfy_exports))).page;
+    const more = decision.suppressed ? `
+(${decision.suppressed} more like this in the last hour were not paged)` : "";
+    return await notify({ title, body: body + more, env: options.env ?? process.env });
+  } catch (error51) {
+    return { sent: false, reason: error51.code ?? String(error51.message) };
+  }
+}
+async function pruneDeadLetters(dir) {
+  const names2 = (await (0, import_promises52.readdir)(dir)).filter((name) => name.endsWith(".json"));
+  if (names2.length <= DEAD_LETTER_MAX) return;
+  const aged = await Promise.all(names2.map(async (name) => ({ name, at: (await (0, import_promises52.stat)((0, import_node_path59.join)(dir, name)).catch(() => null))?.mtimeMs ?? 0 })));
+  for (const { name } of aged.sort((x, y) => x.at - y.at).slice(0, names2.length - DEAD_LETTER_MAX)) await (0, import_promises52.rm)((0, import_node_path59.join)(dir, name), { force: true });
+}
 async function quarantine({ identity, agent, kind, delivery, error: error51, options }) {
   const raw = String(delivery.rawBody ?? delivery.body ?? "");
-  const path3 = (0, import_node_path59.join)(mailboxLedgerRoot(options), repoKey(identity.id), "dead-letter", hash3(canonical2([kind, agent, raw])) + ".json");
-  await ensureDirectory((0, import_node_path59.dirname)(path3));
-  const record2 = {
-    schemaVersion: 1,
-    kind,
-    agent,
-    repositoryId: identity.id,
-    code: error51.code,
-    reason: String(error51.message).slice(0, 2e3),
-    subject: delivery.subject ?? null,
-    messageId: delivery.messageId ?? null,
-    rawBody: raw,
-    quarantinedAt: nowIso()
-  };
-  const fresh = await withLock(`${path3}.lock`, async () => {
-    if (await read2(path3)) return false;
-    await write(path3, record2);
-    return true;
+  const dir = (0, import_node_path59.join)(mailboxLedgerRoot(options), repoKey(identity.id), "dead-letter");
+  const path3 = (0, import_node_path59.join)(dir, hash3(canonical2([kind, agent, raw])) + ".json");
+  await ensureDirectory(dir);
+  const record2 = await withLock(`${path3}.lock`, async () => {
+    const existing = await read2(path3).catch(() => null);
+    if (existing) return existing;
+    const next = {
+      schemaVersion: 1,
+      kind,
+      agent,
+      repositoryId: identity.id,
+      code: error51.code,
+      reason: String(error51.message).slice(0, 2e3),
+      subject: delivery.subject ?? null,
+      messageId: delivery.messageId ?? null,
+      rawBody: raw,
+      quarantinedAt: nowIso(),
+      notifiedAt: null
+    };
+    await write(path3, next);
+    await pruneDeadLetters(dir);
+    return next;
   });
-  await (delivery.term ?? delivery.ack)();
-  if (fresh) {
-    const notify = options.notify ?? (await Promise.resolve().then(() => (init_ntfy(), ntfy_exports))).page;
-    await notify({
+  let notified = null;
+  if (!record2.notifiedAt) {
+    notified = await pageOperator({
+      ...options,
+      key: ["dead-letter", identity.id, agent, error51.code],
       title: `AO mailbox: quarantined a message for ${agent}`,
-      env: options.env ?? process.env,
       body: `${error51.code}: ${record2.reason}
 repository: ${identity.id}
 subject: ${record2.subject ?? "-"}
 dead letter: ${path3}`
     });
+    await withLock(`${path3}.lock`, async () => write(path3, { ...record2, notifiedAt: nowIso(), page: notified }));
   }
-  return { quarantined: true, code: error51.code, reason: record2.reason, deadLetter: path3, messageId: record2.messageId, notified: fresh };
+  await (delivery.term ?? delivery.ack)();
+  return { quarantined: true, code: error51.code, reason: record2.reason, deadLetter: path3, messageId: record2.messageId, notified };
+}
+async function escalateUnreadable(errors, options = {}) {
+  for (const { file: file2, code } of errors.filter((error51) => error51.file)) {
+    const marker = (0, import_node_path59.join)(mailboxLedgerRoot(options), "escalated", hash3(file2) + ".json");
+    if (await read2(marker).catch(() => null)) continue;
+    const page2 = await pageOperator({
+      ...options,
+      key: ["unreadable-record", code],
+      title: "AO mailbox: skipping an unreadable record",
+      body: `${code}: ${file2}
+The resume sweep skips it until it is repaired or removed.`
+    });
+    await ensureDirectory((0, import_node_path59.dirname)(marker));
+    await write(marker, { file: file2, code, escalatedAt: nowIso(), page: page2 });
+  }
 }
 async function acceptMailboxDelivery({ consumer, agent, kind = "mail", delivery, ...options }) {
   const identity = await identityOf(consumer);
@@ -37724,10 +37803,14 @@ async function acceptMailboxDelivery({ consumer, agent, kind = "mail", delivery,
     if (poison(error51)) return quarantine({ identity, agent, kind, delivery, error: error51, options });
     throw error51;
   }
-  const path3 = recordPath(envelope, "receipts", options);
+  const path3 = receiptPath(envelope, options);
   await ensureDirectory((0, import_node_path59.dirname)(path3));
   const record2 = await withLock(`${path3}.lock`, async () => {
-    const existing = await read2(path3);
+    let existing = await read2(path3);
+    if (!existing) {
+      const legacy = await read2(recordPath(envelope, "receipts", options));
+      if (legacy && (legacy.envelope?.from ?? null) === (envelope.from ?? null)) existing = legacy;
+    }
     if (existing) {
       verifyReceipt(existing);
       try {
@@ -37788,11 +37871,13 @@ function deliveredEnvelope({ identity, agent, kind, delivery }) {
   );
   return envelope;
 }
-async function getMailboxReceipt({ consumer, agent, messageId: messageId2, kind = "mail", ...options }) {
+async function getMailboxReceipt({ consumer, agent, messageId: messageId2, kind = "mail", from, ...options }) {
   const identity = await identityOf(consumer);
   bounded(agent, "recipient");
   bounded(messageId2, "message ID");
-  const record2 = await read2(recordPath({ repositoryId: identity.id, to: agent, id: messageId2, kind }, "receipts", options));
+  const found = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId: messageId2, from }, options);
+  invariant2(found.length <= 1, "TOPOLOGY_MAILBOX_AMBIGUOUS", `${found.length} senders used message ID ${messageId2}; name the sender (from) to pick one.`);
+  const record2 = found[0]?.record;
   if (record2) invariant2(
     record2.repositoryId === identity.id && record2.agent === agent && record2.messageId === messageId2 && record2.kind === kind,
     "TOPOLOGY_MAILBOX_IDENTITY",
@@ -37828,7 +37913,7 @@ async function listMailboxReceipts({ consumer, agent, allAgents = false, kind, s
   }
   return records3.sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.messageId.localeCompare(b.messageId));
 }
-async function setMailboxDisposition({ consumer, agent, messageId: messageId2, kind = "mail", disposition, reason = null, retryAt = null, resultRef = null, ...options }) {
+async function setMailboxDisposition({ consumer, agent, messageId: messageId2, kind = "mail", from, disposition, reason = null, retryAt = null, resultRef = null, ...options }) {
   const identity = await identityOf(consumer);
   bounded(agent, "recipient");
   bounded(messageId2, "message ID");
@@ -37839,11 +37924,17 @@ async function setMailboxDisposition({ consumer, agent, messageId: messageId2, k
   const env = options.env ?? process.env;
   invariant2(!env.AO_AGENT_ID || env.AO_AGENT_ID === agent, "TOPOLOGY_AGENT_UNAUTHORIZED", "An agent may only dispose its own obligations.");
   if (env.AO_CONSUMER) invariant2((await identityOf(env.AO_CONSUMER)).id === identity.id, "TOPOLOGY_AGENT_UNAUTHORIZED", "Caller repository differs from the mailbox.");
-  const path3 = recordPath({ repositoryId: identity.id, to: agent, id: messageId2, kind }, "receipts", options);
-  await ensureDirectory((0, import_node_path59.dirname)(path3));
+  const located = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId: messageId2, from }, options);
+  invariant2(located.length <= 1, "TOPOLOGY_MAILBOX_AMBIGUOUS", `${located.length} senders used message ID ${messageId2}; name the sender (from) to pick one.`);
+  invariant2(located.length === 1, "TOPOLOGY_MAILBOX_RECEIPT_MISSING", "No accepted obligation exists for this message.");
+  const { path: path3 } = located[0];
   return withLock(`${path3}.lock`, async () => {
-    const current = await getMailboxReceipt({ consumer, agent, messageId: messageId2, kind, ...options });
-    invariant2(current, "TOPOLOGY_MAILBOX_RECEIPT_MISSING", "No accepted obligation exists for this message.");
+    const current = verifyReceipt(await read2(path3));
+    invariant2(
+      current.repositoryId === identity.id && current.agent === agent && current.messageId === messageId2 && current.kind === kind,
+      "TOPOLOGY_MAILBOX_IDENTITY",
+      "Stored receipt does not match its requested identity."
+    );
     const details = { reason, retryAt, resultRef };
     if (current.status === disposition && canonical2(current.disposition) === canonical2(details)) return current;
     invariant2(!TERMINAL4.has(current.status), "TOPOLOGY_MAILBOX_TERMINAL", "A handled or rejected receipt is immutable.");
@@ -37919,7 +38010,9 @@ async function listMailboxPublications({ consumer, agent, allAgents = false, kin
     const dir = (0, import_node_path59.join)(root, repository, "publications");
     for (const file2 of await (0, import_promises52.readdir)(dir).catch((error51) => {
       if (error51.code === "ENOENT" || error51.code === "ENOTDIR") return [];
-      throw error51;
+      if (!invalid) throw error51;
+      invalid.push({ file: dir, code: error51.code || "TOPOLOGY_MAILBOX_UNREADABLE" });
+      return [];
     })) {
       if (!file2.endsWith(".json")) continue;
       let record2, envelope;
@@ -37928,7 +38021,7 @@ async function listMailboxPublications({ consumer, agent, allAgents = false, kin
         envelope = verifiedEnvelope(record2?.envelope);
         invariant2(record2.schemaVersion === 1 && record2.repositoryId === envelope.repositoryId && repository === repoKey(envelope.repositoryId) && record2.messageId === envelope.id && record2.kind === envelope.kind && record2.payloadDigest === envelope.payloadDigest && ["pending", "published"].includes(record2.status), "TOPOLOGY_MAILBOX_IDENTITY", "Invalid publication identity or schema.");
       } catch (error51) {
-        if (!invalid || error51.code === "EACCES" || error51.code === "EIO") throw error51;
+        if (!invalid) throw error51;
         invalid.push({ file: (0, import_node_path59.join)(dir, file2), code: error51.code || "TOPOLOGY_MAILBOX_UNREADABLE" });
         continue;
       }
@@ -37939,7 +38032,7 @@ async function listMailboxPublications({ consumer, agent, allAgents = false, kin
   }
   return records3.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.messageId.localeCompare(b.messageId));
 }
-var import_node_crypto35, import_promises52, import_node_path59, import_node_os31, hash3, canonical2, STATES, TERMINAL4, bounded, poison;
+var import_node_crypto35, import_promises52, import_node_path59, import_node_os31, hash3, canonical2, STATES, TERMINAL4, bounded, poison, PAGE_INTERVAL_MS, DEAD_LETTER_MAX;
 var init_mailbox_receipts = __esm({
   "topology/lib/mailbox-receipts.mjs"() {
     import_node_crypto35 = require("node:crypto");
@@ -37959,6 +38052,8 @@ var init_mailbox_receipts = __esm({
       `${name} must be a nonempty bounded string.`
     );
     poison = (error51) => typeof error51?.code === "string" && (error51.code.startsWith("TOPOLOGY_MAILBOX_") || error51.code === "TOPOLOGY_MESSAGE_ID_CONFLICT");
+    PAGE_INTERVAL_MS = 60 * 6e4;
+    DEAD_LETTER_MAX = 500;
   }
 });
 
@@ -38268,7 +38363,8 @@ function durableOptions(run2, env = process.env) {
   return { env: { ...env, ...run2.state_home ? { AGENT_ORCHESTRATION_STATE_HOME: run2.state_home } : {} } };
 }
 function wireMessageId(runDir, run2, id) {
-  return `run:${run2.run_id || (0, import_node_crypto36.createHash)("sha256").update((0, import_node_path61.resolve)(runDir)).digest("hex")}:${id}`;
+  const incarnation = (0, import_node_crypto36.createHash)("sha256").update(`${(0, import_node_path61.resolve)(runDir)}\0${run2.created ?? ""}`).digest("hex").slice(0, 16);
+  return `run:${run2.run_id || "dir"}:${incarnation}:${id}`;
 }
 async function readNatsReply(runDir, item, transport) {
   if (!item?.replyAgent || !item?.repo) return null;
@@ -65315,17 +65411,17 @@ var RunStore = class {
   }
   /** Run ids that still carry an active marker, plus any run predating the marker scheme. */
   async listRecoverable() {
-    const { readdir: readdir25, stat: stat13 } = await import("node:fs/promises");
+    const { readdir: readdir25, stat: stat14 } = await import("node:fs/promises");
     await this.initialize();
     const ids = (await readdir25((0, import_node_path14.join)(this.root, "runs"))).filter((id) => RUN_ID.test(id));
     const recoverable = [];
     for (const id of ids) {
-      const marked = await stat13(this.activeMarkerPath(id)).then(() => true).catch(() => false);
+      const marked = await stat14(this.activeMarkerPath(id)).then(() => true).catch(() => false);
       if (marked) {
         recoverable.push(id);
         continue;
       }
-      const migrated = await stat13((0, import_node_path14.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
+      const migrated = await stat14((0, import_node_path14.join)(this.runDir(id), ".sweep")).then(() => true).catch(() => false);
       if (!migrated) recoverable.push(id);
     }
     return recoverable;
@@ -79179,10 +79275,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4249616de107a3a6b45404d1c63795182be6c61107b753fb0c15a881184655ba";
+  return false ? null : "5471a2a9eb988ea53a5e25a6ef50a723d04402bea5406a585c2ef8dd039063bf";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4249616de107a3a6b45404d1c63795182be6c61107b753fb0c15a881184655ba";
+  const fingerprint2 = false ? null : "5471a2a9eb988ea53a5e25a6ef50a723d04402bea5406a585c2ef8dd039063bf";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79607,7 +79703,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4249616de107a3a6b45404d1c63795182be6c61107b753fb0c15a881184655ba",
+  sourceFingerprint: false ? null : "5471a2a9eb988ea53a5e25a6ef50a723d04402bea5406a585c2ef8dd039063bf",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -80578,7 +80674,7 @@ function createTopologyApi(service) {
       const options = await context4(input);
       const { agent } = await me(input.agent, options);
       const { setMailboxDisposition: setMailboxDisposition2 } = await Promise.resolve().then(() => (init_mailbox_receipts(), mailbox_receipts_exports));
-      return setMailboxDisposition2({ ...input, ...options, agent });
+      return setMailboxDisposition2({ ...input, ...options, agent, from: input.sender });
     },
     async goalStart(input) {
       const options = await context4(input);
@@ -80962,7 +81058,8 @@ async function createServer2(options = {}) {
       disposition: external_exports.enum(["handled", "deferred", "rejected"]),
       reason: external_exports.string().max(8192).optional(),
       retryAt: external_exports.string().optional(),
-      resultRef: external_exports.string().optional()
+      resultRef: external_exports.string().optional(),
+      sender: external_exports.string().min(1).max(512).optional().describe("The sender, when several senders used this message ID.")
     },
     receipt2,
     topology.mailboxDispose

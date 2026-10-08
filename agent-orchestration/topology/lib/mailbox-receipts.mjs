@@ -1,7 +1,7 @@
 // AO owns durable delivery obligations. Broker ACK means this ledger accepted the
 // envelope, never that an agent finished it or acquired a Task Management claim.
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
 import { canonicalRepoId, repoKey, repoSlug, stateRoot } from './repoid.mjs';
@@ -48,6 +48,28 @@ async function identityOf(consumer) {
 function recordPath(envelope, area, options) {
   return join(mailboxLedgerRoot(options), repoKey(envelope.repositoryId), area,
     hash(canonical([envelope.kind, envelope.to, envelope.id])) + '.json');
+}
+
+/** TM-482 F2: a receipt is keyed by its sender too, so a message from another sender that reuses an
+ * ID (a predictable `<id>.reply.<agent>`, say) is a separate receipt and can never squat the real
+ * one. Receipts written before this used recordPath and are still found by the readers below. */
+function receiptPath(envelope, options) {
+  return join(mailboxLedgerRoot(options), repoKey(envelope.repositoryId), 'receipts',
+    hash(canonical(['receipt', envelope.kind, envelope.to, envelope.from ?? null, envelope.id])) + '.json');
+}
+
+/** Every receipt for (agent, kind, messageId), one per sender, with the file each lives in.
+ * ponytail: a directory scan per lookup; index by message ID if receipt counts grow large. */
+async function receiptsFor({ repositoryId, agent, kind, messageId, from }, options) {
+  const dir = join(mailboxLedgerRoot(options), repoKey(repositoryId), 'receipts'), found = [];
+  for (const file of await readdir(dir).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {
+    if (!file.endsWith('.json')) continue;
+    const record = await read(join(dir, file));
+    if (record?.agent !== agent || record.kind !== kind || record.messageId !== messageId) continue;
+    if (from !== undefined && (record.envelope?.from ?? null) !== from) continue;
+    found.push({ path: join(dir, file), record });
+  }
+  return found;
 }
 
 async function read(path) {
@@ -103,25 +125,76 @@ function verifyReceipt(record) {
  * broker redelivers a NAKed message first, so a NAK would block every message behind it forever. */
 const poison = error => typeof error?.code === 'string' && (error.code.startsWith('TOPOLOGY_MAILBOX_') || error.code === 'TOPOLOGY_MESSAGE_ID_CONFLICT');
 
-/** Dead-letter the delivery with its reason, then term it (ACK where the transport has no term) so
- * the inbox moves on. The operator is paged once per distinct message: a redelivery finds the record. */
+const PAGE_INTERVAL_MS = 60 * 60_000;
+const DEAD_LETTER_MAX = 500;
+
+/** TM-482 F3/F6: at most one operator page per key (for example repository, agent and error code)
+ * per hour. A suppressed page is counted and the count rides on the next page that goes out.
+ * Never throws: paging is reporting, and a failed page must not become a second failure. */
+export async function pageOperator({ key, title, body, ...options }) {
+  try {
+    const path = join(mailboxLedgerRoot(options), 'pages', hash(canonical(key)) + '.json');
+    await ensureDirectory(dirname(path));
+    const now = (options.now ?? Date.now)();
+    const decision = await withLock(`${path}.lock`, async () => {
+      const state = await read(path).catch(() => null) ?? { lastPagedAt: null, suppressed: 0 };
+      if (state.lastPagedAt && now - Date.parse(state.lastPagedAt) < PAGE_INTERVAL_MS) {
+        await write(path, { ...state, suppressed: state.suppressed + 1 }); return { send: false };
+      }
+      await write(path, { lastPagedAt: new Date(now).toISOString(), suppressed: 0 });
+      return { send: true, suppressed: state.suppressed };
+    });
+    if (!decision.send) return { sent: false, reason: 'rate_limited' };
+    const notify = options.notify ?? (await import('./ntfy.mjs')).page;
+    const more = decision.suppressed ? `\n(${decision.suppressed} more like this in the last hour were not paged)` : '';
+    return await notify({ title, body: body + more, env: options.env ?? process.env });
+  } catch (error) { return { sent: false, reason: error.code ?? String(error.message) }; }
+}
+
+/** Keep the newest DEAD_LETTER_MAX records; the oldest go first. */
+async function pruneDeadLetters(dir) {
+  const names = (await readdir(dir)).filter(name => name.endsWith('.json'));
+  if (names.length <= DEAD_LETTER_MAX) return;
+  const aged = await Promise.all(names.map(async name => ({ name, at: (await stat(join(dir, name)).catch(() => null))?.mtimeMs ?? 0 })));
+  for (const { name } of aged.sort((x, y) => x.at - y.at).slice(0, names.length - DEAD_LETTER_MAX)) await rm(join(dir, name), { force: true });
+}
+
+/** Dead-letter the delivery with its reason, page the operator, then term it (ACK where the
+ * transport has no term) so the inbox moves on. F4: the record says when it was paged; a crash
+ * before that leaves the message unsettled, so its redelivery pages. */
 async function quarantine({ identity, agent, kind, delivery, error, options }) {
   const raw = String(delivery.rawBody ?? delivery.body ?? '');
-  const path = join(mailboxLedgerRoot(options), repoKey(identity.id), 'dead-letter', hash(canonical([kind, agent, raw])) + '.json');
-  await ensureDirectory(dirname(path));
-  const record = { schemaVersion: 1, kind, agent, repositoryId: identity.id, code: error.code, reason: String(error.message).slice(0, 2000),
-    subject: delivery.subject ?? null, messageId: delivery.messageId ?? null, rawBody: raw, quarantinedAt: nowIso() };
-  const fresh = await withLock(`${path}.lock`, async () => {
-    if (await read(path)) return false;
-    await write(path, record); return true;
+  const dir = join(mailboxLedgerRoot(options), repoKey(identity.id), 'dead-letter');
+  const path = join(dir, hash(canonical([kind, agent, raw])) + '.json');
+  await ensureDirectory(dir);
+  const record = await withLock(`${path}.lock`, async () => {
+    const existing = await read(path).catch(() => null);
+    if (existing) return existing;
+    const next = { schemaVersion: 1, kind, agent, repositoryId: identity.id, code: error.code, reason: String(error.message).slice(0, 2000),
+      subject: delivery.subject ?? null, messageId: delivery.messageId ?? null, rawBody: raw, quarantinedAt: nowIso(), notifiedAt: null };
+    await write(path, next); await pruneDeadLetters(dir); return next;
   });
-  await (delivery.term ?? delivery.ack)();
-  if (fresh) {
-    const notify = options.notify ?? (await import('./ntfy.mjs')).page;
-    await notify({ title: `AO mailbox: quarantined a message for ${agent}`, env: options.env ?? process.env,
+  let notified = null;
+  if (!record.notifiedAt) {
+    notified = await pageOperator({ ...options, key: ['dead-letter', identity.id, agent, error.code],
+      title: `AO mailbox: quarantined a message for ${agent}`,
       body: `${error.code}: ${record.reason}\nrepository: ${identity.id}\nsubject: ${record.subject ?? '-'}\ndead letter: ${path}` });
+    await withLock(`${path}.lock`, async () => write(path, { ...record, notifiedAt: nowIso(), page: notified }));
   }
-  return { quarantined: true, code: error.code, reason: record.reason, deadLetter: path, messageId: record.messageId, notified: fresh };
+  await (delivery.term ?? delivery.ack)();
+  return { quarantined: true, code: error.code, reason: record.reason, deadLetter: path, messageId: record.messageId, notified };
+}
+
+/** F6: an unreadable mailbox record the resume sweep skipped is escalated once per file, through
+ * the same hourly limit. */
+export async function escalateUnreadable(errors, options = {}) {
+  for (const { file, code } of errors.filter(error => error.file)) {
+    const marker = join(mailboxLedgerRoot(options), 'escalated', hash(file) + '.json');
+    if (await read(marker).catch(() => null)) continue;
+    const page = await pageOperator({ ...options, key: ['unreadable-record', code], title: 'AO mailbox: skipping an unreadable record',
+      body: `${code}: ${file}\nThe resume sweep skips it until it is repaired or removed.` });
+    await ensureDirectory(dirname(marker)); await write(marker, { file, code, escalatedAt: nowIso(), page });
+  }
 }
 
 /** Accept and fsync before ACK. A failure before or during ACK leaves replayable
@@ -134,10 +207,16 @@ export async function acceptMailboxDelivery({ consumer, agent, kind = 'mail', de
   let envelope;
   try { envelope = deliveredEnvelope({ identity, agent, kind, delivery }); }
   catch (error) { if (poison(error)) return quarantine({ identity, agent, kind, delivery, error, options }); throw error; }
-  const path = recordPath(envelope, 'receipts', options);
+  const path = receiptPath(envelope, options);
   await ensureDirectory(dirname(path));
   const record = await withLock(`${path}.lock`, async () => {
-    const existing = await read(path);
+    let existing = await read(path);
+    // A receipt from before F2 lives at the sender-less path; it is the same obligation only when
+    // the same sender wrote it.
+    if (!existing) {
+      const legacy = await read(recordPath(envelope, 'receipts', options));
+      if (legacy && (legacy.envelope?.from ?? null) === (envelope.from ?? null)) existing = legacy;
+    }
     if (existing) {
       verifyReceipt(existing);
       try { samePayload(existing, envelope); } catch (error) { return { conflict: error }; }
@@ -173,9 +252,11 @@ function deliveredEnvelope({ identity, agent, kind, delivery }) {
   return envelope;
 }
 
-export async function getMailboxReceipt({ consumer, agent, messageId, kind = 'mail', ...options }) {
+export async function getMailboxReceipt({ consumer, agent, messageId, kind = 'mail', from, ...options }) {
   const identity = await identityOf(consumer); bounded(agent, 'recipient'); bounded(messageId, 'message ID');
-  const record = await read(recordPath({ repositoryId: identity.id, to: agent, id: messageId, kind }, 'receipts', options));
+  const found = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId, from }, options);
+  invariant(found.length <= 1, 'TOPOLOGY_MAILBOX_AMBIGUOUS', `${found.length} senders used message ID ${messageId}; name the sender (from) to pick one.`);
+  const record = found[0]?.record;
   if (record) invariant(record.repositoryId === identity.id && record.agent === agent && record.messageId === messageId && record.kind === kind,
     'TOPOLOGY_MAILBOX_IDENTITY', 'Stored receipt does not match its requested identity.');
   return record ? verifyReceipt(record) : null;
@@ -210,7 +291,7 @@ export async function listMailboxReceipts({ consumer, agent, allAgents = false, 
   return records.sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.messageId.localeCompare(b.messageId));
 }
 
-export async function setMailboxDisposition({ consumer, agent, messageId, kind = 'mail', disposition, reason = null, retryAt = null, resultRef = null, ...options }) {
+export async function setMailboxDisposition({ consumer, agent, messageId, kind = 'mail', from, disposition, reason = null, retryAt = null, resultRef = null, ...options }) {
   const identity = await identityOf(consumer); bounded(agent, 'recipient'); bounded(messageId, 'message ID');
   invariant(['handled', 'deferred', 'rejected'].includes(disposition), 'TOPOLOGY_MAILBOX_DISPOSITION', 'Disposition must be handled, deferred or rejected.');
   invariant(reason === null || typeof reason === 'string' && reason.length <= 8192, 'TOPOLOGY_MAILBOX_DISPOSITION', 'Reason must be bounded text.');
@@ -219,11 +300,14 @@ export async function setMailboxDisposition({ consumer, agent, messageId, kind =
   const env = options.env ?? process.env;
   invariant(!env.AO_AGENT_ID || env.AO_AGENT_ID === agent, 'TOPOLOGY_AGENT_UNAUTHORIZED', 'An agent may only dispose its own obligations.');
   if (env.AO_CONSUMER) invariant((await identityOf(env.AO_CONSUMER)).id === identity.id, 'TOPOLOGY_AGENT_UNAUTHORIZED', 'Caller repository differs from the mailbox.');
-  const path = recordPath({ repositoryId: identity.id, to: agent, id: messageId, kind }, 'receipts', options);
-  await ensureDirectory(dirname(path));
+  const located = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId, from }, options);
+  invariant(located.length <= 1, 'TOPOLOGY_MAILBOX_AMBIGUOUS', `${located.length} senders used message ID ${messageId}; name the sender (from) to pick one.`);
+  invariant(located.length === 1, 'TOPOLOGY_MAILBOX_RECEIPT_MISSING', 'No accepted obligation exists for this message.');
+  const { path } = located[0];
   return withLock(`${path}.lock`, async () => {
-    const current = await getMailboxReceipt({ consumer, agent, messageId, kind, ...options });
-    invariant(current, 'TOPOLOGY_MAILBOX_RECEIPT_MISSING', 'No accepted obligation exists for this message.');
+    const current = verifyReceipt(await read(path));
+    invariant(current.repositoryId === identity.id && current.agent === agent && current.messageId === messageId && current.kind === kind,
+      'TOPOLOGY_MAILBOX_IDENTITY', 'Stored receipt does not match its requested identity.');
     const details = { reason, retryAt, resultRef };
     if (current.status === disposition && canonical(current.disposition) === canonical(details)) return current;
     invariant(!TERMINAL.has(current.status), 'TOPOLOGY_MAILBOX_TERMINAL', 'A handled or rejected receipt is immutable.');
@@ -293,7 +377,11 @@ export async function listMailboxPublications({ consumer, agent, allAgents = fal
   invariant(!status || ['pending', 'published'].includes(status), 'TOPOLOGY_MAILBOX_PUBLICATION', 'Unknown publication status.');
   for (const repository of await readdir(root).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {
     const dir = join(root, repository, 'publications');
-    for (const file of await readdir(dir).catch(error => { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return []; throw error; })) {
+    for (const file of await readdir(dir).catch(error => {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return [];
+      if (!invalid) throw error;
+      invalid.push({ file: dir, code: error.code || 'TOPOLOGY_MAILBOX_UNREADABLE' }); return [];
+    })) {
       if (!file.endsWith('.json')) continue;
       let record, envelope;
       try {
@@ -304,7 +392,7 @@ export async function listMailboxPublications({ consumer, agent, allAgents = fal
       } catch (error) {
         // TM-483: an operator-only sweep (`invalid` given) reports and skips an unreadable record,
         // which may sit in another repository's ledger; a scoped reader still fails closed.
-        if (!invalid || error.code === 'EACCES' || error.code === 'EIO') throw error;
+        if (!invalid) throw error;
         invalid.push({ file: join(dir, file), code: error.code || 'TOPOLOGY_MAILBOX_UNREADABLE' }); continue;
       }
       const context = envelope.context;
