@@ -249,3 +249,58 @@ test('F5: a publication sweep that fails outright keeps the standing results alr
   assert.equal((await readStandingMessage({ id: 'keep-1', env: f.env })).status, 'delivered');
   assert.ok(errors.some(e => e.code === 'EACCES'), JSON.stringify(errors));
 });
+
+// ── Delta review on PR #229 ────────────────────────────────────────────────────────────────────
+
+test('N1: a corrupt file in receipts/ does not stop disposal of an unrelated message', async t => {
+  const f = await ledgerFixture(t, 'corrupt-receipt');
+  const envelope = createMailboxEnvelope({ id: 'job-1', repositoryId: f.repositoryId, from: 'lead', to: 'worker', body: 'work' });
+  await acceptMailboxDelivery({ consumer: f.consumer, env: f.env, agent: 'worker', delivery: { body: JSON.stringify(envelope), ...settle() } });
+  await writeFile(join(f.ledger, 'receipts', 'corrupt.json'), '{not json');
+  const scope = { consumer: f.consumer, env: f.env, agent: 'worker', messageId: 'job-1' };
+  assert.equal((await setMailboxDisposition({ ...scope, disposition: 'deferred', reason: 'later', retryAt: '2030-01-01T00:00:00.000Z' })).status, 'deferred', 'by ID alone');
+  assert.equal((await setMailboxDisposition({ ...scope, from: 'lead', disposition: 'handled' })).status, 'handled', 'by ID and sender');
+  assert.equal((await getMailboxReceipt(scope)).status, 'handled');
+});
+
+test('N2: the CLI and MCP can name the receipt whose sender is null when an ID is ambiguous', async t => {
+  const f = await ledgerFixture(t, 'null-sender');
+  const deliver = from => acceptMailboxDelivery({ consumer: f.consumer, env: f.env, agent: 'worker', notify: async () => ({}), delivery: {
+    body: JSON.stringify(createMailboxEnvelope({ id: 'shared', repositoryId: f.repositoryId, from, to: 'worker', body: `from ${from}` })), ...settle() } });
+  await deliver(null); await deliver('lead');
+  const home = join(f.root, 'home'); await mkdir(home);
+  const result = spawnSync(process.execPath, [join(process.cwd(), 'topology/cli.mjs'), 'mailbox', 'dispose', '--consumer', f.consumer,
+    '--message', 'shared', '--sender', '', '--disposition', 'handled', '--json'],
+  { env: { ...process.env, ...f.env, HOME: home, TMUX: '', AO_TRANSPORT: 'file', AO_NATS_AUTOSTART: '0', AGENT_ORCHESTRATION_SERVICES: '0',
+    AO_AGENT_ID: 'worker', AO_CONSUMER: f.consumer }, encoding: 'utf8' });
+  assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  assert.equal(JSON.parse(result.stdout).envelope.from, null);
+  assert.equal((await getMailboxReceipt({ consumer: f.consumer, env: f.env, agent: 'worker', messageId: 'shared', from: 'lead' })).status, 'accepted');
+  const { createServer } = await import('../../src/mcp.mjs');
+  await mkdir(join(f.root, 'plugin'));
+  const { server } = await createServer({ pluginRoot: join(f.root, 'plugin'), stateRoot: join(f.root, 'mcp-state'), autoRecover: false });
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const client = new Client({ name: 'n2', version: '1.0.0' }), [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(b); await client.connect(a);
+  try {
+    const tool = (await client.listTools()).tools.find(entry => entry.name === 'orchestration_mailbox_dispose');
+    assert.match(JSON.stringify(tool.inputSchema.properties.sender), /null/, 'the MCP sender field accepts null');
+  } finally { await client.close().catch(() => {}); await server.close().catch(() => {}); }
+});
+
+test('N3: a failing escalation is reported and the standing results are kept', async t => {
+  const f = await ledgerFixture(t, 'escalation');
+  const transport = { kind: 'nats', publishMail: async () => { throw new Error('no broker acknowledgement'); } };
+  const options = { env: f.env, transport, notify: async () => ({}), router: async () => ({ resolved: 'worker', deliver_to: 'worker' }) };
+  await sendStandingMessage({ id: 'keep-2', consumer: f.consumer, fromProject: f.consumer, from: 'lead', to: 'worker', body: 'keep me' }, options);
+  transport.publishMail = async () => ({ subject: 'test', seq: 1 });
+  const root = mailboxLedgerRoot({ env: f.env });
+  await mkdir(join(root, 'other-repo', 'publications'), { recursive: true });
+  await writeFile(join(root, 'other-repo', 'publications', 'broken.json'), '{not json'); // something to escalate
+  await writeFile(join(root, 'escalated'), 'a file where the marker directory belongs'); // so escalation fails
+  const errors = [];
+  const resumed = await resumeStandingMessages({ consumer: f.consumer, ...options, force: true, errors });
+  assert.deepEqual(resumed.map(r => [r.envelope.id, r.status]), [['keep-2', 'delivered']]);
+  assert.ok(errors.some(e => e.code === 'ENOTDIR'), JSON.stringify(errors));
+});

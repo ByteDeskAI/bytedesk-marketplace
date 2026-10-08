@@ -688,7 +688,8 @@ const commands = {
         messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
         reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'],
         // TM-482 F2: receipts are per sender; --sender picks one when several senders reused the ID.
-        from: typeof flags.sender === 'string' ? flags.sender : undefined }));
+        // N2: --sender '' names the receipt whose sender is null (a legacy or anonymous message).
+        from: typeof flags.sender === 'string' ? flags.sender || null : undefined }));
     }
     if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.

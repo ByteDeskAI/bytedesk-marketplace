@@ -310,7 +310,9 @@ export async function resumeStandingMessages({ consumer, force = false, errors =
   try { await resumeMailboxPublications({ consumer, force, errors, ...options }); }
   catch (error) { errors.push({ code: error?.code || 'TOPOLOGY_PUBLICATION_RESUME_FAILED' }); }
   // F6: each skipped unreadable record is escalated to the operator once.
-  await escalateUnreadable(errors, options);
+  // N3: escalation is reporting; its failure is one more error, never a loss of the results above.
+  try { await escalateUnreadable(errors, options); }
+  catch (error) { errors.push({ code: error?.code || 'TOPOLOGY_ESCALATION_FAILED' }); }
   return resumed;
 }
 

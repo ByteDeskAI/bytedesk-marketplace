@@ -61,13 +61,23 @@ function receiptPath(envelope, options) {
 /** Every receipt for (agent, kind, messageId), one per sender, with the file each lives in.
  * ponytail: a directory scan per lookup; index by message ID if receipt counts grow large. */
 async function receiptsFor({ repositoryId, agent, kind, messageId, from }, options) {
+  const matches = record => record?.agent === agent && record.kind === kind && record.messageId === messageId
+    && (from === undefined || (record.envelope?.from ?? null) === from);
+  // TM-482 N1: a named sender has at most two possible files, its own and the pre-F2 one; read
+  // those directly so an unrelated corrupt file in the directory cannot get in the way.
+  if (from !== undefined) {
+    const key = { repositoryId, kind, to: agent, id: messageId, from };
+    for (const path of [receiptPath(key, options), recordPath(key, 'receipts', options)]) {
+      const record = await read(path);
+      if (matches(record)) return [{ path, record }];
+    }
+  }
   const dir = join(mailboxLedgerRoot(options), repoKey(repositoryId), 'receipts'), found = [];
   for (const file of await readdir(dir).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {
     if (!file.endsWith('.json')) continue;
-    const record = await read(join(dir, file));
-    if (record?.agent !== agent || record.kind !== kind || record.messageId !== messageId) continue;
-    if (from !== undefined && (record.envelope?.from ?? null) !== from) continue;
-    found.push({ path: join(dir, file), record });
+    // N1: the scan skips a file it cannot parse; that file is not this message's receipt.
+    const record = await read(join(dir, file)).catch(error => { if (error instanceof SyntaxError) return null; throw error; });
+    if (matches(record)) found.push({ path: join(dir, file), record });
   }
   return found;
 }

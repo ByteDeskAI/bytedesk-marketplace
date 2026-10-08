@@ -267,6 +267,12 @@
     directory, and a sweep that fails outright no longer discards the standing results.
   - Each unreadable record the sweep skips is paged once per file, under the same hourly limit.
   - The unit-test preload scrubs `AO_NTFY_*`/`TM_NTFY_*` topic and token variables.
+  - A receipt lookup with a named sender reads its two possible files directly, and the fallback
+    scan skips a file it cannot parse, so one corrupt receipt no longer blocks `dispose` for every
+    message in the repository.
+  - `mailbox dispose --sender ''` and an MCP `sender: null` name the receipt that has no sender.
+  - A failure while escalating unreadable records is reported in `errors`; the standing results
+    are kept.
 
 - **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
   sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed

@@ -35757,7 +35757,11 @@ async function resumeStandingMessages({ consumer, force = false, errors = [], ..
   } catch (error51) {
     errors.push({ code: error51?.code || "TOPOLOGY_PUBLICATION_RESUME_FAILED" });
   }
-  await escalateUnreadable(errors, options);
+  try {
+    await escalateUnreadable(errors, options);
+  } catch (error51) {
+    errors.push({ code: error51?.code || "TOPOLOGY_ESCALATION_FAILED" });
+  }
   return resumed;
 }
 async function wakeStandingMessages({ ids = [], ...options }) {
@@ -37634,16 +37638,25 @@ function receiptPath(envelope, options) {
   );
 }
 async function receiptsFor({ repositoryId, agent, kind, messageId: messageId2, from }, options) {
+  const matches2 = (record2) => record2?.agent === agent && record2.kind === kind && record2.messageId === messageId2 && (from === void 0 || (record2.envelope?.from ?? null) === from);
+  if (from !== void 0) {
+    const key = { repositoryId, kind, to: agent, id: messageId2, from };
+    for (const path3 of [receiptPath(key, options), recordPath(key, "receipts", options)]) {
+      const record2 = await read2(path3);
+      if (matches2(record2)) return [{ path: path3, record: record2 }];
+    }
+  }
   const dir = (0, import_node_path59.join)(mailboxLedgerRoot(options), repoKey(repositoryId), "receipts"), found = [];
   for (const file2 of await (0, import_promises52.readdir)(dir).catch((error51) => {
     if (error51.code === "ENOENT") return [];
     throw error51;
   })) {
     if (!file2.endsWith(".json")) continue;
-    const record2 = await read2((0, import_node_path59.join)(dir, file2));
-    if (record2?.agent !== agent || record2.kind !== kind || record2.messageId !== messageId2) continue;
-    if (from !== void 0 && (record2.envelope?.from ?? null) !== from) continue;
-    found.push({ path: (0, import_node_path59.join)(dir, file2), record: record2 });
+    const record2 = await read2((0, import_node_path59.join)(dir, file2)).catch((error51) => {
+      if (error51 instanceof SyntaxError) return null;
+      throw error51;
+    });
+    if (matches2(record2)) found.push({ path: (0, import_node_path59.join)(dir, file2), record: record2 });
   }
   return found;
 }
@@ -79275,10 +79288,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "5471a2a9eb988ea53a5e25a6ef50a723d04402bea5406a585c2ef8dd039063bf";
+  return false ? null : "b49f368c2e9209b03217831b3f26d5b6f503ff51b8b1a85bb245c9c3bf1c8f84";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "5471a2a9eb988ea53a5e25a6ef50a723d04402bea5406a585c2ef8dd039063bf";
+  const fingerprint2 = false ? null : "b49f368c2e9209b03217831b3f26d5b6f503ff51b8b1a85bb245c9c3bf1c8f84";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -79703,7 +79716,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "5471a2a9eb988ea53a5e25a6ef50a723d04402bea5406a585c2ef8dd039063bf",
+  sourceFingerprint: false ? null : "b49f368c2e9209b03217831b3f26d5b6f503ff51b8b1a85bb245c9c3bf1c8f84",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -81059,7 +81072,7 @@ async function createServer2(options = {}) {
       reason: external_exports.string().max(8192).optional(),
       retryAt: external_exports.string().optional(),
       resultRef: external_exports.string().optional(),
-      sender: external_exports.string().min(1).max(512).optional().describe("The sender, when several senders used this message ID.")
+      sender: external_exports.string().min(1).max(512).nullable().optional().describe("The sender, when several senders used this message ID; null names the receipt that has no sender.")
     },
     receipt2,
     topology.mailboxDispose
