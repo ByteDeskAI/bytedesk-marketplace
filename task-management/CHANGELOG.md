@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **enhance-mine redacts bearer tokens, URL credentials, `-p` passwords and `NAME=value` secrets
+  (TM-435, EP-028).** `Authorization: Bearer|Basic|token <value>` now loses the value, not just the
+  scheme word, and so does a standalone `Bearer <token>`. `scheme://user:pass@host` (including an
+  empty user), an attached `-p<password>` and `NAME=value` with an ALLCAPS name are redacted too.
+  A bare `-p` flag is left alone. After review, it also redacts these shapes:
+  - a whole quoted value, spaces and all (`{"token": "a b"}`, `DB_PASSWORD='hunter two'`);
+  - cookie headers to the end of the line, plus `curl -b` and `--cookie`;
+  - a secret given as the next argument (`--token`, `--with-token`, `--secret`, `--api-key`,
+    `--password`, `sshpass -p`);
+  - `glpat-`, `npm_`, `sk_live_`/`rk_live_` and `AIza` keys, and PGP private key blocks;
+  - `Authorization: <any scheme> <value>`, `X-Auth*` headers, whole-word `pass=` and `key=`, and
+    the prose `secret <value>`.
+
+  A final review round added these shapes:
+  - `curl -u`, `--auth`, `redis-cli -a`, `docker login -p|-P`, and token-only URL userinfo;
+  - the whole of a long `AIza` key, and `ya29.` and `hf_` tokens;
+  - Azure `AccountKey=`, and `sig=`, `signature=` and `X-Amz-Signature=`;
+  - `passphrase`, `--passphrase`, `session_id`, `sid`, `otp` and `pin`;
+  - `PGPASSWORD <value>`, "token is <v>" and "secret is <v>";
+  - JSON values that contain escaped quotes, redacted whole.
+
+  The shapes live in one fixture, `tests/fixtures/redaction-shapes.mjs` (64 shapes).
+  `test-enhance-mine.sh` uses it twice. It runs each shape through `redact`. It also plants every
+  shape in the fixture transcript and asserts that no secret reaches the report, the state file or
+  the board.
 - **`tm rework <id> --revision <full SHA>` returns a governed task to working after review requests
   changes (TM-347).** It only reflects a rework the producer recorded (`ao-topology manage rework`):
   the management record must be `working`, carry no finish, and name this revision in its latest
