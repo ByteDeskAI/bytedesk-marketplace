@@ -243,7 +243,10 @@ export async function superviseRepository(options, { signal, once = false, inter
      // land in this same reconcile. Absorbed the way slots and quota absorb theirs: a lead that cannot
      // be recovered is reported with its backoff, never a reason to stop supervising.
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
-     const resumed=await resumeStandingMessages(options);
+     // TM-483: absorbed like lead recovery. A failed publish retry or an unreadable mailbox record is
+     // reported in mail_errors (and keeps its own backoff), never a reason to stop supervising.
+     const mailErrors=[];
+     const resumed=await resumeStandingMessages({...options,errors:mailErrors}).catch(error=>{mailErrors.push({code:error?.code ?? String(error)});return [];});
      // TM-351: ring each recipient whose standing mail landed, once per message. A held ring (unsafe
      // composer, no pane) is retried here next tick. Absorbed: a ring failure never stops supervision.
      const rings=await ringStandingMail({...options,adapters,panes:observed.filter(p=>p.lifecycle!=='dead')
@@ -265,6 +268,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        reconciled:true,reconcile_min_ms:floorMs,activity,
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
+       ...(mailErrors.length ? {mail_errors:mailErrors} : {}),
        ...(rings.length ? {mail_rings:rings} : {}),
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.

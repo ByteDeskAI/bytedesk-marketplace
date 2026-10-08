@@ -243,6 +243,15 @@
   transport has no term), and paged to the operator through ntfy once per distinct message. Only a
   local failure still NAKs. The NATS mail and reply deliveries gain `term()`.
 
+- **A failed publish retry no longer ends the repository supervisor (TM-483, EP-028).**
+  `resumeStandingMessages` rethrew from `resumeMailboxPublications`, and on any unreadable
+  publication or standing record in any repository's ledger, and the supervise loop treated that as
+  fatal. Each record is now tried on its own: a failure is reported in the tick's `mail_errors`,
+  recorded on the publication (`lastError`, `nextRetryAt` with the lead-recovery backoff of 10 s,
+  30 s, 2 min, then 10 min), and retried once due; `mailbox resume --force` skips the wait. An
+  unreadable record is reported and skipped by the resume sweep; a scoped reader still fails closed.
+  The supervisor tick also absorbs any remaining resume error instead of exiting.
+
 - **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
   sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
   with `source_identity_required`. The adapter now reads the record SessionStart wrote for its

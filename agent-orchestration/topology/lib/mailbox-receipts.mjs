@@ -252,31 +252,42 @@ export async function publishMailboxEnvelope({ envelope, transport, ...options }
     try {
       const publish = envelope.kind === 'reply' ? transport.publishReply.bind(transport) : transport.publishMail.bind(transport);
       const result = await publish({ repo: repoKey(envelope.repositoryId), slug: repoSlug(envelope.repositoryId), agent: envelope.to, messageId: envelope.id, body: JSON.stringify(envelope) });
-      const next = { ...record, status: 'published', publishedAt: nowIso(), result, lastError: null };
+      const next = { ...record, status: 'published', publishedAt: nowIso(), result, lastError: null, nextRetryAt: null };
       await write(path, next); return next;
     } catch (error) {
-      await write(path, { ...record, lastError: error.code || 'TOPOLOGY_PUBLICATION_FAILED' });
+      // TM-483: the failure and its backoff are durable, so the resume loop waits before retrying.
+      const { retryDelayMs } = await import('./lead-recovery.mjs');
+      await write(path, { ...record, lastError: error.code || 'TOPOLOGY_PUBLICATION_FAILED',
+        nextRetryAt: new Date((options.now ?? Date.now)() + retryDelayMs(record.attempts)).toISOString() });
       throw error;
     }
   });
 }
 
-export async function resumeMailboxPublications({ consumer, transport, ...options }) {
-  const resumed = [];
-  for (const record of await listMailboxPublications({ ...options, consumer, status: 'pending', allAgents: true })) {
+/** TM-483: one bad publication never stops the others, or the supervisor tick that called this. A
+ * failed retry or an unreadable record (in any repository's ledger) is reported into `errors` and
+ * skipped; a failed retry is tried again once its backoff is due (`force` skips the wait). */
+export async function resumeMailboxPublications({ consumer, transport, force = false, errors = [], ...options }) {
+  const resumed = [], now = options.now ?? Date.now;
+  for (const record of await listMailboxPublications({ ...options, consumer, status: 'pending', allAgents: true, invalid: errors })) {
     // Standing mail retains its own admission and retry deadline. Replies have
     // no standing delivery record and use this generic publication recovery.
     if (record.kind === 'mail' && record.envelope.context.standing === true) continue;
-    transport ??= await (await import('./orch-transport.mjs')).resolveTransport({ env: options.env ?? process.env });
-    if (transport.kind !== 'nats') continue;
-    resumed.push(await publishMailboxEnvelope({ ...options, envelope: record.envelope, transport }));
+    if (!force && record.nextRetryAt && Date.parse(record.nextRetryAt) > now()) continue;
+    try {
+      transport ??= await (await import('./orch-transport.mjs')).resolveTransport({ env: options.env ?? process.env });
+      if (transport.kind !== 'nats') continue;
+      resumed.push(await publishMailboxEnvelope({ ...options, envelope: record.envelope, transport }));
+    } catch (error) {
+      errors.push({ messageId: record.messageId, kind: record.kind, code: error?.code || 'TOPOLOGY_PUBLICATION_FAILED' });
+    }
   }
   return resumed;
 }
 
 /** Nondestructive sender view. A publication says only whether the broker
  * accepted it; recipient acceptance/disposition remains a separate receipt. */
-export async function listMailboxPublications({ consumer, agent, allAgents = false, kind, status, workflowId, runId, taskId, ...options }) {
+export async function listMailboxPublications({ consumer, agent, allAgents = false, kind, status, workflowId, runId, taskId, invalid = null, ...options }) {
   readerScope(agent, allAgents);
   const identity = await identityOf(consumer), root = mailboxLedgerRoot(options), records = [];
   invariant(!status || ['pending', 'published'].includes(status), 'TOPOLOGY_MAILBOX_PUBLICATION', 'Unknown publication status.');
@@ -284,10 +295,18 @@ export async function listMailboxPublications({ consumer, agent, allAgents = fal
     const dir = join(root, repository, 'publications');
     for (const file of await readdir(dir).catch(error => { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return []; throw error; })) {
       if (!file.endsWith('.json')) continue;
-      const record = await read(join(dir, file)), envelope = verifiedEnvelope(record?.envelope);
-      invariant(record.schemaVersion === 1 && record.repositoryId === envelope.repositoryId && repository === repoKey(envelope.repositoryId)
-        && record.messageId === envelope.id && record.kind === envelope.kind && record.payloadDigest === envelope.payloadDigest
-        && ['pending', 'published'].includes(record.status), 'TOPOLOGY_MAILBOX_IDENTITY', 'Invalid publication identity or schema.');
+      let record, envelope;
+      try {
+        record = await read(join(dir, file)); envelope = verifiedEnvelope(record?.envelope);
+        invariant(record.schemaVersion === 1 && record.repositoryId === envelope.repositoryId && repository === repoKey(envelope.repositoryId)
+          && record.messageId === envelope.id && record.kind === envelope.kind && record.payloadDigest === envelope.payloadDigest
+          && ['pending', 'published'].includes(record.status), 'TOPOLOGY_MAILBOX_IDENTITY', 'Invalid publication identity or schema.');
+      } catch (error) {
+        // TM-483: an operator-only sweep (`invalid` given) reports and skips an unreadable record,
+        // which may sit in another repository's ledger; a scoped reader still fails closed.
+        if (!invalid || error.code === 'EACCES' || error.code === 'EIO') throw error;
+        invalid.push({ file: join(dir, file), code: error.code || 'TOPOLOGY_MAILBOX_UNREADABLE' }); continue;
+      }
       const context = envelope.context;
       if ((context.sourceRepositoryId || envelope.repositoryId) !== identity.id || agent && envelope.from !== agent
         || kind && record.kind !== kind || status && record.status !== status || workflowId && context.workflowId !== workflowId

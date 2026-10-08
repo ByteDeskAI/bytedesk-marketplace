@@ -266,36 +266,46 @@ async function records(opts) {
   try { names = await readdir(dir); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   const results = [];
   for (const name of names.filter(n => /^[0-9a-f]{64}\.json$/.test(n)).sort()) {
-    const record = await read(join(dir, name));
-    invariant(record?.version === 1 && record.envelope?.id, 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
-    results.push(record);
+    try {
+      const record = await read(join(dir, name));
+      invariant(record?.version === 1 && record.envelope?.id, 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
+      results.push(record);
+    } catch (error) {
+      // TM-483: the store is host-wide, so the resume sweep (`errors` given) reports and skips an
+      // unreadable record, possibly another repository's, instead of failing the whole tick.
+      if (!opts.errors) throw error;
+      opts.errors.push({ file: join(dir, name), code: error.code || 'TOPOLOGY_STANDING_STATE_INVALID' });
+    }
   }
   return results;
 }
 
 /** Safe-boundary watcher calls this without a run. Delivered records are final;
  * each held request rechecks both leads and the live receiving task store. */
-export async function resumeStandingMessages({ consumer, force = false, ...options }) {
+export async function resumeStandingMessages({ consumer, force = false, errors = [], ...options }) {
   const identity = await canonicalRepoId(consumer);
   const now = options.now ?? Date.now;
   const resumed = [];
-  for (const old of await records(options)) {
+  for (const old of await records({ ...options, errors })) {
     // TM-167: a held message is retried when it is due, not on every tick. `force` skips backoff
     // for a human who asked; nothing retries a permanent hold.
     if (old.envelope.destinationRepoId !== identity.id || !due(old, now, force)) continue;
     const p = paths(old.envelope.id, options);
-    const settled = await withLock(p.lock, async () => {
-      const current = await read(p.file);
-      invariant(current, 'TOPOLOGY_STANDING_STATE_INVALID', 'Standing message disappeared during resume.');
-      if (current.status === 'delivered') return current;
-      // Re-checked under the lock: a concurrent resumer may have just attempted and re-held it.
-      if (!due(current, now, force)) return null;
-      const next = current.status === 'publishing' ? current : await advance(current, { ...options, now });
-      return publishAdmitted(next, p, { ...options, now });
-    });
-    if (settled) resumed.push(await withRecovery(settled, options));
+    // TM-483: one message that fails is reported into `errors`; the others still resume.
+    try {
+      const settled = await withLock(p.lock, async () => {
+        const current = await read(p.file);
+        invariant(current, 'TOPOLOGY_STANDING_STATE_INVALID', 'Standing message disappeared during resume.');
+        if (current.status === 'delivered') return current;
+        // Re-checked under the lock: a concurrent resumer may have just attempted and re-held it.
+        if (!due(current, now, force)) return null;
+        const next = current.status === 'publishing' ? current : await advance(current, { ...options, now });
+        return publishAdmitted(next, p, { ...options, now });
+      });
+      if (settled) resumed.push(await withRecovery(settled, options));
+    } catch (error) { errors.push({ messageId: old.envelope.id, code: error?.code || 'TOPOLOGY_STANDING_RESUME_FAILED' }); }
   }
-  await resumeMailboxPublications({ consumer, ...options });
+  await resumeMailboxPublications({ consumer, force, errors, ...options });
   return resumed;
 }
 
