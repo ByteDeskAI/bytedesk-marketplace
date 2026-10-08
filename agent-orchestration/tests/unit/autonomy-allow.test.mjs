@@ -100,10 +100,10 @@ test('TM-369: the hook prints an allow decision, or nothing, and never blocks', 
   }
 });
 
-test('TM-369: hooks.json wires the allowlist on Bash beside the project-install guard', () => {
+test('TM-369: hooks.json wires the allowlist on Bash; the project-install guard stays retired (TM-392)', () => {
   const pre = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks.PreToolUse;
   const bash = pre.find((entry) => entry.matcher === 'Bash');
   const commands = bash.hooks.map((h) => h.command);
   assert.ok(commands.some((c) => c.includes('scripts/autonomy-allow.mjs')));
-  assert.ok(commands.some((c) => c.includes('scripts/guard-project-install.mjs')));
+  assert.ok(!commands.some((c) => c.includes('guard-project-install')), 'TM-392 removed the project-install guard');
 });
