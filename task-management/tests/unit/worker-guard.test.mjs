@@ -23,7 +23,8 @@ import { create, seedGitContract, update } from "../../lib/store.mjs";
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HOOK = join(PLUGIN_ROOT, "hooks", "tm-hook.sh");
 const OWN = "tm/TM-001-fix-the-thing";
-const AT_HOME = { branch: OWN, head: OWN, integrationBranch: "main" };
+// Required checks green: every merge sample below is then refused by its own bypass, never by red checks.
+const AT_HOME = { branch: OWN, head: OWN, integrationBranch: "main", requiredChecksPass: () => true };
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -61,7 +62,21 @@ const BLOCKED = {
   "git-rebase-protected": ["git rebase origin/main main", "git rebase --onto origin/main HEAD~3 master"],
   "git-update-ref-delete": ["git update-ref -d refs/heads/main"],
   "git-stash-destroy": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git stash pop", "git stash pop --index stash@{0}"],
-  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main", "gh pr merge --merge", `git checkout tm/TM-2-y && gh pr merge`, `gh pr merge -R evil/repo ${OWN}`, `gh pr merge --repo=evil/repo ${OWN}`, `gh -R evil/r pr merge ${OWN}`, `GH_REPO=evil/repo gh pr merge ${OWN}`, `env GH_HOST=x gh pr merge ${OWN}`, `gh pr merge ${OWN} -d`, `gh pr merge ${OWN} --delete-branch`],
+  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main", "gh pr merge --merge", `git checkout tm/TM-2-y && gh pr merge`, `gh pr merge -R evil/repo ${OWN}`, `gh pr merge --repo=evil/repo ${OWN}`, `gh -R evil/r pr merge ${OWN}`, `GH_REPO=evil/repo gh pr merge ${OWN}`, `env GH_HOST=x gh pr merge ${OWN}`, `gh pr merge ${OWN} -d`, `gh pr merge ${OWN} --delete-branch`,
+    // TM-481: every -R/--repo spelling, --admin, and GH_REPO set anywhere in the line.
+    `gh pr merge ${OWN} -Revil/repo`, `gh pr merge -Revil/repo ${OWN}`, `gh -Revil/repo pr merge ${OWN}`, `gh pr merge ${OWN} --repo evil/repo`, `gh pr merge ${OWN} --merge --admin`, `gh pr merge ${OWN} --admin`,
+    `export GH_REPO=evil/repo; gh pr merge ${OWN} --merge`, `export GH_REPO=evil/repo && bash -c 'gh pr merge ${OWN} --merge'`],
+  // TM-481: governed (table runs these with governed: true) — its OWN PR, the exact finish-line form.
+  "gh-pr-merge-governed": [`gh pr merge ${OWN} --merge`, `gh pr merge ${OWN} --squash`, `gh -R o/r pr merge 12 --admin`],
+  "gh-repo-set-default": ["gh repo set-default evil/repo", "gh repo set-default", "gh repo set-default evil/repo --view"],
+  "gh-alias-set": ["gh alias set m 'pr merge'", "gh alias import aliases.yml"],
+  "gh-api-graphql-merge": [
+    `gh api graphql -f query='mutation { mergePullRequest(input:{pullRequestId:"PR_x"}) { clientMutationId } }'`,
+    `gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}){clientMutationId}}'`,
+    "gh api graphql -F query=@merge.graphql",
+    "gh api graphql --input body.json",
+    `gh api graphql -f query="$(cat merge.graphql)"`,
+  ],
   "gh-pr-create-base": ["gh pr create --title x --body y", "gh pr create --base develop --title x", "gh -R o/r pr create --base wrong --fill", "gh pr new --title x", "gh pr new --base develop --title x"],
   "gh-pr-retarget": [
     "gh pr edit 12 --base develop",
@@ -78,6 +93,11 @@ const BLOCKED = {
   "gh-variable": ["gh variable set NAME --body x", "gh variable delete NAME"],
   "gh-api-mutation": [
     "gh api -X PUT repos/o/r/pulls/1/merge",
+    // TM-481: the REST merge in every method spelling, and with a query string.
+    "gh api -XPUT repos/o/r/pulls/12/merge -f merge_method=squash",
+    "gh api --method=PUT /repos/o/r/pulls/12/merge",
+    "gh api repos/o/r/pulls/12/merge -X PUT",
+    "gh api -X PUT 'repos/o/r/pulls/12/merge?x=1'",
     "gh api --method DELETE repos/o/r/git/refs/heads/main",
     "gh api repos/o/r/releases -f tag_name=v1",
   ],
@@ -116,7 +136,7 @@ describe("guardCommand — the table", () => {
     let n = 0;
     for (const [id, samples] of Object.entries(BLOCKED)) {
       for (const cmd of samples) {
-        const v = guardCommand(cmd, AT_HOME);
+        const v = guardCommand(cmd, id === "gh-pr-merge-governed" ? { ...AT_HOME, governed: true } : AT_HOME);
         assert.equal(v.allow, false, `blocked: ${cmd}`);
         assert.equal(v.rule, id, `${cmd} is blocked by ${id}, not ${v.rule}`);
         assert.ok(typeof v.reason === "string" && v.reason.length > 10, `a reason a worker can act on: ${cmd}`);
@@ -129,7 +149,6 @@ describe("guardCommand — the table", () => {
   it("allows the finish line and ordinary work", () => {
     const allowed = [
       `gh pr merge ${OWN} --merge`,
-      `gh pr merge ${OWN} --squash --admin`,
       `gh pr merge ${OWN} --merge --subject "TM-001: done"`,
       "git push",
       "git push origin",
@@ -149,6 +168,11 @@ describe("guardCommand — the table", () => {
       "gh pr list",
       "gh pr checks 12",
       "gh release list",
+      "gh repo view",
+      "gh repo set-default --view",
+      "gh alias list",
+      "gh api graphql -f query='query { viewer { login } }'",
+      "gh api graphql -f query='mutation { addComment(input:{subjectId:\"X\", body:\"hi\"}) { clientMutationId } }'",
       "gh api repos/o/r/pulls/1",
       "git commit -m 'TM-001: fix'",
       "git add -A",
@@ -186,6 +210,45 @@ describe("guardCommand — the table", () => {
       const v = guardCommand(cmd, AT_HOME);
       assert.equal(v.allow, true, `allowed: ${cmd} — refused by ${v.rule}: ${v.reason}`);
     }
+  });
+});
+
+describe("guardCommand — TM-481: who may merge, and when", () => {
+  const MERGE = `gh pr merge ${OWN} --merge`;
+  it("an ungoverned worker merges its own PR only when every required check has passed", () => {
+    const asked = [];
+    const green = guardCommand(MERGE, { ...AT_HOME, requiredChecksPass: (b) => (asked.push(b), true) });
+    assert.equal(green.allow, true, green.reason);
+    assert.deepEqual(asked, [OWN], "the checks asked about are the own branch's");
+    const red = guardCommand(MERGE, { ...AT_HOME, requiredChecksPass: () => false });
+    assert.equal(red.allow, false);
+    assert.equal(red.rule, "gh-pr-merge");
+    assert.match(red.reason, /required check/);
+    const unknown = guardCommand(MERGE, { branch: OWN, head: OWN, integrationBranch: "main" });
+    assert.equal(unknown.allow, false, "no way to ask about checks is no merge");
+  });
+
+  it("--admin is never a worker's, even with every check green", () => {
+    for (const cmd of [`${MERGE} --admin`, `gh pr merge --admin ${OWN}`, `gh pr merge ${OWN} --admin=true`]) {
+      const v = guardCommand(cmd, AT_HOME);
+      assert.equal(v.allow, false, cmd);
+      assert.equal(v.rule, "gh-pr-merge", cmd);
+    }
+  });
+
+  it("a governed worker is refused every merge, its own PR with green checks included", () => {
+    for (const cmd of [MERGE, `gh pr merge ${OWN} --squash`, `gh pr merge ${OWN} --auto --merge`]) {
+      const v = guardCommand(cmd, { ...AT_HOME, governed: true });
+      assert.equal(v.allow, false, cmd);
+      assert.equal(v.rule, "gh-pr-merge-governed", cmd);
+      assert.match(v.reason, /lead's landing path/);
+    }
+    assert.equal(guardCommand("gh pr view 12", { ...AT_HOME, governed: true }).allow, true, "governance blocks merging, not reading");
+  });
+
+  it("no pinned branch is no merge, whatever HEAD says", () => {
+    const v = guardCommand(MERGE, { branch: null, head: OWN, integrationBranch: "main", requiredChecksPass: () => true });
+    assert.equal(v.allow, false);
   });
 });
 
@@ -355,7 +418,8 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     chmodSync(join(bin, "node"), 0o755);
     const ran = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []);
     const run = (event, extra = {}) =>
-      spawnSync("sh", [HOOK, event], { input: payload("git push --force"), env: envWith({ PATH: `${bin}:${process.env.PATH}`, ...extra }), encoding: "utf8" });
+      // HOME: an empty one, so no dispatch record on this machine makes the fast path start Node (TM-470).
+      spawnSync("sh", [HOOK, event], { input: payload("git push --force"), env: envWith({ PATH: `${bin}:${process.env.PATH}`, HOME: dir, ...extra }), encoding: "utf8" });
     return { marker, ran, run };
   }
 
@@ -404,18 +468,33 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     }
   });
 
-  it("in a worker without TM_DISPATCH_BRANCH, the own branch is read from the payload's cwd", () => {
+  it("TM-481: in a worker without TM_DISPATCH_BRANCH, HEAD is not an own branch — no push, no merge", () => {
     const own = tempRepo();
-    const onMain = tempRepo();
-    trash.push(own, onMain);
+    trash.push(own);
     execFileSync("git", ["-C", own, "checkout", "-q", "-b", OWN]);
-    execFileSync("git", ["-C", onMain, "branch", "-M", "main"]);
     const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001" });
-    const hook = (cwd) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push origin HEAD", cwd), env, encoding: "utf8" });
-    assert.equal(hook(own).status, 0, "HEAD is the worker's branch");
-    const r = hook(onMain);
-    assert.equal(r.status, 2, "HEAD on main is no own branch at all");
-    assert.match(r.stderr, /branch/);
+    const hook = (cmd) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload(cmd, own), env, encoding: "utf8" });
+    for (const cmd of ["git push origin HEAD", `gh pr merge ${OWN} --merge`]) {
+      const r = hook(cmd);
+      assert.equal(r.status, 2, `${cmd}: a checked-out branch is what the worker chose, not what it was pinned to`);
+      assert.match(r.stderr, /branch|governed/);
+    }
+  });
+
+  it("TM-481: a worker whose store task is governed is refused its own-PR merge by the hook", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    seedGitContract(p);
+    const task = create("task", { title: "governed work" }, "body", p);
+    update(task.id, { status: "in_progress", governance: { version: 1, runtime: "topology", workflowRunId: "w", leadId: "lead", recordPath: "/x" } }, p);
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: OWN, TM_ROOT: root });
+    const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload(`gh pr merge ${OWN} --merge`, root), env, encoding: "utf8" });
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /governed/);
+    const marked = spawnSync("sh", [HOOK, "pre-bash"], { input: payload(`gh pr merge ${OWN} --merge`, root), env: { ...env, TM_DISPATCH_GOVERNED: "1" }, encoding: "utf8" });
+    assert.match(marked.stderr, /governed/, "the spawn-time marker alone is enough");
   });
 
   it("in a worker, an unreadable payload is refused rather than waved through", () => {

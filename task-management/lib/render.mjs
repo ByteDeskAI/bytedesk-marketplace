@@ -411,7 +411,7 @@ export function handoff(id, p = paths()) {
         ? governedFinishSteps(t, p)
         : [
             "- Review your own diff (a review subagent or /code-review) and fix what it finds.",
-            `- Wait for required checks (gh pr checks ${branch} --watch), then merge your own PR: gh pr merge ${branch} --merge. If the only blocker is a required approving review, add --admin; never merge over a failing or pending check.`,
+            `- Wait for required checks (gh pr checks ${branch} --watch), then merge your own PR: gh pr merge ${branch} --merge. Never merge over a failing or pending check, and never with --admin (the worker guard refuses it, TM-481); if a required approving review is the only blocker, tm block with that and leave the merge to a human.`,
             `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
           ]),
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,

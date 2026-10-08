@@ -1,9 +1,10 @@
 import { read, update, logEvent, now } from "./store.mjs";
 import { paths } from "./paths.mjs";
 import { fullRevision, governanceGit, readManagementRecord } from "./governance-check.mjs";
+import { isWorkerCaller, workerTask } from "./worker-identity.mjs";
 
 export function governTask(id, { workflowRunId, leadId, recordPath, p = paths() } = {}) {
-  if (process.env.TM_DISPATCH_WORKER) throw new Error("a dispatched worker cannot grant or change governed task ownership");
+  if (isWorkerCaller().worker) throw new Error("a dispatched worker cannot grant or change governed task ownership");
   const task = read(id, p);
   if (!task) throw new Error(`not found: ${id}`);
   if (![workflowRunId, leadId, recordPath].every((value) => typeof value === "string" && value.trim())) throw new Error("govern requires workflow, lead and producer record path");
@@ -17,7 +18,8 @@ export function governTask(id, { workflowRunId, leadId, recordPath, p = paths() 
 }
 
 export function readyForReview(id, { revision, p = paths() } = {}) {
-  if (process.env.TM_DISPATCH_WORKER && process.env.TM_DISPATCH_TASK !== id) throw new Error("a dispatched worker may submit only its own task for review");
+  const who = isWorkerCaller();
+  if (who.worker && workerTask(who) !== id) throw new Error("a dispatched worker may submit only its own task for review");
   const task = read(id, p);
   if (!task?.governance) throw new Error(`${id} is not a governed task`);
   if (!fullRevision(revision) || !task.worktree || governanceGit(task.worktree, "rev-parse", "HEAD") !== revision || governanceGit(task.worktree, "status", "--porcelain") !== "") {

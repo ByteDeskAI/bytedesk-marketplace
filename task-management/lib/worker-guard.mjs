@@ -6,10 +6,12 @@
  * tests — and wrong for the two classes fleet's ADR-0001 (hierarchical authorization) says always
  * need a human: repo-destructive actions (force push, branch or tag delete, history rewrite) and
  * external ones (release, deploy, secrets, outbound messages, merging anyone else's PR). A worker's finish line is
- * pushing its OWN branch, opening a PR, and merging that PR once review and checks pass.
+ * pushing its OWN branch and opening a PR. TM-481: a governed worker stops there — merging is the
+ * lead's landing path after the independent review; an ungoverned one may also merge that PR, without
+ * --admin, once every required check has passed.
  *
- * This is the classifier the PreToolUse `pre-bash` hook runs, and only in a worker's environment
- * (TM_DISPATCH_WORKER). It reads a Bash command the way a shell splits it — operators, subshells,
+ * This is the classifier the PreToolUse `pre-bash` hook runs, and only for a dispatch worker — decided
+ * by recorded dispatch ancestry or the TM_DISPATCH_WORKER marker (./worker-identity.mjs). It reads a Bash command the way a shell splits it — operators, subshells,
  * substitutions, heredocs, `bash -c` and `eval` — and blocks when any command in it matches a row of
  * RULES. Quoted text is data: `echo "git push --force"` runs echo, not git.
  *
@@ -79,6 +81,20 @@ function rebaseRewritesProtected(args, ctx) {
 const GH_VALUED = ["-R", "--repo"];
 const gh = (when) => (args) => when(positionals(args, GH_VALUED));
 
+/** TM-481: every -R/--repo spelling — `-R x`, `-Rx`, a cluster ending in R, `--repo x`, `--repo=x`. */
+const hasRepoOption = (args) => args.some((a) => a === "--repo" || a.startsWith("--repo=") || /^-[A-Za-z]*R/.test(a));
+
+const MERGE_VALUED = ["-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit", "-A", "--author-email"];
+/** `gh … pr merge …`, whatever the flags around it. */
+const isPrMerge = (args) => {
+  const [sub, verb] = positionals(args, [...GH_VALUED, ...MERGE_VALUED]);
+  return sub === "pr" && verb === "merge";
+};
+
+/** TM-481: a GraphQL call that names a merge mutation, or whose query this guard cannot read. */
+const graphqlMayMerge = (args) =>
+  args.some((a) => /mergePullRequest|enablePullRequestAutoMerge/i.test(a) || /^--input(=|$)/.test(a) || a.includes("=@") || /\$\(|`|\$\{/.test(a));
+
 /** The value of a `--name value` / `--name=value` / `-x value` option; the last occurrence wins. */
 function optionValue(args, names) {
   let val;
@@ -99,7 +115,7 @@ function optionValue(args, names) {
 const ownBase = (ctx) => ctx.integrationBranch || null;
 
 const GH_API_VALUED = ["-X", "--method", "-f", "-F", "--field", "--raw-field", "-H", "--header", "--input", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview", "-R", "--repo"];
-const GH_API_SENSITIVE = /(^|\/)(merges?|git\/refs|releases|secrets|variables|deployments|environments|dispatches)(\/|$)/;
+const GH_API_SENSITIVE = /(^|\/)(merges?|git\/refs|releases|secrets|variables|deployments|environments|dispatches)(\/|\?|$)/;
 const GH_API_PULLS = /(^|\/)repos\/[^/]+\/[^/]+\/pulls(\/\d+)?(\?|$)/;
 
 /** Read a `gh api` call: its HTTP verb (gh defaults to POST once a body field is given), endpoint, body field names, and whether a body file was passed. */
@@ -200,27 +216,60 @@ export const RULES = [
 
   // External: merges, releases, repository settings.
   {
-    // Operator policy 2026-10-05: a worker merges its OWN PR once its review is clean and required
-    // checks are green — named by its branch, in this repository, keeping the branch. A bare merge
-    // resolves the PR from whatever is checked out when gh runs (a `git checkout` earlier in the
-    // same line, an upstream set to another branch), and a number cannot be tied to this worker,
-    // so both are refused. -R/--repo or a GH_REPO/GH_HOST prefix would merge a same-named PR
-    // elsewhere; --delete-branch is a branch delete.
-    // ponytail: --admin is allowed (the review this worker cannot give itself) but it also overrides
-    // failing checks, which this string classifier cannot see; the handoff forbids that. An
-    // `export GH_REPO=…` in an earlier command is not seen either. Upgrade: a token without admin.
+    // TM-481: a GOVERNED worker never merges — not even its own PR. It finishes at ready-for-review;
+    // the independent review verdict and the lead's landing path do the rest.
+    id: "gh-pr-merge-governed",
+    tools: ["gh"],
+    when: (a, ctx) => ctx.governed && isPrMerge(a),
+    reason: `this task is governed (or its store task cannot be identified, which counts as governed): its worker finishes at ready-for-review, and merging is the lead's landing path after the independent review verdict — ${HUMAN} or the lead.`,
+  },
+  {
+    // Operator policy 2026-10-05: an UNGOVERNED worker merges its OWN PR once its review is clean
+    // and required checks are green — named by its branch, in this repository, keeping the branch.
+    // A bare merge resolves the PR from whatever is checked out when gh runs, and a number cannot be
+    // tied to this worker, so both are refused. Any -R/--repo form, or GH_REPO/GH_HOST anywhere in
+    // the command, would merge a same-named PR elsewhere; --delete-branch is a branch delete.
+    // TM-481: --admin is never a worker's (it overrides failing checks and the review), and the
+    // hook asks gh that every REQUIRED check has passed (ctx.requiredChecksPass) before allowing it.
     id: "gh-pr-merge",
     tools: ["gh"],
     when: (a, ctx) => {
-      const [sub, verb, target, ...rest] = positionals(a, [...GH_VALUED, "-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit", "-A", "--author-email"]);
-      if (sub !== "pr" || verb !== "merge") return false;
+      if (!isPrMerge(a)) return false;
+      const [, , target, ...rest] = positionals(a, [...GH_VALUED, ...MERGE_VALUED]);
       const own = ownBranch(ctx);
-      return !own || target !== own || rest.length > 0 || ctx.ghOverride || a.includes("-R") || hasLong(a, "--repo", "--delete-branch") || hasShort(a, "d");
+      if (!own || target !== own || rest.length > 0 || ctx.ghOverride || hasRepoOption(a) || hasLong(a, "--delete-branch", "--admin") || hasShort(a, "d")) return true;
+      return typeof ctx.requiredChecksPass !== "function" || ctx.requiredChecksPass(own) !== true;
     },
     reason: (ctx) =>
       ownBranch(ctx)
-        ? `a dispatch worker merges only its own PR, named by its branch, in this repository, keeping the branch: \`gh pr merge ${ownBranch(ctx)} --merge\` — after its review is clean and required checks pass. No PR number, no -R/--repo/GH_REPO, no --delete-branch.`
-        : "no own branch is known for this worker, so no merge can be confirmed to be its own PR. Check out your task's tm/ branch.",
+        ? `a dispatch worker merges only its own PR, named by its branch, in this repository, keeping the branch, without --admin, and only once every required check has passed: \`gh pr merge ${ownBranch(ctx)} --merge\`. No PR number, no -R/--repo/GH_REPO, no --delete-branch, no --admin. Check with \`gh pr checks ${ownBranch(ctx)} --required\`.`
+        : "no own branch is pinned for this worker (TM_DISPATCH_BRANCH is unset and no dispatch record names one), so no merge can be confirmed to be its own PR.",
+  },
+  {
+    // TM-481: `gh repo set-default` changes which repository every later bare gh command targets.
+    id: "gh-repo-set-default",
+    tools: ["gh"],
+    when: (args) => {
+      const [a, b, repo] = positionals(args, GH_VALUED);
+      // `--view` alone only prints the current default.
+      return a === "repo" && b === "set-default" && (repo !== undefined || !(hasLong(args, "--view") || hasShort(args, "v")));
+    },
+    reason: `\`gh repo set-default\` repoints every later gh command at another repository, ${HUMAN}.`,
+  },
+  {
+    // TM-481: an alias is a merge under another name (`gh alias set m 'pr merge'`, then `gh m 12`).
+    id: "gh-alias-set",
+    tools: ["gh"],
+    when: gh(([a, b]) => a === "alias" && ["set", "import"].includes(b)),
+    reason: `a gh alias can rename a guarded command such as \`pr merge\`, ${HUMAN}.`,
+  },
+  {
+    // TM-481: the GraphQL merge mutations. A query read from a file or stdin, or built by a shell
+    // substitution, cannot be inspected here, so it is refused rather than guessed at.
+    id: "gh-api-graphql-merge",
+    tools: ["gh"],
+    when: (a) => a[0] === "api" && positionals(a.slice(1), GH_API_VALUED)[0] === "graphql" && graphqlMayMerge(a.slice(1)),
+    reason: `a GraphQL mergePullRequest / enablePullRequestAutoMerge call (or a query this guard cannot read: --input, a field from @file, a $(…) substitution) merges a PR, ${HUMAN}.`,
   },
   {
     // TM-235: a `gh pr create` with no --base (or the wrong one) targets the repository default
@@ -566,6 +615,8 @@ const UNREADABLE = (what) => block("unparsed", `${what} cannot be read with conf
 
 function check(src, ctx, depth) {
   if (depth > 8) return FAIL_SAFE.test(src) ? UNREADABLE("a command nested this deeply") : ALLOW;
+  // TM-481: GH_REPO/GH_HOST set ANYWHERE in the command (`export GH_REPO=x; gh pr merge …`) points gh elsewhere.
+  if (/\bGH_(REPO|HOST)\s*=/.test(src)) ctx = { ...ctx, ghOverride: true };
   const commands = [];
   const { ok } = read(src, 0, commands, null);
   for (const { words, bodies } of commands) {
@@ -583,7 +634,7 @@ function check(src, ctx, depth) {
       if (FAIL_SAFE.test(cmd.unknown)) return UNREADABLE(`\`${cmd.unknown}\` runs a command named by an expansion, which`);
       continue;
     }
-    const here = { ...(cmd.elsewhere ? { ...ctx, head: null } : ctx), ghOverride: cmd.ghOverride };
+    const here = { ...(cmd.elsewhere ? { ...ctx, head: null } : ctx), ghOverride: Boolean(cmd.ghOverride || ctx.ghOverride) };
     for (const rule of RULES) {
       if (rule.tools.includes(cmd.tool) && rule.when(cmd.args, here)) {
         return block(rule.id, typeof rule.reason === "function" ? rule.reason(here) : rule.reason);
@@ -599,9 +650,11 @@ function check(src, ctx, depth) {
  *
  * `branch` is the worker's own branch (pinned at spawn as TM_DISPATCH_BRANCH); `head` is the branch
  * checked out where the command runs, when known; `integrationBranch` is the PR base this worker
- * must target (pinned at spawn as TM_DISPATCH_INTEGRATION_BRANCH). Returns `{ allow, reason, rule }`
- * — `rule` is the RULES id that blocked, or "unparsed" for the fail-safe.
+ * must target (pinned at spawn as TM_DISPATCH_INTEGRATION_BRANCH). TM-481: `governed` refuses every
+ * merge; `requiredChecksPass(branch)` must return true before an ungoverned worker's own-PR merge is
+ * allowed — absent, no merge is. Returns `{ allow, reason, rule }` — `rule` is the RULES id that
+ * blocked, or "unparsed" for the fail-safe.
  */
-export function guardCommand(command, { branch = null, head = branch, integrationBranch = null } = {}) {
-  return check(String(command ?? ""), { branch: branch || null, head: head || null, integrationBranch: integrationBranch || null }, 0);
+export function guardCommand(command, { branch = null, head = branch, integrationBranch = null, governed = false, requiredChecksPass = null } = {}) {
+  return check(String(command ?? ""), { branch: branch || null, head: head || null, integrationBranch: integrationBranch || null, governed: Boolean(governed), requiredChecksPass }, 0);
 }

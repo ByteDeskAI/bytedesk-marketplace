@@ -38,6 +38,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
+import { pidsOf } from "../worker-identity.mjs";
 import { GUARD_HOOK, PROMPT_FILE, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
 
 export const name = "topology";
@@ -274,6 +275,8 @@ export function spawn(
     // The tmux session is the handle: `tmux attach -t <session>` is how a human looks in,
     // and ./collect.mjs reads the worker's liveness from exactly that session.
     run: `topology:${parsed.run.session}`,
+    // TM-470: the pane pids ao-topology bound — the dispatch-ancestry anchors (../worker-identity.mjs).
+    anchors: pidsOf([parsed.run.binding?.panePid, ...(Array.isArray(parsed.run.agents) ? parsed.run.agents.map((a) => a?.binding?.panePid) : [])]),
     nativeRunId: parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
     workflowRunId: parsed.run.workflow_id ?? parsed.run.workflowId ?? parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
     detail: {

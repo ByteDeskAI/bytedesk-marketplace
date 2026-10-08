@@ -235,7 +235,13 @@ variables, `gh api` writes; deploy and secret tools, package publishing, chat we
 a `gh pr create` (or its alias `gh pr new`) whose `--base` is missing or does not match
 `TM_DISPATCH_INTEGRATION_BRANCH`; and retargeting that base afterwards — `gh pr edit --base
 <other>`, or a `gh api` write to `repos/*/pulls` carrying a `base` field or an unreadable
-`--input` body. It **allows** pushing the worker's own branch and a `gh pr create` based against
+`--input` body. TM-481: a governed worker is refused every `gh pr merge`; an ungoverned one may
+merge its own PR, named by its pinned branch, only when `gh pr checks --required` is all green, and
+never with `--admin`, any `-R`/`--repo` spelling, or `GH_REPO`/`GH_HOST` anywhere in the line;
+`gh repo set-default`, `gh alias set` and GraphQL `mergePullRequest`/`enablePullRequestAutoMerge`
+are refused. TM-470: a worker is decided by `isWorkerCaller` (`lib/worker-identity.mjs`) — its pane
+pid, recorded at dispatch, in the caller's process ancestry — so `env -u TM_DISPATCH_WORKER` does
+not escape it. It **allows** pushing the worker's own branch and a `gh pr create` based against
 the configured integration branch. One table, `lib/worker-guard.mjs`; it stops accidents, not an
 adversary.
 Topology defaults to Claude then Codex, using configured CLI models. A candidate that cannot

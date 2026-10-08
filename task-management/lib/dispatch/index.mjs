@@ -45,6 +45,7 @@ import { liveOwner } from "./live-owner.mjs";
 import { PREFIXED_BACKENDS, aoGlobalPrefix, withPrefix } from "./prefix.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { governanceMode, governedAdmission } from "../governance-check.mjs";
+import { recordWorker } from "../worker-identity.mjs";
 
 /**
  * One heartbeat, driven from outside — the pool loop and other supervisors call
@@ -239,7 +240,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
   }
   let res;
   try {
-    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, prompt, session, actor, p });
+    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, governed: gm.mode === "admitted" || gm.mode === "required", prompt, session, actor, p });
   } catch (err) {
     return fail(`worker launch failed: ${err.message}`, { failureScope: failureScope({ reason: err.message }, "backend") });
   }
@@ -247,6 +248,19 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
 
   const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now(), ...(res.nativeRunId ? { nativeRunId: res.nativeRunId } : {}), ...(res.workflowRunId ? { workflowRunId: res.workflowRunId } : {}), ...(res.detail?.runDir ? { recordPath: join(res.detail.runDir, "run.json") } : {}) };
   mutate(id, () => ({ dispatched, dispatchFailure: undefined }), p);
+  /**
+   * TM-470: record the worker's pane pids as dispatch ancestry, so it stays a worker to every refusal
+   * (lib/worker-identity.mjs) after it unsets TM_DISPATCH_WORKER. The backend reports the pane pids
+   * it started (`anchors`); a backend that reports none leaves the env marker the only signal.
+   */
+  if (Array.isArray(res.anchors) && res.anchors.length) {
+    try {
+      const governed = gm.mode === "admitted" || gm.mode === "required";
+      recordWorker(res.anchors, { task: id, branch: prov.branch, integrationBranch: integration, governed, root: p.root, run: res.run ?? null });
+    } catch {
+      /* a registry error must never fail a dispatch */
+    }
+  }
   // TM-375: a configured secret the dispatching environment lacked is named here; values never are.
   logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session, ...(prefixWarning ? { prefixWarning } : {}), ...(res.detail?.passEnvMissing?.length ? { passEnvMissing: res.detail.passEnvMissing } : {}) }, p);
   /**

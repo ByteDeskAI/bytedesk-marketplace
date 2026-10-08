@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **SECURITY: a governed worker can no longer merge its own PR, and an ungoverned one needs green
+  required checks (TM-481, EP-028).** The worker guard refuses every `gh pr merge` for a governed task
+  (`TM_DISPATCH_GOVERNED`, the dispatch record, or task governance; an unidentifiable task counts as
+  governed). An ungoverned worker's own-PR merge is allowed only when `gh pr checks --required`
+  reports every check passed, and `--admin` is always refused. Newly refused: attached `-R<repo>`,
+  `GH_REPO`/`GH_HOST` set anywhere in the command, `gh repo set-default`, `gh alias set|import`, and
+  `gh api graphql` with `mergePullRequest`/`enablePullRequestAutoMerge` or an unreadable query. The
+  own branch is the pinned one only; HEAD no longer stands in. The handoff no longer suggests `--admin`.
+- **SECURITY: worker refusals decide by recorded dispatch ancestry, not `TM_DISPATCH_WORKER` (TM-470,
+  EP-028).** Dispatch records the worker's pane pid (tmux `-P -F '#{pane_pid}'`, or ao-topology's
+  binding) with its start time in a registry under the passwd home. One predicate,
+  `isWorkerCaller` in `lib/worker-identity.mjs`, now backs the pre-bash guard, `governTask`,
+  `readyForReview` and `governedCompletion`; `env -u TM_DISPATCH_WORKER` from inside the worker's
+  process tree is still a worker. `WORKER_RULE` and `workerRecordFor` are exported for
+  agent-orchestration to copy.
+
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
