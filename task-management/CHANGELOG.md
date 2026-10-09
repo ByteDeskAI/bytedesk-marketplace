@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **A task that inherited its parent's worktree gets its own (TM-413, EP-028).** A subtask whose
+  frontmatter carried another task's `worktree` and `branch` was refused by `tm worktree new`
+  ("task placement has another writer"), so `ao-topology manage admit` failed with a missing claim.
+  A placement recorded by another task is now ignored unless the branch is named after this task,
+  and provisioning records the task's own worktree and branch.
 - **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
   `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so
   `manage report` refused every governed finish from a pool-dispatched worker. It now records

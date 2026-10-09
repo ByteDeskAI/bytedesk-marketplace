@@ -265,11 +265,19 @@ export function taskPlacement(task, { p = paths(), config = readConfig(p) } = {}
   // `tm start` historically stamped its current main checkout before a task had
   // an isolated placement. That stamp is context, never permission to use main.
   const mainStamp = task.worktree && real(task.worktree) === real(p.root);
-  const path = (!mainStamp && task.worktree) || worktreePath(task.id, task.title, p);
-  const branch = (!mainStamp && task.branch) || branchName(task.id, task.title, config);
+  // TM-413: a placement copied from another task (a subtask inheriting its parent's worktree and
+  // branch) is that task's checkout, not this one's. Ignore it like the main stamp; provision overwrites it.
+  const others = list("task", {}, p).filter((other) => other.id !== task.id);
+  // The task its branch is named after keeps it, so a parent never loses its checkout to the child's copy.
+  const named = String(task.branch || "").startsWith(`${config.branchPrefix ?? "tm/"}${task.id}-`);
+  const inherited = !mainStamp && !named && others.some((other) =>
+    (task.worktree && other.worktree && real(other.worktree) === real(task.worktree)) || (task.branch && other.branch === task.branch));
+  const own = !mainStamp && !inherited;
+  const path = (own && task.worktree) || worktreePath(task.id, task.title, p);
+  const branch = (own && task.branch) || branchName(task.id, task.title, config);
   if (!isAbsolute(path) || real(path) === real(p.root)) throw new Error("task worktree must be an absolute isolated checkout");
   if (!branch || tryGit(p.root, "check-ref-format", "--branch", branch) === null) throw new Error("recorded task branch is invalid");
-  const conflict = list("task", {}, p).find((other) => other.id !== task.id &&
+  const conflict = others.find((other) =>
     ((other.worktree && real(other.worktree) === real(path)) || other.branch === branch) &&
     (other.status === "in_progress" || claimant(other.id, p)));
   if (conflict) throw new Error(`task placement has another writer: ${conflict.id}`);
