@@ -15,6 +15,17 @@
 
 ### Security
 
+- **The dashboard's write API needs a per-dashboard token (TM-468, EP-028).** Every POST/PATCH
+  must carry `x-tm-token`; without it, or with a wrong one, the board answers 401 and changes
+  nothing. A fresh token is minted each time a dashboard binds its port, written 0600 to
+  `dashboard.token` under the store, and compared in constant time. The link the dashboard prints
+  and opens carries it in the fragment (`/#tm-token=…`), and the SPA adds it to every same-origin
+  write (`dashboard/src/lib/write-token.mjs`). After a dashboard restart, reopen the board from the
+  new link.
+- **Board writes are the board's, not the launching session's (TM-468, EP-028).** The dashboard
+  process runs as `TM_SESSION_ID=tm-dashboard` / `TM_ACTOR=dashboard`, so a claim, start, dispatch
+  or event made from a browser records `@dashboard` and never borrows the lead's session. A task
+  started on the board is held by the board; take it over from a terminal with `--steal`.
 - **A worker's command comes from user config or plugin defaults, never the repository (TM-467,
   EP-028).** `dispatch.tmuxCommand` and `dispatch.topologyCandidates` are read only from
   `$XDG_CONFIG_HOME/task-management/config.json` (`trustedDispatch` in `lib/dispatch/tmux.mjs`).
