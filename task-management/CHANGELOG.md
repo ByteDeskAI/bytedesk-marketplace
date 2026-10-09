@@ -10,6 +10,8 @@
   ready-for-review. Checks now go through one reader, `finishChecksRefusal` in
   `lib/governance-check.mjs`, which accepts structured runs and legacy strings, and a malformed
   finish is refused with the field named (for example `finish.checks[0].exit_code must be an integer`).
+  An argv `command` must hold only non-empty strings, and a run that carries `revision` must equal
+  `finish.revision`. A failing `exit_code` is still accepted; review judges it.
 
 ### Security
 

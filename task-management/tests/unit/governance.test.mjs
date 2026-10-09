@@ -175,6 +175,12 @@ describe("governed completion is shared by every task write surface", () => {
     assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
   });
 
+  it("accepts a failing exit_code and an argv command; review judges failures (TM-492)", () => {
+    const f = fixture();
+    submit(f, { ...handoffFinish(f), checks: [{ name: "unit", command: ["npm", "test"], exit_code: 1, revision: f.revision }] })();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
   it("still accepts legacy prose check strings (TM-492)", () => {
     const f = fixture();
     submit(f, { ...handoffFinish(f), checks: ["unit tests passed"] })();
@@ -187,6 +193,11 @@ describe("governed completion is shared by every task write surface", () => {
       [{ name: "unit", exit_code: 0 }, /finish\.checks\[0\]\.command/],
       [{ name: "unit", command: "npm test", exit_code: "0" }, /finish\.checks\[0\]\.exit_code/],
       [{ name: "unit", command: "npm test", exit_code: 0, revision: "abc123" }, /finish\.checks\[0\]\.revision/],
+      [{ name: "unit", command: [1, null], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: [{}], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: ["", ""], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: ["", " x"], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: "npm test", exit_code: 0, revision: "1".repeat(40) }, /finish\.checks\[0\]\.revision must equal finish\.revision/],
     ]) {
       const f = fixture();
       assert.throws(submit(f, { ...handoffFinish(f), checks: [bad] }), field);

@@ -35,7 +35,7 @@ export function readyForReview(id, { revision, p = paths() } = {}) {
   }
   // TM-492: name the refused field. checks go through the shared reader, which accepts structured runs (TM-418).
   const refused = !strings(finish.artifacts) || !finish.artifacts.length ? "finish.artifacts must be a non-empty array of strings"
-    : finishChecksRefusal(finish.checks)
+    : finishChecksRefusal(finish.checks, finish.revision)
     ?? (!strings(finish.risks) ? "finish.risks must be an array of strings"
     : typeof finish.evidence !== "string" || !finish.evidence.trim() ? "finish.evidence must be a non-empty string" : null);
   if (refused) throw new Error(`${id}: the producer finish report is malformed: ${refused}; correct it and resubmit with ao-topology manage report --task ${id} --consumer <repository> --file <finish-report.json>`);

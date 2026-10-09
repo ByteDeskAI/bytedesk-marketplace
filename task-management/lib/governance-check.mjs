@@ -16,18 +16,20 @@ const nonempty = (value) => typeof value === "string" && value.trim() !== "";
  * agent-orchestration's normalizeChecks without importing it (the plugins stay independent).
  * Returns null when every entry is valid, otherwise a refusal naming the entry and field.
  */
-export function finishChecksRefusal(checks) {
+export function finishChecksRefusal(checks, revision) {
   if (!Array.isArray(checks) || !checks.length) return "finish.checks must be a non-empty array";
   for (const [index, check] of checks.entries()) {
     const at = `finish.checks[${index}]`;
     if (typeof check === "string") { if (!check.trim()) return `${at} is an empty string`; continue; }
     if (!check || typeof check !== "object" || Array.isArray(check)) return `${at} must be a check run object or a string`;
     if (!nonempty(check.name)) return `${at}.name must be a non-empty string`;
-    // ponytail: AO also accepts an argv array for command; mirror it so a run AO recorded is never refused here.
-    const command = Array.isArray(check.command) ? check.command.map(String).join(" ") : check.command;
-    if (!nonempty(command)) return `${at}.command must be a non-empty string`;
+    // AO also accepts an argv array for command; every item must be a non-empty string.
+    const c = check.command, command = Array.isArray(c) ? (c.length && c.every(nonempty) ? c.join(" ") : null) : c;
+    if (!nonempty(command)) return `${at}.command must be a non-empty string or an array of non-empty strings`;
+    // A failing exit_code is accepted: this is a format gate, and the reviewer judges failures.
     if (!Number.isInteger(check.exit_code)) return `${at}.exit_code must be an integer`;
     if (check.revision !== undefined && !fullRevision(check.revision)) return `${at}.revision must be a full commit SHA`;
+    if (check.revision !== undefined && check.revision !== revision) return `${at}.revision must equal finish.revision (${revision}); a run at another commit is not evidence for it`;
   }
   return null;
 }
