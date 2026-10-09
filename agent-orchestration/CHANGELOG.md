@@ -5,7 +5,8 @@
 - **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
   subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
   cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each
-  other's mail. `createAgent` (every `agent new`, lead, role and reviewer registration) now refuses
+  other's mail. `createAgent` (every `agent new`, lead, role and reviewer registration) and run
+  launch (fan-out child `rev.a` beside a sibling `rev_a`) now refuse
   an id whose token another agent in the repository already uses, with `TOPOLOGY_AGENT_SUBJECT_TAKEN`.
   Existing subjects are unchanged.
 - **Security: run `wait` no longer hands standing reply bodies to anyone who knows a runDir (TM-474,

@@ -18991,6 +18991,7 @@ __export(orch_transport_exports, {
   selectedTransportEnv: () => selectedTransportEnv,
   selectionView: () => selectionView,
   settleOutage: () => settleOutage,
+  subjectTakenBy: () => subjectTakenBy,
   touchFallback: () => touchFallback,
   transportMode: () => transportMode,
   transportStatePath: () => transportStatePath,
@@ -19007,6 +19008,10 @@ function orchName(value) {
     throw error51;
   }
   return cleaned;
+}
+function subjectTakenBy(candidate, ids) {
+  const token = orchName(candidate);
+  return ids.find((id) => id && id !== candidate && orchName(id) === token) ?? null;
 }
 function orchSocketPath(env = process.env) {
   if (env.AO_ORCH_SOCKET) return env.AO_ORCH_SOCKET;
@@ -20135,9 +20140,8 @@ async function createAgent(consumer, spec = {}, dirs = null, context4 = {}) {
   const taken = new Set(existing.map((a) => a.full_name).filter(Boolean));
   const id = spec.id || mintId();
   invariant2(!existing.some((a) => a.id === id), "TOPOLOGY_AGENT_EXISTS", `Agent id ${id} already exists.`);
-  const subject = orchName(id);
-  const clash = existing.find((a) => a.id && orchName(a.id) === subject);
-  invariant2(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Agent id ${id} maps to the mailbox subject token "${subject}", which agent ${clash?.id} already uses; pick an id that differs after non [A-Za-z0-9_-] characters become "_" (and past the first 64 characters).`);
+  const clash = subjectTakenBy(id, existing.map((a) => a.id));
+  invariant2(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Agent id ${id} maps to the mailbox subject token "${orchName(id)}", which agent ${clash} already uses; pick an id that differs after non [A-Za-z0-9_-] characters become "_" (and past the first 64 characters).`);
   invariant2(
     !spec.full_name || !taken.has(spec.full_name),
     "TOPOLOGY_AGENT_NAME_TAKEN",
@@ -28400,6 +28404,11 @@ async function launchRunNative({
   }
 }
 async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings }) {
+  const memberIds = spec.agents.map((agent) => agent.id);
+  memberIds.forEach((id, index) => {
+    const clash = subjectTakenBy(id, memberIds.slice(0, index));
+    invariant2(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Run members ${clash} and ${id} map to the same mailbox subject token "${orchName(id)}"; rename one so they differ after non [A-Za-z0-9_-] characters become "_".`);
+  });
   const prepared = [];
   const participants = spec.agents.filter((agent) => agent.workflow);
   for (const agent of spec.agents) {
@@ -28982,6 +28991,7 @@ var init_launch = __esm({
     init_lockfile();
     init_respawn();
     init_spec();
+    init_orch_transport();
     POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
     BEGIN_CLAUSE = " Then begin the mission immediately, in the same turn \u2014 do not stop after READY and do not wait for another message. You are the conductor: nobody is going to tell you to start.";
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
@@ -63568,10 +63578,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "2683660d31b09602495dd59e1946ee08917618d1496f335764c3648e4f7fc036";
+  return false ? null : "0ffe4042034b950d7d3f628da2504b50c6133a405b015d4d14fd9f1e13a920fa";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "2683660d31b09602495dd59e1946ee08917618d1496f335764c3648e4f7fc036";
+  const fingerprint2 = false ? null : "0ffe4042034b950d7d3f628da2504b50c6133a405b015d4d14fd9f1e13a920fa";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64188,7 +64198,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "2683660d31b09602495dd59e1946ee08917618d1496f335764c3648e4f7fc036",
+  sourceFingerprint: false ? null : "0ffe4042034b950d7d3f628da2504b50c6133a405b015d4d14fd9f1e13a920fa",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
