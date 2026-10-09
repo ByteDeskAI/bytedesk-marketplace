@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
+  A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
+  resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
+  `authorizedBy: "human:<owner>"` and bound to that one escalation (`escalationAt`), the current
+  scope, the reason and the cycles it grants. It resets the stall counter, raises `maxCycles` by
+  exactly the grant, refuses a zero grant on a spent budget, captures the receipt as evidence and
+  keeps the escalation in `goal.resumptions`. It is CLI-only (no `tm_goal_resume` MCP tool), and the
+  autonomy allowlist never approves it. It refuses outright when `TM_DISPATCH_WORKER` or `AO_AGENT_ID`
+  is set (dispatched workers skip permission prompts), grants at most 3 cycles per resume, and a
+  goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
+
 ### Fixed
 
 - **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When

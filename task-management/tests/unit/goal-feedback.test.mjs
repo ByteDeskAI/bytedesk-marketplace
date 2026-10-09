@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, unlinkSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tempStore } from "./helpers.mjs";
 import { create, read, update, write, setCriterion, removeCriterion, autoCloseEpic } from "../../lib/store.mjs";
-import { goalOpen, goalShow, goalFinding, goalAssess, goalRevise, goalComplete } from "../../lib/goal-feedback.mjs";
+import { goalOpen, goalShow, goalFinding, goalAssess, goalRevise, goalComplete, goalResume } from "../../lib/goal-feedback.mjs";
 
 const ARTIFACT = "a".repeat(40);
 function fixture(overrides = {}) {
@@ -158,6 +158,55 @@ describe("goal feedback scope and proof", () => {
     assert.equal(goal.bestProven, 1);
     assert.equal(goal.stalls, 3);
     assert.equal(goal.status, "human_required");
+  });
+  it("TM-486: tm goal resume clears human_required only with a human receipt bound to that escalation", () => {
+    const f = fixture({ limits: { maxCycles: 2 } });
+    for (let n = 0; n < 3; n++) goalAssess(f.id, proof(f, { artifact: String(n + 1).repeat(40), criteria: [{ id: "AC-001", verdict: "failed", evidence: [] }] }), f.p);
+    const held = goalShow(f.id, f.p).goal;
+    assert.equal(held.status, "human_required");
+    const receiptFile = join(f.p.root, "resume.json");
+    const base = { revision: 1, scopeHash: f.goal.scopeHash, reason: "Owner reviewed the stall and approved one more repair", grantCycles: 1 };
+    const receipt = (changes = {}) => { writeFileSync(receiptFile, JSON.stringify({ schemaVersion: 1, kind: "resume", goalId: f.id, ...base, escalationAt: held.escalation.at, authorizedBy: "human:owner", recordedAt: new Date().toISOString(), ...changes })); return { ...base, approval: receiptFile }; };
+    // Refused: no human owner, a receipt for another escalation, a mismatched grant, a zero grant on a spent budget, a stale scope.
+    assert.throws(() => goalResume(f.id, receipt({ authorizedBy: "agent:worker" }), f.p, {}), /human/);
+    assert.throws(() => goalResume(f.id, receipt({ escalationAt: new Date(0).toISOString() }), f.p, {}), /escalationAt/);
+    assert.throws(() => goalResume(f.id, { ...receipt(), grantCycles: 3 }, f.p, {}), /grantCycles/);
+    assert.throws(() => goalResume(f.id, { ...receipt({ grantCycles: 0 }), grantCycles: 0 }, f.p, {}), /budget is exhausted/);
+    assert.throws(() => goalResume(f.id, { ...receipt(), scopeHash: "0".repeat(64) }, f.p, {}), /stale/);
+    assert.equal(goalShow(f.id, f.p).goal.status, "human_required", "a refused resume changes nothing");
+    // Accepted: the bound human receipt resumes the goal with exactly the cycles it grants.
+    const resumed = goalResume(f.id, receipt(), f.p, {}).goal;
+    assert.equal(resumed.status, "active");
+    assert.equal(resumed.stalls, 0);
+    assert.equal(resumed.limits.maxCycles, 3);
+    assert.equal(resumed.escalation, undefined);
+    assert.equal(resumed.resumptions[0].escalation.at, held.escalation.at);
+    assert.equal(resumed.resumptions[0].authorizedBy, "human:owner");
+    assert.ok(read(f.id, f.p).evidence.includes(resumed.resumptions[0].approval.copy), "the receipt is captured as evidence");
+    // It is spent: an active goal cannot be resumed again, and work continues through assess.
+    assert.throws(() => goalResume(f.id, receipt(), f.p, {}), /only a human_required goal/);
+    assert.equal(goalAssess(f.id, proof(f), f.p).goal.status, "active");
+  });
+  it("TM-486 review: an agent session cannot resume, and a resume cannot buy an unbounded budget", () => {
+    const f = fixture({ limits: { maxStalls: 1, maxCycles: 10 } });
+    const receiptFile = join(f.p.root, "resume.json");
+    const stall = (n) => goalAssess(f.id, proof(f, { artifact: String(n).repeat(40), criteria: [{ id: "AC-001", verdict: "failed", evidence: [] }] }), f.p).goal;
+    const resume = (grantCycles, env = {}) => {
+      const goal = goalShow(f.id, f.p).goal, base = { revision: 1, scopeHash: f.goal.scopeHash, reason: "Owner approved another attempt", grantCycles };
+      writeFileSync(receiptFile, JSON.stringify({ schemaVersion: 1, kind: "resume", goalId: f.id, ...base, escalationAt: goal.escalation.at, authorizedBy: "human:owner", recordedAt: new Date().toISOString() }));
+      return goalResume(f.id, { ...base, approval: receiptFile }, f.p, env);
+    };
+    assert.equal(stall(1).status, "human_required");
+    // A dispatched worker (permissions skipped) or any launched agent is refused, even with a valid receipt.
+    assert.throws(() => resume(1, { TM_DISPATCH_WORKER: "1" }), /agent session/);
+    assert.throws(() => resume(1, { AO_AGENT_ID: "worker-a" }), /agent session/);
+    // One resume grants at most three cycles.
+    assert.throws(() => resume(4), /between 0 and 3/);
+    assert.equal(goalShow(f.id, f.p).goal.status, "human_required", "refusals change nothing");
+    // At most three resumes per goal.
+    for (let n = 2; n <= 4; n++) { assert.equal(resume(3).goal.status, "active"); assert.equal(stall(n).status, "human_required"); }
+    assert.throws(() => resume(3), /resumed 3 times/);
+    assert.equal(goalShow(f.id, f.p).goal.limits.maxCycles, 19, "three capped grants, no more");
   });
   it("leaves persisted per-phase deadlines to orchestration, not whole-goal admission time", () => {
     const f = fixture(), input = proof(f), originalNow = Date.now;
