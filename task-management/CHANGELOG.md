@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
+  `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so
+  `manage report` refused every governed finish from a pool-dispatched worker. It now records
+  `topology:<native run id>`. The new verb `tm rebind <id>` repairs a dispatch that was already
+  recorded the old way. It goes through the same producer-verified reconciliation that collection
+  uses, never collects, and refuses a dispatched worker. `tm collect` repairs the id too, before it
+  observes the run.
 - **`lock.test.mjs` no longer fails on a busy machine (TM-490, EP-028).** Tests 6 and 9 wrote a lock
   held by the hardcoded pid 999999 and expected it to be dead. On the operator's machine that number
   was a live thread of an unrelated node process, and `kill(pid, 0)` accepts a thread id, so

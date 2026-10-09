@@ -2332,6 +2332,15 @@ async function acknowledgePrompt({ agent, revision, nonce, binding = null, consu
     return next;
   });
 }
+async function bindStagedPrompt({ dir, session, repoId, binding }) {
+  return withLock((0, import_node_path32.join)(dir, ".prompt.lock"), async () => {
+    const state = await readPromptState(dir);
+    if (state?.status !== "awaiting-ack") return state;
+    const next = { ...state, desired_session: session, repo_id: repoId, desired_binding: incarnationOf(binding) };
+    await writeJson(promptStatePath(dir), next);
+    return next;
+  });
+}
 async function collectPromptAcknowledgement({
   agent,
   consumer,
@@ -24448,6 +24457,7 @@ __export(management_exports, {
   ownerPresence: () => ownerPresence,
   parseAssignmentReply: () => parseAssignmentReply,
   protectedBranch: () => protectedBranch,
+  rebindTaskWorker: () => rebindTaskWorker,
   recordLanding: () => recordLanding,
   recordTaskEvent: () => recordTaskEvent,
   releaseAssignment: () => releaseAssignment,
@@ -24540,6 +24550,8 @@ async function taskStore({ consumer, owner = null, env = process.env, tmBin = nu
     claimFor: async (id, session, cwd, steal) => exec(["claim", taskId(id), ...steal ? ["--steal"] : []], cwd, { TM_SESSION_ID: session }),
     // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
     collect: async (id) => JSON.parse((await exec(["collect", taskId(id), "--json"])).stdout),
+    // TM-417: repair a dispatch's workflow id from the producer record (never a collection).
+    rebind: async (id) => JSON.parse((await exec(["rebind", taskId(id), "--json"])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
     done: async (id, actor = null) => exec(["done", taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(["govern", taskId(id), "--workflow", governance.workflowRunId, "--lead", governance.leadId, "--record", governance.recordPath]),
@@ -24644,7 +24656,7 @@ async function observedNativeWorker(ctx, doc) {
   invariant2(
     !dispatched.workflowRunId || dispatched.workflowRunId === `topology:${dispatched.nativeRunId}`,
     "TOPOLOGY_MANAGEMENT_WORKER",
-    "Canonical workflow and native task run IDs differ."
+    `Canonical workflow and native task run IDs differ; the lead repairs the dispatch with \`ao-topology manage rebind --task ${doc.id}\`.`
   );
   const observation = await observeNativeWorkflow({
     consumer: ctx.store.root,
@@ -24744,6 +24756,25 @@ async function bindTaskWorker(options) {
     record2.worker = worker;
     await writeJson(ctx.path, record2);
     return { bound: true, worker };
+  });
+}
+async function rebindTaskWorker(options) {
+  const ctx = await context2(options);
+  return withLock(`${ctx.path}.lock`, async () => {
+    const prior = await loadRecord(ctx.path);
+    invariant2(prior?.started && prior.owner === options.owner, "TOPOLOGY_MANAGEMENT_REBIND", `Only the admitting session can rebind ${options.task}; admit it first.`);
+    const doc = await ownedTask(ctx, options.task, prior.owner);
+    invariant2((0, import_node_path47.resolve)(doc.worktree) === (0, import_node_path47.resolve)(prior.worktree) && doc.branch === prior.branch, "TOPOLOGY_MANAGEMENT_REBIND", "The dispatched task worktree or branch differs from the admission record; reconcile it before rebinding.");
+    invariant2(doc.dispatched?.backend === "topology", "TOPOLOGY_MANAGEMENT_REBIND", `${options.task} has no topology dispatch to rebind.`);
+    let result;
+    try {
+      result = await ctx.store.rebind(options.task);
+    } catch (error51) {
+      fail("TOPOLOGY_MANAGEMENT_REBIND", `tm rebind ${options.task} failed: ${tmMessage(error51)}`);
+    }
+    if (!result.rebound) return { rebound: false, workflow_run_id: result.dispatched.workflowRunId };
+    await recordEvent(ctx, options.task, prior, "rebind", { owner: prior.owner, from: result.from, to: result.to, native_run_id: result.dispatched.nativeRunId, record_path: result.dispatched.recordPath });
+    return { rebound: true, from: result.from, to: result.to };
   });
 }
 async function startTaskWorker(options) {
@@ -25011,7 +25042,7 @@ async function admitTask(options) {
     await ctx.store.start(task, provisioned.worktree);
     const record2 = await recordEvent(ctx, task, prior, "start", { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead = await findLead(agentDirs({ ...options, consumer: ctx.store.root }));
-    const workflowRunId = options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
+    const workflowRunId = options.workflowRunId || `tm-${task}`;
     const leadId = lead?.id || options.leadId || owner;
     Object.assign(record2, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id: workflowRunId, lead_id: leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: "working" });
     await writeJson(ctx.path, record2);
@@ -28565,6 +28596,14 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     agent.session_kind = "run";
   }
   await saveRun(spec.run_dir, run2);
+  const promptRepoId = (await canonicalRepoId(spec.consumer || spec.cwd)).id;
+  const stampPrompts = () => Promise.all(ordered.map((item) => bindStagedPrompt({
+    dir: item.dir,
+    session: run2.session,
+    repoId: promptRepoId,
+    binding: run2.agents.find((agent) => agent.id === item.agent.id)?.binding
+  })));
+  await stampPrompts();
   const client2 = new ControlClient(spec.session);
   const subscribed = await client2.start().catch(() => false);
   if (!subscribed) {
@@ -28605,6 +28644,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent, leadId), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
   }
   await saveRun(spec.run_dir, run2);
+  await stampPrompts();
   if (spec.layout !== "windows") await selectPane(panes.get(first.agent.id));
   for (const item of prepared.filter((entry) => entry.participant)) {
     const entry = run2.agents.find((agent) => agent.id === item.agent.id);
@@ -28890,6 +28930,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
   for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in this environment; ${agentId} restarts without it`);
   const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true, passEnv: passEnv.names });
   entry.binding = (await panesOn(entry.binding?.serverKey ?? await serverOf(entry.pane))).find((p) => p.paneId === entry.pane && p.sessionName === run2.session) || null;
+  await bindStagedPrompt({ dir: agentDir(runDir, agentId), session: run2.session, repoId: (await canonicalRepoId(run2.consumer || runDir)).id, binding: entry.binding });
   if (entry.binding) {
     const { restampSlotBindings: restampSlotBindings2 } = await Promise.resolve().then(() => (init_slots(), slots_exports));
     await restampSlotBindings2({ consumer: run2.consumer || runDir, agentId, binding: entry.binding }).catch(() => {
@@ -28963,6 +29004,7 @@ var init_launch = __esm({
     init_persona_registry();
     init_incarnation();
     init_prompt_lifecycle();
+    init_repoid();
     init_resolve();
     init_tmux();
     init_util();
@@ -64143,10 +64185,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "bb511efce316a0467ae725e42a50e22c6540f45f7bcf3c565b49cd55c3e1048f";
+  return false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "bb511efce316a0467ae725e42a50e22c6540f45f7bcf3c565b49cd55c3e1048f";
+  const fingerprint2 = false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64763,7 +64805,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "bb511efce316a0467ae725e42a50e22c6540f45f7bcf3c565b49cd55c3e1048f",
+  sourceFingerprint: false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
