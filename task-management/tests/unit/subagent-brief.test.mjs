@@ -209,6 +209,7 @@ describe("the dispatched worker", () => {
     // No human and no later turn: the same rules handoff() renders (TM-246).
     assert.match(out, /Do the task in your own session/);
     assert.match(out, /Never end your turn while a background agent or command you started is still running/);
+    assert.match(out, /no run_in_background, no Monitor/, "TM-426: a headless worker must not background its checks");
     assert.match(out, new RegExp(`Block instead: \\S+tm block ${t.id} "<the question>"`));
   });
 

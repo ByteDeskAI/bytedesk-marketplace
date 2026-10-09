@@ -24838,7 +24838,8 @@ async function stopTaskWorker(options) {
       if (!state.owned) {
         const dead2 = await (options.deadWorkerState || deadWorkerState)(options, record2);
         if (dead2.owned && dead2.active === false) return await retireWorker(ctx, options, record2, dead2, close);
-        invariant2(false, "TOPOLOGY_MANAGEMENT_STOP", dead2.owned ? state.reason || "Worker ownership is unproven." : dead2.reason || state.reason || "Worker ownership is unproven.");
+        const finishGate = /finish protocol/.test(state.reason || "");
+        invariant2(false, "TOPOLOGY_MANAGEMENT_STOP", dead2.owned && !finishGate ? state.reason || "Worker ownership is unproven." : dead2.reason || state.reason || "Worker ownership is unproven.");
       }
       invariant2(state.active === false, "TOPOLOGY_MANAGEMENT_STOP", state.reason || "Worker is still active.");
       if (state.alive) {
@@ -64185,10 +64186,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e";
+  return false ? null : "7ab68201b33ff9182a73c53e03b9665d4c2bd264cb03739da28fa9b4e4bec7f4";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e";
+  const fingerprint2 = false ? null : "7ab68201b33ff9182a73c53e03b9665d4c2bd264cb03739da28fa9b4e4bec7f4";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64805,7 +64806,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e",
+  sourceFingerprint: false ? null : "7ab68201b33ff9182a73c53e03b9665d4c2bd264cb03739da28fa9b4e4bec7f4",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
