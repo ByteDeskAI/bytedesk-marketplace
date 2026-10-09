@@ -981,8 +981,10 @@ const commands = {
     // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
     // drives both and compares — which is also why both pass the same activation reason.
     if (sub === 'ensure') {
+      // TM-394: repair a broken checkout first; a still-broken one refuses rather than mint a lead.
+      const checkout = await (await import('./lib/checkout-repair.mjs')).ensureCheckout(ctx);
       const result = await api.ensureLead(options);
-      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
+      return out({ ...result, ...(checkout.action === 'repaired' ? { checkout } : {}), supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });
