@@ -23956,11 +23956,20 @@ async function workflowDetail({ consumer, workflowId, ...options }) {
 }
 async function assertOperatorReader({ consumer, env = process.env, home, proof = {} }) {
   invariant2(!env.TM_DISPATCH_WORKER, "TOPOLOGY_OPERATOR_ONLY", "A dispatched worker session (TM_DISPATCH_WORKER) cannot read every agent's mail in the workflow console. Nothing was read.");
-  const { bindingAgentId: bindingAgentId2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
+  const { bindingAgentId: bindingAgentId2, callerUnderBoundPane: callerUnderBoundPane2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
   const lookup2 = { consumer, env, ...home ? { home } : {}, ...proof };
   const bound = await bindingAgentId2(lookup2).catch(() => null);
   const caller = callerIdentity(env);
-  if (!caller && !bound) return { as: "operator" };
+  if (!caller && !bound) {
+    let under;
+    try {
+      under = await callerUnderBoundPane2(lookup2);
+    } catch (error51) {
+      fail("TOPOLOGY_OPERATOR_ONLY", `Cannot prove this process is outside every agent pane: process ancestry is unreadable (${error51.code || error51.message}). Nothing was read.`);
+    }
+    invariant2(!under, "TOPOLOGY_OPERATOR_ONLY", "This process descends from a census-bound agent pane, so it is that agent, not the operator, even with TMUX_PANE and its identity variables unset. Nothing was read.");
+    return { as: "operator" };
+  }
   const named = env.AO_AGENT_ID || bound || caller?.agentId;
   const lead = await requireLeadCaller2({ ...lookup2, env: { ...env, AO_AGENT_ID: named } });
   invariant2(
@@ -25423,6 +25432,7 @@ __export(delegation_exports, {
   agentMarkers: () => agentMarkers,
   ancestorProcesses: () => ancestorProcesses,
   bindingAgentId: () => bindingAgentId,
+  callerUnderBoundPane: () => callerUnderBoundPane,
   findActiveDelegation: () => findActiveDelegation,
   grantDelegation: () => grantDelegation,
   listStandingDelegations: () => listStandingDelegations,
@@ -25617,6 +25627,14 @@ async function bindingAgentId({ consumer, env = process.env, home = (0, import_n
   if (!here) return null;
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
   return (census?.agents || []).find((a) => sameBinding(here, a.binding))?.agentId || null;
+}
+async function callerUnderBoundPane({ consumer, env = process.env, home = (0, import_node_os20.homedir)(), readCensusFn = readCensus, callerProc = {} }) {
+  const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
+  const dir = (0, import_node_path47.join)(stateRoot2(env, home), "census");
+  for (const file2 of (await (0, import_promises38.readdir)(dir).catch(() => [])).filter((f) => f.endsWith(".json"))) docs.push(await readJson3((0, import_node_path47.join)(dir, file2)).catch(() => null));
+  const pids = new Set(docs.flatMap((doc) => doc?.agents || []).map((a) => a.binding?.panePid));
+  for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
+  return false;
 }
 async function findActiveDelegation({ consumer, agentId, scope, task = null, env = process.env, home = (0, import_node_os20.homedir)(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
   if (!agentId) return null;
@@ -62998,10 +63016,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b49f368c2e9209b03217831b3f26d5b6f503ff51b8b1a85bb245c9c3bf1c8f84";
+  return false ? null : "74974b732dbb8ee8b4bba9b7fffcaf11d780959906d59c0049bf5712224b921e";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b49f368c2e9209b03217831b3f26d5b6f503ff51b8b1a85bb245c9c3bf1c8f84";
+  const fingerprint2 = false ? null : "74974b732dbb8ee8b4bba9b7fffcaf11d780959906d59c0049bf5712224b921e";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63618,7 +63636,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b49f368c2e9209b03217831b3f26d5b6f503ff51b8b1a85bb245c9c3bf1c8f84",
+  sourceFingerprint: false ? null : "74974b732dbb8ee8b4bba9b7fffcaf11d780959906d59c0049bf5712224b921e",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **Security: the workflow console no longer treats a pane-less agent as the operator (TM-473,
+  EP-028).** `console show` admitted any process with no identity variables and no census-bound
+  pane as the operator, so a worker that unset `TMUX_PANE` and its `AO_*` variables could read every
+  agent's mail. The gate now walks the caller's `/proc` ancestry against every census-bound
+  `pane_pid` (this repository's census and every other one under the state home) and refuses on a
+  match, or when ancestry is unreadable. The autonomy hook never auto-approves `ao-topology console
+  show`, and it now reads the verb and subverb the way the CLI does, so a flag placed before a gated
+  subverb (`ao-topology manage --task TM-1 integrate`) no longer slips past the gated list.
+  Remaining boundary: a process that has left every agent's tree (`setsid -f`) is still the
+  operator to this check; TM-427B's identity proof closes that.
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
   `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to

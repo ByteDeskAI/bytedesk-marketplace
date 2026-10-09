@@ -17,6 +17,7 @@ const ALLOWED = [
   'ao-topology manage start-worker --task TM-123 --backend tmux --summary',
   'ao-topology manage report --task TM-123 --file /abs/report.json --summary',
   'ao-topology capture --run /r --agent w1 --lines 60',
+  'ao-topology console list --consumer /r --json',
   'agent-orchestration doctor',
   'agent-orchestration services status',
   'agent-orchestration services wait --until healthy --timeout 60',
@@ -34,6 +35,11 @@ const REFUSED = [
   'ao-topology manage integrate --task TM-1',
   'ao-topology manage record-landing --task TM-1 --landed abc --authorized',
   'ao-topology manage cleanup --task TM-1',
+  // TM-473: console show prints every agent's mail; flags before the verb or subverb do not hide it.
+  'ao-topology console show --consumer /r --workflow-id w',
+  'ao-topology console --consumer /r show --workflow-id w',
+  'ao-topology --consumer /r console show',
+  'ao-topology manage --task TM-1 integrate',
   // TM-250: External class (deploy, release) is never hook-approved.
   'ao-topology manage cutover --epic EP-1',
   'ao-topology manage cut-release --epic EP-1',

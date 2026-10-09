@@ -562,3 +562,27 @@ test('TM-464 F1: the console gate admits only a bare operator shell or the prove
   assert.deepEqual(await gate({}, proof(null)), { as: 'operator' });
   assert.deepEqual(await gate({ ...inPane }, proof(null)), { as: 'operator' });
 });
+
+test('TM-473: with TMUX_PANE unset, a process under any census-bound pane is refused by ancestry', async (t) => {
+  const w = await world(t);
+  const { assertOperatorReader } = await import('../../topology/lib/workflow-control.mjs');
+  const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+  const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
+  const proof = (boundTo, leaf = 5151, extra = {}) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), ...extra });
+  const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
+  const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
+  // The rv-225 reproduction: a worker with TM_DISPATCH_WORKER, AO_* and TMUX_PANE all unset, still in its pane's tree.
+  await assert.rejects(gate({}, proof('work-a')), refused);
+  // A forged TMUX_PANE naming no live pane does not help either.
+  await assert.rejects(gate({ TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: '%999' }, proof('work-a')), refused);
+  // Another repository's census on disk counts too.
+  const censusDir = join(w.env.HOME, '.local', 'state', 'bytedesk', 'agent-orchestration', 'census');
+  await mkdir(censusDir, { recursive: true });
+  await writeFile(join(censusDir, 'other-repo.json'), JSON.stringify({ agents: [{ agentId: 'elsewhere', binding: { ...PANE } }] }));
+  await assert.rejects(gate({}, proof(null)), refused);
+  // Unreadable ancestry fails closed.
+  await assert.rejects(gate({}, proof(null, 5151, { callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } })), refused);
+  // A process outside every bound pane's tree is still the operator.
+  assert.deepEqual(await gate({}, proof('work-a', 6161)), { as: 'operator' });
+});

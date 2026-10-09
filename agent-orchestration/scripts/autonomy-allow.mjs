@@ -8,6 +8,7 @@
 // error also falls through: this hook never blocks and never widens on failure.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from '../topology/lib/util.mjs';
 
 // Shell syntax that could run a second command, substitute one, or redirect output. A command containing any
 // of these is never approved here, even inside quotes: missing an approval costs a prompt, not safety.
@@ -23,8 +24,9 @@ const heredocHead = (command) => {
 
 const TM = /^(?:tm|(?:\.\/|\/(?:[^\s/]+\/)*)?\.bytedesk\/task-management\/bin\/tm)$/;
 // Gated verbs stay with the normal permission flow: landing and merging (PR-level, ADR-0001 in fleet/docs),
-// worktree/branch cleanup, standing delegations and permission rules (operator-only by design).
-const AO_GATED = { manage: ['integrate', 'record-landing', 'cleanup', 'cutover', 'cut-release', 'land'], delegate: ['grant', 'revoke'], permissions: null };
+// worktree/branch cleanup, standing delegations and permission rules (operator-only by design), and
+// `console show`, which prints every agent's mail (TM-473: its operator gate is same-user, not agent-proof).
+const AO_GATED = { manage: ['integrate', 'record-landing', 'cleanup', 'cutover', 'cut-release', 'land'], delegate: ['grant', 'revoke'], permissions: null, console: ['show'] };
 const AO_CLI_VERBS = { doctor: null, status: null, 'session-open': null, services: ['status', 'ensure', 'probe', 'wait'] };
 const TMUX_READ = new Set(['capture-pane', 'capturep', 'list-panes', 'lsp', 'list-sessions', 'ls', 'list-windows', 'lsw', 'display-message', 'display', 'has-session', 'has']);
 
@@ -44,7 +46,10 @@ export function autonomyDecision(command) {
   const head = (heredocHead(command) ?? '').trim();
   if (!head || SHELL_SYNTAX.test(head)) return null;
   const words = (head.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map(unquote);
-  const [prog, verb, sub] = words;
+  const [prog] = words;
+  // Verb and subverb exactly as the CLI reads them: its parseArgs takes flags anywhere, so
+  // `ao-topology console --consumer /r show` must not read '--consumer' as the subverb (TM-473).
+  const [verb, sub] = prog === 'ao-topology' ? parseArgs(words.slice(1)).positional : words.slice(1);
   if (prog === 'ao-topology' && verb) {
     if (verb in AO_GATED && (AO_GATED[verb] === null || AO_GATED[verb].includes(sub))) return null;
     return `agent-orchestration: ao-topology ${verb} is a routine orchestration verb`;

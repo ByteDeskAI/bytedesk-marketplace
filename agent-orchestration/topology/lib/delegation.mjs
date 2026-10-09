@@ -270,6 +270,21 @@ export async function bindingAgentId({ consumer, env = process.env, home = homed
   return (census?.agents || []).find(a => sameBinding(here, a.binding))?.agentId || null;
 }
 
+/** TM-473: whether the caller descends from ANY agent pane a census binds: this repository's census
+ * (readCensusFn) and every other census under the state home. A process with TMUX_PANE unset (or
+ * naming no bound pane) is invisible to bindingAgentId, but its /proc ancestry still runs through
+ * the agent's pane process. Throws when ancestry is unreadable; callers fail closed.
+ * Does NOT catch a process that left the tree (`setsid -f`, a daemon reparented to init): only
+ * TM-427B's identity proof closes that. */
+export async function callerUnderBoundPane({ consumer, env = process.env, home = homedir(), readCensusFn = readCensus, callerProc = {} }) {
+  const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
+  const dir = join(stateRoot(env, home), 'census');
+  for (const file of (await readdir(dir).catch(() => [])).filter(f => f.endsWith('.json'))) docs.push(await readJson(join(dir, file)).catch(() => null));
+  const pids = new Set(docs.flatMap(doc => doc?.agents || []).map(a => a.binding?.panePid));
+  for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
+  return false;
+}
+
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit
  * --authorized: a live grant covering this exact caller, repository, scope and task (TM-248: the
  * task must be in the grant's frozen plan.tasks, else TOPOLOGY_DELEGATION_PLAN; a grant without a
