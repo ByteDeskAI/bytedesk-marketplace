@@ -1813,9 +1813,12 @@ const withTarget = async (opts, target) => {
 test("TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD", async t => {
   const { opts, calls } = await fixture(t);
   await withTarget(opts, "absent-target");
-  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
+  // TM-349 is about the candidates when no server answers; the shared fixture's GitHub server (TM-441) would
+  // supply a default branch, so this test runs without one, as it did before TM-441.
+  const offline = { ...opts, gh: NO_SERVER_GH };
+  await assert.rejects(admitTask({ ...offline, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
   await withTarget(opts, null);
-  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
+  await assert.rejects(admitTask(offline), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
   assert.equal(calls.includes("start"), false, "nothing is started");
 });
 

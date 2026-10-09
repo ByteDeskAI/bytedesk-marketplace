@@ -12,8 +12,10 @@ const MARKER = "# ao-topology git-hook: project-install guard";
 
 async function hookPath(repo) {
   try {
-    const { stdout } = await safeGit(repo, ["rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit"]);
-    return resolve(stdout.trim());
+    // safe-git pins core.hooksPath to /dev/null, so --git-path hooks/... would point there. An old
+    // hook was installed in the repository's own hooks directory, under the common git dir.
+    const { stdout } = await safeGit(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    return resolve(stdout.trim(), "hooks", "pre-commit");
   } catch { return fail("TOPOLOGY_NOT_A_GIT_REPO", `${repo} is not a Git repository.`); }
 }
 
