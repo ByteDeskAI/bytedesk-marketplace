@@ -175,6 +175,15 @@
 
 ### Added
 
+- **`reviewer withdraw --task <id> --revision <sha> --reason <text>` (TM-525, EP-029).** A reviewer
+  on the pre-TM-365 argv has no `review_submit` tool, so it can never answer a pending request, and
+  that request made `agent restart` refuse with `TOPOLOGY_AGENT_BUSY` forever. The repository lead
+  (proven by `requireLeadCaller`; a worker or the reviewer is refused) can now withdraw an
+  uncollected request. It becomes `failed` with code `TOPOLOGY_REVIEWER_WITHDRAWN`, so it no longer
+  blocks the restart, its verdict can never be submitted or collected, and a re-request of the same
+  revision gets a fresh nonce bound to the new incarnation. Each withdraw is recorded as a
+  `review-withdrawn` management event. When a reviewer that lacks `review_submit` has pending
+  requests, `doctor` and `role status` now list the withdraw, restart and re-request commands in order.
 - **`mailbox withdraw <id> [--reason <text>]` (TM-478).** The sending session can take back its own
   held standing mail. The sender is checked against the session identity, so naming another agent
   does not work. Withdrawn mail is terminal: `resume` never retries it, and the held-mail ring stops
