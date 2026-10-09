@@ -310,6 +310,8 @@ describe("guardCommand — the shell a worker actually writes", () => {
       `TM=/r/.bytedesk/task-management/bin/tm; $TM block TM-262 "${reason}"`,
       `.bytedesk/task-management/bin/tm block TM-262 "${reason}"`,
       `"$TM" block TM-262 '${reason.replaceAll("'", "")}'`,
+      `\${TM} comment TM-262 "${reason}"`,
+      `$ROOT/bin/tm block TM-262 "${reason}"`,
     ]) {
       const v = guardCommand(cmd, AT_HOME);
       assert.equal(v.allow, true, `allowed: ${cmd} (refused by ${v.rule})`);
@@ -320,6 +322,11 @@ describe("guardCommand — the shell a worker actually writes", () => {
       [`$TM block TM-262 "x"; gh pr create --base other`, "gh-pr-create-base"],
       ["$GH pr merge 5", "unparsed"],
       ["$GIT push origin main", "unparsed"],
+      // the exemption is tm's data verbs only: a shell named by an expansion runs its quoted argument
+      ['$SHELL -c "gh pr merge 5"', "unparsed"],
+      [`"$BASH" -c 'git push origin main'`, "unparsed"],
+      ['$X -lc "gh pr create --base other"', "unparsed"],
+      [`$TM show "gh pr merge 5"`, "unparsed"],
     ]) {
       const v = guardCommand(cmd, AT_HOME);
       assert.equal(v.allow, false, `still refused: ${cmd}`);

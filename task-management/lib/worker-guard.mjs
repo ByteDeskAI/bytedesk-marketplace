@@ -512,9 +512,13 @@ function unwrap(words) {
       w.shift();
     }
     if (!w.length || NOT_RUN.has(w[0])) return null;
-    // TM-521: an argument holding whitespace was quoted, so it is data (a `tm block` reason), not a
-    // command word; only the name and the bare words after it can say what the expansion runs.
-    if (/[$`]/.test(w[0])) return { unknown: [w[0], ...w.slice(1).filter((a) => !/\s/.test(a))].join(" ") };
+    // TM-521: a `tm block|comment` reason is data, so a quoted (whitespace-holding) argument is dropped
+    // — but only for tm named by an expansion. Any other expansion keeps its full text: `$SHELL -c "…"`
+    // runs that argument as code.
+    if (/[$`]/.test(w[0])) {
+      const tmData = /^"?(\$TM|\$\{TM\}|\S*\/tm)"?$/.test(w[0]) && ["block", "comment"].includes(w[1]);
+      return { unknown: (tmData ? w.filter((a) => !/\s/.test(a)) : w).join(" ") };
+    }
     const name = basename(w[0]);
     if (name in WRAPPERS) {
       w.shift();
