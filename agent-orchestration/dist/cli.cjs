@@ -19287,15 +19287,15 @@ function createFileTransport() {
       const state = await readJson3((0, import_node_path35.join)(storeDir, "state.json")).catch(() => null);
       return state?.claims?.[String(task)] ?? null;
     },
-    async putPresence({ repo, body, persist: persist2, ttlMs = ORCH_LAYOUT.presenceTtlMs }) {
-      const key = orchName(repo);
+    async putPresence({ repo, node = null, body, persist: persist2, ttlMs = ORCH_LAYOUT.presenceTtlMs }) {
+      const key = presenceKey(repo, node);
       const encoded = typeof body === "string" ? body : JSON.stringify(body);
       presence.set(key, { body: encoded, expires: Date.now() + ttlMs });
       if (persist2) await persist2();
       return { via: "file", bucket: ORCH_LAYOUT.presenceBucket, key };
     },
-    async getPresence({ repo }) {
-      const key = orchName(repo);
+    async getPresence({ repo, node = null }) {
+      const key = presenceKey(repo, node);
       const entry = presence.get(key);
       if (!entry || entry.expires <= Date.now()) return null;
       return { via: "file", bucket: ORCH_LAYOUT.presenceBucket, key, body: entry.body };
@@ -19912,21 +19912,23 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       }
       return entry.json();
     },
-    async putPresence({ repo, body }) {
+    async putPresence({ repo, node = null, body }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket, { ttl: ORCH_LAYOUT.presenceTtlMs });
       const payload = typeof body === "string" ? body : JSON.stringify(body);
-      await kv.put(nameRepo, payload);
-      return { via: "nats", bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo };
+      const key = presenceKey(repo, node);
+      await kv.put(key, payload);
+      return { via: "nats", bucket: ORCH_LAYOUT.presenceBucket, key };
     },
-    async getPresence({ repo }) {
+    async getPresence({ repo, node = null }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket);
-      const entry = await kv.get(nameRepo).catch(() => null);
+      const key = presenceKey(repo, node);
+      const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === "DEL" || entry.operation === "PURGE") return null;
-      return { via: "nats", bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo, body: entry.string() };
+      return { via: "nats", bucket: ORCH_LAYOUT.presenceBucket, key, body: entry.string() };
     },
     async putAgent({ repo, agent, body }) {
       const nameRepo = orchName(repo);
@@ -20090,7 +20092,7 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os13, import_node_path35, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
+var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os13, import_node_path35, ORCH_LAYOUT, presenceKey, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto18 = require("node:crypto");
@@ -20125,6 +20127,7 @@ var init_orch_transport = __esm({
       replyDurable: (repo, agent) => `reply_${repo}_${agent}`,
       tasksDurable: (repo) => `tasks_${repo}`
     });
+    presenceKey = (repo, node) => node ? `${orchName(repo)}.${orchName(node)}` : orchName(repo);
     liveTransports = /* @__PURE__ */ new Map();
     openTransport = openNatsTransport;
     NATS_OUTAGE_CODES = /* @__PURE__ */ new Set([
@@ -21090,9 +21093,9 @@ function natsPersonaRegistry({ transport, graceMs = RUN_PERSONA_GRACE_MS, now = 
   };
   const live2 = async (record2) => {
     if (now() - (Date.parse(record2.allocatedAt ?? "") || 0) < graceMs) return true;
-    if (!record2.presence) return true;
-    const published = await transport.getPresence({ repo: record2.presence });
-    if (!published) return false;
+    if (!record2.presence || !record2.node) return true;
+    const published = await transport.getPresence({ repo: record2.presence, node: record2.node });
+    if (!published) return true;
     let snapshot;
     try {
       snapshot = JSON.parse(published.body);
@@ -21100,7 +21103,7 @@ function natsPersonaRegistry({ transport, graceMs = RUN_PERSONA_GRACE_MS, now = 
       return true;
     }
     const age = now() - (Date.parse(snapshot.generatedAt ?? "") || 0);
-    if (age > (snapshot.staleAfterMs ?? 3e4) + (snapshot.clockSkewToleranceMs ?? 0)) return false;
+    if (age > (snapshot.staleAfterMs ?? 3e4) + (snapshot.clockSkewToleranceMs ?? 0)) return true;
     return (snapshot.agents ?? []).some((agent) => presenceHolds(agent, record2.holder));
   };
   const attempt2 = async (write2) => {
@@ -26338,6 +26341,7 @@ __export(respawn_exports, {
   handoffPointer: () => handoffPointer,
   handoffRequest: () => handoffRequest,
   passHandoff: () => passHandoff,
+  prepareClaim: () => prepareClaim,
   readHandoff: () => readHandoff,
   readTail: () => readTail,
   requireHandoffCaller: () => requireHandoffCaller,
@@ -26409,17 +26413,21 @@ async function waitForFile(path3, { timeoutMs, pollMs = 1e3 }) {
     await sleep(Math.min(pollMs, Math.max(1, timeoutMs - (Date.now() - started))));
   }
 }
-async function findTranscript({ adapterId, cwd, home = (0, import_node_os23.homedir)() }) {
+async function findTranscript({ adapterId, cwd, home = (0, import_node_os23.homedir)(), marker = null }) {
   if (adapterId !== "claude" || !cwd) return null;
   const dir = (0, import_node_path49.join)(home, ".claude", "projects", sanitizeCwd(cwd));
   const files = await (0, import_promises40.readdir)(dir, { withFileTypes: true }).catch(() => []);
-  let newest = null;
+  const dated = [];
   for (const entry of files.filter((file2) => file2.isFile() && file2.name.endsWith(".jsonl"))) {
     const path3 = (0, import_node_path49.join)(dir, entry.name);
-    const mtime = (await (0, import_promises40.stat)(path3).catch(() => null))?.mtimeMs ?? 0;
-    if (!newest || mtime > newest.mtime) newest = { path: path3, mtime };
+    dated.push({ path: path3, mtime: (await (0, import_promises40.stat)(path3).catch(() => null))?.mtimeMs ?? 0 });
   }
-  return newest?.path ?? null;
+  dated.sort((a, b) => b.mtime - a.mtime);
+  if (!marker) return dated[0]?.path ?? null;
+  for (const { path: path3 } of dated.slice(0, 20)) {
+    if ((await readTail(path3).catch(() => [])).some((line) => line.includes(marker))) return path3;
+  }
+  return null;
 }
 async function readTail(path3, maxBytes = 256 * 1024) {
   const handle = await (0, import_promises40.open)(path3, "r");
@@ -26500,7 +26508,16 @@ async function holdLock(path3, options) {
     await done;
   };
 }
-async function claimAgent({
+async function claimAgent(options) {
+  const claim = await prepareClaim(options);
+  try {
+    return await claim.commit();
+  } catch (error51) {
+    await claim.release();
+    throw error51;
+  }
+}
+async function prepareClaim({
   agentId,
   agentsDir = null,
   except = null,
@@ -26516,6 +26533,7 @@ async function claimAgent({
   const bounds2 = respawnBounds(env, overrides);
   const kill = deps.killSession ?? killSession;
   const liveSessionOf2 = deps.liveSessionOf ?? (await Promise.resolve().then(() => (init_launch(), launch_exports))).liveSessionOf;
+  const callerSession = deps.callerSession ?? callerTmuxSession;
   const dir = respawnDir({ env, home });
   const startedAt = Date.now();
   const release = await holdLock((0, import_node_path49.join)(dir, `${agentId}.lock`), {
@@ -26524,8 +26542,9 @@ async function claimAgent({
   });
   try {
     const holder = await liveSessionOf2(agentId, { agentsDir, except });
-    if (!holder) return { release, respawn: null };
+    if (!holder) return { release, holder: null, settle: async () => null, commit: async () => ({ release, respawn: null }) };
     invariant2(respawn, "TOPOLOGY_AGENT_ALREADY_LIVE", `Agent ${agentId} already has a live session, "${holder}". One agent holds one session: use that one, stop it first, re-spawn it without --no-respawn, or give the parallel work to a different agent.`, { agent_id: agentId, session: holder });
+    invariant2(await callerSession(env) !== holder, "TOPOLOGY_RESPAWN_SELF", `Agent ${agentId}'s live session "${holder}" is the one running this command; replacing it would end the caller mid-turn. Run it from another session.`, { agent_id: agentId, session: holder });
     const lastPath = (0, import_node_path49.join)(dir, `${agentId}.last.json`);
     const last = await readJson3(lastPath).catch(() => null);
     if (last && Date.parse(last.at) >= startedAt) {
@@ -26544,46 +26563,63 @@ async function claimAgent({
     const turn = pane ? await waitForTurnEnd({ session: holder, pane, adapter, timeoutMs: bounds2.turnTimeoutMs, pollMs: bounds2.pollMs, idleLooks: bounds2.idleLooks }) : { ended: true, waited_ms: 0, reason: "no pane" };
     invariant2(turn.ended, "TOPOLOGY_AGENT_BUSY", `Agent ${agentId} is mid-turn in "${holder}" and did not finish within ${bounds2.turnTimeoutMs}ms; it was not interrupted and its session is untouched. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: holder, reason: turn.reason });
     note("turn-ended", { waited_ms: turn.waited_ms, reason: turn.reason });
-    const resume = mode === "resume" ? await resumableSession({ adapter, agentId, agentsDir, cwd: (panes.find((entry) => entry.paneId === pane) ?? {}).cwd, home }) : null;
-    if (resume) note("resume", resume);
-    const path3 = handoffPath(agentId, predecessor.id, { env, home });
-    let handoff = null;
-    if (!resume?.provider_session_id) {
-      await (0, import_promises40.mkdir)((0, import_node_path49.dirname)(path3), { recursive: true });
-      const paneAlive2 = (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead);
-      if (paneAlive2) {
-        note("handoff-requested", { path: path3 });
-        await sendText(pane, handoffRequest(path3), adapter?.submit_keys);
+    let settled = null;
+    const settle = () => settled ??= (async () => {
+      const again = pane ? await waitForTurnEnd({ session: holder, pane, adapter, timeoutMs: bounds2.turnTimeoutMs, pollMs: bounds2.pollMs, idleLooks: bounds2.idleLooks }) : { ended: true };
+      invariant2(again.ended, "TOPOLOGY_AGENT_BUSY", `Agent ${agentId} started a new turn in "${holder}" and did not finish within ${bounds2.turnTimeoutMs}ms; it was not interrupted and its session is untouched.`, { agent_id: agentId, session: holder, reason: again.reason });
+      const resume = mode === "resume" ? await resumableSession({ adapter, agentId, agentsDir, cwd: (panes.find((entry) => entry.paneId === pane) ?? {}).cwd, home }) : null;
+      if (resume) note("resume", resume);
+      const path3 = handoffPath(agentId, predecessor.id, { env, home });
+      let handoff = null;
+      if (!resume?.provider_session_id) {
+        await (0, import_promises40.mkdir)((0, import_node_path49.dirname)(path3), { recursive: true });
+        const paneAlive2 = (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead);
+        if (paneAlive2) {
+          note("handoff-requested", { path: path3 });
+          await sendText(pane, handoffRequest(path3), adapter?.submit_keys);
+        }
+        const answered = paneAlive2 && await waitForFile(path3, { timeoutMs: bounds2.handoffTimeoutMs, pollMs: Math.min(bounds2.pollMs, 1e3) });
+        if (answered) {
+          handoff = { path: path3, source: "agent" };
+        } else {
+          const cwd = (panes.find((entry) => entry.paneId === pane) ?? {}).cwd;
+          const transcript = paneAlive2 ? await findTranscript({ adapterId: adapter?.id, cwd, home, marker: path3 }) : null;
+          const turns = transcript ? transcriptTurns(await readTail(transcript)) : [];
+          const paneTail = transcript ? null : (await tmux(["capture-pane", "-p", "-t", pane ?? holder, "-S", "-80"], { allowFailure: true })).stdout;
+          const fallback = path3.replace(/\.md$/, ".fallback.md");
+          await writeText(fallback, fallbackHandoff({ agentId, waitedMs: bounds2.handoffTimeoutMs, transcript, turns, paneTail }));
+          handoff = { path: fallback, requested: path3, source: transcript ? "transcript-fallback" : "pane-capture-fallback", transcript };
+        }
+        note("handoff-ready", { source: handoff.source });
       }
-      const answered = paneAlive2 && await waitForFile(path3, { timeoutMs: bounds2.handoffTimeoutMs, pollMs: Math.min(bounds2.pollMs, 1e3) });
-      if (answered) {
-        handoff = { path: path3, source: "agent" };
-      } else {
-        const cwd = (panes.find((entry) => entry.paneId === pane) ?? {}).cwd;
-        const transcript = await findTranscript({ adapterId: adapter?.id, cwd, home });
-        const turns = transcript ? transcriptTurns(await readTail(transcript)) : [];
-        const paneTail = transcript ? null : (await tmux(["capture-pane", "-p", "-t", pane ?? holder, "-S", "-80"], { allowFailure: true })).stdout;
-        await writeText(`${path3}.fallback`, fallbackHandoff({ agentId, waitedMs: bounds2.handoffTimeoutMs, transcript, turns, paneTail }));
-        await (0, import_promises40.rename)(`${path3}.fallback`, path3);
-        handoff = { path: path3, source: transcript ? "transcript-fallback" : "pane-capture-fallback", transcript };
+      return { resume, handoff };
+    })();
+    const commit2 = async () => {
+      const { resume, handoff } = await settle();
+      if (pane && adapter?.exit_command && (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead)) {
+        await sendText(pane, adapter.exit_command, adapter.submit_keys);
+        const deadline = Date.now() + bounds2.exitTimeoutMs;
+        while (Date.now() < deadline && (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead)) await sleep(250);
       }
-      note("handoff-ready", { source: handoff.source });
-    }
-    if (pane && adapter?.exit_command && (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead)) {
-      await sendText(pane, adapter.exit_command, adapter.submit_keys);
-      const deadline = Date.now() + bounds2.exitTimeoutMs;
-      while (Date.now() < deadline && (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead)) await sleep(250);
-    }
-    await kill(holder);
-    invariant2(!await hasSession(holder), "TOPOLOGY_RESPAWN_END_FAILED", `Session "${holder}" is still live after kill-session.`, { agent_id: agentId, session: holder });
-    note("session-ended");
-    const record2 = { agent: agentId, at: nowIso(), requested_by: requestedBy, predecessor, handoff, ...resume ? { resume } : {}, turn: { waited_ms: turn.waited_ms, reason: turn.reason }, events };
-    await writeJson(lastPath, record2);
-    return { release, respawn: record2 };
+      await kill(holder);
+      invariant2(!await hasSession(holder), "TOPOLOGY_RESPAWN_END_FAILED", `Session "${holder}" is still live after kill-session.`, { agent_id: agentId, session: holder });
+      note("session-ended");
+      const record2 = { agent: agentId, at: nowIso(), requested_by: requestedBy, predecessor, handoff, ...resume ? { resume } : {}, turn: { waited_ms: turn.waited_ms, reason: turn.reason }, events };
+      await writeJson(lastPath, record2);
+      return { release, respawn: record2 };
+    };
+    return { release, holder, settle, commit: commit2 };
   } catch (error51) {
     await release();
     throw error51;
   }
+}
+async function callerTmuxSession(env = process.env) {
+  if (!env.TMUX || !env.TMUX_PANE) return null;
+  const result = await tmux(["display-message", "-p", "-t", env.TMUX_PANE, "#{socket_path}	#{session_name}"], { allowFailure: true });
+  if (result.code !== 0) return null;
+  const [socket, session] = result.stdout.trim().split("	");
+  return socket === env.TMUX.split(",")[0] ? session : null;
 }
 async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, import_node_os23.homedir)() }) {
   const no = (reason) => ({ provider_session_id: null, reason });
@@ -26597,7 +26633,8 @@ async function resumableSession({ adapter, agentId, agentsDir, cwd, home = (0, i
 async function readHandoff(record2) {
   if (!record2?.handoff?.path) return null;
   const { readFile: readFile35 } = await import("node:fs/promises");
-  return readFile35(record2.handoff.path, "utf8").catch(() => null);
+  const late = record2.handoff.requested ? await readFile35(record2.handoff.requested, "utf8").catch(() => null) : null;
+  return late || readFile35(record2.handoff.path, "utf8").catch(() => null);
 }
 function handoffPointer(path3) {
   return `[ao] Your previous session left a handoff: read ${path3} before continuing.`;
@@ -28502,7 +28539,7 @@ async function launchRunNative({
   replyToken = null,
   log = () => {
   },
-  respawn = true,
+  respawn = false,
   respawnBounds: respawnBounds2 = {},
   requestedBy = null
 }) {
@@ -28524,12 +28561,15 @@ async function launchRunNative({
   }
   invariant2(!await exists((0, import_node_path53.join)(spec.run_dir, "run.json")), "TOPOLOGY_RUN_EXISTS", `Run directory already exists: ${spec.run_dir}`);
   const claims = [];
+  const respawned = [];
   try {
     if (!dryRun) {
-      for (const agent of spec.agents.filter((entry) => entry._agent)) {
+      const pending = [];
+      const members = spec.agents.filter((entry) => entry._agent).sort((a, b) => String(a._agent).localeCompare(String(b._agent)));
+      for (const agent of members) {
         const first = agent.candidates?.[0];
         const adapter = first ? adapterFor({ ...agent, cli: first.cli, model: first.model }, adapters) : null;
-        const claim = await claimAgent({
+        const prepared = await prepareClaim({
           agentId: agent._agent,
           agentsDir: agent._agent_dir ? (0, import_node_path53.dirname)(agent._agent_dir) : null,
           adapter,
@@ -28537,15 +28577,26 @@ async function launchRunNative({
           requestedBy,
           bounds: respawnBounds2
         });
-        claims.push(claim);
+        claims.push(prepared);
+        pending.push([agent, prepared]);
+      }
+      for (const [, prepared] of pending) await prepared.settle();
+      for (const [agent, prepared] of pending) {
+        let claim;
+        try {
+          claim = await prepared.commit();
+        } catch (error51) {
+          error51.details = { ...error51.details, replaced: respawned.map((record2) => ({ agent: record2.agent, session: record2.predecessor.session, handoff: record2.handoff?.path ?? null })) };
+          throw error51;
+        }
         if (claim.respawn) {
           agent._predecessor = claim.respawn.predecessor.id;
           claim.respawn.spec_agent = agent.id;
           if (spec.session_identity?.agent === agent._agent) spec.session_identity = { ...spec.session_identity, predecessor: claim.respawn.predecessor.id };
+          respawned.push(claim.respawn);
         }
       }
     }
-    const respawned = claims.filter((claim) => claim.respawn).map((claim) => claim.respawn);
     const result = await launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings });
     return respawned.length ? { ...result, respawned } : result;
   } finally {
@@ -28864,7 +28915,7 @@ async function openRoleSession({
   controlledRestart = false,
   log = () => {
   },
-  respawn = true,
+  respawn = false,
   respawnBounds: respawnBounds2 = {},
   requestedBy = null,
   replace = null,
@@ -28928,7 +28979,7 @@ async function openRoleSession({
     agentsDir,
     except: replace ? null : session,
     adapter,
-    respawn,
+    respawn: respawn || replace !== null,
     requestedBy,
     mode: replace ?? "handoff",
     env: { ...process.env, ...env },
@@ -30605,6 +30656,8 @@ async function createPresenceProducer({ consumer, env = process.env, home = (0, 
         repo: repositoryKey,
         body: snapshot,
         persist: activeTransport.kind === "file" ? () => durableReplace(path3, text) : void 0
+      });
+      await activeTransport.putPresence({ repo: repositoryKey, node: await nodeName({ env, home }), body: snapshot }).catch(() => {
       });
       return snapshot;
     });
@@ -64332,10 +64385,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "e9a55565f94a320f76b89dce39d59dffa84db1c9b37b3929c610e7eec5187f52";
+  return false ? null : "f5bf2c01ea61cfa35ba7a055bb0392cb9d61c1ec5c6b57cdef122f39c2d82cd3";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "e9a55565f94a320f76b89dce39d59dffa84db1c9b37b3929c610e7eec5187f52";
+  const fingerprint2 = false ? null : "f5bf2c01ea61cfa35ba7a055bb0392cb9d61c1ec5c6b57cdef122f39c2d82cd3";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64952,7 +65005,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "e9a55565f94a320f76b89dce39d59dffa84db1c9b37b3929c610e7eec5187f52",
+  sourceFingerprint: false ? null : "f5bf2c01ea61cfa35ba7a055bb0392cb9d61c1ec5c6b57cdef122f39c2d82cd3",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

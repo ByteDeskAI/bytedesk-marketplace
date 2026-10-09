@@ -272,12 +272,12 @@ function presence({ agents = [], runs = [], ageMs = 0, staleAfterMs = 30_000 }) 
   };
 }
 
-test("a stale holder is reclaimed; a live one, or one inside its grace, is not", { timeout: 30_000 }, async (t) => {
+test("only a holder its own node's fresh presence omits is reclaimed; live, unknown and in-grace holders are kept", { timeout: 30_000 }, async (t) => {
   if (!(await natsBinary())) { t.skip("no working nats-server binary"); return; }
   const root = await scratch(t);
   const transport = await openTransport(t, root, await jetStreamServer(t, root));
   const scope = "team:reclaim";
-  const take = (registry, id, name, presenceKey) => registry.allocate(scope, { id, candidates: [name] }, { session: { id: "s", node: "n", repo: "app", presence: presenceKey } });
+  const take = (registry, id, name, presenceKey, node = "n") => registry.allocate(scope, { id, candidates: [name] }, { session: { id: "s", node, repo: "app", presence: presenceKey } });
   const old = natsPersonaRegistry({ transport, now: () => Date.now() - 10 * 60_000 }); // allocations ten minutes old
   assert.equal(await take(old, "run:live", "ada", "repo-live"), "ada");
   assert.equal(await take(old, "a1a1a1a1", "bell", "repo-live"), "bell");
@@ -285,9 +285,10 @@ test("a stale holder is reclaimed; a live one, or one inside its grace, is not",
   assert.equal(await take(old, "run:silent", "dara", "repo-silent"), "dara");
   assert.equal(await take(old, "run:old", "esme", "repo-old"), "esme");
   assert.equal(await take(old, "run:unjudged", "fern", null), "fern");
-  await transport.putPresence({ repo: "repo-live", body: presence({ agents: ["a1a1a1a1"], runs: ["live"] }) });
-  await transport.putPresence({ repo: "repo-silent", body: presence({ runs: ["someone-else"] }) });
-  await transport.putPresence({ repo: "repo-old", body: presence({ runs: ["old"], ageMs: 60_000 }) });
+  assert.equal(await take(old, "run:legacy", "hana", "repo-silent", null), "hana");
+  await transport.putPresence({ repo: "repo-live", node: "n", body: presence({ agents: ["a1a1a1a1"], runs: ["live"] }) });
+  await transport.putPresence({ repo: "repo-silent", node: "n", body: presence({ runs: ["someone-else"] }) });
+  await transport.putPresence({ repo: "repo-old", node: "n", body: presence({ runs: ["old"], ageMs: 60_000 }) });
   // repo-gone has no presence at all: its node stopped publishing and the TTL took the key.
 
   const registry = natsPersonaRegistry({ transport, graceMs: 120_000 });
@@ -295,15 +296,41 @@ test("a stale holder is reclaimed; a live one, or one inside its grace, is not",
   assert.equal(await claim("ada"), "run-new-ada", "a live run holder (listed in fresh presence) is never freed");
   assert.equal(await claim("bell"), "run-new-bell", "a live agent holder is never freed");
   assert.equal(await claim("fern"), "run-new-fern", "a record with no presence key cannot be judged, so it is kept");
-  assert.equal(await claim("cleo"), "cleo", "no presence for its repository: reclaimed");
-  assert.equal(await claim("dara"), "dara", "fresh presence that does not list it: reclaimed");
-  assert.equal(await claim("esme"), "esme", "presence older than staleAfterMs + skew: reclaimed");
+  assert.equal(await claim("cleo"), "run-new-cleo", "no presence for its node: unknown, never dead");
+  assert.equal(await claim("esme"), "run-new-esme", "presence older than staleAfterMs + skew: unknown, never dead");
+  assert.equal(await claim("hana"), "run-new-hana", "a record naming no node cannot be judged, so it is kept");
+  assert.equal(await claim("dara"), "dara", "fresh presence from its own node that does not list it: reclaimed");
   assert.equal(await registry.holder(scope, "ada"), "run:live");
-  assert.equal(await registry.holder(scope, "cleo"), "run:new-cleo");
+  assert.equal(await registry.holder(scope, "cleo"), "run:gone");
 
   // Inside the grace period nothing is judged at all, presence or not.
-  assert.equal(await take(registry, "run:young", "gwen", "repo-gone"), "gwen");
+  assert.equal(await take(registry, "run:young", "gwen", "repo-silent"), "gwen");
   assert.equal(await claim("gwen"), "run-new-gwen", "a fresh allocation is protected by the grace period");
+});
+
+test("two nodes with one checkout path: one node's presence never frees the other node's live holder", { timeout: 30_000 }, async (t) => {
+  if (!(await natsBinary())) { t.skip("no working nats-server binary"); return; }
+  const root = await scratch(t);
+  const url = await jetStreamServer(t, root);
+  // Two nodes, two connections, one repository key: the same checkout path on both machines.
+  const nodeA = await openTransport(t, root, url, {}, "ao-tm484-a");
+  const nodeB = await openTransport(t, root, url, {}, "ao-tm484-b");
+  const scope = "team:two-node";
+  const old = natsPersonaRegistry({ transport: nodeB, now: () => Date.now() - 10 * 60_000 });
+  assert.equal(await old.allocate(scope, { id: "run:on-b", candidates: ["ada"] }, { session: { id: "s", node: "node-b", repo: "app", presence: "repo-shared" } }), "ada");
+
+  // Node A publishes last, under both the shared key and its own; neither lists node B's run.
+  await nodeB.putPresence({ repo: "repo-shared", body: presence({ runs: ["on-b"] }) });
+  await nodeB.putPresence({ repo: "repo-shared", node: "node-b", body: presence({ runs: ["on-b"] }) });
+  await nodeA.putPresence({ repo: "repo-shared", body: presence({ runs: ["on-a"] }) });
+  await nodeA.putPresence({ repo: "repo-shared", node: "node-a", body: presence({ runs: ["on-a"] }) });
+  const fromA = natsPersonaRegistry({ transport: nodeA });
+  assert.equal(await fromA.allocate(scope, { id: "run:on-a", candidates: ["ada"] }), "run-on-a", "node A's overwrite of the shared key does not free node B's live run");
+  assert.equal(await fromA.holder(scope, "ada"), "run:on-b");
+
+  // Node B itself stops listing the run: now, and only now, the persona is free.
+  await nodeB.putPresence({ repo: "repo-shared", node: "node-b", body: presence({ runs: [] }) });
+  assert.equal(await fromA.allocate(scope, { id: "run:later", candidates: ["ada"] }), "ada");
 });
 
 test("two concurrent reclaimers of one stale persona: exactly one wins", { timeout: 60_000 }, async (t) => {
@@ -313,7 +340,9 @@ test("two concurrent reclaimers of one stale persona: exactly one wins", { timeo
   const seed = natsPersonaRegistry({ transport: await openTransport(t, root, url), now: () => Date.now() - 10 * 60_000 });
   for (let round = 0; round < 10; round += 1) {
     const scope = `team:reclaim-race-${round}`;
-    assert.equal(await seed.allocate(scope, { id: "run:dead", candidates: ["ada"] }, { session: { presence: "repo-none" } }), "ada");
+    assert.equal(await seed.allocate(scope, { id: "run:dead", candidates: ["ada"] }, { session: { presence: "repo-none", node: "n" } }), "ada");
+    // Its node is publishing, fresh, and no longer lists it: provably dead.
+    await (await openTransport(t, root, url, {}, `ao-tm279-seed-${round}`)).putPresence({ repo: "repo-none", node: "n", body: presence({}) });
     // Two nodes (two connections). Each one's presence read waits for the other's, so both judge the
     // holder stale at the same revision before either writes — the race is forced, not hoped for.
     let arrived = 0;

@@ -24,7 +24,7 @@ import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
-import { claimAgent } from './respawn.mjs';
+import { claimAgent, prepareClaim } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
 import { orchName, subjectTakenBy } from './orch-transport.mjs';
 
@@ -958,8 +958,10 @@ export async function launchRun(options) {
   }
 }
 
+// TM-484: respawn is opt-in here too. Only the `launch` command passes it (its --no-respawn flag); a
+// console start and a child workflow an agent asks for pass nothing, so they refuse a live agent.
 async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {},
-  respawn = true, respawnBounds = {}, requestedBy = null }) {
+  respawn = false, respawnBounds = {}, requestedBy = null }) {
   const warnings = [];
 
   // Where this run sits in the tree, decided before anything is created. A run launched by an agent
@@ -988,24 +990,43 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
   // turn waited out, a handoff collected, the old session ended exactly once — unless the caller opted
   // out (`respawn: false` → TOPOLOGY_AGENT_ALREADY_LIVE). Each claim holds that agent's lock until this
   // launch has created its session, so a concurrent re-spawn joins this one instead of replacing it.
+  // TM-484: every claim is prepared — locked, checked, its turn waited out — before ANY is committed,
+  // so a refusal for one agent cannot leave another's session already ended. Locks are taken in agent
+  // id order, so two launches sharing agents cannot each hold one the other is waiting for.
   const claims = [];
+  const respawned = [];
   try {
     if (!dryRun) {
-      for (const agent of spec.agents.filter((entry) => entry._agent)) {
+      const pending = [];
+      const members = spec.agents.filter((entry) => entry._agent).sort((a, b) => String(a._agent).localeCompare(String(b._agent)));
+      for (const agent of members) {
         const first = agent.candidates?.[0];
         const adapter = first ? adapterFor({ ...agent, cli: first.cli, model: first.model }, adapters) : null;
-        const claim = await claimAgent({ agentId: agent._agent, agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null, adapter, respawn,
+        const prepared = await prepareClaim({ agentId: agent._agent, agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null, adapter, respawn,
           requestedBy, bounds: respawnBounds });
-        claims.push(claim);
+        claims.push(prepared);
+        pending.push([agent, prepared]);
+      }
+      // Settle every claim — second turn look and handoff, the last steps that can refuse — before
+      // ending any session, so a refusal here still leaves every agent's session untouched.
+      for (const [, prepared] of pending) await prepared.settle();
+      for (const [agent, prepared] of pending) {
+        let claim;
+        try { claim = await prepared.commit(); }
+        catch (error) {
+          // Only an end failure gets here. Name what was already replaced, and where its handoff is.
+          error.details = { ...error.details, replaced: respawned.map((record) => ({ agent: record.agent, session: record.predecessor.session, handoff: record.handoff?.path ?? null })) };
+          throw error;
+        }
         if (claim.respawn) {
           // The new incarnation names the one it replaced: on its pane, and on the session of a spawn.
           agent._predecessor = claim.respawn.predecessor.id;
           claim.respawn.spec_agent = agent.id;
           if (spec.session_identity?.agent === agent._agent) spec.session_identity = { ...spec.session_identity, predecessor: claim.respawn.predecessor.id };
+          respawned.push(claim.respawn);
         }
       }
     }
-    const respawned = claims.filter((claim) => claim.respawn).map((claim) => claim.respawn);
     const result = await launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings });
     return respawned.length ? { ...result, respawned } : result;
   } finally {
@@ -1433,7 +1454,7 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
 }
 
 export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, session: chosen = null, role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {},
-  respawn = true, respawnBounds = {}, requestedBy = null, replace = null, home = homedir() }) {
+  respawn = false, respawnBounds = {}, requestedBy = null, replace = null, home = homedir() }) {
   // TM-297 `agent restart`: `replace` ("handoff" | "resume") replaces the agent's LIVE session — its own
   // role-session included — through the TM-280 re-spawn rather than reattaching to it.
   invariant(replace === null || replace === "handoff" || replace === "resume", "TOPOLOGY_RESTART_MODE", "Restart mode is handoff or resume.");
@@ -1502,7 +1523,10 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   // ADR-0030 part 4 / TM-280: creating, not reattaching. An agent live in another session is re-spawned
   // (turn waited out, handoff collected, that session ended once) unless `respawn` is false; the lock
   // is held until this session exists, so a concurrent re-spawn joins rather than replaces it again.
-  const claim = await claimAgent({ agentId, agentsDir, except: replace ? null : session, adapter, respawn, requestedBy, mode: replace ?? "handoff",
+  // TM-484: respawn is opt-in. Lead ensure, reviewer ensure and other automated opens pass nothing, so a
+  // live agent elsewhere is refused (TOPOLOGY_AGENT_ALREADY_LIVE), never killed; `session open` and
+  // `agent restart` (replace) are the explicit requests that may replace it.
+  const claim = await claimAgent({ agentId, agentsDir, except: replace ? null : session, adapter, respawn: respawn || replace !== null, requestedBy, mode: replace ?? "handoff",
     env: { ...process.env, ...env }, home, bounds: respawnBounds });
   try {
     invariant(!replace || claim.respawn, "TOPOLOGY_AGENT_NOT_LIVE", `Agent ${agentId} has no live session to restart; open it instead, and it starts on the current prompt.`, { agent_id: agentId });

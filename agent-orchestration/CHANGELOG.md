@@ -77,6 +77,7 @@
   legacy `.orchestration/providers/`) is version-controlled, so a worker's merged PR could replace
   `claude` with any program for every later launch in that repo. `providerDirs` now searches only
   `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
+
 ### Fixed
 
 - **A lead can finish a task it delegated to an existing terminal (TM-412, EP-028).** A dispatch tm
@@ -87,6 +88,29 @@
   documented path: `tm collect`, then `manage bind --task <id> --pid <harness pid>`, then
   `manage report`. The admission and base revision are kept, the terminal is never closed, and an
   uncollected dispatch is still refused with the `tm collect` step named.
+- **A live persona holder is no longer freed, and no launch or ensure kills a live agent by mistake (TM-484, EP-028).**
+  - Presence is now also published per node, under `ORCH_PRESENCE` key `<repo>.<node>`. The
+    gateway's `<repo>` key is unchanged.
+  - The team persona registry judges a holder only from its own node's presence. Two nodes with
+    the same checkout path share the `<repo>` key and overwrite each other there, which used to free
+    the other node's live persona.
+  - Missing, stale or unreadable presence now means unknown, and the holder keeps its persona.
+    Only fresh presence from the holder's node that does not list it frees the persona.
+  - A multi-agent launch now prepares and then settles every claim first: locks, refusals, turn
+    waits (looked at twice) and handoffs. It ends an old session only after every claim has settled,
+    so an agent that refuses, even one that went busy after it was prepared, no longer leaves another
+    agent's session already killed. If ending a session itself fails, the error lists the sessions
+    already replaced and their handoff paths. Claims are taken in agent-id order.
+  - The transcript fallback reads only the transcript that received this agent's handoff request.
+    In a shared directory it no longer takes another agent's newer conversation; with no match it
+    falls back to the pane capture.
+  - The fallback handoff is written to its own `<id>.fallback.md` file. An agent that finishes its
+    handoff after the timeout no longer has it overwritten, and `readHandoff` prefers that file.
+  - `openRoleSession` no longer respawns by default. Lead ensure, reviewer ensure and other
+    automated opens now refuse a live agent with `TOPOLOGY_AGENT_ALREADY_LIVE` instead of killing
+    it. `session open` and `agent restart` still respawn on request.
+  - A respawn of the caller's own live session is refused with `TOPOLOGY_RESPAWN_SELF`. The
+    caller is read from the `env` passed in, not from `process.env`.
 - **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission
   now always records the task's own governance id (`tm-<task>`) and no longer adopts a dispatch's
   workflow id, so the id no longer depends on whether a worker was dispatched first. A finish
