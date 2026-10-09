@@ -11,6 +11,8 @@
 //   tasks     orch.<repo>.tasks.ready      stream ORCH_TASKS, durable tasks_<repo>
 //   claims    KV ORCH_CLAIMS key <repo>.<task>     revision is the compare-and-set
 //   presence  KV ORCH_PRESENCE key <repo>          TTL 45s, JSON body unchanged
+//             and key <repo>.<node>                 the same body per node (TM-484): two nodes with one
+//                                                   checkout path share <repo>, so liveness reads this one
 //   agents    KV ORCH_AGENTS key <repo>.<agent>
 //   reviews   object store ORCH_REVIEWS named by content hash
 //   personas  KV ORCH_PERSONAS key <scope>.<persona>   create/update/delete are revision checked (TM-279)
@@ -55,6 +57,9 @@ export const ORCH_LAYOUT = Object.freeze({
   replyDurable: (repo, agent) => `reply_${repo}_${agent}`,
   tasksDurable: (repo) => `tasks_${repo}`,
 });
+
+/** The presence key: `<repo>` (what the gateway reads), or `<repo>.<node>` for one node's copy. */
+const presenceKey = (repo, node) => (node ? `${orchName(repo)}.${orchName(node)}` : orchName(repo));
 
 export function orchName(value) {
   const cleaned = String(value ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
@@ -275,15 +280,15 @@ export function createFileTransport() {
       const state = await readJson(join(storeDir, 'state.json')).catch(() => null);
       return state?.claims?.[String(task)] ?? null;
     },
-    async putPresence({ repo, body, persist, ttlMs = ORCH_LAYOUT.presenceTtlMs }) {
-      const key = orchName(repo);
+    async putPresence({ repo, node = null, body, persist, ttlMs = ORCH_LAYOUT.presenceTtlMs }) {
+      const key = presenceKey(repo, node);
       const encoded = typeof body === 'string' ? body : JSON.stringify(body);
       presence.set(key, { body: encoded, expires: Date.now() + ttlMs });
       if (persist) await persist();
       return { via: 'file', bucket: ORCH_LAYOUT.presenceBucket, key };
     },
-    async getPresence({ repo }) {
-      const key = orchName(repo);
+    async getPresence({ repo, node = null }) {
+      const key = presenceKey(repo, node);
       const entry = presence.get(key);
       if (!entry || entry.expires <= Date.now()) return null;
       return { via: 'file', bucket: ORCH_LAYOUT.presenceBucket, key, body: entry.body };
@@ -910,21 +915,23 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       }
       return entry.json();
     },
-    async putPresence({ repo, body }) {
+    async putPresence({ repo, node = null, body }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket, { ttl: ORCH_LAYOUT.presenceTtlMs });
       const payload = typeof body === 'string' ? body : JSON.stringify(body);
-      await kv.put(nameRepo, payload);
-      return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo };
+      const key = presenceKey(repo, node);
+      await kv.put(key, payload);
+      return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key };
     },
-    async getPresence({ repo }) {
+    async getPresence({ repo, node = null }) {
       const nameRepo = orchName(repo);
       await transport.ensure({ repo: nameRepo });
       const kv = await js.views.kv(ORCH_LAYOUT.presenceBucket);
-      const entry = await kv.get(nameRepo).catch(() => null);
+      const key = presenceKey(repo, node);
+      const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === 'DEL' || entry.operation === 'PURGE') return null;
-      return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key: nameRepo, body: entry.string() };
+      return { via: 'nats', bucket: ORCH_LAYOUT.presenceBucket, key, body: entry.string() };
     },
     async putAgent({ repo, agent, body }) {
       const nameRepo = orchName(repo);

@@ -152,9 +152,13 @@ Each segment is lowercased, every other run of characters becomes one `-`, and i
 
   **Reclaim.** A held persona is reclaimed only when both of these are true:
   - the holder is more than two minutes old;
-  - the holder is not live in presence. That means the allocating repository's presence entry
-    (`ORCH_PRESENCE`, with a 45 s TTL) is missing, older than its `staleAfterMs` plus skew, or does not
-    list the holder.
+  - the holder's own node published fresh presence for the repository, and that presence does not
+    list the holder. The registry reads the per-node entry `ORCH_PRESENCE` `<repo>.<node>` (45 s
+    TTL), never the shared `<repo>` entry, which another node with the same checkout path can
+    overwrite.
+
+  Missing presence, presence older than its `staleAfterMs` plus skew, and a record with no presence
+  key or node all mean **unknown**. An unknown holder keeps its persona (TM-484).
 
   The reclaim is a revision-checked update, so when two nodes race to reclaim the same persona,
   exactly one wins.

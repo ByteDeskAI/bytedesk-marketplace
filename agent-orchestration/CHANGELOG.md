@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A live persona holder is no longer freed, and no launch or ensure kills a live agent by mistake (TM-484, EP-028).**
+  - Presence is now also published per node, under `ORCH_PRESENCE` key `<repo>.<node>`. The
+    gateway's `<repo>` key is unchanged.
+  - The team persona registry judges a holder only from its own node's presence. Two nodes with
+    the same checkout path share the `<repo>` key and overwrite each other there, which used to free
+    the other node's live persona.
+  - Missing, stale or unreadable presence now means unknown, and the holder keeps its persona.
+    Only fresh presence from the holder's node that does not list it frees the persona.
+  - A multi-agent launch now prepares every claim first: locks, refusals and turn waits. It ends
+    an old session only after all claims succeed, so one refused agent no longer leaves another
+    agent's session already killed. Claims are taken in agent-id order.
+  - `openRoleSession` no longer respawns by default. Lead ensure, reviewer ensure and other
+    automated opens now refuse a live agent with `TOPOLOGY_AGENT_ALREADY_LIVE` instead of killing
+    it. `session open` and `agent restart` still respawn on request.
+  - A respawn of the caller's own live session is refused with `TOPOLOGY_RESPAWN_SELF`.
+
 ## [0.16.1] — 2026-10-08
 
 Security release. It closes the high-severity holes found in independent post-merge review of the

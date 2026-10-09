@@ -73,7 +73,7 @@ test("re-spawn waits out the turn, collects the agent's handoff for the caller, 
   const opened = await iso.within(() => openRoleSession({
     agentsDir, agentId: "a1a1a1a1", adapter: FAKE, argv: [process.execPath, AGENT], role: "worker",
     env: { FAKE_TURN_LOG: log, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"), AO_NODE_NAME: "agents1" },
-    session: "agents1--app--worker--ada", respawnBounds: FAST,
+    session: "agents1--app--worker--ada", respawnBounds: FAST, respawn: true,
   }));
   assert.ok(opened.respawn, "the live agent was re-spawned, not refused");
 
@@ -175,6 +175,34 @@ test("--no-respawn keeps TOPOLOGY_AGENT_ALREADY_LIVE; a turn that never ends ref
   assert.deepEqual((await events(log)).filter((entry) => entry.pid === old.pid && entry.event === "received"), [], "nothing was typed into it");
   // Both refusals released the lock: a third claim gets past it (and is refused for the same reason).
   await assert.rejects(iso.within(() => claimAgent({ agentId: "c3c3c3c3", adapter: FAKE, respawn: false, env, deps })), { code: "TOPOLOGY_AGENT_ALREADY_LIVE" });
+});
+
+test("TM-484: an open that does not ask to respawn refuses a live agent, and nobody replaces its own session", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await scratch(t);
+  const { iso, kills, deps } = setup(t, root);
+  const log = join(root, "agent.log");
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  const old = await holder(iso, "self-holder", { agentId: "b8b8b8b8", id: ulid(), log, cwd: root });
+
+  // Lead ensure, reviewer ensure and every other automated open pass no respawn: refused, untouched.
+  await assert.rejects(iso.within(() => openRoleSession({ agentsDir: join(root, "agents"), agentId: "b8b8b8b8", adapter: FAKE, argv: [process.execPath, AGENT], role: "lead",
+    env: { FAKE_TURN_LOG: log, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"), AO_NODE_NAME: "agents1" }, session: "agents1--app--lead--bo", respawnBounds: FAST })),
+  { code: "TOPOLOGY_AGENT_ALREADY_LIVE" });
+
+  // Asked to respawn, but from inside the live session itself: refused before anything is typed. The
+  // real caller lookup runs: TMUX names this test's server and TMUX_PANE the holder's own pane.
+  const saved = { TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE };
+  t.after(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  const socket = (await iso.tmux(["display-message", "-p", "-t", old.pane, "#{socket_path}"])).stdout.trim();
+  Object.assign(process.env, { TMUX: `${socket},1,0`, TMUX_PANE: old.pane });
+  await assert.rejects(iso.within(() => claimAgent({ agentId: "b8b8b8b8", adapter: FAKE, env, deps, bounds: FAST })), { code: "TOPOLOGY_RESPAWN_SELF" });
+  // The same pane id on a DIFFERENT server (an operator shell's stale TMUX) is not the caller.
+  process.env.TMUX = `${join(root, "elsewhere.sock")},1,0`;
+  await assert.rejects(iso.within(() => claimAgent({ agentId: "b8b8b8b8", adapter: FAKE, respawn: false, env, deps })), { code: "TOPOLOGY_AGENT_ALREADY_LIVE" });
+
+  assert.deepEqual(kills, [], "nothing was killed");
+  assert.equal(await iso.within(() => tmux.hasSession("self-holder")), true, "the live session is untouched");
+  assert.deepEqual((await events(log)).filter((entry) => entry.pid === old.pid && entry.event === "received"), [], "nothing was typed into it");
 });
 
 test("two concurrent re-spawns of one agent replace it exactly once; the loser joins the winner's result", { skip: haveTmux ? false : "no tmux" }, async (t) => {
@@ -307,4 +335,38 @@ test("launch of a live library agent re-spawns it under the SAME name and return
 
   // --no-respawn keeps the old answer for scripts.
   await assert.rejects(launch("run-three", "--no-respawn"), (error) => /TOPOLOGY_AGENT_ALREADY_LIVE/.test(`${error.stdout}${error.stderr}`));
+});
+
+test("TM-484: a multi-agent launch refused for one agent ends no other agent's session", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await scratch(t);
+  const consumer = join(root, "app");
+  await mkdir(consumer);
+  await exec("git", ["-C", consumer, "init", "-q"]);
+  await optOutOfEnrollment(consumer);
+  const log = join(root, "agent.log");
+  const iso = isolatedTmux(t, { extraEnv: { AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file", AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"),
+    XDG_CONFIG_HOME: join(root, ".cfg"), AO_NODE_NAME: "agents1", FAKE_TURN_LOG: log, FAKE_TURN_HANDOFF: "1" } });
+  assert.equal(iso.env.TMUX, "", "never inherit an operator tmux server");
+  const cli = join(HERE, "../../topology/cli.mjs");
+  const ao = async (...args) => {
+    const done = await exec(process.execPath, [cli, ...args, "--consumer", consumer, "--json"], { env: iso.env, timeout: 180_000 }).catch((error) => {
+      error.message = `${args.slice(0, 2).join(" ")} failed: ${error.stdout}${error.stderr}`;
+      throw error;
+    });
+    return JSON.parse(done.stdout);
+  };
+  // The idle agent is the one claimed FIRST, so a launch that committed claims one at a time would have
+  // ended its session before reaching the busy one.
+  const [idle, busy] = [(await ao("agent", "new", "--role", "worker", "--cli", "fake-agent")).id, (await ao("agent", "new", "--role", "worker", "--cli", "fake-agent")).id].sort();
+  const idleHolder = await holder(iso, "idle-holder", { agentId: idle, id: ulid(), log, cwd: root });
+  await holder(iso, "busy-holder", { agentId: busy, id: ulid(), log, cwd: root, env: { FAKE_TURN_START_BUSY_MS: "600000" } });
+  const specPath = join(root, "pair.json");
+  await writeFile(specPath, JSON.stringify({ version: 1, name: "pair", agents: [
+    { agent: idle, role: "orchestrator", cli: "fake-agent", args: [AGENT] }, { agent: busy, role: "worker", cli: "fake-agent", args: [AGENT] }] }));
+
+  await assert.rejects(ao("launch", "--spec", specPath, "--providers-dir", join(HERE, "../fixtures"), "--run-id", "pair-one", "--turn-timeout", "2s", "--handoff-timeout", "2s"),
+    (error) => /TOPOLOGY_AGENT_BUSY/.test(error.message));
+  assert.equal(await iso.within(() => tmux.hasSession("idle-holder")), true, "the idle agent's session was not ended");
+  assert.equal(await iso.within(() => tmux.hasSession("busy-holder")), true, "the busy agent's session was not ended");
+  assert.deepEqual((await events(log)).filter((entry) => entry.pid === idleHolder.pid && entry.event === "received"), [], "no handoff request reached the idle agent");
 });
