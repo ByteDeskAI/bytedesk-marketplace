@@ -129,6 +129,7 @@ Standing repository services
   mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
   mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
        [--kind mail|reply] [--sender <agent>] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+  mailbox withdraw <id> [--reason <text>]   take back held standing mail this session sent; stops its retries and lead ring
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   repos list [--json]                           registered repositories and each supervisor's state
@@ -709,6 +710,12 @@ const commands = {
         from: typeof flags.sender === 'string' ? flags.sender || null : undefined }));
     }
     if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
+    // TM-478: the sender is this session (sessionIdentity), never a claimed --agent.
+    if (sub === 'withdraw') {
+      const me = await self();
+      const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
+      return out(await api.withdrawStandingMessage({ ...ctx, id, agent: me.agent, consumer: me.consumer, reason: typeof flags.reason === 'string' ? flags.reason : null }));
+    }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
     if (sub === 'wait') {
       const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
@@ -731,7 +738,7 @@ const commands = {
     }
     if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
     if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
-    if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
+    if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose|withdraw.');
     // TM-356: the sender is this session's identity. --from and --from-project may only repeat it.
     const me = await api.sessionIdentity({ env: process.env, agent: flags.from, consumer: flags['from-project'] });
     const input = { consumer: ctx.consumer, fromProject: me.consumer,
@@ -1158,6 +1165,14 @@ const commands = {
     out("Search paths:");
     for (const [label, dirs] of Object.entries(report.dirs)) {
       out(`  ${label}: ${dirs.filter((dir) => dir.exists).map((dir) => dir.dir).join(", ") || "(none exist yet)"}`);
+    }
+    if (report.role_mcp?.length) {
+      out("Role MCP:");
+      for (const r of report.role_mcp) {
+        if (r.error) { out(`  ? ${r.error}`); continue; }
+        const expected = Array.isArray(r.expected) ? `expected ${r.expected.join(", ")}; running ${r.present.join(", ") || "none"}` : r.note;
+        out(`  ${r.ok ? "✓" : "✗"} ${r.role} ${r.agent_id ?? ""} pid ${r.pid} — ${r.live === false ? r.note : expected}`);
+      }
     }
     if (report.problems.length === 0) return out("OK — ready to launch.");
     out("Problems:");

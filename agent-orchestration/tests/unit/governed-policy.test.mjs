@@ -35,8 +35,8 @@ async function repo(t) {
   return { root, consumer, env, home: join(root, 'home'), revision: g(consumer, 'rev-parse', 'HEAD') };
 }
 
-test('TM-442 the protected keys are exactly autonomy, release, cutover and required_checks', () => {
-  assert.deepEqual([...PROTECTED_MANAGEMENT_KEYS], ['autonomy', 'release', 'cutover', 'required_checks']);
+test('TM-442/TM-469 the protected keys are autonomy, release, cutover, required_checks, integrate_via and target_branch', () => {
+  assert.deepEqual([...PROTECTED_MANAGEMENT_KEYS], ['autonomy', 'release', 'cutover', 'required_checks', 'integrate_via', 'target_branch']);
 });
 
 test('TM-442 a global-layer or local repo-layer grant is ignored with a warning; the server default branch is honoured', async t => {
@@ -47,8 +47,8 @@ test('TM-442 a global-layer or local repo-layer grant is ignored with a warning;
   const base = { consumer: r.consumer, env: r.env, home: r.home };
   // Server says nothing about these keys: none is honoured, autonomy is pr, and each is reported.
   const none = await loadGovernedConfig({ ...base, gh: server({ management: { target_branch: 'main' } }) });
-  for (const key of PROTECTED_MANAGEMENT_KEYS) assert.equal(none.config.management[key], undefined, key);
-  assert.equal(none.config.management.target_branch, 'main', 'unprotected keys still merge from local layers');
+  for (const key of PROTECTED_MANAGEMENT_KEYS.filter(k => k !== 'target_branch')) assert.equal(none.config.management[key], undefined, key);
+  assert.equal(none.config.management.target_branch, 'main', 'the server names target_branch, and the local value agrees');
   assert.deepEqual(governedAutonomy(none), { level: 'pr', scope: 'built-in', path: null });
   assert.equal(none.warnings.length, 4, none.warnings.join('\n'));
   assert.match(none.warnings.find(w => w.includes('autonomy')), /global .*repo .*ignored.*o\/r@main/);
@@ -95,4 +95,26 @@ test('TM-442 ao-topology config set refuses in a dispatched worker session; get 
   delete env.TM_DISPATCH_WORKER;
   await exec(process.execPath, [CLI, 'config', 'set', '--scope', 'global', '--file', doc, '--consumer', r.consumer], { env });
   assert.equal(JSON.parse(await readFile(join(r.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json'), 'utf8')).management.autonomy, 'publish', 'the operator may still write it (it is just not honoured for protected keys)');
+});
+
+// TM-469: integrate_via and target_branch choose where and how a task lands, so a worker that writes the
+// global layer (~/.config/agent-orchestration) or the checkout's repo file must not be able to set them.
+test('TM-469 integrate_via and target_branch from a global or working-copy layer are ignored with a warning', async t => {
+  const r = await repo(t);
+  await writeJson(join(r.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json'), { management: { integrate_via: 'pull-request' } });
+  await writeJson(join(r.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { target_branch: 'attacker-branch' } });
+  const base = { consumer: r.consumer, env: r.env, home: r.home };
+  const served = await loadGovernedConfig({ ...base, gh: server({ management: { target_branch: 'main' } }) });
+  assert.equal(served.config.management.target_branch, 'main', 'the server value wins over the working copy');
+  assert.equal(served.config.management.integrate_via, undefined, 'a global-layer integrate_via is dropped');
+  assert.match(served.warnings.find(w => w.includes('management.target_branch')), /repo .*ignored.*o\/r@main.*TM-442/);
+  assert.match(served.warnings.find(w => w.includes('management.integrate_via')), /global .*ignored/);
+  // No server answer: neither key is honoured at all, so integrate and record-landing refuse to pick a target.
+  const offline = await loadGovernedConfig({ ...base, gh: server(null) });
+  assert.equal(offline.config.management.target_branch, undefined);
+  assert.equal(offline.config.management.integrate_via, undefined);
+  assert.equal(offline.warnings.length, 2, offline.warnings.join('\n'));
+  // The server's own values are honoured.
+  const governed = await loadGovernedConfig({ ...base, gh: server({ management: { target_branch: 'release', integrate_via: 'pull-request' } }) });
+  assert.deepEqual([governed.config.management.target_branch, governed.config.management.integrate_via], ['release', 'pull-request']);
 });

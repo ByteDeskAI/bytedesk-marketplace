@@ -2,6 +2,86 @@
 
 ## Unreleased
 
+- **SECURITY: a governed worker can no longer merge its own PR, and an ungoverned one needs green
+  required checks (TM-481, EP-028).** The worker guard refuses every `gh pr merge` for a governed task
+  (`TM_DISPATCH_GOVERNED`, the dispatch record, or task governance; an unidentifiable task counts as
+  governed). An ungoverned worker's own-PR merge is allowed only when `gh pr checks --required`
+  reports every check passed, and `--admin` is always refused. Newly refused: attached `-R<repo>`,
+  `GH_REPO`/`GH_HOST` set anywhere in the command, `gh repo set-default`, `gh alias set|import`, and
+  `gh api graphql` with `mergePullRequest`/`enablePullRequestAutoMerge` or an unreadable query. The
+  own branch is the pinned one only; HEAD no longer stands in. The handoff no longer suggests `--admin`.
+- **SECURITY: the worker guard is now an allowlist that fails closed (TM-481, EP-028).** For a
+  dispatched worker, any Bash command whose text mentions `gh`, a `git … push`, `graphql` or
+  `api.github.com` (also after stripping quotes and backslashes) is refused unless the whole line is
+  one plain command in one of these forms: `gh pr create …` (no `-R`/`--repo`);
+  `gh pr view|status|checks|diff|list …`; `gh run view|list|watch …`; `gh issue view|list …`;
+  `gh pr merge <own branch> --merge|--squash|--rebase [--auto]`; `git push [-u] origin <own branch>`;
+  `git push origin HEAD:<own branch>`. Plain means no `;`, `&`, `|`, backticks, `$`, `<`, `>`,
+  backslashes, newlines or env-var prefixes. The block-list table stays behind it as defense in
+  depth. This closes N1 (`/graphql` spellings), N2 (launchers with a quoted command), N3
+  (`bash <(…)`, `. /dev/stdin <<<`) and N4 (`gh api` contents writes); every `gh api` call is now
+  refused for workers. **This guard is best effort, not the control.** A script written to disk and
+  then run, or a name built without ever spelling `gh`, is not seen. The real control is TM-489: a
+  server-side worker credential with no merge rights.
+  - *U1:* one plain command whose first word only reads or records text — `grep`, `rg`, `cat`,
+    `head`, `tail`, `less`, `wc`, `git commit|log|diff|show|status`, `tm` or
+    `.bytedesk/task-management/bin/tm` — may mention gh or a push (`git commit -m "retry the push"`).
+    Not exempt: anything that runs a command (`find`, `xargs`, `watch`), env prefixes, `git -c`, and
+    the helper options `rg --pre` and `git --ext-diff/--textconv`. An inline `gh pr create --body`
+    with shell syntax is refused with "use --body-file"; the worker handoff now writes the body to a
+    file. `--delete-branch` is refused by the allowlist itself, and the refusal names the allowed
+    alternative for a bare `git push` and `--set-upstream`.
+- **SECURITY review fixes on the worker guard (TM-481, EP-028).**
+  - *C1:* the guard takes task, branch, store root and repository from the harness env set at spawn,
+    never from the registry record (a same-UID file); a record that disagrees with the env is refused.
+    The guard **no longer releases** when the pinned task reads `done` or `deleted`: that file is
+    worker-writable, so a forged `done` released it. A worker session now stays guarded for its life.
+  - *H1:* refused — any command whose name is an expansion (`$G …`, `$(printf …) …`), `xargs <command>`,
+    `gh`/`git push` handed to another program (`setsid`, `find -exec`, `watch`, `flock`), interpreter
+    inline code (`python -c`, `node -e`, `perl -e`, awk programs, stdin scripts) that mentions gh or
+    git push or spawns a process, and `gh api` with `$`, `%` or a backtick in its endpoint or fields.
+  - *H2:* `gh pr merge` is allowed only as the whole command line. The hook checks that
+    `gh repo view` in the cwd resolves the repository pinned at dispatch (`TM_DISPATCH_REPO`, from
+    origin) and asks `gh pr checks -R <that repo>`. Refused: `gh extension` and any gh command the
+    guard does not know (aliases included), `gh config set`, `git remote set-url|add|rename`, and
+    `git config` writes to `remote.*.url` or `gh-resolved`.
+- **SECURITY: worker refusals decide by recorded dispatch ancestry, not `TM_DISPATCH_WORKER` (TM-470,
+  EP-028).** Dispatch records the worker's pane pid (tmux `-P -F '#{pane_pid}'`, or ao-topology's
+  binding) with its start time in a registry under the passwd home. One predicate,
+  `isWorkerCaller` in `lib/worker-identity.mjs`, now backs the pre-bash guard, `governTask`,
+  `readyForReview` and `governedCompletion`; `env -u TM_DISPATCH_WORKER` from inside the worker's
+  process tree is still a worker. `WORKER_RULE` and `workerRecordFor` are exported for
+  agent-orchestration to copy. **This is best effort, not a boundary:** deleting the registry,
+  `setsid -f`, a double fork, `tmux new -d` or `systemd-run --user` all leave the recorded ancestry.
+  To narrow that, dispatch also writes the anchors onto the task (`dispatched.anchors`), and a task
+  whose anchor is still alive but whose registry record is gone makes the caller a worker (fail
+  closed). The real fix is a server-side token, tracked separately.
+### Security
+
+- **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `lib/safe-git.mjs`
+  (byte-identical with agent-orchestration's) now runs git from a root-owned pinned path
+  (`/usr/bin`, `/bin`, `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned
+  ssh, takes `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, pins
+  `core.attributesFile` empty, and refuses every call when a repository scope sets an http key that
+  redirects or intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`,
+  `sslKey`, `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL), `remote.<name>.proxy`,
+  or a `remote.<name>.url` whose name contains `:` or `/`. Harmless keys such as `http.postBuffer`
+  pass. The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
+  `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
+  an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
+  repository were not listed. A clone with no location lists the global scope, so the operator's credential
+  helpers still apply, and a leading option other than `-C`, `-c`, `--git-dir` or `--work-tree`
+  (for example `--namespace`, `--config-env` or `--bare`) is refused. Governance's server compare (`runGh`) now goes through `safeGhSync`: it
+  refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
+  the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
+  `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+- **A fresh task worktree no longer starts dirty from graft's session hook (TM-507, EP-029).**
+  graft keeps its "wired by version V" stamp in the gitignored `graft/.cache/`, so every new
+  worktree read as unwired and graft rewrote the tracked `.claude`, `.grok` and `.mcp.json` wiring
+  with machine-specific paths and added `opencode.json`. `createWorktree` now seeds that stamp from
+  the main checkout (keeping its hosts and opts, such as `global: false`) at the newest version any
+  checkout's stamp or installed graft package names, so graft's refresh is a no-op. A repo graft
+  never wired is left alone.
 - **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
   A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
   resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
@@ -14,6 +94,19 @@
   goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
 
 ### Fixed
+
+- **A dispatched worker is told to run its checks in the foreground (TM-426, EP-028).** The
+  no-later-turn rule now names `run_in_background` and Monitor, since a headless `claude -p` worker
+  that backgrounded its checks and ended its turn exited with its fix uncommitted.
+- **A governed worker's brief keeps its "When you finish" block (TM-426).** The governed protocol
+  alone exceeded the 1200-character brief cap, so the worker never saw the accept, evidence, block or
+  "stop at ready-for-review" lines. Governed briefs now have a 2000-character cap, and in every brief
+  the acceptance criteria get only the room left after the rules and endings, so the cap never cuts
+  those. The cap now cuts only the head, never the ending.
+- **A worker's handoff carries the lead's latest `LEAD BRIEF` comment (TM-426).** A rework round's
+  requirements lived only in a comment the handoff never rendered, so the worker redid the previous
+  round. The newest `LEAD BRIEF` comment is rendered before "You are on your own"; earlier rounds are
+  superseded.
 
 - **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
   `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so

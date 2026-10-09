@@ -46,6 +46,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
+import { pidsOf } from "../worker-identity.mjs";
 import { GUARD_HOOK, PROMPT_FILE, passEnvNames, trustedDispatch, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
 
 /**
@@ -232,6 +233,8 @@ export function spawn(
     // The tmux session is the handle: `tmux attach -t <session>` is how a human looks in,
     // and ./collect.mjs reads the worker's liveness from exactly that session.
     run: `topology:${parsed.run.session}`,
+    // TM-470: the pane pids ao-topology bound — the dispatch-ancestry anchors (../worker-identity.mjs).
+    anchors: pidsOf([parsed.run.binding?.panePid, ...(Array.isArray(parsed.run.agents) ? parsed.run.agents.map((a) => a?.binding?.panePid) : [])]),
     nativeRunId,
     // TM-417: the producer's canonical workflow id is `topology:<native run id>`; a bare run id
     // here made every governed finish refuse with "Canonical workflow and native task run IDs differ".
