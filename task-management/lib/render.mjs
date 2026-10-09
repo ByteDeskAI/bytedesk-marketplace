@@ -334,8 +334,11 @@ export function workerBrief(id, p = paths()) {
     unmet.push(line); room -= line.length + 1;
   }
   if (unmet.length) out.push("Not yet met:", ...unmet);
-  const text = [...out, ...tail].join("\n");
-  return text.length > cap ? `${text.slice(0, cap - 1)}…` : text;
+  // Never slice the tail: if rules plus tail alone overflow, the head is what gets cut.
+  const head = out.join("\n");
+  const tailText = tail.join("\n");
+  const headRoom = Math.max(0, cap - tailText.length - 1);
+  return `${head.length > headRoom ? `${head.slice(0, Math.max(0, headRoom - 1))}…` : head}\n${tailText}`;
 }
 
 /**
@@ -386,6 +389,10 @@ export function handoff(id, p = paths()) {
   if ((t.evidence || []).length) out.push("## Evidence", ...t.evidence.map((e) => `- ${e}`), "");
   if ((t.commits || []).length) out.push("## Commits / PRs", ...t.commits.map((c) => `- ${c}`), "");
   if (epic?.body?.trim()) out.push("## Epic context", epic.body.trim(), "");
+  // TM-426: a rework round's requirements live in the lead's latest "LEAD BRIEF" comment; a worker
+  // handed only the body redid the previous round's work. Later briefs supersede earlier ones.
+  const leadBrief = (t.comments || []).findLast((c) => /^LEAD BRIEF\b/.test(String(c.text || "")));
+  if (leadBrief) out.push(`## Lead brief (${leadBrief.ts || "undated"}) — this round's requirements override the context above`, leadBrief.text.trim(), "");
   /**
    * A task labelled ready-for-agent is handed to a dispatched worker, and a worker
    * that walks away without closing leaves the board claiming in-progress work

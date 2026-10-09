@@ -22,7 +22,11 @@
   alone exceeded the 1200-character brief cap, so the worker never saw the accept, evidence, block or
   "stop at ready-for-review" lines. Governed briefs now have a 2000-character cap, and in every brief
   the acceptance criteria get only the room left after the rules and endings, so the cap never cuts
-  those.
+  those. The cap now cuts only the head, never the ending.
+- **A worker's handoff carries the lead's latest `LEAD BRIEF` comment (TM-426).** A rework round's
+  requirements lived only in a comment the handoff never rendered, so the worker redid the previous
+  round. The newest `LEAD BRIEF` comment is rendered before "You are on your own"; earlier rounds are
+  superseded.
 
 - **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
   `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so

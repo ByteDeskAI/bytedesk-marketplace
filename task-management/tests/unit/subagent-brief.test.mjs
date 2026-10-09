@@ -228,6 +228,14 @@ describe("the dispatched worker", () => {
     assert.match(out, /Attach proof, not claims/);
   });
 
+  it("never cuts the 'When you finish' tail, even when the head alone overflows the cap (TM-426)", () => {
+    const { p, t } = dispatched({ title: "x".repeat(3000) });
+    const out = workerBrief(t.id, p);
+    assert.ok(out.length <= 1200, `capped: ${out.length}`);
+    assert.match(out, /x…\n/, "the head is what gets cut");
+    assert.match(out, /Never leave the task in_progress: close it or block it\.$/, "the tail survives whole");
+  });
+
   it("says nothing for a task that does not exist", () => {
     assert.equal(workerBrief("TM-404", store()), "");
   });
