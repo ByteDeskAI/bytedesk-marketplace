@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The governed "agent-orchestration: unit" check no longer hangs, and a bare test run no longer
+  reaches the operator's NATS (TM-491, EP-028).** The check ran bare `node --test`, which skips the
+  harness preloads: the transport defaulted to NATS and the managed services were on, so
+  `mcp-contract`, `runtime-diagnostics` and `topology-addressing` dialed the live broker (or ran
+  `services ensure` against the operator's services) and the cached connection kept each process
+  alive after its last test. The check now runs `npm run -s test:unit` with the session identity
+  unset, and the task-management check also drops `TM_NTFY_*`. Those files now import
+  `tests/helpers/bare-run.mjs` first, which loads the same preloads and closes any live transport in
+  `after()`, so a bare run behaves like the harness run.
+- **`topology-management.test.mjs` exits after its last test (TM-461, EP-028).** Same cause: run
+  without the preloads it held a cached NATS connection open forever. It now imports
+  `tests/helpers/bare-run.mjs`; 132/132 pass and the process exits in about 95 s.
 ### Added
 
 - **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule

@@ -4,6 +4,23 @@
 
 ### Fixed
 
+- **`lock.test.mjs` no longer fails on a busy machine (TM-490, EP-028).** Tests 6 and 9 wrote a lock
+  held by the hardcoded pid 999999 and expected it to be dead. On the operator's machine that number
+  was a live thread of an unrelated node process, and `kill(pid, 0)` accepts a thread id, so
+  `staleLock` correctly reported the holder alive. Environment, not a code regression: the tests now
+  use the pid of a child that has already exited. The governed "task-management: unit" check also
+  stops inheriting session identity and `TM_NTFY_*` (TM-491).
+
+### Added
+
+- **Conformance test for the two finish-check readers (TM-493, EP-028).**
+  `tests/unit/finish-checks-conformance.test.mjs` runs one table of check shapes through
+  `finishChecksRefusal` and agent-orchestration's `finishCheckEvidence`/`normalizeChecks` (loaded from
+  its source file at test time, skipped when that plugin is not in the checkout) and pins each side's
+  verdict, so either side changing alone fails. It records six current divergences, among them: a
+  structured run without `revision` passes tm's review-ready but is refused by AO's automatic review
+  request, and AO accepts a missing or empty `command` that tm refuses.
+
 - **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**
   `readyForReview` required every `finish.checks` entry to be a string, so a governed task whose
   worker followed the handoff (`{name, command, exit_code, revision}`, TM-418) could never reach
