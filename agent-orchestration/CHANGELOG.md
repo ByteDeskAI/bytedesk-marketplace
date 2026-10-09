@@ -49,7 +49,13 @@
 - **The probe interval backs off while the lead keeps answering (TM-478).** The cached answer's
   lifetime doubles with each consecutive acknowledgement, up to `AO_RESPONSIVE_TTL_MAX_MS` (default
   four times `AO_RESPONSIVE_TTL_MS`). A delivered probe that goes unanswered resets the count. The
-  probe sweep no longer deletes the per-agent memo files in `probes/`.
+  probe sweep no longer deletes the per-agent answer memo, and the ring-outcome memo now lives in
+  `probe-state/`, beside `probes/`, so no reader of `probes/` can mistake it for a probe.
+- **A lead's ack is proof even when nobody is still waiting for it (TM-478).** `lead ack` now
+  records the answer itself and makes held mail that names the lead's repository (`leads_not_ready`)
+  due at once, so the next resume admits it even after the probe has expired. A waiter that
+  consumes an ack records the answer before removing the probe, so another waiter on the same probe
+  can no longer find neither and report the lead unresponsive. One answer advances the backoff once.
 - **The lead probe rings the lead's own tmux server (TM-402).** `wakeLead` checked and typed into
   `%N` on the default tmux server. It now shares one helper, `ringLeadPane`, with the held-mail
   ring, and that helper runs inside `withServer(binding.serverKey)`.

@@ -36012,6 +36012,7 @@ __export(standing_mailbox_exports, {
   standingRingPointer: () => standingRingPointer,
   standingUnread: () => standingUnread,
   waitForStandingReply: () => waitForStandingReply,
+  wakeHeldForRepository: () => wakeHeldForRepository,
   wakeStandingMessages: () => wakeStandingMessages,
   withdrawStandingMessage: () => withdrawStandingMessage
 });
@@ -36395,6 +36396,10 @@ async function wakeStandingMessages({ ids = [], ...options }) {
     });
   }
   return woken;
+}
+async function wakeHeldForRepository({ repoId, ...options }) {
+  const ids = (await records({ ...options, errors: [] })).filter((r) => r.status === "held" && r.reason === "leads_not_ready" && [r.envelope.destinationRepoId, r.envelope.sourceRepoId].includes(repoId)).map((r) => r.envelope.id);
+  return ids.length ? wakeStandingMessages({ ids, ...options }) : [];
 }
 async function sessionIdentity2({ env = process.env, agent = null, consumer = null } = {}) {
   const caller = callerIdentity(env);
@@ -40715,7 +40720,6 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
   }
   const late2 = await lateAck(dir, record2, log, { readOnly });
   if (late2 && await current()) {
-    if (!readOnly) await rememberAck(dir, record2);
     log(`lead acknowledged probe ${late2.nonce} after the previous wait returned`);
     onProof({ source: "late", age_ms: late2.age_ms });
     return true;
@@ -40763,11 +40767,10 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
   }
   if (acked) {
     await withLock(probeLock, async () => {
+      await rememberAck(dir, record2, nonce);
       await (0, import_promises58.rm)(probePath, { force: true });
       await (0, import_promises58.rm)(ackPath, { force: true });
     });
-    acked = await current();
-    if (acked) await rememberAck(dir, record2);
   } else {
     const shared = await recentAck(dir, record2);
     if (shared && await current()) {
@@ -40816,6 +40819,7 @@ async function lateAck(dir, record2, log = () => {
     if (!mine) continue;
     const bound = probe?.nonce === nonce && probe.repo_id === record2.repo_id && probe.agent_id === record2.agent_id && probe.session === record2.session && ack.session === record2.session && sameIncarnation(probe.binding, record2.binding) && sameIncarnation(ack.binding, record2.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
+      if (!readOnly) await rememberAck(dir, record2, nonce);
       if (!readOnly) await Promise.all([(0, import_promises58.rm)((0, import_node_path66.join)(dir, `${nonce}.json`), { force: true }), (0, import_promises58.rm)((0, import_node_path66.join)(dir, name), { force: true })]);
       const at2 = Date.parse(ack.created_at);
       return { nonce, age_ms: Number.isFinite(at2) ? Math.max(0, Date.now() - at2) : null };
@@ -40829,7 +40833,7 @@ async function sweepExpired(dir, log = () => {
 }) {
   for (const name of await (0, import_promises58.readdir)(dir).catch(() => [])) {
     if (!name.endsWith(".json") || name.endsWith(".ack.json")) continue;
-    if (name.endsWith(".answered.json") || name.endsWith(".last-probe.json")) continue;
+    if (name.endsWith(".answered.json")) continue;
     const probe = await readJson3((0, import_node_path66.join)(dir, name)).catch(() => null);
     if (probe && Number(probe.expires_at) >= Date.now()) continue;
     if (probe) log(`swept probe ${probe.nonce ?? name}: nobody can answer it any more`);
@@ -40847,11 +40851,11 @@ async function recentAck(dir, record2) {
   const same = memo.agent_id === record2.agent_id && memo.repo_id === record2.repo_id && memo.session === record2.session && sameIncarnation(memo.binding, record2.binding);
   return same ? { age_ms: age } : null;
 }
-async function rememberAck(dir, record2) {
+async function rememberAck(dir, record2, nonce = null) {
   const prior = await readJson3(ackMemoPath(dir, record2)).catch(() => null);
   const same = prior?.agent_id === record2.agent_id && prior.repo_id === record2.repo_id && prior.session === record2.session && sameIncarnation(prior.binding, record2.binding);
-  const streak = same ? (Number(prior.streak) || 1) + 1 : 1;
-  await writeJson(ackMemoPath(dir, record2), { at: Date.now(), streak, agent_id: record2.agent_id, repo_id: record2.repo_id, session: record2.session, binding: incarnationOf(record2.binding) }).catch(() => {
+  const streak = !same ? 1 : nonce && prior.answered_nonce === nonce ? Number(prior.streak) || 1 : (Number(prior.streak) || 1) + 1;
+  await writeJson(ackMemoPath(dir, record2), { at: Date.now(), streak, answered_nonce: nonce, agent_id: record2.agent_id, repo_id: record2.repo_id, session: record2.session, binding: incarnationOf(record2.binding) }).catch(() => {
   });
 }
 async function wakeLead(record2, nonce, { log = () => {
@@ -41141,7 +41145,13 @@ async function leadNonceAck({ consumer, nonce, env = process.env, home = (0, imp
   invariant2(record2 && probe.nonce === nonce && probe.repo_id === identity.id && record2.repo_id === identity.id && probe.agent_id === env.AO_AGENT_ID && record2.agent_id === env.AO_AGENT_ID && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive3(record2) && sameIncarnation(probe.binding, record2.binding), "TOPOLOGY_LEAD_PROBE_OWNER", "Probe must be acknowledged by its designated agent at the current exact incarnation in the same repository before expiry.");
   const ackPath = (0, import_node_path66.join)(dir, `${nonce}.ack.json`);
   await writeJson(ackPath, { nonce, repo_id: identity.id, agent_id: env.AO_AGENT_ID, session: record2.session, binding: incarnationOf(record2.binding), created_at: nowIso() });
-  return { ok: true, ack_path: ackPath };
+  await rememberAck(dir, record2, nonce);
+  let woken = [];
+  try {
+    woken = await (await Promise.resolve().then(() => (init_standing_mailbox(), standing_mailbox_exports))).wakeHeldForRepository({ repoId: identity.id, env, home });
+  } catch {
+  }
+  return { ok: true, ack_path: ackPath, ...woken.length ? { woken } : {} };
 }
 async function pendingLeadProbes({ consumer, env = process.env, home = (0, import_node_os37.homedir)() }) {
   const identity = await canonicalRepoId(consumer);
@@ -41176,7 +41186,7 @@ var init_lead = __esm({
     DEFAULT_ACK_TIMEOUT_MS = Number(process.env.AO_LEAD_ACK_TIMEOUT_MS ?? 3e4);
     ACK_POLL_MS = Number(process.env.AO_LEAD_ACK_POLL_MS ?? 500);
     NONCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,99}$/;
-    lastProbePath = (dir, record2) => (0, import_node_path66.join)(dir, `${record2.agent_id}.last-probe.json`);
+    lastProbePath = (dir, record2) => (0, import_node_path66.join)((0, import_node_path66.dirname)(dir), "probe-state", `${record2.agent_id}.last-probe.json`);
     RESPONSIVE_TTL_MS2 = Number(process.env.AO_RESPONSIVE_TTL_MS ?? 6e5);
     RESPONSIVE_TTL_MAX_MS = Number(process.env.AO_RESPONSIVE_TTL_MAX_MS ?? RESPONSIVE_TTL_MS2 * 4);
     ackMemoPath = (dir, record2) => (0, import_node_path66.join)(dir, `${record2.agent_id}.answered.json`);
@@ -80597,10 +80607,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "52cb5c8b4d6e252e019334b14dda30e6043fc681822cb6fe4301c115c65fb6a5";
+  return false ? null : "484535efa045ca4d2e0dc4d15fa08c608e12a6b50360f5efa91f520839d59a43";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "52cb5c8b4d6e252e019334b14dda30e6043fc681822cb6fe4301c115c65fb6a5";
+  const fingerprint2 = false ? null : "484535efa045ca4d2e0dc4d15fa08c608e12a6b50360f5efa91f520839d59a43";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -81025,7 +81035,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "52cb5c8b4d6e252e019334b14dda30e6043fc681822cb6fe4301c115c65fb6a5",
+  sourceFingerprint: false ? null : "484535efa045ca4d2e0dc4d15fa08c608e12a6b50360f5efa91f520839d59a43",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

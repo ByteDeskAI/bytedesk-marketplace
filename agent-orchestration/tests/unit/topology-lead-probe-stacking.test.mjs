@@ -4,14 +4,16 @@
 // against a stub, and the server test records argv through a shim command that never execs tmux.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { composerFormat, wakeForProbe } from '../../topology/lib/delivery.mjs';
-import { leadRegistryDir, leadState, responsiveForTest, responsiveTtlMs, ringLeadPane } from '../../topology/lib/lead.mjs';
+import { leadNonceAck, leadRegistryDir, leadState, responsiveForTest, responsiveTtlMs, ringLeadPane } from '../../topology/lib/lead.mjs';
+import { agentsRoot } from '../../topology/lib/agents.mjs';
+import { resumeStandingMessages, sendStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import * as tmux from '../../topology/lib/tmux.mjs';
-import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
+import { exists, readJson, run, sleep, writeJson } from '../../topology/lib/util.mjs';
 
 const BINDING = { serverKey: '/isolated/tm478', serverPid: 100, sessionId: '$1', sessionCreated: 200, paneId: '%2', panePid: 300 };
 const ADAPTER = { id: 'claude', submit_keys: ['Enter'], composer: { empty_tmux_pattern: '^\\s*[>❯]\\s*$' }, failure_patterns: [] };
@@ -76,7 +78,7 @@ test('a probe whose ring typed nothing is re-rung under the SAME nonce, not a se
   assert.equal(nonces.length, 2, 'rung again only because nothing was typed the first time; never after a landed ring');
   assert.equal(nonces[0], nonces[1]);
   // A pointer lost from the pane is replaced once a full window has passed, still under the same nonce.
-  const lastPath = join(f.dir, 'lead0001.last-probe.json');
+  const lastPath = join(f.registryDir, 'probe-state', 'lead0001.last-probe.json');
   await writeJson(lastPath, { ...await readJson(lastPath), at: Date.now() - 200_000 });
   assert.equal(await responsiveForTest(f.record, 30, options), false);
   assert.deepEqual([nonces.length, nonces[2]], [3, nonces[0]]);
@@ -96,6 +98,59 @@ test('callers sharing one probe all see the answer: the one that consumes the ac
   assert.deepEqual(results, [true, true, true]);
   assert.equal(rings, 1, 'one ring for three callers');
   assert.equal((await readJson(join(f.dir, 'lead0001.answered.json'))).streak, 1, 'the recorded answer survives the other waiters');
+});
+
+test('two waiters on one probe both see the answer even when the consumer stalls after removing it', async (t) => {
+  const f = await fixture(t);
+  let nonce = null, stalled = false;
+  // The first liveness check made after the probe file is gone stalls. Before the fix that was the
+  // consuming waiter's own check, made after the lock and BEFORE it recorded the answer; the other
+  // waiter, seeing the probe gone, found no memo and reported the lead unresponsive.
+  const alive = async () => {
+    if (nonce && !stalled && !await exists(join(f.dir, `${nonce}.json`))) { stalled = true; await sleep(1500); }
+    return true;
+  };
+  const wake = async (_record, minted) => {
+    nonce = minted;
+    setTimeout(async () => { await writeJson(join(f.dir, `${minted}.ack.json`), await readJson(join(f.dir, `${minted}.json`))); }, 400);
+    return { rang: true, submitted: true };
+  };
+  const options = { registryDir: f.registryDir, alive, wake };
+  const first = responsiveForTest(f.record, 3000, options);
+  await sleep(250);
+  const results = await Promise.all([first, responsiveForTest(f.record, 3000, options)]);
+  assert.deepEqual(results, [true, true]);
+  assert.equal((await readJson(join(f.dir, 'lead0001.answered.json'))).streak, 1, 'one answer, one step of backoff');
+  assert.ok(!(await readdir(f.dir)).some((name) => name.includes('last-probe')), 'the ring memo is not in probes/');
+});
+
+test('an ack with no waiter left still releases held mail after its probe expires', async (t) => {
+  const f = await fixture(t);
+  const source = join(f.root, 'source');
+  await run('git', ['init', source]);
+  await writeJson(f.recordPath, f.record);
+  await writeJson(join(agentsRoot(f.consumer), 'lead0001', 'agent.json'), { id: 'lead0001', role: 'lead', full_name: 'lead0001' });
+  const ready = { status: 'responsive', record: { agent_id: 'send0001' }, library_lead: 'send0001' };
+  const probes = { alive: async () => true };
+  const opts = { env: f.env, home: f.home,
+    readiness: async (o) => o.consumer === source ? ready : leadState({ ...o, probes }),
+    requestRecovery: async () => {}, activate: async () => ({ enrollment: { enrolled: true } }), enrollment: async () => ({ enrolled: true }) };
+  // A delivered probe nobody answered in time: the lead reads unresponsive and the mail is held.
+  assert.equal(await responsiveForTest(f.record, 30, { registryDir: f.registryDir, alive: probes.alive, wake: async () => ({ rang: true, submitted: true }) }), false);
+  const [probe] = await probeFiles(f.dir);
+  const nonce = probe.slice(0, -'.json'.length);
+  const message = { id: 'held-for-ack', consumer: f.consumer, fromProject: source, from: 'send0001', to: 'lead0001', body: 'body' };
+  const held = await sendStandingMessage(message, opts);
+  assert.deepEqual([held.status, held.reason], ['held', 'leads_not_ready']);
+  assert.ok(held.next_retry_at, 'held on a backoff');
+  // The lead answers at its next turn boundary. No waiter is running.
+  const acked = await leadNonceAck({ consumer: f.consumer, nonce, env: f.env, home: f.home, alive: probes.alive });
+  assert.deepEqual(acked.woken, ['held-for-ack'], 'the ack makes the held mail due now');
+  // The probe then expires and is swept, taking the ack with it.
+  await rm(join(f.dir, `${nonce}.json`)); await rm(join(f.dir, `${nonce}.ack.json`));
+  const [resumed] = await resumeStandingMessages({ consumer: f.consumer, ...opts });
+  assert.equal(resumed?.status, 'delivered', JSON.stringify(resumed));
+  assert.equal(resumed.delivered_to, 'lead0001');
 });
 
 test('an undelivered or unsubmitted probe leaves the lead unproven, never unresponsive; a delivered one does not', async (t) => {
@@ -136,7 +191,7 @@ test('the probe interval backs off while the lead keeps answering, and resets wh
   assert.equal(rings, 2, 'after two answers the same age is still proof: no ring, no model turn spent');
   await age(base * 2 + 1000);
   assert.equal(await responsiveForTest(f.record, 30, { ...answering, wake: async () => { rings += 1; return { rang: true, submitted: true }; } }), false);
-  await rm(join(f.dir, 'lead0001.last-probe.json'));
+  await rm(join(f.registryDir, 'probe-state', 'lead0001.last-probe.json'));
   assert.equal(await responsiveForTest(f.record, 200, answering), true);
   assert.equal((await readJson(memoPath)).streak, 1, 'a delivered, unanswered probe ends the run');
 });

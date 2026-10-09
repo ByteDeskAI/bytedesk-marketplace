@@ -384,6 +384,14 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
   return woken;
 }
 
+/** TM-478: a lead's ack makes the mail held for its readiness due now. Nothing is delivered here. */
+export async function wakeHeldForRepository({ repoId, ...options }) {
+  const ids = (await records({ ...options, errors: [] }))
+    .filter(r => r.status === 'held' && r.reason === 'leads_not_ready' && [r.envelope.destinationRepoId, r.envelope.sourceRepoId].includes(repoId))
+    .map(r => r.envelope.id);
+  return ids.length ? wakeStandingMessages({ ids, ...options }) : [];
+}
+
 /**
  * TM-356: who this session is, for every mailbox entry that acts as an agent (CLI send and forward,
  * MCP send, receive and dispose). The identity is the launcher's — AO_AGENT_ID and AO_CONSUMER, the
