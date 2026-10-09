@@ -12,13 +12,21 @@
     the other node's live persona.
   - Missing, stale or unreadable presence now means unknown, and the holder keeps its persona.
     Only fresh presence from the holder's node that does not list it frees the persona.
-  - A multi-agent launch now prepares every claim first: locks, refusals and turn waits. It ends
-    an old session only after all claims succeed, so one refused agent no longer leaves another
-    agent's session already killed. Claims are taken in agent-id order.
+  - A multi-agent launch now prepares and then settles every claim first: locks, refusals, turn
+    waits (looked at twice) and handoffs. It ends an old session only after every claim has settled,
+    so an agent that refuses, even one that went busy after it was prepared, no longer leaves another
+    agent's session already killed. If ending a session itself fails, the error lists the sessions
+    already replaced and their handoff paths. Claims are taken in agent-id order.
+  - The transcript fallback reads only the transcript that received this agent's handoff request.
+    In a shared directory it no longer takes another agent's newer conversation; with no match it
+    falls back to the pane capture.
+  - The fallback handoff is written to its own `<id>.fallback.md` file. An agent that finishes its
+    handoff after the timeout no longer has it overwritten, and `readHandoff` prefers that file.
   - `openRoleSession` no longer respawns by default. Lead ensure, reviewer ensure and other
     automated opens now refuse a live agent with `TOPOLOGY_AGENT_ALREADY_LIVE` instead of killing
     it. `session open` and `agent restart` still respawn on request.
-  - A respawn of the caller's own live session is refused with `TOPOLOGY_RESPAWN_SELF`.
+  - A respawn of the caller's own live session is refused with `TOPOLOGY_RESPAWN_SELF`. The
+    caller is read from the `env` passed in, not from `process.env`.
 
 ## [0.16.1] — 2026-10-08
 

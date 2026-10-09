@@ -14,7 +14,7 @@
 // The per-agent lock is held from the liveness check until the caller has created the new session, so
 // two simultaneous re-spawns cannot both replace the agent: the loser waits, then joins the winner's
 // result (TOPOLOGY_RESPAWN_JOINED, with that result in the error details) instead of replacing it again.
-import { mkdir, open, readdir, rename, stat } from "node:fs/promises";
+import { mkdir, open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { busyEvidence } from "./census.mjs";
@@ -111,20 +111,27 @@ export async function waitForFile(path, { timeoutMs, pollMs = 1_000 }) {
 
 /**
  * Claude Code keeps a transcript per cwd: `~/.claude/projects/<cwd with / and . as ->/<uuid>.jsonl`
- * (.claude/rules/parsing-claude-jsonl.md); the newest file is the live conversation.
- * ponytail: claude only. Other providers report no transcript and fall back to the pane capture.
+ * (.claude/rules/parsing-claude-jsonl.md). With no `marker` the newest file is the live conversation —
+ * right only where the cwd is the agent's own. TM-484: in a shared cwd pass a `marker` (the handoff
+ * path just typed into the pane): only a transcript whose tail contains it is this agent's, the newest
+ * such wins, and none means null — never another agent's conversation.
+ * ponytail: claude only; scans the 20 newest files. Other providers fall back to the pane capture.
  */
-export async function findTranscript({ adapterId, cwd, home = homedir() }) {
+export async function findTranscript({ adapterId, cwd, home = homedir(), marker = null }) {
   if (adapterId !== "claude" || !cwd) return null;
   const dir = join(home, ".claude", "projects", sanitizeCwd(cwd));
   const files = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  let newest = null;
+  const dated = [];
   for (const entry of files.filter((file) => file.isFile() && file.name.endsWith(".jsonl"))) {
     const path = join(dir, entry.name);
-    const mtime = (await stat(path).catch(() => null))?.mtimeMs ?? 0;
-    if (!newest || mtime > newest.mtime) newest = { path, mtime };
+    dated.push({ path, mtime: (await stat(path).catch(() => null))?.mtimeMs ?? 0 });
   }
-  return newest?.path ?? null;
+  dated.sort((a, b) => b.mtime - a.mtime);
+  if (!marker) return dated[0]?.path ?? null;
+  for (const { path } of dated.slice(0, 20)) {
+    if ((await readTail(path).catch(() => [])).some((line) => line.includes(marker))) return path;
+  }
+  return null;
 }
 
 /** The last `maxBytes` of a file as complete lines. Never reads the whole file (it can be 30+ MB). */
@@ -214,7 +221,7 @@ export async function claimAgent(options) {
  * TM-484: the refusable half of claimAgent — lock, liveness, every refusal and the turn wait — with
  * nothing typed and nothing ended. A caller claiming several agents prepares them ALL before it
  * commits any, so one refusal can no longer leave an earlier agent's session already killed.
- * Returns { release, holder, commit }; commit() is claimAgent's result. On a throw the lock is released.
+ * Returns { release, holder, settle, commit }; commit() is claimAgent's result. On a throw the lock is released.
  */
 export async function prepareClaim({ agentId, agentsDir = null, except = null, adapter = null, respawn = true, requestedBy = null, mode = "handoff",
   env = process.env, home = homedir(), bounds: overrides = {}, deps = {} }) {
@@ -228,9 +235,9 @@ export async function prepareClaim({ agentId, agentsDir = null, except = null, a
     timeoutMs: bounds.turnTimeoutMs + bounds.handoffTimeoutMs + bounds.exitTimeoutMs + 120_000, timeoutCode: "TOPOLOGY_RESPAWN_LOCK_TIMEOUT" });
   try {
     const holder = await liveSessionOf(agentId, { agentsDir, except });
-    if (!holder) return { release, holder: null, commit: async () => ({ release, respawn: null }) };
+    if (!holder) return { release, holder: null, settle: async () => null, commit: async () => ({ release, respawn: null }) };
     invariant(respawn, "TOPOLOGY_AGENT_ALREADY_LIVE", `Agent ${agentId} already has a live session, "${holder}". One agent holds one session: use that one, stop it first, re-spawn it without --no-respawn, or give the parallel work to a different agent.`, { agent_id: agentId, session: holder });
-    invariant(await callerSession() !== holder, "TOPOLOGY_RESPAWN_SELF", `Agent ${agentId}'s live session "${holder}" is the one running this command; replacing it would end the caller mid-turn. Run it from another session.`, { agent_id: agentId, session: holder });
+    invariant(await callerSession(env) !== holder, "TOPOLOGY_RESPAWN_SELF", `Agent ${agentId}'s live session "${holder}" is the one running this command; replacing it would end the caller mid-turn. Run it from another session.`, { agent_id: agentId, session: holder });
 
     const lastPath = join(dir, `${agentId}.last.json`);
     const last = await readJson(lastPath).catch(() => null);
@@ -256,9 +263,12 @@ export async function prepareClaim({ agentId, agentsDir = null, except = null, a
     invariant(turn.ended, "TOPOLOGY_AGENT_BUSY", `Agent ${agentId} is mid-turn in "${holder}" and did not finish within ${bounds.turnTimeoutMs}ms; it was not interrupted and its session is untouched. Retry later, or raise --turn-timeout.`, { agent_id: agentId, session: holder, reason: turn.reason });
     note("turn-ended", { waited_ms: turn.waited_ms, reason: turn.reason });
 
-    const commit = async () => {
-      // A multi-agent launch commits one claim after another, so this agent may have started a new
-      // turn since it was prepared. Look again; an idle agent answers at once.
+    // settle(): everything that may still refuse or ask — the second turn look and the handoff. end():
+    // the kill, which cannot refuse for being busy. A multi-agent launch settles EVERY claim before it
+    // ends any, so no agent's session is ended while another can still refuse.
+    let settled = null;
+    const settle = () => settled ??= (async () => {
+      // This agent may have started a new turn since it was prepared. Look again; an idle agent answers at once.
       const again = pane ? await waitForTurnEnd({ session: holder, pane, adapter, timeoutMs: bounds.turnTimeoutMs, pollMs: bounds.pollMs, idleLooks: bounds.idleLooks })
         : { ended: true };
       invariant(again.ended, "TOPOLOGY_AGENT_BUSY", `Agent ${agentId} started a new turn in "${holder}" and did not finish within ${bounds.turnTimeoutMs}ms; it was not interrupted and its session is untouched.`, { agent_id: agentId, session: holder, reason: again.reason });
@@ -281,17 +291,22 @@ export async function prepareClaim({ agentId, agentsDir = null, except = null, a
           handoff = { path, source: "agent" };
         } else {
           const cwd = (panes.find((entry) => entry.paneId === pane) ?? {}).cwd;
-          const transcript = await findTranscript({ adapterId: adapter?.id, cwd, home });
+          // Only the transcript that received this request is this agent's (TM-484: a shared cwd holds others').
+          const transcript = paneAlive ? await findTranscript({ adapterId: adapter?.id, cwd, home, marker: path }) : null;
           const turns = transcript ? transcriptTurns(await readTail(transcript)) : [];
           const paneTail = transcript ? null : (await tmux.tmux(["capture-pane", "-p", "-t", pane ?? holder, "-S", "-80"], { allowFailure: true })).stdout;
-          // Rename over whatever partial file the agent may have left, so the fallback is the one answer.
-          await writeText(`${path}.fallback`, fallbackHandoff({ agentId, waitedMs: bounds.handoffTimeoutMs, transcript, turns, paneTail }));
-          await rename(`${path}.fallback`, path);
-          handoff = { path, source: transcript ? "transcript-fallback" : "pane-capture-fallback", transcript };
+          // Its own file (TM-484): a late handoff from the agent lands at `requested` and is never overwritten.
+          const fallback = path.replace(/\.md$/, ".fallback.md");
+          await writeText(fallback, fallbackHandoff({ agentId, waitedMs: bounds.handoffTimeoutMs, transcript, turns, paneTail }));
+          handoff = { path: fallback, requested: path, source: transcript ? "transcript-fallback" : "pane-capture-fallback", transcript };
         }
         note("handoff-ready", { source: handoff.source });
       }
+      return { resume, handoff };
+    })();
 
+    const commit = async () => {
+      const { resume, handoff } = await settle();
       // 4. End it exactly once: the provider's own exit if it declares one, then kill that session.
       if (pane && adapter?.exit_command && (await sessionPanes(holder)).some((entry) => entry.paneId === pane && !entry.dead)) {
         await tmux.sendText(pane, adapter.exit_command, adapter.submit_keys);
@@ -306,7 +321,7 @@ export async function prepareClaim({ agentId, agentsDir = null, except = null, a
       await writeJson(lastPath, record);
       return { release, respawn: record };
     };
-    return { release, holder, commit };
+    return { release, holder, settle, commit };
   } catch (error) {
     await release();
     throw error;
@@ -346,7 +361,9 @@ export async function resumableSession({ adapter, agentId, agentsDir, cwd, home 
 export async function readHandoff(record) {
   if (!record?.handoff?.path) return null;
   const { readFile } = await import("node:fs/promises");
-  return readFile(record.handoff.path, "utf8").catch(() => null);
+  // The agent's own handoff wins over the fallback when it finished writing after the timeout.
+  const late = record.handoff.requested ? await readFile(record.handoff.requested, "utf8").catch(() => null) : null;
+  return late || readFile(record.handoff.path, "utf8").catch(() => null);
 }
 
 /** The explicit way a lead gives a new session its predecessor's handoff: a verified pointer to the file. */

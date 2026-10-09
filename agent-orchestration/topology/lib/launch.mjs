@@ -1005,8 +1005,17 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
         claims.push(prepared);
         pending.push([agent, prepared]);
       }
+      // Settle every claim — second turn look and handoff, the last steps that can refuse — before
+      // ending any session, so a refusal here still leaves every agent's session untouched.
+      for (const [, prepared] of pending) await prepared.settle();
       for (const [agent, prepared] of pending) {
-        const claim = await prepared.commit();
+        let claim;
+        try { claim = await prepared.commit(); }
+        catch (error) {
+          // Only an end failure gets here. Name what was already replaced, and where its handoff is.
+          error.details = { ...error.details, replaced: respawned.map((record) => ({ agent: record.agent, session: record.predecessor.session, handoff: record.handoff?.path ?? null })) };
+          throw error;
+        }
         if (claim.respawn) {
           // The new incarnation names the one it replaced: on its pane, and on the session of a spawn.
           agent._predecessor = claim.respawn.predecessor.id;
