@@ -20,7 +20,7 @@
         "argv": [
           "sh",
           "-c",
-          "cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit"
+          "cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR npm run -s test:unit"
         ],
         "timeout_ms": 900000
       },
@@ -41,7 +41,7 @@
         "argv": [
           "sh",
           "-c",
-          "cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs"
+          "cd task-management && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs"
         ],
         "timeout_ms": 600000
       },
@@ -64,6 +64,15 @@
           "./task-management"
         ],
         "timeout_ms": 120000
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "argv": [
+          "sh",
+          "-c",
+          "env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u AO_CONSUMER -u TM_DISPATCH_WORKER -u TM_DISPATCH_TASK -u TM_ACTOR bash plugin-rsync/tests/test-plugin-rsync.sh"
+        ],
+        "timeout_ms": 300000
       }
     ],
     "integrate_via": "pull-request",
