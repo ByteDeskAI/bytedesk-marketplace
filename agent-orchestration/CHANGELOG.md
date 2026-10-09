@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **A finish report applies integrate's dirty-path filter (TM-507, EP-029).** `manage report
+  --kind finish` refused on any `git status` output, while integrate tolerated the tools' own store
+  paths through `foreignDirtyPaths`. The finish check now uses the same filter, and its refusal
+  names the dirty paths.
 - **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
   subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
   cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each

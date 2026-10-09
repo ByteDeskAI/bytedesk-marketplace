@@ -654,6 +654,22 @@ test('integration tolerates dirty tool store paths but refuses any other dirty p
   assert.equal((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), report.finish.revision);
 });
 
+// TM-507: a finish report applies integrate's foreignDirtyPaths filter, not a raw git status.
+test('finish report tolerates dirty tool store paths in the worktree but refuses any other dirty path', async t => {
+  const { opts, git } = await fixture(t);
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const report = { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision };
+  await writeFile(join(worktree, 'stray.txt'), 'uncommitted');
+  await assert.rejects(workerReport({ ...opts, kind: 'finish', report }), err => err.code === 'TOPOLOGY_MANAGEMENT_DIRTY' && /stray\.txt/.test(err.message));
+  await rm(join(worktree, 'stray.txt'));
+  await mkdir(join(worktree, '.bytedesk/task-management'), { recursive: true }); await writeFile(join(worktree, '.bytedesk/task-management/state.json'), '{}');
+  assert.equal((await workerReport({ ...opts, kind: 'finish', report })).state, 'ready-for-review');
+});
+
 test('integration refuses a landing that would change tool store paths', async t => {
   const { opts, doc, git } = await fixture(t);
   doc.touches = ['code.txt', '.bytedesk/task-management/'];

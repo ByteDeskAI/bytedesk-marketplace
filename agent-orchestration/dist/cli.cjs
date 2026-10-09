@@ -25107,7 +25107,8 @@ async function workerReport(options) {
     if (kind === "finish") {
       invariant2(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every((check2) => nonempty(check2) || check2 && typeof check2 === "object") && report.checks.length && list(report.risks) && nonempty(report.evidence), "TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL", "Finish requires artifacts, checks/evidence, remaining risks and exact revision.");
       invariant2(report.revision === await gitText(doc.worktree, ["rev-parse", "HEAD"]), "TOPOLOGY_MANAGEMENT_REVISION", "Finish must name the current exact task commit.");
-      invariant2(!await gitText(doc.worktree, ["status", "--porcelain"]), "TOPOLOGY_MANAGEMENT_DIRTY", "Commit or preserve outstanding changes before readiness for review.");
+      const dirty = await foreignDirtyPaths(doc.worktree);
+      invariant2(!dirty.length, "TOPOLOGY_MANAGEMENT_DIRTY", `Commit or preserve outstanding changes before readiness for review: ${dirty.slice(0, 10).join(", ")}.`);
       invariant2(!(prior.events || []).some((e) => e.event === "rework" && e.revision === report.revision), "TOPOLOGY_MANAGEMENT_REVISION", `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report);
     } else invariant2(nonempty(report?.message), "TOPOLOGY_MANAGEMENT_PROTOCOL", "A during-work report requires a visible reason.");
@@ -64227,10 +64228,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "395148ff9b9f3d89a62e0e890ed5b42d0b7fce0d020e30916e9e3854ae3adcf5";
+  return false ? null : "b49f4b903945835d8ff9d3bf7fcc891021c96b5fbfdf46ee3267fcfc5bd33419";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "395148ff9b9f3d89a62e0e890ed5b42d0b7fce0d020e30916e9e3854ae3adcf5";
+  const fingerprint2 = false ? null : "b49f4b903945835d8ff9d3bf7fcc891021c96b5fbfdf46ee3267fcfc5bd33419";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64847,7 +64848,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "395148ff9b9f3d89a62e0e890ed5b42d0b7fce0d020e30916e9e3854ae3adcf5",
+  sourceFingerprint: false ? null : "b49f4b903945835d8ff9d3bf7fcc891021c96b5fbfdf46ee3267fcfc5bd33419",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
