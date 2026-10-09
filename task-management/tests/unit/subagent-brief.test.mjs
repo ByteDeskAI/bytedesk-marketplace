@@ -209,6 +209,7 @@ describe("the dispatched worker", () => {
     // No human and no later turn: the same rules handoff() renders (TM-246).
     assert.match(out, /Do the task in your own session/);
     assert.match(out, /Never end your turn while a background agent or command you started is still running/);
+    assert.match(out, /no run_in_background, no Monitor/, "TM-426: a headless worker must not background its checks");
     assert.match(out, new RegExp(`Block instead: \\S+tm block ${t.id} "<the question>"`));
   });
 
@@ -225,6 +226,14 @@ describe("the dispatched worker", () => {
     assert.match(out, /When you finish:/);
     assert.match(out, /Tick each criterion only once verified/);
     assert.match(out, /Attach proof, not claims/);
+  });
+
+  it("never cuts the 'When you finish' tail, even when the head alone overflows the cap (TM-426)", () => {
+    const { p, t } = dispatched({ title: "x".repeat(3000) });
+    const out = workerBrief(t.id, p);
+    assert.ok(out.length <= 1200, `capped: ${out.length}`);
+    assert.match(out, /x…\n/, "the head is what gets cut");
+    assert.match(out, /Never leave the task in_progress: close it or block it\.$/, "the tail survives whole");
   });
 
   it("says nothing for a task that does not exist", () => {
