@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Broken repository checkouts are detected and repaired without an operator (TM-394).** A new
+  `topology/lib/checkout-repair.mjs` covers four cases. It recognises a `.git` pointer whose
+  `gitdir` and owning repository are both gone, a registered repository with no `.git`, a pointer
+  whose owning repository still exists (an orphaned worktree), and a repository that `git fsck`
+  rejects. The first two are repaired. The checkout's remote comes from `bytedesk-package.yaml` or
+  `package.json` `repository`, and is cloned `--no-checkout` into a scratch directory beside the
+  checkout, never `/tmp`. Bounded tags and recent default-branch commits are compared against the
+  working tree through a scratch index, and the closest is adopted with a mixed reset. The old
+  pointer is kept inside the new `.git`. A snapshot commit of the working tree as found becomes
+  branch `ao-repair/<stamp>`. Local edits are stashed, the branch moves to `origin/<default>`, and
+  the stash is applied by SHA. If the apply conflicts, upstream wins on disk and the stash is
+  kept, never dropped. An ignored file that the advance would overwrite cancels the advance.
+  The repair refuses with an alert, changing nothing, in these cases: no remote is known; the
+  remote is shaped like a git option; or the closest revision has more than the lesser of 50 and
+  10% of its tracked paths differing, or under 90% of them byte-identical. It also refuses when
+  the case needs a human: a pointer target that cannot be stat'ed (anything but ENOENT or
+  ENOTDIR) is `unreadable`, never "gone". An `in-progress` record is written before the stash
+  step. A repair interrupted there is then reported as `TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED`,
+  naming the snapshot branch and the stash, and is never re-run. Each attempt is recorded as
+  `checkout_repair` in `leads/<key>.recovery.json` (preserved by lead recovery and shown by
+  `lead status`) and in its journal, with backoff. `supervise` repairs at start and checks each
+  reconcile, restarting itself after a mid-run repair so it re-keys on the repaired identity.
+  `services ensure` checks every registered repository, reports broken ones by path and restarts
+  a repaired repository's supervisor, whose first reconcile ensures its lead. `lead ensure`
+  repairs first and refuses (`TOPOLOGY_CHECKOUT_BROKEN`) rather than mint a lead for a checkout
+  that is still broken.
+
+## [0.16.1] — 2026-10-08
+
+Security release. It closes the high-severity holes found in independent post-merge review of the
+EP-028 work (PRs #222–#226), plus #221's NATS autostart delivery (TM-400) and the TM-471 test fix.
+
+### Known issues
+
+- **TM-427 is still open: `review submit` and the verdict file trust `AO_AGENT_ID`.** A same-user
+  process that sets `AO_AGENT_ID` to the reviewer's id can submit a verdict, or write the verdict file
+  directly. Interim mitigation: the autonomy hook (TM-433) never auto-approves `review submit` for a
+  worker. Do not treat 0.16.1 review approvals as fully hardened. The fix is planned for 0.16.2.
+- **TM-428 is still open.** A NUL byte in a source file's first 8000 bytes still moves that file out
+  of the reviewed patch into a hash-only manifest row. Planned for 0.16.2.
+- **TM-445 is still open.** The saved effective-base cache is read before the server is asked, so a
+  same-user write can narrow a review range. Planned for 0.16.2.
+- Keep `management.autonomy` at `pr` until these ship.
+
+- **The reviewer tests pin the file transport themselves (TM-471, EP-028).** Two late-ack tests in
+  `topology-reviewer.test.mjs` passed only when the suite preload set `AO_TRANSPORT=file`. Run
+  bare, they used NATS, so no probe file was written and both tests failed. The fixture now sets
+  `AO_TRANSPORT: 'file'` in its own env. Test-only; no runtime change.
 ### Security
 
 - **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**
@@ -402,33 +452,6 @@
   cross-repo senders reach it only when `delegationAllows` covers that task for that worker, and
   otherwise go to the lead as before. With no live bound worker, same-repo mail is held
   `task_worker_unbound` (retryable).
-
-- **Broken repository checkouts are detected and repaired without an operator (TM-394).** A new
-  `topology/lib/checkout-repair.mjs` covers four cases. It recognises a `.git` pointer whose
-  `gitdir` and owning repository are both gone, a registered repository with no `.git`, a pointer
-  whose owning repository still exists (an orphaned worktree), and a repository that `git fsck`
-  rejects. The first two are repaired. The checkout's remote comes from `bytedesk-package.yaml` or
-  `package.json` `repository`, and is cloned `--no-checkout` into a scratch directory beside the
-  checkout, never `/tmp`. Bounded tags and recent default-branch commits are compared against the
-  working tree through a scratch index, and the closest is adopted with a mixed reset. The old
-  pointer is kept inside the new `.git`. A snapshot commit of the working tree as found becomes
-  branch `ao-repair/<stamp>`. Local edits are stashed, the branch moves to `origin/<default>`, and
-  the stash is applied by SHA. If the apply conflicts, upstream wins on disk and the stash is
-  kept, never dropped. An ignored file that the advance would overwrite cancels the advance.
-  The repair refuses with an alert, changing nothing, in these cases: no remote is known; the
-  remote is shaped like a git option; or the closest revision has more than the lesser of 50 and
-  10% of its tracked paths differing, or under 90% of them byte-identical. It also refuses when
-  the case needs a human: a pointer target that cannot be stat'ed (anything but ENOENT or
-  ENOTDIR) is `unreadable`, never "gone". An `in-progress` record is written before the stash
-  step. A repair interrupted there is then reported as `TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED`,
-  naming the snapshot branch and the stash, and is never re-run. Each attempt is recorded as
-  `checkout_repair` in `leads/<key>.recovery.json` (preserved by lead recovery and shown by
-  `lead status`) and in its journal, with backoff. `supervise` repairs at start and checks each
-  reconcile, restarting itself after a mid-run repair so it re-keys on the repaired identity.
-  `services ensure` checks every registered repository, reports broken ones by path and restarts
-  a repaired repository's supervisor, whose first reconcile ensures its lead. `lead ensure`
-  repairs first and refuses (`TOPOLOGY_CHECKOUT_BROKEN`) rather than mint a lead for a checkout
-  that is still broken.
 
 ### Fixed
 
