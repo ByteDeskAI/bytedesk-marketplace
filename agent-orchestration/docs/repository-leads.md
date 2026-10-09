@@ -258,6 +258,16 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    the caller's own tmux server. The caller itself, a pane or process another task already binds, and
    a respawned pane are refused. An in-process subagent runs in the lead's own process, so it cannot
    be adopted; finish it and start the next worker with `start-worker`.
+
+   **Delegating to an existing terminal (TM-412).** The pane rules above refuse an operator's
+   long-lived terminal, so adopt the harness process inside it instead: `manage bind --task TM-id
+   --pid <pid of the Codex or Claude process>`, run from the lead's own session. A process binding is
+   never closed by `stop-worker` or `cleanup`; integration waits until that process has exited. If an
+   earlier dispatch of the task (a duplicate pool worker, say) has exited, bind refuses until
+   `tm collect TM-id` records it as ended; a dispatch tm has collected is history and never stands in
+   for the adopted writer. The lead then submits the finish with `manage report`; the admission, its
+   base revision and the worktree are unchanged. Once bound, `manage assignment` reports the writer,
+   so tm's duplicate-dispatch guard does not send a second writer into the worktree.
 3. **Stop.** Run `manage stop-worker --task TM-id`. It closes the bound pane only when this session
    owns the binding, the worker's finish report is recorded, and the pane is idle: its process is a
    shell with no children, so the harness has exited. Idle detection reads `/proc`, so it works on
