@@ -11,6 +11,7 @@
  * it the handoff.
  */
 import { config } from "../store.mjs";
+import { workerCommand } from "./tmux.mjs";
 
 export const name = "manual";
 
@@ -20,7 +21,7 @@ export function available() {
 }
 
 export function spawn({ worktree, prompt, p }) {
-  const hint = config(p).dispatch?.tmuxCommand ?? ["claude", "-p", "--dangerously-skip-permissions"];
+  const hint = workerCommand(config(p)).command; // TM-467: the same trusted argv the tmux backend runs
   const commands = [
     `cd ${worktree}`,
     `# start your agent harness (e.g. ${hint.join(" ")}) and give it the handoff below`,

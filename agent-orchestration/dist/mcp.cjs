@@ -27803,9 +27803,8 @@ var init_lineage = __esm({
 });
 
 // topology/lib/providers.mjs
-function providerDirs({ pluginRoot, consumer, home, extra = [] }) {
+function providerDirs({ pluginRoot, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(consumer, "providers"));
   if (home) dirs.push((0, import_node_path40.join)(home, ".config", "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push((0, import_node_path40.join)(pluginRoot, "providers"));
   return dirs;
@@ -79594,10 +79593,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "532c977335f6f90b5813da2bf9c060379c1dd5426aac3e2bbd96dbb2bc25a0c0";
+  return false ? null : "5a083d0f31a463e48c42ccd1a8295117aff447786d5c3dccbee67eac3f1697db";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "532c977335f6f90b5813da2bf9c060379c1dd5426aac3e2bbd96dbb2bc25a0c0";
+  const fingerprint2 = false ? null : "5a083d0f31a463e48c42ccd1a8295117aff447786d5c3dccbee67eac3f1697db";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80022,7 +80021,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "532c977335f6f90b5813da2bf9c060379c1dd5426aac3e2bbd96dbb2bc25a0c0",
+  sourceFingerprint: false ? null : "5a083d0f31a463e48c42ccd1a8295117aff447786d5c3dccbee67eac3f1697db",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

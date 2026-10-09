@@ -2,7 +2,7 @@
 // file; an unknown `cli` id falls back to the generic adapter with the id used as the command.
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { exists, invariant, readJson, render, run, consumerResourceDirs } from "./util.mjs";
+import { exists, invariant, readJson, render, run } from "./util.mjs";
 
 export const GENERIC_ADAPTER = {
   id: "generic",
@@ -83,9 +83,16 @@ export const MEMORY_SCOPES = ["cwd", "home", "none"];
 /** What an attention screen means to a scheduler. See the note in `normalizeAdapter`. */
 export const ATTENTION_STATES = ["attention", "quota-blocked"];
 
-export function providerDirs({ pluginRoot, consumer, home, extra = [] }) {
+/**
+ * Where provider adapters load from: an explicit `--providers-dir`, the user's config, the plugin.
+ *
+ * TM-467: NOT the consumer repository. An adapter is the command a pane executes (`command`,
+ * `args`, `auto_approve_args`), and `<repo>/.bytedesk/agent-orchestration/providers/` is
+ * version-controlled: a worker whose PR merged could rename `claude` to any program for every
+ * later agent launched in that repo. `consumer` is accepted and ignored so callers need not change.
+ */
+export function providerDirs({ pluginRoot, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(consumer, "providers"));
   if (home) dirs.push(join(home, ".config", "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push(join(pluginRoot, "providers"));
   return dirs;

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Provider adapters no longer load from the consumer repository (TM-467, EP-028).** An adapter
+  is the command a pane executes, and `<repo>/.bytedesk/agent-orchestration/providers/` (and the
+  legacy `.orchestration/providers/`) is version-controlled, so a worker's merged PR could replace
+  `claude` with any program for every later launch in that repo. `providerDirs` now searches only
+  `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
+
 ## [0.16.1] — 2026-10-08
 
 Security release. It closes the high-severity holes found in independent post-merge review of the

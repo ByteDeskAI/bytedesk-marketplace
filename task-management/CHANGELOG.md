@@ -15,6 +15,19 @@
 
 ### Security
 
+- **A worker's command comes from user config or plugin defaults, never the repository (TM-467,
+  EP-028).** `dispatch.tmuxCommand` and `dispatch.topologyCandidates` are read only from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`trustedDispatch` in `lib/dispatch/tmux.mjs`).
+  Set in the repository's version-controlled config they are ignored, and the dispatch result and
+  `dispatched` event carry a `commandWarnings` entry that says so. A topology worker is always an
+  inline agent: it no longer borrows a stored agent from the repository's agent library, whose cli,
+  args, env, mcp servers and cwd ao-topology would merge into the pane's command.
+  `dispatch.topologyAgent` is ignored with a warning. The manual backend's hint uses the same
+  trusted command.
+- **A dispatched worker no longer starts a pool in another repo (TM-467, EP-028).** `wakePool`
+  still writes the wake file but skips `tm pool ensure` when `TM_DISPATCH_WORKER` is set. The
+  known-repo set stays writable by any same-user process; the residual risk and why there is no
+  operator-only registry are in `docs/adr/0001-known-repos-are-same-uid-writable.md`.
 - **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
   `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
   path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`
