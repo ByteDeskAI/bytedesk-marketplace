@@ -75,6 +75,13 @@
   refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
   the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
   `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+- **A fresh task worktree no longer starts dirty from graft's session hook (TM-507, EP-029).**
+  graft keeps its "wired by version V" stamp in the gitignored `graft/.cache/`, so every new
+  worktree read as unwired and graft rewrote the tracked `.claude`, `.grok` and `.mcp.json` wiring
+  with machine-specific paths and added `opencode.json`. `createWorktree` now seeds that stamp from
+  the main checkout (keeping its hosts and opts, such as `global: false`) at the newest version any
+  checkout's stamp or installed graft package names, so graft's refresh is a no-op. A repo graft
+  never wired is left alone.
 - **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
   A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
   resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed

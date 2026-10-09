@@ -32148,7 +32148,8 @@ async function workerReport(options) {
     if (kind === "finish") {
       invariant2(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every((check2) => nonempty(check2) || check2 && typeof check2 === "object") && report.checks.length && list(report.risks) && nonempty(report.evidence), "TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL", "Finish requires artifacts, checks/evidence, remaining risks and exact revision.");
       invariant2(report.revision === await gitText(doc.worktree, ["rev-parse", "HEAD"]), "TOPOLOGY_MANAGEMENT_REVISION", "Finish must name the current exact task commit.");
-      invariant2(!await gitText(doc.worktree, ["status", "--porcelain"]), "TOPOLOGY_MANAGEMENT_DIRTY", "Commit or preserve outstanding changes before readiness for review.");
+      const dirty = await foreignDirtyPaths(doc.worktree);
+      invariant2(!dirty.length, "TOPOLOGY_MANAGEMENT_DIRTY", `Commit or preserve outstanding changes before readiness for review: ${dirty.slice(0, 10).join(", ")}.`);
       invariant2(!(prior.events || []).some((e) => e.event === "rework" && e.revision === report.revision), "TOPOLOGY_MANAGEMENT_REVISION", `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report);
     } else invariant2(nonempty(report?.message), "TOPOLOGY_MANAGEMENT_PROTOCOL", "A during-work report requires a visible reason.");
@@ -80666,10 +80667,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "e485756dfa853c3da2127712edddef4a83928f67d57fa1a305007c71164b45aa";
+  return false ? null : "78d9b3c939dc6038e6c19387580a9830289250996f8b992b0922848badd7ba43";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "e485756dfa853c3da2127712edddef4a83928f67d57fa1a305007c71164b45aa";
+  const fingerprint2 = false ? null : "78d9b3c939dc6038e6c19387580a9830289250996f8b992b0922848badd7ba43";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -81094,7 +81095,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "e485756dfa853c3da2127712edddef4a83928f67d57fa1a305007c71164b45aa",
+  sourceFingerprint: false ? null : "78d9b3c939dc6038e6c19387580a9830289250996f8b992b0922848badd7ba43",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
