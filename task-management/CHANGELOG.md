@@ -12,7 +12,10 @@
   redirects or intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`,
   `sslKey`, `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL), `remote.<name>.proxy`,
   or a `remote.<name>.url` whose name contains `:` or `/`. Harmless keys such as `http.postBuffer`
-  pass. Governance's server compare (`runGh`) now goes through `safeGhSync`: it
+  pass. The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
+  `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
+  an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
+  repository were not listed. Governance's server compare (`runGh`) now goes through `safeGhSync`: it
   refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
   the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
   `SSL_CERT_FILE`/`SSL_CERT_DIR`.

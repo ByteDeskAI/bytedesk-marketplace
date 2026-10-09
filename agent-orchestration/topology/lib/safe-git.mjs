@@ -191,7 +191,23 @@ export function hardenArgs(args) {
 }
 
 const at = cwd => (cwd ? ['-C', cwd] : []);
-const LIST = cwd => [...at(cwd), 'config', '--null', '--show-scope', '--get-regexp', DRIVER_KEYS];
+/** The driver listing for the repository the call itself reads: the same `cwd` plus the leading
+ * -C / --git-dir / --work-tree the caller put in `args` (checkout-repair passes cwd=null and names its
+ * repository with -C or --git-dir; listing the process cwd instead read the wrong repository, so its
+ * drivers went unneutralised and an unrelated checkout's config, such as the http extraheader a CI
+ * checkout sets, refused the call). null for a `clone` with no location: it reads no existing
+ * repository's config (only the one it creates), so there is nothing to list. */
+export function listArgs(cwd, args) {
+  const location = [];
+  let i = 0;
+  while (i < args.length && args[i].startsWith('-')) {
+    if (['-C', '--git-dir', '--work-tree'].includes(args[i])) { location.push(args[i], args[i + 1]); i += 2; }
+    else if (args[i] === '-c') i += 2;
+    else { if (/^--(git-dir|work-tree)=/.test(args[i])) location.push(args[i]); i += 1; }
+  }
+  if (args[i] === 'clone' && !cwd && !location.length) return null;
+  return [...at(cwd), ...location, 'config', '--null', '--show-scope', '--get-regexp', DRIVER_KEYS];
+}
 /** The argv and pinned config a host git call runs with, given the driver listing for its repository. */
 export function safeGitPlan(cwd, args, listing = '') {
   const { overrides, refusal } = driverOverrides(listing);
@@ -210,7 +226,8 @@ function execAsync(argv, config, options) {
 
 /** Async git: { code, stdout, stderr }. Throws on a non-zero exit unless options.allowFailure. */
 export async function safeGit(cwd, args, options = {}) {
-  const listing = await execAsync(LIST(cwd), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const list = listArgs(cwd, args);
+  const listing = list ? await execAsync(list, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: '' };
   const plan = safeGitPlan(cwd, args, listing.stdout);
   const result = plan.refusal ? { code: 128, stdout: '', stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
   if (result.code !== 0 && !options.allowFailure) {
@@ -223,7 +240,8 @@ export async function safeGit(cwd, args, options = {}) {
 export function safeGitSync(cwd, args, options = {}) {
   if (!GIT) return { status: 127, stdout: '', stderr: NO_GIT, error: undefined };
   const base = { cwd: options.cwd, encoding: 'utf8', windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
-  const listing = spawnSync(GIT, LIST(cwd), { ...base, env: safeGitEnv(options.env), stdio: ['ignore', 'pipe', 'ignore'] });
+  const list = listArgs(cwd, args);
+  const listing = list ? spawnSync(GIT, list, { ...base, env: safeGitEnv(options.env), stdio: ['ignore', 'pipe', 'ignore'] }) : { stdout: '' };
   const plan = safeGitPlan(cwd, args, listing.stdout);
   if (plan.refusal) return { status: 128, stdout: '', stderr: refused(args, plan.refusal), error: undefined };
   return spawnSync(GIT, plan.argv, { ...base, env: safeGitEnv(options.env, plan.config), input: options.input, stdio: [options.input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'] });

@@ -338,3 +338,27 @@ test('TM-475 review M2: harmless repository-scope http keys (postBuffer, version
   }
   assert.equal(safeGitSync(repo, ['config', '--get', 'remote.origin.url']).stdout.trim(), join(repo, '..', 'origin.git'), 'an ordinary remote URL is not overridden');
 });
+
+// PR #241 CI: actions/checkout writes http.https://github.com/.extraheader into the checkout's local
+// config. safe-git listed drivers in the PROCESS cwd even when the call named its repository with -C or
+// --git-dir (checkout-repair passes cwd=null), so the CI checkout's header refused checkout-repair's
+// clone, and a driver planted in the -C repository was never listed. The listing now reads the
+// repository the call reads.
+test('PR #241 CI: the driver listing reads the repository named by -C / --git-dir, not the process cwd', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const ci = join(dir, 'ci-checkout');
+  execFileSync('git', ['init', '-q', ci]);
+  execFileSync('git', ['-C', ci, 'config', 'http.https://github.com/.extraheader', 'AUTHORIZATION: basic x']);
+  const saved = process.cwd(); process.chdir(ci); t.after(() => process.chdir(saved));
+  // An unrelated cwd repository's config does not refuse a call aimed elsewhere.
+  assert.equal(safeGitSync(null, ['-C', repo, 'status', '--porcelain']).status, 0, 'a -C call was refused by the cwd repository');
+  assert.equal(safeGitSync(null, [`--git-dir=${join(repo, '.git')}`, 'rev-parse', 'HEAD']).status, 0, 'a --git-dir call was refused by the cwd repository');
+  const cloned = await safeGit(null, ['clone', '--no-checkout', '--quiet', '--', join(dir, 'origin.git'), join(dir, 'clone')], { allowFailure: true });
+  assert.equal(cloned.code, 0, cloned.stderr);
+  // And the repository the call names is the one whose config is checked.
+  raw(repo, 'config', 'http.proxy', 'http://127.0.0.1:9');
+  assert.equal(safeGitSync(null, ['-C', repo, 'status']).status, 128, 'a refused key in the -C repository was not seen');
+  assert.equal(safeGitSync(null, [`--git-dir=${join(repo, '.git')}`, 'rev-parse', 'HEAD']).status, 128, 'a refused key in the --git-dir repository was not seen');
+  // A call with no location still checks the cwd repository, which it reads.
+  assert.equal(safeGitSync(null, ['status']).status, 128, 'the cwd repository was not checked for a call that reads it');
+});

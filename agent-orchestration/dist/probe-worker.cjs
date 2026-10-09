@@ -25943,7 +25943,22 @@ function hardenArgs(args) {
   return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
 }
 var at = (cwd2) => cwd2 ? ["-C", cwd2] : [];
-var LIST = (cwd2) => [...at(cwd2), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+function listArgs(cwd2, args) {
+  const location = [];
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-")) {
+    if (["-C", "--git-dir", "--work-tree"].includes(args[i])) {
+      location.push(args[i], args[i + 1]);
+      i += 2;
+    } else if (args[i] === "-c") i += 2;
+    else {
+      if (/^--(git-dir|work-tree)=/.test(args[i])) location.push(args[i]);
+      i += 1;
+    }
+  }
+  if (args[i] === "clone" && !cwd2 && !location.length) return null;
+  return [...at(cwd2), ...location, "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+}
 function safeGitPlan(cwd2, args, listing = "") {
   const { overrides, refusal } = driverOverrides(listing);
   return { argv: [...at(cwd2), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
@@ -25962,7 +25977,8 @@ function execAsync(argv, config2, options) {
   });
 }
 async function safeGit(cwd2, args, options = {}) {
-  const listing = await execAsync(LIST(cwd2), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const list = listArgs(cwd2, args);
+  const listing = list ? await execAsync(list, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: "" };
   const plan = safeGitPlan(cwd2, args, listing.stdout);
   const result = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
   if (result.code !== 0 && !options.allowFailure) {

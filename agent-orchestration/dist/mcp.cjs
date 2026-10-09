@@ -7017,6 +7017,22 @@ function hardenArgs(args) {
   const extra = Object.hasOwn(SUBCOMMAND_FLAGS, args[i] ?? "") ? SUBCOMMAND_FLAGS[args[i]] : [];
   return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
 }
+function listArgs(cwd, args) {
+  const location = [];
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-")) {
+    if (["-C", "--git-dir", "--work-tree"].includes(args[i])) {
+      location.push(args[i], args[i + 1]);
+      i += 2;
+    } else if (args[i] === "-c") i += 2;
+    else {
+      if (/^--(git-dir|work-tree)=/.test(args[i])) location.push(args[i]);
+      i += 1;
+    }
+  }
+  if (args[i] === "clone" && !cwd && !location.length) return null;
+  return [...at(cwd), ...location, "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+}
 function safeGitPlan(cwd, args, listing = "") {
   const { overrides, refusal } = driverOverrides(listing);
   return { argv: [...at(cwd), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
@@ -7034,7 +7050,8 @@ function execAsync(argv, config2, options) {
   });
 }
 async function safeGit(cwd, args, options = {}) {
-  const listing = await execAsync(LIST(cwd), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const list2 = listArgs(cwd, args);
+  const listing = list2 ? await execAsync(list2, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: "" };
   const plan = safeGitPlan(cwd, args, listing.stdout);
   const result2 = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
   if (result2.code !== 0 && !options.allowFailure) {
@@ -7045,7 +7062,8 @@ async function safeGit(cwd, args, options = {}) {
 function safeGitSync(cwd, args, options = {}) {
   if (!GIT) return { status: 127, stdout: "", stderr: NO_GIT, error: void 0 };
   const base = { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
-  const listing = (0, import_node_child_process.spawnSync)(GIT, LIST(cwd), { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] });
+  const list2 = listArgs(cwd, args);
+  const listing = list2 ? (0, import_node_child_process.spawnSync)(GIT, list2, { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] }) : { stdout: "" };
   const plan = safeGitPlan(cwd, args, listing.stdout);
   if (plan.refusal) return { status: 128, stdout: "", stderr: refused(args, plan.refusal), error: void 0 };
   return (0, import_node_child_process.spawnSync)(GIT, plan.argv, { ...base, env: safeGitEnv(options.env, plan.config), input: options.input, stdio: [options.input != null ? "pipe" : "ignore", "pipe", "pipe"] });
@@ -7057,7 +7075,7 @@ function safeGitText(cwd, args, options = {}) {
   }
   return options.raw ? result2.stdout : result2.stdout.trim();
 }
-var import_node_child_process, import_node_fs, import_node_os2, import_node_path2, GH_PATHS, GIT_PATHS, SSH_PATHS, SSH, GIT, NO_GIT, PASSWD_HOME, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, GIT_ENV_ALLOWLIST, GH_REDIRECT_ENV, safeGhEnv, at, LIST, refused;
+var import_node_child_process, import_node_fs, import_node_os2, import_node_path2, GH_PATHS, GIT_PATHS, SSH_PATHS, SSH, GIT, NO_GIT, PASSWD_HOME, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, GIT_ENV_ALLOWLIST, GH_REDIRECT_ENV, safeGhEnv, at, refused;
 var init_safe_git = __esm({
   "topology/lib/safe-git.mjs"() {
     import_node_child_process = require("node:child_process");
@@ -7126,7 +7144,6 @@ var init_safe_git = __esm({
     GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
     safeGhEnv = (base = process.env) => ({ ...Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name))), GH_HOST: "github.com" });
     at = (cwd) => cwd ? ["-C", cwd] : [];
-    LIST = (cwd) => [...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
     refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
   }
 });
@@ -80589,10 +80606,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "741b0b89abb3a3cb5af4120b949402971e2e9019fc4768e084edfd833cdbc5f5";
+  return false ? null : "4958f358d928b9d4df608964b1356b62b7539fdfdc59e96fa552c80351661456";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "741b0b89abb3a3cb5af4120b949402971e2e9019fc4768e084edfd833cdbc5f5";
+  const fingerprint2 = false ? null : "4958f358d928b9d4df608964b1356b62b7539fdfdc59e96fa552c80351661456";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -81017,7 +81034,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "741b0b89abb3a3cb5af4120b949402971e2e9019fc4768e084edfd833cdbc5f5",
+  sourceFingerprint: false ? null : "4958f358d928b9d4df608964b1356b62b7539fdfdc59e96fa552c80351661456",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

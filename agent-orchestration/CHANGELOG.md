@@ -28,7 +28,11 @@
   intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`, `sslKey`,
   `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL `http.<url>.*`),
   `remote.<name>.proxy`, or a `remote.<name>.url`/`pushurl` whose name contains `:` or `/` (a remote
-  named like a URL captures `git fetch <that url>`). Harmless keys such as `http.postBuffer` pass. `hostGh` now runs
+  named like a URL captures `git fetch <that url>`). Harmless keys such as `http.postBuffer` pass.
+ The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
+  `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
+  an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
+  repository were not listed. `hostGh` now runs
   through `safeGh`: it refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com`
   (with none, gh takes the only host in `hosts.yml` as its default), and removes `GH_REPO`,
   `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR`. On Windows git and ssh
