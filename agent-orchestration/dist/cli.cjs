@@ -30261,7 +30261,7 @@ async function sendStandingMessage(input, options = {}) {
       record2 = { version: 1, envelope, status: "held", reason: "pending_admission", attempts: 0, created_at: nowIso() };
       await atomicWrite(p.file, record2);
     }
-    if (record2.status === "delivered") return { ...record2, deduplicated: true };
+    if (record2.status === "delivered" || record2.status === "withdrawn") return { ...record2, deduplicated: true };
     if (record2.status !== "publishing") record2 = await advance(record2, opts);
     return publishAdmitted(record2, p, opts);
   });
@@ -30394,11 +30394,10 @@ async function withdrawStandingMessage({ id, agent, consumer, reason = null, ...
   const p = paths(id, options);
   return withLock(p.lock, async () => {
     const current = await read2(p.file);
-    invariant2(current, "TOPOLOGY_MESSAGE_UNKNOWN", `No standing message ${id}. Nothing was withdrawn.`);
     invariant2(
-      current.envelope.from === agent && current.envelope.sourceRepoId === source.id,
-      "TOPOLOGY_WITHDRAW_OWNER",
-      `Only the sender (${current.envelope.from}) can withdraw ${id}; this session is ${agent}. Nothing was withdrawn.`
+      current && current.envelope.from === agent && current.envelope.sourceRepoId === source.id,
+      "TOPOLOGY_SENDER_MISMATCH",
+      `This session (${agent}) sent no standing message ${id}. Nothing was withdrawn.`
     );
     if (current.status === "withdrawn") return current;
     invariant2(
@@ -32863,17 +32862,19 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
     return false;
   }
   const purpose = assignment ? "assignment" : "readiness";
-  const nonce = await withLock((0, import_node_path64.join)(dir, `${record2.agent_id}.probe.lock`), async () => {
+  const probeLock = (0, import_node_path64.join)(dir, `${record2.agent_id}.probe.lock`);
+  const nonce = await withLock(probeLock, async () => {
     const pending = await pendingProbe(dir, record2, binding, purpose);
     const nonce2 = pending?.probe.nonce ?? (0, import_node_crypto37.randomUUID)();
     const window2 = { expires_at: Date.now() + ackTimeoutMs + LATE_ACK_GRACE_MS, waited_until: Date.now() + ackTimeoutMs };
     await writeJson((0, import_node_path64.join)(dir, `${nonce2}.json`), pending ? { ...pending.probe, ...window2 } : { nonce: nonce2, repo_id: record2.repo_id, agent_id: record2.agent_id, session: record2.session, binding, purpose, ...window2, created_at: nowIso() });
-    if (pending?.last.rang === true) {
+    const rings = pending?.last.rang === true ? Number(pending.last.rings) || 1 : 0;
+    if (rings && Date.now() - Number(pending.last.at) < (ackTimeoutMs + LATE_ACK_GRACE_MS) * 2 ** (rings - 1)) {
       log(`lead probe ${nonce2} is still pending in the pane; extended, not rung again`);
       return nonce2;
     }
     const outcome = wake ? await wake(record2, nonce2, { log }).catch((error51) => ({ rang: false, reason: error51?.code ?? "ERROR" })) : null;
-    await writeJson(lastProbePath(dir, record2), { nonce: nonce2, binding, rang: outcome?.rang ?? null, submitted: outcome?.submitted ?? null, reason: outcome?.reason ?? null, at: Date.now() });
+    await writeJson(lastProbePath(dir, record2), { nonce: nonce2, binding, rang: outcome?.rang ?? null, submitted: outcome?.submitted ?? null, reason: outcome?.reason ?? null, at: Date.now(), rings: outcome?.rang === true ? rings + 1 : rings });
     return nonce2;
   });
   const probePath = (0, import_node_path64.join)(dir, `${nonce}.json`);
@@ -32887,14 +32888,23 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
       acked = ack?.nonce === nonce && ack?.repo_id === record2.repo_id && ack?.agent_id === record2.agent_id && ack?.session === record2.session && sameIncarnation(ack.binding, binding) && await current();
       break;
     }
+    if (!await exists(probePath)) break;
     await sleep(ACK_POLL_MS);
   }
   if (acked) {
-    await (0, import_promises56.rm)(probePath, { force: true });
-    await (0, import_promises56.rm)(ackPath, { force: true });
+    await withLock(probeLock, async () => {
+      await (0, import_promises56.rm)(probePath, { force: true });
+      await (0, import_promises56.rm)(ackPath, { force: true });
+    });
     acked = await current();
     if (acked) await rememberAck(dir, record2);
   } else {
+    const shared = await recentAck(dir, record2);
+    if (shared && await current()) {
+      log(`lead probe ${nonce} was answered and recorded by another waiter`);
+      onProof({ source: "probe", age_ms: shared.age_ms });
+      return true;
+    }
     await sweepExpired(dir, log);
     const miss = await probeMiss(dir, record2, binding);
     if (!miss.undelivered) await (0, import_promises56.rm)(ackMemoPath(dir, record2), { force: true });
@@ -32913,7 +32923,7 @@ async function pendingProbe(dir, record2, binding, purpose) {
 }
 async function probeMiss(dir, record2, binding) {
   const last = await readJson3(lastProbePath(dir, record2)).catch(() => null);
-  if (!last || !sameIncarnation(last.binding, binding)) return { undelivered: false };
+  if (!last || !sameIncarnation(last.binding, binding) || !(Date.now() - Number(last.at) < RESPONSIVE_TTL_MS2)) return { undelivered: false };
   if (last.rang === false) return { undelivered: true, reason: last.reason ?? "the probe ring typed nothing" };
   if (last.submitted === false) return { undelivered: true, reason: "the probe pointer was typed but never submitted" };
   return { undelivered: false };
@@ -63362,10 +63372,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "e139b0434602dd6d46cd43f77e8de9cbb02c5969bd96136d778916b98280b733";
+  return false ? null : "4e435d99941b8e5535c0e0a6a0f32f05893a54f6de24a002db7d9227da688959";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "e139b0434602dd6d46cd43f77e8de9cbb02c5969bd96136d778916b98280b733";
+  const fingerprint2 = false ? null : "4e435d99941b8e5535c0e0a6a0f32f05893a54f6de24a002db7d9227da688959";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -63982,7 +63992,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "e139b0434602dd6d46cd43f77e8de9cbb02c5969bd96136d778916b98280b733",
+  sourceFingerprint: false ? null : "4e435d99941b8e5535c0e0a6a0f32f05893a54f6de24a002db7d9227da688959",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

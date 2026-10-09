@@ -302,7 +302,8 @@ export async function sendStandingMessage(input, options = {}) {
       record = { version: 1, envelope, status: 'held', reason: 'pending_admission', attempts: 0, created_at: nowIso() };
       await atomicWrite(p.file, record);
     }
-    if (record.status === 'delivered') return { ...record, deduplicated: true };
+    // TM-478: a withdrawn message stays withdrawn; resending its id never revives it.
+    if (record.status === 'delivered' || record.status === 'withdrawn') return { ...record, deduplicated: true };
     if (record.status !== 'publishing') record = await advance(record, opts);
     return publishAdmitted(record, p, opts);
   });
@@ -456,9 +457,10 @@ export async function withdrawStandingMessage({ id, agent, consumer, reason = nu
   const p = paths(id, options);
   return withLock(p.lock, async () => {
     const current = await read(p.file);
-    invariant(current, 'TOPOLOGY_MESSAGE_UNKNOWN', `No standing message ${id}. Nothing was withdrawn.`);
-    invariant(current.envelope.from === agent && current.envelope.sourceRepoId === source.id, 'TOPOLOGY_WITHDRAW_OWNER',
-      `Only the sender (${current.envelope.from}) can withdraw ${id}; this session is ${agent}. Nothing was withdrawn.`);
+    // As TM-465 F4 for `mailbox wait`: an unknown id and someone else's message get the same answer,
+    // so withdraw cannot be used to learn which ids exist or who sent them.
+    invariant(current && current.envelope.from === agent && current.envelope.sourceRepoId === source.id, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session (${agent}) sent no standing message ${id}. Nothing was withdrawn.`);
     if (current.status === 'withdrawn') return current;
     invariant(current.status === 'held', 'TOPOLOGY_WITHDRAW_NOT_HELD',
       `Message ${id} is ${current.status}, not held; only held mail can be withdrawn. Nothing was changed.`);

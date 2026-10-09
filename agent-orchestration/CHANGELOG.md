@@ -7,8 +7,9 @@
 - **Lead probes no longer pile up in the lead's pane (TM-478, EP-028).** Every readiness caller
   minted its own nonce and rang its own `AO_PROBE` pointer, so a lead that was mid-turn received
   many pointers in one message at its next turn boundary, all of them expired. Now each pane
-  incarnation has at most one pending probe. Later callers extend that probe and wait on it. A
-  probe is rung again only when the previous ring typed nothing.
+  incarnation has at most one pending probe. Later callers extend that probe and wait on it, and
+  every waiter sees the answer, whichever one consumes it. The probe is rung again, under the same
+  nonce, only when the previous ring typed nothing or a backed-off window has passed.
 - **A probe that never reached the lead no longer marks it unresponsive (TM-478).** `wakeForProbe`
   now reports whether the pointer was submitted. If the ring typed nothing, or the pointer stayed
   in the composer, `lead status` reports the new status `unproven` (`verdict_source:
@@ -27,7 +28,9 @@
 - **`mailbox withdraw <id> [--reason <text>]` (TM-478).** The sending session can take back its own
   held standing mail. The sender is checked against the session identity, so naming another agent
   does not work. Withdrawn mail is terminal: `resume` never retries it, and the held-mail ring stops
-  for it. Mail that has already been admitted cannot be withdrawn.
+  for it, and re-sending its id does not revive it. Mail that has already been admitted cannot be
+  withdrawn. An unknown id and another sender's message both return `TOPOLOGY_SENDER_MISMATCH`, so
+  the verb does not reveal which ids exist.
 
 ## [0.16.1] — 2026-10-08
 

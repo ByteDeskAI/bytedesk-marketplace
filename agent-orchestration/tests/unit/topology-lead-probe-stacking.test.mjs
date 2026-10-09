@@ -75,6 +75,27 @@ test('a probe whose ring typed nothing is re-rung under the SAME nonce, not a se
   assert.equal(await responsiveForTest(f.record, 30, options), false);
   assert.equal(nonces.length, 2, 'rung again only because nothing was typed the first time; never after a landed ring');
   assert.equal(nonces[0], nonces[1]);
+  // A pointer lost from the pane is replaced once a full window has passed, still under the same nonce.
+  const lastPath = join(f.dir, 'lead0001.last-probe.json');
+  await writeJson(lastPath, { ...await readJson(lastPath), at: Date.now() - 200_000 });
+  assert.equal(await responsiveForTest(f.record, 30, options), false);
+  assert.deepEqual([nonces.length, nonces[2]], [3, nonces[0]]);
+  assert.equal((await readJson(lastPath)).rings, 2, 'and the next replacement waits twice as long');
+});
+
+test('callers sharing one probe all see the answer: the one that consumes the ack does not leave the others unresponsive', async (t) => {
+  const f = await fixture(t);
+  let rings = 0;
+  const wake = async (_record, nonce) => {
+    rings += 1;
+    setTimeout(async () => { await writeJson(join(f.dir, `${nonce}.ack.json`), await readJson(join(f.dir, `${nonce}.json`))); }, 400);
+    return { rang: true, submitted: true };
+  };
+  const options = { registryDir: f.registryDir, alive: async () => true, wake };
+  const results = await Promise.all([responsiveForTest(f.record, 3000, options), responsiveForTest(f.record, 3000, options), responsiveForTest(f.record, 3000, options)]);
+  assert.deepEqual(results, [true, true, true]);
+  assert.equal(rings, 1, 'one ring for three callers');
+  assert.equal((await readJson(join(f.dir, 'lead0001.answered.json'))).streak, 1, 'the recorded answer survives the other waiters');
 });
 
 test('an undelivered or unsubmitted probe leaves the lead unproven, never unresponsive; a delivered one does not', async (t) => {

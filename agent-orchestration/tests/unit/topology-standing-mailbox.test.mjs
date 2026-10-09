@@ -401,8 +401,8 @@ test('TM-478: the sender withdraws held mail with one verb, only its own, and th
   await sendStandingMessage(message, ring); clock.t += 10_000;
   await resumeStandingMessages({ consumer, ...ring });
   assert.equal(rings.length, 1, 'held mail rings the lead before it is withdrawn');
-  await assert.rejects(withdrawStandingMessage({ id: message.id, agent: 'someone-else', consumer: source, ...opts }), { code: 'TOPOLOGY_WITHDRAW_OWNER' });
-  await assert.rejects(withdrawStandingMessage({ id: message.id, agent: message.from, consumer, ...opts }), { code: 'TOPOLOGY_WITHDRAW_OWNER' }, 'the right name from another repository is not the sender');
+  await assert.rejects(withdrawStandingMessage({ id: message.id, agent: 'someone-else', consumer: source, ...opts }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(withdrawStandingMessage({ id: message.id, agent: message.from, consumer, ...opts }), { code: 'TOPOLOGY_SENDER_MISMATCH' }, 'the right name from another repository is not the sender');
   const withdrawn = await withdrawStandingMessage({ id: message.id, agent: message.from, consumer: source, reason: 'sent to the wrong lead', ...opts });
   assert.deepEqual([withdrawn.status, withdrawn.permanent, withdrawn.withdrawn_reason], ['withdrawn', true, 'sent to the wrong lead']);
   clock.t += 3_600_000;
@@ -414,5 +414,8 @@ test('TM-478: the sender withdraws held mail with one verb, only its own, and th
   const delivered = await sendStandingMessage({ ...message, id: 'admitted' }, { ...opts, readiness: async () => READY });
   assert.equal(delivered.status, 'delivered');
   await assert.rejects(withdrawStandingMessage({ id: 'admitted', agent: message.from, consumer: source, ...opts }), { code: 'TOPOLOGY_WITHDRAW_NOT_HELD' });
-  await assert.rejects(withdrawStandingMessage({ id: 'nope', agent: message.from, consumer: source, ...opts }), { code: 'TOPOLOGY_MESSAGE_UNKNOWN' });
+  await assert.rejects(withdrawStandingMessage({ id: 'nope', agent: message.from, consumer: source, ...opts }), { code: 'TOPOLOGY_SENDER_MISMATCH' }, 'an unknown id answers exactly like a foreign one');
+  const resent = await sendStandingMessage(message, ring);
+  assert.deepEqual([resent.status, resent.deduplicated], ['withdrawn', true], 'resending a withdrawn id never revives it');
+  assert.equal(rings.length, 1);
 });
