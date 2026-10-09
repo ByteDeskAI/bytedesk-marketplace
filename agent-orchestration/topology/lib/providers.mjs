@@ -91,9 +91,11 @@ export const ATTENTION_STATES = ["attention", "quota-blocked"];
  * version-controlled: a worker whose PR merged could rename `claude` to any program for every
  * later agent launched in that repo. `consumer` is accepted and ignored so callers need not change.
  */
-export function providerDirs({ pluginRoot, home, extra = [] }) {
+export function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
   const dirs = [...extra];
-  if (home) dirs.push(join(home, ".config", "agent-orchestration", "providers"));
+  // The user's config dir resolves like config.mjs's global layer: $XDG_CONFIG_HOME, else ~/.config.
+  const config = env.XDG_CONFIG_HOME || (home && join(home, ".config"));
+  if (config) dirs.push(join(config, "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push(join(pluginRoot, "providers"));
   return dirs;
 }

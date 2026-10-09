@@ -20605,9 +20605,10 @@ var init_lineage = __esm({
 });
 
 // topology/lib/providers.mjs
-function providerDirs({ pluginRoot, home, extra = [] }) {
+function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
   const dirs = [...extra];
-  if (home) dirs.push((0, import_node_path39.join)(home, ".config", "agent-orchestration", "providers"));
+  const config2 = env.XDG_CONFIG_HOME || home && (0, import_node_path39.join)(home, ".config");
+  if (config2) dirs.push((0, import_node_path39.join)(config2, "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push((0, import_node_path39.join)(pluginRoot, "providers"));
   return dirs;
 }
@@ -64184,10 +64185,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "6c0dde13e53bb99b226ad510df270ff33411f140210192798c19dd6efb4eb85f";
+  return false ? null : "c558a053de0a8969404f709a218e9e92eb061f159b0a634242840b1a4bc8ab50";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "6c0dde13e53bb99b226ad510df270ff33411f140210192798c19dd6efb4eb85f";
+  const fingerprint2 = false ? null : "c558a053de0a8969404f709a218e9e92eb061f159b0a634242840b1a4bc8ab50";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64804,7 +64805,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "6c0dde13e53bb99b226ad510df270ff33411f140210192798c19dd6efb4eb85f",
+  sourceFingerprint: false ? null : "c558a053de0a8969404f709a218e9e92eb061f159b0a634242840b1a4bc8ab50",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

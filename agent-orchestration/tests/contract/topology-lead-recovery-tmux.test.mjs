@@ -86,12 +86,8 @@ async function pauseOwnedSupervisor(consumer, env) {
     assert.equal(current.runtimeIdentity, record.process_identity, 'the recorded runtime identity must still match');
     assert.ok(owner?.pid === pid && owner.token === record.lock_token && owner.process_identity === record.process_identity,
       'the same supervisor must retain the fixture repository lock');
-    // The fixture's isolated HOME (TM-467: providers load from the user's config) means a supervisor
-    // may be started through that HOME's installed launcher instead of the CLI directly.
-    const launcher = join(env.HOME, '.local', 'share', 'bytedesk', 'agent-orchestration', 'launcher.cjs');
-    assert.ok([`${process.execPath} ${cli} supervise --consumer ${consumer}`,
-      `${process.execPath} ${launcher} ao-topology supervise --consumer ${consumer}`].includes(current.command),
-      `the supervisor process must still name this exact fixture repository: ${current.command}`);
+    assert.equal(current.command, `${process.execPath} ${cli} supervise --consumer ${consumer}`,
+      'the supervisor process must still name this exact fixture repository');
     return current;
   };
   let paused = false;
@@ -159,7 +155,7 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
   const tmuxDir = join(base, 'tmux');
   await mkdir(tmuxDir, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxDir,
-    AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'), HOME: join(base, 'home'),
+    AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'),
     // Reconcile on every tick, and give a probe four seconds rather than a model turn's thirty.
     AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000' };
   for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION']) delete env[key];
@@ -183,8 +179,8 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
     if (!enrolled.includes(name)) { await writeJson(join(home, 'config.json'), { enabled: false }); continue; }
     await mkdir(home, { recursive: true });
     // TM-467: providers load only from the user's config or the plugin, never the repository.
-    await mkdir(join(base, 'home', '.config', 'agent-orchestration', 'providers'), { recursive: true });
-    await copyFile(join(fixtures, 'fake-agent.json'), join(base, 'home', '.config', 'agent-orchestration', 'providers', 'fake-agent.json'));
+    await mkdir(join(base, 'config', 'agent-orchestration', 'providers'), { recursive: true });
+    await copyFile(join(fixtures, 'fake-agent.json'), join(base, 'config', 'agent-orchestration', 'providers', 'fake-agent.json'));
     // A template must name a prompt; relative paths resolve beside this config file.
     await writeFile(join(home, 'fake-lead.md'), 'You are a test lead. Answer nonce probes with ao-topology lead ack.\n');
     // Enrolled explicitly, not merely by the lead registration `lead ensure` writes below, so the

@@ -21,7 +21,7 @@ test("a consumer's providers/ cannot replace the command a pane runs", async (t)
     writeFileSync(join(dir, "claude.json"), JSON.stringify({ id: "claude", command: "/tmp/evil", args: ["--pwn"] }));
   }
 
-  const dirs = providerDirs({ pluginRoot: PLUGIN_ROOT, consumer, home });
+  const dirs = providerDirs({ pluginRoot: PLUGIN_ROOT, consumer, home, env: {} });
   assert.equal(dirs.some((d) => d.startsWith(consumer)), false, `no consumer directory is searched: ${dirs.join(", ")}`);
   const adapter = adapterFor({ cli: "claude" }, await loadAdapters(dirs));
   assert.equal(adapter.source, join(PLUGIN_ROOT, "providers", "claude.json"), "the plugin's own adapter is used");
@@ -30,6 +30,8 @@ test("a consumer's providers/ cannot replace the command a pane runs", async (t)
 });
 
 test("the user's config and an explicit --providers-dir still override the plugin", () => {
-  const dirs = providerDirs({ pluginRoot: "/plugin", consumer: "/repo", home: "/home/u", extra: ["/explicit"] });
+  const dirs = providerDirs({ pluginRoot: "/plugin", consumer: "/repo", home: "/home/u", env: {}, extra: ["/explicit"] });
   assert.deepEqual(dirs, ["/explicit", "/home/u/.config/agent-orchestration/providers", "/plugin/providers"]);
+  assert.deepEqual(providerDirs({ pluginRoot: "/plugin", home: "/home/u", env: { XDG_CONFIG_HOME: "/xdg" } }),
+    ["/xdg/agent-orchestration/providers", "/plugin/providers"], "XDG_CONFIG_HOME wins, as for the global config layer");
 });
