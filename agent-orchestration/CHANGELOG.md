@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lead probes no longer pile up in the lead's pane (TM-478, EP-028).** Every readiness caller
+  minted its own nonce and rang its own `AO_PROBE` pointer, so a lead that was mid-turn received
+  many pointers in one message at its next turn boundary, all of them expired. Now each pane
+  incarnation has at most one pending probe. Later callers extend that probe and wait on it. A
+  probe is rung again only when the previous ring typed nothing.
+- **A probe that never reached the lead no longer marks it unresponsive (TM-478).** `wakeForProbe`
+  now reports whether the pointer was submitted. If the ring typed nothing, or the pointer stayed
+  in the composer, `lead status` reports the new status `unproven` (`verdict_source:
+  "undelivered"`), not `unresponsive`. Lead recovery retries `kept-unproven` on its normal backoff.
+  The TM-384 held-mail ring also rings an `unproven` destination lead.
+- **The probe interval backs off while the lead keeps answering (TM-478).** The cached answer's
+  lifetime doubles with each consecutive acknowledgement, up to `AO_RESPONSIVE_TTL_MAX_MS` (default
+  four times `AO_RESPONSIVE_TTL_MS`). A delivered probe that goes unanswered resets the count. The
+  probe sweep no longer deletes the per-agent memo files in `probes/`.
+- **The lead probe rings the lead's own tmux server (TM-402).** `wakeLead` checked and typed into
+  `%N` on the default tmux server. It now shares one helper, `ringLeadPane`, with the held-mail
+  ring, and that helper runs inside `withServer(binding.serverKey)`.
+
+### Added
+
+- **`mailbox withdraw <id> [--reason <text>]` (TM-478).** The sending session can take back its own
+  held standing mail. The sender is checked against the session identity, so naming another agent
+  does not work. Withdrawn mail is terminal: `resume` never retries it, and the held-mail ring stops
+  for it. Mail that has already been admitted cannot be withdrawn.
+
 ## [0.16.1] — 2026-10-08
 
 Security release. It closes the high-severity holes found in independent post-merge review of the

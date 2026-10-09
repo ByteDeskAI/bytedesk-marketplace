@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { sendStandingMessage, resumeStandingMessages, readStandingInbox, readStandingOutbox, readStandingMessage, standingMailboxRoot, wakeStandingMessages } from '../../topology/lib/standing-mailbox.mjs';
+import { sendStandingMessage, resumeStandingMessages, readStandingInbox, readStandingOutbox, readStandingMessage, standingMailboxRoot, wakeStandingMessages, withdrawStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
 import { leadRecoveryStatus, recoverLead, requestLeadRecovery } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { lockHeld } from '../../topology/lib/lockfile.mjs';
@@ -393,4 +393,26 @@ test('no_lead mail launches exactly one lead across repeated triggers and is del
  const lead=(await leadState({consumer,env,home,pluginRoot,probes,ackTimeoutMs:0})).record.agent_id;
  assert.deepEqual(resumed.map(r=>[r.envelope.id,r.status,r.delivered_to]).sort(),[['m1','delivered',lead],['m2','delivered',lead]]);
  assert.equal(opens,1,'delivery launched nothing more');
+});
+
+test('TM-478: the sender withdraws held mail with one verb, only its own, and the TM-384 ring stops for it', async (t) => {
+  const { consumer, source, opts, message, clock } = await fixture(t);
+  const rings = []; const ring = { ...opts, ...leadRing(rings) };
+  await sendStandingMessage(message, ring); clock.t += 10_000;
+  await resumeStandingMessages({ consumer, ...ring });
+  assert.equal(rings.length, 1, 'held mail rings the lead before it is withdrawn');
+  await assert.rejects(withdrawStandingMessage({ id: message.id, agent: 'someone-else', consumer: source, ...opts }), { code: 'TOPOLOGY_WITHDRAW_OWNER' });
+  await assert.rejects(withdrawStandingMessage({ id: message.id, agent: message.from, consumer, ...opts }), { code: 'TOPOLOGY_WITHDRAW_OWNER' }, 'the right name from another repository is not the sender');
+  const withdrawn = await withdrawStandingMessage({ id: message.id, agent: message.from, consumer: source, reason: 'sent to the wrong lead', ...opts });
+  assert.deepEqual([withdrawn.status, withdrawn.permanent, withdrawn.withdrawn_reason], ['withdrawn', true, 'sent to the wrong lead']);
+  clock.t += 3_600_000;
+  const after = await resumeStandingMessages({ consumer, ...ring, force: true });
+  assert.equal(rings.length, 1, 'no ring for a withdrawn message, even when forced');
+  assert.equal(after.length, 0, 'and resume never retries it');
+  assert.equal((await readStandingMessage({ id: message.id, ...opts })).status, 'withdrawn');
+  assert.equal((await withdrawStandingMessage({ id: message.id, agent: message.from, consumer: source, ...opts })).status, 'withdrawn', 'withdrawing twice is a no-op');
+  const delivered = await sendStandingMessage({ ...message, id: 'admitted' }, { ...opts, readiness: async () => READY });
+  assert.equal(delivered.status, 'delivered');
+  await assert.rejects(withdrawStandingMessage({ id: 'admitted', agent: message.from, consumer: source, ...opts }), { code: 'TOPOLOGY_WITHDRAW_NOT_HELD' });
+  await assert.rejects(withdrawStandingMessage({ id: 'nope', agent: message.from, consumer: source, ...opts }), { code: 'TOPOLOGY_MESSAGE_UNKNOWN' });
 });
