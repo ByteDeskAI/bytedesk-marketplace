@@ -26,6 +26,7 @@ import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
 import { claimAgent } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
+import { orchName, subjectTakenBy } from './orch-transport.mjs';
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -1016,6 +1017,13 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
   // TM-274: no session-exists refusal. Every name is planned unique — a run holds its own persona, an
   // agent one live session — so a second run of one workflow coexists with the first.
 
+  // TM-487: run members are mailbox owners too, addressed by orchName(id): a fan-out child `rev.a`
+  // and a sibling `rev_a` would share one inbox. Refused before anything is created.
+  const memberIds = spec.agents.map((agent) => agent.id);
+  memberIds.forEach((id, index) => {
+    const clash = subjectTakenBy(id, memberIds.slice(0, index));
+    invariant(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Run members ${clash} and ${id} map to the same mailbox subject token "${orchName(id)}"; rename one so they differ after non [A-Za-z0-9_-] characters become "_".`);
+  });
   const prepared = [];
   // A participant is a team, not a process: it gets a mailbox so the conductor can address it, and
   // nothing else. No skills, no role pack, no launcher, no pane. Its child run is started after the

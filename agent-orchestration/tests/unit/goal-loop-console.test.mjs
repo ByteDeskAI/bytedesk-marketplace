@@ -23,7 +23,9 @@ async function fixture(t) {
     obligation: { deadlineAt: '2026-10-01T10:30:00Z', prompt: 'PRIVATE_PROMPT' }, deploymentRecipe: { command: 'PRIVATE_ARGV' } };
   await writeJson(recordPath, loop);
   await publishGoalLoopWorkflow({ loop, recordPath, stateHome });
-  return { root, consumer, stateHome, repository, loop, recordPath, workflowId: loop.workflowId, env: { AGENT_ORCHESTRATION_STATE_HOME: stateHome } };
+  // TM-473: the console gate also reads the passwd home's census; point it at this fixture so a run
+  // from inside a live agent pane is not (correctly) refused as that agent.
+  return { root, consumer, stateHome, repository, loop, recordPath, workflowId: loop.workflowId, env: { AGENT_ORCHESTRATION_STATE_HOME: stateHome }, proof: { passwdHome: root } };
 }
 
 test('goal loop discovery and inspection retain workflow identity without exposing prompts or recipes', async t => {

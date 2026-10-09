@@ -500,7 +500,7 @@ export async function forwardMessageToWorkflow({ runDir, messageId, recipient, e
  * The redirect map is therefore consulted in both directions: it says which of an agent's inbox
  * files somebody else will answer, and which messages addressed to it landed elsewhere.
  */
-async function obligations(runDir, run, agentId, transport = null) {
+async function obligations(runDir, run, agentId, transport = null, viewers = null) {
   const active = transport ?? await resolveTransport({ env: process.env });
   const redirects = run.redirects || {};
   const inboxDir = join(agentDir(runDir, agentId), "inbox");
@@ -523,7 +523,12 @@ async function obligations(runDir, run, agentId, transport = null) {
     const natsStanding = active.kind === 'nats' && record?.status === 'delivered';
     standing.push({ id: ref.messageId, answerer: record?.delivered_to ?? ref.requested,
       standingId, status: natsStanding ? 'delivered-unanswered' : state, reason: record?.reason ?? null,
-      replyBody: natsStanding ? null : (state === 'answered' ? record.reply.body : null),
+      // TM-474: whether it is answered is the barrier's business; the answer itself belongs to the
+      // standing envelope's sender alone. A run wait by anyone else who knows the runDir sees
+      // "answered", never the body (TM-465's rule for standing mail, applied to run-originated mail).
+      answered: !natsStanding && state === 'answered',
+      sender: record?.envelope?.from ?? null,
+      replyBody: !natsStanding && state === 'answered' && viewers?.has(record.envelope.from) ? record.reply.body : null,
       transport: natsStanding ? 'nats' : undefined,
       repo: natsStanding ? repoKey(record.envelope.sourceRepoId || record.envelope.destinationRepoId) : undefined,
       replyConsumer: natsStanding ? record.envelope.fromProject || run.consumer : undefined,
@@ -603,7 +608,7 @@ export async function pendingReplies(runDir, agentIds, { addressing = {}, transp
       // box on a redirected message sends whoever is debugging the wait to an empty directory.
       if (item.transport === 'nats') {
         if (await hasAnswer(item.outbox) || await readNatsReply(runDir, item, active)) continue;
-      } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
+      } else if (item.standingId ? item.answered : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
         status: item.status ?? "delivered-unanswered",
@@ -621,8 +626,12 @@ export async function pendingReplies(runDir, agentIds, { addressing = {}, transp
   return pending;
 }
 
-/** Wait until every named agent has replied to the message id (or to all pending messages). */
-export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {}, transport = null }) {
+const WITHHELD = Object.freeze({ body: null, body_withheld: "Only the standing message's sender may read its reply body (TM-474)." });
+
+/** Wait until every named agent has replied to the message id (or to all pending messages).
+ * `viewers`: the identities the caller may read standing reply bodies as (TM-474). Without one, every
+ * standing reply comes back answered but withheld. */
+export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, pollMs = 3000, onTick, addressing = {}, transport = null, viewers = null }) {
   const started = Date.now();
   const run = await loadRun(runDir);
   const active = transport ?? await resolveTransport({ env: process.env });
@@ -637,7 +646,7 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
       const replies = [];
       const seen = new Set();
       for (const agentId of targets) {
-        for (const item of await obligations(runDir, current, agentId, active)) {
+        for (const item of await obligations(runDir, current, agentId, active, viewers)) {
           if (messageId && item.id !== messageId) continue;
           const answerKey = item.standingId ?? item.outbox ?? `${item.transport}:${item.id}:${item.answerer}`;
           if (seen.has(answerKey)) continue;
@@ -653,11 +662,11 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
               subject: reply.subject,
               transport: 'nats',
               standingId: item.standingId,
-              body: reply.body,
+              ...(item.standingId && !viewers?.has(item.replyAgent) ? WITHHELD : { body: reply.body }),
             });
             continue;
           }
-          if (item.standingId ? item.replyBody === null : !(await hasAnswer(item.outbox))) continue;
+          if (item.standingId ? !item.answered : !(await hasAnswer(item.outbox))) continue;
           seen.add(answerKey);
           replies.push({
             agent: item.answerer,
@@ -665,7 +674,7 @@ export async function waitForReplies({ runDir, agentIds, messageId, timeoutMs, p
             id: item.id,
             path: item.outbox,
             standingId: item.standingId,
-            body: item.standingId ? item.replyBody : await readFile(item.outbox, "utf8"),
+            ...(item.standingId ? (item.replyBody === null ? WITHHELD : { body: item.replyBody }) : { body: await readFile(item.outbox, "utf8") }),
           });
         }
       }
