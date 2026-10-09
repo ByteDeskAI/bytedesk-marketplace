@@ -21,12 +21,16 @@ git clone -q "$t/origin.git" "$t/m"
 push() { echo "$1" >"$t/seed/f" && git -C "$t/seed" add f && git -C "$t/seed" commit -qm "$1" && git -C "$t/seed" push -q origin main; }
 tip() { git -C "$1" rev-parse HEAD; }
 
+mkdir -p "$t/bin" "$t/m/plugin-rsync/bin"
+printf '#!/bin/sh\n' >"$t/bin/codex"; printf '#!/bin/sh\necho "$*" >>"%s/node.log"\n' "$t" >"$t/bin/node"; chmod +x "$t/bin/"*
+export PATH="$t/bin:$PATH"
 push two
 ok "clone starts behind origin" '[ "$(tip "$t/m")" != "$(tip "$t/seed")" ]'
 bash "$script" "$t/m"
 ok "fast-forwards a behind main" '[ "$(tip "$t/m")" = "$(tip "$t/seed")" ]'
 ok "sets core.hooksPath when unset" '[ "$(git -C "$t/m" config core.hooksPath)" = scripts/git-hooks ]'
 ok "post-merge ran" '[ -s "$t/m/.git/merged" ]'
+ok "first setup trusts Codex hooks" 'grep -q "plugin-rsync trust-codex-hooks" "$t/node.log"'
 
 push three
 bash "$script" "$t/m"
@@ -34,13 +38,16 @@ ok "throttled within 10 minutes" '[ "$(tip "$t/m")" != "$(tip "$t/seed")" ]'
 rm "$t/m/.git/plugin-rsync-pull.stamp"
 
 git -C "$t/m" switch -qc feature
+feat=$(git -C "$t/m" rev-parse feature)
 bash "$script" "$t/m"; rm -f "$t/m/.git/plugin-rsync-pull.stamp"
-ok "another branch is left alone" '[ "$(git -C "$t/m" rev-parse main)" != "$(tip "$t/seed")" ]'
-git -C "$t/m" switch -q main
+ok "another branch is left alone" '[ "$(git -C "$t/m" rev-parse feature)" = "$feat" ] && [ "$(git -C "$t/m" rev-parse main)" != "$(tip "$t/seed")" ]'
 
-git -C "$t/m" worktree add -q "$t/wt" -b wt 2>/dev/null
+# a worktree with main checked out (the main checkout stays on feature)
+git -C "$t/m" worktree add -q "$t/wt" main 2>/dev/null
 bash "$script" "$t/wt"
-ok "a worktree is left alone" '[ "$(tip "$t/m")" != "$(tip "$t/seed")" ] && [ ! -e "$t/m/.git/plugin-rsync-pull.stamp" ]'
+ok "a worktree on main is left alone" '[ "$(tip "$t/wt")" != "$(tip "$t/seed")" ] && [ ! -e "$t/m/.git/plugin-rsync-pull.stamp" ]'
+git -C "$t/m" worktree remove "$t/wt"
+git -C "$t/m" switch -q main
 
 echo local >"$t/m/g" && git -C "$t/m" add g && git -C "$t/m" commit -qm local
 before=$(tip "$t/m")
@@ -48,4 +55,4 @@ bash "$script" "$t/m"
 ok "a diverged main is left alone" '[ "$(tip "$t/m")" = "$before" ]'
 
 echo "$pass passed, $fail failed"
-[ "$fail" -eq 0 ] && [ "$pass" -eq 8 ]
+[ "$fail" -eq 0 ] && [ "$pass" -eq 9 ]

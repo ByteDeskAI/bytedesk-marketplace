@@ -1,24 +1,20 @@
 #!/usr/bin/env bash
-# SessionStart (Claude, Codex, Grok). In any repo: repair Grok installs sourced from a whole
-# marketplace (they time out Grok's plugin loading), and fast-forward this machine's
-# bytedesk-marketplace checkout from origin so its plugin caches stay current (pull-marketplace.sh).
-# In a bytedesk-marketplace checkout: turn on its git hooks (scripts/git-hooks) so commits, merges
-# and rebases rsync the touched plugins into the installed caches. Leaves any existing
-# core.hooksPath alone. Never fails the session.
-# Background work has its output detached, so it never delays the session. The file name stays
-# ensure-hookspath.sh: Codex trusts a hook by its command, and renaming it would untrust it.
+# SessionStart (Claude, Codex, Grok), in any repo. Never fails or delays the session: all work runs
+# in the background with its output detached.
+# - Repair Grok installs sourced from a whole marketplace (they time out Grok's plugin loading).
+# - Set up and fast-forward this machine's bytedesk-marketplace checkout (pull-marketplace.sh): the
+#   directory Claude registered, and the repo the session starts in when that is a checkout.
+# The file name stays ensure-hookspath.sh: Codex trusts a hook by its command, and renaming it
+# would untrust it.
 here=$(dirname "$0")
 command -v grok >/dev/null && { nohup node "$here/../bin/plugin-rsync" fix-grok-installs >/dev/null 2>&1 & }
 top=$(git rev-parse --show-toplevel 2>/dev/null)
-# ponytail: the checkout is the one Claude registered; a Codex/Grok-only machine is covered when a
-# session starts inside the checkout itself.
-m=$(node -e 'try{const k=require(process.env.HOME+"/.claude/plugins/known_marketplaces.json").bytedesk;console.log(k.source.path||k.installLocation||"")}catch{}' 2>/dev/null)
-[ -n "$m" ] || m=$top
-[ -n "$m" ] && { nohup bash "$here/pull-marketplace.sh" "$m" >/dev/null 2>&1 & }
-[ -n "$top" ] && [ -x "$top/scripts/git-hooks/sync-plugins" ] || exit 0
-git -C "$top" config core.hooksPath >/dev/null && exit 0
-git -C "$top" config core.hooksPath scripts/git-hooks
-# First time on this machine: also trust the bytedesk plugin hooks in Codex, which otherwise
-# waits for someone to approve each one in its TUI. Backgrounded; never delays the session.
-command -v codex >/dev/null && { nohup node "$top/plugin-rsync/bin/plugin-rsync" trust-codex-hooks >/dev/null 2>&1 & }
+# Only a directory source: a GitHub-registered marketplace's installLocation is Claude's own copy.
+m=$(node -e 'try{const s=require(process.env.HOME+"/.claude/plugins/known_marketplaces.json").bytedesk.source;if(s.source==="directory")console.log(s.path)}catch{}' 2>/dev/null)
+[ -n "$top" ] && [ "$(cd "$top" && pwd -P)" = "$(cd "$m" 2>/dev/null && pwd -P)" ] && top=
+for d in "$m" "$top"; do
+  [ -n "$d" ] || continue
+  [ -x "$d/scripts/git-hooks/sync-plugins" ] || continue
+  nohup bash "$here/pull-marketplace.sh" "$d" >/dev/null 2>&1 &
+done
 exit 0

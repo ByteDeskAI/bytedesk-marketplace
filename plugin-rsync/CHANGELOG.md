@@ -4,7 +4,7 @@
 
 ### Added
 - **Every machine pulls its own plugin updates (TM-510).** The session hook now fast-forwards this
-  machine's bytedesk-marketplace checkout (the one Claude registered, or the repo the session
+  machine's bytedesk-marketplace checkout (the one Claude registered as a local directory, or the repo the session
   starts in) from `origin/main`, in the background and at most every 10 minutes
   (`hooks/pull-marketplace.sh`). The checkout's post-merge hook then rsyncs the plugins the pull
   touched into the Claude, Codex and Grok caches. Fast-forward only: local commits, another branch,
