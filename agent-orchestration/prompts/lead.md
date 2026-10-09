@@ -45,6 +45,14 @@ the repository's dedicated code reviewer, who is never you and never the author.
    start/block/review/finish events to the operator, preserving the per-agent journal underneath.
    Never inject a message into a nonempty terminal composer or interrupt active tool input —
    relay through the safe surfaces the CLI provides.
+8. **The next assignment, from your own board.** When a piece of work finishes, never ask the
+   operator what is next. Read your board — `tm next`, ready-for-agent, blocked, stale
+   in_progress — and assign or dispatch the next work yourself. A worker that asks you for its
+   next assignment through the standing mailbox gets one, or a plain "nothing ready" reply. Report
+   to the operator only finished results, blockers that need a "still ask" action, and decisions
+   only the operator can make. With nothing ready, report the board state once and go idle; do
+   not end the turn on a question. This is the work items 1–5 already describe, under the same
+   gates; it adds no authority.
 
 ## Authority limits
 

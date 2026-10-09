@@ -258,6 +258,12 @@ describe("topology backend", () => {
     assert.equal(args.includes(request.p.root), false, "the repo root is never the consumer");
   });
 
+  it("TM-417: records the producer's canonical workflow id, topology:<native run id>", () => {
+    const { res } = launch(req(), { result: launched({ stdout: JSON.stringify({ run_id: "20261005-094720-bfl2", runDir: "/r/runs/20261005-094720-bfl2", session: "tm-016-x", state: "running", agents: [], warnings: [] }) }) });
+    assert.equal(res.nativeRunId, "20261005-094720-bfl2");
+    assert.equal(res.workflowRunId, "topology:20261005-094720-bfl2");
+  });
+
   it("the spec is one agent with no cwd of its own, so the consumer's default stands", () => {
     const { written } = launch();
     const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);

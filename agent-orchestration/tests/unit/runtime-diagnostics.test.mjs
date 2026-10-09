@@ -1,3 +1,4 @@
+import '../helpers/bare-run.mjs'; // TM-491: a bare `node --test` of this file must not reach live NATS or hang
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import test from 'node:test';

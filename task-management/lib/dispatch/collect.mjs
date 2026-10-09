@@ -394,7 +394,7 @@ export function collectTmux(id, opts = {}) {
 
 function reconcileTopologyReference(task, { p, ask, env }) {
   const dispatched = task.dispatched;
-  const sourcePath = dispatched.legacyRecordPath || (isAbsolute(dispatched.runDir || "") ? join(dispatched.runDir, "run.json") : null);
+  const sourcePath = dispatched.legacyRecordPath || (isAbsolute(dispatched.runDir || "") ? join(dispatched.runDir, "run.json") : null) || dispatched.recordPath;
   if (!isAbsolute(sourcePath || "")) throw new Error(`${task.id} has no durable topology record reference; reconcile and import its native workflow before collection`);
   const result = ask(["console", "list", "--consumer", p.root, "--json"]);
   if (result?.error || result?.status !== 0) throw new Error(result?.error?.message || toolFailureReason("ao-topology console list", result));
@@ -424,6 +424,35 @@ function reconcileTopologyReference(task, { p, ask, env }) {
   return next;
 }
 
+/** TM-417: a dispatch recorded before `topology:<native run id>` was canonical carries the bare run id. */
+const miscanonical = (dispatched) => Boolean(dispatched.nativeRunId && dispatched.workflowRunId && dispatched.workflowRunId !== `topology:${dispatched.nativeRunId}`);
+
+function topologyProducer({ caps, spawnImpl, timeoutMs, env }) {
+  const entry = (caps || detectHostCaps()).backends?.topology;
+  if (!entry?.available || !entry.path) return null;
+  return (args) => spawnImpl(entry.path, args, {
+    shell: false, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024,
+  });
+}
+
+/**
+ * TM-417: `tm rebind <id>` — repair a topology dispatch whose workflow id is not the producer's
+ * canonical one, through the same producer-verified reconciliation collection uses. Never a worker's
+ * call, and never a collection: a live or finished worker keeps its claim and its state.
+ */
+export function rebindTopology(id, { p = paths(), caps = null, spawnImpl = spawnSync, timeoutMs = COLLECT_TIMEOUT_MS, env = process.env } = {}) {
+  if (env.TM_DISPATCH_WORKER) throw new Error("a dispatched worker cannot rebind its own dispatch; the lead runs ao-topology manage rebind");
+  const task = read(id, p);
+  if (!task) throw new Error(`not found: ${id}`);
+  const dispatched = task.dispatched;
+  if (!String(dispatched?.run || "").startsWith("topology:") || !dispatched.nativeRunId) throw new Error(`${id} has no topology dispatch with a native run id to rebind`);
+  if (!miscanonical(dispatched)) return { rebound: false, dispatched };
+  const ask = topologyProducer({ caps, spawnImpl, timeoutMs, env });
+  if (!ask) throw new Error("topology producer is unavailable to verify the native workflow");
+  const next = reconcileTopologyReference(task, { p, ask, env });
+  return { rebound: true, from: dispatched.workflowRunId, to: next.workflowRunId, dispatched: next };
+}
+
 /** Native collection requires the producer's exact incarnation observation. */
 export function collectTopology(id, { p = paths(), caps = null, spawnImpl = spawnSync, timeoutMs = COLLECT_TIMEOUT_MS, env = process.env } = {}) {
   const task = read(id, p);
@@ -433,13 +462,10 @@ export function collectTopology(id, { p = paths(), caps = null, spawnImpl = spaw
   if (!String(dispatched?.run || "").startsWith("topology:")) return hold(`${id} has no topology run`);
   const unbound = !dispatched.nativeRunId || !isAbsolute(dispatched.recordPath || "");
   if (unbound && !isAbsolute(dispatched.runDir || "") && !isAbsolute(dispatched.legacyRecordPath || "")) return hold(`${id} has no durable topology record reference; reconcile and import its native workflow before collection`);
-  const entry = (caps || detectHostCaps()).backends?.topology;
-  if (!entry?.available || !entry.path) return { ok: false, reason: "topology producer is unavailable for exact workflow observation", failureScope: "backend" };
+  const ask = topologyProducer({ caps, spawnImpl, timeoutMs, env });
+  if (!ask) return { ok: false, reason: "topology producer is unavailable for exact workflow observation", failureScope: "backend" };
   try {
-    const ask = (args) => spawnImpl(entry.path, args, {
-      shell: false, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024,
-    });
-    if (unbound || (isAbsolute(dispatched.legacyRecordPath || "") && resolve(dispatched.recordPath) === resolve(dispatched.legacyRecordPath))) {
+    if (unbound || miscanonical(dispatched) || (isAbsolute(dispatched.legacyRecordPath || "") && resolve(dispatched.recordPath) === resolve(dispatched.legacyRecordPath))) {
       dispatched = reconcileTopologyReference(task, { p, ask, env });
     }
     const res = ask(["status", "--run", dirname(dispatched.recordPath), "--consumer", p.root, "--json"]);
