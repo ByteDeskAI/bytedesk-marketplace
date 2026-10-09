@@ -147,6 +147,9 @@ Standing repository services
                                                 Without --cached, status with no stored proof rings the
                                                 lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  reviewer withdraw --task <id> --revision <sha> --reason <text>
+                                               lead only: withdraw an uncollected request a reviewer
+                                               cannot answer, so it can be restarted (TM-525)
   reviewer request ... [--checks @checks.json]   check evidence [{name,command,exit_code,revision,log_tail}] for the review packet
   reviewer ensure [--provider claude|codex]   reuse the registered or a library reviewer on that provider;
                                                never starts a second live reviewer (TM-364)
@@ -882,9 +885,10 @@ const commands = {
       return out(await api.requestReview({ ...options, checkEvidence }));
     }
     if (sub === 'collect') return out(await api.collectReview(options));
+    if (sub === 'withdraw') return out(await api.withdrawReview({ ...options, reason: typeof flags.reason === 'string' ? flags.reason : '' }));
     if (sub === 'eligible') return out(await api.reviewEligibility(options));
     if (sub === 'ack') return out(await api.reviewerNonceAck({ ...options, nonce: positional[1] }));
-    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use reviewer status|ensure|request|collect|eligible|ack.');
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use reviewer status|ensure|request|collect|withdraw|eligible|ack.');
   },
   async manage({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/management.mjs');

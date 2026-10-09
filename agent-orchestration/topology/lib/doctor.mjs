@@ -210,16 +210,33 @@ export async function roleMcpReport({ consumer, env = process.env, home, procs =
     ["reviewer", await readReviewerRecord(consumer, env, home).catch(() => null)],
   ];
   const report = [];
-  for (const [role, record] of records) report.push(await roleMcpFor({ role, record, consumer, procs }));
+  for (const [role, record] of records) report.push(await roleMcpFor({ role, record, consumer, procs, env, home }));
   return report.filter(Boolean);
 }
 
-export async function roleMcpFor({ role, record, consumer = null, procs = readProcess }) {
+export async function roleMcpFor({ role, record, consumer = null, procs = readProcess, env = process.env, home = undefined }) {
   const pid = record?.binding?.panePid;
   if (!pid) return null;
   const proc = await procs(pid);
   if (!proc) return { role, agent_id: record.agent_id ?? null, pid, live: false, ok: true, note: "not running; nothing to verify" };
-  return { live: true, ...verifyRoleMcp({ role, agentId: record.agent_id ?? null, pid, argv: proc.argv, children: proc.children, consumer }) };
+  const result = { live: true, ...verifyRoleMcp({ role, agentId: record.agent_id ?? null, pid, argv: proc.argv, children: proc.children, consumer }) };
+  // TM-525: a reviewer without review_submit can never answer its pending requests, and `agent restart`
+  // refuses while any is uncollected, so the fix is withdraw, then restart, then request again.
+  if (role === "reviewer" && result.fix && consumer) {
+    const { pendingReviewRequests } = await import("./reviewer.mjs");
+    const pending = await pendingReviewRequests(consumer, env, home).catch(() => []);
+    if (pending.length) {
+      const at = ` --consumer ${consumer}`;
+      result.fix.pending = pending.map((r) => ({ task: r.task, revision: r.revision, nonce: r.nonce }));
+      result.fix.sequence = [
+        ...pending.map((r) => `ao-topology reviewer withdraw --task ${r.task} --revision ${r.revision} --reason "reviewer cannot submit (TM-520)"${at}`),
+        result.fix.command,
+        ...pending.map((r) => `ao-topology reviewer request --task ${r.task} --revision ${r.revision} --author <id>${at}`),
+      ];
+      result.fix.note += ` ${pending.length} review request(s) are pending, which this reviewer cannot answer and which hold the restart off: the lead withdraws them, restarts, then requests the same revisions again (TM-525).`;
+    }
+  }
+  return result;
 }
 
 export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home, procs = readProcess }) {

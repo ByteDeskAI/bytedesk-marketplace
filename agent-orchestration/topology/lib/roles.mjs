@@ -202,7 +202,7 @@ export async function roleStatus({ role, consumer, home = homedir(), env = proce
       holder: standing.record?.agent_id ?? null,
       holder_name: standing.record?.agent_id ?? null,
       record: standing.record, reason: standing.reason,
-      mcp: await roleMcpFor({ role, record: standing.record, consumer, procs }),
+      mcp: await roleMcpFor({ role, record: standing.record, consumer, procs, env, home }),
     };
   }
   const agents = await holdersOf(role, { consumer, home, pluginRoot });

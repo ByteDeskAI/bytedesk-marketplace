@@ -31921,6 +31921,7 @@ __export(reviewer_exports, {
   listenForReviewer: () => listenForReviewer,
   normalizeChecks: () => normalizeChecks,
   packetDigest: () => packetDigest,
+  pendingReviewRequests: () => pendingReviewRequests,
   publishReviewerVerdict: () => publishReviewerVerdict,
   readReviewerRecord: () => readReviewerRecord,
   readySignalOnScreen: () => readySignalOnScreen,
@@ -31943,7 +31944,8 @@ __export(reviewer_exports, {
   reviewsRoot: () => reviewsRoot,
   submitReviewVerdict: () => submitReviewVerdict,
   unsatisfiedChecks: () => unsatisfiedChecks,
-  validateFindings: () => validateFindings
+  validateFindings: () => validateFindings,
+  withdrawReview: () => withdrawReview
 });
 function reviewersRoot(env = process.env, home = (0, import_node_os21.homedir)()) {
   return (0, import_node_path48.join)(stateRoot2(env, home), REGISTRY_KIND);
@@ -32421,7 +32423,7 @@ async function assertNoReviewInFlight(consumer, record2, env, home) {
   invariant2(
     !pending.length,
     "TOPOLOGY_AGENT_BUSY",
-    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map((r) => `${r.task} nonce ${r.nonce}`).join(", ")}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>.`,
+    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map((r) => `${r.task} nonce ${r.nonce}`).join(", ")}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>. If this reviewer can never answer it (no review_submit tool), the lead withdraws it: ao-topology reviewer withdraw --task <id> --revision <sha> --reason <text>, then restarts and requests the review again.`,
     { agent_id: agentId, pending: pending.map((r) => ({ task: r.task, revision: r.revision, nonce: r.nonce, state: r.state ?? null })) }
   );
 }
@@ -33157,6 +33159,44 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     await writeJson(path3, { ...request, collected_at: nowIso(), verdict: review.verdict, state: "collected" });
     return review;
   });
+}
+async function withdrawReview({ consumer, task, revision, reason, env = process.env, home = (0, import_node_os21.homedir)(), requireLead = null, store = null, proof = {} }) {
+  invariant2(typeof reason === "string" && reason.trim(), "TOPOLOGY_REVIEWER_WITHDRAW", "Pass --reason <text>: a withdraw is recorded with why.");
+  const { bindingAgentId: bindingAgentId2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
+  const lookup2 = { consumer, env, home, ...proof };
+  const named = env.AO_AGENT_ID || await bindingAgentId2(lookup2).catch(() => null);
+  const lead = await (requireLead || requireLeadCaller2)({ ...lookup2, env: named ? { ...env, AO_AGENT_ID: named } : env });
+  invariant2(lead, "TOPOLOGY_REVIEWER_WITHDRAW", `Only this repository's proven lead may withdraw a review request; this session is ${named ?? "unidentified"}. Nothing was changed.`);
+  const path3 = (0, import_node_path48.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
+  return withLock(path3.replace(/\.json$/, ".lock"), async () => {
+    const request = await readJson3(path3).catch((error51) => {
+      if (error51.code === "ENOENT") fail("TOPOLOGY_REVIEWER_NONCE", `No review request exists for ${task} at ${revision}.`, { task, revision });
+      throw error51;
+    });
+    invariant2(!request.collected_at, "TOPOLOGY_REVIEWER_RESPONSE", `Review request ${request.nonce} was already collected; a recorded review cannot be withdrawn.`);
+    invariant2(request.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `Review request ${request.nonce} already failed (${request.failure?.reason ?? "no reason recorded"}); request the review again.`);
+    invariant2(!await readSubmittedVerdict(path3, request), "TOPOLOGY_REVIEWER_RESPONSE", `The reviewer already submitted a verdict for request ${request.nonce}; collect it: ao-topology reviewer collect --task ${task} --revision ${revision}.`);
+    const withdrawn = { at: nowIso(), by: lead, reason: reason.trim() };
+    const { recordTaskEvent: recordTaskEvent2 } = await Promise.resolve().then(() => (init_management(), management_exports));
+    await recordTaskEvent2({ consumer, task, env, home, ...store ? { store } : {} }, "review-withdrawn", { revision, nonce: request.nonce, reviewer_id: request.reviewer_id, by: lead, reason: withdrawn.reason });
+    const next = { ...request, state: "failed", withdrawn, failure: { at: withdrawn.at, code: "TOPOLOGY_REVIEWER_WITHDRAWN", reason: `Withdrawn by the lead ${lead}: ${withdrawn.reason}` } };
+    await writeJson(path3, next);
+    return {
+      ok: true,
+      withdrawn: true,
+      task,
+      revision,
+      nonce: request.nonce,
+      reviewer_id: request.reviewer_id,
+      by: lead,
+      reason: withdrawn.reason,
+      next: [`ao-topology agent restart ${request.reviewer_id} --mode handoff`, `ao-topology reviewer request --task ${task} --revision ${revision} --author <id>`]
+    };
+  });
+}
+async function pendingReviewRequests(consumer, env = process.env, home = (0, import_node_os21.homedir)()) {
+  const record2 = await readReviewerRecord(consumer, env, home);
+  return record2 ? uncollectedReviewRequests(consumer, record2, env, home) : [];
 }
 async function collectPendingReviews(options) {
   const dir = (0, import_node_path48.join)(await reviewerInboxRoot(options.consumer, options.env, options.home), "requests");
@@ -80823,10 +80863,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "a86e94989c4c5cd60c342fe7bb91b365e630fd8eefb5b42814d122c7e4493b18";
+  return false ? null : "25cf63397802ded04b36a7a905e217aad41add9dac0b06b63dad9200d237aa2e";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "a86e94989c4c5cd60c342fe7bb91b365e630fd8eefb5b42814d122c7e4493b18";
+  const fingerprint2 = false ? null : "25cf63397802ded04b36a7a905e217aad41add9dac0b06b63dad9200d237aa2e";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -81251,7 +81291,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "a86e94989c4c5cd60c342fe7bb91b365e630fd8eefb5b42814d122c7e4493b18",
+  sourceFingerprint: false ? null : "25cf63397802ded04b36a7a905e217aad41add9dac0b06b63dad9200d237aa2e",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
