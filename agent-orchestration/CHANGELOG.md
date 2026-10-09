@@ -2,6 +2,378 @@
 
 ## [Unreleased]
 
+### Security
+
+- **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**
+  `manage record-landing`, including under an operator's `--authorized`, now requires the landed
+  commit on the pinned repository's target branch on the server (`gh api .../compare`). Before, it
+  trusted `origin/<target>` after a fetch from a worker-chosen `origin`, so a forged ref could report a
+  landing that never happened. safe-git keeps only the commit-identity `GIT_*` variables, so
+  `GIT_DIR`, `GIT_SSH_COMMAND`, `GIT_EXEC_PATH`, `GIT_ASKPASS` and the rest are dropped. It pins
+  `GIT_CONFIG_GLOBAL` to `~/.gitconfig`, so a caller-supplied global config (and its filters) is never
+  read. Host `gh` calls (`hostGh`, also used by release readiness) run only the root-owned `gh` at a
+  pinned system path (`trustedGh`, the root-owned-chain rule the autonomy allowlist applies to tmux),
+  never the first `gh` on `PATH`.
+- **Review fixes for the gate security work (PR #226; TM-443, TM-441, TM-442, EP-028).**
+  - safe-git pins its overrides through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n`, so a filter or merge
+    driver whose name contains `=` (`filter.a=b.smudge`, which `-c` cannot name) is neutralised too.
+  - safe-git allows only the https, ssh and file transports, so a worker-set `evil::` remote never runs
+    `git-remote-evil`. It refuses outright (exit 128) when repository config sets `url.*.insteadOf`,
+    `url.*.pushInsteadOf`, `remote.*.vcs`, `lfs.standalonetransferagent` or `lfs.customtransfer.*`.
+    It never smudges LFS objects (`GIT_LFS_SKIP_SMUDGE=1`), including in the TM-444 check worktrees.
+  - A merge-in's integration parent must be on the target branch of the pinned repository on the
+    server (`gh api .../compare`, ahead or identical), never on a local or remote-tracking ref a
+    worker can forge. task-management uses the same rule.
+  - Release readiness requires the checkout's commit to be the server's branch tip, not merely equal
+    to a worker-chosen `origin`.
+- **`manage transfer` takeover needs lead proof and owner absence (TM-459, EP-028).**
+  A session could take ownership of a task as soon as the owner held no live claim, but `tm block`
+  or `tm park` releases the claim while the owner is still alive. A takeover (the caller is not the
+  owner) now requires the caller to pass `requireLeadCaller` (this repository's lead, proven by its
+  census-bound pane) and the owner to be proven absent by `ownerPresence`: no live pane the census
+  binds to it and no heartbeat from it fresher than `HEARTBEAT_TTL_MS`. A hand-over by the owner is
+  unchanged.
+- **Autonomy `publish` never grants a production cutover (TM-458, EP-028).**
+  `management.autonomy: "publish"` let `manage cutover` deploy to a live production host with no
+  human, and a test asserted it. `publish` now grants `manage cut-release` only; `manage cutover`
+  always needs `--authorized` from an operator shell (ADR-0001 External class; the standing rule that
+  a production deploy asks first). The former CLI test is inverted: a managed session is refused and
+  nothing is deployed.
+- **`cut-release` waits for the TeamCity build of its own revision (TM-457, EP-028).**
+  `waitForBuild` accepted the first finished build of the build type newer than the pre-release
+  build, on any branch or revision, so a green develop or pull-request build could pass the release
+  gate while the release build was red. It now requires one of the build's VCS revisions to be the
+  release revision (the checkout's commit, or the commit the release step left it at) and, when
+  `management.release.teamcity.branch` is set, that branch. Builds of anything else are ignored; with
+  none matching, the wait times out and pages. The record names the matched build's revision and branch.
+- **A worker's check evidence is labelled "claimed" and never satisfies a required check (TM-430, EP-028).**
+  The finish report's `checks` were filed into the review packet as plain evidence, and under
+  `integrate_via: "pull-request"` the packet was the only required-check gate, so a worker could
+  report `exit_code: 0` for a check that never ran. Every automatic review request (report,
+  retry-review, review sweep) now files them through one helper, `claimedCheckEvidence`, which
+  prefixes the command and log with `[claimed by the worker; not run by the host]`. Integration no
+  longer treats the packet's check evidence as a result (those reasons are reported as
+  `required_checks.claimed_check_reasons`); both integrate paths run the configured argv on the host
+  in a fresh tree (`runRequiredChecks`), and the pull-request path refuses as `checks` before any
+  merge. The packet-side comparison of a run's command with the configured argv belongs to
+  `reviewer.mjs` (another owner) and is not changed here.
+- **A worker can no longer grant itself publish/merge autonomy, rewrite required checks or choose the release argv (TM-442, EP-028).**
+  `management.autonomy`, `management.release`, `management.cutover` and `management.required_checks`
+  are now honoured only from `.bytedesk/agent-orchestration/config.json` as committed on the server's
+  default branch of the pinned repository (read through `gh`, as TM-263 reads `lead_autonomy`). A
+  value for them in the global layer, the plugin defaults or the checkout's working copy, all of
+  which a same-user worker can write, is ignored with a warning; signing is not implemented, so there
+  is no other trusted source. With the server unreadable, autonomy is `pr` and the other three are
+  unconfigured. `manage integrate` refuses a task that changes `management` in that committed file.
+  `ao-topology config set` refuses in a dispatched worker session (the shared `dispatchedWorker`
+  predicate `manage` also uses). Release and cutover `argv[0]` is now an allowlist: a repo-relative
+  path, tracked as an executable at the release revision, whose bytes equal the committed blob;
+  interpreters, shells, `busybox`, `env`, `npx`, `npm`, `deno`, `bun`, absolute paths, `..` and bare
+  `PATH` names are refused. `reviewer.mjs`'s `requiredCheckNames` still reads the local layers for
+  the review packet (owned by another session); integrate no longer depends on it.
+- **A merge-in is accepted only when its tree is exactly the merge git computes (TM-441, EP-028).**
+  `mergeInOf` compared `git patch-id --stable`, which ignores whitespace, so a merge of the
+  integration branch into the approved revision could carry an unreviewed behaviour change
+  (`rm -rf /tmp/build` became `rm -rf / tmp/build`) and still land. It now requires the head's tree
+  to equal `git merge-tree --write-tree <approved revision> <integration parent>`; a conflicted
+  merge is never a merge-in. task-management's mirror uses the same rule, and one test runs both.
+- **Required checks run in a fresh tree of the finish revision, not in the worker's worktree (TM-444, EP-028).**
+  `manage integrate` ran each `management.required_checks` argv with the worker's worktree as its
+  working directory. `git status --porcelain` hides ignored files, so a planted
+  `node_modules/.bin/<runner>` that exits 0 passed a check that never ran. Checks now run through
+  `runRequiredChecks` in a detached worktree of `record.finish.revision`, created and removed
+  through safe-git, holding only the committed files; each run is recorded with `runner: "host"`.
+- **Host-side git no longer runs config a worker planted in the shared `.git/config` (TM-443, EP-028).**
+  A worker runs as the same OS user and can set `core.fsmonitor`, `core.hooksPath`, `diff.external`,
+  `core.pager`, a filter or merge driver, a credential helper or a remote `uploadpack` in the
+  repository's shared config; the lead's next `git status` (dirty-path check, integration
+  eligibility, release readiness) then ran it as the lead. Every git call in `topology/lib` and
+  `src/` now goes through one helper, `topology/lib/safe-git.mjs`, which pins every executing key
+  on the command line, neutralises repository-scope filter and merge drivers (a merge driver becomes
+  a conflict), keeps only the operator's global credential helpers, forces `--upload-pack` /
+  `--receive-pack`, adds `--no-ext-diff --no-textconv` to diff-family commands, and runs with
+  `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`. `doctor`'s `git ls-remote` passes `--` before
+  the manifest's repository, so a value starting with `-` is never an option. A test plants every
+  vector and runs eligibility, integrate and release readiness; a grep test fails on any raw git
+  spawn outside the helper. Not yet routed: `topology/lib/reviewer.mjs` (owned by another session;
+  allow-listed in the grep test). The global `~/.gitconfig` is trusted by design.
+- **`workers.passEnv` is honoured only from the global config, and never for a reserved name
+  (TM-448, EP-028).** The repository layer is git-tracked, so a worker whose PR landed could name
+  `GITHUB_TOKEN` there and have it copied into every later worker. `passEnvFor` now reads
+  `workers.passEnv` from the global (or plugin-defaults) layer only, using `loadConfig`'s per-layer
+  provenance; a name set only in the repository layer is ignored with a warning in launch
+  warnings and session logs. `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`
+  and `NODE_OPTIONS` are refused from every layer. A test also pins that the launcher exports the
+  agent's own variables after sourcing the secrets file. Review follow-up: also refused are
+  `BASH_ENV`, `ENV`, `ZDOTDIR`, `NODE_PATH`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`,
+  `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`. With `SSH_AUTH_SOCK` refused, the
+  supported way for a worker to push is an HTTPS `origin` remote with `gh auth setup-git`.
+- **A durable session started without `AO_CONSUMER` no longer leaves its secrets file behind
+  (TM-450, EP-028).** The 0600 `<launcher>.env` was removed only after the readiness wait, which
+  runs only with `AO_CONSUMER`. `retirePassEnv` now waits (bounded) for the launcher to consume
+  it and then removes it on the other path too.
+
+### Changed
+
+- **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
+  may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).
+  `manage report`, `manage retry-review` and the supervisor review sweep all attach those runs to
+  the review request through one helper, `finishCheckEvidence`. With a passing run of every
+  required check at the finish commit, the reviewer can approve without a lead re-requesting with
+  `--checks`. Prose strings in `checks` stay notes and never count; a run at another commit still
+  satisfies nothing; a malformed run is refused when the finish is reported.
+
+- **One process-ancestry walk (TM-416, EP-028).** `delegation.mjs` `ancestorProcesses` now names
+  the pids from `heartbeat.mjs` `ancestorPids` instead of walking the tree itself. The shared walk
+  gained the `ps` fallback delegation had, so the heartbeat and prompt lifecycle also see the full
+  chain where `/proc` is absent (macOS).
+
+- **Skill cleanup: fewer, clearer entry points (TM-377, EP-028).** `roadmap-orchestrator` is now
+  `roadmap-governance` (it governs `ROADMAP.md`; it never orchestrated agents); its description
+  names the old name so `$roadmap-orchestrator` still resolves, and host wiring removes the Kimi link
+  an older install left under the old name. `install-orchestration-host` is merged into
+  `setup-agent-orchestration` as its "Wire another host" step; the script moved to
+  `skills/setup-agent-orchestration/scripts/install-host.mjs`. `orchestration-conduct` is marked
+  not user-invokable (it is the conductor's internal protocol). `goal-feedback-loop` now has
+  trigger phrases and an argument hint.
+
+- **One doctor for AO, task-management and the services (TM-379, EP-028).** `agent-orchestration
+  doctor` now leads its JSON with a `combined` block and exits 1 when any present part is
+  unhealthy: `agentOrchestration` (the doctor's own verdict), `services` (process-compose answering
+  and every managed process Running, the same predicate as `services wait --until healthy`;
+  `ok: null` when services are switched off), `taskManagement` (`tm doctor --json` run through the
+  repository's tm launcher, never imported; `ok: null` when tm is absent) and `pluginFreshness`
+  (TM-373, informational). It used to exit 0 whatever it found.
+
+- **`ao-topology repos list|add|remove` makes repository registration explicit (TM-378, EP-028).**
+  Until now a repository got a supervisor only as a SessionStart side effect. `repos list [--json]`
+  shows each entry of the services `repos.json` registry with its supervisor state (running,
+  starting, never-started, down, repository-missing and so on). `repos add [<path>]` registers a
+  git checkout: a linked worktree registers its main checkout, and a plain directory is refused
+  with `TOPOLOGY_REPO_NOT_GIT`. `repos remove [<path>|<key>]` unregisters it by path, worktree path
+  or key, and never deletes the repository or its state. When services are enabled, add and remove
+  run `services ensure` so the supervisor starts or stops at once. `services ensure --consumer-cwd`
+  and `repos add` now share one `registerRepository` in `topology/lib/services-client.mjs`.
+
+- **`/orchestrate` is one entry point across both plugins (TM-376, EP-028).** The new
+  `orchestrate` skill maps each intent (dispatch a task, drain the pool, ticket another repo,
+  message one lead or `@all-leads`, wait for a reply, launch a team, ask another model, run a goal,
+  check status or health, mine for issues) to the one skill or verb that does it, says what still
+  works when task-management or agent-orchestration is absent, and separates the three meanings of
+  "route", "cap" and "agent". `tests/unit/orchestrate-skill.test.mjs` fails when a verb, sub-verb,
+  flag, MCP tool or skill it names does not exist in `topology/cli.mjs`, `src/cli.mjs`, `bin/tm`'s
+  VERBS table or either MCP server.
+
+- **A refused review request reaches the lead, with one verb to retry it (TM-244, EP-028).** When a
+  finish report's review request is refused, `manage report` still records `review_blocked`. It now
+  also sends the owning lead one standing-mail notice per task revision, with the refusal code and
+  text and the retry verb. The notice is sent before the task-management comment, so it does not
+  depend on task-management. `ao-topology manage retry-review --task TM-id` re-files the request for
+  the recorded finish revision and clears `review_blocked`. The `--summary` line of `manage report`
+  names the notice status and the retry verb.
+
+- **Review packet, per-repo checklist and revision-bound check evidence (TM-216, EP-028).** Every
+  review request now writes a packet directory beside its `.patch`: `files.txt` (name-status and
+  stat), `files/<path>` (each changed text file at the revision), `task.md` (the task's acceptance
+  criteria and touches, read through the repository's tm launcher when it exists), `checks.json`
+  and `checklist.md`. The packet's `packet_sha256` is recorded on the request, and collection
+  refuses a packet that changed after the request, as it does a changed patch. `checklist.md`
+  lists each `management.required_checks` entry as passed or unsatisfied, followed by the
+  repository's own `.bytedesk/agent-orchestration/review-checklist.md`, read from the consumer
+  checkout and not from the author's worktree. The lead passes check evidence with
+  `ao-topology reviewer request --checks @checks.json`
+  (`[{name, command, exit_code, revision, log_tail}]`). While any required check lacks evidence
+  recorded at the reviewed revision with exit 0, the reviewer cannot approve: submit and record
+  refuse `approve` and the reviewer submits `blocked`. `reviewer eligible` independently refuses a
+  required check with no evidence, evidence recorded at another revision, or a nonzero exit. The
+  reviewer's launch is unchanged: it still cannot write files or run commands.
+
+- **Landing autonomy: `management.autonomy` is `pr`, `merge` or `publish` (TM-368, EP-028).** It
+  comes from the AO layered config (repo, then global, then the shipped default `pr`); an unknown
+  value invalidates its layer. The new `ao-topology manage land --task <TM-id>` follows it: `pr`
+  stops at the reviewed PR, `merge` runs `manage integrate`, and `publish` also runs `cut-release`
+  once every task of the epic has landed, then records the publish and runs
+  `tm ticket event <id> published` for a cross-repo ticket's origin (TM-359). At `publish` the
+  policy is the External-class grant (ADR-0001) for `cutover` and `cut-release`; each record names
+  the grant layer and file in `authorization.granted_by`. `cut-release` now waits for the TeamCity
+  build its release started, read through a small REST adapter (`topology/lib/teamcity.mjs`;
+  `TEAMCITY_URL` or config, `TEAMCITY_TOKEN` from the environment only), and requires it under
+  `publish`. A red or missing build, a failed verify or cutover postflight, a missing reviewer
+  approval, a failed step or a release refused after merge stops the run and pages through ntfy
+  (`topology/lib/ntfy.mjs`, AO's own notifier, so it works with task-management absent). The
+  autonomy hook never approves `manage land`. Documented in the README under "Landing autonomy".
+
+- **`manage cutover` and `manage cut-release` wrap deploy-safe and /release behind guardrails
+  (TM-250, EP-028).** Both are External-class verbs (ADR-0001). They run only the repository's own
+  argv from `management.cutover` / `management.release` (for example `deploy-safe.sh deploy`,
+  `release-gitflow.sh start` then `verify`), without a shell. Each refuses by name, running nothing,
+  unless every condition holds: `config` (argv set, and argv[0] is never `systemctl`, `git`, `gh`,
+  a shell, `sudo`, `env` or `ssh`), `authority`, `branch` (default `develop`), `dirty`, `sync` (HEAD
+  equals `origin/<branch>` after a fetch) and `plan` (every task of `--epic` is done). `cutover`
+  proves the running binary switched: `identity_argv` must answer before and answer differently
+  after, and a failed postflight stops it. `cut-release` fails unless its verify step passes. Each
+  run writes a record, with its authorization, under the management state directory. The
+  autonomy hook never approves either verb. `manage release` keeps its existing meaning (release an
+  idle assignment), so the release wrapper is named `cut-release`.
+
+- **`manage cleanup` refuses protected branches by name (TM-251, EP-028).** Cleanup removes a
+  merged task's worktree and its LOCAL branch only (`git branch -d`). Before it observes or removes
+  anything, it refuses a record naming `develop`, `main`, `master`, any `release/*` branch or the
+  configured integration branch, with `TOPOLOGY_MANAGEMENT_CLEANUP` and the branch named. Remote
+  branch deletion stays out of scope: a test proves the remote copy of a cleaned branch survives.
+  `protectedBranch()` in `topology/lib/management.mjs` is the one predicate.
+
+- **`manage transfer` hands a governed admission to another lead (TM-247, EP-028).**
+  `manage transfer --task <id> [--to <session>] --reason <text>`:
+  - The owner can hand off to `--to`.
+  - Any other session can take over for itself once the owner's claim is no longer live.
+  - A bound worker that is not stopped refuses the transfer.
+  - The transfer is an `ownership-transfer` event plus a task comment. The claim moves through
+    `tm claim`.
+  - A worker stopped before the transfer still satisfies integration under its original owner.
+
+- **Closing a landed governed task no longer has an order trap (TM-247, EP-028).**
+  - `manage close --task <id> [--landed <sha> --reason <text>]` records the landing if none is
+    recorded, stops the worker, then cleans up and closes the task, in that order.
+  - `stop-worker` and `cleanup` also accept a task whose landing is recorded after `tm done`
+    released its claim.
+  - `record-landing` checks the target on `origin/<target>` after a fetch, then fast-forwards the
+    local branch.
+  - Eligibility, integrate, cleanup and governed completion accept a PR head that merged the
+    integration branch into the approved revision, when the merge's own change has the approved
+    revision's patch-id. Any other head is refused, and the refusal names both revisions.
+  - `permissions install` now also writes `Bash(ao-topology manage close *)`.
+
+- **A governed worker that died before its finish report can be retired and replaced (TM-247, EP-028).**
+  `manage stop-worker` now retires a bound worker whose pane or process is observed gone (or is an
+  idle shell) and that never sent a finish. The dead incarnation moves to `previous_workers` with
+  the observation and what it left behind (a `tm block` reason or a blocker report). `tm collect`
+  records the dispatch as ended. The worktree and its uncommitted changes are untouched. A live or
+  unproven worker is still refused. `manage start-worker` then binds a successor to the same
+  admission and base revision. Start-worker and a resumed `manage admit` re-claim a released claim
+  for the admission owner through `tm start`. A blocked task waits for `tm unblock`. A claim held by
+  another session is still refused. `manage report` accepts a report from the admission owner or
+  from the bound worker's own dispatch session. The ownership refusal for a released claim now names
+  the recovery: `manage admit`. A refused `tm dispatch` in start-worker is now
+  `TOPOLOGY_MANAGEMENT_DISPATCH` carrying tm's message, not a Node stack trace.
+
+- **The standing-mail arrival ring rings only unread mail the inbox would show (TM-419, EP-028).**
+  On its first live tick the TM-351 ring sent a lead about 20 pointers for mail it had handled
+  weeks earlier, or that `mailbox inbox` could not show: records from before NATS publication
+  existed. The ring and the inbox listing now share one predicate (`standingInboxShows` /
+  `standingUnread`): under NATS only broker-published records count, and any receipt (accepted,
+  deferred, handled, rejected) or reply means the mail is not unread. The first run for a
+  repository also writes a watermark under `standing-mailbox/rings/`, so mail delivered before it
+  never rings. `dist/` is rebuilt.
+
+- **Run mail delivered over NATS also lands as an inbox file (TM-409, EP-028).** `send` with the
+  NATS transport now writes the message into the recipient's inbox directory after the publish
+  succeeds, and the delivery names an outbox path. The message tells the recipient it may reply
+  on NATS or write its reply to that outbox file. A file-only reviewer therefore receives
+  NATS-delivered mail.
+
+- **`wait` accepts a file reply to a NATS-delivered message (TM-410, EP-028).** `pendingReplies`
+  and `waitForReplies` treat a NATS-delivered message as answered when its outbox reply file has
+  content, as well as when a NATS reply exists. The file reply is returned with its path.
+
+- **`prompt ack` works from a child shell of the agent's pane (TM-411, EP-028).** The ack used to
+  bind to the pane named by `$TMUX_PANE`, and was refused with `TOPOLOGY_PROMPT_ACK_INVALID` from
+  an agent's Bash tool shell. It now binds to the pane whose process is an ancestor of the caller,
+  using the same `/proc` ancestry walk as the TM-222 heartbeat (`ancestorPids`, now exported), and
+  still requires the recorded incarnation. Any caller outside that pane's process tree is refused,
+  including one that sets `TMUX_PANE` by hand.
+
+- **TM-241 review-patch follow-ups (TM-260, EP-028).** Four fixes to how the reviewed patch is
+  built, all in `reviewPatch`, which the review range and the TM-257 legacy check now share:
+  - **Size cap.** The over-cap refusal never fired: it matched `ERR_CHILD_PROCESS_STDOUT_MAXBUFFER`,
+    but Node reports `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. It now fires and reports bytes, not UTF-16
+    units. `AO_REVIEW_PATCH_MAX_BYTES` lowers the 64 MiB cap.
+  - **Binary classification.** A file is binary when its own first 8000 bytes hold a NUL (git's
+    own test). The range's `.gitattributes` no longer decides, because the author controls it. Text
+    files are diffed with `--text`, so `*.mjs binary` cannot hide source in the manifest.
+  - **Legacy hash path.** A landed pre-TM-257 request is reproduced with the same builder. A
+    binary range in the current format verifies, and an approval in an older format asks for a
+    re-review (`TOPOLOGY_REVIEWER_REREVIEW`).
+  - **Manifest paths.** Paths are JSON-encoded, so a newline or tab in a filename cannot forge a
+    row.
+
+  Binary ranges now hash differently from TM-241, so their approvals need a re-review. Text-only
+  ranges hash exactly as before.
+
+- **A network blip no longer flips an approved review (TM-259, EP-028).** Once the server has
+  verified a task revision's effective review base, the host records it in
+  `<state>/management/<repo>/<task>.bases.json` and reuses it for that exact (task, revision). So
+  supervision and eligibility sweeps make no GitHub call for a recorded revision, and a rate
+  limit or outage can no longer fall back to the admitted base and report an approved task as
+  "review does not cover the complete admitted task range". A fallback is never recorded, so a
+  first derivation with the server down still fails closed to the admitted base. A recorded base
+  that is not between the admitted base and the revision is ignored. The GitHub repository itself
+  was already pinned by TM-263.
+
+### Security
+
+- **Run `send` checks a named sender (TM-462 part A, EP-028).** `ao-topology send --run` took
+  `--from` and `--from-project` verbatim, so `--from ao-supervisor --from-project /other` reached
+  `sendStandingMessage` as that sender. A named `--from` or `--from-project` now goes through the
+  same `sessionIdentity()` as `mailbox send`; a value that differs from this session's identity is
+  refused with `TOPOLOGY_SENDER_MISMATCH`, and a session with no identity gets
+  `TOPOLOGY_SOURCE_IDENTITY_REQUIRED`. Unnamed, the launcher defaults are unchanged. A grep-audit
+  test checks that every standing-mail entry point (CLI `send` and `mailbox`, the MCP mailbox and
+  run-mail tools) resolves its actor through that one check. Reserved system senders and env trust
+  (part B) are TM-427's.
+- **`session handoff` is restricted (TM-463, EP-028).** Any session could type a file pointer into
+  any agent's live pane. The CLI verb now accepts only the target agent itself or this repository's
+  lead proven by `requireLeadCaller` (pane binding plus process ancestry; a session without
+  `AO_AGENT_ID` is named from its census binding first, as `manage` does). Anyone else gets
+  `TOPOLOGY_HANDOFF_UNAUTHORIZED` and nothing is typed. `orchestration_session_handoff` runs the
+  verb, so it shares the check.
+- **`mailbox wait` answers only the sender (TM-465, EP-028).** `orchestration_mailbox_wait` and CLI
+  `mailbox wait` returned any message's reply to anyone who knew or guessed its id.
+  `waitForStandingReply` now requires the caller's session identity and refuses, with
+  `TOPOLOGY_SENDER_MISMATCH` and no status or body, unless the caller is the envelope's `from` in
+  its `sourceRepoId`.
+- **CLI mailbox verbs act only as the session (TM-464, EP-028).** `mailbox inbox`, `outbox`,
+  `receipts`, `dispose` and `reply` took `--agent` (or `AO_AGENT_ID`) as given. They now resolve the
+  agent with `sessionIdentity()`, as the MCP tools do: `--agent` and `--consumer` may only repeat
+  it, and without `--consumer` the mailbox is the session's own repository. MCP
+  `orchestration_mailbox_list` is bound the same way.
+- **Mailbox readers fail closed; the workflow console is operator-only (TM-464 F1, EP-028).**
+  `console show` returned every agent's receipt bodies because `listMailboxReceipts` and
+  `listMailboxPublications` read a missing `agent` as "all agents". Both now require a bound
+  `agent`, or an explicit `allAgents: true`, which only the workflow console and the publication
+  resume loop pass. The console (`workflowDetail`) admits only a bare operator shell (no agent
+  identity and a pane the census binds to no agent) or the repository lead proven by
+  `requireLeadCaller`; a dispatched worker, a minted session, a non-lead agent, and an agent that
+  unset `AO_AGENT_ID` in its bound pane are refused with `TOPOLOGY_OPERATOR_ONLY` before any lookup. MCP
+  `mailbox_list` passes named fields only, so a tool input cannot carry `allAgents`. The audit test
+  now checks every reader (including `readStandingMessage`, allowed only in its internal readers)
+  and actor call site in `topology/lib`, `cli.mjs` and `topology-api.mjs`. `standing-mail-ring.test.mjs`
+  is hermetic too: it passes and exits without the suite preload and under any host identity.
+- **Handoff "self" must be proven (TM-463 F2, EP-028).** `AO_AGENT_ID=<target>` alone passed as the
+  target. `requireHandoffCaller` (now in `respawn.mjs`) requires `requireGranteeCaller` for self:
+  the caller's pane is census-bound to the target and is the caller's ancestor process.
+- **`mailbox wait` cannot probe ids (TM-465 F4, EP-028).** An unknown id and another sender's id
+  now give the same `TOPOLOGY_SENDER_MISMATCH`.
+- **MCP run-mail arguments cannot become flags (TM-464, EP-028).** The adapter passed `subject` and
+  `task` as separate argv entries, so a subject of `--from-project=/x` parsed as a flag. Every value
+  now goes to `ao-topology` as one `--key=value` token.
+
+### Fixed
+
+- **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
+  sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
+  with `source_identity_required`. The adapter now reads the record SessionStart wrote for its
+  `CLAUDE_CODE_SESSION_ID` (`<state>/sessions/<id>.json`, checked against that session id) on each
+  call and supplies `AO_SESSION_AGENT_ID`/`AO_SESSION_CONSUMER`. A launcher identity still wins.
+
+### Tests
+
+- **Hermetic mailbox and MCP parity suites (TM-464, EP-028).** `topology-mailbox-send.test.mjs`
+  and `mcp-parity.test.mjs` clear inherited `AO_AGENT_ID`, `AO_CONSUMER`, `AO_SESSION_*` and
+  `CLAUDE_CODE_SESSION_ID`, use the file transport with `AO_NATS_AUTOSTART=0`, and close live
+  transports, so they pass and exit inside an agent session and without the preload. The
+  `register-file-transport.mjs` preload also scrubs `AO_SESSION_AGENT_ID`, `AO_SESSION_CONSUMER`
+  and `CLAUDE_CODE_SESSION_ID`.
 ### Removed
 
 - **The project-scope commit guard is gone (TM-392).** `~/.agents/AGENTS.md` lets a repository
@@ -57,6 +429,244 @@
   a repaired repository's supervisor, whose first reconcile ensures its lead. `lead ensure`
   repairs first and refuses (`TOPOLOGY_CHECKOUT_BROKEN`) rather than mint a lead for a checkout
   that is still broken.
+
+### Fixed
+
+- **A late `manage admit` no longer hides the worker commits from review (TM-349).** Admission
+  recorded `base_revision` as the task HEAD, so a task admitted after its worker had committed used
+  that commit as the base: the review range left it out, and once the task merged its integration
+  branch, `reviewer request` refused with `TOPOLOGY_REVIEWER_RANGE`. The base is now
+  merge-base(HEAD, integration branch), using the branch TM-325 freezes into the admission record,
+  else `management.target_branch`, else the repository default branch. A worker can rewrite any
+  local ref, so the base comes from the server first: the tip of that branch on the pinned
+  repository (`gh api repos/<repo>/branches/<branch>`, fetched from origin if absent), then
+  merge-base(HEAD, tip), `base_source: server-tip`. This works while the task commits are still
+  unpushed. Next is the TM-325 compare helper (`server`). Only when the server cannot answer does
+  admission use local refs, taking the OLDEST merge-base across every resolvable candidate (`origin/<name>` and
+  `<name>`; the task PR base counts only when it equals the recorded or target branch). The record
+  and the start event carry `base_source`. A `local-fallback` base is only a floor: once the
+  server can answer, the review range widens to the server merge-base when it is older, and never
+  narrows. Candidates with unrelated histories are refused by name. A fresh worktree is unchanged,
+  because there the merge-base is HEAD. Admission is refused with `TOPOLOGY_MANAGEMENT_BASE` only
+  when nothing resolves; it never falls back to HEAD. A resumed
+  admission recomputes the base and widens a record written by the old code (event
+  `base-widened`); it never narrows one.
+
+- **A governed task returns to work after an independent review requests changes (TM-347).** A
+  finish report set the management record and the governed task to `ready-for-review`, and nothing
+  set them back, so `tm dispatch` and `manage start-worker` refused every new worker with
+  `TM_GOVERNED_ADMISSION_REQUIRED` and the task deadlocked. The new `manage rework --task TM-id`
+  returns the task to `working` only when the latest review is `changes_requested` for the exact
+  current finish revision and the finished worker is stopped. It records a `rework` event binding
+  the findings to the reviewed revision, clears the finish and keeps owner, worktree, branch and
+  base, then runs the new `tm rework`, which resets the governed state and archives the finished
+  dispatch so the next worker can be dispatched. The next finish must name a new revision; the
+  reviewed one is refused. Integration already keys reviews on the exact revision, and a new test
+  proves an earlier verdict, even a later-dated approval of the old revision, never satisfies it.
+
+- **`manage admit` no longer dead-ends on a task whose worktree is recorded but whose claim was
+  released (TM-348).** Admission provisioned only when no worktree was recorded, so a task left with
+  a worktree by an earlier `tm worktree new`, or parked or blocked since, skipped provisioning and
+  was refused with `TOPOLOGY_MANAGEMENT_OWNERSHIP`. Admission, and a resumed admission, now run
+  `tm worktree new` whenever no claim is held. That verb claims first and reuses the checkout, so the
+  task is re-claimed by the admitting session. A claim held by another session is still refused, and
+  an in-progress task with no admission record still returns `ownership-review-required`. The
+  ownership refusal now names the session holding the claim (or `none`) and the expected owner.
+  A released claim never lets another session take over a task that was already admitted: that
+  returns `ownership-review-required`. A done or landed task is refused with
+  `TOPOLOGY_MANAGEMENT_LANDED` instead of having its worktree and claim recreated.
+
+## [0.16.0] — 2026-10-05
+
+### Changed
+
+- **Every standing agent keeps work moving without a person stepping in.** `prompts/common.md`
+  gains a "Keep work moving: no stalled agents" section. Agents talk to each other through the
+  mailbox within and across repositories, and terminal typing or a human relay is a filed defect.
+  A problem in another component goes to its owner as a ticket plus a mailbox notice, followed by
+  `plugin-rsync` once the fix lands. No agent ends a turn waiting on a person when a recommended
+  option or a standing operator rule answers the question. Agents clear the stalls they find:
+  stale tasks, dirty trees, paused pools, unadmitted ready tasks and silent workers. Rules stay
+  general, and task-specific detail stays on the task. `roles/worker.md` now lets a worker
+  message other agents through the mailbox about its own task, instead of forbidding all
+  messages.
+
+### Added
+
+- **Workers inherit secrets named in config (TM-375, EP-028).** `workers.passEnv` in the AO config
+  (repo or global layer) lists environment variable NAMES. When `launch` starts a run agent, when
+  `failover` restarts one, and when `session open` starts a durable session, ao copies each named
+  variable from the launching environment into a 0600 file beside the launcher. The launcher
+  sources and deletes that file. Values never reach the launcher, `run.json`, the journal, events,
+  prompts, tmux's environment or any argv. A name the launching environment lacks is warned about
+  by name, and the launch continues. A session restored later from its record, or a failover run
+  from a process without the variable, starts without it. This replaces running
+  `tmux set-environment -g TYPESAFE_API_KEY` by hand.
+
+- **`services wait` replaces sleep-polling around `services status` (TM-374, EP-028).**
+  `agent-orchestration services wait --until healthy|<process> [running] [--timeout <s>]` re-reads
+  status at a bounded interval and prints one JSON line: exit 0 when the condition holds, 2 on
+  timeout (naming what is not running yet), 1 on a bad argument. `healthy` means process-compose
+  answers and every managed process is Running and not "Not Ready". The common prompt and the
+  setup skill now name `services wait` and `mailbox wait` and tell agents never to `sleep N`,
+  which the harness blocks. The autonomy hook allows `services wait`, as it does `services status`.
+- **The supervisor sweeps for unreviewed work (TM-361, EP-028).** When the repository has a tm
+  launcher, each supervisor reconcile (at most every ten minutes, `AO_REVIEW_SWEEP_MS`) runs
+  `tm review-sweep --apply --json`. Each fresh finding is delivered once: a governed task with a
+  finish revision gets `requestReview`; anything else, or a refused request, becomes one standing
+  notice to the lead, with an id derived from the finding so a retry never mails twice. The tick
+  report carries `review_sweep`. With tm absent the tick skips it.
+
+- **`manage assignment` reports a live bound worker (TM-360, EP-028).** Besides the idle-dispatch
+  assignee, the result now carries `worker` (kind, backend, run) and `owner` while a worker this
+  lead started or adopted is bound and not stopped. task-management's one duplicate-dispatch
+  guard reads it through the CLI, so the pool no longer starts a second worker for a task a lead
+  adopted with `manage bind --pane`. `manage start-worker` already runs `tm dispatch`, which now
+  refuses a task the pool holds.
+- **MCP parity for run mail, lead status and session handoff (TM-355, EP-028).** New tools
+  `orchestration_run_mail_send`, `orchestration_run_mail_reply` and `orchestration_run_mail_wait`
+  run `ao-topology send|reply|wait`, `orchestration_lead_status` reads the lead (`cached: true`
+  answers from proof on disk and mints no probe), and `orchestration_session_handoff` runs
+  `session handoff`. Send and reply act as the server's session identity (`AO_AGENT_ID`); a `from`
+  or `agent` field may only repeat it. The provider-run tools are renamed
+  `orchestration_run_followup` and `orchestration_run_wait`; `orchestration_send` and
+  `orchestration_wait` remain as documented aliases. The closure-contract handoff of TM-311 is not
+  on main and has no tool yet.
+
+- **Agent identity is visible (TM-371, EP-028).** Sessions that ao creates now put the agent's
+  icon, name and role on the tmux status line (`status-left`, session-scoped) ahead of the
+  session name, matching the existing terminal title. Mailbox mail and replies published on NATS
+  carry an `Orch-Repo-Slug` header naming the repository; subjects stay `orch.<key>.…`, so
+  deployed peers are unaffected. `ao-topology doctor` prints `Repository: <slug> · NATS
+  orch.<key>.>`, and `orchestration_doctor` reports `repositorySlug` and `natsSubjects` under
+  `consumerAdmission`.
+
+- **Doctor reports plugin freshness against origin/main (TM-373, EP-028).**
+  `orchestration_doctor` now includes `diagnostics.pluginFreshness`: the installed SHA (the
+  `plugins/cache/<marketplace>/<plugin>/<sha>` entry from `installed_plugins.json`, or `HEAD` for a
+  checkout), `origin/main` from `git ls-remote` with a 5-second deadline, and `status`
+  `current`, `stale` or `unknown`. A stale cache adds a setup problem naming
+  `claude plugin update <plugin>@<marketplace>`. Offline or timed out reports `unknown` and never
+  fails doctor.
+- **Reviewer verdicts travel as JSON and are never read off the pane (TM-365, EP-028).**
+  `TOPOLOGY_REVIEWER_RESPONSE` ("Expected a nonce-bound review response", "Review response must
+  be JSON") was the most common gateway error. The reviewer now submits its verdict with a
+  `review_submit` MCP tool, served by the new `topology/review-mcp.mjs`, or from a shell with
+  `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
+  --findings @file.json`. Both run `submitReviewVerdict`. It checks the caller is the request's
+  reviewer at the request's incarnation, and applies the findings schema at once, so a refusal
+  says what to fix and the reviewer can submit again. Resubmitting before collection replaces the
+  verdict. It writes `<inbox>/verdicts/<task>-<revision>.json` and mirrors it to the NATS
+  `ORCH_REVIEWS` object store and the verdict subject when NATS is live. `reviewer collect` and
+  the supervisor's queue read only that record, and report `TOPOLOGY_REVIEWER_NO_VERDICT` while
+  none exists. The pane parser (`parseReviewResponse`, `reviewResponsesOnScreen`, the incomplete
+  verdict ageing and `AO_REVIEW_INCOMPLETE_*_MS`) is removed. A submitted verdict survives a
+  reviewer restart: `agent restart` no longer waits on it, and collection records it against the
+  incarnation that submitted it. Approval still needs the current incarnation, as before.
+  The reviewer now launches with `--restricted --setting-sources ''` in place of
+  `--restricted --safe-mode`, because safe mode also disables every MCP server. We measured both
+  on claude 2.1.289: the tool lists are the same (no Bash, Write or Edit) except for
+  `review_submit`, and no settings, plugins or hooks load. The reviewer prompts now name the tool.
+  `dist/` is rebuilt.
+
+### Fixed
+
+- **The reviewer reviews the worker's worktree, not the main checkout (TM-366, EP-028).** The
+  review range, the patch, the binary manifest and the files a finding may name now resolve from
+  the task worktree in the admission record. The request records that `worktree`, and the reviewer
+  prompt and request ring tell the reviewer to read files there; the main checkout may have another
+  branch checked out. A worktree that has been removed falls back to the consumer, which shares the
+  object store. A worktree of another repository is refused with `TOPOLOGY_REVIEWER_RANGE`.
+- **A reviewer finding may name a CHANGELOG.md the change did not touch (TM-367, EP-028).** A
+  missing changelog entry is a finding about a file outside the diff, and refusing it with
+  `TOPOLOGY_REVIEWER_FINDINGS` failed the whole review (gateway TM-490). A `CHANGELOG.md` at any
+  depth is now accepted; any other file outside the diff is still refused. Every finding still
+  carries one severity (`blocker`, `major`, `minor`, `nit` or `note`), and an approval with only
+  minor, nit or note findings is recorded as approved; a new test covers both. The reviewer prompt
+  says so.
+- **`reviewer ensure` honours the requested provider and reuses the reviewer it has (TM-364,
+  EP-028).** In agent-browser on 2026-10-05 a Codex reviewer was requested and three Claude
+  reviewers were created. `ao-topology reviewer ensure --provider codex` (and
+  `role ensure reviewer --provider codex`) now reuses the registered Codex reviewer. A request for
+  another provider than the registered one is refused with `TOPOLOGY_REVIEWER_PROVIDER` and names
+  the `--provider` that keeps it; nothing is minted. With no registration, ensure first looks at
+  the repository's reviewer agents. It reattaches a live one on the requested provider, relaunches
+  a stopped one as the same identity, and refuses with `TOPOLOGY_REVIEWER_LIVE` while a reviewer on
+  another provider is live. A new reviewer is minted only when none exists on that provider. The
+  requested provider must still be in `management.reviewer_providers`.
+
+- **Lead and worker autonomy ships with the plugin (TM-369, EP-028).** A new `PreToolUse(Bash)`
+  hook, `scripts/autonomy-allow.mjs`, returns `permissionDecision: "allow"` for routine
+  orchestration commands. These are `ao-topology` verbs, `agent-orchestration`
+  doctor/status/session-open/services status, `tm`, and read-only `tmux`
+  (`capture-pane`, `list-panes`, `display-message -p` and similar). Leads can therefore spawn
+  workers, file tasks and read panes with no prompt, no classifier round and no global rule edits.
+  A plugin cannot ship permission allow rules, so this hook is the mechanism. We verified it live
+  on Claude Code 2.1.289 in `default` and `auto` modes. It approves only a single simple command.
+  It never approves `manage integrate|record-landing|cleanup`, `delegate grant|revoke`,
+  `permissions`, or any `git`, `gh`, deploy or secrets command. It never blocks, and the user's
+  `deny` and `ask` rules still apply. The README section "Lead and worker autonomy" documents it.
+
+- **`mailbox wait` blocks on a standing message's reply (TM-352, EP-028).**
+  `ao-topology mailbox wait <id> [--timeout 20m] [--poll 2s]` prints the reply as JSON and exits 0.
+  A timeout prints `ok: false` with code `TOPOLOGY_MAILBOX_WAIT_TIMEOUT`, names the message and
+  exits 2; a permanently held message returns at once as `TOPOLOGY_MESSAGE_UNDELIVERABLE`; an
+  unknown id is the error `TOPOLOGY_MESSAGE_NOT_FOUND` (exit 1), never `ok: true`. The new MCP tool
+  `orchestration_mailbox_wait` does the same within 55 seconds and reports a timeout as a tool
+  error. It polls; a KV watch is TM-311. `dist/` is rebuilt so the shipped MCP lists the tool.
+- **Standing mail rings its recipient on arrival (TM-351, EP-028).** Each supervisor tick rings
+  the pane of every agent whose standing mail was delivered, through `ringMessage`, so an idle
+  agent no longer has to poll `mailbox inbox`. The ring is a pointer naming the message id and the
+  exact `ao-topology mailbox inbox --consumer <repo> --agent <id>` command, never the body. An
+  unsafe composer, a missing pane or an adapter with no measured composer holds the ring, and the
+  next tick retries it; nothing is ever typed into a non-empty composer. A marker under
+  `standing-mailbox/rings/` makes the ring once per message across ticks and restarts, mail the
+  agent already read or answered is never rung, and each agent gets at most one ring per tick. The
+  tick report lists the outcomes under `mail_rings`.
+- **Address a repository's lead by path or slug (TM-271, EP-028).** `mailbox send --to-repo
+  <path|slug>` and `--to lead@<path|slug>` resolve the repository against the registered
+  repositories (`services/repos.json` and every lead registration) and send to its registered
+  lead. `send` accepts the same forms and hands them to `mailbox send`, so both entries share one
+  resolver (`resolveStandingTargets` in `addressing.mjs`) and no run is needed. An unknown or
+  ambiguous name and a repository with no lead are refused (`TOPOLOGY_REPO_UNKNOWN`,
+  `TOPOLOGY_REPO_AMBIGUOUS`, `TOPOLOGY_REPO_NO_LEAD`), exit 1, nothing written.
+- **`@all-leads` broadcast for standing mail (TM-372, EP-028).** `mailbox send --to @all-leads`
+  (and `send --to @all-leads`) sends one ordinary standing message to every registered
+  repository's lead, each admitted on its own. It honours the broadcast rules in `addressing.mjs`:
+  the sender is never its own recipient, an audience that reaches nobody is refused, and more than
+  24 recipients (`--max-recipients`) is refused, never truncated. A given `--id` becomes one id per
+  repository, so a retried broadcast dedupes per recipient.
+- **Every session gets an AO identity (TM-353, EP-028).** A plugin SessionStart hook
+  (`topology/session-hook.mjs`) mints an 8-character id for any session a launcher did not start,
+  records it under `<state>/sessions/`, and exports `AO_SESSION_AGENT_ID` / `AO_SESSION_CONSUMER`
+  through `CLAUDE_ENV_FILE`. A bare `ao-topology mailbox send` now uses it as the sender instead of
+  holding the mail as `source_identity_required`. It never sets `AO_AGENT_ID`, so a lead named by
+  its census binding keeps its name. `callerIdentity()` in `topology/lib/session-identity.mjs` is
+  the one shared answer to "who is sending".
+- **Recipients outside the agent library resolve through presence (TM-353, EP-028).** Standing
+  mail to a name the library does not know, from the same repository, now resolves to a live
+  presence entry (a Codex pane, by agent id or session name) or to a minted session identity
+  before it is held as `unknown_recipient`. The library still wins.
+- **`lead status --cached`: a non-blocking lead read (TM-209, EP-028).** It answers from proof
+  already on disk, mints no probe, rings nothing and returns in under a second. Every `lead status`
+  result now carries `verdict_source` (`cached`, `late`, `probe`, or `none`) and `proof_age_ms`.
+  Plain `lead status` still rings the lead and waits up to `--ack-timeout` (default 30s) when no
+  proof is stored; the CLI help says so.
+- **A lead mid-turn reads as responsive and busy, not unresponsive (TM-222, EP-021, EP-028).** The
+  plugin's `UserPromptSubmit`, `PostToolUse` and `Stop` hooks write a heartbeat for their tmux pane
+  (`topology/lib/heartbeat.mjs`), with no model turn involved. A heartbeat from the lead's exact
+  binding (socket, server pid, pane id, and the pane pid among the hook's ancestors) that is younger
+  than `AO_LEAD_HEARTBEAT_TTL_MS` (default 5 minutes) proves the lead alive. `leadState` then
+  reports `responsive` with `verdict_source: "heartbeat"` and `busy`, and the pane is not rung. A
+  dead pane, a respawned pane, another pane's heartbeat or a stale one still reads as before, and
+  the nonce probe remains the proof when no heartbeat exists. Outside tmux the hook writes nothing.
+- **Held `no_lead` mail launches the destination's lead (TM-354, EP-028).** A `leads_not_ready`
+  hold already asked each side's own supervisor to recover its lead (TM-167). A `no_lead` hold now
+  does the same for the destination only, so the supervisor creates the missing lead through
+  `recoverLead` / `ensureLead`, under the registration lock. Tests cover the whole path: two held
+  messages, six racing supervisor ticks, one lead launched, and both messages delivered to that
+  lead once it is proven ready.
+
 - **Prompt and configuration settings verbs (TM-296).** `config get|set|validate` read and write
   one configuration layer's raw document with a sha256 revision; `set` validates before writing,
   refuses a stale `--if-revision` and writes atomically. `prompt preview` takes `--agent` or
@@ -69,6 +679,57 @@
   `common_by_role` variant — and reports the kept layer in `warnings`.
 
 ### Fixed
+
+- **NATS outage follow-ups: recovery no longer overclaims, and state writes are locked and visible
+  (TM-309, EP-028).**
+  - An outage now records which processes fell back from it (`holders`, by pid). An open that
+    reaches the configured server again marks it `reachable_at`, but the outage closes, and the lead
+    gets its one recovery message, only when no live holder remains. A holder's heartbeat re-dials
+    once another process has proven the server back.
+  - Recovery is recorded only after `jetstreamManager()` succeeds. A server that takes the
+    connection but has no JetStream no longer closes an outage.
+  - The supervisor's re-dial probe is a real NATS connection plus a JetStream call on a short-lived
+    connection of its own. A port that only accepts TCP no longer force-closes the supervisor's
+    live connections, presence included.
+  - Every read-modify-write of `transport.json` runs under one lock (`withLock`). A failed write is
+    no longer swallowed: it is carried as `state_write_error` on the selection, logged by the
+    supervisor start line, and fails the outage tick with its reason.
+  - The supervisor start log reports the connection it just opened, not the host-wide file.
+  - Text `agent-orchestration services status` prints the transport and any open outage.
+  - Tests prove that no credential from a single, list or malformed `AO_NATS_URL` reaches
+    `transport.json`, doctor, services status, the start log or the lead's inbox.
+
+- **The commit guard allows the plugin declaration that AGENTS.md requires (TM-370, EP-028).**
+  `guard-project-install`, the `git-hook` pre-commit hook and the SessionStart warning blocked
+  every commit in a repository whose `.claude/settings.json` enabled `task-management@bytedesk`,
+  even when it followed the `~/.agents/AGENTS.md` rule to register the marketplace by relative
+  path and declare `enabledPlugins`. That form now passes. Still blocked, as per-project
+  installs: an enabled plugin whose `bytedesk` marketplace the repository does not register
+  (what `claude plugin install --scope project` writes), a `bytedesk` marketplace registered by
+  absolute or `~` path, and a plugin cache committed under `.claude/plugins/`. Each refusal names
+  the problem, the exact fix and the AGENTS.md rule.
+- **System notices are sent as the supervisor and reach the inbox (TM-314, EP-028).** Slot-grant
+  notices, quota incident and failover notices, and failed-review escalations were sent with no
+  sender, so every one was held permanently as `source_identity_required`. They are now sent as
+  `ao-supervisor` from the repository itself, like the NATS outage notice, under `v2` message ids
+  so the old held records do not raise `TOPOLOGY_MESSAGE_ID_CONFLICT`. `notifyGrants` reports a
+  held grant with its reason. Every `sendStandingMessage` caller was audited for a sender.
+- **`mailbox send --dry-run` previews instead of sending (TM-278, EP-028).** The flag was ignored
+  and a real envelope was queued. A dry run now validates, resolves and routes, and prints the
+  would-be envelope, the destination repository and its lead, and `would: deliver` with the
+  recipient or `would: hold` with the reason. It writes, publishes, rings and recovers nothing.
+  Every other send verb (`mailbox forward|reply|dispose|…`, `send`, `reply`) refuses the flag with
+  `TOPOLOGY_DRY_RUN_UNSUPPORTED` instead of ignoring it.
+- **The standing-mail sender is the session's identity, not a claim (TM-356, EP-028).**
+  `mailbox send`, `mailbox forward` and the MCP `orchestration_mailbox_send` took `from` from
+  `--from`, `AO_AGENT_ID` or the tool's `from` field, so any caller could send as any agent. The
+  sender is now the launcher's `AO_AGENT_ID` and `AO_CONSUMER`, the proof standing replies already
+  require (`sessionIdentity` in `standing-mailbox.mjs`). An explicit `--from`, `--from-project`,
+  `from` or `consumerCwd` that differs is refused with `TOPOLOGY_SENDER_MISMATCH`. MCP
+  `orchestration_mailbox_receive` and `orchestration_mailbox_dispose` act only for that identity,
+  and their `agent` field (like `from`) is now optional. A session with no identity is refused
+  with `TOPOLOGY_SOURCE_IDENTITY_REQUIRED`, naming what is missing, before anything is written.
+  The `dist/` bundles are rebuilt.
 
 - **A task branch that merges its integration branch is reviewed and scoped over its own files
   (TM-325).** The effective review base asked the server for the merge-base with the default

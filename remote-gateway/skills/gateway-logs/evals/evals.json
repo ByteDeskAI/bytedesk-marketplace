@@ -1,0 +1,41 @@
+{
+  "skill_name": "gateway-logs",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The gateway on this machine restarted around 03:27 this morning and the notifications settings stopped applying. Find out what the gateway logged, without guessing, and save the evidence you used to /tmp/gl-eval/evidence/.",
+      "expected_output": "Checks the store with logs_stats or /logs/api/stats, finds the logger with logs_list_loggers, queries ERROR/WARN in a window around 03:27, names the first bad record, and exports that filtered slice as NDJSON into the evidence folder with the filter recorded.",
+      "files": [],
+      "expectations": [
+        "The run reached the logs plugin through logs_* MCP tools or /logs/api/* with the remote-gateway-login cookie jar",
+        "The run queried a bounded time window around 03:27 with a level filter rather than reading the whole store",
+        "An NDJSON export of the filtered slice exists under /tmp/gl-eval/evidence/",
+        "The answer quotes or cites at least one concrete log record with its timestamp and logger",
+        "No token, cookie value or password appears in the transcript or the evidence files"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The access logger is flooding the gateway log store and pushing everything else out of the ring. Quiet it down safely on this dev host.",
+      "expected_output": "Reads logs_list_loggers to confirm the exact logger name and counts, explains that muting drops its lines until unmuted, mutes 'access' with logs_mute_logger or POST /logs/api/mute, verifies with a read, and states the rollback (logs_unmute_logger).",
+      "files": [],
+      "expectations": [
+        "The run read the logger list before changing anything",
+        "The run muted exactly the logger named access and no other",
+        "The answer states that muting loses that logger's evidence and gives the unmute command as the rollback",
+        "The run verified the muted state with a read call afterwards"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "A user says one request to the gateway failed with a 502 and gave me correlation id 7f3c-eval. Trace what every plugin did for that request.",
+      "expected_output": "Uses logs_get with correlation_id 7f3c-eval (or /logs/api/query?correlation_id=7f3c-eval) and reports the cross-plugin sequence of records, or reports clearly that no records exist for that id.",
+      "files": [],
+      "expectations": [
+        "The run looked up records by correlation_id 7f3c-eval",
+        "The answer orders the records by timestamp and names each logger involved, or says plainly that none were found",
+        "The run did not change storage policy or mute any logger"
+      ]
+    }
+  ]
+}

@@ -42,19 +42,17 @@ import { readCheckoutRepair, recordCheckoutRepair, recoverLead, retryDelayMs } f
 import { withLock } from "./lockfile.mjs";
 import { repoKey } from "./repoid.mjs";
 import { readServiceRepos } from "./services-client.mjs";
-import { exists, nowIso, run } from "./util.mjs";
+import { safeGit } from "./safe-git.mjs";
+import { exists, nowIso } from "./util.mjs";
 
 export const DEFAULT_MAX_DIFFERENCES = 50;
 const REPAIRABLE = new Set(["dangling-gitdir", "missing-git"]);
 const IDENTITY = ["-c", "user.name=agent-orchestration", "-c", "user.email=agent-orchestration@localhost", "-c", "core.hooksPath=/dev/null"];
 
-// A caller's GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE would point every command below somewhere else.
-function cleanEnv(extra = {}) {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
-  return { ...env, GIT_TERMINAL_PROMPT: "0", ...extra };
-}
-const git = (args, { env = {}, timeoutMs = 120_000 } = {}) =>
-  run("git", [...IDENTITY, ...args], { env: cleanEnv(env), allowFailure: true, timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+// TM-443: every host git goes through safe-git, which also drops a caller's GIT_DIR / GIT_WORK_TREE /
+// GIT_INDEX_FILE. It drops ours too, so a scratch index is a scratch repository's own index instead.
+const git = (args, { timeoutMs = 120_000 } = {}) =>
+  safeGit(null, [...IDENTITY, ...args], { allowFailure: true, timeoutMs, maxBuffer: 64 * 1024 * 1024 });
 const lines = (text) => text.split("\n").map((line) => line.trim()).filter(Boolean);
 
 /**
@@ -125,25 +123,24 @@ export async function knownRemote(dir) {
 }
 
 /**
- * How `rev` compares with the working tree at `dir`, read through a scratch index:
+ * How `rev` compares with the working tree at `dir`, read through the scratch clone's own index:
  * { differences, tracked, matching }. `differences` counts tracked paths that are not byte-identical
  * on disk (changed or deleted) plus untracked, non-ignored files; `matching` = tracked - changed.
  */
-async function differences({ gitDir, dir, rev, index }) {
-  await rm(index, { force: true });
-  const env = { GIT_INDEX_FILE: index };
+async function differences({ gitDir, dir, rev }) {
+  await rm(join(gitDir, "index"), { force: true });
   const base = [`--git-dir=${gitDir}`, `--work-tree=${dir}`];
-  if ((await git([...base, "read-tree", rev], { env })).code !== 0) return null;
-  await git([...base, "update-index", "-q", "--refresh"], { env, timeoutMs: 300_000 });
-  const changed = await git([...base, "diff-files", "--name-only"], { env, timeoutMs: 300_000 });
-  const untracked = await git([...base, "ls-files", "--others", "--exclude-standard"], { env, timeoutMs: 300_000 });
-  const tracked = await git([...base, "ls-files"], { env, timeoutMs: 300_000 });
+  if ((await git([...base, "read-tree", rev])).code !== 0) return null;
+  await git([...base, "update-index", "-q", "--refresh"], { timeoutMs: 300_000 });
+  const changed = await git([...base, "diff-files", "--name-only"], { timeoutMs: 300_000 });
+  const untracked = await git([...base, "ls-files", "--others", "--exclude-standard"], { timeoutMs: 300_000 });
+  const tracked = await git([...base, "ls-files"], { timeoutMs: 300_000 });
   if (changed.code !== 0 || untracked.code !== 0 || tracked.code !== 0) return null;
   const changedCount = lines(changed.stdout).length, trackedCount = lines(tracked.stdout).length;
   return { differences: changedCount + lines(untracked.stdout).length, tracked: trackedCount, matching: trackedCount - changedCount };
 }
 
-async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, maxCommits }) {
+async function closestRevision({ gitDir, dir, defaultBranch, maxTags, maxCommits }) {
   const tags = lines((await git([`--git-dir=${gitDir}`, "for-each-ref", "--sort=-creatordate", `--count=${maxTags}`, "--format=%(refname:short)", "refs/tags"])).stdout);
   const commits = lines((await git([`--git-dir=${gitDir}`, "rev-list", `--max-count=${maxCommits}`, `origin/${defaultBranch}`])).stdout);
   const candidates = [], seenTrees = new Set();
@@ -155,7 +152,7 @@ async function closestRevision({ gitDir, dir, scratch, defaultBranch, maxTags, m
   }
   let best = null;
   for (const candidate of candidates) {
-    const compared = await differences({ gitDir, dir, rev: candidate.rev, index: join(scratch, "match.index") });
+    const compared = await differences({ gitDir, dir, rev: candidate.rev });
     if (compared === null) continue;
     if (!best || compared.differences < best.differences) best = { ...candidate, ...compared };
     if (compared.differences === 0) break;
@@ -209,7 +206,7 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
     const head = (await git([`--git-dir=${cloneGit}`, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).stdout.trim();
     const defaultBranch = head.replace(/^origin\//, "");
     if (!defaultBranch) throw new Refusal("TOPOLOGY_CHECKOUT_NO_DEFAULT_BRANCH", `${origin.remote} has no default branch`, { remote: origin.remote });
-    const { best, examined } = await closestRevision({ gitDir: cloneGit, dir, scratch, defaultBranch, maxTags, maxCommits });
+    const { best, examined } = await closestRevision({ gitDir: cloneGit, dir, defaultBranch, maxTags, maxCommits });
     // Relative, not absolute: a few differences against a large tree is a match, the same few
     // against a tiny foreign repository is not. Overlap is checked as well, so a directory that
     // merely names some repository is never adopted into it.
@@ -245,10 +242,11 @@ async function performRepair({ found, dir, maxDifferences, maxTags, maxCommits, 
     }
 
     // The snapshot: every non-ignored file as found, committed on a backup branch.
-    const snapEnv = { GIT_INDEX_FILE: join(scratch, "snapshot.index") };
-    await git(["-C", dir, "read-tree", best.rev], { env: snapEnv });
-    await git(["-C", dir, "add", "-A"], { env: snapEnv, timeoutMs: 300_000 });
-    const tree = (await git(["-C", dir, "write-tree"], { env: snapEnv })).stdout.trim();
+    // Staged in the real index (safe-git allows no GIT_INDEX_FILE), which is then put back at the match.
+    await g("read-tree", best.rev);
+    await g("add", "-A");
+    const tree = (await g("write-tree")).stdout.trim();
+    await g("read-tree", best.rev);
     const snapshot = tree ? (await g("commit-tree", tree, "-p", best.rev, "-m", `ao-repair ${stamp}: working tree as found in ${dir}`)).stdout.trim() : "";
     const backupBranch = `ao-repair/${stamp}`;
     const branched = snapshot ? await g("branch", backupBranch, snapshot) : { code: 1, stderr: "no snapshot commit" };

@@ -516,6 +516,8 @@ export async function whenSafe({ pane, adapter, client, subName, format, binding
 
 /** Byte size of the agent's pane.log, or null when there is no log to measure. */
 export async function paneLogOffset(dir) {
+  // TM-351: standing mail rings with no run, so there is no agent dir and no pane.log baseline.
+  if (!dir) return null;
   return stat(join(dir, "pane.log")).then((info) => info.size, () => null);
 }
 
@@ -689,7 +691,7 @@ export async function ringMessage({
   let submittedAt = null;
   let engageOffset = null;
   const rungs = [];
-  const dir = agentDir(runDir, agentId);
+  const dir = runDir ? agentDir(runDir, agentId) : null;
 
   try {
     for (;;) {

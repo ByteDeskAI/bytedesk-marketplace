@@ -1,8 +1,8 @@
 ---
 name: setup-agent-orchestration
-description: Prepare a machine for tmux-hosted multi-agent orchestrations — verify or install tmux for the OS, inventory installed agent CLIs against the provider adapters, create the user workflow and adapter folders, and register any extra CLI as an adapter. Use on a new machine, when `ao-topology doctor` reports problems, or when the user wants to add a CLI as an agent.
+description: Prepare a machine for tmux-hosted multi-agent orchestrations — verify or install tmux for the OS, inventory installed agent CLIs against the provider adapters, create the user workflow and adapter folders, and register any extra CLI as an adapter, and wire Claude Code, Codex, Grok Build or Kimi as an orchestration host (formerly the install-orchestration-host skill). Use on a new machine, when `ao-topology doctor` reports problems, when the user wants to add a CLI as an agent, or when enabling Grok or Kimi as the orchestrator, installing host MCP and skills, or making Codex or Claude load the same control plane.
 user-invokable: true
-argument-hint: "[--add-cli <command>]"
+argument-hint: "[--add-cli <command>] [--host grok|kimi|codex|claude|all] [--dry-run]"
 ---
 
 # Set up agent orchestration on this machine
@@ -76,6 +76,9 @@ Act on them only through their names:
 
 - `agent-orchestration services status --json` — every managed process with its pid, state,
   restart count and readiness.
+- `agent-orchestration services wait --until healthy` (or `--until <name> running`) `[--timeout <s>]` —
+  blocks until the condition holds, then prints one JSON line; exit 0 met, 2 timed out, 1 bad
+  argument. Use it after `ensure` or `restart` instead of a `sleep` loop around `status`.
 - `agent-orchestration services restart <name>` / `agent-orchestration services stop <name>` —
   exactly that process, through the process-compose API; an unknown name is refused.
 
@@ -88,6 +91,58 @@ shows it as `nats.url`. If `nats.conflict` is set, another process holds that po
 a different `nats.port` (an integer from 1024 to 65535) and run `agent-orchestration services ensure`.
 ao ignores the generic `NATS_URL`; use `AO_NATS_URL` to point ao at another server.
 
-## 7. Confirm
+### Secrets workers need
+
+Name them in the global config, never their values:
+
+```json
+{ "workers": { "passEnv": ["TYPESAFE_API_KEY"] } }
+```
+
+in `~/.config/agent-orchestration/config.json` (`$XDG_CONFIG_HOME` if set;
+`ao-topology config set --scope global` writes it). The repository layer is git-tracked, so a name
+set only there is ignored with a warning. Reserved names are refused: `TM_*`, `AO_*`, `CLAUDE_*`,
+`LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`, `NODE_OPTIONS`, `NODE_PATH`, `BASH_ENV`, `ENV`,
+`ZDOTDIR`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `XDG_CONFIG_HOME`, `TMUX`,
+`TMUX_PANE` and `SSH_AUTH_SOCK`. Because `SSH_AUTH_SOCK` is refused, workers push over an HTTPS
+`origin` remote authenticated with `gh auth setup-git`, not through your SSH agent. When a run agent or a durable session starts, ao copies each named variable from
+the launching environment into a 0600 file beside the launcher, which the launcher sources and
+deletes. The value never enters the launcher, `run.json`, the journal, a prompt, tmux's
+environment or any argv. A name the launching environment lacks is warned about by name, and the
+launch continues. Never use `tmux set-environment -g` for a secret: every pane on the server
+inherits it.
+
+## 7. Wire another host (`--host`)
+
+This step was the `install-orchestration-host` skill until TM-377.
+
+Claude Code and Codex already load this plugin from their manifests. Grok Build and Kimi Code need
+explicit host wiring so they can call `orchestration_*` and spawn the other CLIs. Delegates are
+still trusted catalog IDs only: `claude`, `codex`, `grok-build`, `kimi`. Do not spawn an arbitrary
+PATH command; add a new CLI through `docs/EXTENDING.md`.
+
+1. Resolve the installed plugin root (this skill's `../../`). Do not assume the marketplace source
+   checkout unless that is the installed copy.
+2. Preview first:
+
+   ```sh
+   node skills/setup-agent-orchestration/scripts/install-host.mjs --dry-run --all
+   ```
+
+3. Apply the hosts the user named (`--host grok`, `--host kimi`, or `--all`).
+4. Confirm:
+   - Grok: `grok plugin details agent-orchestration` lists skills and MCP servers.
+   - Kimi: `~/.kimi-code/mcp.json` contains `agent-orchestration` pointing at `bin/agent-orchestration-mcp`.
+   - Codex: `~/.codex/config.toml` has `[plugins."agent-orchestration@bytedesk"] enabled = true`.
+   - Claude: project or user plugin enablement includes `agent-orchestration@bytedesk`.
+5. The script ends by refreshing every OLDER installed copy (Codex cache, Grok install, the root
+   Kimi's `mcp.json` names) from this plugin root, so every host runs one ao build. It refuses a
+   source with uncommitted changes, a copy inside a git checkout, and a copy whose `node_modules`
+   does not satisfy the new `package.json`; report any such line to the user with its fix.
+6. Tell the user to start a **fresh** host session. Existing sessions will not see new MCP servers.
+
+Do not print tokens, rewrite unrelated MCP servers, or edit Orca-managed Kimi hook blocks.
+
+## 8. Confirm
 
 Run `AO doctor` again and report the line `OK — ready to launch.` or the remaining problems.

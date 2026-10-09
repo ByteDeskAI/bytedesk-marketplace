@@ -13,7 +13,6 @@
  * cycle and a done task with unmet criteria are decisions, not typos, so they are
  * reported and left alone.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { planFindings } from "./plans.mjs";
@@ -21,9 +20,11 @@ import { missingFields } from "./completeness.mjs";
 import { RESOLVED, config, dependenciesMet, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { governanceMode } from "./governance-check.mjs";
+import { unreviewedTasks } from "./review-sweep.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
 import { evidenceSync } from "./evidence.mjs";
+import { safeGitText } from "./safe-git.mjs";
 import {
   launcherStatus,
   legacyCodexHooks,
@@ -87,11 +88,7 @@ const evidenceTarget = (ref, p) => (isAbsolute(ref) ? ref : join(p.root, ref));
  */
 export function ignoreRule(p) {
   try {
-    const out = execFileSync("git", ["check-ignore", "-v", "--no-index", join(p.base, "tasks")], {
-      cwd: p.root,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    }).trim();
+    const out = safeGitText(p.root, ["check-ignore", "-v", "--no-index", join(p.base, "tasks")]); // TM-443
     // `<source>:<line>:<pattern>\t<path>` — keep the part that tells you what to edit.
     return out ? out.split("\t")[0] : null;
   } catch {
@@ -682,6 +679,18 @@ export function diagnose(p = paths()) {
   // Never delete — the plan may be the only copy of the approved work.
   out.push(...planFindings(p, finding));
 
+  /**
+   * Finished work with commits and no review for its current revision (TM-244). The detector is
+   * review-sweep's, so `tm doctor` and `tm review-sweep` cannot disagree about one task; doctor
+   * leaves out a governed review that is filed and still outstanding, because that one is moving.
+   * `reviewCoverage` rides on the result so a clean report says how much it looked at.
+   */
+  const reviews = unreviewedTasks(p);
+  for (const f of reviews.found.filter((x) => x.state === "missing")) {
+    out.push(finding("warning", "unreviewed", f.task.id, `${f.inReview ? "ready for review" : "done"} with commits and no review for its current revision (${f.reason})`));
+  }
+  Object.defineProperty(out, "reviewCoverage", { value: { candidates: reviews.candidates, sinceDays: 7 }, enumerable: false });
+
   // The cache is disposable, but a stale one makes the dashboard and the CLI disagree.
   const drift = indexDrift(p, live);
   if (drift) {
@@ -870,7 +879,8 @@ export function render(findings, { fixed = null } = {}) {
   // "no problems found" only when there is genuinely nothing to say. After a repair
   // there IS: swallowing the list of what changed is the one output a fix must never
   // produce, because the operator cannot review a change they were not shown.
-  if (!findings.length && !fixed?.length) return "no problems found";
+  const rc = findings.reviewCoverage;
+  if (!findings.length && !fixed?.length) return `no problems found${rc ? ` (review check: ${rc.candidates} finished task(s) with commits in ${rc.sinceDays}d)` : ""}`;
   const out = [];
   for (const level of ["error", "warning"]) {
     const rows = findings.filter((f) => f.level === level);

@@ -9,6 +9,10 @@ argument-hint: "[what they have in front of them]"
 
 Read `tm_board` / `tm_next` first.
 
+Wanting work done by **another agent or repository** (message a lead, ticket another repo, launch a
+team, ask another model)? `/agent-orchestration:orchestrate` maps that across both plugins, and
+says what to do when agent-orchestration is not installed. This skill picks a task-management flow.
+
 | Situation | Flow |
 |---|---|
 | Unsure what's tracked | `/task-management:board` |

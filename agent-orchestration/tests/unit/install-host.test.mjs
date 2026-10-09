@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { applyHostInstall, parseArgs, planHostInstall, pluginRootFromScript } from "../../skills/install-orchestration-host/scripts/install-host.mjs";
+import { applyHostInstall, parseArgs, planHostInstall, pluginRootFromScript } from "../../skills/setup-agent-orchestration/scripts/install-host.mjs";
 
 const sourceRoot = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 
@@ -14,7 +14,7 @@ test("parseArgs defaults to every host", () => {
 });
 
 test("pluginRootFromScript walks out of the skill scripts directory", () => {
-  const script = path.join(sourceRoot, "skills", "install-orchestration-host", "scripts", "install-host.mjs");
+  const script = path.join(sourceRoot, "skills", "setup-agent-orchestration", "scripts", "install-host.mjs");
   assert.equal(pluginRootFromScript(script), sourceRoot);
 });
 
@@ -26,18 +26,22 @@ test("kimi host wiring merges mcp.json and links skills without dropping other s
     await mkdir(path.join(pluginRoot, "bin"), { recursive: true });
     await mkdir(path.join(pluginRoot, "skills", "agent-orchestrate"), { recursive: true });
     await mkdir(path.join(pluginRoot, "skills", "agent-orchestration-doctor"), { recursive: true });
-    await mkdir(path.join(pluginRoot, "skills", "roadmap-orchestrator"), { recursive: true });
+    await mkdir(path.join(pluginRoot, "skills", "roadmap-governance"), { recursive: true });
     await mkdir(path.join(pluginRoot, "agents"), { recursive: true });
     await writeFile(path.join(pluginRoot, "bin", "agent-orchestration-mcp"), "#!/bin/sh\n");
     await writeFile(path.join(pluginRoot, "skills", "agent-orchestrate", "SKILL.md"), "skill\n");
     await writeFile(path.join(pluginRoot, "skills", "agent-orchestration-doctor", "SKILL.md"), "skill\n");
-    await writeFile(path.join(pluginRoot, "skills", "roadmap-orchestrator", "SKILL.md"), "skill\n");
+    await writeFile(path.join(pluginRoot, "skills", "roadmap-governance", "SKILL.md"), "skill\n");
     await writeFile(path.join(pluginRoot, "agents", "cross-provider-orchestrator.md"), "agent\n");
     await mkdir(kimiHome, { recursive: true });
     await writeFile(
       path.join(kimiHome, "mcp.json"),
       `${JSON.stringify({ mcpServers: { keep: { command: "keep-me" } } }, null, 2)}\n`,
     );
+
+    // TM-377: a link an older install made for the renamed roadmap skill, now dangling.
+    await mkdir(path.join(kimiHome, "skills"), { recursive: true });
+    await symlink(path.join(pluginRoot, "skills", "roadmap-orchestrator"), path.join(kimiHome, "skills", "roadmap-orchestrator"));
 
     const plan = planHostInstall({ pluginRoot, hosts: ["kimi"], kimiHome });
     const results = applyHostInstall(plan, {
@@ -53,6 +57,8 @@ test("kimi host wiring merges mcp.json and links skills without dropping other s
     assert.equal(linked, "skill\n");
     const agent = await readFile(path.join(kimiHome, "agents", "cross-provider-orchestrator.md"), "utf8");
     assert.equal(agent, "agent\n");
+    await assert.rejects(lstat(path.join(kimiHome, "skills", "roadmap-orchestrator")), { code: "ENOENT" });
+    assert.equal(await readFile(path.join(kimiHome, "skills", "roadmap-governance", "SKILL.md"), "utf8"), "skill\n");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

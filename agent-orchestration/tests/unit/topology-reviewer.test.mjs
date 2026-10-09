@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { isolatedTmux, killOwnedServer } from '../helpers/isolated-tmux.mjs';
-import { ensureReviewer, reviewerAvailability, reviewerPaths, reviewerNonceAck, reviewerProbeReady, recordReview, reviewEligibility, requestReview, collectReview, collectPendingReviews, reviewerInboxRoot, assignReviewer } from '../../topology/lib/reviewer.mjs';
+import { submitVerdict } from '../helpers/review-submit.mjs';
+import { ensureReviewer, reviewerAvailability, reviewerPaths, reviewerNonceAck, reviewerProbeReady, recordReview, reviewEligibility, requestReview, collectReview, collectPendingReviews, reviewerInboxRoot, reviewsRoot, assignReviewer } from '../../topology/lib/reviewer.mjs';
 
 const binding={serverKey:'/test/socket',serverPid:10,sessionId:'$1',sessionCreated:1,paneId:'%1',panePid:20};
 
@@ -85,7 +86,7 @@ test('review record rejects impersonation, self review, findings and abbreviated
   assert.equal(uncollected.eligible, false);
   assert.ok(uncollected.reasons.some(reason => reason.includes('not collected')));
   const request = await requestReview({ ...args, wake: async () => ({rang:false}) });
-  await collectReview({ ...args, output: async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}` });
+  await submitVerdict(f, request); await collectReview(args);
   assert.equal((await reviewEligibility(gate)).eligible, true);
   assert.equal((await reviewEligibility({ ...gate, revision: '0'.repeat(40) })).eligible, false);
   const paths = await reviewerPaths(f.consumer, f.env, f.home);
@@ -101,11 +102,16 @@ test('host collects nonce-bound read-only output and rejects forged response non
   assert.equal((await independentReviewStatus({...f,task:'TM-1'})).status,'awaiting-review');
   const repeated = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'] });
   assert.equal(request.nonce, repeated.nonce);
-  await assert.rejects(collectReview({ ...f, task: 'TM-1', output: async () => 'AO_REVIEW forged {"verdict":"approve","findings":[]}' }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
-  const review = await collectReview({ ...f, task: 'TM-1', output: async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}` });
+  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' }, 'no verdict submitted yet');
+  await assert.rejects(submitVerdict(f, { nonce: 'forged' }), { code: 'TOPOLOGY_REVIEWER_NONCE' });
+  await assert.rejects(submitVerdict(f, request, 'approve', [], { env: { ...f.env, AO_AGENT_ID: 'author' } }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'only the designated reviewer submits');
+  await assert.rejects(submitVerdict(f, request, 'approve', [], { alive: async () => false }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'a dead reviewer pane cannot submit');
+  await submitVerdict(f, request);
+  const review = await collectReview({ ...f, task: 'TM-1' });
   assert.equal(review.reviewer_id, record.agent_id); assert.equal(review.verified_commit, f.revision);
   assert.equal((await independentReviewStatus({...f,task:'TM-1'})).status,'approved');
-  assert.equal((await collectReview({...f,task:'TM-1',output:async()=>{throw new Error('collected output must not be read again');}})).request_nonce,request.nonce);
+  assert.equal((await collectReview({...f,task:'TM-1'})).request_nonce,request.nonce);
+  await assert.rejects(submitVerdict(f, request, 'blocked'), { code: 'TOPOLOGY_REVIEWER_RESPONSE' }, 'a collected verdict cannot change');
   assert.throws(() => buildReviewerArgv({ id: 'claude' }, { args: ['--dangerously-skip-permissions'] }, {}, {}), { code: 'TOPOLOGY_REVIEWER_READ_ONLY' });
   assert.throws(() => buildReviewerArgv({ id: 'codex' }, { args: [], env: {}, mcp: [] }, {}, {}), { code: 'TOPOLOGY_REVIEWER_READ_ONLY' });
   const adapter = { id: 'claude', command: 'claude', args: [], model_args: [], system_prompt_args: [], add_dir_args: ['--add-dir', '{{dir}}'] };
@@ -125,7 +131,7 @@ test('TM-214: the reviewer stays read-only even though every other agent now def
   // Even if a stored definition said otherwise, the reviewer argv ignores it.
   const argv = buildReviewerArgv(claude, { args: [], env: {}, mcp: [], auto_approve: true }, {}, { consumer: '/repo' });
   assert.ok(argv.includes('--restricted'), argv.join(' '));
-  assert.ok(argv.includes('--safe-mode'), argv.join(' '));
+  assert.equal(argv[argv.indexOf('--setting-sources') + 1], '', argv.join(' '));
   assert.ok(!argv.includes('--dangerously-skip-permissions'), argv.join(' '));
 });
 
@@ -153,17 +159,16 @@ test('concurrent review collectors record one response and replaced reviewer bin
   const {record}=await ensureReviewer({...f,probes:{alive:async()=>false,open:async()=>({session:'review',binding})}});
   const options={...f,task:'TM-1',authorAgentIds:['author'],wake:async()=>({rang:false,reason:'test'})};
   const request=await requestReview(options);
-  let captures=0;
-  const output=async()=>{captures++;return `● AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}`;};
-  const reviews=await Promise.all([collectReview({...options,output}),collectReview({...options,output})]);
-  assert.equal(captures,1);assert.equal(reviews[0].request_nonce,reviews[1].request_nonce);
+  await submitVerdict(f,request);
+  const reviews=await Promise.all([collectReview(options),collectReview(options)]);
+  assert.equal(reviews[0].request_nonce,reviews[1].request_nonce);
+  assert.equal((await readdir(join(await reviewsRoot(f.consumer,f.env,f.home),'TM-1','history'))).length,1,'one review is recorded');
   const paths=await reviewerPaths(f.consumer,f.env,f.home);
   await writeJson(paths.recordPath,{...record,binding:{...binding,panePid:binding.panePid+1}});
   assert.equal((await independentReviewStatus(options)).status,'invalid');
-  await assert.rejects(collectReview({...options,output}),{code:'TOPOLOGY_REVIEWER_IDENTITY'});
   const fresh=await requestReview(options);
   assert.notEqual(fresh.nonce,request.nonce);
-  await assert.rejects(collectReview({...options,output}),{code:'TOPOLOGY_REVIEWER_RESPONSE'});
+  await assert.rejects(collectReview(options),{code:'TOPOLOGY_REVIEWER_NO_VERDICT'},'the old nonce\'s verdict does not answer the fresh request');
 });
 
 test('linked worktrees share reviewer identity and exact review evidence', async t => {
@@ -174,7 +179,8 @@ test('linked worktrees share reviewer identity and exact review evidence', async
   const second = await ensureReviewer({ ...f, consumer: linked, probes });
   assert.equal(second.record.agent_id, record.agent_id);
   const request = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({rang:false}) });
-  await collectReview({ ...f, consumer: linked, task: 'TM-1', output: async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}` });
+  await submitVerdict({ ...f, consumer: linked }, request);
+  await collectReview({ ...f, consumer: linked, task: 'TM-1' });
   assert.equal((await reviewEligibility({ ...f, consumer: linked, task: 'TM-1', authorAgentIds: ['author'], probes })).eligible, true);
 });
 
@@ -198,13 +204,14 @@ test('review covers harmful first commit and harmless final commit from trusted 
   assert.equal(request.base_revision, f.revision);
   const patch = await readFile(request.patch_path, 'utf8');
   assert.match(patch, /unsafe change from commit A/); assert.match(patch, /benign comment from commit B/);
-  const review = await collectReview({ ...opts, output: async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}` });
+  await submitVerdict(f, request);
+  const review = await collectReview(opts);
   assert.equal(review.base_revision, f.revision); assert.equal(review.patch_sha256, request.patch_sha256);
   const probes = { alive: async () => true, responsive: async () => true };
   assert.equal((await reviewEligibility({ ...opts, probes })).eligible, true);
   await writeJson(f.managementPath, { ...f.management, base_revision: first, finish: { revision: finish } });
   assert.equal((await reviewEligibility({ ...opts, probes })).eligible, false, 'changing the admitted range invalidates an old approval');
-  await assert.rejects(collectReview({ ...opts, output: async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}` }), { code: 'TOPOLOGY_REVIEWER_RANGE' });
+  await assert.rejects(collectReview(opts), { code: 'TOPOLOGY_REVIEWER_RANGE' });
 });
 
 test('reviewer prompt inputs are inside its explicit repo-scoped read-only grants', async t => {
@@ -315,14 +322,15 @@ test('automatic review collection skips retained history and rotates unanswered 
   const request=await requestReview({...f,task:'TM-1',authorAgentIds:['author'],wake:async()=>({rang:true})});
   const dir=join(await reviewerInboxRoot(f.consumer,f.env,f.home),'requests');
   await Promise.all(Array.from({length:105},(_,i)=>writeJson(join(dir,`000-history-${i}.json`),{collected_at:new Date().toISOString()})));
-  const collected=await collectPendingReviews({...f,output:async()=>`AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}`});
+  await submitVerdict(f,request);
+  const collected=await collectPendingReviews(f);
   assert.equal(collected.length,1);assert.equal(collected[0].state,'collected');
   await Promise.all(Array.from({length:101},(_,i)=>{
     const task=`PENDING-${String(i).padStart(3,'0')}`;
     return writeJson(join(dir,`${task}-${f.revision}.json`),{...request,task,delivery:{rang:true}});
   }));
-  const first=await collectPendingReviews({...f,output:async()=>''});
-  const second=await collectPendingReviews({...f,output:async()=>''});
+  const first=await collectPendingReviews(f);
+  const second=await collectPendingReviews(f);
   assert.equal(first.length,100);assert.equal(second.length,100);
   assert.ok(second.some(result=>result.task==='PENDING-100'),'later pending requests must be visited despite earlier unanswered requests');
 });
@@ -366,8 +374,9 @@ test('TM-241: a forced git diff failure is reported with git\'s own exit code an
     requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
     error => {
       assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
-      assert.match(error.message, /git diff exited 128/);
-      assert.match(error.message, /unable to read/);
+      // TM-260: content classification reads the blob first, so git cat-file is the command that fails.
+      assert.match(error.message, /Cannot read file f\.txt \(unknown bytes, blob [0-9a-f]{40}\): git exited 128/);
+      assert.match(error.message, /unable to unpack/);
       return true;
     }
   );
@@ -422,7 +431,7 @@ test('TM-241: an unreadable binary blob refuses with its path and size instead o
     requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }),
     error => {
       assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
-      assert.match(error.message, /Cannot hash binary file shot\.png \(7 bytes, blob [0-9a-f]{40}\): git exited 128 — fatal: simulated unreadable blob/);
+      assert.match(error.message, /Cannot read file shot\.png \(7 bytes, blob [0-9a-f]{40}\): git exited 128 — fatal: simulated unreadable blob/);
       return true;
     }
   );
@@ -468,7 +477,8 @@ async function mergedBranch(t, { late = false } = {}) {
 }
 
 const probesUp = { alive: async () => true, responsive: async () => true };
-const approve = request => async () => `AO_REVIEW ${request.nonce} {"verdict":"approve","findings":[]}`;
+// TM-259: drop the host's recorded verified bases, so the next derivation asks the server again.
+const forgetBases = f => rm(f.managementPath.replace(/\.json$/, '.bases.json'), { force: true });
 
 test('TM-257 (a,f) a branch that merged main is reviewed over its own changes, before and after landing', async t => {
   const { f, git, sibling, revision, server, o } = await mergedBranch(t);
@@ -478,15 +488,19 @@ test('TM-257 (a,f) a branch that merged main is reviewed over its own changes, b
   assert.match(request.range_note, /excludes code already on the default branch/);
   const patch = await readFile(request.patch_path, 'utf8');
   assert.match(patch, /early task change/); assert.doesNotMatch(patch, /landed sibling task/);
-  const review = await collectReview({ ...o, revision, output: approve(request) });
+  const review = await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
   assert.equal(review.admitted_base, f.revision); assert.equal(review.effective_base, sibling); assert.equal(review.patch_sha256, request.patch_sha256);
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
   // (f) Landing: the server's default branch now contains the revision; the recorded base stands.
   await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
-  const calls = server.calls;
+  let calls = server.calls;
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
-  assert.ok(server.calls > calls, 'the landed check asked the server');
+  assert.equal(server.calls, calls, 'TM-259: the verified base is recorded, so landing asks the server nothing');
+  await forgetBases(f); calls = server.calls;
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  assert.ok(server.calls > calls, 'with no recorded base, the landed check asks the server');
   // (f) refused: the server says the recorded base is not on its default branch.
+  await forgetBases(f);
   const offDefault = async (dir, from) => from === null ? { status: 'behind', merge_base: revision } : { status: 'diverged', merge_base: f.revision };
   const refused = (await reviewEligibility({ ...o, serverCompare: offDefault, revision, probes: probesUp })).reasons;
   assert.ok(refused.some(reason => /not on the server default branch/.test(reason)), refused.join('\n'));
@@ -519,11 +533,11 @@ test('TM-325 a branch that merged its integration branch is reviewed over its ow
   assert.equal(request.admitted_base, f.revision); assert.equal(request.effective_base, sibling);
   const patch = await readFile(request.patch_path, 'utf8');
   assert.match(patch, /early task change/); assert.match(patch, /late task change/); assert.doesNotMatch(patch, /landed sibling task/);
-  const review = await collectReview({ ...o, revision, output: approve(request) });
+  const review = await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
   assert.equal(review.effective_base, sibling);
   // Landed on the integration branch: the recorded base is checked against that branch, not main.
   await git(['checkout', '-q', 'fix/integration']); await git(['merge', '-q', '--ff-only', revision]);
-  asked.length = 0;
+  await forgetBases(f); asked.length = 0;
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
   assert.ok(asked.some(([from, to]) => from === sibling && to === 'fix/integration'), JSON.stringify(asked));
   assert.equal(server.main, f.revision, 'main never moved');
@@ -537,10 +551,10 @@ test('TM-325 a task PR whose base disagrees with the admitted integration branch
 test('TM-325 a landed task whose integration branch was merged and deleted keeps its recorded effective base', async t => {
   const { f, git, sibling, revision, asked, o } = await mergedIntegrationBranch(t, 'fix/integration');
   const request = await requestReview({ ...o, revision });
-  await collectReview({ ...o, revision, output: approve(request) });
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
   await git(['checkout', '-q', 'fix/integration']); await git(['merge', '-q', '--ff-only', revision]);
   await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', 'fix/integration']); await git(['branch', '-q', '-D', 'fix/integration']);
-  asked.length = 0;
+  await forgetBases(f); asked.length = 0;
   const gone = async (dir, from, to) => { asked.push([from, to]); if (from === 'fix/integration' || to === 'fix/integration') throw new Error('gh compare failed: HTTP 404'); return o.serverCompare(dir, from, to); };
   assert.deepEqual((await reviewEligibility({ ...o, serverCompare: gone, revision, probes: probesUp })).reasons, []);
   const { reviewRangeBase } = await import('../../topology/lib/reviewer.mjs');
@@ -557,6 +571,44 @@ test('TM-325 an integration branch the server cannot answer for, or a malformed 
   let called = false;
   const bad = await effectiveBase(f.consumer, f.revision, revision, { branch: 'main...x', serverCompare: async () => { called = true; return { status: 'ahead', merge_base: revision }; } });
   assert.equal(bad.base, f.revision); assert.match(bad.note, /not a plain branch name/); assert.equal(called, false);
+});
+
+test('TM-259 a server outage on a revision with a recorded verified base keeps the approved review valid', async t => {
+  const { f, sibling, revision, o } = await mergedBranch(t);
+  const { reviewRangeBase } = await import('../../topology/lib/reviewer.mjs');
+  const down = async () => { throw new Error('gh: HTTP 403 rate limit exceeded'); };
+  // First derivation with the server down still fails closed to the admitted base, and is not recorded.
+  const fallback = await reviewRangeBase({ ...o, serverCompare: down, revision, admittedBase: f.revision });
+  assert.equal(fallback.effective_base, f.revision); assert.match(fallback.range_note, /rate limit/);
+  await assert.rejects(readFile(f.managementPath.replace(/\.json$/, '.bases.json'), 'utf8'), { code: 'ENOENT' });
+  const request = await requestReview({ ...o, revision });
+  assert.equal(request.effective_base, sibling);
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
+  assert.deepEqual((await reviewEligibility({ ...o, serverCompare: down, revision, probes: probesUp })).reasons, [], 'a blip after approval does not flip it');
+  // Coverage: without the record, the same blip is exactly the flip TM-259 reports.
+  await forgetBases(f);
+  const flipped = (await reviewEligibility({ ...o, serverCompare: down, revision, probes: probesUp })).reasons;
+  assert.ok(flipped.includes('review does not cover the complete admitted task range'), flipped.join('\n'));
+});
+
+test('TM-259 sweeps make no GitHub call for a revision whose base is recorded; a tampered record is not trusted', async t => {
+  const { f, git, commit, sibling, revision, asked, pulls, o } = await mergedIntegrationBranch(t, 'fix/integration');
+  const { reviewRangeBase } = await import('../../topology/lib/reviewer.mjs');
+  const request = await requestReview({ ...o, revision });
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
+  assert.ok(asked.length > 0 && pulls.length > 0, 'the first derivation asked the server');
+  asked.length = 0; pulls.length = 0;
+  for (let tick = 0; tick < 3; tick++) assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, []);
+  assert.equal((await reviewRangeBase({ ...o, revision, admittedBase: f.revision })).effective_base, sibling);
+  assert.deepEqual([asked.length, pulls.length], [0, 0], 'no compare and no PR lookup for a recorded revision');
+  // A recorded base outside admitted..revision is ignored and the server is asked again.
+  const path = f.managementPath.replace(/\.json$/, '.bases.json');
+  const recorded = JSON.parse(await readFile(path, 'utf8'));
+  await git(['checkout', '-q', '-b', 'side', f.revision]); const outside = await commit('side.txt', 'not in the task range'); await git(['checkout', '-q', 'task']);
+  await writeJson(path, { [revision]: { ...recorded[revision], base: outside } });
+  assert.notEqual(outside, sibling);
+  assert.equal((await reviewRangeBase({ ...o, revision, admittedBase: f.revision })).effective_base, sibling);
+  assert.ok(asked.length > 0, 'the tampered record sent the derivation back to the server');
 });
 
 test('TM-257 (b) a branch that never merged main keeps the admitted range', async t => {
@@ -621,18 +673,260 @@ test('TM-257 (e) an unavailable or malformed server fails closed to the admitted
 test('TM-257 (h) a pre-TM-257 request after landing verifies the stored review base, or asks for a re-review', async t => {
   const { f, git, own, sibling, revision, server, o } = await mergedBranch(t);
   const request = await requestReview({ ...o, revision });
-  await collectReview({ ...o, revision, output: approve(request) });
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
   await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
   // Rewrite the request in the pre-TM-257 format: no admitted_base or effective_base.
   assert.equal(request.effective_base, sibling);
   const stored = JSON.parse(await readFile(request.path, 'utf8'));
   delete stored.admitted_base; delete stored.effective_base; delete stored.range_note;
   await writeJson(request.path, stored);
+  await forgetBases(f);
   assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, [], 'the stored review base reproduces the reviewed patch');
   // A stored base that does not reproduce the reviewed patch is not used; a re-review is asked for.
   const { reviewsRoot } = await import('../../topology/lib/reviewer.mjs');
   const reviewPath = join(await reviewsRoot(f.consumer, f.env, f.home), 'TM-1', `${revision}.json`);
   await writeJson(reviewPath, { ...(JSON.parse(await readFile(reviewPath, 'utf8'))), base_revision: own });
+  await forgetBases(f);
+  const reasons = (await reviewEligibility({ ...o, revision, probes: probesUp })).reasons;
+  assert.ok(reasons.some(reason => /predates TM-257.*re-review is required/.test(reason)), reasons.join('\n'));
+});
+
+test('TM-366 the review reads the worker worktree: a change only there is reviewed, not the main checkout', async t => {
+  const f = await fixture(t);
+  await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
+  // The worker's worktree is on its own branch; the main checkout stays on the base.
+  const tree = join(f.consumer, '.bytedesk', 'worktrees', 'TM-1');
+  await run('git', ['-C', f.consumer, 'worktree', 'add', '-q', '-b', 'tm/TM-1', tree]);
+  await mkdir(join(tree, 'src'), { recursive: true });
+  await writeFile(join(tree, 'src', 'only-in-worktree.js'), 'export const reviewed = "worker change";\n');
+  const git = args => run('git', ['-C', tree, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args]);
+  await git(['add', '.']); await git(['commit', '-q', '-m', 'worker change']);
+  const revision = (await git(['rev-parse', 'HEAD'])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, worktree: tree, branch: 'tm/TM-1', finish: { revision } });
+  const opts = { ...f, task: 'TM-1', revision, authorAgentIds: ['author'], wake: async () => ({ rang: true }) };
+  const request = await requestReview(opts);
+  assert.equal(request.worktree, tree, 'the request names the worktree the reviewer reads');
+  assert.match(await readFile(request.patch_path, 'utf8'), /worker change/);
+  assert.equal(await readFile(join(request.worktree, 'src', 'only-in-worktree.js'), 'utf8'), 'export const reviewed = "worker change";\n');
+  await assert.rejects(readFile(join(f.consumer, 'src', 'only-in-worktree.js')), { code: 'ENOENT' }, 'the main checkout does not have the change');
+  // A finding about the worktree-only file is accepted, because the files come from the worktree.
+  await submitVerdict(f, request, 'changes_requested', [{ severity: 'major', file: 'src/only-in-worktree.js', line: 1, claim: 'c', evidence: 'e', fix: 'x' }]);
+  const review = await collectReview(opts);
+  assert.equal(review.findings[0].file, 'src/only-in-worktree.js');
+  // A worktree of another repository is refused, never silently reviewed.
+  const other = join(f.home, 'other'); await mkdir(other, { recursive: true }); await run('git', ['init', '-q', other]);
+  await writeJson(f.managementPath, { ...f.management, worktree: other, finish: { revision } });
+  await assert.rejects(requestReview(opts), { code: 'TOPOLOGY_REVIEWER_RANGE', message: /not a worktree of this repository/ });
+});
+
+// TM-364: agent-browser 2026-10-05 asked for a Codex reviewer and got three Claude ones.
+async function providerFixture(t) {
+  const f = await fixture(t);
+  // The configured provider is claude; the reviewer the repository already has is codex.
+  await writeJson(join(f.pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'claude', instructions: 'Review.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
+  const { agentDirs, createAgent, listAgents } = await import('../../topology/lib/agents.mjs');
+  const reviewers = async () => (await listAgents(agentDirs(f))).filter(a => a.role === 'reviewer');
+  const codex = await createAgent(f.consumer, { role: 'reviewer', cli: 'codex' }, null, { pluginRoot: f.pluginRoot, home: f.home, env: f.env });
+  const opened = [];
+  const probes = (liveSessions) => ({
+    alive: async (session) => liveSessions.has(session),
+    open: async ({ agent, provider }) => { opened.push({ agent: agent.id, provider }); liveSessions.add(`review-${agent.id}`); return { session: `review-${agent.id}`, pane: '%9', binding: { ...binding, paneId: '%9', sessionId: `$${agent.id}` } }; },
+  });
+  return { ...f, codex, reviewers, opened, probes };
+}
+
+test('TM-364 ensure --provider codex reuses the registered codex reviewer and never mints another', async t => {
+  const f = await providerFixture(t);
+  const live = new Set();
+  const first = await ensureReviewer({ ...f, provider: 'codex', probes: f.probes(live) });
+  assert.equal(first.record.agent_id, f.codex.id, 'the library codex reviewer is used, not a new one');
+  assert.equal(first.record.provider, 'codex'); assert.equal(first.created, false);
+  assert.deepEqual(f.opened, [{ agent: f.codex.id, provider: 'codex' }]);
+  const again = await ensureReviewer({ ...f, provider: 'codex', probes: f.probes(live) });
+  assert.equal(again.record.agent_id, f.codex.id); assert.equal(again.reattached, true);
+  assert.equal(f.opened.length, 1, 'a live registered reviewer is reattached, not reopened');
+  // Plain ensure (config says claude) and ensure --provider claude refuse instead of minting.
+  await assert.rejects(ensureReviewer({ ...f, probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_PROVIDER', message: /--provider codex/ });
+  await assert.rejects(ensureReviewer({ ...f, provider: 'claude', probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_PROVIDER', message: /never creates a second reviewer/ });
+  await assert.rejects(ensureReviewer({ ...f, provider: 'grok', probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_PROVIDER' });
+  assert.deepEqual((await f.reviewers()).map(a => a.id), [f.codex.id], 'still exactly one reviewer');
+});
+
+test('TM-364 with no registration, a live library reviewer is reattached on its provider and blocks any other', async t => {
+  const f = await providerFixture(t);
+  await writeJson(join(f.codex._dir, 'session.json'), { agent_id: f.codex.id, session: 'codex-review', binding: { ...binding, paneId: '%7' } });
+  const live = new Set(['codex-review']);
+  // Configured claude while a codex reviewer is live: refused, and nothing is created.
+  await assert.rejects(ensureReviewer({ ...f, probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_LIVE', message: /--provider codex/ });
+  await assert.rejects(ensureReviewer({ ...f, provider: 'claude', probes: f.probes(live) }), { code: 'TOPOLOGY_REVIEWER_LIVE' });
+  assert.deepEqual((await f.reviewers()).map(a => a.id), [f.codex.id]);
+  const reattached = await ensureReviewer({ ...f, provider: 'codex', probes: f.probes(live) });
+  assert.equal(reattached.record.agent_id, f.codex.id); assert.equal(reattached.reattached, true);
+  assert.equal(reattached.record.session, 'codex-review'); assert.equal(reattached.record.binding.paneId, '%7');
+  assert.deepEqual(f.opened, [], 'nothing was launched');
+  // Only with no reviewer of that provider at all is one minted.
+  const g = await providerFixture(t);
+  const minted = await ensureReviewer({ ...g, probes: g.probes(new Set()) });
+  assert.equal(minted.created, true); assert.equal(minted.record.provider, 'claude');
+  assert.equal((await g.reviewers()).length, 2, 'the stopped codex reviewer stays; one claude reviewer is added');
+});
+
+// TM-216: the review packet, the per-repo checklist and revision-bound check evidence.
+const taskDoc = async () => ({ title: 'Packet fixture', body: 'Do the thing.', acceptance: [{ text: 'AC one is met', done: false }], touches: ['notes.txt'] });
+async function packetFixture(t, required = null) {
+  const f = await fixture(t);
+  const finish = await commitFile(f, 'notes.txt', 'line one\nline two\n');
+  if (required) await writeJson(join(f.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { required_checks: required.map(name => ({ name, argv: ['true'] })) } });
+  const o = { ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], taskDoc, wake: async () => ({ rang: true }) };
+  return { f, finish, o };
+}
+
+test('TM-216 the packet is written beside the patch and hashed; a changed packet refuses collection', async t => {
+  const { packetDigest } = await import('../../topology/lib/reviewer.mjs');
+  const { f, finish, o } = await packetFixture(t);
+  const request = await requestReview(o);
+  const p = name => readFile(join(request.packet_path, name), 'utf8');
+  assert.match(await p('files.txt'), /^A\tnotes\.txt$/m);
+  assert.equal(await p('files/notes.txt'), 'line one\nline two\n');
+  assert.match(await p('task.md'), /AC one is met/); assert.match(await p('task.md'), /- notes\.txt/);
+  assert.deepEqual(JSON.parse(await p('checks.json')), { revision: finish, required: [], checks: [], unsatisfied: [] });
+  assert.match(await p('checklist.md'), /none configured/);
+  assert.equal(request.packet_sha256, await packetDigest(request.packet_path));
+  assert.equal((await requestReview(o)).nonce, request.nonce, 'an unchanged packet keeps the request');
+  await submitVerdict(f, request);
+  await writeFile(join(request.packet_path, 'files', 'notes.txt'), 'line one\nedited after the request\n');
+  await assert.rejects(collectReview(o), { code: 'TOPOLOGY_REVIEWER_RESPONSE', message: /Review packet changed after the request/ });
+});
+
+test('TM-216 the repository checklist is injected; missing check evidence can only be reviewed as blocked', async t => {
+  const { reviewerProtocolPrompt } = await import('../../topology/lib/reviewer.mjs');
+  const { f, o } = await packetFixture(t, ['unit']);
+  await writeFile(join(f.consumer, '.bytedesk/agent-orchestration/review-checklist.md'), '- Run gofmt on every changed Go file.\n');
+  const request = await requestReview(o);
+  const checklist = await readFile(join(request.packet_path, 'checklist.md'), 'utf8');
+  assert.match(checklist, /Run gofmt on every changed Go file/);
+  assert.match(checklist, /- unit: UNSATISFIED \(unit: no evidence\)/);
+  assert.deepEqual(request.checks_unsatisfied, ['unit: no evidence']);
+  assert.match(reviewerProtocolPrompt({ id: 'r', role: 'reviewer', _dir: '/x' }, f.consumer, '/inbox'), /checklist\.md.*unsatisfied required checks you cannot approve/);
+  await assert.rejects(submitVerdict(f, request, 'approve'), { code: 'TOPOLOGY_REVIEWER_VERDICT', message: /lacks passing evidence for required checks \(unit: no evidence\)/ });
+  await submitVerdict(f, request, 'blocked');
+  assert.equal((await collectReview(o)).verdict, 'blocked');
+  // With evidence at this revision, exit 0, the same reviewer may approve.
+  const passing = await requestReview({ ...o, checkEvidence: [{ name: 'unit', command: ['npm', 'test'], exit_code: 0, revision: o.revision, log_tail: 'ok' }] });
+  assert.notEqual(passing.nonce, request.nonce); assert.deepEqual(passing.checks_unsatisfied, []);
+  await submitVerdict(f, passing, 'approve');
+  assert.equal((await collectReview(o)).verdict, 'approve');
+  await assert.rejects(requestReview({ ...o, checkEvidence: [{ name: 'unit', exit_code: 0, revision: 'abc' }] }), { code: 'TOPOLOGY_REVIEWER_CHECKS' });
+});
+
+test('TM-216 eligibility refuses check evidence recorded at another revision or with a nonzero exit', async t => {
+  const { f, o } = await packetFixture(t);
+  const checks = [{ name: 'unit', command: 'npm test', exit_code: 1, revision: o.revision, log_tail: '1 failing' }, { name: 'lint', command: 'npm run lint', exit_code: 0, revision: f.revision }];
+  const request = await requestReview({ ...o, checkEvidence: checks });
+  await submitVerdict(f, request); await collectReview(o);
+  assert.deepEqual((await reviewEligibility({ ...o, probes: probesUp })).reasons, [], 'nothing required yet');
+  await writeJson(join(f.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { required_checks: [{ name: 'unit', argv: ['true'] }, { name: 'lint', argv: ['true'] }, { name: 'build', argv: ['true'] }] } });
+  const reasons = (await reviewEligibility({ ...o, probes: probesUp })).reasons;
+  assert.deepEqual(reasons, [`required check unit: exited 1 at ${o.revision}`, `required check lint: evidence recorded at ${f.revision}, not ${o.revision}`, 'required check build: no evidence']);
+});
+
+// TM-418: an automatic request (here the supervisor review sweep, with the real requestReview) carries
+// the worker's finish-report check runs; prose and runs at another commit never count as evidence.
+test('TM-418 the review sweep files the finish report check runs, so the reviewer can approve', async t => {
+  const { reviewSweepTick } = await import('../../topology/lib/review-sweep.mjs');
+  const { f, finish, o } = await packetFixture(t, ['unit', 'lint']);
+  const sweep = () => reviewSweepTick({ consumer: f.consumer, env: f.env, home: f.home, minIntervalMs: 0, tmBin: '/fake/tm',
+    runFn: async () => ({ code: 0, stdout: JSON.stringify({ findings: [{ key: `no-review:TM-1:${Math.random()}`, kind: 'no-review', id: 'TM-1', governed: true, detail: 'TM-1', fresh: true }] }) }),
+    lead: async () => null, deliver: async () => ({ status: 'delivered' }),
+    // The real requestReview; only the pane wake is stubbed so no tmux is touched.
+    requestReview: async opts => { requests.push(await requestReview({ ...opts, taskDoc, wake: async () => ({ rang: false }) })); } });
+  const requests = [], filed = async () => requests.at(-1);
+  const finishWith = checks => writeJson(f.managementPath, { ...f.management, finish: { revision: finish, checks } });
+
+  // A prose claim and a run at another commit are not evidence: the reviewer can only block.
+  await finishWith(['unit passed', { name: 'unit', command: 'npm test', exit_code: 0, revision: f.revision }, { name: 'lint', command: 'npm run lint', exit_code: 0, revision: finish }]);
+  assert.equal((await sweep()).delivered[0].action, 'review-requested');
+  const blocked = await filed();
+  assert.deepEqual(blocked.checks_unsatisfied, [`unit: evidence recorded at ${f.revision}, not ${finish}`]);
+  await assert.rejects(submitVerdict(f, blocked, 'approve'), { code: 'TOPOLOGY_REVIEWER_VERDICT' });
+
+  // The worker's real runs at the finish commit: the same automatic path now permits approval.
+  await finishWith([{ name: 'unit', command: ['npm', 'test'], exit_code: 0, revision: finish, log_tail: 'ok' }, { name: 'lint', command: 'npm run lint', exit_code: 0, revision: finish }]);
+  await sweep();
+  const passing = await filed();
+  assert.notEqual(passing.nonce, blocked.nonce);
+  assert.deepEqual(passing.checks_unsatisfied, []);
+  assert.deepEqual(JSON.parse(await readFile(join(passing.packet_path, 'checks.json'), 'utf8')).checks.map(c => [c.name, c.command, c.revision]), [['unit', '[claimed by the worker; not run by the host] npm test', finish], ['lint', '[claimed by the worker; not run by the host] npm run lint', finish]], 'TM-430: the packet labels them as claims');
+  await submitVerdict(f, passing, 'approve');
+  assert.equal((await collectReview(o)).verdict, 'approve');
+});
+
+// TM-260: TM-241 follow-ups.
+const manifestRows = patch => patch.split('--- Binary files (bytes omitted; path, old and new blob sha256 and size) ---\n')[1]?.split('\n').filter(Boolean) ?? [];
+
+test('TM-260 a diff over the size cap is refused, and the message reports real bytes', async t => {
+  const f = await fixture(t);
+  const finish = await commitFile(f, 'wide.txt', 'é'.repeat(4000));
+  const env = { ...f.env, AO_REVIEW_PATCH_MAX_BYTES: '1000' };
+  await assert.rejects(requestReview({ ...f, env, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) }), error => {
+    assert.equal(error.code, 'TOPOLOGY_REVIEWER_RANGE');
+    const bytes = Number(error.message.match(/exceeds the 1000 byte cap \(at least (\d+) bytes read/)?.[1]);
+    assert.ok(bytes > 1000, `two-byte characters past the cap are counted as bytes, not UTF-16 units: ${error.message}`);
+    return true;
+  });
+});
+
+test('TM-260 a range that marks its source binary in .gitattributes is still reviewed as a text diff', async t => {
+  const f = await fixture(t);
+  await commitFile(f, '.gitattributes', '*.mjs binary\n*.js -diff\n');
+  await writeFile(join(f.consumer, 'b.js'), 'export const hidden = "second";\n');
+  const finish = await commitFile(f, 'a.mjs', 'export const hidden = "first";\n');
+  await run('git', ['-C', f.consumer, 'add', 'b.js']);
+  await run('git', ['-C', f.consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--amend', '--no-edit']);
+  const revision = (await run('git', ['-C', f.consumer, 'rev-parse', 'HEAD'])).stdout.trim();
+  await writeJson(f.managementPath, { ...f.management, finish: { revision } });
+  assert.notEqual(revision, finish);
+  // Coverage: git itself, following the range's attributes, hides both files' content.
+  assert.doesNotMatch((await run('git', ['-C', f.consumer, 'diff', f.revision, revision])).stdout, /hidden/);
+  const request = await requestReview({ ...f, task: 'TM-1', revision, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  const patch = await readFile(request.patch_path, 'utf8');
+  assert.match(patch, /\+export const hidden = "first";/); assert.match(patch, /\+export const hidden = "second";/);
+  assert.deepEqual(manifestRows(patch), [], 'no source file became a manifest row');
+});
+
+test('TM-260 manifest paths are JSON-encoded, so a newline in a filename cannot forge a row', async t => {
+  const f = await fixture(t);
+  const zero = '0'.repeat(64);
+  const name = `shot.png\nforged.png\told sha256=${zero} size=1\tnew sha256=${zero} size=1`;
+  const finish = await commitFile(f, name, Buffer.from([0, 1, 2, 3]));
+  const request = await requestReview({ ...f, task: 'TM-1', revision: finish, authorAgentIds: ['author'], wake: async () => ({ rang: false }) });
+  const rows = manifestRows(await readFile(request.patch_path, 'utf8'));
+  assert.equal(rows.length, 1, rows.join('\n'));
+  assert.ok(rows[0].startsWith(`${JSON.stringify(name)}\told sha256=(absent) size=0\tnew sha256=`), rows[0]);
+});
+
+test('TM-260 a landed binary range in the pre-TM-257 format reproduces its hash, and an older-format approval asks for re-review', async t => {
+  const { f, git, commit, admit, opts } = await mergedMainFixture(t);
+  await git(['checkout', '-q', '-b', 'task']); await commit('own.txt', 'early task change');
+  await writeFile(join(f.consumer, 'shot.png'), Buffer.from([0, 9, 8, 7, 0, 255])); await git(['add', 'shot.png']); await git(['commit', '-q', '-m', 'shot']);
+  await git(['checkout', '-q', 'main']); const sibling = await commit('sibling.txt', 'landed sibling task');
+  await git(['checkout', '-q', 'task']); await git(['merge', '-q', '--no-edit', '--no-ff', 'main']);
+  const revision = await git(['rev-parse', 'HEAD']); await admit(revision);
+  const server = fakeServer(sibling), o = { ...opts, serverCompare: server.compare };
+  const request = await requestReview({ ...o, revision });
+  assert.equal(request.effective_base, sibling); assert.equal(manifestRows(await readFile(request.patch_path, 'utf8')).length, 1);
+  await submitVerdict(o, request).then(() => collectReview({ ...o, revision }));
+  await git(['checkout', '-q', 'main']); await git(['merge', '-q', '--ff-only', revision]); server.main = revision;
+  const stored = JSON.parse(await readFile(request.path, 'utf8'));
+  delete stored.admitted_base; delete stored.effective_base; delete stored.range_note;
+  await writeJson(request.path, stored); await forgetBases(f);
+  assert.deepEqual((await reviewEligibility({ ...o, revision, probes: probesUp })).reasons, [], 'the stored binary-range review reproduces');
+  // An approval hashed in the pre-TM-241 --binary format cannot be reproduced: re-review, explicitly.
+  const { createHash } = await import('node:crypto');
+  const legacy = await run('git', ['-C', f.consumer, 'diff', '--no-ext-diff', '--no-textconv', '--binary', sibling, revision, '--']);
+  const reviewPath = join(await reviewsRoot(f.consumer, f.env, f.home), 'TM-1', `${revision}.json`);
+  await writeJson(reviewPath, { ...JSON.parse(await readFile(reviewPath, 'utf8')), patch_sha256: createHash('sha256').update(legacy.stdout).digest('hex') });
+  await forgetBases(f);
   const reasons = (await reviewEligibility({ ...o, revision, probes: probesUp })).reasons;
   assert.ok(reasons.some(reason => /predates TM-257.*re-review is required/.test(reason)), reasons.join('\n'));
 });

@@ -45,9 +45,9 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /never dispatched|was never dispatched/);
   });
 
-  it("parity table lists all 45 MCP tools and the HTTP twins for dispatch/collect/caps/agents", () => {
+  it("parity table lists all 46 MCP tools and the HTTP twins for dispatch/collect/caps/agents", () => {
     const doc = read("docs/agent-first.md");
-    assert.equal(TOOLS.length, 45, `expected 45 MCP tools, got ${TOOLS.length}`);
+    assert.equal(TOOLS.length, 46, `expected 46 MCP tools, got ${TOOLS.length}`);
     for (const t of TOOLS) {
       assert.match(doc, new RegExp(`\`${t.name}\``), `docs/agent-first.md missing ${t.name}`);
     }
@@ -92,7 +92,7 @@ describe("agent-first documentation (TM-074)", () => {
     assert.match(doc, /git push -u origin/);
     assert.match(doc, /TM_DISPATCH_WORKER/);
     assert.match(doc, /gh pr merge/, "the guard's headline refusal");
-    assert.match(doc, /never merge/i);
+    assert.match(doc, /never merge any PR but its own/i);
     for (const rel of ["README.md", "AGENTS.md", "docs/use-cases.md", "skills/dispatch/SKILL.md", "skills/implement/SKILL.md"]) {
       assert.match(read(rel), /gh pr create/, `${rel} never states the PR finish line`);
     }

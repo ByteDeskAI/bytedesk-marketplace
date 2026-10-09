@@ -10,8 +10,8 @@ argument-hint: "<task> [--providers claude,grok-build,kimi]"
 Use the bundled `orchestration_*` MCP tools. This host may be Claude Code, Codex, Grok Build, or Kimi
 Code. Do not launch provider CLIs directly and do not claim that a native host subagent changes provider.
 
-If the tools are missing, the current CLI is not wired as a host. Run `install-orchestration-host`
-instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
+If the tools are missing, the current CLI is not wired as a host. Run `setup-agent-orchestration` (its
+"Wire another host" step) instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
 
 ## Process
 
@@ -27,7 +27,7 @@ instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
    page outlives this MCP process. `xdg-open` may also run on the host when a display is present. A
    human-invoked `agent-orchestration session-host` prints a host bind line, not a capability secret.
 6. For parallel work, spawn only disjoint scopes. Record each orchestration and execution ID.
-7. Use `orchestration_events` or `orchestration_status` for progress and `orchestration_wait` for completion. Use `orchestration_send` only when
+7. Use `orchestration_events` or `orchestration_status` for progress and `orchestration_run_wait` for completion. Use `orchestration_run_followup` only when
    the parent was explicitly read-only and persistent and its provider supports session loading;
    otherwise spawn a new scoped run. Do not poll aggressively.
 8. If a provider requests approval, inspect it with `orchestration_decision_get`. Call `orchestration_decision_approve`
@@ -45,9 +45,10 @@ instead of shelling out to `claude`, `codex`, `grok`, or `kimi`.
 ## Tool surface
 
 - Discovery and routing: `orchestration_capabilities`, `orchestration_doctor`, `orchestration_route`, `orchestration_plan`
-- Lifecycle: `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events`
+- Lifecycle: `orchestration_spawn`, `orchestration_run_followup` (alias `orchestration_send`), `orchestration_run_wait` (alias `orchestration_wait`), `orchestration_status`, `orchestration_list`, `orchestration_events`
 - Control: `orchestration_cancel`, `orchestration_cleanup`
 - Approval: `orchestration_decision_get`, `orchestration_decision_approve`
+- Run mail and roles: `orchestration_run_mail_send`, `orchestration_run_mail_reply`, `orchestration_run_mail_wait`, `orchestration_lead_status`, `orchestration_session_handoff`. These are `ao-topology send|reply|wait`, `lead status` and `session handoff`, acting as this session's own agent (AO_AGENT_ID); `orchestration_lead_status` with `cached: true` never blocks.
 
 Provider IDs are `claude`, `codex`, `grok-build`, and `kimi`.
 

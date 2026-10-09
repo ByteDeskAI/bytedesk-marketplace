@@ -2,6 +2,132 @@
 
 ## Unreleased
 
+### Security
+
+- **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
+  `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
+  path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`
+  (byte-identical to agent-orchestration's) keeps only the commit-identity `GIT_*` variables and pins
+  `GIT_CONFIG_GLOBAL` to `~/.gitconfig`.
+- **Review fixes for PR #226 (TM-443, TM-441, EP-028).** `lib/safe-git.mjs` (still byte-identical to
+  agent-orchestration's) neutralises drivers whose names contain `=`, allows only the https, ssh and
+  file transports, refuses repository-scope URL rewriting and LFS transfer agents, and never smudges
+  LFS objects. `mergeInOf` now accepts a merge-in only when its integration parent is on the target
+  branch of the pinned repository on the server (`onServerBranch`, through `gh api .../compare`).
+  Local or `origin` refs no longer count, since a worker can forge them.
+- **Governed completion accepts a merge-in only when its tree is exactly the merge git computes (TM-441, EP-028).**
+  `mergeInOf` in `lib/governance-check.mjs` used the whitespace-blind `git patch-id --stable`, so a
+  merge could hide `rm -rf / tmp/build` where `rm -rf /tmp/build` was reviewed. It now requires the
+  head's tree to equal `git merge-tree --write-tree <approved revision> <integration parent>`, the
+  same rule agent-orchestration applies.
+- **tm's git calls no longer run config a worker planted in the shared `.git/config` (TM-443, EP-028).**
+  Every git call in `lib/` and `bin/` (governance check, worktree, collect, store, doctor, paths,
+  actor, duplicate, mcp, `tm`, `tm-hook`) now goes through `lib/safe-git.mjs`, a byte-identical copy
+  of agent-orchestration's helper (the plugins never import each other; agent-orchestration's suite
+  fails when the copies differ). It disables fsmonitor, hooks, pager, external diff, textconv,
+  repository-scope filter and merge drivers and credential helpers. The generated `bin/tm` launcher
+  template is the one exception: it must locate `lib/` first and only runs `rev-parse`.
+- **`tm ticket` no longer runs a launcher found in another repo (TM-446, EP-028).** Filing a
+  ticket, reporting progress to its origin, the event bridge and the pool's collect path all ran
+  `<repo>/.bytedesk/task-management/bin/tm` with the caller's environment, and `<repo>` came from a
+  task's `origin` field or a path argument — both writable by a worker. They now always run this
+  plugin's own `bin/tm` with `TM_ROOT` set to the other store. The other repo must also be
+  registered with agent-orchestration or be a sibling of this one; anything else is refused and
+  logged as `ticket_refused`.
+- **A woken pool and a cross-repo `tm` child no longer inherit agent-orchestration identity
+  (TM-447, EP-028).** `tm ticket` ran the target's `pool ensure` with the filer's environment, so
+  the target's pool claimed and mailed as the filing worker. `runTm` children and the detached pool
+  now drop every `AO_*` variable except machine configuration (`AO_HOME`, `AO_TRANSPORT`,
+  `AO_NATS_*`, `AO_NTFY_*`, `AO_SERVICES_*`, `AO_TOPOLOGY_BIN`, `AO_TMUX_COMMAND`, `AO_*_MS`).
+- **`dispatch.passEnv` is honoured only from user config, never for a reserved name, and cannot
+  override the worker's identity (TM-448, EP-028).** Names now come from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`dispatch.passEnv`) and agent-orchestration's
+  global `workers.passEnv`. The git-tracked `.bytedesk/task-management/config.json` and
+  `.bytedesk/agent-orchestration/config.json` are ignored with a warning (`passEnvWarnings` on the
+  dispatch result and the `dispatched` event, and `WARNING:` on stderr). `TM_*`, `AO_*`,
+  `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME` and `NODE_OPTIONS` are refused. On tmux, the
+  pane re-applies `TM_ROOT`, `TM_ACTOR`, `TM_SESSION_ID` and the worker markers with `env` after
+  sourcing the secrets file, so a sourced value can no longer override them. Move any
+  `dispatch.passEnv` from repository config to your user config.
+  - `SSH_AUTH_SOCK` is refused (see the follow-up below), so a worker cannot use your SSH agent.
+    The supported way for a worker to push is an HTTPS `origin` remote with `gh auth setup-git`.
+  - Pools and cross-repo `tm` children no longer receive the `AO_*TTL*_MS` and `AO_*GRACE*_MS`
+    tunables; set them where agent-orchestration itself runs if you need them.
+
+- **Review follow-ups to TM-446/447/448/460 (EP-028).**
+  - A dispatched worker's own claim (`TM_DISPATCH_WORKER`) is marked `worker` and keeps the
+    earlier `since`; a kept `since` keeps the `worker` flag of whoever took it. Both are
+    information only — collect holds a task for its lead solely on agent-orchestration's proof.
+  - `TMUX_PANE` is dropped for the pool, `runTm` children and collect's lead check, because
+    `ao-topology manage` treats the pane as an identity. `TMUX` is dropped for `runTm` children.
+    Proof-window tunables (`AO_*TTL*_MS`, `AO_*GRACE*_MS`) are dropped too, so a caller cannot
+    widen what counts as a responsive lead.
+  - A ticket's path target and origin are resolved to their real path once, and that path is the
+    one written to.
+  - Mail to a lead carries only the sender identity (`AO_AGENT_ID`, `AO_CONSUMER`,
+    `AO_SESSION_*`) of the caller's agent-orchestration environment.
+  - `passEnv` also refuses `BASH_ENV`, `ENV`, `ZDOTDIR`, `NODE_PATH`, `PYTHONPATH`,
+    `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and
+    `SSH_AUTH_SOCK`.
+
+### Changed
+
+- **Cross-repo ticket and pool-wait fixes from the EP-028 review (TM-450, EP-028).**
+  - A ticket's `done` and `merged` are keyed by kind alone, so a manual `tm ticket event <id> done …`
+    after the event bridge's `done` is a duplicate rather than a second report.
+  - A progress report that reached nobody (no comment landed and no mail went) gives its dedup key
+    back, so a retry sends instead of reporting "already reported".
+  - `fileTicket` refuses a title holding a stray `--flag`, so MCP `tm_ticket` refuses it as the CLI
+    does. Both use one helper, `strayFlag`.
+  - `tm pool wait --until done <id>` returns at once with exit 3 and `ended` when the task parks or
+    blocks, instead of waiting until the timeout. `--until idle` now counts a paused pool with no
+    workers as idle, using the same predicate (`poolIdle`) as the pool's own idle exit.
+- **The topology backend says which `passEnv` names it does not pass (TM-449, EP-028).** An
+  earlier entry and the dispatch skill said topology passes tm's `dispatch.passEnv`. It does not:
+  `ao-topology` passes only agent-orchestration's own global `workers.passEnv`, and the spec's
+  agent env is written into the launcher, so a value cannot travel there. A topology dispatch now
+  reports each tm-only name in `passEnvWarnings` (result, `dispatched` event, stderr), naming the
+  fix: add it to agent-orchestration's global `workers.passEnv`, or dispatch with `--backend tmux`.
+- **A crashed governed worker whose lead is gone is parked or retried again (TM-460, EP-028).**
+  Because a governed dispatch claims under its admission owner, collect treated every governed
+  task as "held by the lead" and left a dead worker's task in progress until the claim expired.
+  The owner's claim now counts only when `ao-topology lead status --cached` shows that owner's
+  lead responsive. A re-claim is not evidence: the worker carries the lead's `TM_SESSION_ID`, so it
+  can produce one. Without agent-orchestration, nothing proves the lead alive, so the task is
+  parked or retried.
+- **enhance-mine redacts bearer tokens, URL credentials, `-p` passwords and `NAME=value` secrets
+  (TM-435, EP-028).** `Authorization: Bearer|Basic|token <value>` now loses the value, not just the
+  scheme word, and so does a standalone `Bearer <token>`. `scheme://user:pass@host` (including an
+  empty user), an attached `-p<password>` and `NAME=value` with an ALLCAPS name are redacted too.
+  A bare `-p` flag is left alone. After review, it also redacts these shapes:
+  - a whole quoted value, spaces and all (`{"token": "a b"}`, `DB_PASSWORD='hunter two'`);
+  - cookie headers to the end of the line, plus `curl -b` and `--cookie`;
+  - a secret given as the next argument (`--token`, `--with-token`, `--secret`, `--api-key`,
+    `--password`, `sshpass -p`);
+  - `glpat-`, `npm_`, `sk_live_`/`rk_live_` and `AIza` keys, and PGP private key blocks;
+  - `Authorization: <any scheme> <value>`, `X-Auth*` headers, whole-word `pass=` and `key=`, and
+    the prose `secret <value>`.
+
+  A final review round added these shapes:
+  - `curl -u`, `--auth`, `redis-cli -a`, `docker login -p|-P`, and token-only URL userinfo;
+  - the whole of a long `AIza` key, and `ya29.` and `hf_` tokens;
+  - Azure `AccountKey=`, and `sig=`, `signature=` and `X-Amz-Signature=`;
+  - `passphrase`, `--passphrase`, `session_id`, `sid`, `otp` and `pin`;
+  - `PGPASSWORD <value>`, "token is <v>" and "secret is <v>";
+  - JSON values that contain escaped quotes, redacted whole.
+
+  The shapes live in one fixture, `tests/fixtures/redaction-shapes.mjs` (64 shapes).
+  `test-enhance-mine.sh` uses it twice. It runs each shape through `redact`. It also plants every
+  shape in the fixture transcript and asserts that no secret reaches the report, the state file or
+  the board.
+- **`tm rework <id> --revision <full SHA>` returns a governed task to working after review requests
+  changes (TM-347).** It only reflects a rework the producer recorded (`ao-topology manage rework`):
+  the management record must be `working`, carry no finish, and name this revision in its latest
+  `rework` event, the record must name the task's own worktree and branch, and the task must be
+  `ready-for-review` at that revision. The governed state goes
+  back to `working`, the reviewed revision and the finished dispatch move to `governance.reworks`,
+  and the dispatch is cleared so `tm dispatch` admits the next worker. A retry is a no-op; a
+  dispatched worker is refused.
 - **A task can wait on a task in another repo's store (TM-382, ADR-0041).**
   `tm dep <id> owner/repo#TM-n` records the blocker in `foreignBlockers[]`
   (`{ref, added, resolved: null}`), never in `blockedBy`, and blocks open work. `blockedBy` was
@@ -18,6 +144,173 @@
   `filedBy {board, agent, task}` and the new `decision:intake` label. That label vetoes
   `ready-for-agent`, so the pool does not dispatch an intake task until this board's lead or a
   person removes it.
+
+- **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
+  that went stale every time a tool was added. It now compares the sorted name set and prints which
+  names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
+- **The governed worker brief asks for check runs in the finish report (TM-418, EP-028).** It tells
+  the worker to run each `management.required_checks` entry at the finish commit and list every run
+  as `{name, command, exit_code, revision}`, and never to list a check it did not run. The review
+  request carries those runs as check evidence.
+- **enhance-mine no longer counts its own report or source code it read (EP-028).** A tool result
+  from `tm enhance-mine` itself, or a successful read of source (`grep`, `cat`, `sed -n`, `git diff`,
+  Read, Grep), is not evidence of the codes it quotes. Before this, its top themes were partly its
+  own earlier output. Errors from those commands still count.
+- **`tm why` no longer says a blocked task can be picked up (EP-028).** A ready-for-agent task that
+  cannot start yet reads "ready for an agent once its blockers clear — the pool skips it until
+  then", matching what the pool does.
+- **`tm doctor --all` is the combined doctor (TM-379, EP-028).** With agent-orchestration
+  installed it runs `agent-orchestration doctor --consumer-cwd <this repo>`, which checks AO, this
+  store (through `tm doctor --json`) and the managed services, and keeps its exit status. Without
+  agent-orchestration it checks this store alone and says that AO and services were not checked
+  (`agentOrchestration.present: false` with `--json`). Plain `tm doctor` is unchanged and never
+  calls AO. Test: `tests/test-doctor-all.sh`.
+
+- **`route` points at `/agent-orchestration:orchestrate` (TM-376, EP-028)** for work that goes to
+  another agent or repository; `route` itself still picks a task-management flow.
+- **`tm doctor` lists finished work with no review for its current revision (TM-244, EP-028).** A
+  new `unreviewed` warning lists each task that has commits, is done within 7 days or is ready for
+  review, and has no review for its current revision. The warning names the reason: no admission
+  record, `review_blocked: <refusal>`, or never requested. A governed review request that is filed
+  and still outstanding is not listed. The detector is shared with `tm review-sweep`
+  (`unreviewedTasks` in `lib/review-sweep.mjs`), and sweep findings now carry `review` and
+  `reason`. A clean doctor run states how many tasks the review check scanned, and `--json` returns
+  this as `reviewCoverage`. The check reads only task-management's own records, so it works when
+  agent-orchestration is absent.
+
+- **A dispatched worker is told it has no later turn, and a failed one names the work it left
+  behind (TM-246, EP-028).** The handoff and the SubagentStart worker brief now render the same
+  three rules: do the task in your own session, never end your turn while a background agent or
+  command you started is still running, and never ask a question and wait — `tm block` with the
+  question instead. When a worker fails (for example, exits without closing) and its worktree has
+  uncommitted changes, the failure reason, parked reason and comment now list those paths
+  (`uncommitted in <worktree>: …`), for every collector.
+- **Governed completion accepts a merge-in of the integration branch on the reviewed revision
+  (TM-247, EP-028).** The worktree head may be exactly one two-parent merge whose first parent is
+  the reviewed revision and whose second parent is on the target branch, when the merge's own
+  change has the reviewed revision's patch-id. `governance-check.mjs` `mergeInOf` mirrors
+  agent-orchestration's check, and a conformance test runs both. Any other head still reads as
+  "task worktree changed after review".
+
+- **Governed workers keep one identity, and a dead one no longer strands its lead (TM-247, EP-028).**
+  `tm dispatch` of an admitted task now claims under the admission owner, not under the
+  dispatching session. The worker inherits that id. When a governed task's live claim belongs to
+  its admission owner, the collector records a dead worker's result but never parks the task or
+  releases the claim. The lead retires the worker with `ao-topology manage stop-worker` and starts
+  a successor. A worker that ran `tm block` and exited has its block reason collected as a
+  `blocked` result, once. The duplicate-dispatch guard (`liveOwner`) treats a dispatch tm has
+  already collected as having no worker in flight, so a successor dispatch needs no `--steal`.
+
+- **A live worker's claim outlives the `tm dispatch` that started it (TM-362, EP-028).** The claim
+  heartbeat was a timer in the dispatching process, so a one-shot `tm dispatch` took it away on
+  exit and the claim expired after 240 minutes under a worker that was still running. Each pool
+  tick now renews the claim of every dispatched worker that its collector proves alive (a tmux
+  session that answers, a topology run observed alive, an orchestration run not yet finished). A
+  dead or unprovable worker is not renewed. A supervisor that is not the pool can run
+  `tm claim renew --live` (or `--json`) for the same pass; it also records any worker it finds
+  dead, the way the pool does.
+
+- **A failed worker is retried with backoff before it parks (TM-363, EP-028).** A task-scoped
+  worker failure (for example, a worker that exited without closing) now reopens the task instead
+  of parking it, up to the new `dispatch.retries` (default 2; 0 parks at once). The pool picks it
+  up again after 1, then 4, then 16 minutes (`retryAt` on the task). Each retry logs a
+  `dispatch_retry` event with the attempt, the limit, `retryAt` and the reason. A worker that
+  reports `blocked` still parks, and provider or backend failures still park and still count
+  toward the pool pause. `failureScope` now treats "usage limit" and "reached your … limit" as
+  provider failures, matching the pool's quota check, so they are never retried.
+
+- **Expedite lane: urgent ready tasks dispatch on the next pool tick, outside `poolWip` (TM-358,
+  EP-028).** A `highest`-priority task, or a `high` one labelled `expedite`, takes a slot in a
+  separate lane capped by the new `dispatch.expediteWip` (default 2; 0 turns the lane off). It
+  skips the touches-disjoint batching, but still refuses any path that a running task, or a task
+  dispatched earlier in the same tick, holds. It runs in its own worktree like every dispatch. The
+  dispatch record carries `expedite: true`, so later ticks charge it to `expediteWip` and not to
+  `poolWip`. When the lane is full, an urgent task falls back to the normal lane. Normal-priority
+  tasks behave as before.
+- **Dispatched workers inherit secrets named in config (TM-375, EP-028).** The tmux backend reads
+  NAMES from `dispatch.passEnv` (tm config) and from `workers.passEnv` in
+  `.bytedesk/agent-orchestration/config.json` when that file exists. It copies the values from the
+  dispatching environment into a 0600 file in a private temp dir; the pane sources it, removes it
+  and then execs the worker. `tmux new-session -e` is not used for these, because it puts values in
+  argv and in the returned `detail.args`. A missing name is reported as `passEnvMissing` on the
+  result and the `dispatched` event. The topology backend already hands its environment to
+  `ao-topology`, which applies the same config.
+
+- **`tm pool wait` replaces sleep-polling around `tm pool status` (TM-374, EP-028).**
+  `tm pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]` polls
+  internally and prints one JSON result: exit 0 when the condition holds, 2 on timeout (with the
+  last state seen), 1 on a bad argument. The pool and collect skills point to it instead of a
+  `sleep` loop, which the harness blocks.
+- **`tm ticket` files cross-repo work on the target repo's own board (TM-381, EP-028).**
+  `tm ticket <path|slug> "<title>" --ac … [--priority critical|high|…] [--from-task TM-n]`, and
+  the MCP tool `tm_ticket`. The target is an explicit path, a slug in agent-orchestration's
+  `services/repos.json` (read as a file, never imported), or a sibling directory with a store. The
+  task is created by the TARGET's own `bin/tm task new` (argv array, `TM_ROOT` pinned), with
+  `origin: {repo, board, task, agent}` (new `task new --origin <json>`) and a `blocks` cross-ref
+  back. `--from-task` adds a `blocked by <board>#TM-n` link on the origin task. Until it is
+  removed, the store's shared dependency check (`dependenciesMet`) treats it as unresolved, so the
+  task is out of `tm next`, `tm_next` and the pool, and `tm why` reports it. `critical` maps to `highest`. `tm link` accepts `<board>#<id>` refs and
+  `--remove`; a board with no git remote is named `<dir>#TM-n`.
+
+- **A ticket notifies the target lead and wakes the target pool (TM-357, EP-028).** When
+  agent-orchestration is installed, `tm ticket` sends one standing mail through
+  `ao-topology mailbox send --to-repo <target> --subject "ticket TM-n (priority)"`. Without it the
+  ticket is still filed and the output says no mail was sent. The target's pool is woken by a
+  `pool.wake` file (git-ignored) plus `tm pool ensure`. `runPool`'s sleep checks for that file
+  every second and consumes it, so a woken pool ticks within about a second, not 30 s.
+
+- **A ticket's progress reaches the origin task and lead (TM-359, EP-028).** PR opened, review,
+  merged, published, failed and done each add one comment on the origin task (through the ORIGIN's
+  own `tm comment`) and send one standing mail to the origin lead. Merged and done remove the
+  origin's cross-repo blocker. The store's event bridge (`notify-hook.mjs`) hears `done`,
+  `task_result` (failure, or a recorded PR) and `git_link` (a PR URL) on every surface. It spawns
+  `tm ticket notify` detached, only for tasks that carry `origin`. Review verdicts and publishes
+  are reported with `tm ticket event <id> review|published|merged <detail>`. Each event is sent at
+  most once (`originNotified` markers on the ticket). Sandbox test: `tests/test-ticket.sh`. Demo:
+  `scripts/demo-cross-repo-ticket.sh`.
+- **The Stop hook leaves alone a task a live worker subagent owns (TM-397, EP-028).** A lead with
+  claimed tasks out to Agent-tool workers was told at every stop to done, block or park them, and
+  parking released the claim mid-work so the pool could re-dispatch it.
+  `tm claim note <id> --worker <name> [--ttl 60m]` records `{ worker, until }` on this session's
+  claim (and re-stamps it). The Stop gate skips that task while the marker is fresh. A task with no
+  marker, an expired one, or another session's claim still blocks as before, and the refusal now
+  names the verb.
+
+- **`tm review-sweep [--apply] [--json]` finds finished work nobody reviewed (TM-361, EP-028).**
+  Findings are done tasks (closed in the last `--since` days, default 7) or governed tasks at
+  ready-for-review that have commits and no reviewer verdict, and open non-draft PRs idle past
+  `--idle-hours` (default 24, read with `gh pr list`; offline it reports `skipped: <why>`). The
+  output carries coverage counts, so a clean board reads as zero findings over N scanned tasks.
+  `--apply` fires each finding once: a marker in the machine-local `review-sweep.json` and a task
+  comment. A PR that moves and goes idle again fires again. agent-orchestration's supervisor
+  runs it each ten minutes when tm is installed.
+
+- **One duplicate-dispatch guard for the pool and a lead (TM-360, EP-028).** On 2026-10-05 the
+  pool started a second TM-010 worker the lead knew nothing about. `dispatch()` now asks one
+  function, `liveOwner()` in `lib/dispatch/live-owner.mjs`, before it claims anything. A task is
+  refused when tm's own dispatch record has a live claim, or when agent-orchestration (if
+  installed) reports an unreleased assignment or a bound, unstopped worker through
+  `ao-topology manage assignment`. The pool and a lead's `manage start-worker` both reach
+  `dispatch()`, so both are covered. `tm dispatch-check <id> [--json]` gives the same answer
+  read-only (exit 2 when held). A missing or failing `ao-topology` is skipped, never an accusation.
+
+- **`tm enhance-mine` and the `enhance-mine` skill find issues from what already happened (TM-380,
+  EP-028).** The miner streams this project's Claude transcripts (last 14 days by default), reads
+  the board, and optionally `pool.log` and `--test-log` files. It clusters findings by signature:
+  error codes, `is_error` tool results, Bash workarounds (`tmux send-keys`, `sleep`,
+  `mailbox inbox`, `capture-pane`), user corrections, stale and evidence-free tasks. It ranks them
+  by frequency × severity × userPain. The report states coverage per source, so a skipped source
+  reads `skipped: <reason>` and an empty one reads `0 file(s)`. Dry-run is the default. `--apply`
+  files bugs as tasks and enhancements as CAPs, or comments on a matching item. Last-seen evidence
+  per signature is kept in the git-ignored `enhance-mine.json`, so a re-run files and comments
+  nothing new. Secrets are redacted at ingestion.
+
+- **A dispatched worker merges its own PR (TM-389).** Operator policy 2026-10-05: a run carries
+  through to done. The worker guard now allows `gh pr merge <own tm/ branch>` (or a bare
+  `gh pr merge` while that branch is checked out) and still refuses a PR number, another branch,
+  or any extra target. The ungoverned handoff tells the worker to review its diff, wait for
+  required checks, merge (`--admin` only when a required approving review is the sole blocker),
+  then `tm done`. Governed tasks are unchanged: the lead integrates.
 
 - **Collect records a dispatched worker's result once per dispatch run (TM-303; TM-238
   regression).** A worker that ended at ready-for-review leaves its task in progress, so the pool

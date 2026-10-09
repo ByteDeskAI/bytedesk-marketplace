@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
+import { run } from '../topology/lib/util.mjs';
+import { safeGit } from '../topology/lib/safe-git.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveConsumerRepository } from './workspace/repository.mjs';
 import { probeSessionHost } from './session/host.mjs';
-import { canonicalRepoId, repoKey, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
+import { canonicalRepoId, repoKey, repoSlug, repositoryConsumer, stateRoot as topologyStateRoot } from '../topology/lib/repoid.mjs';
+import { tmLauncher } from '../topology/lib/review-sweep.mjs';
+import { servicesEnabled } from '../topology/lib/services-client.mjs';
 import { supervisionStatus } from '../topology/lib/supervision.mjs';
 import { describeTransport } from '../topology/lib/orch-transport.mjs';
 import { incarnationOf, sameIncarnation } from '../topology/lib/incarnation.mjs';
@@ -13,7 +17,7 @@ import { reviewerStanding } from '../topology/lib/reviewer.mjs';
 import { agentDirs, resolveAgentRef } from '../topology/lib/agents.mjs';
 import { loadConfig } from '../topology/lib/config.mjs';
 import { composePrompt, readPromptState } from '../topology/lib/prompts.mjs';
-import { dataHome, servicePaths } from './services/services.mjs';
+import { dataHome, servicePaths, servicesCondition, servicesStatus } from './services/services.mjs';
 import { staleMcpServers, tmuxSocketCheck } from './services/self-heal.mjs';
 
 // These values describe the loaded executable even if its installed files have
@@ -48,6 +52,71 @@ async function rolePromptEvidence(options, record, role, repositoryId) {
 }
 
 /**
+ * TM-373: is the plugin this process runs from the marketplace's origin/main? A versionless plugin's
+ * cache directory (`plugins/cache/<marketplace>/<plugin>/<sha12>`) IS its version; a plugin run from
+ * a checkout reports HEAD. The remote answer comes from `git ls-remote` with a deadline and is
+ * `unknown` offline: freshness is information, never a reason for doctor to fail. Any newer main
+ * commit reads as behind, even one that did not touch this plugin, because that is what an update
+ * would install.
+ */
+export async function pluginFreshness({pluginRoot,home=homedir(),env=process.env,timeoutMs=5000,deps={}}) {
+  // TM-443: git goes through safe-git; deps.run is the test seam and receives the same ('git', args) call.
+  const exec=deps.run??((_command,args,options)=>safeGit(null,args,options));
+  const root=await realpath(pluginRoot).catch(()=>pluginRoot);
+  const cached=/[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
+  let installed=null,source=null;
+  if(cached) {
+    source='cache';
+    const record=(await json(join(home,'.claude','plugins','installed_plugins.json')))?.plugins?.[`${cached[2]}@${cached[1]}`];
+    installed=(Array.isArray(record)?record:[]).find(entry=>entry.installPath===root)?.gitCommitSha ?? (/^[0-9a-f]{7,40}$/.test(cached[3])?cached[3]:null);
+  } else {
+    const head=await exec('git',['-C',root,'rev-parse','HEAD'],{allowFailure:true,timeoutMs});
+    if(head.code===0) { installed=head.stdout.trim()||null; source='checkout'; }
+  }
+  const manifest=await json(join(pluginRoot,'.claude-plugin','plugin.json'));
+  const repository=typeof manifest?.repository==='string'?manifest.repository:manifest?.repository?.url??null;
+  let remote=null,remoteError=null;
+  if(repository) {
+    const listed=await exec('git',['ls-remote','--',repository,'refs/heads/main'],{allowFailure:true,timeoutMs,env:{...env,GIT_TERMINAL_PROMPT:'0'}});
+    remote=listed.code===0?(/^([0-9a-f]{40})\s/.exec(listed.stdout)?.[1]??null):null;
+    if(!remote) remoteError=listed.code===124?`git ls-remote timed out after ${timeoutMs}ms`:(listed.stderr||'no refs/heads/main').trim().slice(0,300);
+  } else remoteError='plugin.json names no repository';
+  const status=!installed||!remote?'unknown':remote.startsWith(installed)||installed.startsWith(remote)?'current':'stale';
+  return {status,source,installed,originMain:remote,repository,...(remoteError?{error:remoteError}:{}),
+    ...(status==='stale'?{advice:source==='cache'?`Installed ${installed.slice(0,12)} is behind origin/main ${remote.slice(0,12)}. Run \`claude plugin update ${cached[2]}@${cached[1]}\` and restart.`:`Checkout HEAD ${installed.slice(0,12)} differs from origin/main ${remote.slice(0,12)}.`}:{})};
+}
+
+/**
+ * TM-379: task-management's store health, through its own CLI (`tm doctor --json`) and never an
+ * import, because the two plugins stay independent. Absent tm is not a failure: `ok: null`.
+ */
+export async function taskManagementHealth({consumerCwd,env=process.env,timeoutMs=60_000,deps={}}) {
+  const root=await repositoryConsumer(consumerCwd).catch(()=>consumerCwd);
+  const bin=await (deps.tmLauncher??tmLauncher)(root);
+  if(!bin) return {present:false,ok:null,root,note:`task-management is not installed in ${root}; store health not checked`};
+  const res=await (deps.run??run)(bin,['doctor','--json'],{cwd:root,allowFailure:true,timeoutMs,env:{...env,TM_ROOT:root,CLAUDE_PROJECT_DIR:root}});
+  let report=null;
+  try { report=JSON.parse(res.stdout); } catch {}
+  if(!Array.isArray(report?.findings)) return {present:true,ok:false,root,error:`tm doctor exited ${res.code}: ${String(res.stderr||res.stdout||'').trim().split('\n')[0]}`};
+  const errors=report.findings.filter(f=>f.level==='error');
+  return {present:true,ok:res.code===0&&errors.length===0,root,errors:errors.length,warnings:report.findings.length-errors.length,
+    problems:errors.slice(0,10).map(f=>f.message??f.kind??JSON.stringify(f))};
+}
+
+/**
+ * TM-379: one answer for AO, task-management and the managed services. `aoOk` is the AO doctor's own
+ * verdict. Plugin freshness (TM-373) is reported and never fails the run, as TM-373 decided.
+ */
+export async function combinedHealth({aoOk,pluginFreshness=null,consumerCwd,stateRoot,env=process.env,deps={}}) {
+  const services=!servicesEnabled(env)?{enabled:false,ok:null,note:'AGENT_ORCHESTRATION_SERVICES=0: services not managed'}
+    :await (deps.servicesStatus??servicesStatus)({stateRoot,env}).then(r=>{ const {met,detail}=servicesCondition(r,'healthy'); return {enabled:true,ok:met,...detail}; })
+      .catch(error=>({enabled:true,ok:false,error:error.message}));
+  const taskManagement=await taskManagementHealth({consumerCwd,env,deps});
+  const parts={agentOrchestration:{ok:aoOk===true},services,taskManagement,pluginFreshness:pluginFreshness?.status??null};
+  return {ok:aoOk===true&&services.ok!==false&&taskManagement.ok!==false,...parts};
+}
+
+/**
  * TM-285: machine setup problems the doctor flags. Read-only: the stale-server scan reports and
  * never signals; the last ensure's self-heal report is read, not re-run.
  */
@@ -70,7 +139,9 @@ export async function setupDiagnostics({stateRoot,env=process.env,home=homedir()
 export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=process.env,home=homedir()}) {
   let consumer=null,admission={provided:Boolean(consumerCwd),admitted:null};
   if(consumerCwd) {
-    try { consumer=await resolveConsumerRepository({consumerCwd,pluginRoot,stateRoot}); admission={provided:true,admitted:true,checkoutRoot:consumer.checkoutRoot,repositoryId:consumer.commonGitDir}; }
+    try { consumer=await resolveConsumerRepository({consumerCwd,pluginRoot,stateRoot}); admission={provided:true,admitted:true,checkoutRoot:consumer.checkoutRoot,repositoryId:consumer.commonGitDir,
+      // TM-371: the readable name behind the digest in this repository's `orch.<key>` NATS subjects.
+      repositorySlug:repoSlug(consumer.commonGitDir),natsSubjects:`orch.${repoKey(consumer.commonGitDir)}.>`}; }
     catch(error) { admission={provided:true,admitted:false,code:error.code??'AO_CONSUMER_DIAGNOSIS_FAILED',message:error.message}; }
   }
   const [mcp,cli,host,pkg]=await Promise.all([fingerprint(join(pluginRoot,'dist/mcp.cjs')),fingerprint(join(pluginRoot,'dist/cli.cjs')),probeSessionHost(stateRoot),json(join(pluginRoot,'package.json'))]);
@@ -78,7 +149,8 @@ export async function runtimeDiagnostics({consumerCwd,pluginRoot,stateRoot,env=p
   const diagnostics={consumerAdmission:admission,loadedBuild:{...loadedBuild,diskVersion:pkg?.version??null,disk:{mcp,cli}},
     runtimeModes:['acp','topology'],stateRoots:{acp:stateRoot,topology:effectiveTopologyRoot,aligned:stateRoot===effectiveTopologyRoot},
     sessionHost:{healthy:Boolean(host),port:host?.port??null,pid:host?.pid??null},repositorySupervision:null,roles:[],
-    setup:await setupDiagnostics({stateRoot,env,home})};
+    setup:await setupDiagnostics({stateRoot,env,home}),pluginFreshness:await pluginFreshness({pluginRoot,home,env})};
+  if(diagnostics.pluginFreshness.status==='stale') diagnostics.setup.problems.push(`stale plugin: ${diagnostics.pluginFreshness.advice}`);
   if(!consumer) return diagnostics;
   // The ACP caller's selected state root is explicit. Report any topology
   // mismatch without reading a different repository's role records.

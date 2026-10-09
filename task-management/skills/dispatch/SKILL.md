@@ -39,6 +39,20 @@ argv-only, `shell: false`. Tmux also writes `<worktree>/.tm-dispatch-prompt.md`.
 
 Worker env: `TM_SESSION_ID`, `TM_ACTOR` (dispatcher), `TM_ROOT` (repo). Do not override.
 
+Secrets a worker needs (an API key, say) are declared by NAME, never by value, in YOUR user config
+only: `{"dispatch":{"passEnv":["TYPESAFE_API_KEY"]}}` in `~/.config/task-management/config.json`, or
+`workers.passEnv` in agent-orchestration's global `~/.config/agent-orchestration/config.json`
+(`$XDG_CONFIG_HOME` if set). The repository's `.bytedesk/*/config.json` files are git-tracked, so
+a name set there (including by `tm config dispatch.passEnv`) is ignored with a `passEnvWarnings`
+warning. Reserved names (`TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`,
+`NODE_OPTIONS`) are refused. The value is copied from the dispatching session's environment into
+the worker. Tmux stages it in a 0600 temp file the pane sources and deletes, then re-applies the
+worker's `TM_*` variables so the file cannot override them. Topology does not read tm's
+`dispatch.passEnv`: `ao-topology` passes only the names in agent-orchestration's own global
+`workers.passEnv`, and the dispatch event warns about any tm name it did not pass. A name the
+dispatching environment lacks is reported as `passEnvMissing` and the dispatch continues. Never
+run `tmux set-environment -g` for a secret.
+
 ## Refusals
 
 not found; `done`/`deleted` (reopen first); no backend (`tried` lists why);
@@ -66,10 +80,10 @@ For an ungoverned task, the legacy completion contract applies:
 
 The worker ticks AC, **commits, pushes its own branch and opens a PR**
 (`gh pr create --title "<TM-id>: <title>"`), attaches evidence, then `tm done` —
-or `tm block` with the error if the push or the PR failed. **It never merges**; a
-human does that. A PreToolUse guard enforces it: the worker's own branch and
-`gh pr create` are allowed, while force pushes, other branches, deletions,
-history rewrites, `gh pr merge`, releases, secrets and deploys are refused.
+or `tm block` with the error if the push or the PR failed. It then merges **its own** PR once
+review is clean and checks pass. A PreToolUse guard enforces the scope: the worker's own branch,
+`gh pr create` and `gh pr merge <own branch>` are allowed, while force pushes, other branches, deletions,
+history rewrites, merging other PRs, releases, secrets and deploys are refused.
 
 This session runs [[collect]] — which records the PR url on the task when `gh`
 finds one — reaps with [[agent]], and watches [[events]]. Probe first with [[caps]].

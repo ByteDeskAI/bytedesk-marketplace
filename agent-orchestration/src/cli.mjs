@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { OrchestrationService } from "./service.mjs";
 import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from "./config.mjs";
 import { serializeError } from "./errors.mjs";
+import { combinedHealth } from "./diagnostics.mjs";
 import { probeSessionHost, startSessionHost } from "./session/host.mjs";
 import { runServicesCommand } from "./services/cli.mjs";
 
@@ -18,6 +19,8 @@ async function main() {
       "no-browser": { type: "boolean" },
       json: { type: "boolean" },
       detach: { type: "boolean" },
+      until: { type: "string" },
+      timeout: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -66,7 +69,13 @@ async function main() {
     return;
   }
   if (command === "doctor") {
-    process.stdout.write(`${JSON.stringify(await service.doctor({ consumerCwd: values["consumer-cwd"] }), null, 2)}\n`);
+    // TM-379: one command for AO, task-management and the services. `combined` leads the report and
+    // sets the exit status: 0 healthy, 1 when any present part is unhealthy. An absent part is null.
+    const consumerCwd = values["consumer-cwd"] || process.cwd();
+    const report = await service.doctor({ consumerCwd: values["consumer-cwd"] });
+    const combined = await combinedHealth({ aoOk: report.ok, pluginFreshness: report.diagnostics?.pluginFreshness, consumerCwd, stateRoot: service.stateRoot });
+    process.stdout.write(`${JSON.stringify({ combined, ...report }, null, 2)}\n`);
+    process.exitCode = combined.ok ? 0 : 1;
     return;
   }
   if (command === "session-open") {
@@ -82,7 +91,7 @@ async function main() {
     process.stdout.write(`${JSON.stringify(await service.getRun({ runId: values["run-id"], consumerCwd: values["consumer-cwd"] }), null, 2)}\n`);
     return;
   }
-  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|probe|uninstall");
+  throw new Error("Usage: agent-orchestration <worker|doctor|status|session-open|session-host> [options]; agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe|uninstall");
 }
 
 main().catch((error) => {

@@ -138,14 +138,22 @@ assert_contains "$OUT" '"id":null' "parse errors carry a null id"
 
 
 # ── parity with the dashboard's write surface (CAP-0001) ─────────────────────
-# Every verb the board can do, an MCP-only session can do. Count first: a tool that is defined
-# but not advertised is invisible to a client.
+# Every verb the board can do, an MCP-only session can do. A tool that is defined but not
+# advertised is invisible to a client. TM-390: the exact name set, not a count, so adding,
+# removing or renaming a tool fails here until this list is updated with it.
 OUT="$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | mcp)"
-COUNT="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).result.tools.length))' <<<"$OUT")"
-[[ "$COUNT" == 39 ]] && ok "tools/list advertises 39 tools" || no "tools/list advertises 39 tools" "got $COUNT"
-for TOOL in tm_dispatch tm_worktree tm_link tm_graph tm_doctor tm_export tm_time tm_parallel tm_task_field tm_history tm_stale tm_goal_import tm_agents tm_collect; do
-  assert_contains "$OUT" "\"$TOOL\"" "tools/list advertises $TOOL"
-done
+EXPECTED_TOOLS="tm_ac_accept tm_ac_add tm_adr_new tm_agents tm_board tm_cap_accept tm_cap_drop tm_cap_list
+tm_cap_propose tm_cap_ship tm_claim tm_collect tm_dispatch tm_doctor tm_epic tm_evidence tm_export tm_find
+tm_goal_assess tm_goal_complete tm_goal_finding tm_goal_import tm_goal_open tm_goal_revise tm_goal_show
+tm_graph tm_handoff tm_history tm_label tm_link tm_log tm_next tm_parallel tm_plan_propose tm_show tm_sprint
+tm_stale tm_standup tm_task_create tm_task_edit tm_task_field tm_task_update tm_ticket tm_time tm_why tm_worktree"
+GOT_TOOLS="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).result.tools.map(t=>t.name).join("\n")))' <<<"$OUT" | sort)"
+WANT_TOOLS="$(tr -s ' \n' '\n' <<<"$EXPECTED_TOOLS" | sort)"
+if [[ -n "$GOT_TOOLS" && "$GOT_TOOLS" == "$WANT_TOOLS" ]]; then
+  ok "tools/list advertises exactly the $(wc -l <<<"$WANT_TOOLS") expected tools"
+else
+  no "tools/list advertises exactly the expected tools" "$(diff <(echo "$WANT_TOOLS") <(echo "$GOT_TOOLS") | grep '^[<>]' | tr '\n' ' ')(< expected only, > advertised only)"
+fi
 
 # Fresh tasks, so this block does not depend on what the suite above did to TM-001.
 id_of() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(JSON.parse(s).result.content[0].text).id))'; }

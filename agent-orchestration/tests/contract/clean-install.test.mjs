@@ -23,6 +23,8 @@ const expectedToolNames = [
   "orchestration_spawn",
   "orchestration_send",
   "orchestration_wait",
+  "orchestration_run_followup", "orchestration_run_wait",
+  "orchestration_run_mail_send", "orchestration_run_mail_reply", "orchestration_run_mail_wait", "orchestration_lead_status", "orchestration_session_handoff",
   "orchestration_status",
   "orchestration_list",
   "orchestration_events",
@@ -30,7 +32,7 @@ const expectedToolNames = [
   "orchestration_cleanup",
   "orchestration_decision_get",
   "orchestration_decision_approve",
-  "orchestration_mailbox_send", "orchestration_mailbox_receive", "orchestration_mailbox_list", "orchestration_mailbox_dispose",
+  "orchestration_mailbox_send", "orchestration_mailbox_receive", "orchestration_mailbox_list", "orchestration_mailbox_dispose", "orchestration_mailbox_wait",
   "orchestration_goal_start", "orchestration_goal_status", "orchestration_goal_report", "orchestration_goal_control", "orchestration_goal_reconcile",
 ];
 
@@ -104,19 +106,19 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
     assert.equal(shippedEntries.includes("ROADMAP-INVENTORY.json"), true, "package files must ship append-only roadmap identity data");
     const roadmapCheck = await run(process.execPath, [join(installed, "scripts", "roadmap.mjs"), "--check", join(installed, "ROADMAP.md")], { cwd: installed });
     assert.match(roadmapCheck.stdout, /^ROADMAP OK:/);
-    const roadmapSkill = (await readFile(join(installed, "skills", "roadmap-orchestrator", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
-    assert.match(roadmapSkill, /^---\nname: roadmap-orchestrator\ndescription: .+\n---\n/);
-    const roadmapSkillMetadata = await readFile(join(installed, "skills", "roadmap-orchestrator", "agents", "openai.yaml"), "utf8");
-    assert.match(roadmapSkillMetadata, /display_name: "Roadmap Orchestrator"/);
-    assert.match(roadmapSkillMetadata, /\$roadmap-orchestrator/);
+    const roadmapSkill = (await readFile(join(installed, "skills", "roadmap-governance", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
+    assert.match(roadmapSkill, /^---\nname: roadmap-governance\ndescription: .+\n---\n/);
+    const roadmapSkillMetadata = await readFile(join(installed, "skills", "roadmap-governance", "agents", "openai.yaml"), "utf8");
+    assert.match(roadmapSkillMetadata, /display_name: "Roadmap Governance"/);
+    assert.match(roadmapSkillMetadata, /\$roadmap-governance/);
     assert.equal(JSON.parse(await readFile(join(installed, ".claude-plugin", "plugin.json"), "utf8")).version, undefined);
     assert.equal(JSON.parse(await readFile(join(installed, ".codex-plugin", "plugin.json"), "utf8")).version, undefined);
     const agentsMd = await readFile(join(installed, "AGENTS.md"), "utf8");
     assert.match(agentsMd, /\| Grok Build \| Same `\.mcp\.json`/);
     assert.match(agentsMd, /\| Kimi Code \| `~\/\.kimi-code\/mcp\.json`/);
-    assert.match(agentsMd, /Wire hosts with `skills\/install-orchestration-host`/);
-    const hostSkill = (await readFile(join(installed, "skills", "install-orchestration-host", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
-    assert.match(hostSkill, /^---\nname: install-orchestration-host\n/);
+    assert.match(agentsMd, /Wire hosts with `skills\/setup-agent-orchestration`/);
+    const hostSkill = (await readFile(join(installed, "skills", "setup-agent-orchestration", "SKILL.md"), "utf8")).replace(/\r\n?/g, "\n");
+    assert.match(hostSkill, /^---\nname: setup-agent-orchestration\n/);
 
     const providerEnv = {
       PATH: [fakeGrokBin, fakeKimiBin, process.env.PATH].filter(Boolean).join(delimiter),
@@ -131,6 +133,8 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       // TM-272: this test is about the install bundle, not the managed services. With services on,
       // the spawn below would download process-compose and start it for a throwaway state root.
       AGENT_ORCHESTRATION_SERVICES: "0",
+      // TM-464 F1: mailbox_list reads only this session's own receipts, so the server needs an identity.
+      AO_AGENT_ID: "contract-agent", AO_CONSUMER: consumer,
     };
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),

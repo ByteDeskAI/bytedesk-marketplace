@@ -1,10 +1,11 @@
 /** Producer-owned review and integration records are the authority for governed completion. */
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./store.mjs";
+import { GH_PATHS, safeGitText, trustedGh } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
 // TM-221: mirrors agent-orchestration topology/lib/reviewer.mjs SEVERITIES (TM-215); a conformance test holds them equal.
@@ -16,7 +17,7 @@ export const approvableFindings = (findings) => Array.isArray(findings) && findi
 const bindingKeys = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
 const real = (value) => { try { return realpathSync(value); } catch { return resolve(value); } };
 export function governanceGit(root, ...args) {
-  try { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 }).trim(); }
+  try { return safeGitText(root, args, { timeout: 5000 }); } // TM-443
   catch { return null; }
 }
 
@@ -109,6 +110,57 @@ export function governanceMode(task, p) {
   return explicit === false ? { mode: "opted-out" } : { mode: "required" };
 }
 
+/**
+ * TM-247 (AC9): `head` is a merge-in of the integration branch on top of the approved `revision`:
+ * a two-parent merge whose first parent IS the revision, whose second parent is on `target` AS THE
+ * SERVER HAS IT (`onServerBranch`; never a local or remote-tracking ref, which a worker writes), and whose tree equals `git merge-tree --write-tree <revision> <integration>` (TM-441: never
+ * patch-id, which is whitespace-blind; a conflicted merge is never a merge-in). Mirrors
+ * agent-orchestration topology/lib/management.mjs `mergeInOf` without importing it; a conformance test
+ * in agent-orchestration runs both on one repository.
+ */
+export function mergeInOf(root, revision, head, target, { onServer = onServerBranch } = {}) {
+  if (!head || !revision || head === revision || !target) return false;
+  const parents = (governanceGit(root, "rev-list", "--parents", "-n", "1", head) || "").split(" ").slice(1);
+  if (parents.length !== 2 || parents[0] !== revision) return false;
+  const integration = parents[1];
+  if (!onServer(root, integration, target)) return false;
+  const expected = (governanceGit(root, "merge-tree", "--write-tree", revision, integration) || "").split("\n")[0].trim();
+  const actual = governanceGit(root, "rev-parse", "--verify", "--quiet", `${head}^{tree}`);
+  return Boolean(expected) && expected === actual;
+}
+
+/**
+ * PR #226 review: is `sha` on `branch` of this repository on the SERVER? The repository is the one
+ * agent-orchestration pinned at <state>/repositories/<key>.github.json (TM-263; read as data, never
+ * imported), asked through `gh api repos/<repo>/compare/<sha>...<branch>`: `ahead` or `identical` is
+ * yes; no pin, no gh, or any other answer is no. Mirrors management.mjs `onServerBranch`.
+ */
+export function onServerBranch(root, sha, branch) {
+  if (!/^[0-9a-f]{40,64}$/.test(String(sha)) || !branch) return false;
+  try {
+    const { root: state, key } = repoIdentity({ root });
+    const repo = JSON.parse(readFileSync(join(state, "repositories", `${key}.github.json`), "utf8")).nameWithOwner;
+    if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return false;
+    const r = runGh(["api", `repos/${repo}/compare/${sha}...${encodeURIComponent(branch)}`], root);
+    return r.status === 0 && ["ahead", "identical"].includes(JSON.parse(r.stdout)?.status);
+  } catch { return false; }
+}
+
+/** How governance finds gh: the root-owned binary at a pinned system path (safe-git `trustedGh`), never
+ * PATH. A test replaces `ghResolver.resolve`; nothing a worker writes reaches it. */
+export const ghResolver = { resolve: () => trustedGh() };
+export function runGh(args, cwd) {
+  const bin = ghResolver.resolve();
+  if (!bin) return { status: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
+  return spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 60_000, windowsHide: true });
+}
+
+/** The worktree still holds the reviewed revision, or only merged the integration branch into it. */
+function reviewedHead(worktree, revision, target) {
+  const head = governanceGit(worktree, "rev-parse", "HEAD");
+  return head === revision || mergeInOf(worktree, revision, head, target);
+}
+
 /** This gate is also called inside update(), after surface-specific acceptance gates. */
 export function governedCompletion(task, p) {
   if (!task?.governance) return { allow: true };
@@ -122,7 +174,7 @@ export function governedCompletion(task, p) {
     if (!fullRevision(revision) || g.revision !== revision) return refuse("the completed revision has not been submitted for review");
     if (task.worktree && existsSync(task.worktree)) {
       if (real(task.worktree) !== real(record.worktree) || task.branch !== record.branch ||
-        governanceGit(task.worktree, "symbolic-ref", "--short", "HEAD") !== task.branch || governanceGit(task.worktree, "rev-parse", "HEAD") !== revision ||
+        governanceGit(task.worktree, "symbolic-ref", "--short", "HEAD") !== task.branch || !reviewedHead(task.worktree, revision, merge?.target_branch) ||
         governanceGit(task.worktree, "status", "--porcelain") !== "") return refuse("task worktree changed after review");
     }
     if (!review || review.task !== task.id || review.repo_id !== record.repo_id || review.revision !== revision || review.verified_commit !== revision ||

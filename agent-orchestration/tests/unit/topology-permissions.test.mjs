@@ -55,7 +55,7 @@ test('install writes exactly the approved rules plus opted-in MCP servers, print
   await writeFile(settings, JSON.stringify(original, null, 2));
   const first = await installPermissions({ ...opts, mcp: ['mcp__plugin_teamcity-mcp_teamcity'] });
   assert.deepEqual(BASE_RULES, ['Bash(ao-topology manage record-landing *)', 'Bash(ao-topology manage integrate *)', 'Bash(ao-topology manage start-worker *)',
-    'Bash(ao-topology manage stop-worker *)', 'Bash(ao-topology manage admit *)', 'Bash(ao-topology manage report *)', 'Bash(tm *)']);
+    'Bash(ao-topology manage stop-worker *)', 'Bash(ao-topology manage admit *)', 'Bash(ao-topology manage report *)', 'Bash(ao-topology manage retry-review *)', 'Bash(ao-topology manage close *)', 'Bash(tm *)']);
   assert.equal(first.path, settings); assert.equal(first.changed, true); assert.match(first.restart, /Restart the lead/);
   assert.deepEqual(first.added, [...BASE_RULES, 'mcp__plugin_teamcity-mcp_teamcity']);
   for (const rule of first.added) assert.match(first.diff, new RegExp(`^\\+ +"${rule.replace(/[()*]/g, '\\$&')}",?$`, 'm'));
@@ -135,7 +135,7 @@ test('the CLI refuses a dispatched worker every lead verb but lets its report th
   const { consumer } = await fixture(t);
   const cli = args => spawnSync(process.execPath, [join(PLUGIN, 'topology', 'cli.mjs'), 'manage', ...args, '--consumer', consumer, '--task', 'TM-1'],
     { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME, TM_DISPATCH_WORKER: '1', AGENT_ORCHESTRATION_STATE_HOME: join(consumer, '..', 'state') } });
-  for (const verb of ['admit', 'start-worker', 'stop-worker', 'integrate', 'record-landing', 'bind', 'cleanup', 'assign', 'release']) {
+  for (const verb of ['admit', 'start-worker', 'stop-worker', 'rework', 'integrate', 'record-landing', 'bind', 'cleanup', 'assign', 'release']) {
     const r = cli([verb]); assert.equal(r.status, 1, verb); assert.match(r.stderr, /TOPOLOGY_MANAGEMENT_WORKER_REFUSED/, verb);
   }
   const report = cli(['report']);

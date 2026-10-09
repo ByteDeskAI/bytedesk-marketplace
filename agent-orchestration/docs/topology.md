@@ -428,7 +428,7 @@ this layer's safety boundary. What is guarded:
   `auto_approve: false` on an agent to keep them. Every launch, dry run included, warns and names
   the agents affected. `--allow-auto-approve` is accepted and has no effect. The repository
   reviewer is the exception: its stored `auto_approve` is always `false`, it launches only
-  read-only (`--restricted --safe-mode`), and `session open` refuses it — use `reviewer ensure`.
+  read-only (`--restricted --setting-sources ''`, with only its `review_submit` MCP tool), and `session open` refuses it — use `reviewer ensure`.
 
 ## Provider chains and failover
 

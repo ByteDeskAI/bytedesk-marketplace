@@ -20,8 +20,8 @@ import { agentDirs, agentsRoot, createAgent, findLead, listAgents, requireAgent 
 import { displayName, roleVisual } from "./lib/identity.mjs";
 import { sessionIdentity } from "./lib/session-names.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
-import { sameIncarnation } from "./lib/incarnation.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
+import { dispatchedWorker } from "./lib/delegation.mjs";
 import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
 import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
 
@@ -125,10 +125,14 @@ Standing repository services
   goal-loop show|list --consumer <repo> [--loop <id>]
   goal-loop report|control --consumer <repo> --loop <id> --file <request.json>
   goal-loop reconcile --consumer <repo> [--loop <id>]
-  mailbox receipts --consumer <repo> [--agent <id>] [--workflow <id>] [--status <state>]
-  mailbox dispose --consumer <repo> --agent <id> --message <id> --disposition handled|deferred|rejected
+  mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
+  mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
        [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+  mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
+  repos list [--json]                           registered repositories and each supervisor's state
+  repos add [<path>]                            register a git checkout for a supervisor (default: cwd)
+  repos remove [<path>|<key>]                   unregister it; the repository and its state are kept
   census [--json] [--watch]                     what every agent in this repo is doing right now:
                                                 working / needs-input / idle / attention /
                                                 quota-blocked / dead / unknown
@@ -136,7 +140,14 @@ Standing repository services
        grant <name> --to <agent>                LEAD-ONLY override that jumps the queue; the
                                                 ordinary handover is mechanical and needs no verb
   lead status|ensure|assign <agent>|detach|probes|ack <nonce>
+       status --cached                          answer from proof already on disk (ack memo, late ack,
+                                                hook heartbeat): no probe minted, no ring, no wait.
+                                                Without --cached, status with no stored proof rings the
+                                                lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  reviewer request ... [--checks @checks.json]   check evidence [{name,command,exit_code,revision,log_tail}] for the review packet
+  reviewer ensure [--provider claude|codex]   reuse the registered or a library reviewer on that provider;
+                                               never starts a second live reviewer (TM-364)
   role list|show <role>|status <role>|assign <role> [<agent>]|ensure <role> [<agent>]
        |reassign <role> [<agent>] [--force]|detach <role> [<agent>] [--kill]|history <role>
                                                lead, reviewer, worker, designer, image-gen
@@ -154,8 +165,19 @@ Standing repository services
   enrollment ack --pending-key <key> --nonce <nonce> [--agent <id>]
   presence publish|watch [--server <socket> --dir <presence-directory>]
   mailbox send|forward|inbox|outbox|resume|receipts|dispose [--agent <id> --from-project <dir> --to <id> --id <stable-id>]
+  mailbox send ... --dry-run          resolve, route and print the would-be envelope; writes and publishes nothing
+  mailbox send|send --to-repo <path|slug> (or --to lead@<path|slug>)   address that repository's registered lead
+  mailbox send|send --to @all-leads [--max-recipients <n>]           every registered repository's lead but the sender (limit 24)
+  review submit <request-nonce> --verdict approve|changes_requested|blocked [--findings @file.json]
+                                               the reviewer's verdict as a durable record (TM-365);
+                                               the restricted reviewer uses its review_submit tool
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
+  manage close --task <TM-id> [--landed <sha> --reason <text>]   record the landing if none, stop the
+                                               worker, clean up and close, in that order (TM-247)
+  manage transfer --task <TM-id> [--to <session>] --reason <text>   hand the admission to another
+                                               lead (owner), or take over one whose owner's claim
+                                               is no longer live (TM-247)
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
@@ -174,7 +196,25 @@ Standing repository services
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
   manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
-  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected
+  manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected;
+                                        retire one observed dead without a finish (TM-247)
+  manage rework --task <TM-id>          after a changes_requested review of the finish revision and a
+                                        stopped worker: back to working; the next finish needs a new revision
+  manage cutover|cut-release --epic <EP-id> [--authorized]
+                                               TM-250, External class (ADR-0001): run the repository's
+                                               own management.cutover / management.release argv (e.g.
+                                               deploy-safe.sh, release-gitflow.sh), never a shell, git,
+                                               gh or systemctl. Refused by name unless config, authority,
+                                               branch (develop), clean, synced with origin and every
+                                               task of the epic done all hold. cutover proves the
+                                               running binary switched; cut-release waits for its
+                                               TeamCity build, then runs verify. Under
+                                               management.autonomy "publish" no --authorized is needed.
+  manage land --task <TM-id>             TM-368: the lead's landing path, driven by management.autonomy:
+                                               pr (default) stops at the reviewed PR; merge runs
+                                               integrate; publish also runs cut-release once the plan
+                                               has landed and tells the origin (tm ticket event). A red
+                                               build, failed verify or missing approval pages via ntfy.
   manage <verb> ... --summary             one line instead of JSON (no pipe to jq needed)
   permissions install [--mcp <mcp__server>[,...]] [--dry-run] | uninstall [--dry-run]
                                                OPERATOR-ONLY: allow rules for the lead's governed verbs in
@@ -196,13 +236,27 @@ function manageSummary(verb, task, r) {
   switch (verb) {
     case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
     case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
-    case 'stop-worker': return r.stopped ? `${task} worker stopped (${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
-    case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}` : ''}`;
+    case 'rework': return `${task} back to working after changes requested on ${r.revision}; start the next worker with manage start-worker`;
+    case 'stop-worker': return r.stopped ? `${task} worker ${r.retired ? `retired (${r.result?.outcome}${r.result?.reason ? `: ${r.result.reason}` : ''}; ` : 'stopped ('}${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
+    case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}; lead notified: ${r.review_blocked_notice?.status ?? 'no'}; retry: ao-topology manage retry-review --task ${task}` : ''}`;
+    case 'retry-review': return `${task} review re-filed for ${r.finish?.revision} (request ${r.review_request?.nonce ?? '?'})`;
     case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
+    case 'transfer': return `${task} transferred from ${r.from} to ${r.to}`;
+    case 'close': return r.closed ? `${task} closed (${r.steps.join(', ') || 'nothing left to do'})` : `${task} NOT closed at ${r.refused} after [${r.steps.join(', ')}]: ${r.reason} — ${r.recovery}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
   }
+}
+
+/** TM-250 / TM-368: one line for cutover, cut-release and land. */
+function externalSummary(verb, r) {
+  if (verb === 'cutover') return `cutover switched ${r.identity.before} -> ${r.identity.after} at ${r.revision} (${r.authorization.channel}); record ${r.path}`;
+  if (verb === 'cut-release') return `release published and verified at ${r.revision}${r.teamcity ? ` (TeamCity ${r.teamcity.number ?? r.teamcity.id} ${r.teamcity.status})` : ''} (${r.authorization.channel}); record ${r.path}`;
+  const level = `autonomy ${r.autonomy.level} from ${r.autonomy.scope}`;
+  if (!r.landed) return `${r.task} not landed: ${r.reason} (${level})`;
+  if (r.published) return `${r.task} merged and published at ${r.release.revision ?? ''}${r.origin ? `; origin ${r.origin.notified ? 'notified' : `NOT notified: ${r.origin.reason}`}` : ''} (${level})`;
+  return `${r.task} merged${r.waiting ? `; publish waits for ${r.waiting.join(', ')}` : ''} (${level})`;
 }
 
 function list(value) {
@@ -414,13 +468,15 @@ const commands = {
     // change, a fallback from an unreachable configured NATS as a named warning.
     let loggedTransport = null;
     const logTransport = (transport, at) => {
-      const key = JSON.stringify([transport?.source, transport?.url, transport?.outage?.since, transport?.outage?.recovered_at]);
+      const outage = transport?.outage && !transport.outage.recovered_at ? transport.outage : null;
+      // The start log has no `since` (it is this process's selection), so the key is the open outage's url.
+      const key = JSON.stringify([transport?.source, transport?.url, outage?.url ?? null, transport?.state_write_error ?? null]);
       if (!transport || key === loggedTransport) return;
       loggedTransport = key;
-      const outage = transport.outage && !transport.outage.recovered_at ? transport.outage : null;
       out({ event: outage ? 'transport-fallback' : 'transport-selected', at: at ?? new Date().toISOString(), consumer: ctx.consumer,
         transport: transport.kind, source: transport.source, url: transport.url,
-        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}) });
+        ...(outage ? { warning: `configured NATS ${outage.url} (${outage.source}) is unreachable: ${outage.error}; using ${transport.source} ${transport.url}` } : {}),
+        ...(transport.state_write_error ? { state_write_error: transport.state_write_error } : {}) });
     };
     const onTick = report => { logTransport(report?.transport, report?.at); if (flags.json || notable(report)) out(report); };
     const controller = new AbortController();
@@ -428,14 +484,16 @@ const commands = {
     // Start the watcher only after winning repository ownership. Both loops
     // share a lifetime; a failed or losing supervisor cannot leave one behind.
     const onOwned = async () => {
-      const { resolveTransport, describeTransport, ignoredNatsEnv } = await import('./lib/orch-transport.mjs');
+      const { resolveTransport, selectionView, ignoredNatsEnv } = await import('./lib/orch-transport.mjs');
       // ADR-0032: once per supervisor start, never per tick.
       const ignored = ignoredNatsEnv(process.env);
       if (ignored) out({ ...ignored, consumer: ctx.consumer });
       // Open it now so the start log names what this supervisor will use, not a stale record.
       const opened = await resolveTransport({ env: process.env }).catch((error) => ({ error }));
       if (opened.error) out({ event: 'transport-unavailable', consumer: ctx.consumer, code: opened.error.code ?? null, message: opened.error.message });
-      else logTransport(await describeTransport(process.env));
+      // TM-309 C5: this supervisor's own selection, not transport.json, which any process on the host
+      // may have rewritten in between. It also carries a state write that failed (C4).
+      else logTransport(selectionView(opened));
       watcher = watchServer({ ...ctx, tmuxServer: flags.server || 'default', repoId, signal: controller.signal })
         .catch(error => { watcherError = error; controller.abort(); });
     };
@@ -461,6 +519,52 @@ const commands = {
       out({ ok: true, supervising: false, reason: 'retired-consumer-gone', consumer: ctx.consumer, deregistered, reloaded, exit_code: SUPERVISE_EXIT.RETIRED });
     }
     return report;
+  },
+
+  // TM-378: repository registration made explicit. Before this, the only way in was a SessionStart
+  // side effect (`services ensure --consumer-cwd`) and the only way out a supervisor retiring itself.
+  async repos({ flags, positional }) {
+    const client = await import('./lib/services-client.mjs');
+    const { canonicalRepoId, repoKey } = await import('./lib/repoid.mjs');
+    const sub = positional[0] || 'list';
+    // Re-render the process-compose project so the supervisor starts or stops now, not at the next session.
+    const reload = async (changed) => {
+      if (!changed || !client.servicesEnabled()) return { reloaded: false };
+      const ensured = await client.runServicesEnsure();
+      return ensured.ok === true ? { reloaded: true } : { reloaded: false, reload_error: ensured.error ?? 'services ensure failed' };
+    };
+    if (sub === 'list') {
+      const { supervisionStatus } = await import('./lib/supervision.mjs');
+      const repos = await Promise.all((await client.readServiceRepos()).map(async (repo) => {
+        const present = await exists(repo.consumer);
+        const s = present ? await supervisionStatus({ consumer: repo.consumer }).catch((error) => ({ state: 'unknown', error: error.message })) : { state: 'repository-missing' };
+        return { key: repo.key, consumer: repo.consumer, exists: present, supervisor: s.state, ready: s.ready === true, pid: s.pid ?? null,
+          last_tick_at: s.last_tick_at ?? null, ...(s.error ? { error: s.error } : {}) };
+      }));
+      if (flags.json) return out({ ok: true, registry: client.reposPath(), services: client.servicesEnabled(), repos });
+      if (!repos.length) return out(`No repositories registered (${client.reposPath()}). Add one: ao-topology repos add [<path>]`);
+      out(`Registered repositories (${repos.length}) — ${client.reposPath()}`);
+      for (const r of repos) out(`  ${r.ready ? '●' : '○'} ${r.consumer}  [${r.key}] supervisor ${r.supervisor}${r.pid ? ` pid ${r.pid}` : ''}${r.last_tick_at ? ` · last tick ${r.last_tick_at}` : ''}`);
+      return;
+    }
+    const target = absolutize(positional[1] ?? (typeof flags.consumer === 'string' ? flags.consumer : process.cwd()));
+    if (sub === 'add') {
+      const changed = await client.registerRepository(target);
+      if (changed === null) fail('TOPOLOGY_REPO_NOT_GIT', `${target} is not a git checkout; only a repository gets a supervisor.`);
+      const key = repoKey((await canonicalRepoId(target)).id);
+      return out({ ok: true, key, consumer: (await client.readServiceRepos()).find((r) => r.key === key)?.consumer ?? target, registered: changed, ...await reload(changed) });
+    }
+    if (sub === 'remove') {
+      // A key, or a path: a worktree path resolves to its repository's key; a deleted checkout matches by path.
+      const raw = positional[1];
+      const registered = await client.readServiceRepos();
+      const key = registered.some((r) => r.key === raw) ? raw : await canonicalRepoId(target).then((id) => repoKey(id.id)).catch(() => null);
+      const changed = await client.removeServiceRepo({ key, consumer: target });
+      if (!changed) process.exitCode = 1;
+      return out({ ok: changed, key, consumer: target, removed: changed, kept: 'the repository and its agent-orchestration state are untouched',
+        ...(changed ? await reload(changed) : { reason: 'not registered' }) });
+    }
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use repos list|add|remove.');
   },
 
   async census({ flags }) {
@@ -563,31 +667,73 @@ const commands = {
   async mailbox({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/standing-mailbox.mjs');
     const sub = positional[0] || 'inbox';
+    // TM-278: only `send` can preview. Every other verb refuses the flag instead of ignoring it and
+    // doing the real thing, which is how a "dry run" once queued a real envelope.
+    if (flags['dry-run'] !== undefined && sub !== 'send') fail('TOPOLOGY_DRY_RUN_UNSUPPORTED', `mailbox ${sub} has no dry run; nothing was done. Only mailbox send --dry-run previews.`);
+    // TM-464/TM-465: every verb that reads or acts on one agent's mail acts as THIS session
+    // (sessionIdentity), exactly as the MCP tools do. `--agent` and `--consumer` may only repeat it;
+    // without --consumer the mailbox is the session's own repository, not the cwd.
+    // `mailbox wait` binds the agent only: the message names its sender's repository (TM-465).
+    const self = async ({ repo = true } = {}) => {
+      const me = await api.sessionIdentity({ env: process.env, agent: flags.agent === undefined ? null : String(flags.agent),
+        consumer: repo && flags.consumer !== undefined ? ctx.consumer : null });
+      if (repo && flags.consumer === undefined) ctx.consumer = me.consumer;
+      return me;
+    };
     // Inspection and disposition operate on retained receipts, never pull from NATS.
     // They must remain available while the transport is unavailable.
     if (sub === 'receipts' || sub === 'dispose') {
       invariant(typeof flags.consumer === 'string' && isAbsolute(flags.consumer), 'TOPOLOGY_REPO_REQUIRED', 'Mailbox receipt operations require --consumer <absolute repository path>.');
       const receipts = await import('./lib/mailbox-receipts.mjs');
-      if (sub === 'receipts') return out(await receipts.listMailboxReceipts({ ...ctx, agent: flags.agent,
+      const { agent } = await self();
+      if (sub === 'receipts') return out(await receipts.listMailboxReceipts({ ...ctx, agent,
         kind: flags.kind, status: flags.status, workflowId: flags.workflow, runId: flags.run, taskId: flags.task }));
-      return out(await receipts.setMailboxDisposition({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID,
+      return out(await receipts.setMailboxDisposition({ ...ctx, agent,
         messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
         reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'] }));
     }
-    if (sub === 'outbox') return out(await api.readStandingOutbox({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
+    if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
+    // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
+    if (sub === 'wait') {
+      const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
+      invariant(id, 'TOPOLOGY_MESSAGE_ID_INVALID', 'Pass the message id: mailbox wait <id> [--timeout 20m].');
+      const caller = await self({ repo: false });
+      const result = await api.waitForStandingReply({ ...ctx, caller, id, timeoutMs: parseDuration(flags.timeout, 20 * 60_000), pollMs: parseDuration(flags.poll, 2000) });
+      if (!result.ok) process.exitCode = 2;
+      return out(result);
+    }
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     ctx.transport = await selectLiveTransport({ env: process.env });
     try {
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
     if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
-    if (sub === 'reply') return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: flags.agent || process.env.AO_AGENT_ID, body: await bodyFrom(flags) }));
-    if (sub === 'inbox' || sub === 'outbox') return out(await api[sub === 'inbox' ? 'readStandingInbox' : 'readStandingOutbox']({ ...ctx, agent: flags.agent || process.env.AO_AGENT_ID }));
-    const input = { consumer: ctx.consumer, fromProject: flags['from-project'] || process.env.AO_CONSUMER,
-      from: flags.from || process.env.AO_AGENT_ID, to: flags.to, id: flags.id, body: await bodyFrom(flags),
+    if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
+    if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
+    if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
+    // TM-356: the sender is this session's identity. --from and --from-project may only repeat it.
+    const me = await api.sessionIdentity({ env: process.env, agent: flags.from, consumer: flags['from-project'] });
+    const input = { consumer: ctx.consumer, fromProject: me.consumer,
+      from: me.agent, to: flags.to, id: flags.id, body: await bodyFrom(flags),
       task: flags.task, stage: flags.stage, subject: flags.subject, provenance: { source: 'ao-topology CLI' }, via: list(flags.via) };
-    if (sub === 'send') return out(await api.sendStandingMessage(input, ctx));
-    if (sub === 'forward') return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
-    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
+    if (sub === 'send') {
+      // TM-271: one resolver for every send entry; `--to-repo` / `lead@<repo>` name a repository's lead.
+      const { ALL_LEADS, resolveStandingTargets } = await import('./lib/addressing.mjs');
+      const maxRecipients = flags['max-recipients'] !== undefined ? Number(flags['max-recipients']) : undefined;
+      const targets = await resolveStandingTargets({ to: flags.to, toRepo: flags['to-repo'], consumer: ctx.consumer, from: me.agent, env: process.env, home: ctx.home, maxRecipients });
+      const options = { ...ctx, dryRun: flags['dry-run'] !== undefined };
+      if (flags.to !== ALL_LEADS) return out(await api.sendStandingMessage({ ...input, consumer: targets[0].consumer, to: targets[0].to }, options));
+      // TM-372: one ordinary standing send per lead, each admitted on its own. A given --id becomes
+      // one id per repository, so a retried broadcast dedupes per recipient.
+      const sent = [];
+      for (const target of targets) {
+        const id = input.id ? `${input.id}:${target.key}` : undefined;
+        sent.push(await api.sendStandingMessage({ ...input, id, consumer: target.consumer, to: target.to }, options)
+          .catch((error) => ({ status: 'failed', reason: error.code ?? 'ERROR', message: error.message, envelope: { consumer: target.consumer, to: target.to } })));
+      }
+      if (sent.some((record) => record.status === 'failed')) process.exitCode = 1;
+      return out({ ok: !sent.some((record) => record.status === 'failed'), audience: ALL_LEADS, recipients: sent.length, sent });
+    }
+    return out(await api.forwardStandingMessage({ ...input, parentId: flags.parent }, ctx));
     } finally { await closeLiveTransports(); }
   },
   async 'goal-loop'({ flags, positional }) {
@@ -616,6 +762,20 @@ const commands = {
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     const transport = await selectLiveTransport({ env: process.env });
     try {
+      if (sub === 'submit') {
+        // TM-365: the reviewer's verdict as a durable record, never a pane line. The restricted
+        // reviewer calls the same function through its review_submit MCP tool.
+        const { submitReviewVerdict } = await import('./lib/reviewer.mjs');
+        const request = positional[1] ?? (flags.nonce && flags.nonce !== true ? String(flags.nonce) : null);
+        invariant(request, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review submit <request-nonce> --verdict approve|changes_requested|blocked --findings @file.json.');
+        const verdict = flags.verdict === 'changes' ? 'changes_requested' : flags.verdict;
+        let findings = [];
+        if (flags.findings && flags.findings !== true) {
+          const text = String(flags.findings);
+          findings = text.startsWith('@') ? await readJson(absolutize(text.slice(1))) : JSON.parse(text);
+        }
+        return out(await submitReviewVerdict({ consumer: flags.consumer || !process.env.AO_CONSUMER ? ctx.consumer : process.env.AO_CONSUMER, request, verdict, findings, env: process.env, home: ctx.home, transport }));
+      }
       if (sub === 'publish') {
         const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
         invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --response <b64:...|json>.');
@@ -675,7 +835,7 @@ const commands = {
         const received = await waiting.received;
         return out({ ok: true, subject: received.subject, body: received.body, via: received.via, transport: transport.kind });
       }
-      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review publish|listen|probe|await.');
+      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review submit|publish|listen|probe|await.');
     } finally { await closeLiveTransports(); }
   },
   async enrollment({ flags, positional }) {
@@ -699,8 +859,13 @@ const commands = {
     const options = { ...ctx, task: flags.task, revision: flags.revision, authorAgentIds: list(flags.author) };
     const sub = positional[0] || 'status';
     if (sub === 'status') return out(await api.reviewerAvailability(options));
-    if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds }));
-    if (sub === 'request') return out(await api.requestReview(options));
+    if (sub === 'ensure') return out(await api.ensureReviewer({ ...options, notAgentIds: options.authorAgentIds, provider: flags.provider && flags.provider !== true ? String(flags.provider) : null }));
+    if (sub === 'request') {
+      // TM-216: check evidence for the packet, [{name, command, exit_code, revision, log_tail}], inline or @file.json.
+      const text = flags.checks && flags.checks !== true ? String(flags.checks) : null;
+      const checkEvidence = text === null ? null : text.startsWith('@') ? await readJson(absolutize(text.slice(1))) : JSON.parse(text);
+      return out(await api.requestReview({ ...options, checkEvidence }));
+    }
     if (sub === 'collect') return out(await api.collectReview(options));
     if (sub === 'eligible') return out(await api.reviewEligibility(options));
     if (sub === 'ack') return out(await api.reviewerNonceAck({ ...options, nonce: positional[1] }));
@@ -711,7 +876,7 @@ const commands = {
     const verb = positional[0] || 'status';
     // TM-243: a dispatched worker may send its own report and read status; every other governed verb
     // is the lead's. Same-user limit as TM-234: this marker is set by tm dispatch and can be unset.
-    invariant(!process.env.TM_DISPATCH_WORKER || ['report', 'status', 'eligible', 'assignment'].includes(verb), 'TOPOLOGY_MANAGEMENT_WORKER_REFUSED',
+    invariant(!dispatchedWorker(process.env) || ['report', 'status', 'eligible', 'assignment'].includes(verb), 'TOPOLOGY_MANAGEMENT_WORKER_REFUSED',
       `A dispatched worker session (TM_DISPATCH_WORKER) may only run manage report|status|eligible|assignment; ${verb} belongs to the lead.`);
     // TM-243: bare commands. With no AO_AGENT_ID, name the caller from the census binding of its live
     // pane, so the lead never needs an env-var prefix (which defeats permission-rule matching).
@@ -725,14 +890,23 @@ const commands = {
     const options = { ...supplied, ...ctx, env, task: flags.task || supplied.task, owner: env.TM_SESSION_ID || env.AO_AGENT_ID,
       // TM-135 idle dispatch. `agent` PINS a candidate; omitted, arbitration picks one under its own lock.
       agent: flags.agent || supplied.agent || null, promptFile: flags['prompt-file'] || supplied.promptFile || null, reason: flags.reason || supplied.reason || null,
-      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null,
+      landed: flags.landed || supplied.landed || null, actor: flags.actor || supplied.actor || null, to: flags.to || supplied.to || null,
       authorized: flags.authorized === true || supplied.authorized === true,
       // TM-218 worker start/adopt. Adoption is fail-closed; flags never assert idleness or ownership.
-      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null };
-    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker' };
+      backend: flags.backend || supplied.backend || null, pane: flags.pane || null, pid: flags.pid || null, tmuxServer: flags.server || null,
+      epic: flags.epic || supplied.epic || null };
+    // TM-250 / TM-368: the External-class verbs and the autonomy-driven landing live in release.mjs.
+    // They get flags only, never --file content, so a plan list or test hook cannot be supplied.
+    const external = { cutover: 'cutover', 'cut-release': 'cutRelease', land: 'landTask' };
+    if (external[verb]) {
+      const result = await (await import('./lib/release.mjs'))[external[verb]]({ consumer: ctx.consumer, home: ctx.home, pluginRoot: ctx.pluginRoot, env,
+        task: flags.task || null, epic: flags.epic || null, authorized: flags.authorized === true, owner: options.owner });
+      return out(flags.summary ? externalSummary(verb, result) : result);
+    }
+    const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|report|eligible|integrate|record-landing|cleanup|assign|assignment|release.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
@@ -787,6 +961,9 @@ const commands = {
     // that a change reached one of two callers, and it is now written down in
     // `.claude/rules/verification-that-can-fail.md`.
     const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
+    // TM-209: --cached is the non-blocking read. ackTimeoutMs 0 alone would still consume a late ack
+    // and write the memo; readOnly makes it a pure read, so nothing under probes/ changes.
+    if (sub === 'status' && flags.cached === true) return out({ ...await api.leadState({ ...options, ackTimeoutMs: 0, readOnly: true }), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
     if (sub === 'status') return out({ ...await api.leadState(options), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
     // `activate`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
@@ -822,6 +999,7 @@ const commands = {
       agentRef: positional[2] ?? (flags.agent && flags.agent !== true ? String(flags.agent) : null),
       session: flags.session && flags.session !== true ? String(flags.session) : null,
       notAgentIds: list(flags.author),
+      provider: flags.provider && flags.provider !== true ? String(flags.provider) : null,
       runDir: flags.run && flags.run !== true ? absolutize(String(flags.run)) : null,
       force: flags.force === true,
       kill: flags.kill === true,
@@ -855,6 +1033,9 @@ const commands = {
       return out({ ok: errors.length === 0, errors, warnings: scope ? api.layerWarnings(doc, scope, flags.file) : [] });
     }
     invariant(sub === 'set', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use config get|set|validate.');
+    // TM-442: config is the operator's. A dispatched worker may read and validate it, never write a layer.
+    invariant(!dispatchedWorker(process.env), 'TOPOLOGY_CONFIG_WORKER_REFUSED',
+      'A dispatched worker session (TM_DISPATCH_WORKER) may only run config get|validate; config set belongs to the operator.');
     return out(await api.writeConfigLayer(scope, await document(), { ...options, ifRevision: typeof flags['if-revision'] === 'string' ? flags['if-revision'] : null }));
   },
   async prompt({ flags, positional }) {
@@ -897,7 +1078,7 @@ const commands = {
     // With neither there is no server to look at, so no binding is proven and ack fails closed.
     const promptServer = recordedBinding?.serverKey ?? tmux.callerServer(process.env);
     const panes = promptServer ? await tmux.listServerPanes({ tmuxServer: promptServer }).catch(() => []) : [];
-    const currentBinding = panes.find(p => p.paneId === process.env.TMUX_PANE && (!recordedBinding || sameIncarnation(p, recordedBinding))) ?? null;
+    const currentBinding = await api.callerBinding({ panes, recorded: recordedBinding });
     const expectedSession = promptSession || await recordedRoleSession({ agentsDir: dirname(agent._dir), agentId: agent.id });
     if (positional[0] === 'ack') return out(await api.acknowledgePrompt({ agent, revision: flags.revision, nonce: flags.nonce, binding: currentBinding, consumer: ctx.consumer, session: expectedSession }));
     if (positional[0] === 'watch') return api.watchPrompts({ ...ctx, agent }, { onChange: out });
@@ -947,6 +1128,7 @@ const commands = {
     }
     const t = report.transport;
     if (t && !t.error) out(`Transport: ${t.kind}${t.source ? ` via ${t.source}` : ""}${t.url ? ` ${t.url}` : ""}${t.note ? ` (${t.note})` : ""}`);
+    if (report.repository) out(`Repository: ${report.repository.slug} · NATS ${report.repository.subjects}`);
     out("Providers:");
     for (const provider of report.providers) {
       out(`  ${provider.ready ? "✓" : "✗"} ${provider.id} — ${provider.ready ? `${provider.path}${provider.version ? ` (${provider.version})` : ""}` : `not found; ${provider.install_hint}`}`);
@@ -1372,6 +1554,10 @@ const commands = {
 
     if (sub === "handoff") {
       // TM-280: the lead's explicit, later way to give a re-spawned agent its predecessor's handoff.
+      // TM-463: it types into a live pane, so only the repository's proven lead, or the target agent
+      // itself (its sessionIdentity), may do it. The MCP tool runs this verb, so it shares the check.
+      const { requireHandoffCaller } = await import("./lib/respawn.mjs");
+      await requireHandoffCaller({ agentId: agent.id, consumer: ctx.consumer, home: ctx.home });
       invariant(flags.file && flags.file !== true, "TOPOLOGY_HANDOFF_FILE_REQUIRED", "Pass --file <handoff.md>.");
       const file = absolutize(String(flags.file));
       invariant(await exists(file), "TOPOLOGY_HANDOFF_FILE_MISSING", `No handoff file at ${file}.`);
@@ -1485,14 +1671,26 @@ const commands = {
   },
 
   async send({ flags }) {
+    // TM-271: a repository's lead is standing mail, not a run member; it goes through `mailbox send`
+    // and its one resolver, with no run needed.
+    if (flags['to-repo'] !== undefined || list(flags.to).some((to) => /^lead@./.test(to) || to === '@all-leads')) return commands.mailbox({ flags, positional: ['send'] });
+    // TM-278: refused rather than ignored. A run send writes its envelope and rings in one step.
+    if (flags['dry-run'] !== undefined) fail('TOPOLOGY_DRY_RUN_UNSUPPORTED', 'send has no dry run; nothing was sent. Use mailbox send --dry-run to preview standing mail.');
     const runDir = await runDirFrom(flags);
     const run = await loadRun(runDir);
-    const from = flags.from && flags.from !== true ? String(flags.from) : process.env.AO_AGENT_ID || "operator";
+    // TM-462: a sender that is NAMED is checked by the same sessionIdentity() as `mailbox send`, so
+    // `--from ao-supervisor --from-project /other` is refused rather than delivered as standing mail.
+    // Unnamed, the launcher defaults stand (part B, the env-trust itself, is TM-427's).
+    const claimed = flags.from !== undefined || flags["from-project"] !== undefined;
+    const sender = claimed ? await (await import("./lib/standing-mailbox.mjs")).sessionIdentity({ env: process.env,
+      agent: flags.from === undefined ? null : String(flags.from),
+      consumer: flags["from-project"] === undefined ? null : absolutize(String(flags["from-project"])) }) : null;
+    const from = sender?.agent ?? (process.env.AO_AGENT_ID || "operator");
     const stage = flags.stage && flags.stage !== true ? String(flags.stage) : "message";
     invariant(/^[a-z][a-z0-9-]{0,39}$/.test(stage), "TOPOLOGY_STAGE_INVALID", "--stage must be a lowercase slug.");
     const body = await bodyFrom(flags);
     const ctx = context(flags);
-    const fromProject = flags["from-project"] && flags["from-project"] !== true ? absolutize(String(flags["from-project"])) : process.env.AO_CONSUMER || null;
+    const fromProject = sender ? sender.consumer : process.env.AO_CONSUMER || null;
     const task = flags.task && flags.task !== true ? String(flags.task) : null;
     // The receiving repo is the one the RUN belongs to, recorded in run.json at launch — never the
     // caller's cwd. An agent sends from its own agent directory (its cwd is what scopes its memory),
@@ -1657,6 +1855,7 @@ const commands = {
   },
 
   async reply({ flags }) {
+    if (flags['dry-run'] !== undefined) fail('TOPOLOGY_DRY_RUN_UNSUPPORTED', 'reply has no dry run; nothing was written.');
     const runDir = await runDirFrom(flags);
     invariant(flags.agent && flags.agent !== true, "TOPOLOGY_AGENT_REQUIRED", "Pass --agent <id>.");
     invariant(flags.message && flags.message !== true, "TOPOLOGY_MESSAGE_REQUIRED", "Pass --message <id> (the id from the inbox file name, e.g. 003-brief).");

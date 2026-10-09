@@ -346,3 +346,51 @@ test('cross-repo task address mail reaches the worker only under a delegation, o
   const otherTask = await sendStandingMessage({ ...cross, id: 'cross-other-task', task: 'TM-1' }, opts);
   assert.equal(otherTask.delivered_to, 'lead0001', 'a delegation for TM-7 does not cover mail naming another task');
 });
+
+// ── TM-354: held mail launches or recovers the target repository's lead ───────────────────────────
+
+test('a no_lead hold asks only the destination to recover its lead', async t => {
+ const {consumer,opts,message,calls}=await fixture(t);
+ const held=await sendStandingMessage({...message,id:'no-lead'},{...opts,router:async()=>({blocked:'no_lead',reason:'no lead'})});
+ assert.equal(held.reason,'no_lead');
+ assert.equal(held.permanent,false,'a lead can end this hold, so it is retried');
+ assert.deepEqual(Object.keys(held.recovery??{}),['destination']);
+ assert.deepEqual(calls.requests.map(r=>[r.consumer,r.messageId,r.reason]),[[consumer,'no-lead','no_lead']]);
+ assert.deepEqual(calls.activations.map(a=>a.consumer),[consumer]);
+});
+
+test('no_lead mail launches exactly one lead across repeated triggers and is delivered once it is proven ready', async t => {
+ const root=await mkdtemp(join(tmpdir(),'standing-no-lead-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const source=join(root,'source'), consumer=join(root,'destination'), home=join(root,'home');
+ await Promise.all([source,consumer,home].map(p=>mkdir(p,{recursive:true})));
+ const env={AGENT_ORCHESTRATION_STATE_HOME:join(root,'state'),XDG_CONFIG_HOME:join(home,'.config')};
+ const pluginRoot=new URL('../..',import.meta.url).pathname;
+ // The destination has a worker and no lead, so external contact for the worker is refused as no_lead.
+ await writeJson(join(agentsRoot(consumer),'work0001','agent.json'),{id:'work0001',role:'worker',full_name:'Worker'});
+ let opens=0, responsive=false;
+ const probes={alive:async()=>true,responsive:async()=>responsive,pane:async()=>'%1',kill:()=>assert.fail('never kill'),
+  open:async()=>{opens++;await new Promise(r=>setTimeout(r,5));return {session:'ao-lead',pane:'%1',binding:{serverKey:'/nonexistent',serverPid:1,sessionId:'$1',sessionCreated:1,paneId:'%1',panePid:100+opens}};}};
+ const {leadState}=await import('../../topology/lib/lead.mjs');
+ const enrollment=async({consumer:c})=>({enrolled:true,root:c});
+ const sourceReady={status:'responsive',record:{agent_id:'srclead1'},library_lead:'srclead1'};
+ const opts={env,home,pluginRoot,enrollment,requestRecovery:requestLeadRecovery,activate:async()=>({enrollment:{enrolled:true}}),
+  readiness:async args=>args.consumer===source?sourceReady:leadState({...args,probes})};
+ const base={consumer,fromProject:source,from:'send0001',to:'work0001',body:'please'};
+ // The readiness gate passes (as when a stale registration answers), and the router finds no library lead.
+ const gatePassed={...opts,readiness:async()=>sourceReady};
+ for(const id of ['m1','m2']) assert.equal((await sendStandingMessage({...base,id},gatePassed)).reason,'no_lead');
+ assert.equal((await leadRecoveryStatus({consumer,env,home})).pending_requests,2);
+ // Six supervisor ticks race on the same requests: one lead is launched.
+ const tick=(extra={})=>recoverLead({consumer,env,home,pluginRoot,probes,enrollment,ackTimeoutMs:0,...extra});
+ const raced=await Promise.all(Array.from({length:6},()=>tick()));
+ assert.equal(opens,1,`one lead, not ${opens}: ${JSON.stringify(raced.map(r=>r.action))}`);
+ assert.equal(raced.filter(r=>r.action==='created').length,1);
+ // Proven ready after the backoff: the tick wakes both held messages, and resume delivers them.
+ responsive=true;
+ const proven=await tick({now:()=>Date.now()+3_600_000});
+ assert.equal(proven.action,'reused');assert.deepEqual([...proven.woken].sort(),['m1','m2']);
+ const resumed=await resumeStandingMessages({consumer,...opts});
+ const lead=(await leadState({consumer,env,home,pluginRoot,probes,ackTimeoutMs:0})).record.agent_id;
+ assert.deepEqual(resumed.map(r=>[r.envelope.id,r.status,r.delivered_to]).sort(),[['m1','delivered',lead],['m2','delivered',lead]]);
+ assert.equal(opens,1,'delivery launched nothing more');
+});

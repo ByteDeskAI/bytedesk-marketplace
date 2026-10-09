@@ -49,17 +49,19 @@ import { listServerPanes } from './tmux.mjs';
 import { lockOwner, processIdentity, withLock } from './lockfile.mjs';
 import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.mjs';
-import { resumeStandingMessages } from './standing-mailbox.mjs';
+import { resumeStandingMessages, ringStandingMail } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
 import { repairConsumerCheckout, superviseCheckout } from './checkout-repair.mjs';
 import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
-import { exists, sleep, writeJson, readJson, run } from './util.mjs';
+import { exists, sleep, writeJson, readJson } from './util.mjs';
+import { safeGit } from './safe-git.mjs';
 import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
 import { absorbTransportFailure, describeTransport } from './orch-transport.mjs';
 import { natsOutageTick } from './nats-outage.mjs';
+import { reviewSweepTick } from './review-sweep.mjs';
 
 /** Adaptive tick sleep. Index 0 is the busy rung; a quiet tick walks one rung down the list. */
 export const SLEEP_LADDER_MS = [2000, 5000, 15000];
@@ -218,7 +220,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        }
        prompts.push({agent:agent.id,state:promptState});
      }
-     const listing=await run('git',['-C',consumer,'worktree','list','--porcelain'],{allowFailure:true});
+     const listing=await safeGit(consumer,['worktree','list','--porcelain'],{allowFailure:true});
      const roots=new Set([consumer,...listing.stdout.split('\n').filter(line=>line.startsWith('worktree ')).map(line=>line.slice(9))]);
      // Where deaths.tsv lives. Collected at L2's cadence because that is how often it can change.
      const runDirs=[], runDirByAgent=new Map();
@@ -251,24 +253,33 @@ export async function superviseRepository(options, { signal, once = false, inter
      checkoutReport=(await superviseCheckout({consumer,env,home,once})) ?? checkoutReport;
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
      const resumed=await resumeStandingMessages(options);
+     // TM-351: ring each recipient whose standing mail landed, once per message. A held ring (unsafe
+     // composer, no pane) is retried here next tick. Absorbed: a ring failure never stops supervision.
+     const rings=await ringStandingMail({...options,adapters,panes:observed.filter(p=>p.lifecycle!=='dead')
+       .map(p=>({agentId:p.agentId,...p.session,command:seen.find(row=>row.serverKey===p.session.serverKey && row.paneId===p.session.paneId)?.command}))})
+       .catch(error=>[{state:'failed',reason:error?.code ?? String(error)}]);
      // TM-276 / ADR-0031: tell this repository's lead once when the configured NATS goes away and
      // once when it is back. Absorbed like lead recovery: a mail failure is reported, never fatal.
      const natsOutage=await natsOutageTick({...options,env,home}).catch(error=>({status:'failed',reason:error?.code ?? String(error)}));
+     // TM-361: unreviewed finished tasks and idle PRs reach a reviewer or the lead, once each. tm owns
+     // the finding and its marker; absent tm, this is null. Absorbed: a sweep failure never stops supervision.
+     const reviewSweep=await reviewSweepTick({...options,env,home}).catch(error=>({status:'failed',reason:error?.code ?? String(error)}));
      const transport=await describeTransport(env,home).catch(()=>null);
      const goalLoops=await reconcileGoalLoops({...options,supervisorTick:true}).catch(error=>[{state:'blocked',diagnostic:{code:error.code??'GOAL_LOOP_RECONCILE',message:String(error.message).slice(0,1000)}}]);
      const launched=['created','restarted'].includes(recovery.action);
      // Activity means something MOVED, not merely that agents exist: a prompt that is already
      // `current` is a steady state and must not pin the ladder to its busy rung forever.
-     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || launched || goalLoops.some(loop=>loop.changed);
+     const activity=prompts.some(p=>p.state?.status && p.state.status!=='current') || resumed.length>0 || rings.some(r=>r.notification==='submitted') || launched || goalLoops.some(loop=>loop.changed);
      const report={pid:process.pid,at:new Date().toISOString(),repo_id:identity.id,generation:snapshot.generation,revision:snapshot.revision,
        reconciled:true,reconcile_min_ms:floorMs,activity,
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
+       ...(rings.length ? {mail_rings:rings} : {}),
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {}),
        ...(checkoutReport && !['healthy','not-a-checkout','absent'].includes(checkoutReport.action) ? {checkout:checkoutReport} : {}),
-       transport,...(natsOutage ? {nats_outage:natsOutage} : {})};
+       transport,...(natsOutage ? {nats_outage:natsOutage} : {}),...(reviewSweep ? {review_sweep:reviewSweep} : {})};
      report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
      await writeJson(join(root,`${key}.json`),report);
      if(!once) await promoteRecord(join(root,`${key}.process.json`));

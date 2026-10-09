@@ -33,6 +33,50 @@ var import_promises = require("node:fs/promises");
 // src/util.mjs
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
+
+// topology/lib/safe-git.mjs
+var SAFE_GIT_CONFIG = Object.freeze([
+  "core.fsmonitor=false",
+  "core.hooksPath=/dev/null",
+  "core.pager=cat",
+  "diff.external=",
+  "core.sshCommand=ssh",
+  "core.askPass=",
+  "core.editor=true",
+  "sequence.editor=true",
+  "core.alternateRefsCommand=true",
+  "uploadpack.packObjectsHook=env",
+  "protocol.allow=never",
+  "protocol.https.allow=always",
+  "protocol.ssh.allow=always",
+  "protocol.file.allow=always",
+  "protocol.ext.allow=never",
+  "gpg.program=gpg",
+  "gpg.ssh.program=ssh-keygen",
+  "gpg.x509.program=gpgsm",
+  "commit.gpgSign=false",
+  "tag.gpgSign=false",
+  "merge.verifySignatures=false",
+  "log.showSignature=false",
+  "submodule.recurse=false",
+  "fetch.recurseSubmodules=false",
+  "gc.auto=0",
+  "maintenance.auto=false",
+  "credential.helper="
+]);
+var DIFF_FAMILY = ["diff", "diff-tree", "diff-index", "diff-files", "log", "show", "format-patch", "whatchanged"];
+var SUBCOMMAND_FLAGS = Object.freeze({
+  fetch: ["--upload-pack=git-upload-pack"],
+  pull: ["--upload-pack=git-upload-pack"],
+  "ls-remote": ["--upload-pack=git-upload-pack"],
+  push: ["--receive-pack=git-receive-pack"],
+  ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
+});
+var GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
+var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+var GIT = process.platform === "win32" ? "git.exe" : "git";
+
+// src/util.mjs
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
 async function runFile(command, args, options = {}) {
   invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");

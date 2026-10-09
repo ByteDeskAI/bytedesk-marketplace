@@ -82,11 +82,12 @@ and carries none of `ready-for-human`, `needs-info`, `wontfix`, `human-gate` or 
 overrides it; `tm task new --human` files a task with that veto already on. `tm triage` backfills
 existing tasks and skips the ones a person decided.
 
-**A dispatched worker finishes at a PR, not a merge.** It commits, pushes its own branch, opens a PR
-with the TM key in the title, attaches evidence and closes — or blocks with the error if the push or
-PR fails. A PreToolUse guard blocks the rest: force pushes, pushes to any other branch, branch/tag
-deletion, `reset --hard`, history rewrites, `gh pr merge`, releases, secrets and deploys. **Humans
-merge.**
+**A dispatched worker finishes at its own merged PR.** It commits, pushes its own branch, opens a PR
+with the TM key in the title, reviews it, waits for required checks, merges it by branch name
+(`--admin` only when a required approving review is the sole blocker), attaches evidence and closes
+— or blocks with the error. A PreToolUse guard blocks the rest: force pushes, pushes to any other
+branch, branch/tag deletion, `reset --hard`, history rewrites, merging any other PR, releases,
+secrets and deploys.
 
 ## Board
 
