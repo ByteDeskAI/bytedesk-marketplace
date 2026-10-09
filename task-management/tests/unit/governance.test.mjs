@@ -148,6 +148,7 @@ describe("governed completion is shared by every task write surface", () => {
       assert.match(brief, /"artifacts":\[/);
       assert.match(brief, /"checks":\[\{"name":.*"exit_code":0,"revision":/);
       assert.match(brief, /run each management\.required_checks entry at that commit.*Never list a check you did not run/); // TM-418
+      assert.match(brief, /Stop at ready-for-review and report to the lead|Stop here; independent review/, "TM-426: the cap never cuts the governed ending");
       assert.match(brief, /"risks":\[\]/);
       assert.match(brief, /"evidence":/);
       assert.match(brief, /queues independent review/);
