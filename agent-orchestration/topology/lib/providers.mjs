@@ -1,9 +1,13 @@
 // Provider adapters describe how to run one agent CLI inside a tmux pane. Adding a CLI is one JSON
 // file; an unknown `cli` id falls back to the generic adapter with the id used as the command.
 import { readdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { exists, invariant, readJson, render, run } from "./util.mjs";
-import { PLUGIN_ROOT } from "../../src/config.mjs";
+
+// Source runs from topology/lib/; the bundle runs from dist/. Both sit one level under the plugin.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PLUGIN_ROOT = basename(HERE) === "lib" ? dirname(dirname(HERE)) : dirname(HERE);
 
 export const GENERIC_ADAPTER = {
   id: "generic",
