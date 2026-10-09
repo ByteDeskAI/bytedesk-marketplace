@@ -3,6 +3,7 @@
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { exists, invariant, readJson, render, run } from "./util.mjs";
+import { PLUGIN_ROOT } from "../../src/config.mjs";
 
 export const GENERIC_ADAPTER = {
   id: "generic",
@@ -90,13 +91,17 @@ export const ATTENTION_STATES = ["attention", "quota-blocked"];
  * `args`, `auto_approve_args`), and `<repo>/.bytedesk/agent-orchestration/providers/` is
  * version-controlled: a worker whose PR merged could rename `claude` to any program for every
  * later agent launched in that repo. `consumer` is accepted and ignored so callers need not change.
+ *
+ * TM-529: with no `pluginRoot` the bundled plugin's own providers/ is still searched. Callers that
+ * omitted it (the lead ring, the reviewer) loaded no adapter at all and refused every ring.
  */
 export function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
+  pluginRoot ??= PLUGIN_ROOT;
   const dirs = [...extra];
   // The user's config dir resolves like config.mjs's global layer: $XDG_CONFIG_HOME, else ~/.config.
   const config = env.XDG_CONFIG_HOME || (home && join(home, ".config"));
   if (config) dirs.push(join(config, "agent-orchestration", "providers"));
-  if (pluginRoot) dirs.push(join(pluginRoot, "providers"));
+  dirs.push(join(pluginRoot, "providers"));
   return dirs;
 }
 

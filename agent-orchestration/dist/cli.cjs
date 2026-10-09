@@ -42,6 +42,33 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/errors.mjs
+function invariant(condition, code, message, details = void 0) {
+  if (!condition) {
+    throw new AgentOrchestrationError(code, message, details);
+  }
+}
+function serializeError(error51) {
+  return {
+    code: error51?.code ?? "AO_INTERNAL",
+    message: error51 instanceof Error ? error51.message : String(error51),
+    ...error51?.details === void 0 ? {} : { details: error51.details }
+  };
+}
+var AgentOrchestrationError;
+var init_errors = __esm({
+  "src/errors.mjs"() {
+    AgentOrchestrationError = class extends Error {
+      constructor(code, message, details = void 0) {
+        super(message);
+        this.name = "AgentOrchestrationError";
+        this.code = code;
+        this.details = details;
+      }
+    };
+  }
+});
+
 // topology/lib/safe-git.mjs
 function rootOwnedChain(real2, paths2 = GH_PATHS, stat14 = import_node_fs.statSync) {
   if (!paths2.includes(real2)) return false;
@@ -268,6 +295,218 @@ var init_safe_git = __esm({
   }
 });
 
+// src/util.mjs
+function safeCwd() {
+  try {
+    return process.cwd();
+  } catch {
+    return null;
+  }
+}
+async function runFile(command, args, options = {}) {
+  invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
+  const result = await execFile2(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    encoding: "utf8",
+    maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024,
+    timeout: options.timeoutMs ?? 3e4,
+    windowsHide: true
+  });
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+}
+async function git(cwd, args, options = {}) {
+  const result = await safeGit(cwd, args, options);
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+}
+function assertAbsolutePath(value, fieldName) {
+  invariant(typeof value === "string" && value.length > 0, "AO_CONSUMER_CWD_REQUIRED", `${fieldName} is required.`);
+  invariant(!value.includes("\0"), "AO_UNSAFE_PATH", `${fieldName} contains a NUL byte.`);
+  invariant((0, import_node_path3.isAbsolute)(value), "AO_CONSUMER_CWD_NOT_ABSOLUTE", `${fieldName} must be an absolute path.`);
+}
+function isPathWithin(parent, candidate) {
+  const rel = (0, import_node_path3.relative)((0, import_node_path3.resolve)(parent), (0, import_node_path3.resolve)(candidate));
+  return rel === "" || !rel.startsWith("..") && !(0, import_node_path3.isAbsolute)(rel);
+}
+async function assertDirectory(path3, fieldName = "path") {
+  const info = await (0, import_promises.stat)(path3).catch(() => null);
+  invariant(info?.isDirectory(), "AO_DIRECTORY_REQUIRED", `${fieldName} must name an existing directory.`, { path: path3 });
+}
+async function canonicalPath(path3) {
+  return (0, import_promises.realpath)(path3);
+}
+function oneLineLabel(value, max = 200) {
+  if (typeof value !== "string") return null;
+  const text = value.replace(CONTROL_CHARACTERS, "").trim();
+  return text ? text.slice(0, max) : null;
+}
+function sha256(value) {
+  return (0, import_node_crypto3.createHash)("sha256").update(value).digest("hex");
+}
+function newId(prefix) {
+  return `${prefix}_${(0, import_node_crypto3.randomUUID)()}`;
+}
+async function ensurePrivateDir(path3) {
+  await (0, import_promises.mkdir)(path3, { recursive: true, mode: 448 });
+  return path3;
+}
+async function removeTree(path3) {
+  const options = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 };
+  try {
+    await (0, import_promises.rm)(path3, options);
+    return;
+  } catch (error51) {
+    if (error51?.code !== "EACCES" && error51?.code !== "EPERM") throw error51;
+  }
+  await restoreDirectoryWrite(path3);
+  await (0, import_promises.rm)(path3, options);
+}
+async function restoreDirectoryWrite(path3) {
+  const info = await (0, import_promises.lstat)(path3).catch(() => null);
+  if (!info?.isDirectory()) return;
+  await (0, import_promises.chmod)(path3, 448).catch(() => {
+  });
+  const entries2 = await (0, import_promises.readdir)(path3, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries2) {
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path3.join)(path3, entry.name));
+  }
+}
+async function readJson(path3, fallback = void 0) {
+  try {
+    return JSON.parse(await (0, import_promises.readFile)(path3, "utf8"));
+  } catch (error51) {
+    if (error51?.code === "ENOENT" && fallback !== void 0) return fallback;
+    throw error51;
+  }
+}
+async function atomicWriteJson(path3, value) {
+  await ensurePrivateDir((0, import_node_path3.dirname)(path3));
+  const tempPath = `${path3}.${process.pid}.${(0, import_node_crypto3.randomUUID)()}.tmp`;
+  const handle = await (0, import_promises.open)(tempPath, "wx", 384);
+  try {
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  for (let attempt2 = 0; ; attempt2 += 1) {
+    try {
+      await (0, import_promises.rename)(tempPath, path3);
+      break;
+    } catch (error51) {
+      const transientWindowsLock = process.platform === "win32" && ["EACCES", "EBUSY", "EPERM"].includes(error51?.code);
+      if (!transientWindowsLock || attempt2 >= 7) throw error51;
+      await (0, import_promises2.setTimeout)(10 * (attempt2 + 1));
+    }
+  }
+  if (process.platform !== "win32") {
+    const directory2 = await (0, import_promises.open)((0, import_node_path3.dirname)(path3), "r");
+    try {
+      await directory2.sync();
+    } finally {
+      await directory2.close();
+    }
+  }
+}
+async function processStartIdentity(pid, { platform = process.platform } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (platform !== "darwin") {
+    try {
+      const statLine = await (0, import_promises.readFile)(`/proc/${pid}/stat`, "utf8");
+      const closeParen = statLine.lastIndexOf(")");
+      const fields = statLine.slice(closeParen + 2).split(" ");
+      return fields[19] ?? null;
+    } catch {
+    }
+  }
+  try {
+    const { stdout } = await runFile("ps", ["-p", String(pid), "-o", "lstart="], { timeoutMs: 2e3, env: { ...process.env, LC_ALL: "C" } });
+    return stdout || null;
+  } catch {
+    return null;
+  }
+}
+function processGroupExists(processGroup) {
+  if (!Number.isInteger(processGroup) || processGroup <= 0) return false;
+  try {
+    process.kill(-processGroup, 0);
+    return true;
+  } catch (error51) {
+    if (error51?.code === "ESRCH") return false;
+    if (error51?.code === "EPERM") return true;
+    throw error51;
+  }
+}
+async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  while (processGroupExists(processGroup) && Date.now() < deadline) {
+    await new Promise((resolve24) => setTimeout(resolve24, pollMs));
+  }
+  return !processGroupExists(processGroup);
+}
+var import_node_child_process2, import_node_crypto3, import_promises, import_node_path3, import_promises2, import_node_util, execFile2, CONTROL_CHARACTERS;
+var init_util = __esm({
+  "src/util.mjs"() {
+    import_node_child_process2 = require("node:child_process");
+    import_node_crypto3 = require("node:crypto");
+    import_promises = require("node:fs/promises");
+    import_node_path3 = require("node:path");
+    import_promises2 = require("node:timers/promises");
+    import_node_util = require("node:util");
+    init_errors();
+    init_safe_git();
+    execFile2 = (0, import_node_util.promisify)(import_node_child_process2.execFile);
+    CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/g;
+  }
+});
+
+// src/config.mjs
+function stateRoot(env = process.env, platform = process.platform, home = import_node_os3.default.homedir()) {
+  if (env.AGENT_ORCHESTRATION_STATE_HOME) return env.AGENT_ORCHESTRATION_STATE_HOME;
+  const pathApi = platform === "win32" ? import_node_path4.win32 : import_node_path4.posix;
+  if (platform === "win32") {
+    const base2 = env.LOCALAPPDATA || pathApi.join(home, "AppData", "Local");
+    return pathApi.join(base2, "ByteDesk", "agent-orchestration");
+  }
+  const base = env.XDG_STATE_HOME || pathApi.join(home, ".local", "state");
+  return pathApi.join(base, "bytedesk", "agent-orchestration");
+}
+function validateStateRoot(candidate, pluginRoot = PLUGIN_ROOT) {
+  invariant(typeof candidate === "string" && (0, import_node_path4.isAbsolute)(candidate), "AO_STATE_ROOT_NOT_ABSOLUTE", "The orchestration state root must be an absolute path.");
+  const canonicalProspectivePath = (value) => {
+    let cursor = (0, import_node_path4.resolve)(value);
+    const suffix = [];
+    while (!(0, import_node_fs2.existsSync)(cursor)) {
+      suffix.unshift((0, import_node_path4.basename)(cursor));
+      const parent = (0, import_node_path4.dirname)(cursor);
+      if (parent === cursor) break;
+      cursor = parent;
+    }
+    return (0, import_node_path4.join)((0, import_node_fs2.realpathSync)(cursor), ...suffix);
+  };
+  const canonicalCandidate = canonicalProspectivePath(candidate);
+  const canonicalPlugin = (0, import_node_fs2.realpathSync)(pluginRoot);
+  invariant(
+    !isPathWithin(canonicalPlugin, canonicalCandidate) && !isPathWithin(canonicalCandidate, canonicalPlugin),
+    "AO_STATE_ROOT_OVERLAPS_PLUGIN",
+    "The orchestration state root cannot overlap the plugin installation or source tree."
+  );
+  return canonicalCandidate;
+}
+var import_node_os3, import_node_path4, import_node_url, import_node_fs2, PLUGIN_ROOT;
+var init_config = __esm({
+  "src/config.mjs"() {
+    import_node_os3 = __toESM(require("node:os"), 1);
+    import_node_path4 = require("node:path");
+    import_node_url = require("node:url");
+    import_node_fs2 = require("node:fs");
+    init_errors();
+    init_util();
+    PLUGIN_ROOT = (0, import_node_path4.dirname)((0, import_node_path4.dirname)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)));
+  }
+});
+
 // topology/lib/util.mjs
 function fail(code, message, details) {
   throw new TopologyError(code, message, details);
@@ -415,7 +654,7 @@ async function ensureRunsIgnored(runDir) {
   return marker;
 }
 var import_node_child_process3, import_node_crypto4, import_promises4, import_node_os4, import_node_path8, import_node_util2, execFile3, TopologyError, AO_HOME, AO_HOME_LEGACY;
-var init_util = __esm({
+var init_util2 = __esm({
   "topology/lib/util.mjs"() {
     import_node_child_process3 = require("node:child_process");
     import_node_crypto4 = require("node:crypto");
@@ -538,7 +777,7 @@ var init_repoid = __esm({
     import_promises5 = require("node:fs/promises");
     import_node_os5 = require("node:os");
     import_node_path9 = require("node:path");
-    init_util();
+    init_util2();
     init_safe_git();
   }
 });
@@ -678,7 +917,7 @@ var init_lockfile = __esm({
     import_node_crypto6 = require("node:crypto");
     import_promises6 = require("node:fs/promises");
     import_node_path10 = require("node:path");
-    init_util();
+    init_util2();
     PENDING_STALE_MS = 10 * 6e4;
   }
 });
@@ -933,14 +1172,14 @@ async function writeConfigLayer(scope, document, { ifRevision = null, ...options
   });
 }
 var import_node_crypto7, import_promises7, import_node_os6, import_node_path11, isPlainObject, TEMPLATE_KEYS, PROMPT_MODES, AUTONOMY_LEVELS, PRECEDENCE, ABSENT_REVISION, CONFIG_SCOPES;
-var init_config = __esm({
+var init_config2 = __esm({
   "topology/lib/config.mjs"() {
     import_node_crypto7 = require("node:crypto");
     import_promises7 = require("node:fs/promises");
     import_node_os6 = require("node:os");
     import_node_path11 = require("node:path");
     init_lockfile();
-    init_util();
+    init_util2();
     isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
     TEMPLATE_KEYS = /* @__PURE__ */ new Set(["role", "cli", "candidates", "model", "prompt", "instructions", "skills", "mcp", "args", "env", "auto_approve", "reports_to", "name"]);
     PROMPT_MODES = ["append", "replace"];
@@ -1041,9 +1280,9 @@ var init_session_names = __esm({
     import_node_crypto8 = require("node:crypto");
     import_node_os7 = require("node:os");
     import_node_path12 = require("node:path");
-    init_config();
+    init_config2();
     init_repoid();
-    init_util();
+    init_util2();
     init_safe_git();
     SEPARATOR = "--";
     PART_CAPS = Object.freeze({ team: 16, node: 24, repo: 32, role: 48, persona: 24 });
@@ -1418,7 +1657,7 @@ var init_tmux = __esm({
     import_node_events = require("node:events");
     import_node_async_hooks = require("node:async_hooks");
     import_node_path13 = require("node:path");
-    init_util();
+    init_util2();
     init_session_names();
     IDENTITY_WIDTH = Object.keys(SESSION_OPTIONS).length;
     TMUX = process.env.AO_TMUX_COMMAND || "tmux";
@@ -1957,7 +2196,7 @@ var init_discovery = __esm({
     import_promises8 = require("node:fs/promises");
     import_node_path14 = require("node:path");
     init_repoid();
-    init_util();
+    init_util2();
     init_lockfile();
     init_safe_git();
     init_incarnation();
@@ -2017,7 +2256,7 @@ var import_node_crypto13, FIRST, LAST, TITLES, ROLE_ICONS, ROLE_LABELS, NESTED_T
 var init_identity = __esm({
   "topology/lib/identity.mjs"() {
     import_node_crypto13 = require("node:crypto");
-    init_util();
+    init_util2();
     FIRST = [
       "Ada",
       "Bell",
@@ -2292,9 +2531,9 @@ var init_prompts = __esm({
     import_node_crypto14 = require("node:crypto");
     import_promises25 = require("node:fs/promises");
     import_node_path30 = require("node:path");
-    init_config();
+    init_config2();
     init_identity();
-    init_util();
+    init_util2();
     sha = (text) => (0, import_node_crypto14.createHash)("sha256").update(text, "utf8").digest("hex");
     PROTOCOL_ROLES = /* @__PURE__ */ new Set(["lead", "reviewer"]);
   }
@@ -2347,7 +2586,7 @@ var init_heartbeat = __esm({
     import_node_os10 = require("node:os");
     import_node_path31 = require("node:path");
     init_repoid();
-    init_util();
+    init_util2();
     HEARTBEAT_TTL_MS = Number(process.env.AO_LEAD_HEARTBEAT_TTL_MS ?? 3e5);
   }
 });
@@ -2483,9 +2722,9 @@ var init_prompt_lifecycle = __esm({
   "topology/lib/prompt-lifecycle.mjs"() {
     import_node_crypto16 = require("node:crypto");
     import_node_path32 = require("node:path");
-    init_config();
+    init_config2();
     init_prompts();
-    init_util();
+    init_util2();
     init_lockfile();
     init_incarnation();
     init_repoid();
@@ -2584,7 +2823,7 @@ var init_services_client = __esm({
     import_node_url3 = require("node:url");
     init_lockfile();
     init_repoid();
-    init_util();
+    init_util2();
   }
 });
 
@@ -2852,9 +3091,9 @@ var init_nats_local = __esm({
     import_node_net = __toESM(require("node:net"), 1);
     import_node_os12 = require("node:os");
     import_node_path34 = require("node:path");
-    init_config();
+    init_config2();
     init_lockfile();
-    init_util();
+    init_util2();
     init_services_client();
     NATS_PORT_RANGE = [45200, 45999];
     SERVER_NAME = "ao-orch-local";
@@ -19185,7 +19424,7 @@ async function selectLiveTransport(options = {}) {
 async function jetStreamDomain(env = process.env, home = (0, import_node_os13.homedir)()) {
   let domain2 = env.AO_NATS_JS_DOMAIN;
   if (!domain2) {
-    const { globalConfigPath: globalConfigPath2 } = await Promise.resolve().then(() => (init_config(), config_exports));
+    const { globalConfigPath: globalConfigPath2 } = await Promise.resolve().then(() => (init_config2(), config_exports));
     domain2 = (await readJson3(globalConfigPath2(home, env)).catch(() => null))?.nats?.domain;
   }
   if (domain2 === void 0 || domain2 === null || domain2 === "") return null;
@@ -20100,7 +20339,7 @@ var init_orch_transport = __esm({
     import_node_net2 = __toESM(require("node:net"), 1);
     import_node_os13 = require("node:os");
     import_node_path35 = require("node:path");
-    init_util();
+    init_util2();
     init_nats_local();
     init_lockfile();
     init_repoid();
@@ -20343,9 +20582,9 @@ var init_agents = __esm({
     import_promises28 = require("node:fs/promises");
     import_node_path36 = require("node:path");
     import_node_url4 = require("node:url");
-    init_config();
+    init_config2();
     init_prompt_lifecycle();
-    init_util();
+    init_util2();
     init_identity();
     init_orch_transport();
     init_safe_git();
@@ -20592,7 +20831,7 @@ var init_routing = __esm({
   "topology/lib/routing.mjs"() {
     import_promises29 = require("node:fs/promises");
     import_node_path37 = require("node:path");
-    init_util();
+    init_util2();
     init_agents();
     init_identity();
     init_repoid();
@@ -20655,10 +20894,11 @@ var init_ntfy = __esm({
 
 // topology/lib/providers.mjs
 function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
+  pluginRoot ??= PLUGIN_ROOT;
   const dirs = [...extra];
   const config2 = env.XDG_CONFIG_HOME || home && (0, import_node_path38.join)(home, ".config");
   if (config2) dirs.push((0, import_node_path38.join)(config2, "agent-orchestration", "providers"));
-  if (pluginRoot) dirs.push((0, import_node_path38.join)(pluginRoot, "providers"));
+  dirs.push((0, import_node_path38.join)(pluginRoot, "providers"));
   return dirs;
 }
 function normalizeAdapter(raw, source) {
@@ -20842,7 +21082,8 @@ var init_providers = __esm({
   "topology/lib/providers.mjs"() {
     import_promises30 = require("node:fs/promises");
     import_node_path38 = require("node:path");
-    init_util();
+    init_util2();
+    init_config();
     GENERIC_ADAPTER = {
       id: "generic",
       display: "Generic CLI",
@@ -20994,7 +21235,7 @@ var init_session_identity = __esm({
     import_node_os14 = require("node:os");
     import_node_path39 = require("node:path");
     init_repoid();
-    init_util();
+    init_util2();
     SESSION_AGENT_VAR = "AO_SESSION_AGENT_ID";
     SESSION_CONSUMER_VAR = "AO_SESSION_CONSUMER";
     ID = /^[a-f][0-9a-f]{7}$/;
@@ -21046,7 +21287,7 @@ function childrenFile(runDir) {
 var import_node_path40, MAX_DEPTH;
 var init_lineage = __esm({
   "topology/lib/lineage.mjs"() {
-    init_util();
+    init_util2();
     import_node_path40 = require("node:path");
     MAX_DEPTH = 3;
   }
@@ -21248,7 +21489,7 @@ var init_persona_registry = __esm({
     init_lockfile();
     init_session_names();
     init_repoid();
-    init_util();
+    init_util2();
     RUN_PERSONA_GRACE_MS = 12e4;
     KV_CONFLICT = 10071;
     isConflict = (error51) => error51?.api_error?.err_code === KV_CONFLICT;
@@ -21290,7 +21531,7 @@ var init_resolve = __esm({
   "topology/lib/resolve.mjs"() {
     import_promises33 = require("node:fs/promises");
     import_node_path42 = require("node:path");
-    init_util();
+    init_util2();
   }
 });
 
@@ -21638,7 +21879,7 @@ var init_respawn = __esm({
     init_session_names();
     init_lockfile();
     init_tmux();
-    init_util();
+    init_util2();
     envMs = (name, fallback, env = process.env) => Number(env[name]) > 0 ? Number(env[name]) : fallback;
     clip = (text, max = 600) => {
       const value = String(text).replace(/\s+/g, " ").trim();
@@ -21853,7 +22094,7 @@ var init_spec = __esm({
   "topology/lib/spec.mjs"() {
     import_node_fs11 = require("node:fs");
     import_node_path44 = require("node:path");
-    init_util();
+    init_util2();
     init_agents();
     ID_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
     FROM_LIBRARY = ["template", "full_name", "title", "role", "cli", "model", "candidates", "skills", "mcp", "instructions", "instructions_file", "instructions_mode", "args", "env", "auto_approve", "coordinates_only", "cwd"];
@@ -22067,7 +22308,7 @@ var import_node_crypto22, GOAL_LOOP_PHASES, GOAL_LOOP_RECIPE_VERSION, GOAL_LOOP_
 var init_goal_loop_contract = __esm({
   "topology/lib/goal-loop-contract.mjs"() {
     import_node_crypto22 = require("node:crypto");
-    init_util();
+    init_util2();
     GOAL_LOOP_PHASES = ["pm", "build", "qa", "review", "integration", "integration-qa", "test-deploy", "dogfood", "assessment"];
     GOAL_LOOP_RECIPE_VERSION = "goal-feedback/v1";
     GOAL_LOOP_DEFAULT_LIMITS = { maxStalls: 3, maxCycles: 10, deadlineMinutes: 30 };
@@ -22116,7 +22357,7 @@ var init_goal_loop_notify = __esm({
     init_launch();
     init_incarnation();
     init_tmux();
-    init_util();
+    init_util2();
     init_goal_loop_contract();
   }
 });
@@ -22830,9 +23071,9 @@ var init_goal_loop = __esm({
     import_node_os19 = require("node:os");
     init_repoid();
     init_lockfile();
-    init_util();
+    init_util2();
     init_safe_git();
-    init_config();
+    init_config2();
     init_repo_enrollment();
     init_standing_mailbox();
     init_management();
@@ -23430,7 +23671,7 @@ var init_workflow_control = __esm({
     init_repoid();
     init_session_identity();
     init_lineage();
-    init_util();
+    init_util2();
     init_lockfile();
     init_tmux();
     TERMINAL3 = /* @__PURE__ */ new Set(["stopped", "succeeded", "completed", "failed", "cancelled", "timed_out", "rejected"]);
@@ -24890,7 +25131,7 @@ var init_management = __esm({
     init_tmux();
     init_census();
     init_heartbeat();
-    init_config();
+    init_config2();
     init_delegation();
     init_agents();
     init_lockfile();
@@ -24898,7 +25139,7 @@ var init_management = __esm({
     init_reviewer();
     init_workflow_control();
     init_standing_mailbox();
-    init_util();
+    init_util2();
     init_safe_git();
     taskId = (value) => {
       invariant2(/^TM-[0-9]+$/.test(value), "TOPOLOGY_MANAGEMENT_TASK", "Expected a task-store TM id.");
@@ -26358,7 +26599,7 @@ var init_reviewer = __esm({
     init_lead();
     init_standing_mailbox();
     init_nats_outage();
-    init_config();
+    init_config2();
     init_identity();
     init_delivery();
     init_launch();
@@ -26370,7 +26611,7 @@ var init_reviewer = __esm({
     init_providers();
     init_repoid();
     init_tmux();
-    init_util();
+    init_util2();
     REGISTRY_KIND = "reviewers";
     DEFAULT_REVIEWER_PROVIDERS = ["claude", "codex"];
     DEFAULT_TEMPLATE = "reviewer-default";
@@ -26809,7 +27050,7 @@ var init_startup = __esm({
     import_promises39 = require("node:fs/promises");
     import_node_os22 = require("node:os");
     import_node_path49 = require("node:path");
-    init_util();
+    init_util2();
     init_repoid();
     init_lockfile();
     init_tmux();
@@ -27268,7 +27509,7 @@ var init_quota = __esm({
     import_node_os23 = require("node:os");
     import_node_path50 = require("node:path");
     init_census();
-    init_config();
+    init_config2();
     init_launch();
     init_lead();
     init_lockfile();
@@ -27277,7 +27518,7 @@ var init_quota = __esm({
     init_standing_mailbox();
     init_nats_outage();
     init_tmux();
-    init_util();
+    init_util2();
     QUOTA_CONSENT = ["ask", "auto", "never"];
     DEFAULT_CONSENT = "ask";
     QUOTA_RECHECK_MS = 2e3;
@@ -28696,7 +28937,7 @@ var init_launch = __esm({
     import_node_path51 = require("node:path");
     import_node_url6 = require("node:url");
     init_prompts();
-    init_config();
+    init_config2();
     init_mailbox();
     init_delivery();
     init_lineage();
@@ -28709,7 +28950,7 @@ var init_launch = __esm({
     init_repoid();
     init_resolve();
     init_tmux();
-    init_util();
+    init_util2();
     init_discovery();
     init_lockfile();
     init_respawn();
@@ -28964,7 +29205,7 @@ var init_census = __esm({
     init_providers();
     init_repoid();
     init_tmux();
-    init_util();
+    init_util2();
     CENSUS_SCHEMA_VERSION = 1;
     CENSUS_STATES = ["dead", "quota-blocked", "attention", "working", "needs-input", "idle", "unknown"];
     DEFAULT_STALE_MS = 45e3;
@@ -29246,7 +29487,7 @@ var init_delegation = __esm({
     init_repoid();
     init_slots();
     init_tmux();
-    init_util();
+    init_util2();
     DELEGATION_SCOPES = Object.freeze(["integrate", "record-landing"]);
     GRANT_CHANNEL = "interactive-same-user";
     GRANT_NOTE = 'Not agent-proof: an agent running as the same OS user can unset the markers, leave the agent process tree and drive a TTY through tmux or `script`. Read this as "made through the interactive channel", not "proven operator".';
@@ -30002,7 +30243,7 @@ var init_standing_mailbox = __esm({
     init_repoid();
     init_routing();
     init_session_identity();
-    init_util();
+    init_util2();
     init_mailbox_receipts();
     RECOVERABLE_HOLDS = /* @__PURE__ */ new Set(["leads_not_ready", "no_lead"]);
     PERMANENT_HOLDS = /* @__PURE__ */ new Set(["source_identity_required", "repository_identity_changed", "hop_limit", "loop", "coordinator_not_worker"]);
@@ -30426,7 +30667,7 @@ var init_slots = __esm({
     init_presence();
     init_repoid();
     init_tmux();
-    init_util();
+    init_util2();
     SLOT_RECORD_VERSION = 1;
     SHIPPED_SLOTS = Object.freeze(["integration", "cutover", "deploy-safe"]);
     SLOT_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -30824,7 +31065,7 @@ var init_presence = __esm({
     import_node_path56 = require("node:path");
     import_promises47 = require("node:timers/promises");
     init_repoid();
-    init_config();
+    init_config2();
     init_lockfile();
     init_tmux();
     init_slots();
@@ -30832,7 +31073,7 @@ var init_presence = __esm({
     init_mailbox();
     init_identity();
     init_session_names();
-    init_util();
+    init_util2();
     init_safe_git();
     init_discovery();
     PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
@@ -31206,7 +31447,7 @@ var init_checkout_repair = __esm({
     init_repoid();
     init_services_client();
     init_safe_git();
-    init_util();
+    init_util2();
     DEFAULT_MAX_DIFFERENCES = 50;
     REPAIRABLE = /* @__PURE__ */ new Set(["dangling-gitdir", "missing-git"]);
     IDENTITY = ["-c", "user.name=agent-orchestration", "-c", "user.email=agent-orchestration@localhost", "-c", "core.hooksPath=/dev/null"];
@@ -31384,12 +31625,12 @@ var init_idle_nudge = __esm({
     import_node_os31 = require("node:os");
     import_node_path58 = require("node:path");
     init_census();
-    init_config();
+    init_config2();
     init_delivery();
     init_launch();
     init_lead();
     init_tmux();
-    init_util();
+    init_util2();
     MINUTE = 6e4;
     IDLE_NUDGE_DEFAULTS = Object.freeze({
       enabled: true,
@@ -31868,7 +32109,7 @@ var init_supervision = __esm({
     init_slots();
     init_quota();
     init_idle_nudge();
-    init_util();
+    init_util2();
     init_safe_git();
     init_services_client();
     init_orch_transport();
@@ -31944,7 +32185,7 @@ var init_repo_enrollment = __esm({
     import_promises52 = require("node:fs/promises");
     import_node_os33 = require("node:os");
     import_node_path60 = require("node:path");
-    init_config();
+    init_config2();
     init_lead();
     init_repoid();
     PLUGIN_KEY = /^agent-orchestration@[^@]+$/;
@@ -32144,7 +32385,7 @@ var init_lead_recovery = __esm({
     init_lead();
     init_repo_enrollment();
     init_repoid();
-    init_util();
+    init_util2();
     RETRY_DELAYS_MS = Object.freeze([1e4, 3e4, 12e4, 6e5]);
   }
 });
@@ -32627,7 +32868,7 @@ var init_mailbox_receipts = __esm({
     import_node_os35 = require("node:os");
     init_repoid();
     init_lockfile();
-    init_util();
+    init_util2();
     hash3 = (value) => (0, import_node_crypto36.createHash)("sha256").update(value).digest("hex");
     canonical2 = (value) => JSON.stringify(value, (_, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
     STATES = /* @__PURE__ */ new Set(["accepted", "handled", "deferred", "rejected"]);
@@ -32828,7 +33069,7 @@ var init_addressing = __esm({
     import_promises55 = require("node:fs/promises");
     import_node_os36 = require("node:os");
     import_node_path63 = require("node:path");
-    init_util();
+    init_util2();
     init_mailbox();
     MAX_BROADCAST = 24;
     AUDIENCES = "@run, @repo, @role:<role>, @idle";
@@ -33417,7 +33658,7 @@ var init_mailbox = __esm({
     import_node_crypto37 = require("node:crypto");
     import_promises56 = require("node:fs/promises");
     import_node_path64 = require("node:path");
-    init_util();
+    init_util2();
     init_routing();
     init_agents();
     init_lockfile();
@@ -33964,7 +34205,7 @@ var init_delivery = __esm({
     init_mailbox();
     init_providers();
     init_tmux();
-    init_util();
+    init_util2();
     MAX_RESUBMITS = 2;
     MAX_RETYPES = 2;
     RING_WINDOW_MS = Number(process.env.AO_RING_WINDOW_MS ?? 6e4);
@@ -34498,7 +34739,7 @@ var init_lead = __esm({
     import_node_os37 = require("node:os");
     import_node_path66 = require("node:path");
     init_agents();
-    init_config();
+    init_config2();
     init_identity();
     init_incarnation();
     init_heartbeat();
@@ -34510,7 +34751,7 @@ var init_lead = __esm({
     init_providers();
     init_repoid();
     init_tmux();
-    init_util();
+    init_util2();
     RECORD_VERSION = 1;
     DEFAULT_ACK_TIMEOUT_MS = Number(process.env.AO_LEAD_ACK_TIMEOUT_MS ?? 3e4);
     ACK_POLL_MS = Number(process.env.AO_LEAD_ACK_POLL_MS ?? 500);
@@ -34609,7 +34850,7 @@ var init_review_sweep = __esm({
     init_reviewer();
     init_standing_mailbox();
     init_nats_outage();
-    init_util();
+    init_util2();
     REVIEW_SWEEP_MIN_MS = 10 * 6e4;
     lastSweep = /* @__PURE__ */ new Map();
     noticeId = (key, findingKey) => (0, import_node_crypto39.createHash)("sha256").update(`review-sweep:v1:${key}:${findingKey}`).digest("hex").slice(0, 32);
@@ -35557,236 +35798,22 @@ function createExecutionPlan(input, context4 = {}) {
   };
 }
 
-// src/config.mjs
-var import_node_os3 = __toESM(require("node:os"), 1);
-var import_node_path4 = require("node:path");
-var import_node_url = require("node:url");
-var import_node_fs2 = require("node:fs");
-
-// src/errors.mjs
-var AgentOrchestrationError = class extends Error {
-  constructor(code, message, details = void 0) {
-    super(message);
-    this.name = "AgentOrchestrationError";
-    this.code = code;
-    this.details = details;
-  }
-};
-function invariant(condition, code, message, details = void 0) {
-  if (!condition) {
-    throw new AgentOrchestrationError(code, message, details);
-  }
-}
-function serializeError(error51) {
-  return {
-    code: error51?.code ?? "AO_INTERNAL",
-    message: error51 instanceof Error ? error51.message : String(error51),
-    ...error51?.details === void 0 ? {} : { details: error51.details }
-  };
-}
-
-// src/util.mjs
-var import_node_child_process2 = require("node:child_process");
-var import_node_crypto3 = require("node:crypto");
-var import_promises = require("node:fs/promises");
-var import_node_path3 = require("node:path");
-var import_promises2 = require("node:timers/promises");
-var import_node_util = require("node:util");
-init_safe_git();
-var execFile2 = (0, import_node_util.promisify)(import_node_child_process2.execFile);
-var CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/g;
-function safeCwd() {
-  try {
-    return process.cwd();
-  } catch {
-    return null;
-  }
-}
-async function runFile(command, args, options = {}) {
-  invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
-  const result = await execFile2(command, args, {
-    cwd: options.cwd,
-    env: options.env,
-    encoding: "utf8",
-    maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024,
-    timeout: options.timeoutMs ?? 3e4,
-    windowsHide: true
-  });
-  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
-}
-async function git(cwd, args, options = {}) {
-  const result = await safeGit(cwd, args, options);
-  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
-}
-function assertAbsolutePath(value, fieldName) {
-  invariant(typeof value === "string" && value.length > 0, "AO_CONSUMER_CWD_REQUIRED", `${fieldName} is required.`);
-  invariant(!value.includes("\0"), "AO_UNSAFE_PATH", `${fieldName} contains a NUL byte.`);
-  invariant((0, import_node_path3.isAbsolute)(value), "AO_CONSUMER_CWD_NOT_ABSOLUTE", `${fieldName} must be an absolute path.`);
-}
-function isPathWithin(parent, candidate) {
-  const rel = (0, import_node_path3.relative)((0, import_node_path3.resolve)(parent), (0, import_node_path3.resolve)(candidate));
-  return rel === "" || !rel.startsWith("..") && !(0, import_node_path3.isAbsolute)(rel);
-}
-async function assertDirectory(path3, fieldName = "path") {
-  const info = await (0, import_promises.stat)(path3).catch(() => null);
-  invariant(info?.isDirectory(), "AO_DIRECTORY_REQUIRED", `${fieldName} must name an existing directory.`, { path: path3 });
-}
-async function canonicalPath(path3) {
-  return (0, import_promises.realpath)(path3);
-}
-function oneLineLabel(value, max = 200) {
-  if (typeof value !== "string") return null;
-  const text = value.replace(CONTROL_CHARACTERS, "").trim();
-  return text ? text.slice(0, max) : null;
-}
-function sha256(value) {
-  return (0, import_node_crypto3.createHash)("sha256").update(value).digest("hex");
-}
-function newId(prefix) {
-  return `${prefix}_${(0, import_node_crypto3.randomUUID)()}`;
-}
-async function ensurePrivateDir(path3) {
-  await (0, import_promises.mkdir)(path3, { recursive: true, mode: 448 });
-  return path3;
-}
-async function removeTree(path3) {
-  const options = { recursive: true, force: true, maxRetries: 8, retryDelay: 50 };
-  try {
-    await (0, import_promises.rm)(path3, options);
-    return;
-  } catch (error51) {
-    if (error51?.code !== "EACCES" && error51?.code !== "EPERM") throw error51;
-  }
-  await restoreDirectoryWrite(path3);
-  await (0, import_promises.rm)(path3, options);
-}
-async function restoreDirectoryWrite(path3) {
-  const info = await (0, import_promises.lstat)(path3).catch(() => null);
-  if (!info?.isDirectory()) return;
-  await (0, import_promises.chmod)(path3, 448).catch(() => {
-  });
-  const entries2 = await (0, import_promises.readdir)(path3, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries2) {
-    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path3.join)(path3, entry.name));
-  }
-}
-async function readJson(path3, fallback = void 0) {
-  try {
-    return JSON.parse(await (0, import_promises.readFile)(path3, "utf8"));
-  } catch (error51) {
-    if (error51?.code === "ENOENT" && fallback !== void 0) return fallback;
-    throw error51;
-  }
-}
-async function atomicWriteJson(path3, value) {
-  await ensurePrivateDir((0, import_node_path3.dirname)(path3));
-  const tempPath = `${path3}.${process.pid}.${(0, import_node_crypto3.randomUUID)()}.tmp`;
-  const handle = await (0, import_promises.open)(tempPath, "wx", 384);
-  try {
-    await handle.writeFile(`${JSON.stringify(value, null, 2)}
-`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  for (let attempt2 = 0; ; attempt2 += 1) {
-    try {
-      await (0, import_promises.rename)(tempPath, path3);
-      break;
-    } catch (error51) {
-      const transientWindowsLock = process.platform === "win32" && ["EACCES", "EBUSY", "EPERM"].includes(error51?.code);
-      if (!transientWindowsLock || attempt2 >= 7) throw error51;
-      await (0, import_promises2.setTimeout)(10 * (attempt2 + 1));
-    }
-  }
-  if (process.platform !== "win32") {
-    const directory2 = await (0, import_promises.open)((0, import_node_path3.dirname)(path3), "r");
-    try {
-      await directory2.sync();
-    } finally {
-      await directory2.close();
-    }
-  }
-}
-async function processStartIdentity(pid, { platform = process.platform } = {}) {
-  if (!Number.isInteger(pid) || pid <= 0) return null;
-  if (platform !== "darwin") {
-    try {
-      const statLine = await (0, import_promises.readFile)(`/proc/${pid}/stat`, "utf8");
-      const closeParen = statLine.lastIndexOf(")");
-      const fields = statLine.slice(closeParen + 2).split(" ");
-      return fields[19] ?? null;
-    } catch {
-    }
-  }
-  try {
-    const { stdout } = await runFile("ps", ["-p", String(pid), "-o", "lstart="], { timeoutMs: 2e3, env: { ...process.env, LC_ALL: "C" } });
-    return stdout || null;
-  } catch {
-    return null;
-  }
-}
-function processGroupExists(processGroup) {
-  if (!Number.isInteger(processGroup) || processGroup <= 0) return false;
-  try {
-    process.kill(-processGroup, 0);
-    return true;
-  } catch (error51) {
-    if (error51?.code === "ESRCH") return false;
-    if (error51?.code === "EPERM") return true;
-    throw error51;
-  }
-}
-async function waitForProcessGroupExit(processGroup, timeoutMs, pollMs = 50) {
-  const deadline = Date.now() + timeoutMs;
-  while (processGroupExists(processGroup) && Date.now() < deadline) {
-    await new Promise((resolve24) => setTimeout(resolve24, pollMs));
-  }
-  return !processGroupExists(processGroup);
-}
-
-// src/config.mjs
-var PLUGIN_ROOT = (0, import_node_path4.dirname)((0, import_node_path4.dirname)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)));
-function stateRoot(env = process.env, platform = process.platform, home = import_node_os3.default.homedir()) {
-  if (env.AGENT_ORCHESTRATION_STATE_HOME) return env.AGENT_ORCHESTRATION_STATE_HOME;
-  const pathApi = platform === "win32" ? import_node_path4.win32 : import_node_path4.posix;
-  if (platform === "win32") {
-    const base2 = env.LOCALAPPDATA || pathApi.join(home, "AppData", "Local");
-    return pathApi.join(base2, "ByteDesk", "agent-orchestration");
-  }
-  const base = env.XDG_STATE_HOME || pathApi.join(home, ".local", "state");
-  return pathApi.join(base, "bytedesk", "agent-orchestration");
-}
-function validateStateRoot(candidate, pluginRoot = PLUGIN_ROOT) {
-  invariant(typeof candidate === "string" && (0, import_node_path4.isAbsolute)(candidate), "AO_STATE_ROOT_NOT_ABSOLUTE", "The orchestration state root must be an absolute path.");
-  const canonicalProspectivePath = (value) => {
-    let cursor = (0, import_node_path4.resolve)(value);
-    const suffix = [];
-    while (!(0, import_node_fs2.existsSync)(cursor)) {
-      suffix.unshift((0, import_node_path4.basename)(cursor));
-      const parent = (0, import_node_path4.dirname)(cursor);
-      if (parent === cursor) break;
-      cursor = parent;
-    }
-    return (0, import_node_path4.join)((0, import_node_fs2.realpathSync)(cursor), ...suffix);
-  };
-  const canonicalCandidate = canonicalProspectivePath(candidate);
-  const canonicalPlugin = (0, import_node_fs2.realpathSync)(pluginRoot);
-  invariant(
-    !isPathWithin(canonicalPlugin, canonicalCandidate) && !isPathWithin(canonicalCandidate, canonicalPlugin),
-    "AO_STATE_ROOT_OVERLAPS_PLUGIN",
-    "The orchestration state root cannot overlap the plugin installation or source tree."
-  );
-  return canonicalCandidate;
-}
+// src/service.mjs
+init_config();
+init_errors();
+init_util();
 
 // src/workspace/repository.mjs
 var import_node_path6 = require("node:path");
 var import_node_path7 = require("node:path");
 var import_promises3 = require("node:fs/promises");
+init_util();
+init_errors();
 
 // src/platform/path-mapper.mjs
 var import_node_path5 = require("node:path");
+init_errors();
+init_util();
 var IdentityPathAdapter = class {
   async toRuntimePath(path3) {
     return path3;
@@ -35896,6 +35923,8 @@ async function resolveConsumerRepository({ consumerCwd, pluginRoot, stateRoot: s
 // src/state/store.mjs
 var import_promises9 = require("node:fs/promises");
 var import_node_path15 = require("node:path");
+init_util();
+init_errors();
 init_discovery();
 var TERMINAL_STATES = /* @__PURE__ */ new Set(["succeeded", "failed", "cancelled", "timed_out", "rejected", "recovery_required"]);
 var RUN_ID = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36296,6 +36325,7 @@ var RunStore = class {
 };
 
 // src/launcher.mjs
+init_util();
 var RUN_ID2 = /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var MAX_PATH = 1024;
 function parentRunIdFromEnv(env = process.env) {
@@ -50845,9 +50875,15 @@ function date4(params) {
 // node_modules/zod/v4/classic/external.js
 config(en_default());
 
+// src/runtime/engine.mjs
+init_util();
+init_errors();
+
 // src/workspace/worktrees.mjs
 var import_promises10 = require("node:fs/promises");
 var import_node_path16 = require("node:path");
+init_util();
+init_errors();
 var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 function orchestrationWorktreeRoot(repository) {
   const repoName = (0, import_node_path16.basename)(repository.checkoutRoot).replace(/[^A-Za-z0-9._-]/g, "-");
@@ -62154,6 +62190,10 @@ function createRuntimeStore(options) {
   return createFileSessionStore(options);
 }
 
+// src/runtime/acpx-driver.mjs
+init_errors();
+init_util();
+
 // src/runtime/bootstrap.mjs
 var AUTH_BOOTSTRAP_PROMPT = "Respond with exactly AUTH_READY. Do not call tools, inspect files, or read the workspace.";
 
@@ -62683,13 +62723,20 @@ async function cleanupRun({ store, runId }) {
   return { cleaned: removal?.removed === true, reason: removal?.reason, run: await store.clearWorkspace(runId) };
 }
 
+// src/platform/factory.mjs
+init_errors();
+
 // src/platform/linux-runtime.mjs
 var import_promises19 = require("node:fs/promises");
 var import_node_path24 = require("node:path");
+init_errors();
+init_util();
 
 // src/runtime/user-bus.mjs
 var import_promises16 = require("node:fs/promises");
 var import_node_child_process6 = require("node:child_process");
+init_errors();
+init_util();
 var USER_MANAGER_EXECUTABLES = /* @__PURE__ */ new Set(["/usr/bin/systemctl", "/usr/bin/systemd-run"]);
 function validateUserManagerCommand(command, args) {
   invariant(USER_MANAGER_EXECUTABLES.has(command), "AO_UNSAFE_USER_MANAGER_COMMAND", "Refusing to execute an unexpected user-manager command.");
@@ -62743,6 +62790,7 @@ var import_promises17 = require("node:fs/promises");
 var import_node_fs4 = require("node:fs");
 
 // src/platform/contracts.mjs
+init_errors();
 function abstractMethod(type, method) {
   throw new AgentOrchestrationError(
     "AO_PLATFORM_METHOD_NOT_IMPLEMENTED",
@@ -62813,6 +62861,7 @@ var PlatformRuntimeFactory = class {
 };
 
 // src/platform/executable-resolvers.mjs
+init_util();
 async function canonicalExecutable(path3) {
   try {
     await (0, import_promises17.access)(path3, import_node_fs4.constants.X_OK);
@@ -62864,6 +62913,8 @@ var WindowsExecutableResolver = class extends ExecutableResolverStrategy {
 var import_node_child_process7 = require("node:child_process");
 var import_promises18 = require("node:fs/promises");
 var import_node_path23 = require("node:path");
+init_errors();
+init_util();
 var WORKER_RUNTIME_LIMIT_MS = 8 * 60 * 60 * 1e3;
 var PROBE_RUNTIME_LIMIT_MS = 3e4;
 var STOP_GRACE_MS = 3e3;
@@ -63262,6 +63313,8 @@ var LinuxRuntimeFactory = class extends PlatformRuntimeFactory {
 var import_node_child_process8 = require("node:child_process");
 var import_node_path25 = require("node:path");
 var import_promises20 = require("node:fs/promises");
+init_errors();
+init_util();
 var WindowsNativeHelperAdapter = class {
   constructor({ pluginRoot, runner = runFile, executable = "dotnet" } = {}) {
     this.helperPath = (0, import_node_path25.join)(pluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll");
@@ -63467,6 +63520,8 @@ function createPlatformRuntime(context4 = {}) {
 var import_node_crypto12 = require("node:crypto");
 var import_promises21 = require("node:fs/promises");
 var import_node_path26 = require("node:path");
+init_util();
+init_errors();
 var SESSION_TTL_MS = 10 * 60 * 1e3;
 var COOKIE_NAME = "ao_session";
 function sessionMetaPath(stateRoot3, runId) {
@@ -63534,6 +63589,7 @@ var import_node_path27 = require("node:path");
 
 // src/session/sse.mjs
 var import_node_fs5 = require("node:fs");
+init_errors();
 var HEARTBEAT_MS = 15e3;
 var POLL_MS = 250;
 function writeSse(res, chunk) {
@@ -63624,6 +63680,8 @@ data: ${JSON.stringify(serializeError(error51))}
 }
 
 // src/session/http.mjs
+init_errors();
+init_util();
 var SESSION_CONTROL_ACTIONS = ["cancel", "follow-up", "decision", "cleanup"];
 var TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -63848,6 +63906,8 @@ async function streamUi(res, file2) {
 }
 
 // src/session/host.mjs
+init_util();
+init_errors();
 var BIND = "127.0.0.1";
 var PORT_MIN = 45e3;
 var PORT_MAX = 45032;
@@ -63967,6 +64027,8 @@ var import_promises23 = require("node:fs/promises");
 var import_node_fs7 = require("node:fs");
 var import_node_path29 = require("node:path");
 var import_promises24 = require("node:timers/promises");
+init_errors();
+init_util();
 var SESSION_SUPERVISOR_UNIT_PATTERN = /^agent-orchestration-session-[a-f0-9]{12}\.scope$/;
 function sessionSupervisorUnitBase(stateRoot3) {
   invariant(typeof stateRoot3 === "string" && (0, import_node_path29.isAbsolute)(stateRoot3), "AO_UNSAFE_SUPERVISOR_UNIT", "Session supervisor state root must be an absolute path.");
@@ -64089,7 +64151,7 @@ async function defaultOpenLog(stateRoot3) {
 // src/diagnostics.mjs
 var import_node_crypto41 = require("node:crypto");
 var import_promises63 = require("node:fs/promises");
-init_util();
+init_util2();
 init_safe_git();
 var import_node_path72 = require("node:path");
 var import_node_os41 = require("node:os");
@@ -64102,7 +64164,7 @@ init_incarnation();
 init_lead();
 init_reviewer();
 init_agents();
-init_config();
+init_config2();
 init_prompts();
 
 // src/services/services.mjs
@@ -64113,6 +64175,9 @@ var import_node_net3 = __toESM(require("node:net"), 1);
 var import_node_os40 = __toESM(require("node:os"), 1);
 var import_node_path70 = require("node:path");
 var import_promises62 = require("node:timers/promises");
+init_config();
+init_errors();
+init_util();
 init_lockfile();
 init_nats_local();
 init_orch_transport();
@@ -64123,6 +64188,7 @@ var import_node_fs12 = require("node:fs");
 var import_promises59 = require("node:fs/promises");
 var import_node_os39 = __toESM(require("node:os"), 1);
 var import_node_path68 = require("node:path");
+init_util();
 var UNIT_NAME = "agent-orchestration.service";
 var LAUNCHD_LABEL = "ai.bytedesk.agent-orchestration";
 var TASK_NAME = "ByteDesk\\agent-orchestration";
@@ -64582,10 +64648,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b0ad25a5037e6d384c48986167b6d9df1854d281d70e2956bfe12f7344468550";
+  return false ? null : "338dd26d8c88be613128a82e17e4277b277d53ea06bdf3588f003784d846e649";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b0ad25a5037e6d384c48986167b6d9df1854d281d70e2956bfe12f7344468550";
+  const fingerprint2 = false ? null : "338dd26d8c88be613128a82e17e4277b277d53ea06bdf3588f003784d846e649";
   let version2 = false ? null : "0.17.0";
   if (!version2) {
     try {
@@ -65202,7 +65268,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b0ad25a5037e6d384c48986167b6d9df1854d281d70e2956bfe12f7344468550",
+  sourceFingerprint: false ? null : "338dd26d8c88be613128a82e17e4277b277d53ea06bdf3588f003784d846e649",
   version: false ? null : "0.17.0"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
@@ -66040,12 +66106,18 @@ var OrchestrationService = class {
   }
 };
 
+// src/cli.mjs
+init_config();
+init_errors();
+
 // src/services/cli.mjs
 var import_node_child_process18 = require("node:child_process");
 var import_node_fs16 = require("node:fs");
 var import_promises65 = require("node:fs/promises");
 var import_node_os43 = __toESM(require("node:os"), 1);
 var import_node_path74 = require("node:path");
+init_config();
+init_errors();
 init_services_client();
 init_checkout_repair();
 init_lockfile();
