@@ -170,13 +170,20 @@ export function mailLead(repoRoot, subject, body, env = process.env) {
 /**
  * Wake the target's pool: a file its sleep watches, plus `pool ensure` so a pool that idled out
  * comes back. `ensure` is a no-op when a pool is live or `dispatch.enabled` is false.
+ *
+ * TM-467: a dispatched worker only drops the wake file — it never STARTS a pool in another repo.
+ * A same-UID worker can make any directory "known" (a sibling with a store, a line in AO's
+ * repos.json); starting a pool there would run that repo's dispatch loop on the worker's say-so.
+ * A live pool still sees the wake; an idle one waits for its own lead or operator. The residual
+ * risk is recorded in docs/adr/0001-known-repos-are-same-uid-writable.md.
  */
-export function wakePool(root, detail = {}) {
+export function wakePool(root, detail = {}, env = process.env) {
   try {
     writeFileSync(join(root, STORE, POOL_WAKE), `${JSON.stringify({ at: new Date().toISOString(), ...detail })}\n`);
   } catch (err) {
     return { woke: false, reason: err.message };
   }
+  if (env.TM_DISPATCH_WORKER) return { woke: true, pool: "not started: a dispatched worker does not start pools in other repos (TM-467)" };
   const ensure = runTm(root, ["pool", "ensure"]);
   return { woke: true, pool: ensure.stdout.trim() || ensure.stderr.trim() };
 }

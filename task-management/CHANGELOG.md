@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
+  A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
+  resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
+  `authorizedBy: "human:<owner>"` and bound to that one escalation (`escalationAt`), the current
+  scope, the reason and the cycles it grants. It resets the stall counter, raises `maxCycles` by
+  exactly the grant, refuses a zero grant on a spent budget, captures the receipt as evidence and
+  keeps the escalation in `goal.resumptions`. It is CLI-only (no `tm_goal_resume` MCP tool), and the
+  autonomy allowlist never approves it. It refuses outright when `TM_DISPATCH_WORKER` or `AO_AGENT_ID`
+  is set (dispatched workers skip permission prompts), grants at most 3 cycles per resume, and a
+  goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
+
 ### Fixed
 
 - **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
@@ -39,6 +50,30 @@
 
 ### Security
 
+- **The dashboard's write API needs a per-dashboard token (TM-468, EP-028).** Every POST/PATCH
+  must carry `x-tm-token`; without it, or with a wrong one, the board answers 401 and changes
+  nothing. A fresh token is minted each time a dashboard binds its port, written 0600 to
+  `dashboard.token` under the store, and compared in constant time. The link the dashboard prints
+  and opens carries it in the fragment (`/#tm-token=…`), and the SPA adds it to every same-origin
+  write (`dashboard/src/lib/write-token.mjs`). After a dashboard restart, reopen the board from the
+  new link.
+- **Board writes are the board's, not the launching session's (TM-468, EP-028).** The dashboard
+  process runs as `TM_SESSION_ID=tm-dashboard` / `TM_ACTOR=dashboard`, so a claim, start, dispatch
+  or event made from a browser records `@dashboard` and never borrows the lead's session. A task
+  started on the board is held by the board; take it over from a terminal with `--steal`.
+- **A worker's command comes from user config or plugin defaults, never the repository (TM-467,
+  EP-028).** `dispatch.tmuxCommand` and `dispatch.topologyCandidates` are read only from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`trustedDispatch` in `lib/dispatch/tmux.mjs`).
+  Set in the repository's version-controlled config they are ignored, and the dispatch result and
+  `dispatched` event carry a `commandWarnings` entry that says so. A topology worker is always an
+  inline agent: it no longer borrows a stored agent from the repository's agent library, whose cli,
+  args, env, mcp servers and cwd ao-topology would merge into the pane's command.
+  `dispatch.topologyAgent` is ignored with a warning. The manual backend's hint uses the same
+  trusted command.
+- **A dispatched worker no longer starts a pool in another repo (TM-467, EP-028).** `wakePool`
+  still writes the wake file but skips `tm pool ensure` when `TM_DISPATCH_WORKER` is set. The
+  known-repo set stays writable by any same-user process; the residual risk and why there is no
+  operator-only registry are in `docs/adr/0001-known-repos-are-same-uid-writable.md`.
 - **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
   `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
   path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`

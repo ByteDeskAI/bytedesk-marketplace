@@ -100,6 +100,21 @@ test("the legacy allowAutoApprove option is accepted and changes nothing", async
   assert.ok(result.warnings.some((w) => w.includes("auto_approve is on for conductor, hand")), result.warnings.join("\n"));
 });
 
+test("TM-487: run members that share a NATS subject token are refused at launch, dry run included", async () => {
+  // A fan-out child `rev.a` and a sibling `rev_a` both become subject token `rev_a`.
+  const spec = autoApproveSpec(process.cwd(), [
+    { id: "conductor", role: "orchestrator", cli: "claude" },
+    { id: "rev", role: "worker", cli: "claude", for_each: ["a"] },
+    { id: "rev_a", role: "worker", cli: "claude" },
+  ]);
+  assert.deepEqual(spec.agents.map((agent) => agent.id), ["conductor", "rev.a", "rev_a"]);
+  await assert.rejects(launchRun({ spec, adapters: claudeAdapters(), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true }),
+    (error) => error.code === "TOPOLOGY_AGENT_SUBJECT_TAKEN" && /rev\.a and rev_a/.test(error.message));
+  // Distinct tokens still launch.
+  const fine = autoApproveSpec(process.cwd(), [{ id: "conductor", role: "orchestrator", cli: "claude" }, { id: "rev", role: "worker", cli: "claude", for_each: ["a"] }]);
+  assert.equal((await launchRun({ spec: fine, adapters: claudeAdapters(), skillSearchDirs: [], roleSearchDirs: [], cliBin: "ao", dryRun: true })).dryRun, true);
+});
+
 test("explicit auto_approve: false opts an agent out, and the real claude adapter argv reflects both", async () => {
   const spec = autoApproveSpec(process.cwd(), [
     { id: "conductor", role: "orchestrator", cli: "claude" },

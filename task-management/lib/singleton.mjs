@@ -12,7 +12,8 @@
  * and `tm config` rewrites it wholesale. Upgrade path if this ever races badly:
  * an O_EXCL create on dashboard.pid instead of a plain write.
  */
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
@@ -159,6 +160,39 @@ export function takeover(p) {
   }
   if (readInstance(p)?.store === p.base) release(p);
   return inst;
+}
+
+/**
+ * TM-468: the per-dashboard write token. Every POST/PATCH must carry it in `x-tm-token`, so a
+ * process on this host that merely knows the port cannot claim, transition or dispatch as the
+ * board. A fresh one is minted each time a dashboard starts serving and written 0600 under the
+ * store (`dashboard.token` — the `dashboard.*` gitignore rule already covers it). The browser gets
+ * it from the URL fragment `#tm-token=…` the dashboard prints and opens; it is never served.
+ */
+const tokenFile = (p) => join(p.base, "dashboard.token");
+export const TOKEN_HEADER = "x-tm-token";
+
+export function issueToken(p) {
+  const token = randomBytes(32).toString("base64url");
+  rmSync(tokenFile(p), { force: true });
+  // `wx` refuses a file (or a planted link) that appeared after the unlink, rather than follow it.
+  writeFileSync(tokenFile(p), `${token}\n`, { mode: 0o600, flag: "wx" });
+  return token;
+}
+
+export function readToken(p) {
+  try {
+    return readFileSync(tokenFile(p), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Constant-time: both sides are hashed first, so neither length nor content leaks through timing. */
+export function tokenMatches(given, token) {
+  if (typeof given !== "string" || !given || typeof token !== "string" || !token) return false;
+  const digest = (s) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(given), digest(token));
 }
 
 /** Remove the pid file if it is still ours (or unowned). */

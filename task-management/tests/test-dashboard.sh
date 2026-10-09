@@ -241,7 +241,16 @@ wait_up || no "the board comes back up for the write tests" "$(cat "$TM_ROOT/wri
 WRITE_PID="$(pid_of)"
 BASE="http://127.0.0.1:$PORT"
 
-post() { curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -X "${3:-POST}" -H 'content-type: application/json' -d "${2:-{\}}" "$BASE$1"; }
+# TM-468: every write carries the per-dashboard token, which this launch minted.
+TOKEN="$(cat "$STORE/dashboard.token" 2>/dev/null)"
+[[ -n "$TOKEN" ]] && ok "the board minted a write token" || no "the board minted a write token" "no $STORE/dashboard.token"
+assert_contains "$(cat "$TM_ROOT/write.log")" "/#tm-token=$TOKEN" "the printed link carries the token in its fragment"
+CODE="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"title":"No token","body":"b","acceptance":["a"]}' "$BASE/api/task")"
+[[ "$CODE" == 401 ]] && ok "a write without the token is refused" || no "a write without the token is refused" "got $CODE: $(cat "$TM_ROOT/resp.json")"
+SECOND_LINK="$(dashq 2>&1)"
+assert_contains "$SECOND_LINK" "/#tm-token=$TOKEN" "a second launch prints the running board's link with its token"
+
+post() { curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -X "${3:-POST}" -H 'content-type: application/json' -H "x-tm-token: $TOKEN" -d "${2:-{\}}" "$BASE$1"; }
 body() { cat "$TM_ROOT/resp.json"; }
 md() { cat "$STORE"/tasks/"$1"-*.md 2>/dev/null; }
 events() { wc -l < "$STORE/events.jsonl"; }
@@ -283,6 +292,9 @@ assert_contains "$(node "$PLUGIN_ROOT/bin/tm" log 100 --json)" '"event": "done"'
 post /api/task/TM-001/transition '{"status":"in_progress"}' >/dev/null
 assert_contains "$(md TM-001)" 'status: "in_progress"' "the board can start work"
 assert_contains "$(cat "$STORE/state.json")" '"TM-001"' "starting from the board takes the claim"
+# TM-468: as the board, never as the session that launched it (this suite exports test-session).
+CLAIM_BY="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).claims["TM-001"];process.stdout.write(`${c.session}|${c.actor}`)' "$STORE/state.json")"
+[[ "$CLAIM_BY" == "tm-dashboard|@dashboard" ]] && ok "a board claim is the dashboard's, not the launching session's" || no "a board claim is the dashboard's, not the launching session's" "got $CLAIM_BY"
 post /api/task/TM-001/transition '{"status":"parked"}' >/dev/null
 case "$(cat "$STORE/state.json")" in *'"TM-001"'*) no "parking releases the claim" "TM-001 still claimed" ;; *) ok "parking releases the claim" ;; esac
 
@@ -542,13 +554,13 @@ assert_contains "$(curl -fsS "$BASE/api/planner/$PL")" 'applied' "the session en
 PL2="$(post /api/planner '{"goal":"Attach things"}' >/dev/null; body | sed -n 's/.*"id": *"\(PL-[0-9a-f]*\)".*/\1/p')"
 printf '# notes\n' > "$TM_ROOT/notes.md"
 printf '#!/bin/sh\nrm -rf /\n' > "$TM_ROOT/evil.sh"
-UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -F "file=@$TM_ROOT/notes.md" "$BASE/api/planner/$PL2/attachment")"
+UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -H "x-tm-token: $TOKEN" -F "file=@$TM_ROOT/notes.md" "$BASE/api/planner/$PL2/attachment")"
 [[ "$UP" == 201 ]] && ok "an allowed attachment uploads" || no "an allowed attachment uploads" "got $UP: $(body)"
 assert_contains "$(body)" "untrusted-session-context" "and is recorded as untrusted context, not evidence"
 SHA="$(body | sed -n 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/p')"
-UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -F "file=@$TM_ROOT/evil.sh" "$BASE/api/planner/$PL2/attachment")"
+UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -H "x-tm-token: $TOKEN" -F "file=@$TM_ROOT/evil.sh" "$BASE/api/planner/$PL2/attachment")"
 [[ "$UP" == 400 ]] && ok "a shell script is refused" || no "a shell script is refused" "got $UP: $(body)"
-UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -F "file=@$TM_ROOT/evil.sh;filename=../../../../tmp/escaped.md" "$BASE/api/planner/$PL2/attachment")"
+UP="$(curl -s -o "$TM_ROOT/resp.json" -w '%{http_code}' -H "x-tm-token: $TOKEN" -F "file=@$TM_ROOT/evil.sh;filename=../../../../tmp/escaped.md" "$BASE/api/planner/$PL2/attachment")"
 [[ ! -f /tmp/escaped.md ]] && ok "a traversing filename writes nothing outside the session" || no "a traversing filename writes nothing outside the session" "/tmp/escaped.md exists"
 
 HEAD="$(curl -fsS -D- -o "$TM_ROOT/got.md" "$BASE/api/planner/$PL2/attachment/$SHA")"

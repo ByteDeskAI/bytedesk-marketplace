@@ -9,9 +9,20 @@ and the markdown store stay authoritative regardless of caller.
 
 ## 1. Conventions
 
-- **Bind**: `127.0.0.1` only. No auth, no CORS headers. Writes (POST/PATCH) with an `Origin` header
-  that is not `http://127.0.0.1:` / `http://localhost:` are refused **403** (`bin/tm-dashboard`,
-  write branch). A request with no Origin (curl) passes.
+- **Bind**: `127.0.0.1` only. No CORS headers. Writes (POST/PATCH) with an `Origin` header
+  that is not this board's own are refused **403** (`bin/tm-dashboard`, write branch).
+- **Write token (TM-468)**: every POST/PATCH must send `x-tm-token: <token>`, or it is refused
+  **401** before any handler runs. Each dashboard mints a fresh token when it binds its port and
+  writes it 0600 to `.bytedesk/task-management/dashboard.token`; the comparison is constant-time
+  (`tokenMatches`, `lib/singleton.mjs`). The browser receives it only in the fragment of the link
+  the dashboard prints and opens (`http://127.0.0.1:<port>/#tm-token=<token>`); the SPA stores it
+  and adds the header to every same-origin write (`dashboard/src/lib/write-token.mjs`). Reads need
+  no token. A restart rotates the token, so an open tab must be reopened from the new link.
+- **Identity (TM-468)**: the dashboard process acts as `TM_SESSION_ID=tm-dashboard`,
+  `TM_ACTOR=dashboard`. Claims, status stamps, dispatches and events made through the board record
+  `session: "tm-dashboard"`, `actor: "@dashboard"` — never the session that launched the monitor.
+  A task the board claimed is therefore held by the board: a terminal session continuing it takes
+  it with `--steal`, which is logged.
 - **Body caps**: JSON 256 KB → **413**; multipart (evidence upload only) 8 MB → **413**. Invalid
   JSON → **400** `{ error: "body is not valid JSON" }`.
 - **Status semantics**: **409** = a gate or lifecycle rule refused, `error` carries the CLI's own

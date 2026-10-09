@@ -51,6 +51,15 @@ function storeDir() {
 
 const URL_ = process.argv[2] || runningBoard();
 const api = (path) => new URL(path, URL_);
+/** TM-468: the board refuses writes without its token; the page gets it from the link fragment. */
+const TOKEN = (() => {
+  try {
+    return readFileSync(join(storeDir() ?? "", "dashboard.token"), "utf8").trim();
+  } catch {
+    return "";
+  }
+})();
+const AUTH = TOKEN ? { "x-tm-token": TOKEN } : {};
 
 const CHROME = ["google-chrome", "chromium", "chromium-browser"].find((bin) => {
   try {
@@ -73,7 +82,7 @@ try {
 }
 
 const post = (path, body) =>
-  fetch(api(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+  fetch(api(path), { method: "POST", headers: { "content-type": "application/json", ...AUTH }, body: JSON.stringify(body) })
     .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 const get = (path) => fetch(api(path)).then((r) => r.json());
 const epicCount = async () => (await get("/api/board")).epics.length;
@@ -103,7 +112,7 @@ const chrome = spawn(CHROME, [
   "--no-first-run",
   "--no-sandbox",
   "--disable-gpu",
-  new URL(`/planner?session=${PL}`, URL_).toString(),
+  `${new URL(`/planner?session=${PL}`, URL_)}${TOKEN ? `#tm-token=${TOKEN}` : ""}`,
 ], { stdio: "ignore" });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -142,7 +151,7 @@ async function cleanup() {
   try {
     if (existsSync(file) && readFileSync(file, "utf8").includes(TITLE)) {
       rmSync(file);
-      await fetch(api("/api/reindex"), { method: "POST" }).catch(() => {});
+      await fetch(api("/api/reindex"), { method: "POST", headers: AUTH }).catch(() => {});
     } else {
       console.log(`  note: remove the epic this check created: ${mine.id} (${TITLE})`);
     }
