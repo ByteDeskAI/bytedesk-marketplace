@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **The autonomy hook never auto-approves `tm goal resume` (TM-486, EP-028).** Clearing a goal's
+  `human_required` is a human's decision, so it stays with the normal permission prompt, like
+  `tm override`.
 - **Security: run `wait` no longer hands standing reply bodies to anyone who knows a runDir (TM-474,
   EP-028).** `ao-topology wait --run` and MCP `orchestration_run_mail_wait` returned the reply body of
   every standing message the run sent. The barrier still releases when the reply lands, but the

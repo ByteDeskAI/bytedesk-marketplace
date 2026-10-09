@@ -11,6 +11,7 @@ tm goal finding EP-001 --file finding.json --json
 tm goal assess EP-001 --file assessment.json --json
 tm goal revise EP-001 --file scope-change.json --json
 tm goal complete EP-001 --file completion.json --json
+tm goal resume EP-001 --file resume.json --json      # CLI only, a human's decision
 ```
 
 `--file -` reads JSON from stdin. The operation file may be temporary; evidence and receipt files must resolve inside the repository, including symlink targets. Existing `tm goal import` is unchanged.
@@ -39,6 +40,10 @@ Each writer accepts optional `idempotencyKey`. Replaying an identical request re
 Admission records the policy the user has authorized; these fields are not proof that review, deployment, or acceptance happened. Admission assigns `AC-001`, `AC-002`, and so on. The original objective/criteria/hash remain in `goal.original`. Every scope revision is appended to `goal.revisions`; `goal.revision`, `goal.scopeHash`, `goal.objective`, and `goal.criteria` identify the current scope.
 
 Defaults are three consecutive assessments without material progress and ten **repair cycles**, allowing the initial assessment plus at most ten repairs (eleven assessments total). `goal.cycles` counts recorded assessments; `goal.repairCycles` is `max(0, cycles - 1)`. The orchestration controller also counts repairs that fail before assessment. The thirty-minute deadline is a persisted **per-phase** deadline owned by that controller; `phaseDeadlineMinutes` records the policy and task-management does not impose an admission-time deadline on the whole goal. Limits may be lowered at admission, not silently increased. Progress means increasing the best proven-criterion count or resolving a finding, not a new commit, another worker, more output, or alternating which criterion passes. Budget exhaustion records `human_required` and a typed escalation. Scope changes do not reset budgets. This contract deliberately has no automatic resume after exhaustion: an explicit human intervention and a separately authorized new cycle are required.
+
+### Resuming a human_required goal (TM-486)
+
+`tm goal resume` is the one way out of `human_required`, and it is CLI-only: no MCP tool exists, and the agent-orchestration autonomy hook never auto-approves it, so the permission prompt puts it in front of a person. Its input names the current `revision` and `scopeHash`, a `reason`, optional `grantCycles` (0-10), and `approval`: a receipt file in the repository with `schemaVersion: 1`, `kind: "resume"`, `goalId`, the same `revision`, `scopeHash`, `reason` and `grantCycles`, `escalationAt` equal to `goal.escalation.at`, `authorizedBy: "human:<owner>"`, and a `recordedAt` no earlier than the escalation. The receipt is bound to that one escalation, so it cannot be replayed for a later one. Resume resets the no-progress counter, raises `limits.maxCycles` by exactly `grantCycles`, refuses a zero grant when the cycle budget is spent, captures the receipt as evidence (rechecked at completion), and appends the old escalation to `goal.resumptions`. Same-user limit: the receipt is a file, so it records a human's decision but does not prove one; the CLI-only surface is the guard.
 
 Generic store/CLI/MCP/dashboard writes cannot replace goal history, change admitted criterion structure, delete the goal, close it, or move its child tasks out to evade completion checks. Legacy positional criterion ticks remain usable but cannot substitute for goal assessment. Unadmitted tasks retain their existing behavior. Finishing the last child does not automatically close an admitted goal.
 

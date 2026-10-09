@@ -1205,7 +1205,9 @@ export const TOOLS = [
       }
     },
   },
-  ...Object.keys(GOAL_OPERATIONS).map(operation => ({
+  // TM-486: `resume` is a human's decision, so it is CLI-only (`tm goal resume`), where the permission
+  // prompt puts it in front of the person; it is never an agent tool.
+  ...Object.keys(GOAL_OPERATIONS).filter(operation => operation !== "resume").map(operation => ({
     name: `tm_goal_${operation}`,
     description: operation === "show"
       ? "Read an epic's original goal, immutable scope history, stable criteria, findings and deployed assessments."

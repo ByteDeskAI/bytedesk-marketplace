@@ -106,7 +106,7 @@ function author() { const value = actor(); return { id: actorLabel(value), sessi
 function result(id, goal) { return { ok: true, id, goal }; }
 function save(id, goal, p, patch = {}) {
   const prior = read(id, p);
-  const records = [...goal.assessments.flatMap(a => a.evidence), ...goal.findings.flatMap(f => f.evidence), ...goal.revisions.flatMap(r => r.approval ? [r.approval] : [])];
+  const records = [...goal.assessments.flatMap(a => a.evidence), ...goal.findings.flatMap(f => f.evidence), ...goal.revisions.flatMap(r => r.approval ? [r.approval] : []), ...(goal.resumptions || []).map(r => r.approval)];
   const evidence = [...new Set([...(prior.evidence || []), ...records.map(record => record.copy)])];
   const provenance = { ...(prior[PROVENANCE] || {}) };
   for (const record of records) provenance[record.copy] = { source: resolve(p.root, record.source), sha256: record.sha256, bytes: record.bytes, at: record.capturedAt };
@@ -295,6 +295,7 @@ function completionProof(id, goal, input, p) {
   for (const finding of goal.findings.filter(f => f.blocking)) linkedTasks(finding.correctiveTaskIds, id, p, true);
   verifyEvidence(assessment.evidence, p);
   for (const revision of goal.revisions.slice(1)) verifyEvidence([revision.approval], p);
+  for (const resumption of goal.resumptions || []) verifyEvidence([resumption.approval], p);
   return assessment;
 }
 export function goalComplete(id, input, p = paths()) {
@@ -309,4 +310,29 @@ export function goalComplete(id, input, p = paths()) {
     return { goal, patch: { status: "done", closed: now(), acceptance: goal.criteria.map(c => ({ ...c, done: true, at: now() })) } };
   });
 }
-export const GOAL_OPERATIONS = Object.freeze({ open: goalOpen, show: goalShow, finding: goalFinding, assess: goalAssess, revise: goalRevise, complete: goalComplete });
+/** TM-486 (TM-483): the one supported way out of human_required. The human's decision is a resume
+ * receipt bound to THIS escalation (goal, revision, scopeHash, escalation time), its reason and any
+ * extra repair cycles it grants, signed `authorizedBy: human:<owner>` exactly as a scope change is.
+ * It resets the no-progress counter; it grants cycles only as many as the receipt names, and an
+ * exhausted cycle budget cannot be resumed without at least one. The receipt is captured as evidence
+ * and the escalation kept in `resumptions`, so history is not rewritten. */
+export function goalResume(id, input, p = paths()) {
+  return writeGoal(id, "resume", input, p, epic => {
+    const goal = structuredClone(epic.goal); scopeMatches(goal, input);
+    if (goal.status !== "human_required" || !goal.escalation) fail(`goal is ${goal.status}; only a human_required goal can be resumed`);
+    const reason = text(input.reason, "resume reason"), grantCycles = input.grantCycles ?? 0;
+    if (!Number.isInteger(grantCycles) || grantCycles < 0 || grantCycles > DEFAULT_LIMITS.maxCycles) fail(`grantCycles must be an integer between 0 and ${DEFAULT_LIMITS.maxCycles}`);
+    if (grantCycles < 1 && (goal.repairCycles >= goal.limits.maxCycles || goal.cycles >= goal.limits.maxCycles + 1)) fail("the repair-cycle budget is exhausted; a resume must grant at least one cycle");
+    const approval = jsonReceipt(input.approval, "resume", id, p);
+    for (const [key, value] of Object.entries({ revision: goal.revision, scopeHash: goal.scopeHash, escalationAt: goal.escalation.at, reason, grantCycles })) if (!same(approval[key], value)) fail(`resume approval ${key} does not match this escalation`);
+    if (!/^human:.+/.test(approval.authorizedBy || "")) fail("resume approval must identify the human decision owner");
+    if (instant(approval.recordedAt, "resume recordedAt") < Date.parse(goal.escalation.at)) fail("resume approval predates the escalation it resolves");
+    const capturedApproval = capture(input.approval, id, p);
+    if (!same(JSON.parse(readFileSync(resolve(p.root, capturedApproval.copy), "utf8")), approval)) fail("resume receipt changed while being captured");
+    goal.resumptions = [...(goal.resumptions || []), { escalation: goal.escalation, reason, grantCycles, authorizedBy: approval.authorizedBy, at: now(), author: author(), approval: capturedApproval }];
+    goal.limits = { ...goal.limits, maxCycles: goal.limits.maxCycles + grantCycles };
+    goal.stalls = 0; goal.status = "active"; delete goal.escalation;
+    return { goal };
+  });
+}
+export const GOAL_OPERATIONS = Object.freeze({ open: goalOpen, show: goalShow, finding: goalFinding, assess: goalAssess, revise: goalRevise, complete: goalComplete, resume: goalResume });

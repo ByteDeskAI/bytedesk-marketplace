@@ -22,6 +22,7 @@ const ALLOWED = [
   'agent-orchestration services status',
   'agent-orchestration services wait --until healthy --timeout 60',
   'tm task new "Fix the guard" --epic EP-028',
+  'tm goal show EP-1 --json',
   '.bytedesk/task-management/bin/tm board',
   '/home/u/repo/.bytedesk/task-management/bin/tm show TM-1',
   "tm task new \"x\" --body - <<'EOF'\nline with ; and | and $(not run)\nEOF",
@@ -40,6 +41,8 @@ const REFUSED = [
   'ao-topology console --consumer /r show --workflow-id w',
   'ao-topology --consumer /r console show',
   'ao-topology manage --task TM-1 integrate',
+  // TM-486: clearing a goal's human_required is a human's decision.
+  'tm goal resume EP-1 --file resume.json --json',
   // TM-250: External class (deploy, release) is never hook-approved.
   'ao-topology manage cutover --epic EP-1',
   'ao-topology manage cut-release --epic EP-1',

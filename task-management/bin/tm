@@ -1923,7 +1923,7 @@ const VERBS = {
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  enhance-mine [--apply] [--days 14] [--top 15] [--min-count 2] [--test-log <f>]...   mine transcripts + board for issues (dry-run by default)",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
-        "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
+        "  goal open|finding|assess|revise|complete|resume EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
+  A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
+  resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
+  `authorizedBy: "human:<owner>"` and bound to that one escalation (`escalationAt`), the current
+  scope, the reason and the cycles it grants. It resets the stall counter, raises `maxCycles` by
+  exactly the grant, refuses a zero grant on a spent budget, captures the receipt as evidence and
+  keeps the escalation in `goal.resumptions`. It is CLI-only: no `tm_goal_resume` MCP tool, and the
+  agent-orchestration autonomy hook never auto-approves it.
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which
   names are missing or extra, so adding, removing or renaming a tool fails until the list is updated.
