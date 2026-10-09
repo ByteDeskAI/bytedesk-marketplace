@@ -315,10 +315,17 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
   ];
   // Readers return bodies; actors send or act as an agent. Each call must carry its binding.
   const READERS = ['listMailboxReceipts', 'listMailboxPublications', 'readStandingInbox', 'readStandingOutbox', 'waitForStandingReply', 'readStandingMessage'];
-  // System readers of one record by id, none of which returns the body to a caller-named agent:
-  // wait checks the sender itself after the read; the run bridge and the outage notice are internal.
+  // System readers of one record by id. Each is listed for its own reason (TM-474 corrected this):
+  // - waitForStandingReply checks the sender itself after the read;
+  // - obligations DOES carry a reply body, but only when the standing envelope's sender is one of the
+  //   caller's `viewers` (run `wait`); anyone else gets "answered" with the body withheld;
+  // - recordReply (the run bridge) and natsOutageTick (the outage notice) return no body;
+  // - reconcileGoalLoop reads its own obligation's reply and accepts it only from the loop's lead;
+  // - assignmentResult reads the idle-dispatch assignee's reply to the system's own assignment and
+  //   returns its parsed assignment fields (tm's duplicate-dispatch guard), never another agent's mail.
   const INTERNAL_READERS = new Set(['topology/lib/standing-mailbox.mjs#waitForStandingReply', 'topology/lib/mailbox.mjs#obligations',
-    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick']);
+    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick',
+    'topology/lib/goal-loop.mjs#reconcileGoalLoop', 'topology/lib/management.mjs#assignmentResult']);
   const ACTORS = ['sendStandingMessage', 'forwardStandingMessage', 'recordStandingReply', 'setMailboxDisposition'];
   // allAgents: true is allowed only here: the operator console (gated by assertOperatorReader) and
   // the publication resume loop (returns no body).
@@ -329,15 +336,18 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     'topology/lib/supervision.mjs', 'topology/lib/lead-recovery.mjs', 'topology/lib/roles.mjs', 'topology/cli.mjs#observer']);
   const ENTRY = new Set(['topology/cli.mjs', 'src/topology-api.mjs']);
   const enclosing = (src, at) => [...src.slice(0, at).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?(?:function\s+([\w$]+)|['"]?([\w$-]+)['"]?\s*\(\{[^)\n]*\}\)\s*\{|([\w$]+)\s*\(input\)\s*\{)/g)].map((m) => m[1] || m[2] || m[3]).at(-1);
-  const seen = { reader: 0, actor: 0 };
+  const seen = { reader: 0, actor: 0, wrapped: 0 };
   const problems = [];
   for (const rel of files) {
     const src = await readFile(join(root, rel), 'utf8');
-    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\(`, 'g'))) {
+    // TM-474: also the `(options.readMessage ?? readStandingMessage)(` shape, where the name is
+    // closed by a paren before the call opens.
+    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\)?\\(`, 'g'))) {
       const at = match.index, name = match[1];
+      if (match[0].endsWith(')(')) seen.wrapped += 1;
       const line = src.slice(src.lastIndexOf('\n', at) + 1, src.indexOf('\n', at));
       if (/^\s*(\/\/|\*)/.test(line) || /export async function/.test(line) || /import\(|import \{/.test(line) && !/\)\(/.test(line)) continue;
-      const args = callArgs(src, at + name.length);
+      const args = callArgs(src, at + match[0].length - 1);
       const fn = enclosing(src, at);
       const where = `${rel}:${src.slice(0, at).split('\n').length} ${name} in ${fn}`;
       // Before the call, in its enclosing function: where the bound value came from.
@@ -360,7 +370,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     }
   }
   // Coverage, so an empty scan cannot pass: the known entry and library call sites were seen.
-  assert.ok(seen.reader >= 14 && seen.actor >= 6, `the audit saw the call sites (${JSON.stringify(seen)})`);
+  assert.ok(seen.reader >= 20 && seen.actor >= 6 && seen.wrapped >= 3, `the audit saw the call sites (${JSON.stringify(seen)})`);
   assert.deepEqual(problems, []);
   // me() is sessionIdentity(), and the CLI's send verb names its sender through sessionIdentity().
   const [api, cli] = await Promise.all([readFile(join(root, 'src/topology-api.mjs'), 'utf8'), readFile(join(root, 'topology/cli.mjs'), 'utf8')]);
@@ -369,7 +379,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
   // Every MCP mailbox/run-mail tool lands on an adapter method that calls me().
   const mcp = await readFile(join(root, 'src/mcp.mjs'), 'utf8');
   for (const [, tool, method] of mcp.matchAll(/register\(server, topology, '(orchestration_(?:mailbox|run_mail)_\w+)'[\s\S]*?topology\.(\w+)\);/g)) {
-    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory
+    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory; standing reply bodies reach only their sender (TM-474)
     const start = api.indexOf(`    async ${method}(input) {`);
     assert.match(api.slice(start, api.indexOf('\n    },\n', start)), /\bme\(/, `${tool} resolves its actor through me()`);
   }

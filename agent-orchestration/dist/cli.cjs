@@ -31761,7 +31761,7 @@ ${instructions}`;
   await appendJournal(runDir, { type: holds.length ? "message.held" : "message.sent", id, from, to, stage, round, contract, subject, task, holds });
   return { id, seq, deliveries, redirects: notices, holds };
 }
-async function obligations(runDir, run2, agentId, transport = null) {
+async function obligations(runDir, run2, agentId, transport = null, viewers = null) {
   const active = transport ?? await resolveTransport({ env: process.env });
   const redirects = run2.redirects || {};
   const inboxDir = (0, import_node_path61.join)(agentDir(runDir, agentId), "inbox");
@@ -31786,7 +31786,12 @@ async function obligations(runDir, run2, agentId, transport = null) {
       standingId,
       status: natsStanding ? "delivered-unanswered" : state,
       reason: record2?.reason ?? null,
-      replyBody: natsStanding ? null : state === "answered" ? record2.reply.body : null,
+      // TM-474: whether it is answered is the barrier's business; the answer itself belongs to the
+      // standing envelope's sender alone. A run wait by anyone else who knows the runDir sees
+      // "answered", never the body (TM-465's rule for standing mail, applied to run-originated mail).
+      answered: !natsStanding && state === "answered",
+      sender: record2?.envelope?.from ?? null,
+      replyBody: !natsStanding && state === "answered" && viewers?.has(record2.envelope.from) ? record2.reply.body : null,
       transport: natsStanding ? "nats" : void 0,
       repo: natsStanding ? repoKey(record2.envelope.sourceRepoId || record2.envelope.destinationRepoId) : void 0,
       replyConsumer: natsStanding ? record2.envelope.fromProject || run2.consumer : void 0,
@@ -31856,7 +31861,7 @@ async function pendingReplies(runDir, agentIds, { addressing = {}, transport = n
     for (const item of await obligations(runDir, run2, agentId, active)) {
       if (item.transport === "nats") {
         if (await hasAnswer(item.outbox) || await readNatsReply(runDir, item, active)) continue;
-      } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
+      } else if (item.standingId ? item.answered : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
         status: item.status ?? "delivered-unanswered",
@@ -31915,7 +31920,7 @@ async function observeQueueDepth(runDir, agentId, extra = {}) {
   });
   return record2;
 }
-var import_node_crypto36, import_promises54, import_node_path61, RUN_FILE, JOURNAL_FILE;
+var import_node_crypto36, import_promises54, import_node_path61, RUN_FILE, JOURNAL_FILE, WITHHELD;
 var init_mailbox = __esm({
   "topology/lib/mailbox.mjs"() {
     import_node_crypto36 = require("node:crypto");
@@ -31931,6 +31936,7 @@ var init_mailbox = __esm({
     init_mailbox_receipts();
     RUN_FILE = "run.json";
     JOURNAL_FILE = "journal.jsonl";
+    WITHHELD = Object.freeze({ body: null, body_withheld: "Only the standing message's sender may read its reply body (TM-474)." });
   }
 });
 
@@ -63016,10 +63022,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path67.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "74974b732dbb8ee8b4bba9b7fffcaf11d780959906d59c0049bf5712224b921e";
+  return false ? null : "34163259b0e5cd66758b7a157807c4be04573517fd8a9dfeb1b9bad9185af551";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "74974b732dbb8ee8b4bba9b7fffcaf11d780959906d59c0049bf5712224b921e";
+  const fingerprint2 = false ? null : "34163259b0e5cd66758b7a157807c4be04573517fd8a9dfeb1b9bad9185af551";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63636,7 +63642,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "74974b732dbb8ee8b4bba9b7fffcaf11d780959906d59c0049bf5712224b921e",
+  sourceFingerprint: false ? null : "34163259b0e5cd66758b7a157807c4be04573517fd8a9dfeb1b9bad9185af551",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -230,7 +230,7 @@ test("a barrier on the original addressee is satisfied by the lead's answer, and
 
     await recordReply({ runDir, agentId: b.lead.id, messageId: msg.id, body: "I'll route this internally.", token: `tok-${b.lead.id}` });
 
-    const wait = await waitForReplies({ runDir, agentIds: [b.member.id], messageId: msg.id, timeoutMs: 2000, pollMs: 20 });
+    const wait = await waitForReplies({ runDir, agentIds: [b.member.id], messageId: msg.id, timeoutMs: 2000, pollMs: 20, viewers: new Set([a.member.id]) });
     assert.equal(wait.ok, true, "a redirected message answered by the lead must not time the sender out");
     // The barrier releasing is only half of it: the caller has to be handed the answer. Reading only
     // the addressee's own outbox reports success and prints nothing.

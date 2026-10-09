@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **Security: run `wait` no longer hands standing reply bodies to anyone who knows a runDir (TM-474,
+  EP-028).** `ao-topology wait --run` and MCP `orchestration_run_mail_wait` returned the reply body of
+  every standing message the run sent. The barrier still releases when the reply lands, but the
+  body now reaches only the standing envelope's sender (the caller's launcher id or "operator", or
+  its session identity); anyone else gets `body: null` with `body_withheld`. The mailbox audit test
+  now also catches the `(options.readMessage ?? readStandingMessage)(` call shape and allowlists the
+  goal-loop and assignment readers explicitly, with a corrected reason for each.
 - **Security: the workflow console no longer treats a pane-less agent as the operator (TM-473,
   EP-028).** `console show` admitted any process with no identity variables and no census-bound
   pane as the operator, so a worker that unset `TMUX_PANE` and its `AO_*` variables could read every
