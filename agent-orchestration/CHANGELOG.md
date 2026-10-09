@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission
+  now always records the task's own governance id (`tm-<task>`) and no longer adopts a dispatch's
+  workflow id, so the id no longer depends on whether a worker was dispatched first. A finish
+  refused with "Canonical workflow and native task run IDs differ" now names the repair:
+  `ao-topology manage rebind --task <id>`. That verb is for the admitting session only. It checks
+  that the dispatched worktree and branch are the admitted ones, then calls `tm rebind`, which reads
+  the canonical `topology:<native run id>` from the producer's own discovery and never from the
+  caller. It records a `rebind` event.
+- **A workflow-run member can acknowledge its prompt (TM-417).** Launch staged `prompt-state.json`
+  before the pane existed, with no session, repository or pane binding, so `prompt ack` was refused
+  for every run agent and supervision's refresh read the prompt as queued. Launch now stamps those
+  fields once the pane is observed, again after the agents start, and after a failover respawn
+  (`bindStagedPrompt`).
+
 ## [0.16.1] — 2026-10-08
 
 Security release. It closes the high-severity holes found in independent post-merge review of the

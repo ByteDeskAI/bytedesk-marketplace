@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
+  `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so
+  `manage report` refused every governed finish from a pool-dispatched worker. It now records
+  `topology:<native run id>`. The new verb `tm rebind <id>` repairs a dispatch that was already
+  recorded the old way. It goes through the same producer-verified reconciliation that collection
+  uses, never collects, and refuses a dispatched worker. `tm collect` repairs the id too, before it
+  observes the run.
+
 - **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**
   `readyForReview` required every `finish.checks` entry to be a string, so a governed task whose
   worker followed the handoff (`{name, command, exit_code, revision}`, TM-418) could never reach

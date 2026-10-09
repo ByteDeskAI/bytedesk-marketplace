@@ -178,6 +178,8 @@ Standing repository services
   manage transfer --task <TM-id> [--to <session>] --reason <text>   hand the admission to another
                                                lead (owner), or take over one whose owner's claim
                                                is no longer live (TM-247)
+  manage rebind --task <TM-id>                 repair a topology dispatch recorded with a bare
+                                               workflow id, from the producer record (TM-417)
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
@@ -243,6 +245,7 @@ function manageSummary(verb, task, r) {
     case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
     case 'transfer': return `${task} transferred from ${r.from} to ${r.to}`;
+    case 'rebind': return r.rebound ? `${task} dispatch rebound: ${r.from} -> ${r.to}` : `${task} dispatch already canonical (${r.workflow_run_id})`;
     case 'close': return r.closed ? `${task} closed (${r.steps.join(', ') || 'nothing left to do'})` : `${task} NOT closed at ${r.refused} after [${r.steps.join(', ')}]: ${r.reason} — ${r.recovery}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
@@ -904,9 +907,9 @@ const commands = {
       return out(flags.summary ? externalSummary(verb, result) : result);
     }
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask' };
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask', rebind:'rebindTaskWorker' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|rebind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
