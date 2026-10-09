@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-10-08
+
+Security release. It closes the high-severity holes found in independent post-merge review of the
+EP-028 work (PRs #222–#226), plus #221's NATS autostart delivery (TM-400) and the TM-471 test fix.
+
+### Known issues
+
+- **TM-427 is still open: `review submit` and the verdict file trust `AO_AGENT_ID`.** A same-user
+  process that sets `AO_AGENT_ID` to the reviewer's id can submit a verdict, or write the verdict file
+  directly. Interim mitigation: the autonomy hook (TM-433) never auto-approves `review submit` for a
+  worker. Do not treat 0.16.1 review approvals as fully hardened. The fix is planned for 0.16.2.
+- **TM-428 is still open.** A NUL byte in a source file's first 8000 bytes still moves that file out
+  of the reviewed patch into a hash-only manifest row. Planned for 0.16.2.
+- **TM-445 is still open.** The saved effective-base cache is read before the server is asked, so a
+  same-user write can narrow a review range. Planned for 0.16.2.
+- Keep `management.autonomy` at `pr` until these ship.
+
 - **The reviewer tests pin the file transport themselves (TM-471, EP-028).** Two late-ack tests in
   `topology-reviewer.test.mjs` passed only when the suite preload set `AO_TRANSPORT=file`. Run
   bare, they used NATS, so no probe file was written and both tests failed. The fixture now sets
