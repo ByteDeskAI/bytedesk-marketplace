@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp.mjs";
@@ -16,6 +16,11 @@ import { pendingLeadProbes } from "../../topology/lib/lead.mjs";
 
 // In-process library calls (lead status) read homedir(); keep every test off the operator's home.
 process.env.HOME = await mkdtemp(join(os.tmpdir(), "ao-mcp-parity-home-"));
+// TM-464 (4): hermetic under any host. No inherited session identity, the file transport (a NATS
+// client would hold the process open), and no route to the operator's tmux server.
+for (const key of ["AO_AGENT_ID", "AO_CONSUMER", "AO_SESSION_AGENT_ID", "AO_SESSION_CONSUMER", "CLAUDE_CODE_SESSION_ID"]) delete process.env[key];
+Object.assign(process.env, { AO_TRANSPORT: "file", AO_NATS_AUTOSTART: "0", TMUX: "", TMUX_TMPDIR: await mkdtemp(join(os.tmpdir(), "ao-mcp-parity-tmux-")) });
+after(async () => { const { closeLiveTransports } = await import("../../topology/lib/orch-transport.mjs"); await closeLiveTransports(); });
 
 /** A server whose session identity is `agentId` — the env is read once, when the server is made. */
 async function serverAs(root, agentId, repo) {
@@ -107,16 +112,19 @@ test("TM-355: lead status cached answers fast and mints no probe", async () => {
   } finally { await server.close(); await fx.cleanup(); }
 });
 
-test("TM-355: session handoff runs the session handoff verb", async () => {
+test("TM-355/TM-463: session handoff runs the session handoff verb, and only for the lead or the agent itself", async () => {
   const fx = await fixture();
   const server = await serverAs(fx.root, "conductor", fx.repo);
+  const target = await serverAs(fx.root, "worker01", fx.repo);
   try {
     await writeJson(join(agentsRoot(fx.repo), "worker01", "agent.json"), { id: "worker01", role: "worker", full_name: "worker01" });
     const file = join(fx.root, "handoff.md");
     await writeFile(file, "# handoff\n");
-    const missing = await call(server.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file: join(fx.root, "nope.md") });
-    assert.equal(missing.structuredContent.data.code, "TOPOLOGY_HANDOFF_FILE_MISSING");
-    const notLive = await call(server.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file });
-    assert.equal(notLive.structuredContent.data.code, "TOPOLOGY_AGENT_NOT_LIVE");
-  } finally { await server.close(); await fx.cleanup(); }
+    // TM-463: the conductor is neither the repository's lead nor worker01, so nothing is typed.
+    const refused = await call(server.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file });
+    assert.equal(refused.structuredContent.data.code, "TOPOLOGY_HANDOFF_UNAUTHORIZED");
+    // F2: a server whose env names worker01 has claimed, not proven, to be it (no pane, no ancestry).
+    const claimed = await call(target.client, "orchestration_session_handoff", { consumerCwd: fx.repo, agent: "worker01", file });
+    assert.equal(claimed.structuredContent.data.code, "TOPOLOGY_DELEGATION_ACTOR");
+  } finally { await server.close(); await target.close(); await fx.cleanup(); }
 });

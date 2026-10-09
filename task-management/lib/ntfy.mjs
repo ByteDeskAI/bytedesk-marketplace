@@ -35,6 +35,7 @@ export const CATALOG = {
     dispatched: { group: "recommended", label: "A task was handed to a worker backend", priority: "default", tags: "rocket" },
     task_result: { group: "recommended", label: "A dispatched worker's result was recorded", priority: "default", tags: "inbox_tray" },
     ticket_filed: { group: "recommended", label: "A ticket was filed on another repo's board", priority: "default", tags: "outbox_tray" },
+    ticket_refused: { group: "recommended", label: "A cross-repo ticket named a repo that is neither registered nor a sibling, and was refused", priority: "high", tags: "no_entry" },
     origin_notified: { group: "recommended", label: "A cross-repo ticket's progress was reported to its origin", priority: "default", tags: "incoming_envelope" },
     "ready-for-review": { group: "recommended", label: "A governed task is ready for independent review", priority: "default", tags: "eyes" },
     reworked: { group: "recommended", label: "A governed task went back to work after review requested changes", priority: "default", tags: "repeat" },

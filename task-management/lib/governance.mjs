@@ -1,6 +1,6 @@
 import { read, update, logEvent, now } from "./store.mjs";
 import { paths } from "./paths.mjs";
-import { fullRevision, governanceGit, readManagementRecord } from "./governance-check.mjs";
+import { finishChecksRefusal, fullRevision, governanceGit, readManagementRecord } from "./governance-check.mjs";
 
 export function governTask(id, { workflowRunId, leadId, recordPath, p = paths() } = {}) {
   if (process.env.TM_DISPATCH_WORKER) throw new Error("a dispatched worker cannot grant or change governed task ownership");
@@ -30,10 +30,15 @@ export function readyForReview(id, { revision, p = paths() } = {}) {
   const strings = (value) => Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim());
   if (!record.started || record.state !== "ready-for-review" || record.workflow_run_id !== task.governance.workflowRunId ||
     (record.lead_id || record.owner) !== task.governance.leadId || record.worktree !== task.worktree || record.branch !== task.branch ||
-    finish?.revision !== revision || !strings(finish.artifacts) || !finish.artifacts.length || !strings(finish.checks) || !finish.checks.length ||
-    !strings(finish.risks) || typeof finish.evidence !== "string" || !finish.evidence.trim()) {
+    finish?.revision !== revision) {
     throw new Error(`${id}: submit the producer finish report with ao-topology manage report --task ${id} --consumer <repository> --file <finish-report.json>; review-ready only reflects an accepted exact-revision finish`);
   }
+  // TM-492: name the refused field. checks go through the shared reader, which accepts structured runs (TM-418).
+  const refused = !strings(finish.artifacts) || !finish.artifacts.length ? "finish.artifacts must be a non-empty array of strings"
+    : finishChecksRefusal(finish.checks, finish.revision)
+    ?? (!strings(finish.risks) ? "finish.risks must be an array of strings"
+    : typeof finish.evidence !== "string" || !finish.evidence.trim() ? "finish.evidence must be a non-empty string" : null);
+  if (refused) throw new Error(`${id}: the producer finish report is malformed: ${refused}; correct it and resubmit with ao-topology manage report --task ${id} --consumer <repository> --file <finish-report.json>`);
   const next = update(id, { governance: { ...task.governance, state: "ready-for-review", revision, submittedAt: now() } }, p);
   logEvent("ready-for-review", { id, workflowRunId: task.governance.workflowRunId, revision }, p);
   return next;

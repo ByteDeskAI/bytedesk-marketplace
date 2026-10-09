@@ -6,7 +6,7 @@
  *
  * Usage: tm <verb> [args]        tm help
  */
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,7 +59,7 @@ import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
 import { addComment, addLink, assign, backlog, DECISION_INTAKE, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, resolveForeign, setType, subtasks, TRIAGE_LABELS, typeOf } from "../lib/issue.mjs";
-import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
+import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor, strayFlag } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -78,8 +78,9 @@ import { liveOwner } from "../lib/dispatch/live-owner.mjs";
 import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
-import { collect as collectResult } from "../lib/dispatch/collect.mjs";
+import { collect as collectResult, rebindTopology } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolable, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { safeGitText } from "../lib/safe-git.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -183,7 +184,7 @@ const CHECKOUT = P.root ? currentCheckout() : process.cwd();
 
 function git(args, cwd = CHECKOUT) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return safeGitText(cwd, args); // TM-443
   } catch {
     return "";
   }
@@ -1434,7 +1435,7 @@ const VERBS = {
     const fromTask = take("--from-task") ?? null;
     const acceptance = [];
     for (let v = take("--ac"); v !== undefined; v = take("--ac")) acceptance.push(v);
-    const stray = rest.find((w) => w.startsWith("--"));
+    const stray = strayFlag(rest);
     if (stray) die(`unknown option ${stray}\n${USAGE_TICKET}`);
     const title = rest.join(" ");
     if (!target || !title) die(USAGE_TICKET);
@@ -1646,6 +1647,7 @@ const VERBS = {
     if (res.ungoverned) process.stderr.write(`WARNING: ${res.ungoverned}\n`);
     // TM-300: a missing ao prefix never blocks a dispatch, but it is never silent either.
     if (res.prefixWarning) process.stderr.write(`WARNING: ${res.prefixWarning}\n`);
+    for (const w of res.passEnvWarnings ?? []) process.stderr.write(`WARNING: ${w}\n`);
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.
@@ -1697,6 +1699,15 @@ const VERBS = {
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     if (res.pending) return out(`${id} still running (${res.state || "pending"})`);
     out(`${id} result: ${res.outcome}${res.downgraded ? " (downgraded)" : ""}${res.parked ? " — parked" : ""}`);
+  },
+
+  /** TM-417: repair a topology dispatch whose workflow id is not `topology:<native run id>`. */
+  rebind(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm rebind <id>");
+    const res = rebindTopology(id, { p: P });
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    out(res.rebound ? `${id} rebound: ${res.from} -> ${res.to}` : `${id} dispatch already canonical (${res.dispatched.workflowRunId})`);
   },
 
   /**
@@ -1776,7 +1787,7 @@ const VERBS = {
     }
     if (action === "wait") {
       // TM-374: the verb an agent runs instead of `sleep N; tm pool status`. One JSON result
-      // always; exit 0 met, 2 timed out, 1 bad argument.
+      // always; exit 0 met, 2 timed out, 3 the task parked or blocked short of done, 1 bad argument.
       const at = rest.indexOf("--until");
       const until = at >= 0 ? rest[at + 1] : "idle";
       const id = at >= 0 && rest[at + 2] && !rest[at + 2].startsWith("--") ? rest[at + 2] : undefined;
@@ -1790,7 +1801,8 @@ const VERBS = {
         die(e.message);
       }
       out(JSON.stringify(res));
-      process.exit(res.ok ? 0 : 2);
+      // TM-450: 3 = the task stopped short of done (parked or blocked) — a person is needed.
+      process.exit(res.ok ? 0 : res.ended ? 3 : 2);
     }
     die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume | wait [--dry-run])`);
   },
@@ -1979,7 +1991,7 @@ const VERBS = {
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  enhance-mine [--apply] [--days 14] [--top 15] [--min-count 2] [--test-log <f>]...   mine transcripts + board for issues (dry-run by default)",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
-        "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
+        "  goal open|finding|assess|revise|complete|resume EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
@@ -2018,9 +2030,10 @@ const VERBS = {
         "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
+        "  rebind <id>                   repair a topology dispatch's workflow id from the producer record",
         "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
-        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0) or timeout (exit 2); never sleep-poll",
+        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0), timeout (exit 2) or, for done, the task parks or blocks (exit 3); never sleep-poll",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",

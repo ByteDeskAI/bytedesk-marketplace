@@ -66,6 +66,14 @@ export function orchName(value) {
   return cleaned;
 }
 
+/** TM-487: orchName is not injective (`a.b` and `a_b` are both `a_b`; ids cut at 64 characters).
+ * The id in `ids` that already holds `candidate`'s subject token, or null. Every place that
+ * registers mailbox owners (createAgent, run member launch) refuses on a hit. */
+export function subjectTakenBy(candidate, ids) {
+  const token = orchName(candidate);
+  return ids.find((id) => id && id !== candidate && orchName(id) === token) ?? null;
+}
+
 export function orchSocketPath(env = process.env) {
   if (env.AO_ORCH_SOCKET) return env.AO_ORCH_SOCKET;
   const home = env.GATEWAY_HOME || join(homedir(), '.bytedesk', 'remote-gateway');
@@ -845,6 +853,8 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         body: sc.decode(msg.data),
         ack: async () => { msg.ack(); await nc.flush(); },
         nak: async () => { msg.nak(); },
+        // TM-482: a message that can never be accepted is termed, so it is not redelivered.
+        term: async () => { msg.term(); await nc.flush(); },
       };
     },
     async publishReply({ repo, agent, messageId, body, slug = null }) {
@@ -875,7 +885,8 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
           found = { via: 'nats', subject: msg.subject || subject, body: String(parsed?.body ?? sc.decode(msg.data)),
             rawBody: sc.decode(msg.data), messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
             replyTo: correlation ?? null, from: parsed?.from ?? null,
-            ack: async () => { msg.ack(); await nc.flush(); }, nak: async () => { msg.nak(); } };
+            ack: async () => { msg.ack(); await nc.flush(); }, nak: async () => { msg.nak(); },
+            term: async () => { msg.term(); await nc.flush(); } };
         } else {
           msg.nak();
         }

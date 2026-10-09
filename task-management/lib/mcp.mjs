@@ -8,7 +8,6 @@
  * ponytail: tool definitions carry their own `run`, so there is one list to keep
  * in sync instead of a definitions table plus a dispatch switch.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +40,7 @@ import { dispatch } from "./dispatch/index.mjs";
 import { envRegistry } from "./dispatch/backend.mjs";
 import { collect } from "./dispatch/collect.mjs";
 import { fileTicket } from "./ticket.mjs";
+import { safeGitText } from "./safe-git.mjs";
 
 /**
  * MCP `serverInfo.version` must be a non-empty string on the wire.
@@ -74,10 +74,7 @@ export const serverVersion = () => {
    * handshakes should be able to see that they differ.
    */
   try {
-    const sha = execFileSync("git", ["-C", PLUGIN_ROOT, "describe", "--always", "--dirty"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    const sha = safeGitText(PLUGIN_ROOT, ["describe", "--always", "--dirty"]); // TM-443
     if (sha) return sha;
   } catch {
     // not a repo, or no git — `dev` is then true rather than merely default
@@ -1205,7 +1202,9 @@ export const TOOLS = [
       }
     },
   },
-  ...Object.keys(GOAL_OPERATIONS).map(operation => ({
+  // TM-486: `resume` is a human's decision, so it is CLI-only (`tm goal resume`), where the permission
+  // prompt puts it in front of the person; it is never an agent tool.
+  ...Object.keys(GOAL_OPERATIONS).filter(operation => operation !== "resume").map(operation => ({
     name: `tm_goal_${operation}`,
     description: operation === "show"
       ? "Read an epic's original goal, immutable scope history, stable criteria, findings and deployed assessments."

@@ -88,7 +88,8 @@ if (event === "pre-bash") {
   try {
     const { guardCommand } = await import("../lib/worker-guard.mjs");
     const cwd = payloadCwd;
-    const rev = spawnSync("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8", windowsHide: true });
+    const { safeGitSync } = await import("../lib/safe-git.mjs");
+    const rev = safeGitSync(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]); // TM-443
     const head = rev.status === 0 ? rev.stdout.trim() : null;
     const verdict = guardCommand(command, { branch: process.env.TM_DISPATCH_BRANCH || head, head, integrationBranch: process.env.TM_DISPATCH_INTEGRATION_BRANCH });
     if (!verdict.allow) refuse(verdict.reason);

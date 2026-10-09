@@ -110,7 +110,7 @@ check "the parent journalled the spawn" "$?" "0"
 echo
 echo "== addressing: the conductor talks to a team exactly like an agent"
 SEND="$ROOT/send.json"
-"$AO" send --run "$PARENT_DIR" --from-project "$ROOT" --from conductor --to reviewers --stage brief --body "Review this. PING" --json 2>/dev/null | sed -n '/^{/,$p' > "$SEND"
+AO_AGENT_ID=conductor AO_CONSUMER="$ROOT" "$AO" send --run "$PARENT_DIR" --from-project "$ROOT" --from conductor --to reviewers --stage brief --body "Review this. PING" --json 2>/dev/null | sed -n '/^{/,$p' > "$SEND"
 check "the send is accepted" "$(jq_ "$SEND" "d['ok']")" "True"
 check "and is forwarded into the child rather than rung at a pane" "$(jq_ "$SEND" "d['delivered'][0]['workflow']")" "nested-child"
 [ -f "$CHILD_DIR/agents/child-lead/inbox/001-brief.md" ] && ok "it lands in the child conductor's inbox" || no "it lands in the child conductor's inbox"
@@ -203,7 +203,7 @@ check "and each is named after its item" "$(jq_ "$FAN_DIR/run.json" "sorted(a['i
 for s in $(jq_ "$FAN_DIR/run.json" "' '.join((a['workflow'] or {}).get('session','') for a in d['agents'] if a.get('fanout_of'))"); do SESSIONS+=("$s"); done
 
 FANSEND="$ROOT/fansend.json"
-"$AO" send --run "$FAN_DIR" --from-project "$ROOT" --from conductor --to per-file --stage brief --body "fan me out" --json 2>/dev/null | sed -n '/^{/,$p' > "$FANSEND"
+AO_AGENT_ID=conductor AO_CONSUMER="$ROOT" "$AO" send --run "$FAN_DIR" --from-project "$ROOT" --from conductor --to per-file --stage brief --body "fan me out" --json 2>/dev/null | sed -n '/^{/,$p' > "$FANSEND"
 check "a send to the collective id reaches both members" "$(jq_ "$FANSEND" "len(d['delivered'])")" "2"
 "$AO" wait --run "$FAN_DIR" --from per-file --timeout 3s >/dev/null 2>&1
 check "and a barrier on the collective id waits for both" "$?" "2"

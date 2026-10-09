@@ -438,25 +438,78 @@ with a 4 ms decision, against 534 ms for the classifier-reviewed control.
 
 **What it approves.** It approves only one simple command, with no `;`, `&`, `|`, `<`, `>`,
 backtick, `$`, backslash or newline anywhere. One exception applies: a trailing heredoc with a
-quoted delimiter (`<<'EOF'`) is treated as data.
+quoted delimiter (`<<'EOF'`) is treated as data. Each word must be fully quoted or plain: glob,
+brace, tilde and comment characters (`* ? [ { ~ #`) outside quotes, and joined quotes such as
+`"sta"tus`, fall through, because the shell would build a different argv than the one checked.
 
-| Command | Approved |
-|---|---|
-| `ao-topology <verb> …` | Every verb except those in the gated list below |
-| `agent-orchestration doctor\|status\|session-open`, `agent-orchestration services status\|ensure\|probe` | Yes |
-| `tm <verb> …`, `.bytedesk/task-management/bin/tm <verb> …` | Every verb. This matches Ryan's `Bash(tm *)` decision of 2026-09-25 |
-| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Read-only only. Not approved: `#(…)` formats, `display-message -I`, `-f` |
+It is an **allowlist** (TM-432, TM-433). The hook reads `ao-topology` argv with the CLI's own
+`parseArgs` (`topology/lib/util.mjs`), so flags before the verb or subcommand cannot hide it:
+`ao-topology manage --task TM-1 land` is read as `manage land`. A verb or subcommand that is not in
+the table below falls through, including any verb added to the CLI later. Each row carries its
+ADR-0001 class (`fleet/docs/adr/0001-hierarchical-authorization.md`).
+
+| Command | ADR-0001 class | Why it is safe to approve |
+|---|---|---|
+| `ao-topology status`, `capture`, `wait`, `doctor` | Local-blast (read) | Reads run state, a pane capture, reply files, or `which` and version probes |
+| `ao-topology repos list`, `manage status\|assignment\|eligible` | Local-blast (read) | Reads the registry and the management record; read-only `git` |
+| `ao-topology mailbox outbox\|receipts\|wait` | Local-blast (read) | Reads standing-mail records |
+| `ao-topology lead status --cached` | Local-blast (read) | A pure read. Without `--cached` it rings the lead's pane, so it falls through |
+| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply. `ack`, `reply`, `mailbox inbox` and `prompt ack` are approved only with no agent named, or with the named agent (`--agent`, or the positional of `prompt ack`) equal to the caller's `AO_AGENT_ID` or `AO_SESSION_AGENT_ID` |
+| `ao-topology mailbox send` | Local-blast (report) | Writes one envelope as this session's own identity (TM-356). Delivery and the pointer-only arrival ring (TM-351) belong to admission and the supervisor, not to this command |
+| `agent-orchestration doctor\|status`, `agent-orchestration services status\|probe\|wait` | Local-blast (read) | Health and run status only |
+| `tm board\|show\|find\|next\|why\|graph\|log\|events\|standup\|stale\|where\|doctor`, `tm pool status` | Local-blast (read) | Read the board. `board` rewrites only `index.json`, a disposable cache. `doctor` falls through with `--fix` (repairs) or `--all` (runs another CLI). `caps` is not approved: it runs `<cli> -V` for every agent CLI on PATH |
+| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Local-blast (read) | Not approved: `#(…)` formats, `display-message -I`, `capture-pane -b` (writes a paste buffer), `-f`. Clustered flags such as `-pI` are checked too |
+
+**Which program runs (TM-434).** The hook judges the program's realpath, never its name. A bare
+name is resolved the way the shell resolves it: the first executable on `PATH`. `PATH` often holds
+user-writable directories such as `~/bin` and `~/.local/bin` ahead of the plugin's. The command is
+approved only when that realpath is one of these launchers:
+
+- this plugin's `bin/ao-topology` or `bin/agent-orchestration`;
+- the sibling `task-management/bin/tm`.
+
+An absolute path is judged the same way. A relative path, or a `PATH` with an empty or relative
+entry before the match, falls through, because the shell would search the current directory.
+`tmux` is approved only when its realpath is `/usr/bin/tmux`, `/bin/tmux` or `/usr/local/bin/tmux`,
+and the file and every directory up to `/` are owned by root and are not group- or world-writable.
+Ownership alone is not enough, because a FUSE mount can present root-owned files anywhere the user
+can mount one. A user-owned `tmux`, such as Homebrew's, falls through.
+
+As a result, a `tm` at any other path falls through, including `.bytedesk/task-management/bin/tm`
+in a worktree, because a worker can write any script there. So does a `tm` or `ao-topology` on
+`PATH` that resolves to a different install of the plugin, for example another host's plugin
+cache or a source checkout. Each of those commands then costs one prompt. A path that only starts
+with the same prefix as the launcher does not match.
+
+**The approved program is the one that runs.** The shell would otherwise resolve the name again
+when the command runs. A shell profile could prepend to `PATH`, a writable `PATH` directory could
+change in between, or an alias or function could use the same name. So when the hook approves a
+command, it also returns `updatedInput` (see [PreToolUse decision control](https://code.claude.com/docs/en/hooks)).
+That rewrites the command's first word to the absolute realpath it judged, and keeps the rest of the
+command and the other tool arguments unchanged. A command that began with a bare name also gets
+`command ` in front, which skips aliases and functions. For example, `tm board` runs as
+`command /…/task-management/bin/tm board`.
 
 **What stays gated.** The hook never approves these commands. They go through the normal
-permission flow (a prompt, or the auto-mode classifier). This keeps the authorization classes of
-ADR-0001 (`fleet/docs/adr/0001-hierarchical-authorization.md`):
+permission flow (a prompt, or the auto-mode classifier). An explicit deny list in the hook wins
+over the allowlist, so a later edit that adds one of these by mistake still cannot approve it:
 
 - **External (deploy and release):** `ao-topology manage cutover|cut-release|land`. See
   [Landing autonomy](#landing-autonomy-pr-merge-publish) below.
-- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup`. These verbs keep
-  their own delegation checks. A lead that should run them unprompted gets the per-lead rules from
-  `ao-topology permissions install` (see `docs/repository-leads.md`).
-- **Operator-only:** `ao-topology delegate grant|revoke` and `ao-topology permissions …`.
+- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup|close|transfer|assign|rework|rebind`
+  and `ao-topology review submit`. These verbs keep their own delegation checks. A lead that should
+  run them unprompted gets the per-lead rules from `ao-topology permissions install` (see
+  `docs/repository-leads.md`).
+- **Pane input, launch and configuration:** `ao-topology send|nudge|launch`, `config set`,
+  `startup install-hooks` and `git-hook install`. They type into another pane, start agents, or
+  write configuration and hooks.
+- **Operator-only:** `ao-topology delegate …` and `ao-topology permissions …`.
+- **Every other `tm` verb:** for example `dispatch` (spawns a worker), `export --out` (writes any
+  path), `ntfy`, `config`, `override`, `init`, `worktree`, `collect`, `agent`, `hook`, `migrate`,
+  `review-sweep`, `done`, `govern`, `task new` and `pool start|stop|resume|run|ensure`.
+- **Not listed, so not approved:** for example `ao-topology census` (self-starts the supervisor),
+  `presence` (publishes files), `manage report` (a finish queues a review run), `agent new` and
+  `session open`. These are Local-blast at most and cost one prompt.
 - **Repo-destructive and external:** every `git`, `gh`, deploy and secrets command. This includes
   force pushes, history rewrites, branch deletion, releases, deploys and secret reads. None of these
   is on the list.
@@ -480,28 +533,38 @@ The lead runs one verb, `ao-topology manage land --task <TM-id>`, and the policy
 | `merge` | Runs `manage integrate`, with its own authority and guardrails unchanged. Nothing is released. |
 | `publish` | Integrates, then, once every task of the task's epic has landed, runs `manage cut-release`: the repository's release step, a wait for the TeamCity build it started, and the verify step that proves the published artifact. It then records the publish and tells the origin. |
 
-**Where to set it.** The value comes from the AO layered config. The nearest layer wins:
-the repository's `.bytedesk/agent-orchestration/config.json`, then the global
-`~/.config/agent-orchestration/config.json`, then the shipped default, `pr`. An unknown value makes
-its layer invalid, so it never widens autonomy. To run fully autonomously through publishing on
-your own machine, set it in the global layer:
+**Where to set it (TM-442).** Only in the repository's `.bytedesk/agent-orchestration/config.json`
+as committed on the **server's default branch** of the pinned repository, read through `gh`. The same
+rule covers `management.release`, `management.cutover` and `management.required_checks`. A worker
+agent runs as your OS user and can write the global `~/.config/agent-orchestration/config.json`, the
+plugin defaults and the checkout's working copy, so a value for these keys in any of those layers is
+ignored, with a warning. When the server cannot be read, autonomy is `pr` and release, cutover and
+required checks are unconfigured, so every verb that needs them refuses. A signed operator layer would
+be the other trusted source; signing is not implemented. Commit the policy on the default branch:
 
 ```json
 { "management": { "autonomy": "publish", "ntfy": { "topic": "<your topic>" } } }
 ```
 
+`manage integrate` refuses a task whose change touches `management` in that file: the policy is the
+operator's own change on the default branch, never landed through a task. `ao-topology config set`
+refuses inside a dispatched worker session (`TM_DISPATCH_WORKER`).
+
 **What `publish` grants.** Production deploy and release publish are ADR-0001's External class
 (`fleet/docs/adr/0001-hierarchical-authorization.md`). At `publish`, the policy is the operator's
-standing grant for `manage cutover` and `manage cut-release`, so a lead needs no `--authorized`.
-Every record names the grant: `authorization.channel` is `autonomy-policy`, and
-`authorization.granted_by` gives the config layer and file that set `publish`. At `pr` or `merge`,
-these verbs need `--authorized` from an operator shell; a managed agent session cannot self-assert
-it. The policy does not replace integrate's own authority: merging still needs a covering plan
+standing grant for `manage cut-release` only, so a lead needs no `--authorized` to release. The
+record names the grant: `authorization.channel` is `autonomy-policy`, and `authorization.granted_by`
+gives the server source that set `publish`. **`manage cutover` deploys to a live production host, so no
+autonomy level grants it (TM-458):** it always needs `--authorized` from an operator shell. At `pr` or
+`merge`, `cut-release` needs the same. A managed agent session cannot self-assert `--authorized`. The policy does not replace integrate's own authority: merging still needs a covering plan
 grant or the server-side `lead_autonomy` policy (ADR-0027).
 
 **What the release verbs run.** Only the repository's own scripts, configured as argv and run
-without a shell. A step whose program is `systemctl`, `git`, `gh`, a shell, `sudo`, `env` or `ssh`
-is refused, so neither a lead nor a config line restarts a host or pushes directly.
+without a shell. `argv[0]` must be a repo-relative path (no absolute path, no `..`, no bare name looked
+up on `PATH`) to an executable file tracked at the release revision whose bytes on disk equal the
+committed blob (TM-442). Interpreters and launchers (`node`, `python*`, `perl`, `ruby`, shells,
+`busybox`, `env`, `npx`, `npm`, `deno`, `bun`), `systemctl`, `git`, `gh`, `sudo` and `ssh` are refused
+even as paths, so neither a lead nor a config line restarts a host, pushes directly or runs inline code.
 
 ```json
 { "management": {

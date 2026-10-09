@@ -5,6 +5,7 @@
 // an `@` token from outside the repository is refused; a standing agent outside `run.agents` is
 // DELIVERED rather than tripping TOPOLOGY_UNKNOWN_AGENT; and the bound refuses instead of
 // truncating.
+import "../helpers/bare-run.mjs"; // TM-491: a bare `node --test` of this file must not reach live NATS or hang
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";

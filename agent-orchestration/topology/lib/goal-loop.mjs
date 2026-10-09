@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { canonicalRepoId, repositoryConsumer, repoKey, stateRoot } from './repoid.mjs';
 import { withLock } from './lockfile.mjs';
 import { readJson, writeJson, run, invariant } from './util.mjs';
+import { safeGit } from './safe-git.mjs';
 import { loadConfig } from './config.mjs';
 import { resolveEnrollment } from './repo-enrollment.mjs';
 import { sendStandingMessage, readStandingMessage } from './standing-mailbox.mjs';
@@ -247,7 +248,7 @@ async function verifyPhase(loop, report, options) {
   if (options.verifyPhase) return options.verifyPhase(loop, report);
   const facts = { taskArtifacts: clone(report.details?.taskArtifacts ?? {}) };
   const inspect = options.managementStatus ?? managementStatus;
-  const ancestor = options.isAncestor ?? (async (source, aggregate) => (await run('git', ['-C', loop.evidenceRoot ?? loop.consumer, 'merge-base', '--is-ancestor', source, aggregate], { allowFailure: true })).code === 0);
+  const ancestor = options.isAncestor ?? (async (source, aggregate) => (await safeGit(loop.evidenceRoot ?? loop.consumer, ['merge-base', '--is-ancestor', source, aggregate], { allowFailure: true })).code === 0);
   if (report.phase === 'build' || report.phase === 'integration') for (const task of report.taskIds) {
     const status = await inspect({ ...options, consumer: loop.consumer, task }), revision = facts.taskArtifacts[task];
     check(status.management?.finish?.revision === revision.sourceRevision && finishedByCurrentWorker(status.management), 'Task lacks a governed finish from its current worker for the exact source revision.', { task });

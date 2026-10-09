@@ -44,6 +44,14 @@ const CONFIG_ONLY = /_(BIN|HOME|PATH)$/;
 const osUser = env => env.USER || env.LOGNAME || userInfo().username;
 const cleanScopes = value => [...new Set((Array.isArray(value) ? value : String(value || '').split(',')).map(s => s.trim()).filter(Boolean))];
 
+/** TM-243 / TM-442: the one predicate every worker refusal uses. A dispatched worker session carries the
+ * marker tm dispatch and the topology launcher bind into it (TM_DISPATCH_WORKER).
+ * Same-user limit: a worker can unset it; refusals keyed on it are defence in depth, and authority
+ * itself must come from a source the worker cannot write (TM-442: the server's default branch). */
+export function dispatchedWorker(env = process.env) {
+  return Boolean(env.TM_DISPATCH_WORKER);
+}
+
 /** Names of agent-session environment markers present in env. */
 export function agentMarkers(env) {
   return Object.keys(env).filter(k => env[k] != null && env[k] !== '' && (AGENT_MARKERS.includes(k) || (AGENT_MARKER_PREFIXES.some(p => k.startsWith(p)) && !CONFIG_ONLY.test(k)))).sort();
@@ -268,6 +276,24 @@ export async function bindingAgentId({ consumer, env = process.env, home = homed
   if (!here) return null;
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
   return (census?.agents || []).find(a => sameBinding(here, a.binding))?.agentId || null;
+}
+
+/** TM-473: whether the caller descends from ANY agent pane a census binds: this repository's census
+ * (readCensusFn), every other census under the env's state home, and the default one under the
+ * passwd home (which the env cannot redirect). A process with TMUX_PANE unset (or
+ * naming no bound pane) is invisible to bindingAgentId, but its /proc ancestry still runs through
+ * the agent's pane process. Throws when ancestry is unreadable; callers fail closed.
+ * Does NOT catch a process that left the tree (`setsid -f`, a daemon reparented to init): only
+ * TM-427B's identity proof closes that. */
+export async function callerUnderBoundPane({ consumer, env = process.env, home = homedir(), readCensusFn = readCensus, callerProc = {}, passwdHome = userInfo().homedir }) {
+  const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
+  // TM-473 review: the env names the state home, so a caller could point it at an empty directory.
+  // The default census under the passwd home is scanned too, whatever the env says; any match refuses.
+  const dirs = new Set([join(stateRoot(env, home), 'census'), join(stateRoot({}, passwdHome), 'census')]);
+  for (const dir of dirs) for (const file of (await readdir(dir).catch(() => [])).filter(f => f.endsWith('.json'))) docs.push(await readJson(join(dir, file)).catch(() => null));
+  const pids = new Set(docs.flatMap(doc => doc?.agents || []).map(a => a.binding?.panePid));
+  for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
+  return false;
 }
 
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit

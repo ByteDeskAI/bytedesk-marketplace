@@ -1,6 +1,6 @@
 // TM-373: doctor compares the installed plugin SHA with origin/main and never fails offline.
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -30,7 +30,7 @@ test("TM-373: a cache entry behind origin/main is stale and says how to update",
   const { home, pluginRoot } = await cachedInstall(t);
   const calls = [];
   const report = await pluginFreshness({ pluginRoot, home, deps: { run: lsRemote({ code: 0, stdout: `${NEWER}\trefs/heads/main\n` }, calls) } });
-  assert.deepEqual(calls, [["git", "ls-remote", "https://example.invalid/mkt", "refs/heads/main", "0"]]);
+  assert.deepEqual(calls, [["git", "ls-remote", "--", "https://example.invalid/mkt", "refs/heads/main", "0"]]);
   assert.equal(report.source, "cache");
   assert.equal(report.installed, INSTALLED);
   assert.equal(report.originMain, NEWER);
@@ -54,4 +54,13 @@ test("TM-373: offline or timed out is unknown, never a failure", async (t) => {
   const slow = await pluginFreshness({ pluginRoot, home, timeoutMs: 50, deps: { run: lsRemote({ code: 124, stdout: "", stderr: "" }) } });
   assert.equal(slow.status, "unknown");
   assert.match(slow.error, /timed out after 50ms/);
+});
+
+test("TM-443: a manifest repository that looks like an option is never read as one", async (t) => {
+  const { home, pluginRoot } = await cachedInstall(t);
+  const marker = join(home, "MARKER");
+  await writeJson(join(pluginRoot, ".claude-plugin", "plugin.json"), { name: "agent-orchestration", repository: `--upload-pack=touch ${marker};` });
+  const report = await pluginFreshness({ pluginRoot, home, timeoutMs: 10_000 }); // the real safe-git path, no seam
+  assert.equal(report.status, "unknown");
+  assert.equal(await stat(marker).then(() => true, () => false), false, "the repository value ran as --upload-pack");
 });
