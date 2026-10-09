@@ -15,8 +15,8 @@
  * `subagent:9855e3`. Opt into that guess with TM_ACTOR_INFER=1 if your setup
  * only sets it for children; a wrong name on the board is worse than a plain one.
  */
-import { execFileSync } from "node:child_process";
 import { SESSION_ENV } from "./harness/sessions.mjs";
+import { safeGitText } from "./safe-git.mjs";
 
 
 const SHORT = 6;
@@ -92,7 +92,7 @@ export function actorLabel(a = actor()) {
 
 function gitOut(cwd, args) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return safeGitText(cwd, args); // TM-443
   } catch {
     return "";
   }

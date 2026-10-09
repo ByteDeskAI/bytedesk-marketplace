@@ -4,6 +4,99 @@
 
 ### Security
 
+- **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**
+  `manage record-landing`, including under an operator's `--authorized`, now requires the landed
+  commit on the pinned repository's target branch on the server (`gh api .../compare`). Before, it
+  trusted `origin/<target>` after a fetch from a worker-chosen `origin`, so a forged ref could report a
+  landing that never happened. safe-git keeps only the commit-identity `GIT_*` variables, so
+  `GIT_DIR`, `GIT_SSH_COMMAND`, `GIT_EXEC_PATH`, `GIT_ASKPASS` and the rest are dropped. It pins
+  `GIT_CONFIG_GLOBAL` to `~/.gitconfig`, so a caller-supplied global config (and its filters) is never
+  read. Host `gh` calls (`hostGh`, also used by release readiness) run only the root-owned `gh` at a
+  pinned system path (`trustedGh`, the root-owned-chain rule the autonomy allowlist applies to tmux),
+  never the first `gh` on `PATH`.
+- **Review fixes for the gate security work (PR #226; TM-443, TM-441, TM-442, EP-028).**
+  - safe-git pins its overrides through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n`, so a filter or merge
+    driver whose name contains `=` (`filter.a=b.smudge`, which `-c` cannot name) is neutralised too.
+  - safe-git allows only the https, ssh and file transports, so a worker-set `evil::` remote never runs
+    `git-remote-evil`. It refuses outright (exit 128) when repository config sets `url.*.insteadOf`,
+    `url.*.pushInsteadOf`, `remote.*.vcs`, `lfs.standalonetransferagent` or `lfs.customtransfer.*`.
+    It never smudges LFS objects (`GIT_LFS_SKIP_SMUDGE=1`), including in the TM-444 check worktrees.
+  - A merge-in's integration parent must be on the target branch of the pinned repository on the
+    server (`gh api .../compare`, ahead or identical), never on a local or remote-tracking ref a
+    worker can forge. task-management uses the same rule.
+  - Release readiness requires the checkout's commit to be the server's branch tip, not merely equal
+    to a worker-chosen `origin`.
+- **`manage transfer` takeover needs lead proof and owner absence (TM-459, EP-028).**
+  A session could take ownership of a task as soon as the owner held no live claim, but `tm block`
+  or `tm park` releases the claim while the owner is still alive. A takeover (the caller is not the
+  owner) now requires the caller to pass `requireLeadCaller` (this repository's lead, proven by its
+  census-bound pane) and the owner to be proven absent by `ownerPresence`: no live pane the census
+  binds to it and no heartbeat from it fresher than `HEARTBEAT_TTL_MS`. A hand-over by the owner is
+  unchanged.
+- **Autonomy `publish` never grants a production cutover (TM-458, EP-028).**
+  `management.autonomy: "publish"` let `manage cutover` deploy to a live production host with no
+  human, and a test asserted it. `publish` now grants `manage cut-release` only; `manage cutover`
+  always needs `--authorized` from an operator shell (ADR-0001 External class; the standing rule that
+  a production deploy asks first). The former CLI test is inverted: a managed session is refused and
+  nothing is deployed.
+- **`cut-release` waits for the TeamCity build of its own revision (TM-457, EP-028).**
+  `waitForBuild` accepted the first finished build of the build type newer than the pre-release
+  build, on any branch or revision, so a green develop or pull-request build could pass the release
+  gate while the release build was red. It now requires one of the build's VCS revisions to be the
+  release revision (the checkout's commit, or the commit the release step left it at) and, when
+  `management.release.teamcity.branch` is set, that branch. Builds of anything else are ignored; with
+  none matching, the wait times out and pages. The record names the matched build's revision and branch.
+- **A worker's check evidence is labelled "claimed" and never satisfies a required check (TM-430, EP-028).**
+  The finish report's `checks` were filed into the review packet as plain evidence, and under
+  `integrate_via: "pull-request"` the packet was the only required-check gate, so a worker could
+  report `exit_code: 0` for a check that never ran. Every automatic review request (report,
+  retry-review, review sweep) now files them through one helper, `claimedCheckEvidence`, which
+  prefixes the command and log with `[claimed by the worker; not run by the host]`. Integration no
+  longer treats the packet's check evidence as a result (those reasons are reported as
+  `required_checks.claimed_check_reasons`); both integrate paths run the configured argv on the host
+  in a fresh tree (`runRequiredChecks`), and the pull-request path refuses as `checks` before any
+  merge. The packet-side comparison of a run's command with the configured argv belongs to
+  `reviewer.mjs` (another owner) and is not changed here.
+- **A worker can no longer grant itself publish/merge autonomy, rewrite required checks or choose the release argv (TM-442, EP-028).**
+  `management.autonomy`, `management.release`, `management.cutover` and `management.required_checks`
+  are now honoured only from `.bytedesk/agent-orchestration/config.json` as committed on the server's
+  default branch of the pinned repository (read through `gh`, as TM-263 reads `lead_autonomy`). A
+  value for them in the global layer, the plugin defaults or the checkout's working copy, all of
+  which a same-user worker can write, is ignored with a warning; signing is not implemented, so there
+  is no other trusted source. With the server unreadable, autonomy is `pr` and the other three are
+  unconfigured. `manage integrate` refuses a task that changes `management` in that committed file.
+  `ao-topology config set` refuses in a dispatched worker session (the shared `dispatchedWorker`
+  predicate `manage` also uses). Release and cutover `argv[0]` is now an allowlist: a repo-relative
+  path, tracked as an executable at the release revision, whose bytes equal the committed blob;
+  interpreters, shells, `busybox`, `env`, `npx`, `npm`, `deno`, `bun`, absolute paths, `..` and bare
+  `PATH` names are refused. `reviewer.mjs`'s `requiredCheckNames` still reads the local layers for
+  the review packet (owned by another session); integrate no longer depends on it.
+- **A merge-in is accepted only when its tree is exactly the merge git computes (TM-441, EP-028).**
+  `mergeInOf` compared `git patch-id --stable`, which ignores whitespace, so a merge of the
+  integration branch into the approved revision could carry an unreviewed behaviour change
+  (`rm -rf /tmp/build` became `rm -rf / tmp/build`) and still land. It now requires the head's tree
+  to equal `git merge-tree --write-tree <approved revision> <integration parent>`; a conflicted
+  merge is never a merge-in. task-management's mirror uses the same rule, and one test runs both.
+- **Required checks run in a fresh tree of the finish revision, not in the worker's worktree (TM-444, EP-028).**
+  `manage integrate` ran each `management.required_checks` argv with the worker's worktree as its
+  working directory. `git status --porcelain` hides ignored files, so a planted
+  `node_modules/.bin/<runner>` that exits 0 passed a check that never ran. Checks now run through
+  `runRequiredChecks` in a detached worktree of `record.finish.revision`, created and removed
+  through safe-git, holding only the committed files; each run is recorded with `runner: "host"`.
+- **Host-side git no longer runs config a worker planted in the shared `.git/config` (TM-443, EP-028).**
+  A worker runs as the same OS user and can set `core.fsmonitor`, `core.hooksPath`, `diff.external`,
+  `core.pager`, a filter or merge driver, a credential helper or a remote `uploadpack` in the
+  repository's shared config; the lead's next `git status` (dirty-path check, integration
+  eligibility, release readiness) then ran it as the lead. Every git call in `topology/lib` and
+  `src/` now goes through one helper, `topology/lib/safe-git.mjs`, which pins every executing key
+  on the command line, neutralises repository-scope filter and merge drivers (a merge driver becomes
+  a conflict), keeps only the operator's global credential helpers, forces `--upload-pack` /
+  `--receive-pack`, adds `--no-ext-diff --no-textconv` to diff-family commands, and runs with
+  `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`. `doctor`'s `git ls-remote` passes `--` before
+  the manifest's repository, so a value starting with `-` is never an option. A test plants every
+  vector and runs eligibility, integrate and release readiness; a grep test fails on any raw git
+  spawn outside the helper. Not yet routed: `topology/lib/reviewer.mjs` (owned by another session;
+  allow-listed in the grep test). The global `~/.gitconfig` is trusted by design.
 - **`workers.passEnv` is honoured only from the global config, and never for a reserved name
   (TM-448, EP-028).** The repository layer is git-tracked, so a worker whose PR landed could name
   `GITHUB_TOKEN` there and have it copied into every later worker. `passEnvFor` now reads

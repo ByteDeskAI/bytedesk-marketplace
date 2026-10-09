@@ -35,6 +35,7 @@ import { paths } from "../paths.mjs";
 import { rpcSession } from "./mcp-client.mjs";
 import { failureScope } from "./failure.mjs";
 import { managementIdentity, readManagementRecord } from "../governance-check.mjs";
+import { safeGitSync } from "../safe-git.mjs";
 
 /** A collection is a quick query, not the 120s launch handshake. */
 export const COLLECT_TIMEOUT_MS = 30_000;
@@ -105,9 +106,7 @@ function recordPullRequest(task, p, exec) {
 function dirtyPaths(worktree) {
   if (!worktree || !isAbsolute(String(worktree))) return [];
   try {
-    const res = spawnSync("git", ["-C", worktree, "status", "--porcelain", "--untracked-files=all"], {
-      shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000,
-    });
+    const res = safeGitSync(worktree, ["status", "--porcelain", "--untracked-files=all"], { timeout: 5_000 }); // TM-443
     if (res.error || res.status !== 0) return [];
     return String(res.stdout || "").split("\n").filter(Boolean).map((line) => line.slice(3));
   } catch {

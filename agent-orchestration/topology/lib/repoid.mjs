@@ -11,7 +11,8 @@ import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { fail, invariant, readJson, run, writeJson } from "./util.mjs";
+import { fail, invariant, readJson, writeJson } from "./util.mjs";
+import { safeGit } from "./safe-git.mjs";
 
 /**
  * The canonical identity of the repository containing `consumer`.
@@ -23,7 +24,7 @@ import { fail, invariant, readJson, run, writeJson } from "./util.mjs";
 export async function canonicalRepoId(consumer) {
   invariant(consumer && typeof consumer === "string", "TOPOLOGY_REPO_REQUIRED", "A consumer path is required to identify a repository.");
   const abs = resolve(consumer);
-  const git = await run("git", ["-C", abs, "rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 10_000 })
+  const git = await safeGit(abs, ["rev-parse", "--git-common-dir"], { allowFailure: true, timeoutMs: 10_000 })
     .catch(() => ({ code: 1, stdout: "", stderr: "" }));
   if (git.code === 0 && git.stdout.trim()) {
     const reported = git.stdout.trim().split("\n")[0];

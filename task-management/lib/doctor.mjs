@@ -13,7 +13,6 @@
  * cycle and a done task with unmet criteria are decisions, not typos, so they are
  * reported and left alone.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { planFindings } from "./plans.mjs";
@@ -25,6 +24,7 @@ import { unreviewedTasks } from "./review-sweep.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
 import { evidenceSync } from "./evidence.mjs";
+import { safeGitText } from "./safe-git.mjs";
 import {
   launcherStatus,
   legacyCodexHooks,
@@ -88,11 +88,7 @@ const evidenceTarget = (ref, p) => (isAbsolute(ref) ? ref : join(p.root, ref));
  */
 export function ignoreRule(p) {
   try {
-    const out = execFileSync("git", ["check-ignore", "-v", "--no-index", join(p.base, "tasks")], {
-      cwd: p.root,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    }).trim();
+    const out = safeGitText(p.root, ["check-ignore", "-v", "--no-index", join(p.base, "tasks")]); // TM-443
     // `<source>:<line>:<pattern>\t<path>` — keep the part that tells you what to edit.
     return out ? out.split("\t")[0] : null;
   } catch {

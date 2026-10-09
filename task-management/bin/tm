@@ -6,7 +6,7 @@
  *
  * Usage: tm <verb> [args]        tm help
  */
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,6 +80,7 @@ import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
 import { collect as collectResult } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolable, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { safeGitText } from "../lib/safe-git.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -183,7 +184,7 @@ const CHECKOUT = P.root ? currentCheckout() : process.cwd();
 
 function git(args, cwd = CHECKOUT) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return safeGitText(cwd, args); // TM-443
   } catch {
     return "";
   }

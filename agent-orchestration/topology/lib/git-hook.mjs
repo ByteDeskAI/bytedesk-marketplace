@@ -3,19 +3,19 @@
 // so the check is gone. A hook installed earlier looked for scripts/check-no-project-plugin-installs.mjs
 // at commit time and exits 0 when that file is missing, so it no longer blocks anything.
 // `status` and `uninstall` stay so a repository can find and remove an old hook; `install` refuses.
-import { execFile } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { promisify } from "node:util";
 import { fail } from "./util.mjs";
+import { safeGit } from "./safe-git.mjs";
 
-const exec = promisify(execFile);
 const MARKER = "# ao-topology git-hook: project-install guard";
 
 async function hookPath(repo) {
   try {
-    const { stdout } = await exec("git", ["-C", repo, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit"]);
-    return resolve(stdout.trim());
+    // safe-git pins core.hooksPath to /dev/null, so --git-path hooks/... would point there. An old
+    // hook was installed in the repository's own hooks directory, under the common git dir.
+    const { stdout } = await safeGit(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    return resolve(stdout.trim(), "hooks", "pre-commit");
   } catch { return fail("TOPOLOGY_NOT_A_GIT_REPO", `${repo} is not a Git repository.`); }
 }
 

@@ -21,6 +21,7 @@ import { displayName, roleVisual } from "./lib/identity.mjs";
 import { sessionIdentity } from "./lib/session-names.mjs";
 import { issueDelegation, listDelegations, routeMessage } from "./lib/routing.mjs";
 import { stateRoot } from "./lib/repoid.mjs";
+import { dispatchedWorker } from "./lib/delegation.mjs";
 import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
 import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
 
@@ -875,7 +876,7 @@ const commands = {
     const verb = positional[0] || 'status';
     // TM-243: a dispatched worker may send its own report and read status; every other governed verb
     // is the lead's. Same-user limit as TM-234: this marker is set by tm dispatch and can be unset.
-    invariant(!process.env.TM_DISPATCH_WORKER || ['report', 'status', 'eligible', 'assignment'].includes(verb), 'TOPOLOGY_MANAGEMENT_WORKER_REFUSED',
+    invariant(!dispatchedWorker(process.env) || ['report', 'status', 'eligible', 'assignment'].includes(verb), 'TOPOLOGY_MANAGEMENT_WORKER_REFUSED',
       `A dispatched worker session (TM_DISPATCH_WORKER) may only run manage report|status|eligible|assignment; ${verb} belongs to the lead.`);
     // TM-243: bare commands. With no AO_AGENT_ID, name the caller from the census binding of its live
     // pane, so the lead never needs an env-var prefix (which defeats permission-rule matching).
@@ -1030,6 +1031,9 @@ const commands = {
       return out({ ok: errors.length === 0, errors, warnings: scope ? api.layerWarnings(doc, scope, flags.file) : [] });
     }
     invariant(sub === 'set', 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use config get|set|validate.');
+    // TM-442: config is the operator's. A dispatched worker may read and validate it, never write a layer.
+    invariant(!dispatchedWorker(process.env), 'TOPOLOGY_CONFIG_WORKER_REFUSED',
+      'A dispatched worker session (TM_DISPATCH_WORKER) may only run config get|validate; config set belongs to the operator.');
     return out(await api.writeConfigLayer(scope, await document(), { ...options, ifRevision: typeof flags['if-revision'] === 'string' ? flags['if-revision'] : null }));
   },
   async prompt({ flags, positional }) {

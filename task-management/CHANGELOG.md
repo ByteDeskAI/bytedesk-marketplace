@@ -4,6 +4,29 @@
 
 ### Security
 
+- **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
+  `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
+  path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`
+  (byte-identical to agent-orchestration's) keeps only the commit-identity `GIT_*` variables and pins
+  `GIT_CONFIG_GLOBAL` to `~/.gitconfig`.
+- **Review fixes for PR #226 (TM-443, TM-441, EP-028).** `lib/safe-git.mjs` (still byte-identical to
+  agent-orchestration's) neutralises drivers whose names contain `=`, allows only the https, ssh and
+  file transports, refuses repository-scope URL rewriting and LFS transfer agents, and never smudges
+  LFS objects. `mergeInOf` now accepts a merge-in only when its integration parent is on the target
+  branch of the pinned repository on the server (`onServerBranch`, through `gh api .../compare`).
+  Local or `origin` refs no longer count, since a worker can forge them.
+- **Governed completion accepts a merge-in only when its tree is exactly the merge git computes (TM-441, EP-028).**
+  `mergeInOf` in `lib/governance-check.mjs` used the whitespace-blind `git patch-id --stable`, so a
+  merge could hide `rm -rf / tmp/build` where `rm -rf /tmp/build` was reviewed. It now requires the
+  head's tree to equal `git merge-tree --write-tree <approved revision> <integration parent>`, the
+  same rule agent-orchestration applies.
+- **tm's git calls no longer run config a worker planted in the shared `.git/config` (TM-443, EP-028).**
+  Every git call in `lib/` and `bin/` (governance check, worktree, collect, store, doctor, paths,
+  actor, duplicate, mcp, `tm`, `tm-hook`) now goes through `lib/safe-git.mjs`, a byte-identical copy
+  of agent-orchestration's helper (the plugins never import each other; agent-orchestration's suite
+  fails when the copies differ). It disables fsmonitor, hooks, pager, external diff, textconv,
+  repository-scope filter and merge drivers and credential helpers. The generated `bin/tm` launcher
+  template is the one exception: it must locate `lib/` first and only runs `rev-parse`.
 - **`tm ticket` no longer runs a launcher found in another repo (TM-446, EP-028).** Filing a
   ticket, reporting progress to its origin, the event bridge and the pool's collect path all ran
   `<repo>/.bytedesk/task-management/bin/tm` with the caller's environment, and `<repo>` came from a
