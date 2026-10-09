@@ -272,7 +272,7 @@ grep -q -- "--no-write-tools" "$RUN_DIR/agents/$P1_IMPL"/launch-*.sh 2>/dev/null
   || ok "a worker keeps its write tools"
 
 step "collaboration: inside one project, agents reach each other directly"
-sent=$("$AO" send --run "$RUN_DIR" --from "$P1_LEAD" --to "$P1_IMPL" --stage brief \
+sent=$(AO_AGENT_ID="$P1_LEAD" AO_CONSUMER="$P1" "$AO" send --run "$RUN_DIR" --from "$P1_LEAD" --to "$P1_IMPL" --stage brief \
        --body "Please summarise README.md." --no-ring 2>&1)
 MSG=$(printf '%s' "$sent" | json .id)
 [ -n "$MSG" ] && ok "a message was delivered internally with no redirect" \
@@ -305,7 +305,7 @@ else
 fi
 
 step "cross-repo: an outsider reaches the lead, not the member"
-OUT=$("$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
+OUT=$(AO_AGENT_ID="$P2_RES" AO_CONSUMER="$P2" "$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
       --stage question --body "Can you review our adapter?" --task TM-999 --no-ring 2>&1)
 assert_contains "an unvouched outsider is redirected" "$OUT" "$P1_LEAD"
 OUTMSG=$(printf '%s' "$OUT" | json .id)
@@ -338,7 +338,7 @@ depth=$("$AO" status --run "$RUN_DIR" --json 2>&1 | node -e '
 # works if a forwarding sender actually passes the chain on, so the CLI has to carry it.
 long_via="a,b,c,d,e"
 assert_fails "a message that has already taken too many hops is refused" "TOPOLOGY_HOP_LIMIT" \
-  "$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_LEAD" \
+  AO_AGENT_ID="$P2_RES" AO_CONSUMER="$P2" "$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_LEAD" \
        --stage question --via "$long_via" --body "Round and round." --no-ring
 
 step "delegation: a token is a pointer, the receiving repo's store is the permission"
@@ -365,7 +365,7 @@ DTOKEN=$(printf '%s' "$issued" | json .token)
   && ok "the same delegation is issued once the store backs it" \
   || bad "the same delegation is issued once the store backs it" "$(printf '%s' "$issued" | head -c 300)"
 
-direct=$("$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
+direct=$(AO_AGENT_ID="$P2_RES" AO_CONSUMER="$P2" "$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
          --stage question --task TM-500 --token "$DTOKEN" \
          --body "Following up on TM-500." --no-ring 2>&1)
 assert_contains "the delegated outsider now reaches the member directly" "$direct" '"redirected": false'
@@ -376,7 +376,7 @@ assert_fails "work cannot be delegated to a coordinates_only agent" "TOPOLOGY_CO
 
 # Close the task in the store and the same token stops authorising anything, with no revocation step.
 sed -i 's/^status: "open"$/status: "done"/' "$P1/.bytedesk/task-management/tasks/TM-500-review-the-adapter.md"
-after=$("$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
+after=$(AO_AGENT_ID="$P2_RES" AO_CONSUMER="$P2" "$AO" send --run "$RUN_DIR" --from "$P2_RES" --from-project "$P2" --to "$P1_IMPL" \
         --stage question --task TM-500 --token "$DTOKEN" \
         --body "One more thing." --no-ring 2>&1)
 assert_contains "closing the task in the store revokes the delegation" "$after" "$P1_LEAD"

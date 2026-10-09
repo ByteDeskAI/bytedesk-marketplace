@@ -272,7 +272,8 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
     assert.deepEqual([recovery.action, recovery.attempts, recovery.last_error, recovery.next_retry_at], ['reused', 0, null, null], 'backoff resets once the lead answers');
 
     // Exactly once: more reconciles change nothing.
-    const inbox = () => ao(['mailbox', 'inbox', '--consumer', repos.destination, '--agent', dead.agent_id], env);
+    // TM-464: an inbox is read only as its own agent.
+    const inbox = () => ao(['mailbox', 'inbox', '--consumer', repos.destination, '--agent', dead.agent_id], { ...env, AO_AGENT_ID: dead.agent_id, AO_CONSUMER: repos.destination });
     assert.equal((await inbox()).length, 1);
     const settled = await readStandingMessage({ id: 'tm167-dead-managed', env });
     await sleep(5_000);

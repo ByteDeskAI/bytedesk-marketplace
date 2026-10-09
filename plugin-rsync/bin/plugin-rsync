@@ -148,20 +148,81 @@ export function installedDests(names, home = HOME) {
   return map;
 }
 
-export function rsyncArgs(src, dest) {
-  const args = ["-a", "--delete"];
+export function rsyncArgs(src, dest, extra = []) {
+  const args = ["-a", "--delete", ...extra];
   for (const e of EXCLUDES) args.push("--exclude", e);
   args.push(`${src}/`, `${dest}/`);
   return args;
 }
 
-function runRsync(src, dest, dry) {
-  const args = rsyncArgs(src, dest);
+function runRsync(src, dest, dry, extra = []) {
+  const args = rsyncArgs(src, dest, extra);
   if (dry) return { ok: true, dry: true, args };
   const r = spawnSync("rsync", args, { encoding: "utf8" });
   if (r.error?.code === "ENOENT") return { ok: false, err: "rsync is not on PATH" };
   if (r.status !== 0) return { ok: false, err: (r.stderr || r.stdout || `rsync exited ${r.status}`).trim() };
-  return { ok: true };
+  return { ok: true, stdout: r.stdout || "" };
+}
+
+export const HOSTS = ["claude", "grok", "codex"];
+const RELOAD_DIRS = new Set(["hooks", "skills", "commands", "agents", "monitors", ".claude-plugin", ".codex-plugin", ".grok-plugin"]);
+const RELOAD_FILES = new Set([".mcp.json", ".codex-mcp.json"]);
+const PROC_CODE_DIRS = new Set(["lib", "src", "dist"]);
+
+/** `./x`, `${CLAUDE_PLUGIN_ROOT}/x`, `${CODEX_PLUGIN_ROOT}/x` or `${PLUGIN_ROOT}/x` → `x`; anything else → null. */
+export function pluginRel(v) {
+  const m = typeof v === "string" && v.match(/^(?:\$\{(?:CLAUDE_PLUGIN_ROOT|CODEX_PLUGIN_ROOT|PLUGIN_ROOT)\}\/|\.\/)(.+)$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Plugin-relative files a long-running process is launched from: MCP servers
+ * (.mcp.json / .codex-mcp.json command + args) and monitors (monitors/monitors.json command
+ * strings, split on whitespace).
+ */
+export function processEntries(pluginDir) {
+  const out = new Set();
+  const add = (v) => {
+    const rel = pluginRel(v);
+    if (rel) out.add(rel);
+  };
+  for (const f of RELOAD_FILES) {
+    const doc = readJson(join(pluginDir, f), null);
+    const servers = doc?.mcpServers || doc || {};
+    for (const s of Object.values(servers)) {
+      [s?.command, ...(Array.isArray(s?.args) ? s.args : [])].forEach(add);
+    }
+  }
+  const monitors = readJson(join(pluginDir, "monitors", "monitors.json"), []);
+  for (const m of Array.isArray(monitors) ? monitors : []) {
+    if (typeof m?.command === "string") m.command.trim().split(/\s+/).forEach(add);
+  }
+  return out;
+}
+
+/**
+ * live | needs-reload for one plugin-relative changed path. `procs` is processEntries() of the plugin.
+ * ponytail: lib/src/dist are reload-worthy for any plugin with an MCP server or monitor, since we
+ * cannot tell which modules the process imported; a per-import graph would be the upgrade.
+ */
+export function classify(rel, procs = new Set()) {
+  const top = rel.split("/")[0];
+  if (RELOAD_DIRS.has(top) || RELOAD_FILES.has(rel) || procs.has(rel)) return "needs-reload";
+  if (procs.size && PROC_CODE_DIRS.has(top)) return "needs-reload";
+  return "live";
+}
+
+/** Parse `rsync -i` output into changed file paths (directories dropped; their files are listed). */
+export function parseItemized(stdout) {
+  const out = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/^(\S{9,11}) +(.+)$/);
+    if (!m || m[2].endsWith("/")) continue;
+    const code = m[1];
+    const path = code[1] === "L" ? m[2].replace(/ -> .*$/, "") : m[2];
+    out.push({ path, change: code === "*deleting" ? "deleted" : "updated" });
+  }
+  return out;
 }
 
 /**
@@ -171,12 +232,29 @@ function runRsync(src, dest, dry) {
  * Only `<plugin>@bytedesk` hooks are touched: this marketplace is the operator's own code.
  * ponytail: speaks app-server JSON-RPC by hand; a codex CLI verb for hook trust would replace it.
  */
-function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
+function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000, home = HOME } = {}) {
+  // One run at a time. The app-server this spawns may start plugin MCP servers, including ours,
+  // which would start another run: the lock ends that chain. A lock older than any run is stale.
+  const lock = join(home, ".codex", ".plugin-rsync-trust.lock");
+  try {
+    if (Date.now() - statSync(lock).mtimeMs > 2 * 60 * 1000) rmdirSync(lock);
+  } catch {}
+  try {
+    mkdirSync(lock, { recursive: false });
+  } catch (e) {
+    return Promise.resolve(e.code === "EEXIST" ? { ok: true, trusted: [], busy: true } : { ok: false, err: `lock: ${e.code}` });
+  }
+  const unlock = () => {
+    try {
+      rmdirSync(lock);
+    } catch {}
+  };
   return new Promise((done) => {
     let child;
     try {
       child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
+      unlock();
       return done({ ok: false, err: "codex not runnable" });
     }
     let settled = false;
@@ -185,6 +263,7 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000 } = {}) {
       settled = true;
       clearTimeout(timer);
       child.kill();
+      unlock();
       done(r);
     };
     const timer = setTimeout(() => finish({ ok: false, err: "codex app-server timed out" }), timeoutMs);
@@ -278,6 +357,8 @@ function help() {
 
   --list        print destinations, do not copy
   --dry-run     print rsync argv, do not copy
+  --json        machine-readable report (with --dry-run: rsync -n, so it previews
+                what would change and copies nothing). Report only; never reloads.
   install-cli   wrapper in ~/.local/bin (user-scope; never a project)
   trust-codex-hooks  trust every untrusted <plugin>@bytedesk hook in Codex (also run after each Codex sync)
   fix-grok-installs  reinstall Grok plugins sourced from a whole marketplace from their own folder
@@ -286,6 +367,18 @@ User-scope only. Do not add plugin-rsync@bytedesk to a repo's extraKnownMarketpl
 
 Source: BYTEDESK_MARKETPLACE, or the marketplace next to this plugin, or the
 directory-source bytedesk marketplace in ~/.claude/plugins/known_marketplaces.json.
+
+--json classifies each changed path (plugin-relative) by what a running session needs:
+  needs-reload  hooks/ skills/ commands/ agents/ monitors/, manifests
+                (.claude-plugin/ .codex-plugin/ .grok-plugin/), .mcp.json, .codex-mcp.json,
+                every file a long-running process starts from: the MCP server entry those
+                name (e.g. bin/tm-mcp) and each monitor command in monitors/monitors.json
+                (e.g. bin/tm-dashboard, bin/claude-sessions), and lib/ src/ dist/ when the
+                plugin declares an MCP server or a monitor (loaded once at process start)
+  live          everything else: bin/ CLIs that are not a server or monitor entry, and
+                code that only they load, run fresh per call
+  skipped       a host (claude, grok, codex) with no install of that plugin
+reloads_required lists, per host, the plugins with at least one needs-reload path.
 `;
 }
 
@@ -338,11 +431,12 @@ async function main(argv) {
   }
   if (argv[0] === "trust-codex-hooks") {
     const r = await trustCodexHooks();
-    console.log(r.ok ? `codex hooks trusted: ${r.trusted.length ? r.trusted.join(", ") : "none needed"}` : `codex hook trust skipped: ${r.err}`);
+    console.log(r.ok ? `codex hooks trusted: ${r.trusted.length ? r.trusted.join(", ") : r.busy ? "another run is trusting them" : "none needed"}` : `codex hook trust skipped: ${r.err}`);
     return r.ok ? 0 : 1;
   }
 
   const dry = argv.includes("--dry-run");
+  if (argv.includes("--json")) return mainJson(argv, dry);
   const listOnly = argv.includes("--list");
   const wanted = parseNames(argv);
   const market = marketplaceRoot();
@@ -405,6 +499,68 @@ async function main(argv) {
   }
   if (wanted.length && copies === 0 && failed === 0) return 2;
   return failed ? 1 : 0;
+}
+
+function mainJson(argv, dry) {
+  const listOnly = argv.includes("--list");
+  const wanted = parseNames(argv);
+  const fail = (error) => {
+    process.stdout.write(`${JSON.stringify({ ok: false, error }, null, 2)}\n`);
+    return 2;
+  };
+  const market = marketplaceRoot();
+  if (!market) return fail("cannot find the bytedesk marketplace source (set BYTEDESK_MARKETPLACE)");
+  const { names, sources } = catalog(market);
+  const selected = wanted.length ? wanted : names;
+  const unknown = selected.filter((n) => !names.includes(n));
+  if (unknown.length) return fail(`not in the marketplace: ${unknown.join(", ")}`);
+
+  const dests = installedDests(names);
+  const srcReal = real(market);
+  const reloads = Object.fromEntries(HOSTS.map((h) => [h, []]));
+  const plugins = [];
+  let copies = 0;
+  let failed = 0;
+
+  for (const name of selected) {
+    const src = sources[name];
+    const procs = processEntries(src);
+    const rows = (dests.get(name) || []).filter((d) => d.real !== real(src) && d.real !== srcReal);
+    const caches = [];
+    for (const row of rows) {
+      const cache = { host: row.host, path: row.dest, status: "ok", changed: false, paths: [] };
+      caches.push(cache);
+      if (listOnly) {
+        cache.status = "listed";
+        cache.changed = null;
+        continue;
+      }
+      const r = runRsync(src, row.dest, false, dry ? ["-i", "-n"] : ["-i"]);
+      if (!r.ok) {
+        Object.assign(cache, { status: "failed", changed: null, error: r.err });
+        failed += 1;
+        continue;
+      }
+      if (dry) cache.status = "dry-run";
+      copies += 1;
+      cache.paths = parseItemized(r.stdout).map((p) => ({ ...p, class: classify(p.path, procs) }));
+      cache.changed = cache.paths.length > 0;
+      if (cache.paths.some((p) => p.class === "needs-reload") && !reloads[row.host].includes(name)) {
+        reloads[row.host].push(name);
+      }
+    }
+    for (const host of HOSTS) {
+      if (!caches.some((c) => c.host === host)) {
+        caches.push({ host, path: null, status: "skipped", changed: false, paths: [], reason: "host not installed" });
+      }
+    }
+    plugins.push({ name, source: src, installed: rows.length > 0, caches });
+  }
+
+  const exit = listOnly ? 0 : wanted.length && copies === 0 && failed === 0 ? 2 : failed ? 1 : 0;
+  const report = { ok: exit === 0, dry_run: dry, list_only: listOnly, marketplace: market, plugins, reloads_required: reloads };
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  return exit;
 }
 
 const isMain = process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.url));

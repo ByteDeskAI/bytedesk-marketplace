@@ -1,7 +1,7 @@
 // TM-351 / TM-352: the receive side of standing mail. No tmux server is touched: every tmux call
 // goes through a stub, so nothing here can ring a real pane.
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,13 @@ import { agentsRoot } from '../../topology/lib/agents.mjs';
 import { writeJson } from '../../topology/lib/util.mjs';
 import { superviseRepository } from '../../topology/lib/supervision.mjs';
 import { initTempRepo } from '../helpers/temp-repo.mjs';
+
+// Hermetic without the suite preload: the file transport (the default is NATS, whose inbox never shows
+// an unpublished file record, so the ring would reach tmux, and whose client holds the process open),
+// no inherited session identity, and every live transport closed so the process exits.
+for (const key of ['AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION_AGENT_ID', 'AO_SESSION_CONSUMER', 'CLAUDE_CODE_SESSION_ID']) delete process.env[key];
+Object.assign(process.env, { AO_TRANSPORT: 'file', AO_NATS_AUTOSTART: '0' });
+after(async () => { const { closeLiveTransports } = await import('../../topology/lib/orch-transport.mjs'); await closeLiveTransports(); });
 
 const READY = { status: 'responsive', record: { agent_id: 'lead0001' }, library_lead: 'lead0001' };
 const BINDING = { serverKey: '/tmp/ao-test-never-a-real-socket', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%9', panePid: 2 };
@@ -31,7 +38,7 @@ async function fixture(t, { seed = true } = {}) {
   // TM-419: the ring only rings mail delivered after it first ran here, so seed it unless a test
   // wants the backlog case.
   if (seed) assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), []);
-  return { consumer, env, home, opts, send, adapters, panes };
+  return { consumer, source, env, home, opts, send, adapters, panes };
 }
 
 /** A pane whose composer is empty unless `full()` says otherwise; records every typed pointer. */
@@ -63,7 +70,7 @@ test('TM-351: delivered standing mail rings an idle recipient once, with no inbo
   assert.match(bell.typed[0], /m-idle/);
   assert.match(bell.typed[0], /ao-topology mailbox inbox --consumer \S+ --agent lead0001/);
   assert.doesNotMatch(bell.typed[0], /SECRET/, 'the ring is a pointer, never the body');
-  assert.deepEqual(await listMailboxReceipts({ consumer, env, home }), [], 'the recipient never read its inbox');
+  assert.deepEqual(await listMailboxReceipts({ consumer, env, home , allAgents: true }), [], 'the recipient never read its inbox');
   // Idempotent across ticks and across a supervisor restart: the marker is on disk.
   assert.deepEqual(await ringStandingMail({ consumer, env, home, adapters, panes, ringDeps: forbidden }), []);
 });
@@ -91,14 +98,17 @@ test('TM-351: mail with no live pane is held, and mail already read is never run
 });
 
 test('TM-352: wait returns the reply, times out naming the message, and refuses an unknown id', async t => {
-  const { consumer, env, home, send } = await fixture(t);
+  const { consumer, source, env, home, send } = await fixture(t);
   await send('m-wait');
-  const timeout = await waitForStandingReply({ id: 'm-wait', timeoutMs: 50, pollMs: 10, env, home });
+  const caller = { agent: 'send0001', consumer: source }; // TM-465: the sender is the one who waits
+  await assert.rejects(waitForStandingReply({ id: 'm-wait', timeoutMs: 50, env, home }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
+  await assert.rejects(waitForStandingReply({ id: 'm-wait', caller: { ...caller, agent: 'someone-else' }, timeoutMs: 50, env, home }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  const timeout = await waitForStandingReply({ id: 'm-wait', caller, timeoutMs: 50, pollMs: 10, env, home });
   assert.equal(timeout.ok, false);
   assert.equal(timeout.code, 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT');
   assert.match(timeout.message, /m-wait/);
-  await assert.rejects(waitForStandingReply({ id: 'no-such-id', timeoutMs: 50, env, home }), { code: 'TOPOLOGY_MESSAGE_NOT_FOUND' });
-  const waiting = waitForStandingReply({ id: 'm-wait', timeoutMs: 5000, pollMs: 20, env, home });
+  await assert.rejects(waitForStandingReply({ id: 'no-such-id', caller, timeoutMs: 50, env, home }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  const waiting = waitForStandingReply({ id: 'm-wait', caller, timeoutMs: 5000, pollMs: 20, env, home });
   await recordStandingReply({ consumer, messageId: 'm-wait', agentId: 'lead0001', body: 'the answer', home,
     env: { ...env, AO_AGENT_ID: 'lead0001', AO_CONSUMER: consumer } });
   const answered = await waiting;
@@ -122,11 +132,11 @@ test('TM-351: the supervisor tick rings delivered standing mail (wiring, no tmux
 });
 
 test('TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 on an unknown id, 0 with the reply', async t => {
-  const { consumer, env, home, send } = await fixture(t);
+  const { consumer, source, env, home, send } = await fixture(t);
   await send('m-cli');
   const { spawnSync } = await import('node:child_process');
   const cli = (...args) => spawnSync(process.execPath, [join(process.cwd(), 'topology/cli.mjs'), 'mailbox', 'wait', ...args, '--consumer', consumer, '--json'],
-    { env: { ...process.env, ...env, HOME: home, TMUX: '' }, encoding: 'utf8' });
+    { env: { ...process.env, ...env, HOME: home, TMUX: '', AO_AGENT_ID: 'send0001', AO_CONSUMER: source }, encoding: 'utf8' });
   const timeout = cli('m-cli', '--timeout', '100ms', '--poll', '20ms');
   assert.equal(timeout.status, 2, timeout.stderr);
   assert.equal(JSON.parse(timeout.stdout).code, 'TOPOLOGY_MAILBOX_WAIT_TIMEOUT');
@@ -134,7 +144,7 @@ test('TM-352: ao-topology mailbox wait exits 2 naming the message on timeout, 1 
   const unknown = cli('no-such-id', '--timeout', '100ms');
   assert.equal(unknown.status, 1);
   assert.equal(JSON.parse(unknown.stdout).ok, false);
-  assert.equal(JSON.parse(unknown.stdout).code, 'TOPOLOGY_MESSAGE_NOT_FOUND');
+  assert.equal(JSON.parse(unknown.stdout).code, 'TOPOLOGY_SENDER_MISMATCH');
   await recordStandingReply({ consumer, messageId: 'm-cli', agentId: 'lead0001', body: 'cli answer', home, env: { ...env, AO_AGENT_ID: 'lead0001', AO_CONSUMER: consumer } });
   const answered = cli('m-cli', '--timeout', '5s');
   assert.equal(answered.status, 0, answered.stderr);
