@@ -19,7 +19,7 @@ import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
-import { COMPARE, fakeGh, ghShim, serverCompare } from '../helpers/fake-server.mjs';
+import { COMPARE, fakeGh, ghShim, pinOrigin, serverCompare } from '../helpers/fake-server.mjs';
 
 const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
 // TM-442: the protected management keys (autonomy, release, cutover, required_checks) are honoured only
@@ -346,6 +346,22 @@ test('TM-442 required checks set only in a worker-writable layer are not honoure
   const gate = await integrationEligibility(opts);
   assert.ok(gate.refusals.some(r => r.condition === 'config' && /required_checks .*server's default branch/.test(r.reason)), JSON.stringify(gate.refusals));
   await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
+});
+
+test('TM-469 integrate_via and target_branch set only in worker-writable layers are ignored with a warning by integrate and record-landing', async t => {
+  const { opts, finish, server } = await fixture(t);
+  await admitTask(opts); await finish();
+  const { target_branch: _, ...committed } = (await readJson(join(opts.pluginRoot, 'config.defaults.json'))).management;
+  server.document = { management: committed }; // the server's default branch names no target branch and no integrate_via
+  await writeJson(join(opts.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json'), { management: { integrate_via: 'pull-request' } });
+  await writeJson(join(opts.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { target_branch: 'main' } });
+  const gate = await integrationEligibility(opts);
+  assert.ok(gate.refusals.some(r => r.condition === 'config' && /configure management.target_branch/.test(r.reason)), JSON.stringify(gate.refusals));
+  assert.ok(gate.config_warnings.some(w => /management\.target_branch in .*repo .*ignored/.test(w)), gate.config_warnings.join('\n'));
+  assert.ok(gate.config_warnings.some(w => /management\.integrate_via in global .*ignored/.test(w)), gate.config_warnings.join('\n'));
+  // The PR path would have asked gh for the task's PR; the governed path never takes it.
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /configure management.target_branch/ });
+  await assert.rejects(recordLanding({ ...opts, reason: 'landed by hand' }), { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: /Configure management.target_branch/ });
 });
 
 test('TM-442 integrate refuses a landing that changes management in the committed repository config', async t => {
@@ -1426,6 +1442,7 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
   const origin = join(f.opts.consumer, '..', 'origin.git');
   await run('git', ['clone', '-q', '--bare', f.opts.consumer, origin]);
   await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await pinOrigin(f.opts.consumer, f.opts, origin); // TM-472: the local bare origin stands in for o/r
   await f.git(f.opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
   await registerAgent(f.opts.consumer, 'lead-1');
   const granted = grant === null ? null : await planGrant(f.opts, grant);
@@ -1444,6 +1461,8 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
     if (noun === 'repo' && verb === 'view') return ok({ nameWithOwner: state.repo, defaultBranchRef: { name: 'main' } });
     const compared = noun === 'api' && COMPARE.exec(verb);
     if (compared) return ok({ status: serverCompare(origin, compared[1], compared[2]) });
+    // TM-469: integrate_via and target_branch come from the server's committed policy, as the fixture serves it.
+    if (noun === 'api' && verb === SERVER_POLICY_API) return fixtureServer(f.opts.pluginRoot, f.server, f.opts.consumer)(args);
     if (noun !== 'pr') return { code: 1, stdout: '', stderr: 'unexpected' };
     if (!args.includes('--repo') || args[args.indexOf('--repo') + 1] !== 'o/r') return { code: 1, stdout: '', stderr: `gh pr ${verb} without --repo o/r` };
     if (verb === 'list') return ok([pr]);
@@ -1469,6 +1488,17 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
   return { ...f, admitted, revision, base, origin, pr, state, gh, lead, grant: granted, closed, mergeInOrigin, attest };
 }
 const merges = state => state.argv.filter(a => a[1] === 'merge');
+// TM-469: with the server unreadable, integrate_via is unknown, so integrate never takes the PR path; the
+// fast-forward gate blocks instead, naming every reason, and nothing is merged or recorded.
+async function blockedAs(p, options, ...messages) {
+  await assert.rejects(integrateTask(options), err => {
+    assert.equal(err.code, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', err.message);
+    for (const message of messages) assert.match(err.message, message);
+    return true;
+  });
+  assert.deepEqual(merges(p.state), [], 'a refusal never reaches gh pr merge');
+  assert.equal((await managementStatus(p.opts)).management.merge, undefined, 'a refusal records nothing');
+}
 async function refusedAs(p, options, condition, message) {
   await assert.rejects(integrateTask(options), err => {
     assert.equal(err.code, 'TOPOLOGY_INTEGRATE_REFUSED', err.message);
@@ -1727,7 +1757,7 @@ const withServer = (p, server) => async args => {
   if (server.down) return { code: 1, stdout: '', stderr: 'error connecting to api.github.com' };
   if (args[0] === 'repo') return { code: 0, stdout: JSON.stringify({ nameWithOwner: server.repo || 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
   if (args.join(' ') !== POLICY_API.join(' ')) return { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` };
-  const content = Buffer.from(JSON.stringify({ management: { target_branch: 'main', ...(server.policy ? { lead_autonomy: server.policy } : {}) } })).toString('base64');
+  const content = Buffer.from(JSON.stringify({ management: { target_branch: 'main', integrate_via: 'pull-request', ...(server.policy ? { lead_autonomy: server.policy } : {}) } })).toString('base64');
   return { code: 0, stdout: JSON.stringify({ content, encoding: 'base64' }), stderr: '' };
 };
 const policyTask = async (t, server, management = {}) => { const p = await prTask(t, { grant: null, management }); return { ...p, lead: { ...p.lead, gh: withServer(p, server) } }; };
@@ -1737,7 +1767,7 @@ test('TM-263 (d) with the server policy naming the lead, integrate merges withou
   const result = await integrateTask(p.lead);
   const VIEW = ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'];
   assert.deepEqual(p.state.argv, [
-    VIEW, POLICY_API, VIEW, POLICY_API, VIEW,
+    VIEW, POLICY_API, VIEW, POLICY_API, VIEW, POLICY_API, VIEW, // TM-469: integrate reads integrate_via from the server too
     ['pr', 'list', '--repo', 'o/r', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
     ['pr', 'checks', '7', '--repo', 'o/r', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--repo', 'o/r', '--json', 'name,state,bucket'],
     ['pr', 'merge', '7', '--repo', 'o/r', '--merge', '--match-head-commit', p.revision],
@@ -1769,7 +1799,7 @@ test('TM-263 (e) a lead_autonomy policy only in the LOCAL config is ignored: a g
 
 test('TM-263 (f) the server unavailable fails closed to grant-required', async t => {
   const p = await policyTask(t, { policy: LEAD_POLICY, down: true });
-  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  await blockedAs(p, p.lead, /managed agent session needs a valid standing delegation/, /configure management.target_branch/);
 });
 
 test('TM-263 (g) a server policy naming a different lead, or not the integrate scope, needs a grant', async t => {
@@ -1813,13 +1843,12 @@ test('TM-263 (i) after pinning, a repointed remote or gh default refuses integra
   const p = await policyTask(t, server);
   await pinnedGithubRepo(p.opts.consumer, p.lead.gh, { env: p.opts.env, home: p.opts.home });
   server.repo = 'attacker/r'; // what `git remote set-url` or `gh repo set-default` would make gh answer
-  await refusedAs(p, p.lead, 'repository', /pinned to o\/r/);
-  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  await blockedAs(p, p.lead, /pinned to o\/r/, /managed agent session needs a valid standing delegation/);
   assert.ok(!p.state.argv.some(a => a[0] === 'pr' || (a[0] === 'api' && !a[1].startsWith('repos/o/r/'))), 'nothing was asked of the other repository');
 });
 
 test('TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead', async t => {
-  const serverGh = (lead, f) => fakeGh(f.opts.consumer, { fallback: async () => ({ code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' }) });
+  const serverGh = (lead, f) => fakeGh(f.opts.consumer, { fallback: async () => ({ code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { target_branch: 'main', lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' }) });
   const refused = await leadServer(t, 'landed');
   await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2', refused), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
   assert.equal((await managementStatus(refused.opts)).management.merge, undefined, 'nothing recorded by a refusal');
@@ -1959,7 +1988,9 @@ test("TM-349: admission is refused only when no integration branch candidate res
   await withTarget(opts, "absent-target");
   // TM-349 is about the candidates when no server answers; the shared fixture's GitHub server (TM-441) would
   // supply a default branch, so this test runs without one, as it did before TM-441.
-  const offline = { ...opts, gh: NO_SERVER_GH };
+  // TM-469: target_branch is honoured only from the server's committed policy, so the policy read still
+  // answers; the default-branch lookup (`repo view --jq`) and every other server call do not.
+  const offline = { ...opts, gh: args => (args[0] === 'api' && args[1] === SERVER_POLICY_API) || (args[0] === 'repo' && !args.includes('--jq')) ? opts.gh(args) : NO_SERVER_GH() };
   await assert.rejects(admitTask({ ...offline, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
   await withTarget(opts, null);
   await assert.rejects(admitTask(offline), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });
@@ -2222,6 +2253,7 @@ async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhe
   Object.assign(fx.server.management, { autonomy: 'publish', release: { branch: 'main', argv: ['scripts/release.sh', 'start'], verify_argv: ['scripts/release.sh', 'verify'], teamcity: { build_type: 'Rel' } } });
   await run('git', ['init', '-q', '--bare', join(root, 'origin.git')]);
   await git(opts.consumer, ['remote', 'add', 'origin', join(root, 'origin.git')]);
+  await pinOrigin(opts.consumer, opts, join(root, 'origin.git')); // TM-472: the local bare origin stands in for o/r
   await admitTask(opts); await finish(); await integrateTask(opts);
   await git(opts.consumer, ['push', '-q', 'origin', 'main']);
   if (origin) doc.origin = origin;
@@ -2540,6 +2572,7 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   await mkdir(f.opts.home, { recursive: true });
   await run('git', ['init', '-q', '--bare', origin]);
   await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await pinOrigin(f.opts.consumer, f.opts, origin); // TM-472: the local bare origin stands in for o/r
   await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
   // Somebody else merges the task on the server; the local main never hears of it.
   const elsewhere = join(f.opts.home, 'elsewhere');
@@ -2553,6 +2586,82 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
   assert.equal(recorded.merge.landed, landed);
   assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
+});
+
+// TM-472: host fetches never read a remote.origin.url a worker repointed. The fixture's repository is
+// pinned to GitHub o/r (admission resolved it), and a local bare origin stands in for the server.
+async function repointedLanding(t, { operatorPin }) {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  await mkdir(f.opts.home, { recursive: true });
+  const origin = join(f.opts.home, 'origin.git'), evil = join(f.opts.home, 'evil.git'), elsewhere = join(f.opts.home, 'elsewhere');
+  await run('git', ['init', '-q', '--bare', origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
+  await run('git', ['clone', '-q', '-b', 'main', origin, elsewhere]);
+  await f.git(elsewhere, ['fetch', '-q', f.opts.consumer, revision]);
+  await f.git(elsewhere, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'server merge of TM-1', revision]);
+  await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
+  const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+  await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
+  if (operatorPin) await pinOrigin(f.opts.consumer, f.opts, origin);
+  // The worker serves a fast-forward of the landing with its own commit on top, and repoints origin at it.
+  await run('git', ['clone', '-q', '--bare', origin, evil]);
+  await f.git(elsewhere, [...COMMIT.slice(0, 4), 'commit', '-q', '--allow-empty', '-m', 'worker payload']);
+  const payload = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+  await f.git(elsewhere, ['push', '-q', evil, 'main']);
+  await f.git(f.opts.consumer, ['remote', 'set-url', 'origin', `file://${evil}`]);
+  await f.git(f.opts.consumer, ['checkout', '-q', '-b', 'side']); // main is not checked out: the host fetches main:main
+  f.server.repo = origin;
+  const before = (await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim();
+  const land = () => recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
+  const readPayload = async () => (await run('git', ['-C', f.opts.consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code === 0;
+  return { f, landed, before, land, readPayload };
+}
+
+test('TM-472: with an operator pin, record-landing fetches the pinned origin, never a file:// origin a worker repointed it to', async t => {
+  const { f, landed, land, readPayload } = await repointedLanding(t, { operatorPin: true });
+  assert.equal((await land()).merge.landed, landed);
+  assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local main is the pinned origin\'s main, not the worker\'s');
+  assert.equal(await readPayload(), false, 'nothing was read from the worker\'s repository');
+});
+
+test('TM-472 review M1: with only the GitHub pin, the first host fetch after a repoint refuses and pins nothing', async t => {
+  const { f, before, land, readPayload } = await repointedLanding(t, { operatorPin: false });
+  await assert.rejects(land(), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /file:\/\/.*not the pinned GitHub repository o\/r/ });
+  assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), before, 'main did not move');
+  assert.equal(await readPayload(), false, 'nothing was read from the worker\'s repository');
+  const { canonicalRepoId: id } = await import('../../topology/lib/repoid.mjs');
+  const pin = join(f.opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'repositories', `${repoKey((await id(f.opts.consumer)).id)}.origin.json`);
+  await assert.rejects(readFile(pin), { code: 'ENOENT' }, 'the refused origin was not recorded as the pin');
+  assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing was recorded');
+});
+
+test('TM-472 review M1: pinnedFetchUrl accepts only the pinned GitHub repository, and pins a local origin only from the main checkout', async t => {
+  const { githubRepoOfUrl, pinnedFetchUrl } = await import('../../topology/lib/repoid.mjs');
+  const { opts, git } = await fixture(t);
+  const io = { env: opts.env, home: opts.home };
+  // No GitHub pin yet (no admission ran): a linked worktree never records the origin; the main checkout does.
+  const local = join(opts.home, 'local.git'); await mkdir(opts.home, { recursive: true });
+  await run('git', ['init', '-q', '--bare', local]);
+  await git(opts.consumer, ['remote', 'add', 'origin', local]);
+  const wt = join(opts.home, 'wt'); await git(opts.consumer, ['worktree', 'add', '-q', '--detach', wt]);
+  await assert.rejects(pinnedFetchUrl(wt, io), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /only from the main checkout/ });
+  assert.equal(await pinnedFetchUrl(opts.consumer, io), local);
+  await git(opts.consumer, ['remote', 'set-url', 'origin', 'file:///elsewhere.git']);
+  assert.equal(await pinnedFetchUrl(wt, io), local, 'once recorded, the pin is read from anywhere and a repoint does not move it');
+  // A GitHub-pinned repository: origin must name that repository on github.com, by any protocol.
+  const g = await fixture(t);
+  await pinnedGithubRepo(g.opts.consumer, g.opts.gh, { env: g.opts.env, home: g.opts.home });
+  const gio = { env: g.opts.env, home: g.opts.home };
+  await g.git(g.opts.consumer, ['remote', 'add', 'origin', 'git@github.com:o/r.git']);
+  assert.equal(await pinnedFetchUrl(g.opts.consumer, gio), 'git@github.com:o/r.git');
+  await g.git(g.opts.consumer, ['remote', 'set-url', 'origin', 'https://github.com/attacker/r.git']);
+  await assert.rejects(pinnedFetchUrl(g.opts.consumer, gio), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /attacker\/r.*not the pinned GitHub repository o\/r/ });
+  for (const url of ['https://github.com/o/r.git', 'https://github.com/o/r', 'https://x-access-token:t@github.com/o/r.git', 'git@github.com:o/r.git', 'ssh://git@github.com/o/r.git', 'ssh://git@github.com:22/o/r'])
+    assert.equal(githubRepoOfUrl(url), 'o/r', url);
+  for (const url of ['file:///tmp/o/r.git', '/tmp/o/r.git', 'https://github.com.evil.example/o/r.git', 'https://evil.example/github.com/o/r.git', 'git@evil.example:o/r.git'])
+    assert.equal(githubRepoOfUrl(url), null, url);
 });
 
 test('TM-247 AC8: manage close records the landing, stops the worker, cleans up and closes, in that order', async t => {
@@ -2662,4 +2771,54 @@ test('TM-472 record-landing refuses a landing that is only on a worker-forged or
   await assert.rejects(recordLanding({ ...f.opts, authorized: true, actor: 'operator', reason: 'PR merged', landed: fake, reviewGate: fullReview(admitted.record, revision) }),
     { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: /not on the configured target branch main on the server \(compare says diverged\)/ });
   assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing recorded');
+});
+
+// TM-472 review round 2, item 1: a release fetch can run before any GitHub pin exists. Recording a
+// github.com origin then would outrank the GitHub pin made later, so such an origin is never recorded.
+test('TM-472 review: a github.com origin fetched before the GitHub pin exists is used but never recorded', async t => {
+  const { pinnedFetchUrl } = await import('../../topology/lib/repoid.mjs');
+  const { opts, git } = await fixture(t); // no admission ran, so there is no GitHub pin
+  const io = { env: opts.env, home: opts.home };
+  const pin = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'repositories', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.origin.json`);
+  await git(opts.consumer, ['remote', 'add', 'origin', 'https://github.com/o/r.git']);
+  assert.equal(await pinnedFetchUrl(opts.consumer, io), 'https://github.com/o/r.git');
+  await assert.rejects(readFile(pin), { code: 'ENOENT' }, 'a github.com origin was recorded before the GitHub pin');
+  // Once the GitHub pin exists, it decides: a repoint is refused, not read from a stale record.
+  await pinnedGithubRepo(opts.consumer, opts.gh, io);
+  await git(opts.consumer, ['remote', 'set-url', 'origin', 'https://github.com/attacker/r.git']);
+  await assert.rejects(pinnedFetchUrl(opts.consumer, io), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /not the pinned GitHub repository o\/r/ });
+});
+
+// TM-475 review M2: url.*.insteadOf in the operator's own ~/.gitconfig (the scope safe-git honours) would
+// still send a pinned fetch elsewhere. fetchPinned asks git which URL it would use and refuses a rewrite.
+// The global file is the passwd home's, so the child process stands a fake home in for os.userInfo().
+test('TM-475 review M2: fetchPinned refuses a pinned URL that url.*.insteadOf in the global config rewrites', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-insteadof-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, 'repo'), origin = join(root, 'origin.git'), evil = join(root, 'evil.git'), fakeHome = join(root, 'passwd-home');
+  const id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+  await run('git', ['init', '-q', '-b', 'main', consumer]);
+  await run('git', ['-C', consumer, ...id, 'commit', '-q', '--allow-empty', '-m', 'base']);
+  await run('git', ['clone', '-q', '--bare', consumer, origin]);
+  await run('git', ['clone', '-q', '--bare', consumer, evil]);
+  const work = join(root, 'evil-work');
+  await run('git', ['clone', '-q', evil, work]);
+  await run('git', ['-C', work, ...id, 'commit', '-q', '--allow-empty', '-m', 'worker payload']);
+  await run('git', ['-C', work, 'push', '-q', 'origin', 'main']);
+  const payload = (await run('git', ['-C', work, 'rev-parse', 'HEAD'])).stdout.trim();
+  await run('git', ['-C', consumer, 'remote', 'add', 'origin', origin]);
+  await mkdir(fakeHome);
+  await writeFile(join(fakeHome, '.gitconfig'), `[url "${evil}"]\n\tinsteadOf = ${origin}\n`);
+  const env = { ...operatorEnv(), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+  const management = new URL('../../topology/lib/management.mjs', import.meta.url).href;
+  const script = `
+    import os from 'node:os'; import { syncBuiltinESMExports } from 'node:module';
+    const real = os.userInfo; os.userInfo = (...a) => ({ ...real(...a), homedir: ${JSON.stringify(fakeHome)} }); syncBuiltinESMExports();
+    const { fetchPinned } = await import(${JSON.stringify(management)});
+    const r = await fetchPinned(${JSON.stringify(consumer)}, ['+refs/heads/main:refs/remotes/origin/main'], { env: ${JSON.stringify(env)}, home: ${JSON.stringify(join(root, 'home'))}, allowFailure: true });
+    process.stdout.write(JSON.stringify({ code: r.code, stderr: r.stderr }));`;
+  const child = await run(process.execPath, ['--input-type=module', '-e', script], { env });
+  const result = JSON.parse(child.stdout);
+  assert.notEqual(result.code, 0, `the rewritten fetch ran: ${child.stdout}`);
+  assert.match(result.stderr, /rewrites the pinned fetch URL .*insteadOf/);
+  assert.notEqual((await run('git', ['-C', consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code, 0, 'nothing was read from the rewritten URL');
 });

@@ -30,6 +30,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../store.mjs";
 import { branchName } from "../worktree.mjs";
+import { pidsOf } from "../worker-identity.mjs";
 
 export const name = "tmux";
 
@@ -72,6 +73,10 @@ export function workerEnv(req) {
     TM_DISPATCH_BRANCH: req.branch,
     // TM-235: the PR base the worker guard requires on `gh pr create` — see ../worker-guard.mjs.
     TM_DISPATCH_INTEGRATION_BRANCH: req.integrationBranch,
+    // TM-481: a governed worker is refused every merge; the guard also reads the task and the record.
+    TM_DISPATCH_GOVERNED: req.governed ? "1" : undefined,
+    // TM-481: the only repository this worker's merge may resolve to (`owner/repo`).
+    TM_DISPATCH_REPO: req.repo,
   }).filter(([, v]) => v);
 }
 
@@ -218,7 +223,8 @@ export const PASS_ENV_WRAPPER = ["sh", "-c", 'f="$1"; shift; . "$f"; rm -rf "$(d
 export function argvFor(req, tmuxCommand = null) {
   const { task, worktree, prompt, envFile = null } = req;
   const command = Array.isArray(tmuxCommand) && tmuxCommand.length ? tmuxCommand : DEFAULT_COMMAND;
-  const args = ["new-session", "-d", "-s", sessionName(task.id), "-c", worktree];
+  // -P -F prints the pane pid: the dispatch-ancestry anchor (TM-470, ../worker-identity.mjs).
+  const args = ["new-session", "-d", "-s", sessionName(task.id), "-c", worktree, "-P", "-F", "#{pane_pid}"];
   // Who the worker works for, in the environment — the same variables lib/actor.mjs
   // reads, so the worker's claims and events land under the dispatching session —
   // and the worker marker, which a configured tmuxCommand gets too.
@@ -256,5 +262,5 @@ export function spawn(req, { spawnImpl = spawnSync, writeImpl = writeFileSync } 
   if (res.status !== 0) {
     return { ok: false, reason: `tmux new-session exited ${res.status}: ${String(res.stderr || "").trim()}`, detail: { args, ...passEnv } };
   }
-  return { ok: true, run: `tmux:${sessionName(req.task.id)}`, detail: { args, promptFile: file, ...passEnv } };
+  return { ok: true, run: `tmux:${sessionName(req.task.id)}`, anchors: pidsOf(String(res.stdout || "").split("\n")), detail: { args, promptFile: file, ...passEnv } };
 }
