@@ -21,7 +21,7 @@ import { killEnvServer, refuseOperatorSocket } from '../helpers/isolated-tmux.mj
 import { leadRecoveryStatus } from '../../topology/lib/lead-recovery.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { lockOwner, processIdentity } from '../../topology/lib/lockfile.mjs';
-import { readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
+import { readStandingInbox, readStandingMessage } from '../../topology/lib/standing-mailbox.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
 import { readJson, sleep, writeJson } from '../../topology/lib/util.mjs';
 
@@ -145,9 +145,11 @@ async function panes(env, socket) {
   return stdout.split('\n').filter(Boolean).map((line) => Object.fromEntries(line.split('|').map((value, i) => [TUPLE[i], value])));
 }
 
-// TM-356: mailbox send takes its sender from the session identity, so send as the source lead.
-function asSourceLead(env, repos, leads) {
-  return { ...env, AO_AGENT_ID: leads.source.agent_id, AO_CONSUMER: repos.source };
+// TM-356: mailbox send takes its sender from the session identity. TM-462B: acting as the source
+// lead needs that lead's proven pane, so the sender is a source worker; recovery is the destination's.
+const SOURCE_SENDER = 'source-worker';
+function asSourceSender(env, repos) {
+  return { ...env, AO_AGENT_ID: SOURCE_SENDER, AO_CONSUMER: repos.source };
 }
 
 async function world(t, { enrolled = ['source', 'destination'] } = {}) {
@@ -202,7 +204,7 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
 test('held mail to an unenrolled destination never starts a lead or a supervisor there', { skip: !hasTmux, timeout: 240_000 }, async (t) => {
   const { env, repos, leads, recordPath } = await world(t, { enrolled: ['source'] });
   const sent = await ao(['mailbox', 'send', '--consumer', repos.destination, '--from-project', repos.source,
-    '--from', leads.source.agent_id, '--to', 'anyone', '--id', 'tm167-unenrolled', '--body', 'PING an unenrolled repository'], asSourceLead(env, repos, leads));
+    '--from', SOURCE_SENDER, '--to', 'anyone', '--id', 'tm167-unenrolled', '--body', 'PING an unenrolled repository'], asSourceSender(env, repos));
   assert.deepEqual([sent.status, sent.reason, sent.recovery], ['held', 'destination_not_enrolled', undefined]);
   // Several reconciles of the enrolled source's supervisor, which must not reach across either.
   await sleep(6_000);
@@ -247,7 +249,7 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
     assert.ok(!(await panes(env, socket)).some((pane) => pane.pane_pid === String(dead.binding.panePid)), 'the destination lead is really gone');
 
     const sent = await ao(['mailbox', 'send', '--consumer', repos.destination, '--from-project', repos.source,
-      '--from', leads.source.agent_id, '--to', dead.agent_id, '--id', 'tm167-dead-managed', '--body', 'PING across repositories'], asSourceLead(env, repos, leads));
+      '--from', SOURCE_SENDER, '--to', dead.agent_id, '--id', 'tm167-dead-managed', '--body', 'PING across repositories'], asSourceSender(env, repos));
     assert.equal(sent.status, 'held');
     assert.equal(sent.reason, 'leads_not_ready');
     assert.equal(sent.readiness.destination, 'registered', 'held because the destination lead is dead');
@@ -274,8 +276,9 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
     assert.deepEqual([recovery.action, recovery.attempts, recovery.last_error, recovery.next_retry_at], ['reused', 0, null, null], 'backoff resets once the lead answers');
 
     // Exactly once: more reconciles change nothing.
-    // TM-464: an inbox is read only as its own agent.
-    const inbox = () => ao(['mailbox', 'inbox', '--consumer', repos.destination, '--agent', dead.agent_id], { ...env, AO_AGENT_ID: dead.agent_id, AO_CONSUMER: repos.destination });
+    // TM-464/TM-462B: the CLI inbox is read only by the lead from its own pane, so the test reads the
+    // host-local view directly; it is the same record set the CLI would show.
+    const inbox = () => readStandingInbox({ consumer: repos.destination, agent: dead.agent_id, env: { AO_TRANSPORT: 'file', ...env } });
     assert.equal((await inbox()).length, 1);
     const settled = await readStandingMessage({ id: 'tm167-dead-managed', env });
     await sleep(5_000);
@@ -299,7 +302,7 @@ test('a live unresponsive lead is left running, unrestarted and unduplicated, wh
 
   // Nobody answers a probe in this test.
   const sent = await ao(['mailbox', 'send', '--consumer', repos.destination, '--from-project', repos.source,
-    '--from', leads.source.agent_id, '--to', lead.agent_id, '--id', 'tm167-unresponsive', '--body', 'PING a busy lead'], asSourceLead(env, repos, leads));
+    '--from', SOURCE_SENDER, '--to', lead.agent_id, '--id', 'tm167-unresponsive', '--body', 'PING a busy lead'], asSourceSender(env, repos));
   assert.equal(sent.reason, 'leads_not_ready');
   assert.equal(sent.readiness.destination, 'unresponsive');
 

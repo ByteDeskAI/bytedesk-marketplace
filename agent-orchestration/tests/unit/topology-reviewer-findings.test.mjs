@@ -15,7 +15,8 @@ import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewS
 import { submitVerdict } from '../helpers/review-submit.mjs';
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 20 };
+// TM-427: panePid is this process, so the real pane-ancestry proof passes for the fixture reviewer.
+const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: process.pid };
 const finding = (extra = {}) => ({ severity: 'minor', file: 'src/a.js', line: 2, claim: 'Name is unclear.', evidence: 'Line 2 adds `x`.', fix: 'Rename it.', ...extra });
 const requestPath = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
 const verdictFile = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'verdicts', `TM-1-${f.revision}.json`);
@@ -43,7 +44,7 @@ async function fixture(t, reviewerBinding = binding, changed = ['src/a.js'], cli
   await writeJson(managementPath, { started: true, task: 'TM-1', owner: 'author', repo_id: identity.id, base_revision: base, finish: { revision } });
   const f = { consumer, pluginRoot, home, env, revision, base, root };
   const { record } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', pane: reviewerBinding.paneId, binding: reviewerBinding }) } });
-  const args = { ...f, task: 'TM-1', reviewerId: record.agent_id, authorAgentIds: ['author'], env: { ...env, AO_AGENT_ID: record.agent_id } };
+  const args = { ...f, task: 'TM-1', reviewerId: record.agent_id, authorAgentIds: ['author'], alive: async () => true };
   return { ...f, record, args };
 }
 

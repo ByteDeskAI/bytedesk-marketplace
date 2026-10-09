@@ -118,7 +118,10 @@ async function roleFixture(t) {
       const ackEnv={...env,AO_AGENT_ID:record.agent_id};
       const ready=role==='lead'
         ? await responsiveForTest(record,500,{registryDir:leadRegistryDir(env,home),wake:async(_record,nonce)=>leadNonceAck({...options,nonce,env:ackEnv})})
-        : await reviewerProbeReady({...options,record,timeoutMs:500,wake:async()=>{},output:async()=>'',onProbe:async probe=>reviewerNonceAck({...options,nonce:probe.nonce,env:ackEnv})});
+        : await reviewerProbeReady({...options,record,timeoutMs:500,wake:async()=>{},output:async()=>'',onProbe:async probe=>reviewerNonceAck({...options,nonce:probe.nonce,env:ackEnv,
+          // TM-427: the ack must come from inside the reviewer pane; this fixture's panes run a shell, not
+          // this test, so start the ancestry walk at the pane pid. Diagnostics, not identity, is under test.
+          callerProc:{pid:record.binding.panePid}})});
       assert.equal(ready,true,'fixture must establish proof through the producer acknowledgement protocol');
     }
   };

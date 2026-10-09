@@ -183,6 +183,10 @@ test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an
   const { initTempRepo } = await import("../helpers/temp-repo.mjs");
   const repoRoot = await mkdtemp(join(os.tmpdir(), "ao-mcp-contract-repo-"));
   const repo = await initTempRepo(join(repoRoot, "repo"), { commit: true });
+  // The file double, even when run without the suite's preload: a live NATS broker on the host would
+  // otherwise receive this mail and hold the test process open.
+  const savedTransport = process.env.AO_TRANSPORT;
+  process.env.AO_TRANSPORT = "file";
   // TM-465: only the sender may wait, so this server's session identity is the sender, lead0001.
   const saved = { AO_AGENT_ID: process.env.AO_AGENT_ID, AO_CONSUMER: process.env.AO_CONSUMER };
   Object.assign(process.env, { AO_AGENT_ID: "lead0001", AO_CONSUMER: repo });
@@ -193,7 +197,8 @@ test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an
     const { agentsRoot } = await import("../../topology/lib/agents.mjs");
     const home = join(fx.root, "home");
     const env = { AGENT_ORCHESTRATION_STATE_HOME: fx.stateRoot };
-    await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "lead", full_name: "lead0001" });
+    // TM-462B: role worker, because acting as the repository's lead now needs the lead's proven pane.
+    await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "worker", full_name: "lead0001" });
     const unknown = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "no-such-id", timeoutMs: 100 } });
     assert.equal(unknown.isError, true, JSON.stringify(unknown.structuredContent));
     assert.equal(unknown.structuredContent.data.code, "TOPOLOGY_SENDER_MISMATCH");
@@ -207,6 +212,7 @@ test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an
     assert.equal(answered.isError, undefined);
     assert.equal(answered.structuredContent.data.reply.body, "answer");
   } finally {
+    if (savedTransport === undefined) delete process.env.AO_TRANSPORT; else process.env.AO_TRANSPORT = savedTransport;
     await fx.cleanup();
     await rm(repoRoot, { recursive: true, force: true });
   }

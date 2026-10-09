@@ -46,6 +46,7 @@ import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
+import { requireCallerInPane } from "./slots.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from "./repoid.mjs";
 import * as tmux from "./tmux.mjs";
@@ -443,13 +444,16 @@ async function defaultWake({ consumer, record, nonce, env, home, adapters = null
   });
 }
 
-export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir(), alive = bindingAlive }) {
+export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir(), alive = bindingAlive, callerProc = {} }) {
   invariant(/^[a-f0-9-]{36}$/.test(String(nonce)), "TOPOLOGY_REVIEWER_NONCE", "Invalid reviewer nonce.");
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
   const probe = await readJson(join(dir, `${nonce}.json`));
   const record = await readReviewerRecord(consumer, env, home);
   const identity = await canonicalRepoId(consumer);
-  invariant(record && probe.repo_id === identity.id && probe.agent_id === record.agent_id && env.AO_AGENT_ID === record.agent_id && probe.nonce === nonce && probe.session === record.session && sameIncarnation(probe.binding, record.binding) && probe.expires_at >= Date.now() && await alive(record), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  invariant(record && probe.repo_id === identity.id && probe.agent_id === record.agent_id && probe.nonce === nonce && probe.session === record.session && sameIncarnation(probe.binding, record.binding) && probe.expires_at >= Date.now() && await alive(record), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  // TM-427: the probe file names the reviewer to anyone who reads it, so AO_AGENT_ID proves nothing.
+  try { await requireReviewerCaller(record, { alive, callerProc }); }
+  catch (error) { fail("TOPOLOGY_REVIEWER_ACK_OWNER", `Only the designated reviewer can acknowledge its current unexpired challenge: ${error.message}`); }
   await writeJson(join(dir, `${nonce}.ack.json`), { ...probe, acknowledged_at: nowIso() });
   return { ok: true, nonce };
 }
@@ -1192,9 +1196,20 @@ function checkVerdict(verdict, findings, files, unsatisfied = []) {
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
  */
-export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+export async function recordReview({ alive = bindingAlive, callerProc = {}, ...options }) {
+  // TM-427 review: AO_AGENT_ID is caller-set, so the designated reviewer is proved by its live pane
+  // and process ancestry, as in submitReviewVerdict. collectReview writes through writeReview.
+  const registered = await readReviewerRecord(options.consumer, options.env ?? process.env, options.home ?? homedir());
+  invariant(registered && registered.agent_id === options.reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  await requireReviewerCaller(registered, { alive, callerProc });
+  return writeReview(options);
+}
+
+/** The review write itself. Not exported: its callers prove the reviewer first (recordReview), or
+ * record a verdict submitReviewVerdict already proved (collectReview). */
+async function writeReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
-  invariant(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  invariant(registered && registered.agent_id === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant(!expectedBinding || sameIncarnation(expectedBinding,registered.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed before recording the verdict.');
   // TM-365: a submitted verdict was proved at submit time to come from this incarnation; it is
   // recorded against that incarnation even when the reviewer has restarted since.
@@ -1570,8 +1585,8 @@ export function decodeReviewPayload(text) {
 // scraping was the most common reviewer failure (TOPOLOGY_REVIEWER_RESPONSE: wrapped rows, eaten
 // backslashes, a verdict that scrolled away or died with its pane). The restricted reviewer has no
 // shell and no Write tool, so its one way out is the `review_submit` MCP tool that buildReviewerArgv
-// grants it (topology/review-mcp.mjs); a reviewer with a shell may run `ao-topology review submit`.
-// Both call submitReviewVerdict, which writes <inbox>/verdicts/<task>-<revision>.json (durable on
+// grants it (topology/review-mcp.mjs). TM-427 removed the shell `review submit`: the MCP server runs
+// inside the reviewer pane, which is what requireReviewerCaller proves. It calls submitReviewVerdict, which writes <inbox>/verdicts/<task>-<revision>.json (durable on
 // disk, so neither a collector restart nor a reviewer restart loses it) and mirrors it to the NATS
 // ORCH_REVIEWS object store when NATS is live. collectReview reads that record and nothing else.
 
@@ -1592,18 +1607,31 @@ async function findReviewRequest(consumer, id, env, home) {
 const verdictPath = (requestPath) => join(dirname(dirname(requestPath)), 'verdicts', basename(requestPath));
 
 /**
+ * TM-427: the caller IS the designated reviewer. AO_AGENT_ID is caller-set and the request file a
+ * worker can read names the reviewer, so neither proves anything. Two facts do: the recorded reviewer
+ * pane is live at its incarnation (`alive`), and its pane pid is an ancestor of this process
+ * (requireCallerInPane, the delegation proof). The live listing is what makes pid equality sound.
+ * The restricted reviewer's review_submit MCP server is a child of its claude, so it passes.
+ */
+export async function requireReviewerCaller(record, { alive = bindingAlive, callerProc = {} } = {}) {
+  invariant(record?.agent_id && incarnationOf(record.binding) && await alive(record), 'TOPOLOGY_REVIEWER_IDENTITY', 'No live designated reviewer pane to prove the caller against.');
+  return requireCallerInPane(record.binding, { code: 'TOPOLOGY_REVIEWER_IDENTITY', what: `reviewer ${record.agent_id}`, callerProc });
+}
+
+/**
  * The designated reviewer submits its verdict for one request. Checked here, so a reviewer learns
  * at once what is wrong and can submit again: the caller is the request's reviewer at the request's
  * incarnation, the request is still open, and the verdict and findings pass the same schema
  * recordReview applies. Resubmitting before collection replaces the earlier verdict.
  */
-export async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = homedir(), transport = null, alive = bindingAlive }) {
+export async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = homedir(), transport = null, alive = bindingAlive, callerProc = {} }) {
   const { request, path } = await findReviewRequest(consumer, id, env, home);
   return withLock(path.replace(/\.json$/, '.lock'), async () => {
     const current = await readJson(path);
     const record = await readReviewerRecord(consumer, env, home);
-    invariant(record && env.AO_AGENT_ID === record.agent_id && current.reviewer_id === record.agent_id && sameIncarnation(current.binding, record.binding) && await alive(record),
+    invariant(record && current.reviewer_id === record.agent_id && sameIncarnation(current.binding, record.binding),
       'TOPOLOGY_REVIEWER_IDENTITY', 'Only the designated reviewer, at the incarnation the request was sent to, can submit its verdict.');
+    await requireReviewerCaller(record, { alive, callerProc });
     invariant(current.nonce === request.nonce && !current.collected_at, 'TOPOLOGY_REVIEWER_RESPONSE', 'This review request was already collected; its verdict cannot change.');
     invariant(current.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request failed (${current.failure?.reason ?? 'no reason recorded'}); the lead must request the review again.`);
     invariant(VERDICTS.has(verdict), 'TOPOLOGY_REVIEWER_VERDICT', `Verdict must be one of ${[...VERDICTS].join(', ')}; got ${JSON.stringify(verdict)}.`);
@@ -1628,7 +1656,9 @@ async function mirrorVerdict({ consumer, record, submitted, env, transport }) {
   } catch { return null; }
 }
 
-/** The submitted verdict for a request, or null when the reviewer has not submitted one. */
+/** The submitted verdict for a request, or null when the reviewer has not submitted one.
+ * TM-427 review (lead decision): there is no seal. Any same-user process can still write this file
+ * directly; only the per-request nonce binds it. TM-508 (workers out of the AO state root) closes that. */
 async function readSubmittedVerdict(requestPath, request) {
   const submitted = await readJson(verdictPath(requestPath)).catch(() => null);
   return submitted?.nonce === request.nonce ? submitted : null;
@@ -1665,11 +1695,11 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review packet changed after the request.');
   const submitted = await readSubmittedVerdict(path, request);
   invariant(submitted || sameIncarnation(request.binding, record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
-  invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
+  invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool.`, { nonce: request.nonce });
   let review;
   try {
     invariant(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'The submitted verdict is not bound to the reviewer incarnation the request was sent to.');
-    review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
+    review = await writeReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env, home, pluginRoot, serverCompare, serverPullBase });
   } catch (error) {
     // TM-215 review 1: a refused verdict fails its request once, the lead is told, and requestReview
     // mints a fresh nonce. submitReviewVerdict applies the same schema first, so this is rare.
