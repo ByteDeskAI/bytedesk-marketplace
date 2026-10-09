@@ -4,28 +4,33 @@
 
 ### Security
 
-- **A worker can no longer submit the reviewer's verdict for its own task (TM-427, EP-028).**
+- **A worker can no longer submit or record the reviewer's verdict by naming the reviewer (TM-427, EP-028).**
   The `review_submit` MCP tool checked only `AO_AGENT_ID` against the reviewer record plus pane
   liveness, and the request file a worker can read names both. `AO_AGENT_ID` is no longer consulted:
   `requireReviewerCaller` requires the reviewer pane to be live and its recorded pid to be an ancestor
   of the caller, failing closed with `TOPOLOGY_REVIEWER_IDENTITY` when ancestry is unreadable. The
-  MCP server is a child of the reviewer's CLI, so the real reviewer passes. The shell
+  MCP server is a child of the reviewer's CLI, so the real reviewer passes. The same proof now gates
+  the exported `recordReview`; `collectReview` records a verdict through an internal writer. The shell
   `ao-topology review submit` is removed and refused by name. `reviewer ack` is bound the same way.
-  The verdict file is sealed with HMAC-SHA256 (nonce, task, revision, reviewer, binding, verdict,
-  findings, time, submitter pid) under a key kept outside the inbox (`reviewers/verdict.key`, 0600);
-  `collectReview` and the restart guard ignore a verdict whose seal does not verify, so a hand-written
-  or edited `verdicts/<task>-<sha>.json` no longer approves anything.
-- **Host senders and the repository lead can no longer be claimed through the environment (TM-462B, EP-028).**
-  `sessionIdentity` (every CLI and MCP mailbox verb, and run `send`) refuses `ao-supervisor`,
-  `ao-management` and `tm-dispatch` from any process (`TOPOLOGY_SENDER_RESERVED`); host code still
-  sends as them in process. A caller claiming the repository's lead must prove it with the lead's
-  census-bound pane and process ancestry (`requireLeadCaller`, which now takes the claimed `agentId`).
-  A lead with no `AO_AGENT_ID` is named from its census binding. An unnamed run `send` no longer
-  trusts `AO_AGENT_ID`/`AO_CONSUMER`. One helper, `requireCallerInPane`, now backs the delegation,
-  reviewer and lead proofs.
-  **Same-user limit:** a process that reads `verdict.key`, or rewrites the reviewer record's binding,
-  can still forge. Closing that needs OS-level isolation (a key held by another uid, or the provider
-  sandbox).
+- **Host senders, the repository lead and any agent with a recorded pane can no longer be claimed
+  through the environment (TM-462B, TM-427, EP-028).** `sessionIdentity` (every CLI and MCP mailbox
+  verb, and run `send`) refuses `ao-supervisor`, `ao-management` and `tm-dispatch` from any process
+  (`TOPOLOGY_SENDER_RESERVED`); host code still sends as them in process. A caller claiming the
+  repository's lead must prove it with the lead's census-bound pane and process ancestry
+  (`requireLeadCaller`, which now takes the claimed `agentId`). Any other agent that has a recorded
+  pane, a census row or the reviewer record, must descend from that pane (`requireBoundAgentCaller`,
+  `TOPOLOGY_SENDER_MISMATCH`); only an agent with no recorded pane falls back to its env claim. A lead
+  with no `AO_AGENT_ID` is named from its census binding. An unnamed run `send` no longer trusts
+  `AO_AGENT_ID`/`AO_CONSUMER`. One helper, `requireCallerInPane`, backs the delegation, reviewer and
+  lead proofs. **Behaviour change:** a lead or reviewer driving mail from a second terminal outside its
+  own pane is now refused.
+- **Known residual, same user (TM-427, EP-028).** These checks stop a process that only *claims* an
+  identity. They do not stop a same-user process that writes the agent-orchestration state directly:
+  it can still write `reviewers/inboxes/*/verdicts/<task>-<sha>.json` with the current request nonce,
+  write review and reviewer records, or type into the reviewer pane with `tmux send-keys`. An
+  earlier draft sealed verdict files with an HMAC key kept in the same state root; that key could be
+  read or planted by the same user, so the seal was removed rather than shipped as false assurance.
+  The fix is to keep workers out of the agent-orchestration state root (TM-508).
 - **`management.integrate_via` and `management.target_branch` are honoured only from the server's
   default branch (TM-469, EP-028).** They choose where and how a task lands, yet still resolved from
   the global layer and the checkout's working copy, which a worker can write. They now join the

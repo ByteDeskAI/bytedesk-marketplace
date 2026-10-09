@@ -578,7 +578,20 @@ test('TM-462B: sessionIdentity accepts the lead only from its proven pane, names
   // Mutation checks: the lead's pane but not a descendant of it, and the env claim with no pane.
   await assert.rejects(who({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a', 6161)), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
   await assert.rejects(who({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha }, proof('lead-a')), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
-  // A non-lead needs no pane; a host sender is refused even from a proven pane.
+  // TM-427 review: any agent with a recorded pane (census row or reviewer record) is proven the same
+  // way. A forged reviewer or observer id from a process outside that pane is refused.
+  assert.equal((await who({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha, ...inPane }, proof('work-a'))).agent, 'work-a');
+  for (const forged of ['rev-a', 'obs-a']) {
+    await assert.rejects(who({ AO_AGENT_ID: forged, AO_CONSUMER: w.alpha, ...inPane }, proof(forged, 6161)), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+    await assert.rejects(who({ AO_AGENT_ID: forged, AO_CONSUMER: w.alpha }, proof(forged, 6161)), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  }
+  const reviewerOnly = (leaf) => ({ ...proof(null, leaf), readReviewerFn: async () => ({ agent_id: 'rev-a', binding: { ...PANE } }) });
+  await assert.rejects(who({ AO_AGENT_ID: 'rev-a', AO_CONSUMER: w.alpha }, reviewerOnly(6161)), { code: 'TOPOLOGY_SENDER_MISMATCH' }, 'the reviewer record alone binds the id');
+  assert.equal((await who({ AO_AGENT_ID: 'rev-a', AO_CONSUMER: w.alpha }, reviewerOnly(5151))).agent, 'rev-a');
+  const unreadable = { ...proof('rev-a'), callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } };
+  await assert.rejects(who({ AO_AGENT_ID: 'rev-a', AO_CONSUMER: w.alpha }, unreadable), { code: 'TOPOLOGY_SENDER_MISMATCH' }, 'unreadable ancestry fails closed');
+  // Only an agent the repository has no pane for falls back to its env claim; a host sender is
+  // refused even from a proven pane.
   assert.equal((await who({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha }, proof(null))).agent, 'work-a');
   for (const reserved of ['ao-supervisor', 'ao-management', 'tm-dispatch']) {
     await assert.rejects(who({ AO_AGENT_ID: reserved, AO_CONSUMER: w.alpha, ...inPane }, proof(reserved)), { code: 'TOPOLOGY_SENDER_RESERVED' });

@@ -28560,7 +28560,6 @@ __export(reviewer_exports, {
   reviewerStanding: () => reviewerStanding,
   reviewersRoot: () => reviewersRoot,
   reviewsRoot: () => reviewsRoot,
-  sealVerdict: () => sealVerdict,
   submitReviewVerdict: () => submitReviewVerdict,
   unsatisfiedChecks: () => unsatisfiedChecks,
   validateFindings: () => validateFindings
@@ -29032,7 +29031,7 @@ async function uncollectedReviewRequests(consumer, record2, env, home) {
   const names2 = (await (0, import_promises33.readdir)(dir).catch(() => [])).filter((name) => name.endsWith(".json"));
   const requests = await Promise.all(names2.map((name) => readJson3((0, import_node_path43.join)(dir, name)).catch(() => null)));
   const open14 = requests.filter((request) => request && request.reviewer_id === record2.agent_id && !request.collected_at && request.state !== "failed" && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code)) && sameIncarnation(request.binding, record2.binding));
-  const waiting = await Promise.all(open14.map(async (request) => !await readSubmittedVerdict((0, import_node_path43.join)(dir, `${request.task}-${request.revision}.json`), request, env, home)));
+  const waiting = await Promise.all(open14.map(async (request) => !await readSubmittedVerdict((0, import_node_path43.join)(dir, `${request.task}-${request.revision}.json`), request)));
   return open14.filter((_, i) => waiting[i]);
 }
 async function assertNoReviewInFlight(consumer, record2, env, home) {
@@ -29349,9 +29348,15 @@ function checkVerdict(verdict, findings, files, unsatisfied = []) {
   invariant2(verdict !== "changes_requested" || !approvable(structured) && structured.length > 0, "TOPOLOGY_REVIEWER_FINDINGS", "Changes requested needs at least one blocker or major finding; with only minor, nit or note findings, approve.");
   return structured;
 }
-async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os17.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+async function recordReview({ alive: alive3 = bindingAlive, callerProc = {}, ...options }) {
+  const registered = await readReviewerRecord(options.consumer, options.env ?? process.env, options.home ?? (0, import_node_os17.homedir)());
+  invariant2(registered && registered.agent_id === options.reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  await requireReviewerCaller(registered, { alive: alive3, callerProc });
+  return writeReview(options);
+}
+async function writeReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = (0, import_node_os17.homedir)(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
-  invariant2(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  invariant2(registered && registered.agent_id === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant2(!expectedBinding || sameIncarnation(expectedBinding, registered.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed before recording the verdict.");
   invariant2(!submittedBinding || incarnationOf(submittedBinding), "TOPOLOGY_REVIEWER_IDENTITY", "A submitted verdict must name the reviewer incarnation it came from.");
   const lead = await findLead(agentDirs({ consumer: registered.consumer || consumer, home, pluginRoot }));
@@ -29693,16 +29698,6 @@ async function findReviewRequest(consumer, id, env, home) {
   }
   fail("TOPOLOGY_REVIEWER_NONCE", `No review request ${text} exists for this repository.`, { request: text });
 }
-async function verdictKey(env, home, create = false) {
-  const path3 = verdictKeyPath(env, home);
-  const existing = await (0, import_promises33.readFile)(path3).catch(() => null);
-  if (existing?.length >= 32 || !create) return existing?.length >= 32 ? existing : null;
-  await (0, import_promises33.mkdir)((0, import_node_path43.dirname)(path3), { recursive: true });
-  await (0, import_promises33.writeFile)(path3, (0, import_node_crypto21.randomBytes)(32), { flag: "wx", mode: 384 }).catch((error51) => {
-    if (error51.code !== "EEXIST") throw error51;
-  });
-  return (0, import_promises33.readFile)(path3);
-}
 async function requireReviewerCaller(record2, { alive: alive3 = bindingAlive, callerProc = {} } = {}) {
   invariant2(record2?.agent_id && incarnationOf(record2.binding) && await alive3(record2), "TOPOLOGY_REVIEWER_IDENTITY", "No live designated reviewer pane to prove the caller against.");
   return requireCallerInPane(record2.binding, { code: "TOPOLOGY_REVIEWER_IDENTITY", what: `reviewer ${record2.agent_id}`, callerProc });
@@ -29722,8 +29717,7 @@ async function submitReviewVerdict({ consumer, request: id, verdict, findings = 
     invariant2(current.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request failed (${current.failure?.reason ?? "no reason recorded"}); the lead must request the review again.`);
     invariant2(VERDICTS.has(verdict), "TOPOLOGY_REVIEWER_VERDICT", `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}.`);
     const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision), current.checks_unsatisfied ?? []);
-    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso(), submitter_pid: callerProc.pid ?? process.pid };
-    submitted.seal = (await sealVerdict(submitted, env, home)).seal;
+    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
     submitted.mirror = await mirrorVerdict({ consumer, record: record2, submitted, env, transport });
     await writeJson(verdictPath(path3), submitted);
     return { ok: true, nonce: submitted.nonce, task: submitted.task, revision: submitted.revision, verdict, findings: structured.length, mirror: submitted.mirror };
@@ -29743,13 +29737,9 @@ async function mirrorVerdict({ consumer, record: record2, submitted, env, transp
     return null;
   }
 }
-async function readSubmittedVerdict(requestPath, request, env, home) {
+async function readSubmittedVerdict(requestPath, request) {
   const submitted = await readJson3(verdictPath(requestPath)).catch(() => null);
-  if (submitted?.nonce !== request.nonce || typeof submitted.seal !== "string") return null;
-  const key = await verdictKey(env, home);
-  const want = key && Buffer.from(verdictSeal(key, submitted), "hex");
-  const got = Buffer.from(submitted.seal, "hex");
-  return want && got.length === want.length && (0, import_node_crypto21.timingSafeEqual)(got, want) ? submitted : null;
+  return submitted?.nonce === request.nonce ? submitted : null;
 }
 async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os17.homedir)(), pluginRoot = null, deliver = sendStandingMessage, lead = readLeadRegistration, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const path3 = (0, import_node_path43.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
@@ -29768,13 +29758,13 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     invariant2(request.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request already failed (${request.failure?.reason ?? "no reason recorded"}); request the review again for a fresh nonce.`);
     invariant2((0, import_node_crypto21.createHash)("sha256").update(await (0, import_promises33.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
     invariant2(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review packet changed after the request.");
-    const submitted = await readSubmittedVerdict(path3, request, env, home);
+    const submitted = await readSubmittedVerdict(path3, request);
     invariant2(submitted || sameIncarnation(request.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed after the request; queue a new independent review.");
     invariant2(submitted, "TOPOLOGY_REVIEWER_NO_VERDICT", `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool.`, { nonce: request.nonce });
     let review;
     try {
       invariant2(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), "TOPOLOGY_REVIEWER_IDENTITY", "The submitted verdict is not bound to the reviewer incarnation the request was sent to.");
-      review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record2.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
+      review = await writeReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce: request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record2.agent_id, authorAgentIds: request.author_agent_ids, env, home, pluginRoot, serverCompare, serverPullBase });
     } catch (error51) {
       if (REFUSED_RESPONSE_CODES.has(error51.code)) {
         const failed = { ...request, state: "failed", failure: { at: nowIso(), code: error51.code, reason: `The reviewer's verdict was refused: ${error51.message}` } };
@@ -29870,7 +29860,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process13, import_node_crypto21, import_promises33, import_node_os17, import_node_path43, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, verdictKeyPath, SEALED_FIELDS, verdictSeal, sealVerdict, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process13, import_node_crypto21, import_promises33, import_node_os17, import_node_path43, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process13 = require("node:child_process");
@@ -29930,10 +29920,6 @@ var init_reviewer = __esm({
     LOG_TAIL_MAX = 4e3;
     B64_PREFIX = "b64:";
     verdictPath = (requestPath) => (0, import_node_path43.join)((0, import_node_path43.dirname)((0, import_node_path43.dirname)(requestPath)), "verdicts", (0, import_node_path43.basename)(requestPath));
-    verdictKeyPath = (env, home) => (0, import_node_path43.join)(reviewersRoot(env, home), "verdict.key");
-    SEALED_FIELDS = ["nonce", "task", "revision", "reviewer_id", "binding", "verdict", "findings", "submitted_at", "submitter_pid"];
-    verdictSeal = (key, submitted) => (0, import_node_crypto21.createHmac)("sha256", key).update(JSON.stringify(SEALED_FIELDS.map((field) => submitted[field] ?? null))).digest("hex");
-    sealVerdict = async (submitted, env = process.env, home = (0, import_node_os17.homedir)()) => ({ ...submitted, seal: verdictSeal(await verdictKey(env, home, true), submitted) });
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
@@ -33036,6 +33022,7 @@ __export(delegation_exports, {
   managedSessionEvidence: () => managedSessionEvidence,
   planCovers: () => planCovers,
   planDigest: () => planDigest,
+  requireBoundAgentCaller: () => requireBoundAgentCaller,
   requireGranteeCaller: () => requireGranteeCaller,
   requireLeadCaller: () => requireLeadCaller,
   requireNoAgentSession: () => requireNoAgentSession,
@@ -33213,6 +33200,24 @@ async function requireLeadCaller({ consumer, agentId = void 0, env = process.env
   invariant2(!env.TM_DISPATCH_WORKER, "TOPOLOGY_DELEGATION_ACTOR", `A dispatched worker session (TM_DISPATCH_WORKER) is never the repository lead ${lead.id}.`);
   await requireGranteeCaller({ consumer, grantee: lead.id, env, home, listPanesFn, readCensusFn, callerProc });
   return lead.id;
+}
+async function requireBoundAgentCaller({ consumer, agentId, env = process.env, home = (0, import_node_os22.homedir)(), readCensusFn = readCensus, readReviewerFn = null, callerProc = {}, code = "TOPOLOGY_SENDER_MISMATCH" }) {
+  const census = await readCensusFn({ consumer, env, home }).catch(() => null);
+  const bindings = (census?.agents || []).filter((a) => a.agentId === agentId && a.binding?.panePid).map((a) => a.binding);
+  const readReviewer = readReviewerFn ?? (await Promise.resolve().then(() => (init_reviewer(), reviewer_exports))).readReviewerRecord;
+  const reviewer = await readReviewer(consumer, env, home).catch(() => null);
+  if (reviewer?.agent_id === agentId && reviewer.binding?.panePid) bindings.push(reviewer.binding);
+  if (!bindings.length) return null;
+  for (const binding of bindings) {
+    let inPane;
+    try {
+      inPane = await callerRunsInPane(binding, callerProc);
+    } catch (error51) {
+      fail(code, `Cannot prove the caller runs in ${agentId}'s pane: process ancestry is unreadable (${error51.code || error51.message}); refusing rather than trusting AO_AGENT_ID. Nothing was done.`);
+    }
+    if (inPane) return agentId;
+  }
+  fail(code, `${agentId} has a recorded pane, and this process does not descend from it; AO_AGENT_ID alone does not prove identity. Nothing was done.`);
 }
 async function bindingAgentId({ consumer, env = process.env, home = (0, import_node_os22.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus }) {
   if (!env.TMUX_PANE) return null;
@@ -36579,9 +36584,9 @@ async function wakeStandingMessages({ ids = [], ...options }) {
   }
   return woken;
 }
-async function sessionIdentity2({ env = process.env, agent = null, consumer = null, home = (0, import_node_os27.homedir)(), listPanesFn, readCensusFn, callerProc = {} } = {}) {
+async function sessionIdentity2({ env = process.env, agent = null, consumer = null, home = (0, import_node_os27.homedir)(), listPanesFn, readCensusFn, readReviewerFn, callerProc = {} } = {}) {
   let caller = callerIdentity(env);
-  const { bindingAgentId: bindingAgentId2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
+  const { bindingAgentId: bindingAgentId2, requireBoundAgentCaller: requireBoundAgentCaller2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
   if (!env.AO_AGENT_ID) {
     const repo = caller?.consumer ?? consumer ?? null;
     const bound = repo ? await bindingAgentId2({ consumer: repo, env, home, listPanesFn, readCensusFn }).catch(() => null) : null;
@@ -36610,7 +36615,8 @@ async function sessionIdentity2({ env = process.env, agent = null, consumer = nu
       `This session belongs to ${caller.consumer}; it cannot act for ${consumer}. Nothing was done.`
     );
   }
-  await requireLeadCaller2({ consumer: caller.consumer, agentId: caller.agentId, env, home, listPanesFn, readCensusFn, callerProc });
+  const lead = await requireLeadCaller2({ consumer: caller.consumer, agentId: caller.agentId, env, home, listPanesFn, readCensusFn, callerProc });
+  if (!lead) await requireBoundAgentCaller2({ consumer: caller.consumer, agentId: caller.agentId, env, home, readCensusFn, readReviewerFn, callerProc });
   return { agent: caller.agentId, consumer: (0, import_node_path54.resolve)(caller.consumer), source: caller.source };
 }
 function standingInboxShows(record2, { repoId, agent, transportKind }) {
@@ -66840,8 +66846,8 @@ var RunStore = class {
     return (0, import_node_path15.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile: writeFile12 } = await import("node:fs/promises");
-    await writeFile12(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile11 } = await import("node:fs/promises");
+    await writeFile11(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -66868,8 +66874,8 @@ var RunStore = class {
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile: writeFile12 } = await import("node:fs/promises");
-    await writeFile12((0, import_node_path15.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile11 } = await import("node:fs/promises");
+    await writeFile11((0, import_node_path15.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
@@ -80717,10 +80723,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "ea62584d53b5ff287248137d759438d893dbbd5c6171647301e33e8f9aa21219";
+  return false ? null : "70c35d3dab836fc1ee80bb81386b9e65583c475abba10c862c2520efea78f9c1";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "ea62584d53b5ff287248137d759438d893dbbd5c6171647301e33e8f9aa21219";
+  const fingerprint2 = false ? null : "70c35d3dab836fc1ee80bb81386b9e65583c475abba10c862c2520efea78f9c1";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -81145,7 +81151,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "ea62584d53b5ff287248137d759438d893dbbd5c6171647301e33e8f9aa21219",
+  sourceFingerprint: false ? null : "70c35d3dab836fc1ee80bb81386b9e65583c475abba10c862c2520efea78f9c1",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

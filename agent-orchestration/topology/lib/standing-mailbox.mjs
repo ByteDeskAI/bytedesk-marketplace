@@ -404,10 +404,10 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
 // Literal rather than nats-outage's SUPERVISOR_SENDER: that module imports this one.
 export const RESERVED_SENDERS = Object.freeze(new Set(['ao-supervisor', 'ao-management', 'tm-dispatch']));
 
-export async function sessionIdentity({ env = process.env, agent = null, consumer = null, home = homedir(), listPanesFn, readCensusFn, callerProc = {} } = {}) {
+export async function sessionIdentity({ env = process.env, agent = null, consumer = null, home = homedir(), listPanesFn, readCensusFn, readReviewerFn, callerProc = {} } = {}) {
   // TM-353: a launcher identity (AO_AGENT_ID) wins; otherwise the identity SessionStart minted.
   let caller = callerIdentity(env);
-  const { bindingAgentId, requireLeadCaller } = await import('./delegation.mjs');
+  const { bindingAgentId, requireBoundAgentCaller, requireLeadCaller } = await import('./delegation.mjs');
   if (!env.AO_AGENT_ID) {
     const repo = caller?.consumer ?? consumer ?? null;
     const bound = repo ? await bindingAgentId({ consumer: repo, env, home, listPanesFn, readCensusFn }).catch(() => null) : null;
@@ -424,7 +424,10 @@ export async function sessionIdentity({ env = process.env, agent = null, consume
     invariant(mine.id === claimed.id, 'TOPOLOGY_SENDER_MISMATCH',
       `This session belongs to ${caller.consumer}; it cannot act for ${consumer}. Nothing was done.`);
   }
-  await requireLeadCaller({ consumer: caller.consumer, agentId: caller.agentId, env, home, listPanesFn, readCensusFn, callerProc });
+  const lead = await requireLeadCaller({ consumer: caller.consumer, agentId: caller.agentId, env, home, listPanesFn, readCensusFn, callerProc });
+  // TM-427 review: any other agent with a recorded pane is proven the same way; env alone only names
+  // an agent the repository has no pane for.
+  if (!lead) await requireBoundAgentCaller({ consumer: caller.consumer, agentId: caller.agentId, env, home, readCensusFn, readReviewerFn, callerProc });
   return { agent: caller.agentId, consumer: resolve(caller.consumer), source: caller.source };
 }
 

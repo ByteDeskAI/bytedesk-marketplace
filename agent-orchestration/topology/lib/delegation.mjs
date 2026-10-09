@@ -265,6 +265,26 @@ export async function requireLeadCaller({ consumer, agentId = undefined, env = p
   return lead.id;
 }
 
+/** TM-427 review: an agent this repository records a pane for (a census row, or the reviewer record)
+ * is proven like the lead: the caller must descend from one of those panes. Returns the agent id
+ * when proven, null when no binding is recorded (only then may a caller fall back to its env
+ * claim), and throws `code` otherwise. Unreadable ancestry fails closed. */
+export async function requireBoundAgentCaller({ consumer, agentId, env = process.env, home = homedir(), readCensusFn = readCensus, readReviewerFn = null, callerProc = {}, code = 'TOPOLOGY_SENDER_MISMATCH' }) {
+  const census = await readCensusFn({ consumer, env, home }).catch(() => null);
+  const bindings = (census?.agents || []).filter(a => a.agentId === agentId && a.binding?.panePid).map(a => a.binding);
+  const readReviewer = readReviewerFn ?? (await import('./reviewer.mjs')).readReviewerRecord;
+  const reviewer = await readReviewer(consumer, env, home).catch(() => null);
+  if (reviewer?.agent_id === agentId && reviewer.binding?.panePid) bindings.push(reviewer.binding);
+  if (!bindings.length) return null;
+  for (const binding of bindings) {
+    let inPane;
+    try { inPane = await callerRunsInPane(binding, callerProc); }
+    catch (error) { fail(code, `Cannot prove the caller runs in ${agentId}'s pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting AO_AGENT_ID. Nothing was done.`); }
+    if (inPane) return agentId;
+  }
+  fail(code, `${agentId} has a recorded pane, and this process does not descend from it; AO_AGENT_ID alone does not prove identity. Nothing was done.`);
+}
+
 /** TM-243: the agent this repository's census binds to the caller's live pane, or null. Lets a
  * governed verb run as a bare command (no `AO_AGENT_ID=` prefix, which defeats permission-rule
  * matching). It only NAMES the caller: a delegation is still proven by requireGranteeCaller. */

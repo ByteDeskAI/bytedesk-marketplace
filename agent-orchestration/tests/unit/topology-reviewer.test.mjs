@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { isolatedTmux, killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { submitVerdict } from '../helpers/review-submit.mjs';
-import { ensureReviewer, reviewerAvailability, reviewerPaths, reviewerNonceAck, reviewerProbeReady, recordReview, reviewEligibility, requestReview, collectReview, collectPendingReviews, reviewerInboxRoot, reviewsRoot, assignReviewer } from '../../topology/lib/reviewer.mjs';
+import { ensureReviewer, reviewerAvailability, reviewerPaths, reviewerNonceAck, reviewerProbeReady, recordReview, latestReview, reviewEligibility, requestReview, collectReview, collectPendingReviews, reviewerInboxRoot, reviewsRoot, assignReviewer } from '../../topology/lib/reviewer.mjs';
 
 // TM-427: panePid is this test process, so the real pane-ancestry proof passes for the "reviewer";
 // a forged caller is simulated by walking from process.ppid, which does not descend from it.
@@ -83,8 +83,13 @@ test('read-only reviewer readiness neither rings nor consumes missing, invalid o
 test('review record rejects impersonation, self review, findings and abbreviated commits', async t => {
   const f = await fixture(t);
   const { record } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
-  const args = { ...f, task: 'TM-1', reviewerId: record.agent_id, authorAgentIds: ['author'], verdict: 'approve', env: { ...f.env, AO_AGENT_ID: record.agent_id } };
+  // TM-427 review: recordReview proves the reviewer by pane ancestry, like submit; AO_AGENT_ID is not consulted.
+  const args = { ...f, task: 'TM-1', reviewerId: record.agent_id, authorAgentIds: ['author'], verdict: 'approve', alive: async () => true };
   await assert.rejects(recordReview({ ...args, reviewerId: 'stranger' }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' });
+  await assert.rejects(recordReview({ ...args, env: { ...f.env, AO_AGENT_ID: record.agent_id }, callerProc: forgedCaller }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' },
+    'a non-reviewer process naming the reviewer in AO_AGENT_ID writes nothing');
+  await assert.rejects(recordReview({ ...args, alive: async () => false }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'no live reviewer pane, no proof');
+  assert.equal(await latestReview(f.consumer, 'TM-1', f.env, f.home), null, 'the refused calls wrote no review');
   await assert.rejects(recordReview({ ...args, authorAgentIds: [record.agent_id] }), { code: 'TOPOLOGY_REVIEWER_CONFLICT' });
   await assert.rejects(recordReview({ ...args, findings: ['fix bug'] }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
   await assert.rejects(recordReview({ ...args, revision: f.revision.slice(0, 8) }), { code: 'TOPOLOGY_REVIEWER_REVISION_REQUIRED' });
@@ -144,21 +149,15 @@ test('TM-427: a forged AO_AGENT_ID and a hand-written verdict file cannot approv
     { env: { ...f.env, AO_AGENT_ID: record.agent_id, AO_CONSUMER: f.consumer, TMUX: '' } }, (error, stdout) => resolve({ code: error?.code ?? 0, stdout })));
   assert.equal(cli.code, 1, cli.stdout); assert.equal(JSON.parse(cli.stdout).code, 'TOPOLOGY_REVIEWER_IDENTITY', cli.stdout);
   await assert.rejects(submitVerdict(f, request, 'approve', [], { callerProc: { pid: 99, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'unreadable ancestry fails closed');
-  // Second route: copy reviewer_id and binding from the readable request into the verdict file.
+  // Second route, the verdict file. TM-427 review (lead decision): no seal, so a same-user process
+  // that copies the CURRENT nonce can still write one (residual, TM-508). Only the nonce binds it:
+  // a file for any other request is ignored.
   const verdictFile = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'verdicts', `TM-1-${f.revision}.json`);
-  const forged = { nonce: request.nonce, task: 'TM-1', revision: f.revision, reviewer_id: record.agent_id, binding, verdict: 'approve', findings: [], submitted_at: new Date().toISOString() };
-  await writeJson(verdictFile, forged);
-  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' }, 'an unsealed verdict file is ignored');
-  await writeJson(verdictFile, { ...forged, seal: 'ab'.repeat(32) });
-  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' }, 'a guessed seal is ignored');
+  await writeJson(verdictFile, { nonce: 'not-this-request', task: 'TM-1', revision: f.revision, reviewer_id: record.agent_id, binding, verdict: 'approve', findings: [], submitted_at: new Date().toISOString() });
+  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' }, 'a verdict for another request is ignored');
   assert.equal((await independentReviewStatus({ ...f, task: 'TM-1' })).status, 'awaiting-review');
-  // The proven channel seals; editing the sealed record afterwards breaks the seal.
+  // The proven channel is collected.
   await submitVerdict(f, request, 'blocked', [{ severity: 'note', file: 'CHANGELOG.md', line: 1, claim: 'missing evidence' }]);
-  const sealed = JSON.parse(await readFile(verdictFile, 'utf8'));
-  assert.match(sealed.seal, /^[0-9a-f]{64}$/);
-  await writeJson(verdictFile, { ...sealed, verdict: 'approve', findings: [] });
-  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' }, 'a tampered verdict is ignored');
-  await writeJson(verdictFile, sealed);
   assert.equal((await collectReview({ ...f, task: 'TM-1' })).verdict, 'blocked');
 });
 

@@ -29,8 +29,8 @@
 // merge gate in manage.mjs decides. An approving review is evidence, not a permission, and nothing
 // here merges, pushes, or deletes anything.
 import { spawn } from "node:child_process";
-import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { readdir, readFile, rm, mkdir, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { readdir, readFile, rm, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -774,7 +774,7 @@ async function uncollectedReviewRequests(consumer, record, env, home) {
     && sameIncarnation(request.binding, record.binding));
   // TM-365: a request whose verdict is already submitted survives a restart (it is on disk, bound to
   // the incarnation it was sent to), so only a request still waiting for its verdict holds one off.
-  const waiting = await Promise.all(open.map(async request => !await readSubmittedVerdict(join(dir, `${request.task}-${request.revision}.json`), request, env, home)));
+  const waiting = await Promise.all(open.map(async request => !await readSubmittedVerdict(join(dir, `${request.task}-${request.revision}.json`), request)));
   return open.filter((_, i) => waiting[i]);
 }
 
@@ -1196,9 +1196,20 @@ function checkVerdict(verdict, findings, files, unsatisfied = []) {
  * Record a review verdict. `revision` is REQUIRED — the verdict binds to exactly that commit,
  * tree, or diff identifier, and any later edit supersedes it.
  */
-export async function recordReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
+export async function recordReview({ alive = bindingAlive, callerProc = {}, ...options }) {
+  // TM-427 review: AO_AGENT_ID is caller-set, so the designated reviewer is proved by its live pane
+  // and process ancestry, as in submitReviewVerdict. collectReview writes through writeReview.
+  const registered = await readReviewerRecord(options.consumer, options.env ?? process.env, options.home ?? homedir());
+  invariant(registered && registered.agent_id === options.reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  await requireReviewerCaller(registered, { alive, callerProc });
+  return writeReview(options);
+}
+
+/** The review write itself. Not exported: its callers prove the reviewer first (recordReview), or
+ * record a verdict submitReviewVerdict already proved (collectReview). */
+async function writeReview({ consumer, task, revision, verdict, findings = [], reviewerId = null, authorAgentIds = [], env = process.env, home = homedir(), pluginRoot = null, baseRevision = null, patchHash = null, requestNonce = null, expectedBinding = null, submittedBinding = null, uncheckedChecks = [], serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const registered = await readReviewerRecord(consumer, env, home);
-  invariant(registered && registered.agent_id === reviewerId && env.AO_AGENT_ID === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
+  invariant(registered && registered.agent_id === reviewerId, "TOPOLOGY_REVIEWER_IDENTITY", "Only the designated reviewer session can record its review.");
   invariant(!expectedBinding || sameIncarnation(expectedBinding,registered.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed before recording the verdict.');
   // TM-365: a submitted verdict was proved at submit time to come from this incarnation; it is
   // recorded against that incarnation even when the reviewer has restarted since.
@@ -1595,25 +1606,6 @@ async function findReviewRequest(consumer, id, env, home) {
 
 const verdictPath = (requestPath) => join(dirname(dirname(requestPath)), 'verdicts', basename(requestPath));
 
-// TM-427: the verdict file sits in the inbox, which every worker can read and write, so collection
-// trusts only a record sealed with this key. It lives OUTSIDE the inbox (0600, never named in a
-// request) and only submitReviewVerdict, after proving the caller descends from the reviewer pane,
-// seals with it. ponytail: same-uid ceiling, like delegation's: a process that goes looking for this
-// file can read it. A key held by a different uid or the session host is the upgrade path.
-const verdictKeyPath = (env, home) => join(reviewersRoot(env, home), 'verdict.key');
-async function verdictKey(env, home, create = false) {
-  const path = verdictKeyPath(env, home);
-  const existing = await readFile(path).catch(() => null);
-  if (existing?.length >= 32 || !create) return existing?.length >= 32 ? existing : null;
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, randomBytes(32), { flag: 'wx', mode: 0o600 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
-  return readFile(path);
-}
-const SEALED_FIELDS = ['nonce', 'task', 'revision', 'reviewer_id', 'binding', 'verdict', 'findings', 'submitted_at', 'submitter_pid'];
-const verdictSeal = (key, submitted) => createHmac('sha256', key).update(JSON.stringify(SEALED_FIELDS.map(field => submitted[field] ?? null))).digest('hex');
-/** `submitted` with its seal. Exported for tests that need a sealed record written past the submit checks. */
-export const sealVerdict = async (submitted, env = process.env, home = homedir()) => ({ ...submitted, seal: verdictSeal(await verdictKey(env, home, true), submitted) });
-
 /**
  * TM-427: the caller IS the designated reviewer. AO_AGENT_ID is caller-set and the request file a
  * worker can read names the reviewer, so neither proves anything. Two facts do: the recorded reviewer
@@ -1644,8 +1636,7 @@ export async function submitReviewVerdict({ consumer, request: id, verdict, find
     invariant(current.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request failed (${current.failure?.reason ?? 'no reason recorded'}); the lead must request the review again.`);
     invariant(VERDICTS.has(verdict), 'TOPOLOGY_REVIEWER_VERDICT', `Verdict must be one of ${[...VERDICTS].join(', ')}; got ${JSON.stringify(verdict)}.`);
     const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision), current.checks_unsatisfied ?? []);
-    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso(), submitter_pid: callerProc.pid ?? process.pid };
-    submitted.seal = (await sealVerdict(submitted, env, home)).seal;
+    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
     submitted.mirror = await mirrorVerdict({ consumer, record, submitted, env, transport });
     await writeJson(verdictPath(path), submitted);
     return { ok: true, nonce: submitted.nonce, task: submitted.task, revision: submitted.revision, verdict, findings: structured.length, mirror: submitted.mirror };
@@ -1665,15 +1656,12 @@ async function mirrorVerdict({ consumer, record, submitted, env, transport }) {
   } catch { return null; }
 }
 
-/** The submitted verdict for a request, or null when the reviewer has not submitted one. A record
- * without a valid seal was not written by submitReviewVerdict (TM-427) and is ignored like no record. */
-async function readSubmittedVerdict(requestPath, request, env, home) {
+/** The submitted verdict for a request, or null when the reviewer has not submitted one.
+ * TM-427 review (lead decision): there is no seal. Any same-user process can still write this file
+ * directly; only the per-request nonce binds it. TM-508 (workers out of the AO state root) closes that. */
+async function readSubmittedVerdict(requestPath, request) {
   const submitted = await readJson(verdictPath(requestPath)).catch(() => null);
-  if (submitted?.nonce !== request.nonce || typeof submitted.seal !== 'string') return null;
-  const key = await verdictKey(env, home);
-  const want = key && Buffer.from(verdictSeal(key, submitted), 'hex');
-  const got = Buffer.from(submitted.seal, 'hex');
-  return want && got.length === want.length && timingSafeEqual(got, want) ? submitted : null;
+  return submitted?.nonce === request.nonce ? submitted : null;
 }
 
 /** A response the reviewer DID give that collection refuses. Not "no answer yet", not a changed identity. */
@@ -1705,13 +1693,13 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(createHash('sha256').update(await readFile(request.patch_path)).digest('hex') === request.patch_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review patch changed after the request.');
   // TM-216: the packet is evidence the reviewer read; a changed one is refused like a changed patch.
   invariant(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review packet changed after the request.');
-  const submitted = await readSubmittedVerdict(path, request, env, home);
+  const submitted = await readSubmittedVerdict(path, request);
   invariant(submitted || sameIncarnation(request.binding, record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
   invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool.`, { nonce: request.nonce });
   let review;
   try {
     invariant(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'The submitted verdict is not bound to the reviewer incarnation the request was sent to.');
-    review = await recordReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env: { ...env, AO_AGENT_ID: record.agent_id }, home, pluginRoot, serverCompare, serverPullBase });
+    review = await writeReview({ consumer, task, revision, baseRevision: request.admitted_base ?? request.base_revision, patchHash: request.patch_sha256, requestNonce:request.nonce, submittedBinding: request.binding, uncheckedChecks: request.checks_unsatisfied ?? [], verdict: submitted.verdict, findings: submitted.findings, reviewerId: record.agent_id, authorAgentIds: request.author_agent_ids, env, home, pluginRoot, serverCompare, serverPullBase });
   } catch (error) {
     // TM-215 review 1: a refused verdict fails its request once, the lead is told, and requestReview
     // mints a fresh nonce. submitReviewVerdict applies the same schema first, so this is rare.

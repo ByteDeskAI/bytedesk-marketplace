@@ -319,13 +319,19 @@ from there. When the independent review of the finish revision returns `changes_
    review on the exact revision, so the earlier verdict never applies to it.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
-review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a
-shell, `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
---findings @file.json`). The submission is checked at once, written to
+review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool, the only channel:
+the shell `ao-topology review submit` was removed in TM-427, and the tool proves the caller descends
+from the reviewer's live pane. The submission is checked at once, written to
 `<state>/reviewers/inboxes/<repo>/verdicts/<task>-<revision>.json` and mirrored to the NATS
 `ORCH_REVIEWS` object store when NATS is live. `reviewer collect` reads that record; nothing reads
 a verdict off the reviewer pane (TM-365). A verdict submitted before a reviewer restart is still
 collected.
+
+**Same-user residual (TM-427).** Identity is proved by pane ancestry, which stops a process that
+only claims to be the reviewer or the lead. It does not stop a same-user process that writes the
+agent-orchestration state directly: the verdict file under `verdicts/`, review and reviewer records,
+or keystrokes into the reviewer pane. Until workers are kept out of the state root (TM-508), treat
+that as an open risk.
 Findings, a changed revision, wrong identity, or an unavailable reviewer block integration.
 Restricted reviewer providers must offer an enforced read-only launch; unsupported configurations
 fail closed instead of substituting another provider. Review role alone grants no merge authority.
