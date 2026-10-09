@@ -102,7 +102,7 @@ test('human review is idempotent, revision-bound and never bypasses independent 
   assert.equal((await loadRun(f.runDir)).human_decisions.length, 1); assert.equal((await loadRun(f.runDir)).state, 'running');
   await assert.rejects(() => controlWorkflow({ consumer: f.consumer, stateHome: f.stateHome, request: { ...request, payload: { ...request.payload, note: 'changed' } } }), { code: 'TOPOLOGY_CONTROL_CONFLICT' });
   await assert.rejects(() => controlWorkflow({ consumer: f.consumer, stateHome: f.stateHome, request: { ...request, idempotencyKey: 'stale' } }), { code: 'TOPOLOGY_CONTROL_REVISION' });
-  const detail = await workflowDetail({ consumer: f.consumer, workflowId: 'topology:parent', stateHome: f.stateHome });
+  const detail = await workflowDetail({ consumer: f.consumer, workflowId: 'topology:parent', stateHome: f.stateHome, proof: { passwdHome: f.stateHome } });
   assert.equal(JSON.stringify(detail).includes('must-not-be-returned'), false);
   assert.equal(detail.run.human_decisions.length, 1);
   assert.equal(detail.inspection.sessionAlive, false);

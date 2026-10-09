@@ -278,6 +278,24 @@ export async function bindingAgentId({ consumer, env = process.env, home = homed
   return (census?.agents || []).find(a => sameBinding(here, a.binding))?.agentId || null;
 }
 
+/** TM-473: whether the caller descends from ANY agent pane a census binds: this repository's census
+ * (readCensusFn), every other census under the env's state home, and the default one under the
+ * passwd home (which the env cannot redirect). A process with TMUX_PANE unset (or
+ * naming no bound pane) is invisible to bindingAgentId, but its /proc ancestry still runs through
+ * the agent's pane process. Throws when ancestry is unreadable; callers fail closed.
+ * Does NOT catch a process that left the tree (`setsid -f`, a daemon reparented to init): only
+ * TM-427B's identity proof closes that. */
+export async function callerUnderBoundPane({ consumer, env = process.env, home = homedir(), readCensusFn = readCensus, callerProc = {}, passwdHome = userInfo().homedir }) {
+  const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
+  // TM-473 review: the env names the state home, so a caller could point it at an empty directory.
+  // The default census under the passwd home is scanned too, whatever the env says; any match refuses.
+  const dirs = new Set([join(stateRoot(env, home), 'census'), join(stateRoot({}, passwdHome), 'census')]);
+  for (const dir of dirs) for (const file of (await readdir(dir).catch(() => [])).filter(f => f.endsWith('.json'))) docs.push(await readJson(join(dir, file)).catch(() => null));
+  const pids = new Set(docs.flatMap(doc => doc?.agents || []).map(a => a.binding?.panePid));
+  for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
+  return false;
+}
+
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit
  * --authorized: a live grant covering this exact caller, repository, scope and task (TM-248: the
  * task must be in the grant's frozen plan.tasks, else TOPOLOGY_DELEGATION_PLAN; a grant without a

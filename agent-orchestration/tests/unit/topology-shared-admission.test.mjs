@@ -68,7 +68,11 @@ test('held barrier stays pending through resume until correct standing recipient
  await recordStandingReply(reply);
  assert.equal((await recordStandingReply(reply)).deduplicated,true);
  await assert.rejects(recordStandingReply({...reply,body:'Changed response'}),{code:'TOPOLOGY_REPLY_CONFLICT'});
- const done=await waitForReplies(waitArgs);assert.equal(done.ok,true);assert.equal(done.replies[0].body,'Durable response');assert.equal(done.replies[0].agent,'lead0001');assert.equal(done.replies[0].on_behalf_of,'worker01');
+ // TM-474: the barrier releases for anyone who knows the runDir, but the body reaches only the sender.
+ for(const viewers of [undefined,new Set(['worker01']),new Set(['lead0001','operator'])]){
+  const blind=await waitForReplies({...waitArgs,viewers});assert.equal(blind.ok,true);assert.equal(blind.replies[0].body,null);assert.match(blind.replies[0].body_withheld,/sender/);
+ }
+ const done=await waitForReplies({...waitArgs,viewers:new Set(['source01'])});assert.equal(done.ok,true);assert.equal(done.replies[0].body,'Durable response');assert.equal(done.replies[0].agent,'lead0001');assert.equal(done.replies[0].on_behalf_of,'worker01');
  assert.deepEqual(await pendingReplies(f.runDir,['worker01']),[]);
  const retry=await sendMessage({...f.input,fromProject:f.source,idempotencyKey:'barrier'});assert.equal(retry.id,sent.id);assert.equal(retry.deliveries[0].standing,true);
  assert.equal((await readStandingInbox({consumer:f.dest,agent:'lead0001',env:f.env,...f.standingOptions})).length,1);

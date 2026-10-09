@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+- **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
+  subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
+  cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each
+  other's mail. `createAgent` (every `agent new`, lead, role and reviewer registration) and run
+  launch (fan-out child `rev.a` beside a sibling `rev_a`) now refuse
+  an id whose token another agent in the repository already uses, with `TOPOLOGY_AGENT_SUBJECT_TAKEN`.
+  Existing subjects are unchanged.
+- **Security: run `wait` no longer hands standing reply bodies to anyone who knows a runDir (TM-474,
+  EP-028).** `ao-topology wait --run` and MCP `orchestration_run_mail_wait` returned the reply body of
+  every standing message the run sent. The barrier still releases when the reply lands, but the
+  body now reaches only the standing envelope's sender (the caller's launcher id or "operator", or
+  its session identity); anyone else gets `body: null` with `body_withheld`. The mailbox audit test
+  now also catches the `(options.readMessage ?? readStandingMessage)(` call shape and allowlists the
+  goal-loop and assignment readers explicitly, with a corrected reason for each.
+- **Security: the workflow console no longer treats a pane-less agent as the operator (TM-473,
+  EP-028).** `console show` admitted any process with no identity variables and no census-bound
+  pane as the operator, so a worker that unset `TMUX_PANE` and its `AO_*` variables could read every
+  agent's mail. The gate now walks the caller's `/proc` ancestry against every census-bound
+  `pane_pid` (this repository's census, every other one under the state home, and the default one
+  under the passwd home, which no env variable can redirect) and refuses on a
+  match, or when ancestry is unreadable. The autonomy allowlist (#222) never approves `console show`.
+  Remaining boundary: a process that has left every agent's tree (`setsid -f`) is still the
+  operator to this check; TM-427B's identity proof closes that.
+### Security
+
+- **Provider adapters no longer load from the consumer repository (TM-467, EP-028).** An adapter
+  is the command a pane executes, and `<repo>/.bytedesk/agent-orchestration/providers/` (and the
+  legacy `.orchestration/providers/`) is version-controlled, so a worker's merged PR could replace
+  `claude` with any program for every later launch in that repo. `providerDirs` now searches only
+  `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
 ### Fixed
 
 - **`manage stop-worker` no longer tells a lead a live worker needs a finish report (TM-426, EP-028).**

@@ -24,6 +24,7 @@ import { stateRoot } from "./lib/repoid.mjs";
 import { dispatchedWorker } from "./lib/delegation.mjs";
 import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
 import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
+import { callerIdentity } from "./lib/session-identity.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topology");
@@ -260,6 +261,13 @@ function externalSummary(verb, r) {
   if (!r.landed) return `${r.task} not landed: ${r.reason} (${level})`;
   if (r.published) return `${r.task} merged and published at ${r.release.revision ?? ''}${r.origin ? `; origin ${r.origin.notified ? 'notified' : `NOT notified: ${r.origin.reason}`}` : ''} (${level})`;
   return `${r.task} merged${r.waiting ? `; publish waits for ${r.waiting.join(', ')}` : ''} (${level})`;
+}
+
+/** TM-474: the names this caller may read standing reply bodies as under `wait`: exactly the two names
+ * `send` gives a sender, its launcher id (or "operator") and its session identity (send --from). Same
+ * env trust as `send` (TM-427B); a reply body reaches only the sender it answers. */
+function runMailViewers(env) {
+  return new Set([env.AO_AGENT_ID || "operator", callerIdentity(env)?.agentId].filter(Boolean));
 }
 
 function list(value) {
@@ -1848,6 +1856,7 @@ const commands = {
       timeoutMs,
       pollMs,
       transport,
+      viewers: runMailViewers(process.env),
       onTick: flags.quiet ? undefined : (pending, elapsed) => process.stderr.write(`waiting ${Math.round(elapsed / 1000)}s — pending: ${pending.map((item) => `${item.agent}:${item.id}`).join(", ")}\n`),
     });
     } finally { await closeLiveTransports(); }
@@ -1862,7 +1871,7 @@ const commands = {
     }
     out(`All replies received in ${Math.round(result.elapsed_ms / 1000)}s.`);
     for (const reply of result.replies) {
-      out(`\n===== ${reply.agent} · ${reply.id} · ${reply.path} =====\n${reply.body.trim()}`);
+      out(`\n===== ${reply.agent} · ${reply.id} · ${reply.path} =====\n${reply.body === null ? `(${reply.body_withheld})` : reply.body.trim()}`);
     }
   },
 

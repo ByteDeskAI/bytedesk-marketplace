@@ -28,6 +28,10 @@ const FAKE_SERVER = join(HERE, "fixtures", "fake-orchestration-mcp.mjs");
 const trash = [];
 after(() => cleanup(...trash));
 
+// TM-467: the topology candidate chain is read from the user's config — never this machine's real one.
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), "tm-backends-xdg-"));
+trash.push(process.env.XDG_CONFIG_HOME);
+
 /** Caps that make one backend present at a fixed fake path. */
 function capsWith(entries) {
   return { backends: { manual: { available: true }, ...entries } };
@@ -217,12 +221,11 @@ describe("topology backend", () => {
   });
 
   /** Run spawn() with everything stubbed; returns what it wrote and what it ran. */
-  function launch(request = req(), { caps = { topology: { available: true, path: "/plugins/agent-orchestration/bin/ao-topology" } }, result = launched(), rosterList = [], env = { PATH: "/usr/bin" } } = {}) {
+  function launch(request = req(), { caps = { topology: { available: true, path: "/plugins/agent-orchestration/bin/ao-topology" } }, result = launched(), env = { PATH: "/usr/bin" } } = {}) {
     const written = [];
     const spawned = [];
     const res = topology.spawn(request, {
       caps: capsWith(caps),
-      rosterList,
       writeImpl: (file, contents) => written.push([file, contents]),
       mkdtempImpl: (prefix) => `${prefix}XXXX`,
       spawnImpl: (bin, args, opts) => {
@@ -295,33 +298,13 @@ describe("topology backend", () => {
     assert.equal(contents, request.prompt);
   });
 
-  it("borrows an identity from the repo's agent library when it has one", () => {
-    const roster = [
-      { id: "ag-lead", role: "lead", full_name: "Ada Lead" },
-      { id: "ag-worker", role: "implementer", full_name: "Bo Worker" },
-    ];
-    const { res, written } = launch(req(), { rosterList: roster });
+  it("TM-467: the worker is always an inline agent with the shipped candidate chain", () => {
+    const { written } = launch(req());
     const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
 
-    assert.equal(spec.agents[0].agent, "ag-worker", "the lead is the repo's, not a dispatch worker's, identity");
-    assert.equal(spec.agents[0].instructions, req().prompt, "the handoff is appended to the stored prompt, not instead of it");
-    assert.equal("instructions_file" in spec.agents[0], false, "the stored agent's own system prompt must survive");
-    assert.equal(res.detail.agent, "ag-worker");
-  });
-
-  it("falls back to an inline single-agent spec when the repo has no roster", () => {
-    const { res, written } = launch(req(), { rosterList: [] });
-    const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
-
-    assert.equal("agent" in spec.agents[0], false);
+    assert.equal("agent" in spec.agents[0], false, "no library reference: ao-topology would merge its cli, args, env, mcp and cwd");
     assert.equal(spec.agents[0].candidates, "claude,codex");
-    assert.equal(res.detail.agent, null);
-  });
-
-  it("a roster of nothing but the lead still goes inline", () => {
-    const { written } = launch(req(), { rosterList: [{ id: "ag-lead", role: "lead", full_name: "Ada Lead" }] });
-    const spec = JSON.parse(written.find(([file]) => file.endsWith("spec.json"))[1]);
-    assert.equal("agent" in spec.agents[0], false);
+    assert.equal("args" in spec.agents[0], false);
   });
 
   it("passes the dispatching session through, and omits identity vars that were never set", () => {
@@ -382,16 +365,6 @@ describe("topology backend", () => {
     assert.equal(spec.agents[0].env.TM_SESSION_ID, request.session, "the pane claims as the dispatching session");
   });
 
-  it("the dispatch's store wins over one a stored agent happens to carry", () => {
-    const request = req();
-    const agent = JSON.parse(
-      launch(request, { rosterList: [{ id: "ag-worker", role: "implementer", cli: "claude", env: { TM_ROOT: "/somewhere/else", TM_SESSION_ID: "not-the-dispatcher" } }] })
-        .written.find(([f]) => f.endsWith("spec.json"))[1],
-    ).agents[0];
-    assert.equal(agent.env.TM_ROOT, request.p.root, "the dispatch knows which store the task is in; the roster does not");
-    assert.equal(agent.env.TM_SESSION_ID, request.session, "and which session claimed it");
-  });
-
   it("TM-375: a dispatching secret reaches ao-topology's environment and never its spec file or argv", () => {
     const secret = "tm375-topology-sentinel";
     const { written, spawned } = launch(req(), { env: { PATH: "/usr/bin", TYPESAFE_API_KEY: secret } });
@@ -399,19 +372,6 @@ describe("topology backend", () => {
     assert.equal(opts.env.TYPESAFE_API_KEY, secret, "ao-topology inherits it and passes it on by its own workers.passEnv");
     assert.ok(written.length > 0 && !JSON.stringify(written).includes(secret), "the spec file never carries it");
     assert.ok(!args.join(" ").includes(secret));
-  });
-
-  it("keeps stored env and args while the producer applies candidate-specific guards", () => {
-    const agentOf = (rosterList) => JSON.parse(launch(req(), { rosterList }).written.find(([f]) => f.endsWith("spec.json"))[1]).agents[0];
-
-    const claude = agentOf([{ id: "ag-worker", role: "implementer", cli: "claude", env: { FOO: "bar" }, args: ["--verbose"] }]);
-    assert.equal(claude.env.FOO, "bar", "an inline env replaces the stored one wholesale in ao-topology, so tm merges");
-    assert.equal(claude.env.TM_DISPATCH_WORKER, "1");
-    assert.deepEqual(claude.args, ["--verbose"]);
-
-    const mixed = agentOf([{ id: "ag-worker", role: "implementer", candidates: ["codex:gpt-5", "claude:fable"], args: ["--x"] }]);
-    assert.deepEqual(mixed.args, ["--x"], "stored arguments stay intact; provider guards are separate");
-    assert.equal(mixed.env.TM_DISPATCH_WORKER, "1", "the env still marks the worker");
   });
 
   it("bounds the launch: an explicit timeout and a capped buffer", () => {
