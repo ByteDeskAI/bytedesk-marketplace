@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- **Auto-pull no longer publishes another session's uncommitted edits (TM-513).** The git hook's
+  sync copies the working tree, so a dirty file in a plugin the pull touched reached every
+  installed cache. `sync-plugins` now skips a plugin with uncommitted changes and logs why. Only
+  the marketplace directory Claude registered is pulled; another checkout is set up but not pulled.
+  The 10-minute throttle stamp is written only after a successful pull, the fetch has a 60-second
+  timeout, and failures are logged to `.git/plugin-rsync.log`. Tests cover both dirty-tree cases.
+
 ### Added
 - **Every machine pulls its own plugin updates (TM-510).** The session hook now fast-forwards this
   machine's bytedesk-marketplace checkout (the one Claude registered as a local directory, or the repo the session
