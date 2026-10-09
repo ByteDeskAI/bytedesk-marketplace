@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Fixed
+- **`trust-codex-hooks` trusts only this marketplace's own hooks (TM-485, PR #227 review).** It used
+  to trust every untrusted `<plugin>@bytedesk` hook. Now a hook qualifies only when: Codex's
+  `[marketplaces.bytedesk]` source is this checkout (or, for a copy running from Codex's own cache,
+  a marketplace named bytedesk; or the `ByteDeskAI/bytedesk-marketplace` GitHub repo); the hook's
+  `source` is `plugin`; its `sourcePath` is inside that plugin's Codex cache; and its command is an
+  interpreter plus absolute paths inside the same plugin root, with no shell syntax. A `modified`
+  hook is trusted only when its hooks file and scripts are byte-identical to this marketplace's
+  source. `codex` and `grok` are resolved from absolute `PATH` entries and run from the plugin root
+  with a reduced environment. The trust lock honours `CODEX_HOME` and creates its parent, so a
+  machine without `~/.codex` no longer fails with `ENOENT`. A stale lock is renamed aside before it
+  is removed, so two runs cannot both take it.
+- **`plugin-rsync-mcp` no longer runs `fix-grok-installs`** (TM-485). It starts only the trust run,
+  from the plugin root with a reduced environment. The session hook still repairs Grok installs.
 - **`fix-grok-installs` touches only bytedesk plugins, and never grants trust (TM-485).** It used to
   reinstall any local marketplace's plugins with `--trust` on every session start. It now acts only
   on a marketplace whose `marketplace.json` is named `bytedesk`. An entry that was not trusted —

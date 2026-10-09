@@ -5,9 +5,9 @@
  * User-scope only. This is a machine tool, not a project one: a repo that enables
  * plugin-rsync@bytedesk in extraKnownMarketplaces is the wrong install.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -226,33 +226,160 @@ export function parseItemized(stdout) {
 }
 
 /**
+ * One run at a time: a lock directory, reclaimed when older than `staleMs` (a run killed mid-way).
+ * TM-485: the stale lock is renamed aside before removal, so of two runs that both saw it stale only
+ * one can take it — a plain rmdir let the slower one delete the lock the faster one had just made.
+ * Returns the release function, or null when another run holds the lock.
+ */
+export function acquireLock(lock, staleMs) {
+  mkdirSync(dirname(lock), { recursive: true });
+  try {
+    if (Date.now() - statSync(lock).mtimeMs > staleMs) {
+      const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
+      renameSync(lock, aside);
+      rmdirSync(aside);
+    }
+  } catch {}
+  try {
+    mkdirSync(lock);
+  } catch (e) {
+    if (e.code === "EEXIST") return null;
+    throw e;
+  }
+  return () => {
+    try {
+      rmdirSync(lock);
+    } catch {}
+  };
+}
+
+/**
+ * TM-485: the first `name` on PATH that is an executable file, from absolute PATH entries only, so
+ * an empty or relative entry (".") cannot make the current directory supply `codex` or `grok`.
+ * ponytail: PATH is still the operator's; pinning install locations per host would be stricter.
+ */
+export function trustedBin(name, path = process.env.PATH || "") {
+  for (const dir of path.split(delimiter)) {
+    if (!isAbsolute(dir)) continue;
+    const file = join(dir, name);
+    try {
+      if (statSync(file).isFile()) {
+        accessSync(file, constants.X_OK);
+        return file;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+/** The environment a host CLI is spawned with: what it needs to find its home and auth, no more. */
+export function reducedEnv(env = process.env) {
+  const keep = ["BYTEDESK_MARKETPLACE", "HOME", "PATH", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CODEX_HOME"];
+  return Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
+}
+
+/** The body of a `[name]` TOML table. ponytail: regex, not a TOML parser. */
+function tomlTable(toml, name) {
+  const head = `^\\[${name.replace(/[.[\]]/g, "\\$&")}\\][^\\S\\n]*$`;
+  return new RegExp(`${head}([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m").exec(toml)?.[1] || "";
+}
+const tomlString = (table, key) => new RegExp(`^\\s*${key}\\s*=\\s*"([^"]*)"`, "m").exec(table)?.[1] ?? null;
+const readText = (file) => {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
+};
+const codexHomeOf = (home, env = process.env) => env.CODEX_HOME || join(home, ".codex");
+
+/**
+ * Where the Codex `bytedesk` marketplace really comes from, or null when it is not this one: a
+ * local source must be this marketplace's own checkout; a git source must be ByteDeskAI's repo.
+ * A plugin-rsync running from Codex's own bytedesk cache was installed from that marketplace, so
+ * for it the registered local source is "this one" when it is a marketplace named bytedesk.
+ * `local` is the checkout to compare content against, null for a git source.
+ */
+export function codexMarketplace(codexHome, here = marketplaceRoot(), self = ROOT) {
+  const table = tomlTable(readText(join(codexHome, "config.toml")), "marketplaces.bytedesk");
+  const type = tomlString(table, "source_type");
+  const source = tomlString(table, "source");
+  if (!source) return null;
+  if (type === "local") {
+    if (here && real(source) === real(here)) return { local: real(here) };
+    const fromCodexCache = within(real(self), real(join(codexHome, "plugins", "cache", "bytedesk")));
+    const named = readJson(join(source, ".claude-plugin", "marketplace.json"), null)?.name === "bytedesk";
+    return fromCodexCache && named ? { local: real(source) } : null;
+  }
+  return /^(https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)?ByteDeskAI\/bytedesk-marketplace(\.git)?\/?$/i.test(source) ? { local: null } : null;
+}
+
+const within = (path, root) => path.startsWith(root + sep);
+const sameFile = (a, b) => {
+  try {
+    return readFileSync(a).equals(readFileSync(b));
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * TM-485: may plugin-rsync trust this Codex hook? Only an `untrusted` or `modified` hook of a
+ * `<plugin>@bytedesk` plugin whose marketplace is this one (`market`), declared in that plugin's
+ * Codex cache, whose command is a plain interpreter (or script) plus absolute paths inside that
+ * same plugin root, with no shell syntax. A `modified` hook is trusted only when its hooks file and
+ * every script its command names are byte-identical to this marketplace's source.
+ */
+export function trustableHook(h, { codexHome, market }) {
+  if (!market || h?.source !== "plugin" || !h.currentHash) return false;
+  if (h.trustStatus !== "untrusted" && h.trustStatus !== "modified") return false;
+  const name = /^([A-Za-z0-9][\w.-]*)@bytedesk$/.exec(h.pluginId || "")?.[1];
+  if (!name || name === "." || name === "..") return false;
+  const sources = market.local ? catalog(market.local).sources : null;
+  if (sources && !sources[name]) return false;
+  const cache = real(join(codexHome, "plugins", "cache", "bytedesk", name));
+  const file = real(String(h.sourcePath || ""));
+  if (!h.sourcePath || !within(file, cache)) return false;
+  const root = join(cache, relative(cache, file).split(sep)[0]);
+  const cmd = String(h.command || "");
+  if (/[;&|<>`$\\\n\r]/.test(cmd)) return false;
+  const tokens = [...cmd.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((t) => t[1] ?? t[2] ?? t[3]);
+  const paths = tokens.filter((t) => t.includes("/"));
+  if (!paths.length || !paths.every((t) => isAbsolute(t) && within(real(t), root))) return false;
+  if (!paths.includes(tokens[0]) && !["node", "bash", "sh"].includes(tokens[0])) return false;
+  if (h.trustStatus === "modified") {
+    if (!sources) return false;
+    return [file, ...paths.map(real)].every((f) => sameFile(f, join(sources[name], relative(root, f))));
+  }
+  return true;
+}
+
+/**
  * Codex runs a plugin hook only once its hash is trusted in ~/.codex/config.toml, and asks for that
  * trust in its TUI. Ask Codex's own app-server which bytedesk plugin hooks are untrusted and write
  * their current hashes back through its config API, so a synced hook runs in the next session.
  * Only `<plugin>@bytedesk` hooks are touched: this marketplace is the operator's own code.
  * ponytail: speaks app-server JSON-RPC by hand; a codex CLI verb for hook trust would replace it.
  */
-function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000, home = HOME } = {}) {
+function trustCodexHooks({ cwd = ROOT, timeoutMs = 20000, home = HOME } = {}) {
+  const codexHome = codexHomeOf(home);
+  const market = codexMarketplace(codexHome);
+  if (!market) return Promise.resolve({ ok: false, foreign: true, err: "the Codex bytedesk marketplace is not this marketplace" });
+  const codex = trustedBin("codex");
+  if (!codex) return Promise.resolve({ ok: false, err: "codex is not on PATH" });
   // One run at a time. The app-server this spawns may start plugin MCP servers, including ours,
   // which would start another run: the lock ends that chain. A lock older than any run is stale.
-  const lock = join(home, ".codex", ".plugin-rsync-trust.lock");
+  let unlock;
   try {
-    if (Date.now() - statSync(lock).mtimeMs > 2 * 60 * 1000) rmdirSync(lock);
-  } catch {}
-  try {
-    mkdirSync(lock, { recursive: false });
+    unlock = acquireLock(join(codexHome, ".plugin-rsync-trust.lock"), 2 * 60 * 1000);
   } catch (e) {
-    return Promise.resolve(e.code === "EEXIST" ? { ok: true, trusted: [], busy: true } : { ok: false, err: `lock: ${e.code}` });
+    return Promise.resolve({ ok: false, err: `lock: ${e.code || e.message}` });
   }
-  const unlock = () => {
-    try {
-      rmdirSync(lock);
-    } catch {}
-  };
+  if (!unlock) return Promise.resolve({ ok: true, trusted: [], busy: true });
   return new Promise((done) => {
     let child;
     try {
-      child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "ignore"] });
+      child = spawn(codex, ["app-server"], { cwd, env: reducedEnv(), stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       unlock();
       return done({ ok: false, err: "codex not runnable" });
@@ -286,7 +413,7 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000, home = HOME }
         if (m.error) return finish({ ok: false, err: m.error.message });
         const state = {};
         for (const h of (m.result?.data || []).flatMap((d) => d.hooks || [])) {
-          if (h.trustStatus !== "trusted" && /@bytedesk$/.test(h.pluginId || "") && h.currentHash) state[h.key] = { trusted_hash: h.currentHash };
+          if (trustableHook(h, { codexHome, market })) state[h.key] = { trusted_hash: h.currentHash };
         }
         trusted = Object.keys(state);
         if (!trusted.length) return finish({ ok: true, trusted });
@@ -309,14 +436,10 @@ function trustCodexHooks({ cwd = process.cwd(), timeoutMs = 20000, home = HOME }
  * keeps no trust flag in the registry, so a `trusted: false` entry or one in `[plugins].disabled`
  * counts as untrusted: it is reported and left as it is, never re-trusted.
  */
-/** Plugin names/IDs in ~/.grok/config.toml `[plugins].disabled`. ponytail: regex, not a TOML parser. */
+/** Plugin names/IDs in ~/.grok/config.toml `[plugins].disabled`. */
 function grokDisabled(home) {
-  let toml = "";
-  try {
-    toml = readFileSync(join(home, ".grok", "config.toml"), "utf8");
-  } catch {}
-  const section = /^\[plugins\][^\S\n]*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(toml)?.[1] || "";
-  const list = /^\s*disabled\s*=\s*\[([^\]]*)\]/m.exec(section)?.[1] || "";
+  const toml = readText(join(home, ".grok", "config.toml"));
+  const list = /^\s*disabled\s*=\s*\[([^\]]*)\]/m.exec(tomlTable(toml, "plugins"))?.[1] || "";
   return [...list.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]);
 }
 
@@ -336,20 +459,20 @@ function fixGrokInstalls({ home = HOME } = {}) {
     }
   }
   if (!bad.length) return { ok: true, fixed: [], untrusted };
-  const lock = join(home, ".grok", ".plugin-rsync-fix.lock");
+  const bin = trustedBin("grok");
+  if (!bin) return { ok: false, fixed: [], untrusted, err: "grok is not on PATH" };
   // A run killed mid-way leaves its lock; one older than any run could take is reclaimed, or the
   // repair would be skipped forever.
+  let unlock;
   try {
-    if (Date.now() - statSync(lock).mtimeMs > 15 * 60 * 1000) rmdirSync(lock);
-  } catch {}
-  try {
-    mkdirSync(lock);
-  } catch {
-    return { ok: true, fixed: [], busy: true };
+    unlock = acquireLock(join(home, ".grok", ".plugin-rsync-fix.lock"), 15 * 60 * 1000);
+  } catch (e) {
+    return { ok: false, fixed: [], untrusted, err: `lock: ${e.code || e.message}` };
   }
+  if (!unlock) return { ok: true, fixed: [], untrusted, busy: true };
   try {
     const fixed = [];
-    const grok = (...args) => spawnSync("grok", ["plugin", ...args], { encoding: "utf8", timeout: 300000 });
+    const grok = (...args) => spawnSync(bin, ["plugin", ...args], { cwd: ROOT, env: reducedEnv(), encoding: "utf8", timeout: 300000 });
     for (const { name, src, original } of bad) {
       const un = grok("uninstall", name);
       if (un.error) return { ok: false, fixed, untrusted, err: `grok: ${un.error.code || un.error.message}` };
@@ -365,7 +488,7 @@ function fixGrokInstalls({ home = HOME } = {}) {
     }
     return { ok: true, fixed, untrusted };
   } finally {
-    rmdirSync(lock);
+    unlock();
   }
 }
 
@@ -516,7 +639,8 @@ async function main(argv) {
   if (listOnly) return 0;
   if (codexSynced) {
     const r = await trustCodexHooks();
-    if (!r.ok) console.log(`codex hook trust skipped: ${r.err}`);
+    // A sync from a checkout Codex does not install from (a worktree) has nothing to trust: quiet.
+    if (!r.ok && !r.foreign) console.log(`codex hook trust skipped: ${r.err}`);
     else if (r.trusted.length) console.log(`codex hooks trusted: ${r.trusted.join(", ")}`);
   }
   if (wanted.length && copies === 0 && failed === 0) return 2;
