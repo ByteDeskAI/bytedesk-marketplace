@@ -24,5 +24,6 @@
     ],
     "websiteURL": "https://github.com/ByteDeskAI/bytedesk-marketplace"
   },
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.codex-mcp.json"
 }

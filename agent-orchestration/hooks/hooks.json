@@ -12,7 +12,6 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/guard-project-install.mjs\"" },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/autonomy-allow.mjs\"" }
         ]
       }

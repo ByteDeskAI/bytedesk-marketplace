@@ -5,7 +5,6 @@
 // The directory doubles as the agent's cwd at spawn time. That is deliberate — Claude Code keys its
 // memory by working directory, so a per-agent cwd gives each agent its own memory without inventing
 // a memory layer. The real work tree is reached with --add-dir and explained in the prompt.
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, dirname, relative, resolve } from "node:path";
@@ -15,10 +14,11 @@ import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { consumerResourceDirs, exists, fail, invariant, nowIso, writeJson } from "./util.mjs";
 import { addressOf, agentDirName, displayName, mintId, mintName, titleForRole } from "./identity.mjs";
 import { orchName } from "./orch-transport.mjs";
+import { safeGitText } from "./safe-git.mjs";
 
 function libraryConsumer(consumer) {
   try {
-    const paths = execFileSync('git', ['-C', consumer, 'worktree', 'list', '--porcelain'], { encoding:'utf8', stdio:['ignore','pipe','ignore'] });
+    const paths = safeGitText(consumer, ['worktree', 'list', '--porcelain'], { raw: true });
     const first = paths.split('\n').find(line => line.startsWith('worktree '));
     return first ? first.slice(9) : consumer;
   } catch { return consumer; }

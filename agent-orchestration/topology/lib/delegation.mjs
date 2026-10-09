@@ -44,6 +44,14 @@ const CONFIG_ONLY = /_(BIN|HOME|PATH)$/;
 const osUser = env => env.USER || env.LOGNAME || userInfo().username;
 const cleanScopes = value => [...new Set((Array.isArray(value) ? value : String(value || '').split(',')).map(s => s.trim()).filter(Boolean))];
 
+/** TM-243 / TM-442: the one predicate every worker refusal uses. A dispatched worker session carries the
+ * marker tm dispatch and the topology launcher bind into it (TM_DISPATCH_WORKER).
+ * Same-user limit: a worker can unset it; refusals keyed on it are defence in depth, and authority
+ * itself must come from a source the worker cannot write (TM-442: the server's default branch). */
+export function dispatchedWorker(env = process.env) {
+  return Boolean(env.TM_DISPATCH_WORKER);
+}
+
 /** Names of agent-session environment markers present in env. */
 export function agentMarkers(env) {
   return Object.keys(env).filter(k => env[k] != null && env[k] !== '' && (AGENT_MARKERS.includes(k) || (AGENT_MARKER_PREFIXES.some(p => k.startsWith(p)) && !CONFIG_ONLY.test(k)))).sort();

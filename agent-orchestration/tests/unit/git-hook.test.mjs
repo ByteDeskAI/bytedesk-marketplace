@@ -1,6 +1,8 @@
+// TM-392: a repository may enable agent-orchestration and task-management in its own
+// .claude/settings.json (~/.agents/AGENTS.md), so nothing in this plugin blocks a commit for it.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -10,65 +12,73 @@ import { gitHookStatus, installGitHook, uninstallGitHook } from '../../topology/
 
 const exec = promisify(execFile);
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GIT = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
+const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
 
-async function fixture(t, { installed = true } = {}) {
+// The pre-commit hook that `ao-topology git-hook install` wrote before TM-392, verbatim. Repositories
+// still carry copies of it; they resolve the check script from the installed plugin at commit time.
+const OLD_HOOK = `#!/bin/sh
+# ao-topology git-hook: project-install guard
+# Managed by \`ao-topology git-hook install\`. Remove with \`ao-topology git-hook uninstall\`.
+root=$(git rev-parse --show-toplevel) || exit 0
+check=$(node -e '
+const fs = require("fs"), os = require("os"), path = require("path");
+try {
+  const all = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude/plugins/installed_plugins.json"), "utf8")).plugins;
+  const user = (all["agent-orchestration@bytedesk"] || []).find((e) => e.scope === "user");
+  const file = path.join(user.installPath, "scripts", "check-no-project-plugin-installs.mjs");
+  if (fs.existsSync(file)) process.stdout.write(file);
+} catch {}
+' 2>/dev/null)
+[ -n "$check" ] || exit 0
+node "$check" "$root" || { echo "pre-commit blocked: enable these plugins in ~/.claude/settings.json only, not in the repo." >&2; exit 1; }
+`;
+
+async function fixture(t) {
   const root = await mkdtemp(join(os.tmpdir(), 'ao-git-hook-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home'), repo = join(root, 'repo');
   await mkdir(join(home, '.claude', 'plugins'), { recursive: true });
-  if (installed) {
-    await writeFile(join(home, '.claude', 'plugins', 'installed_plugins.json'),
-      JSON.stringify({ plugins: { 'agent-orchestration@bytedesk': [{ scope: 'user', installPath: PLUGIN_ROOT }] } }));
-  }
+  await writeFile(join(home, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ plugins: { 'agent-orchestration@bytedesk': [{ scope: 'user', installPath: PLUGIN_ROOT }] } }));
   await exec('git', ['init', '-q', repo]);
   await mkdir(join(repo, '.claude'), { recursive: true });
-  const setPlugins = (enabledPlugins) => writeFile(join(repo, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins }));
-  // A real `git commit` from a plain process: no Claude session, HOME pointed at the fixture.
-  const commit = (message = 'x') => exec('git', ['-C', repo, ...GIT, 'commit', '--allow-empty', '-q', '-m', message],
+  await writeFile(join(repo, '.claude', 'settings.json'),
+    JSON.stringify({ enabledPlugins: { 'agent-orchestration@bytedesk': true, 'task-management@bytedesk': true } }));
+  const hook = join(repo, '.git', 'hooks', 'pre-commit');
+  // A real commit from a plain process: no Claude session, HOME pointed at the fixture.
+  const commit = () => exec('git', ['-C', repo, ...IDENT, 'commit', '--allow-empty', '-q', '-m', 'x'],
     { env: { ...process.env, HOME: home } }).then(() => ({ code: 0 }), (error) => ({ code: error.code, stderr: error.stderr }));
-  return { root, home, repo, setPlugins, commit };
+  return { root, repo, hook, commit };
 }
 
-test('installed hook blocks a terminal commit that enables the plugin, and allows it once removed', async (t) => {
+test('TM-392: a hook installed before the retirement lets a real commit through in a repo that enables the plugins at project scope', async (t) => {
   const f = await fixture(t);
-  assert.equal((await installGitHook({ repo: f.repo })).state, 'installed');
-  assert.equal(((await stat(join(f.repo, '.git', 'hooks', 'pre-commit'))).mode & 0o111) !== 0, true, 'hook is executable');
-  await f.setPlugins({ 'agent-orchestration@bytedesk': true });
-  const blocked = await f.commit();
-  assert.equal(blocked.code, 1, blocked.stderr);
-  assert.match(blocked.stderr, /agent-orchestration/);
-  await f.setPlugins({ 'fleet@bytedesk': true });
-  assert.equal((await f.commit()).code, 0);
+  await writeFile(f.hook, OLD_HOOK);
+  await chmod(f.hook, 0o755);
+  const result = await f.commit();
+  assert.equal(result.code, 0, result.stderr);
 });
 
-test('hook fails open when the plugin cannot be found', async (t) => {
-  const f = await fixture(t, { installed: false });
-  await installGitHook({ repo: f.repo });
-  await f.setPlugins({ 'agent-orchestration@bytedesk': true });
-  assert.equal((await f.commit()).code, 0);
+test('TM-392: no PreToolUse hook gates Bash, so no command text (a heredoc that mentions a commit included) can be blocked', async () => {
+  const hooks = JSON.parse(await readFile(join(PLUGIN_ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks;
+  // TM-369's autonomy allowlist is the only PreToolUse hook: it can only allow or fall through,
+  // never block (autonomy-allow.test.mjs), so nothing here gates a command.
+  const commands = (hooks.PreToolUse ?? []).flatMap((entry) => entry.hooks.map((h) => h.command));
+  assert.deepEqual(commands, ['node "${CLAUDE_PLUGIN_ROOT}/scripts/autonomy-allow.mjs"']);
+  assert.doesNotMatch(JSON.stringify(hooks), /guard-project-install|check-no-project-plugin-installs/);
 });
 
-test('install is idempotent, refuses a foreign hook, and uninstall removes only its own', async (t) => {
+test('install is retired; status finds an old hook and uninstall removes only its own', async (t) => {
   const f = await fixture(t);
-  assert.equal((await installGitHook({ repo: f.repo })).changed, true);
-  assert.equal((await installGitHook({ repo: f.repo })).changed, false);
-  assert.equal((await uninstallGitHook({ repo: f.repo })).state, 'absent');
+  await assert.rejects(installGitHook({ repo: f.repo }), (error) => error.code === 'TOPOLOGY_GIT_HOOK_RETIRED');
   assert.equal((await gitHookStatus({ repo: f.repo })).state, 'absent');
-  const path = join(f.repo, '.git', 'hooks', 'pre-commit');
-  await writeFile(path, '#!/bin/sh\necho mine\n');
-  await assert.rejects(installGitHook({ repo: f.repo }), (error) => error.code === 'TOPOLOGY_GIT_HOOK_EXISTS');
+  await writeFile(f.hook, OLD_HOOK);
+  assert.equal((await gitHookStatus({ repo: f.repo })).state, 'installed');
+  assert.equal((await uninstallGitHook({ repo: f.repo })).changed, true);
+  assert.equal((await gitHookStatus({ repo: f.repo })).state, 'absent');
+  await writeFile(f.hook, '#!/bin/sh\necho mine\n');
   await assert.rejects(uninstallGitHook({ repo: f.repo }), (error) => error.code === 'TOPOLOGY_GIT_HOOK_EXISTS');
-  assert.equal(await readFile(path, 'utf8'), '#!/bin/sh\necho mine\n', 'the foreign hook is untouched');
-});
-
-test('a linked worktree shares the main repository hook', async (t) => {
-  const f = await fixture(t);
-  await exec('git', ['-C', f.repo, ...GIT, 'commit', '--allow-empty', '-q', '-m', 'init']);
-  const tree = join(f.root, 'wt');
-  await exec('git', ['-C', f.repo, 'worktree', 'add', '-q', '--detach', tree]);
-  const installed = await installGitHook({ repo: tree });
-  assert.equal(installed.path, join(f.repo, '.git', 'hooks', 'pre-commit'));
+  assert.equal(await readFile(f.hook, 'utf8'), '#!/bin/sh\necho mine\n', 'the foreign hook is untouched');
 });
 
 test('ao-topology git-hook reports a non-repository clearly', async (t) => {

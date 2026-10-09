@@ -9,7 +9,7 @@
 //     `claude plugin install --scope project` writes, and a clone that points at nothing);
 //   - the bytedesk marketplace registered by absolute or home-relative path (bakes one machine into a shared repo);
 //   - a plugin cache committed into the repo under .claude/plugins/ (machine-local; must be gitignored).
-import { spawnSync } from "node:child_process";
+import { safeGitSync } from "../../topology/lib/safe-git.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -49,7 +49,7 @@ export function projectPluginViolations(repoDir, names = DEFAULT_PLUGINS) {
         fix: 'make "path" relative to the repository, for example "../bytedesk-marketplace"' });
     }
   }
-  const tracked = spawnSync("git", ["-C", root, "ls-files", "--", ".claude/plugins"], { encoding: "utf8", windowsHide: true, timeout: 5_000 });
+  const tracked = safeGitSync(root, ["ls-files", "--", ".claude/plugins"], { timeout: 5_000 });
   if (tracked.status === 0 && tracked.stdout.trim()) {
     found.push({ file: join(root, ".claude", "plugins"), id: ".claude/plugins", problem: "is a plugin cache committed into the repository",
       fix: "run `git rm -r --cached .claude/plugins` and add `.claude/plugins/` to .gitignore" });

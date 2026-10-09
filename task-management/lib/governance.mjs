@@ -1,6 +1,6 @@
 import { read, update, logEvent, now } from "./store.mjs";
 import { paths } from "./paths.mjs";
-import { fullRevision, governanceGit, readManagementRecord } from "./governance-check.mjs";
+import { finishChecksRefusal, fullRevision, governanceGit, readManagementRecord } from "./governance-check.mjs";
 
 export function governTask(id, { workflowRunId, leadId, recordPath, p = paths() } = {}) {
   if (process.env.TM_DISPATCH_WORKER) throw new Error("a dispatched worker cannot grant or change governed task ownership");
@@ -30,11 +30,43 @@ export function readyForReview(id, { revision, p = paths() } = {}) {
   const strings = (value) => Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim());
   if (!record.started || record.state !== "ready-for-review" || record.workflow_run_id !== task.governance.workflowRunId ||
     (record.lead_id || record.owner) !== task.governance.leadId || record.worktree !== task.worktree || record.branch !== task.branch ||
-    finish?.revision !== revision || !strings(finish.artifacts) || !finish.artifacts.length || !strings(finish.checks) || !finish.checks.length ||
-    !strings(finish.risks) || typeof finish.evidence !== "string" || !finish.evidence.trim()) {
+    finish?.revision !== revision) {
     throw new Error(`${id}: submit the producer finish report with ao-topology manage report --task ${id} --consumer <repository> --file <finish-report.json>; review-ready only reflects an accepted exact-revision finish`);
   }
+  // TM-492: name the refused field. checks go through the shared reader, which accepts structured runs (TM-418).
+  const refused = !strings(finish.artifacts) || !finish.artifacts.length ? "finish.artifacts must be a non-empty array of strings"
+    : finishChecksRefusal(finish.checks, finish.revision)
+    ?? (!strings(finish.risks) ? "finish.risks must be an array of strings"
+    : typeof finish.evidence !== "string" || !finish.evidence.trim() ? "finish.evidence must be a non-empty string" : null);
+  if (refused) throw new Error(`${id}: the producer finish report is malformed: ${refused}; correct it and resubmit with ao-topology manage report --task ${id} --consumer <repository> --file <finish-report.json>`);
   const next = update(id, { governance: { ...task.governance, state: "ready-for-review", revision, submittedAt: now() } }, p);
   logEvent("ready-for-review", { id, workflowRunId: task.governance.workflowRunId, revision }, p);
+  return next;
+}
+
+/**
+ * TM-347: the store projection of the producer rework. After an independent review requests
+ * changes on the submitted revision, `ao-topology manage rework` records the rework against that
+ * revision, returns its record to working and calls this. The governed task returns to working, the
+ * reworked revision and the finished dispatch are kept in `governance.reworks`, and the dispatch is
+ * cleared so the lead can dispatch the next worker. Idempotent for a retry of the same revision.
+ */
+export function reworkGovernance(id, { revision, p = paths() } = {}) {
+  if (process.env.TM_DISPATCH_WORKER) throw new Error("a dispatched worker cannot return its task to work; the lead runs ao-topology manage rework");
+  const task = read(id, p);
+  if (!task?.governance) throw new Error(`${id} is not a governed task`);
+  const g = task.governance, { record } = readManagementRecord(task, p);
+  const last = (record.events || []).filter((event) => event.event === "rework").at(-1);
+  if (!fullRevision(revision) || !record.started || record.state !== "working" || record.finish ||
+    record.workflow_run_id !== g.workflowRunId || (record.lead_id || record.owner) !== g.leadId || last?.revision !== revision ||
+    record.worktree !== task.worktree || record.branch !== task.branch) {
+    throw new Error(`${id}: run ao-topology manage rework --task ${id}; tm rework only reflects a rework the producer recorded for the reviewed revision`);
+  }
+  if (g.state === "working" && g.reworks?.at(-1)?.revision === revision) return task;
+  if (g.state !== "ready-for-review" || g.revision !== revision) throw new Error(`${id}: only the revision submitted for review (${g.revision ?? "none"}) can return to work`);
+  const { revision: _reviewed, submittedAt, ...kept } = g;
+  const reworks = [...(g.reworks || []), { revision, submittedAt: submittedAt ?? null, at: now(), dispatched: task.dispatched ?? null }];
+  const next = update(id, { governance: { ...kept, state: "working", reworks }, dispatched: undefined }, p);
+  logEvent("reworked", { id, workflowRunId: g.workflowRunId, revision }, p);
   return next;
 }

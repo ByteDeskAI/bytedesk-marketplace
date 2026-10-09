@@ -154,13 +154,15 @@ describe("the person is recorded beside the board, not as it (ADR-0002, TM-045)"
     // answer to "who is working here" — a person is a person whether or not this directory is a repo.
     assert.equal(gitUser(p.root), gitUser(process.cwd()) ? gitUser(process.cwd()) : null);
 
-    const saved = process.env.GIT_CONFIG_GLOBAL;
-    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    // Host git reads only $HOME/.gitconfig (safe-git pins GIT_CONFIG_GLOBAL, TM-443), so "a machine with
+    // no identity" is a HOME with no .gitconfig.
+    const saved = process.env.HOME;
+    process.env.HOME = p.root;
     try {
       assert.equal(gitUser(p.root), null, "git configured with no identity yields none, not a guess");
     } finally {
-      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-      else process.env.GIT_CONFIG_GLOBAL = saved;
+      if (saved === undefined) delete process.env.HOME;
+      else process.env.HOME = saved;
     }
   });
 });
