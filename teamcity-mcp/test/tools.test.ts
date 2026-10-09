@@ -257,3 +257,75 @@ describe('passthrough tools', () => {
     });
   });
 });
+
+describe('lead mode (project-scoped trigger)', () => {
+  type BT = { id: string; name?: string; type?: string; settings?: unknown };
+  // Simulates TeamCity's affectedProject locator: only configs under DesignSystem match.
+  function leadClient(configs: Record<string, BT & { project: string }>) {
+    const client = fakeClient();
+    client.get = vi.fn(async (path: string, opts?: { locator?: string }) => {
+      client.calls.push({ method: 'GET', path, opts });
+      const m = /^id:([^,]+),affectedProject:\(id:([^)]+)\)$/.exec(opts?.locator ?? '');
+      const bt = m && configs[m[1]];
+      if (!bt || bt.project !== m![2]) return { count: 0 };
+      const { project: _p, ...rest } = bt;
+      return { count: 1, buildType: [rest] };
+    });
+    return client;
+  }
+  const CONFIGS = {
+    DS_Build: { id: 'DS_Build', name: 'Build', project: 'DesignSystem' },
+    DS_ReleasePublish: { id: 'DS_ReleasePublish', name: 'Release publish', project: 'DesignSystem' },
+    DS_Prod: { id: 'DS_Prod', name: 'Prod', type: 'deployment', project: 'DesignSystem' },
+    DS_Ship: {
+      id: 'DS_Ship',
+      name: 'Ship',
+      settings: { property: [{ name: 'buildConfigurationType', value: 'DEPLOYMENT' }] },
+      project: 'DesignSystem',
+    },
+    DS_DeployCdn: { id: 'DS_DeployCdn', name: 'CDN', project: 'DesignSystem' },
+    Gateway_Build: { id: 'Gateway_Build', name: 'Build', project: 'Gateway' },
+  };
+  function leadTrigger(client: ReturnType<typeof fakeClient>) {
+    const server = fakeServer();
+    registerBuilds(server as never, client as never, 'lead', 'DesignSystem');
+    return server.tools.get('trigger_build')!;
+  }
+  const isError = (r: unknown) => (r as { isError?: boolean }).isError === true;
+  const text = (r: unknown) => (r as { content: Array<{ text: string }> }).content[0].text;
+
+  it('registers the read surface plus trigger_build and no other write tool', () => {
+    const server = fakeServer();
+    for (const register of ALL_MODULES) register(server as never, fakeClient() as never, 'lead', 'P');
+    const lead = [...server.tools.keys()].sort();
+    const read = registeredNames('read');
+    expect(lead).toEqual([...read, 'trigger_build'].sort());
+    expect(lead).toHaveLength(38);
+  });
+
+  it.each(['DS_Build', 'DS_ReleasePublish'])('queues %s, a config of its own project', async (id) => {
+    const client = leadClient(CONFIGS);
+    const r = await leadTrigger(client).cb({ buildTypeId: id, branch: 'main' } as never);
+    expect(isError(r)).toBe(false);
+    expect(client.calls.at(-1)).toMatchObject({
+      method: 'POST',
+      path: 'buildQueue',
+      body: { buildType: { id }, branchName: 'main' },
+    });
+  });
+
+  it.each([
+    ['Gateway_Build', /not a build configuration of project DesignSystem/],
+    ['Nope_Missing', /not a build configuration of project DesignSystem/],
+    ['DS_Prod', /deploy configuration/],
+    ['DS_Ship', /deploy configuration/],
+    ['DS_DeployCdn', /deploy configuration/],
+    ['DS_Build,affectedProject:(id:_Root)', /not a plain build configuration id/],
+  ])('refuses %s without posting anything', async (id, reason) => {
+    const client = leadClient(CONFIGS);
+    const r = await leadTrigger(client).cb({ buildTypeId: id } as never);
+    expect(isError(r)).toBe(true);
+    expect(text(r)).toMatch(reason);
+    expect(client.calls.filter((c) => c.method !== 'GET')).toEqual([]);
+  });
+});

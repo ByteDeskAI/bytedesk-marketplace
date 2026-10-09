@@ -11,7 +11,7 @@ Why not the official JetBrains MCP plugin? It exposes only `rest_get`, a buildQu
 builds, manage the queue, create and edit projects and build configurations, parameters, agents,
 mutes, investigations, changes, users, server admin — plus paginated build logs.
 
-## Tool surface (71 tools in `full` mode, 37 in `read` mode)
+## Tool surface (71 tools in `full` mode, 37 in `read` mode, 38 in `lead` mode)
 
 | Area | Tools |
 | --- | --- |
@@ -52,6 +52,33 @@ TEAMCITY_TOKEN=...                # or TEAMCITY_USERNAME + TEAMCITY_PASSWORD
 ```
 
 Set it up once per machine (`chmod 600`); every provider below reads it through the launcher.
+
+### Repository leads: a project-scoped profile
+
+A repository's lead agent can trigger and read its own builds without the operator's broad
+credential. Put a profile at `~/.config/teamcity-mcp/repos/<repo>.env`, where `<repo>` is the
+directory name of the repository's main checkout (task worktrees resolve to the same name):
+
+```sh
+TEAMCITY_URL=https://deploy.prod.bytedesk.ai
+TEAMCITY_TOKEN=...                       # token of a TeamCity user with a role on this project only
+TEAMCITY_MCP_MODE=lead
+TEAMCITY_MCP_PROJECT=ByteDesk_DesignSystem
+```
+
+When the session runs inside that repository, the launcher loads this file **instead of** the
+user-level `env`, so the broader credential is never loaded. `TEAMCITY_MCP_ENV` still overrides
+both. In `lead` mode the server registers the read-only tools plus `trigger_build`, and
+`trigger_build` refuses:
+
+- a build configuration outside `TEAMCITY_MCP_PROJECT` and its subprojects;
+- a deploy configuration: TeamCity type `deployment`, or an id or name containing `deploy`.
+  Deploys stay operator-gated. Every configuration on our server is type `regular`, so the name
+  rule is the one that applies today; name a deploy configuration accordingly.
+
+The guard runs before anything is posted. The real boundary is still the token: create it for a
+TeamCity user whose only role is *Project developer* on that project, so a token copied out of the
+profile cannot reach another project either.
 For ad-hoc runs, plain environment variables work too (and the plugin's `.mcp.json` already
 carries the default `TEAMCITY_URL`).
 
@@ -84,7 +111,8 @@ Development: `npm run dev` (tsx), tests: `npm test` (vitest), live read-only che
 | `TEAMCITY_URL` | — | Base URL of the TeamCity server (required). |
 | `TEAMCITY_TOKEN` | — | Personal access token (preferred; sent as `Authorization: Bearer`). |
 | `TEAMCITY_USERNAME` / `TEAMCITY_PASSWORD` | — | Basic auth alternative (uses the `/httpAuth` prefix). |
-| `TEAMCITY_MCP_MODE` | `full` | `full` = all tools; `read` = read-only tools + `teamcity_rest_get` only. |
+| `TEAMCITY_MCP_MODE` | `full` | `full` = all tools; `read` = read-only tools + `teamcity_rest_get` only; `lead` = `read` plus a project-scoped `trigger_build` (see *Repository leads*). |
+| `TEAMCITY_MCP_PROJECT` | — | Project id a `lead` server may trigger builds in (required in `lead` mode). |
 | `MCP_TRANSPORT` | `http` | `http` = streamable-HTTP server; `stdio` = single-session stdio (plugin/Desktop). The `bin/teamcity-mcp` launcher defaults to stdio when no args/env say otherwise. `--stdio` flag also works. |
 | `HOST` / `PORT` | `127.0.0.1` / `3000` | Bind address (HTTP only). Non-loopback `HOST` requires `MCP_AUTH_TOKEN`. |
 | `MCP_AUTH_TOKEN` | — | Static bearer protecting the MCP endpoint itself. |
