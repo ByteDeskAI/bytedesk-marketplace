@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **Doctor and `role status` verify each live role's MCP servers (TM-520, EP-029).** For the
+  registered lead and reviewer, `ao-topology doctor` now compares the MCP child processes of the
+  live `claude` process with what the role expects: the servers its own `--mcp-config` declares,
+  plus `ao-review` for the reviewer. A reviewer still on the argv from before TM-365 (`--safe-mode`,
+  no `--mcp-config`) is reported as `ROLE_MCP_MISSING` with the reason and a forced relaunch
+  (`ao-topology agent restart <id> --mode handoff`), because `reviewer ensure` only reattaches it
+  (TM-488). A role launched with `--strict-mcp-config` and no servers reports `expected: "none"`
+  rather than an empty list. `role status lead|reviewer` carries the same verdict in `mcp`.
 - **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
   subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
   cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each

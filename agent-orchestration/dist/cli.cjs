@@ -64227,10 +64227,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "395148ff9b9f3d89a62e0e890ed5b42d0b7fce0d020e30916e9e3854ae3adcf5";
+  return false ? null : "c993e2e4cd03235ad637ba30bce788af27951d7f56dae18a615e49dcefd30903";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "395148ff9b9f3d89a62e0e890ed5b42d0b7fce0d020e30916e9e3854ae3adcf5";
+  const fingerprint2 = false ? null : "c993e2e4cd03235ad637ba30bce788af27951d7f56dae18a615e49dcefd30903";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64847,7 +64847,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "395148ff9b9f3d89a62e0e890ed5b42d0b7fce0d020e30916e9e3854ae3adcf5",
+  sourceFingerprint: false ? null : "c993e2e4cd03235ad637ba30bce788af27951d7f56dae18a615e49dcefd30903",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
