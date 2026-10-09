@@ -6926,9 +6926,36 @@ var require_dist = __commonJS({
 });
 
 // topology/lib/safe-git.mjs
+function rootOwnedChain(real, paths2 = GH_PATHS, stat14 = import_node_fs.statSync) {
+  if (!paths2.includes(real)) return false;
+  try {
+    for (let p = real; ; p = (0, import_node_path2.dirname)(p)) {
+      const s = stat14(p);
+      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
+      if (p === "/") return true;
+    }
+  } catch {
+    return false;
+  }
+}
+function trustedBinary({ paths: paths2, stat: stat14 = import_node_fs.statSync, realpath: realpath15 = import_node_fs.realpathSync }) {
+  for (const candidate of paths2) {
+    let real;
+    try {
+      real = realpath15(candidate);
+    } catch {
+      continue;
+    }
+    if (rootOwnedChain(real, paths2, stat14) && rootOwnedChain(candidate, paths2, stat14)) return candidate;
+  }
+  return null;
+}
+function trustedGh(options = {}) {
+  return trustedBinary({ paths: GH_PATHS, ...options });
+}
 function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
   const env = Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("GIT_") || GIT_ENV_ALLOWLIST.includes(name)));
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: (0, import_node_path2.join)((0, import_node_os2.homedir)(), ".gitconfig"), GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: PASSWD_HOME ? (0, import_node_path2.join)(PASSWD_HOME, ".gitconfig") : "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
   env.GIT_CONFIG_COUNT = String(config2.length);
   config2.forEach(([key, value], i) => {
     env[`GIT_CONFIG_KEY_${i}`] = key;
@@ -6965,29 +6992,24 @@ function driverOverrides(listing) {
   }
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
-function rootOwnedChain(real, paths2 = GH_PATHS, stat14 = import_node_fs.statSync) {
-  if (!paths2.includes(real)) return false;
-  try {
-    for (let p = real; ; p = (0, import_node_path2.dirname)(p)) {
-      const s = stat14(p);
-      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
-      if (p === "/") return true;
-    }
-  } catch {
-    return false;
-  }
-}
-function trustedGh({ paths: paths2 = GH_PATHS, stat: stat14 = import_node_fs.statSync, realpath: realpath15 = import_node_fs.realpathSync } = {}) {
-  for (const candidate of paths2) {
-    let real;
-    try {
-      real = realpath15(candidate);
-    } catch {
-      continue;
-    }
-    if (rootOwnedChain(real, paths2, stat14) && rootOwnedChain(candidate, paths2, stat14)) return candidate;
+function ghRedirectRefusal(bin, { cwd, env = process.env, spawn: spawn13 = import_node_child_process.spawnSync } = {}) {
+  for (const key of ["http_unix_socket"]) {
+    const r = spawn13(bin, ["config", "get", key], { cwd, env: safeGhEnv(env), encoding: "utf8", timeout: 1e4, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (r.error || r.status !== 0) return `gh config get ${key} failed (exit ${r.status}): ${String(r.stderr || r.error?.message || "").trim()}; refusing to trust gh`;
+    const value = String(r.stdout).trim();
+    if (value) return `gh config sets ${key} to ${value}, so its answers may not come from GitHub; refusing (gh config set ${key} "")`;
   }
   return null;
+}
+function safeGh(bin, args, { cwd, env = process.env, timeoutMs = 6e4 } = {}) {
+  const refusal = ghRedirectRefusal(bin, { cwd, env });
+  if (refusal) return Promise.resolve({ code: 1, stdout: "", stderr: refusal });
+  return new Promise((resolve24) => (0, import_node_child_process.execFile)(
+    bin,
+    args,
+    { cwd, env: safeGhEnv(env), encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
+    (error51, stdout, stderr) => resolve24({ code: error51 ? error51.killed ? 124 : typeof error51.code === "number" ? error51.code : 1 : 0, stdout: stdout ?? "", stderr: stderr || (error51 ? String(error51.message) : "") })
+  ));
 }
 function hardenArgs(args) {
   let i = 0;
@@ -6995,11 +7017,29 @@ function hardenArgs(args) {
   const extra = Object.hasOwn(SUBCOMMAND_FLAGS, args[i] ?? "") ? SUBCOMMAND_FLAGS[args[i]] : [];
   return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
 }
+function listArgs(cwd, args) {
+  const location = [];
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-")) {
+    if (["-C", "--git-dir", "--work-tree"].includes(args[i])) {
+      location.push(args[i], args[i + 1]);
+      i += 2;
+    } else if (args[i] === "-c") i += 2;
+    else if (/^--(git-dir|work-tree)=/.test(args[i])) {
+      location.push(args[i]);
+      i += 1;
+    } else return { list: null, refusal: `host git does not accept the leading option ${args[i]}; name the repository with -C or --git-dir` };
+  }
+  const listing = ["config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+  if (args[i] === "clone" && !cwd && !location.length) return { list: ["config", "--global", ...listing.slice(1)], refusal: null };
+  return { list: [...at(cwd), ...location, ...listing], refusal: null };
+}
 function safeGitPlan(cwd, args, listing = "") {
   const { overrides, refusal } = driverOverrides(listing);
   return { argv: [...at(cwd), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
 }
 function execAsync(argv, config2, options) {
+  if (!GIT) return Promise.resolve({ code: 127, stdout: "", stderr: NO_GIT });
   return new Promise((resolve24) => {
     const child = (0, import_node_child_process.execFile)(
       GIT,
@@ -7011,17 +7051,22 @@ function execAsync(argv, config2, options) {
   });
 }
 async function safeGit(cwd, args, options = {}) {
-  const listing = await execAsync(LIST(cwd), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const { list: list2, refusal } = listArgs(cwd, args);
+  const listing = list2 ? await execAsync(list2, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: "" };
   const plan = safeGitPlan(cwd, args, listing.stdout);
-  const result2 = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
+  const why = refusal || plan.refusal;
+  const result2 = why ? { code: 128, stdout: "", stderr: refused(args, why) } : await execAsync(plan.argv, plan.config, options);
   if (result2.code !== 0 && !options.allowFailure) {
     throw Object.assign(new Error(`git ${args.join(" ")} exited ${result2.code}: ${result2.stderr.trim()}`), result2);
   }
   return result2;
 }
 function safeGitSync(cwd, args, options = {}) {
+  if (!GIT) return { status: 127, stdout: "", stderr: NO_GIT, error: void 0 };
   const base = { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
-  const listing = (0, import_node_child_process.spawnSync)(GIT, LIST(cwd), { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] });
+  const { list: list2, refusal } = listArgs(cwd, args);
+  if (refusal) return { status: 128, stdout: "", stderr: refused(args, refusal), error: void 0 };
+  const listing = (0, import_node_child_process.spawnSync)(GIT, list2, { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] });
   const plan = safeGitPlan(cwd, args, listing.stdout);
   if (plan.refusal) return { status: 128, stdout: "", stderr: refused(args, plan.refusal), error: void 0 };
   return (0, import_node_child_process.spawnSync)(GIT, plan.argv, { ...base, env: safeGitEnv(options.env, plan.config), input: options.input, stdio: [options.input != null ? "pipe" : "ignore", "pipe", "pipe"] });
@@ -7033,20 +7078,34 @@ function safeGitText(cwd, args, options = {}) {
   }
   return options.raw ? result2.stdout : result2.stdout.trim();
 }
-var import_node_child_process, import_node_fs, import_node_os2, import_node_path2, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, GIT_ENV_ALLOWLIST, GH_PATHS, at, LIST, GIT, refused;
+var import_node_child_process, import_node_fs, import_node_os2, import_node_path2, GH_PATHS, GIT_PATHS, SSH_PATHS, SSH, GIT, NO_GIT, PASSWD_HOME, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, GIT_ENV_ALLOWLIST, GH_REDIRECT_ENV, safeGhEnv, at, refused;
 var init_safe_git = __esm({
   "topology/lib/safe-git.mjs"() {
     import_node_child_process = require("node:child_process");
     import_node_fs = require("node:fs");
     import_node_os2 = require("node:os");
     import_node_path2 = require("node:path");
+    GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+    GIT_PATHS = Object.freeze(["/usr/bin/git", "/bin/git", "/usr/local/bin/git"]);
+    SSH_PATHS = Object.freeze(["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh"]);
+    SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
+    GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
+    NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
+    PASSWD_HOME = (() => {
+      try {
+        return (0, import_node_os2.userInfo)().homedir || null;
+      } catch {
+        return null;
+      }
+    })();
     SAFE_GIT_CONFIG = Object.freeze([
       "core.fsmonitor=false",
       "core.hooksPath=/dev/null",
       "core.pager=cat",
       "diff.external=",
-      "core.sshCommand=ssh",
+      `core.sshCommand=${SSH}`,
       "core.askPass=",
+      "core.attributesFile=",
       "core.editor=true",
       "sequence.editor=true",
       "core.alternateRefsCommand=true",
@@ -7077,18 +7136,17 @@ var init_safe_git = __esm({
       push: ["--receive-pack=git-receive-pack"],
       ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
     });
-    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
-    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
+    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\.(.+\\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\\..+\\.proxy|remote\\..*[:/].*\\.(url|pushurl))$";
+    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\.(.+\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\..+\.proxy|remote\..*[:/].*\.(url|pushurl))$/;
     UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
     pair = (entry) => {
       const at2 = entry.indexOf("=");
       return [entry.slice(0, at2), entry.slice(at2 + 1)];
     };
     GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
-    GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+    GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
+    safeGhEnv = (base = process.env) => ({ ...Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name))), GH_HOST: "github.com" });
     at = (cwd) => cwd ? ["-C", cwd] : [];
-    LIST = (cwd) => [...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
-    GIT = process.platform === "win32" ? "git.exe" : "git";
     refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
   }
 });
@@ -7324,6 +7382,8 @@ var init_util = __esm({
 var repoid_exports = {};
 __export(repoid_exports, {
   canonicalRepoId: () => canonicalRepoId,
+  githubRepoOfUrl: () => githubRepoOfUrl,
+  pinnedFetchUrl: () => pinnedFetchUrl,
   pinnedGithubRepo: () => pinnedGithubRepo,
   repoKey: () => repoKey,
   repoSlug: () => repoSlug,
@@ -7383,6 +7443,34 @@ async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = (0, imp
   else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
     fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path3}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path: path3 });
   return { repo: pinned?.nameWithOwner ?? repo, branch };
+}
+function githubRepoOfUrl(url2) {
+  const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|ssh:\/\/git@github\.com(?::22)?\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(String(url2));
+  return m ? m[1] : null;
+}
+async function pinnedFetchUrl(repoDir, { env = process.env, home = (0, import_node_os5.homedir)() } = {}) {
+  const identity = await canonicalRepoId(repoDir);
+  const dir = (0, import_node_path9.join)(stateRoot2(env, home), "repositories"), key = repoKey(identity.id), path3 = (0, import_node_path9.join)(dir, `${key}.origin.json`);
+  const read3 = async (file2) => readJson3(file2).catch((error51) => {
+    if (error51.code === "ENOENT") return null;
+    throw error51;
+  });
+  const pinned = await read3(path3);
+  if (typeof pinned?.url === "string" && pinned.url) return pinned.url;
+  const got = await safeGit(repoDir, ["config", "--get", "remote.origin.url"], { allowFailure: true, timeoutMs: 1e4 });
+  const url2 = got.code === 0 ? got.stdout.trim().split("\n")[0] : "";
+  if (!url2 || url2.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to fetch from (exit ${got.code}): ${(got.stderr || url2).trim().split("\n")[0]}`);
+  const github = (await read3((0, import_node_path9.join)(dir, `${key}.github.json`)))?.nameWithOwner;
+  if (typeof github === "string" && github) {
+    if (githubRepoOfUrl(url2)?.toLowerCase() === github.toLowerCase()) return url2;
+    fail("TOPOLOGY_REPOSITORY_PIN", `origin is ${url2}, which is not the pinned GitHub repository ${github}; refusing to fetch from it. If the change is intended, the operator writes {"url": "<fetch url>"} to ${path3}.`, { origin: url2, pinned: github });
+  }
+  if (githubRepoOfUrl(url2)) return url2;
+  const dirs = await safeGit(repoDir, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 });
+  const [gitDir, commonDir] = dirs.stdout.trim().split("\n");
+  if (dirs.code !== 0 || !gitDir || gitDir !== commonDir) fail("TOPOLOGY_REPOSITORY_PIN", `the origin URL is pinned only from the main checkout, never from a linked worktree (${repoDir}); run a host fetch there first`);
+  await writeJson(path3, { repo_id: identity.id, url: url2, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
+  return url2;
 }
 var import_node_crypto5, import_promises5, import_node_os5, import_node_path9;
 var init_repoid = __esm({
@@ -31400,6 +31488,7 @@ __export(management_exports, {
   cleanupTask: () => cleanupTask,
   closeTask: () => closeTask,
   deadWorkerState: () => deadWorkerState,
+  fetchPinned: () => fetchPinned,
   foreignDirtyPaths: () => foreignDirtyPaths,
   governedAutonomy: () => governedAutonomy,
   hostGh: () => hostGh,
@@ -31427,9 +31516,22 @@ __export(management_exports, {
   stopTaskWorker: () => stopTaskWorker,
   taskStore: () => taskStore,
   taskWorkerState: () => taskWorkerState,
+  trackingRefspec: () => trackingRefspec,
   transferTask: () => transferTask,
   workerReport: () => workerReport
 });
+async function fetchPinned(root, refspecs, { env = process.env, home = (0, import_node_os21.homedir)(), allowFailure = false } = {}) {
+  let url2;
+  try {
+    url2 = await pinnedFetchUrl(root, { env, home });
+    const used = (await git2(root, ["ls-remote", "--get-url", url2], true)).stdout.trim();
+    if (used !== url2) fail("TOPOLOGY_REPOSITORY_PIN", `git config rewrites the pinned fetch URL ${url2} to ${used || "nothing"} (url.*.insteadOf); refusing to fetch`);
+  } catch (error51) {
+    if (allowFailure) return { code: 128, stdout: "", stderr: error51.message };
+    throw error51;
+  }
+  return git2(root, ["fetch", "--quiet", url2, ...refspecs], allowFailure);
+}
 async function foreignDirtyPaths(cwd) {
   const fields = (await git2(cwd, ["status", "--porcelain", "-z", "--untracked-files=all"])).stdout.split("\0");
   const paths2 = [];
@@ -31701,7 +31803,7 @@ async function bindTaskWorker(options) {
     invariant2(prior?.started && prior.owner === options.owner, "TOPOLOGY_MANAGEMENT_WORKER", "Admit the task and reconcile ownership before binding a worker.");
     const doc = await ownedTask(ctx, options.task, options.owner);
     const adopt = Boolean(options.pane || options.pid);
-    invariant2(!adopt || !doc.dispatched, "TOPOLOGY_MANAGEMENT_WORKER", "Task has a tm dispatch; bind it without --pane/--pid so the registry row is verified.");
+    invariant2(!adopt || !liveDispatch(doc), "TOPOLOGY_MANAGEMENT_WORKER", `Task has a live tm dispatch; bind it without --pane/--pid so the registry row is verified. If that worker has exited, record it with tm collect ${doc.id} first.`);
     const worker = adopt ? await observeAdoptedWorker(ctx, doc, { ...options, record: prior }) : await observeWorker(ctx, doc, options.owner);
     if (prior.worker?.stopped_at) {
       prior.previous_workers = [...prior.previous_workers || [], prior.worker];
@@ -31865,7 +31967,7 @@ async function defaultBranch(options, worktree) {
 }
 async function admissionBase(options, worktree, integration, branch) {
   const head = await gitText(worktree, ["rev-parse", "HEAD"]);
-  const target = (await loadConfig(options)).config.management?.target_branch;
+  const target = (await loadGovernedConfig(options)).config.management?.target_branch;
   const anchor = [integration, target].find(nonempty) ?? null;
   if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
     let tip = null;
@@ -31875,7 +31977,7 @@ async function admissionBase(options, worktree, integration, branch) {
     }
     if (/^[a-f0-9]{40,64}$/.test(tip)) {
       const local = async () => (await git2(worktree, ["cat-file", "-e", `${tip}^{commit}`], true)).code === 0;
-      if (!await local()) await git2(worktree, ["fetch", "--quiet", "origin", tip], true);
+      if (!await local()) await fetchPinned(worktree, [tip], { env: options.env, home: options.home, allowFailure: true });
       invariant2(await local(), "TOPOLOGY_MANAGEMENT_BASE", `The server tip ${tip} of ${anchor ?? "the default branch"} is not in this repository and could not be fetched from origin; fetch it and retry admission.`);
       const found = await git2(worktree, ["merge-base", "HEAD", tip], true);
       invariant2(found.code === 0 && found.stdout.trim(), "TOPOLOGY_MANAGEMENT_BASE", `The task HEAD shares no history with the server tip ${tip} of ${anchor ?? "the default branch"}.`);
@@ -31924,8 +32026,8 @@ async function observeLiveness(ctx, doc, record2, { finished, claimRule = {} }) 
   const workerOwner = worker?.owner ?? record2.owner;
   invariant2(workerOwner === record2.owner || (record2.transfers || []).some((t) => t.from === workerOwner), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
   const rule = workerOwner === record2.owner ? claimRule : { ...claimRule, holders: [...claimRule.holders || [], record2.owner] };
-  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
-  invariant2(worker && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  const row = worker?.adopted && !liveDispatch(doc) ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant2(worker && (worker.adopted ? !liveDispatch(doc) : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
   if (finished) invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
   if (row.backend === "topology") {
     invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
@@ -32038,7 +32140,7 @@ async function workerReport(options) {
   return withLock(`${ctx.path}.lock`, async () => {
     const prior = await loadRecord(ctx.path);
     invariant2(prior?.started, "TOPOLOGY_MANAGEMENT_PROTOCOL", "Worker must be admitted and send its start report before reporting work.");
-    const dispatchedSession = (await ctx.store.show(task)).dispatched?.session;
+    const dispatchedSession = liveDispatch(await ctx.store.show(task))?.session;
     const holders = prior.worker && !prior.worker.stopped_at && nonempty(dispatchedSession) ? [dispatchedSession] : [];
     invariant2(owner === prior.owner || holders.includes(owner), "TOPOLOGY_MANAGEMENT_PROTOCOL", `Only the admission owner ${prior.owner} or its bound worker may report on ${task}.`);
     const doc = await ownedTask(ctx, task, prior.owner, { holders });
@@ -32050,7 +32152,7 @@ async function workerReport(options) {
       invariant2(!(prior.events || []).some((e) => e.event === "rework" && e.revision === report.revision), "TOPOLOGY_MANAGEMENT_REVISION", `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report);
     } else invariant2(nonempty(report?.message), "TOPOLOGY_MANAGEMENT_PROTOCOL", "A during-work report requires a visible reason.");
-    if (kind === "finish" && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === "topology")) prior.worker = await observeWorker(ctx, doc, prior.owner);
+    if (kind === "finish" && liveDispatch(doc) && ctx.store.workers && (!prior.worker || doc.dispatched.backend === "topology")) prior.worker = await observeWorker(ctx, doc, prior.owner);
     const next = await recordEvent(ctx, task, prior, kind, { owner, report, state: kind === "finish" ? "ready-for-review" : "blocked" });
     next.state = kind === "finish" ? "ready-for-review" : "blocked";
     if (kind === "finish") {
@@ -32261,6 +32363,7 @@ async function integrationEligibility(options) {
     delegation,
     delegationError,
     autonomy: authority.autonomy,
+    config_warnings: loaded.warnings,
     required_checks: { satisfied_by: "host-run-at-integrate", claimed_check_reasons: claimedReasons }
   };
 }
@@ -32305,7 +32408,7 @@ async function integrateTask(options) {
   const ctx = await context2(options);
   refuseSelfAssertion(options, await managedSession(options, ctx));
   return withLock((0, import_node_path47.join)(ctx.root, "integration.lock"), async () => {
-    if ((await loadConfig(options)).config.management?.integrate_via === "pull-request") return integrateViaPullRequest(options, ctx);
+    if ((await loadGovernedConfig(options)).config.management?.integrate_via === "pull-request") return integrateViaPullRequest(options, ctx);
     const gate = await integrationEligibility(options);
     if (gate.delegationError) throw gate.delegationError;
     invariant2(gate.eligible, "TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED", gate.reasons.join("; "));
@@ -32355,14 +32458,14 @@ async function ciStatus(gh, repo, number4) {
   if (!all.value.some((check2) => check2.bucket === "pass")) return { refusal: `no CI check passed on PR #${number4}` };
   return { checks: all.value.map((check2) => ({ name: check2.name, bucket: check2.bucket })) };
 }
-async function syncTarget(root, target, landed) {
+async function syncTarget(root, target, landed, io) {
   const current = (await git2(root, ["symbolic-ref", "--short", "HEAD"], true)).stdout.trim();
   if (current === target) {
-    await git2(root, ["fetch", "origin", target]);
+    await fetchPinned(root, [trackingRefspec(target)], io);
     const foreign2 = await foreignDirtyPaths(root);
     invariant2(!foreign2.length, "TOPOLOGY_MANAGEMENT_DIRTY", `Integration checkout has uncommitted work outside the tool store paths: ${foreign2.slice(0, 5).join(", ")}`);
     await git2(root, ["merge", "--ff-only", landed]);
-  } else await git2(root, ["fetch", "origin", `${target}:${target}`]);
+  } else await fetchPinned(root, [`refs/heads/${target}:refs/heads/${target}`], io);
   invariant2((await git2(root, ["merge-base", "--is-ancestor", landed, `refs/heads/${target}`], true)).code === 0, "TOPOLOGY_MANAGEMENT_TARGET", `${landed} did not reach the local ${target}.`);
 }
 async function writeLanding(ctx, task, record2, review, event, merge2) {
@@ -32399,7 +32502,7 @@ async function integrateViaPullRequest(options, ctx) {
   const prior = await loadRecord(ctx.path);
   if (prior?.state === "merged" && prior.merge?.pull_request) {
     if (prior.closed) return prior;
-    const policy2 = (await loadConfig(options)).config.management || {};
+    const policy2 = (await loadGovernedConfig(options)).config.management || {};
     const { refusals: refusals2, delegation: delegation2, autonomy: autonomy2 } = await integrationAuthority(options, ctx, policy2);
     if (refusals2.length) refuseIntegrate(refusals2, prior.merge.pull_request.number);
     return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy: policy2, delegation: delegation2, autonomy: autonomy2, revision: prior.merge.revision }));
@@ -32431,7 +32534,7 @@ async function integrateViaPullRequest(options, ctx) {
     const at2 = merged ? `PR #${pr.number} was already merged at ${pr.headRefOid}` : `PR #${pr.number} head ${pr.headRefOid}`;
     if (pr.baseRefName !== policy.target_branch) refuse("base", `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
-      await git2(ctx.store.root, ["fetch", "origin", policy.target_branch, `refs/pull/${pr.number}/head`], true);
+      await fetchPinned(ctx.store.root, [trackingRefspec(policy.target_branch), `refs/pull/${pr.number}/head`], { ...ctx, allowFailure: true });
       mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch, { gh, env: ctx.env, home: ctx.home });
     }
     if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse("head", `${at2}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
@@ -32466,7 +32569,7 @@ async function integrateViaPullRequest(options, ctx) {
     const v = view2.value;
     invariant2(v?.state === "MERGED" && v.headRefOid === pr.headRefOid && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), "TOPOLOGY_MANAGEMENT_LANDING", v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${pr.headRefOid} into ${policy.target_branch}` : ghFailure("gh pr view", view2));
     const landed = v.mergeCommit.oid;
-    await syncTarget(ctx.store.root, policy.target_branch, landed);
+    await syncTarget(ctx.store.root, policy.target_branch, landed, ctx);
     invariant2((await git2(ctx.store.root, ["merge-base", "--is-ancestor", revision, landed], true)).code === 0, "TOPOLOGY_MANAGEMENT_LANDING", `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record: record2, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record2, approved, "merge", {
@@ -32495,7 +32598,7 @@ async function recordLanding(options) {
     const revision = record2?.finish?.revision;
     invariant2(!record2?.merge, "TOPOLOGY_MANAGEMENT_LANDING", "Task already has a recorded landing.");
     invariant2(record2?.state === "ready-for-review" && nonempty(revision), "TOPOLOGY_MANAGEMENT_LANDING", "Task has no finished worker revision ready for review.");
-    const policy = (await loadConfig(options)).config.management || {};
+    const policy = (await loadGovernedConfig(options)).config.management || {};
     invariant2(nonempty(policy.target_branch), "TOPOLOGY_MANAGEMENT_TARGET", "Configure management.target_branch before recording a landing.");
     const lookup2 = { consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc };
     let delegation = null, lead = null;
@@ -32521,8 +32624,8 @@ async function recordLanding(options) {
     invariant2(await ancestor(revision, landed), "TOPOLOGY_MANAGEMENT_LANDING", `Finish revision ${revision} is not an ancestor of ${landed}.`);
     const server = await serverCompareStatus(options.gh || defaultGh(ctx.store.root), ctx.store.root, landed, policy.target_branch, ctx);
     invariant2(["ahead", "identical"].includes(server.status), "TOPOLOGY_MANAGEMENT_TARGET", `${landed} is not on the configured target branch ${policy.target_branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); a local or origin ref is not evidence of a landing.`);
-    await git2(ctx.store.root, ["fetch", "origin", policy.target_branch], true);
-    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
+    await fetchPinned(ctx.store.root, [trackingRefspec(policy.target_branch)], { ...ctx, allowFailure: true });
+    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed, ctx);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
     invariant2(review.eligible === true && review.reasons.length === 0 && review.status?.review, "TOPOLOGY_MANAGEMENT_REVIEW", review.reasons.join("; ") || "An eligible independent review of the finish revision is required.");
     if (lead && !delegation) {
@@ -32807,7 +32910,7 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os21, import_node_crypto25, import_node_path47, import_promises37, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, hostGh, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os21, import_node_crypto25, import_node_path47, import_promises37, taskId, nonempty, list, git2, gitText, trackingRefspec, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, liveDispatch, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, hostGh, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os21 = require("node:os");
@@ -32835,6 +32938,7 @@ var init_management = __esm({
     list = (value) => Array.isArray(value) && value.every(nonempty);
     git2 = async (cwd, args, allowFailure = false) => safeGit(cwd, args, { allowFailure });
     gitText = async (cwd, args) => (await git2(cwd, args)).stdout.trim();
+    trackingRefspec = (branch) => `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
     INTEGRATION_STORE_PATHS = Object.freeze([".bytedesk/task-management/", ".bytedesk/agent-orchestration/agents/", ".bytedesk/knowledge/.km/"]);
     storePath = (path3) => INTEGRATION_STORE_PATHS.some((prefix) => path3.startsWith(prefix));
     CLAIMED = "[claimed by the worker; not run by the host]";
@@ -32844,13 +32948,17 @@ var init_management = __esm({
       throw error51;
     });
     bindingKeys = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
+    liveDispatch = ({ dispatched: d } = {}) => {
+      const c = d?.collected;
+      return d && !(c && c.dispatchedAt === (d.at ?? null) && c.run === (d.run ?? null)) ? d : null;
+    };
     SHELLS = /* @__PURE__ */ new Set(["bash", "zsh", "sh", "dash", "fish", "ksh"]);
     tmMessage = (error51) => (error51?.stderr || error51?.stdout || "").trim() || String(error51?.message || error51);
     RETRY_REVIEW_VERB = "ao-topology manage retry-review --task";
     managedSession = (options, ctx) => managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors, home: ctx.home });
     MANAGED_NEEDS_GRANT = "a managed agent session needs a valid standing delegation (an operator plan grant covering this caller, repository and task), whatever management.auto_merge says";
     LEAD_POLICY_PATH = ".bytedesk/agent-orchestration/config.json";
-    PROTECTED_MANAGEMENT_KEYS = Object.freeze(["autonomy", "release", "cutover", "required_checks"]);
+    PROTECTED_MANAGEMENT_KEYS = Object.freeze(["autonomy", "release", "cutover", "required_checks", "integrate_via", "target_branch"]);
     integrationAuthorization = (options, ctx, { record: record2, policy, delegation, autonomy = null, revision }) => ({
       decision: "integrate",
       actor: delegation ? delegation.grantee : autonomy ? autonomy.actor : options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record2.lead_id,
@@ -32866,7 +32974,7 @@ var init_management = __esm({
     GH_TIMEOUT_MS = 6e4;
     hostGh = (cwd) => {
       const bin = trustedGh();
-      return async (args) => bin ? run(bin, args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS }) : { code: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
+      return async (args) => bin ? safeGh(bin, args, { cwd, timeoutMs: GH_TIMEOUT_MS }) : { code: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
     };
     defaultGh = hostGh;
     ghFailure = (what, r) => `${what} failed (exit ${r.code})${r.error ? `: ${r.error}` : ""}`;
@@ -80558,10 +80666,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "807e5f326b2f7299b28bd11bb78408900bc1ac5c29cea0b439d037167db128fd";
+  return false ? null : "5bd1444296f02bb5ff89c52ed7b657239a6d49bbfd90adc0a60ae78fd2fbcfa9";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "807e5f326b2f7299b28bd11bb78408900bc1ac5c29cea0b439d037167db128fd";
+  const fingerprint2 = false ? null : "5bd1444296f02bb5ff89c52ed7b657239a6d49bbfd90adc0a60ae78fd2fbcfa9";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80986,7 +81094,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "807e5f326b2f7299b28bd11bb78408900bc1ac5c29cea0b439d037167db128fd",
+  sourceFingerprint: false ? null : "5bd1444296f02bb5ff89c52ed7b657239a6d49bbfd90adc0a60ae78fd2fbcfa9",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

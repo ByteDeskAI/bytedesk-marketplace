@@ -15,7 +15,7 @@
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
 import { managedSessionEvidence } from './delegation.mjs';
-import { foreignDirtyPaths, governedAutonomy, hostGh, serverCompareStatus, integrateTask, integrationEligibility, loadGovernedConfig, recordTaskEvent, taskStore } from './management.mjs';
+import { fetchPinned, foreignDirtyPaths, governedAutonomy, hostGh, serverCompareStatus, trackingRefspec, integrateTask, integrationEligibility, loadGovernedConfig, recordTaskEvent, taskStore } from './management.mjs';
 import { page } from './ntfy.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { teamcityClient, teamcityTarget } from './teamcity.mjs';
@@ -117,7 +117,7 @@ export async function releaseReadiness(options, kind) {
     if (current !== branch) refuse('branch', `${verb} runs only from ${branch}; the checkout is on ${current || 'a detached HEAD'}`);
     const foreign = await foreignDirtyPaths(root);
     if (foreign.length) refuse('dirty', `the checkout has uncommitted work outside the tool store paths: ${foreign.slice(0, 5).join(', ')}`);
-    const fetched = await git(root, ['fetch', '--quiet', 'origin', branch]);
+    const fetched = await fetchPinned(root, [trackingRefspec(branch)], { env, home, allowFailure: true }); // TM-472
     revision = (await git(root, ['rev-parse', 'HEAD'])).stdout.trim();
     const remote = (await git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`])).stdout.trim();
     if (fetched.code !== 0) refuse('sync', `cannot fetch origin/${branch}: ${fetched.stderr.trim()}`);

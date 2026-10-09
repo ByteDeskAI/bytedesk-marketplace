@@ -1,11 +1,10 @@
 /** Producer-owned review and integration records are the authority for governed completion. */
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./store.mjs";
-import { GH_PATHS, safeGitText, trustedGh } from "./safe-git.mjs";
+import { GH_PATHS, safeGhSync, safeGitText, trustedGh } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
 const nonempty = (value) => typeof value === "string" && value.trim() !== "";
@@ -177,7 +176,7 @@ export const ghResolver = { resolve: () => trustedGh() };
 export function runGh(args, cwd) {
   const bin = ghResolver.resolve();
   if (!bin) return { status: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
-  return spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 60_000, windowsHide: true });
+  return safeGhSync(bin, args, { cwd }); // TM-475: redirecting env removed; a redirecting gh config is refused
 }
 
 /** The worktree still holds the reviewed revision, or only merged the integration branch into it. */

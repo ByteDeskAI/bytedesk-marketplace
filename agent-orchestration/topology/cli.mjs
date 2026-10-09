@@ -198,7 +198,9 @@ Standing repository services
                                                on the SERVER default branch names it (integrate scope).
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
-  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
+  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker;
+                                        --pid adopts the harness in an existing terminal once any
+                                        exited dispatch is collected (tm collect), never closing it (TM-412)
   manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected;
                                         retire one observed dead without a finish (TM-247)
   manage rework --task <TM-id>          after a changes_requested review of the finish revision and a

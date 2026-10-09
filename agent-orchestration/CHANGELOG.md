@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Security
+
+- **`management.integrate_via` and `management.target_branch` are honoured only from the server's
+  default branch (TM-469, EP-028).** They choose where and how a task lands, yet still resolved from
+  the global layer and the checkout's working copy, which a worker can write. They now join the
+  TM-442 protected keys: a local value is ignored with a warning (`config_warnings` on
+  `manage eligible`), and with no server answer integrate and record-landing refuse to pick a target.
+- **Host fetches never read a repointed origin (TM-472, EP-028).** `remote.origin.url` is in the
+  shared `.git/config`, so a worker could point it at a `file://` repository it controls and choose
+  what admission, integrate, record-landing and release fetched, including the commits a `main:main`
+  fetch fast-forwarded the local branch to. Every host fetch now goes through `fetchPinned`, with
+  explicit refspecs, so neither `remote.origin.url` nor `remote.origin.fetch` decides what is read.
+  The URL is `<state>/repositories/<key>.origin.json` when the operator wrote one; otherwise, for a
+  repository pinned to GitHub, origin is used only when it names that repository on github.com (by
+  https or ssh) and is refused otherwise, and nothing is recorded. With no GitHub pin yet, a
+  github.com origin is used but never recorded (so the later GitHub pin still decides), and any
+  other origin is recorded on first use, only from the main checkout, never a worker's worktree. A URL that
+  `url.*.insteadOf` rewrites in any scope, including `~/.gitconfig`, is refused.
+- **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `safe-git.mjs`
+  (byte-identical with task-management's) runs git from a root-owned pinned path (`/usr/bin`, `/bin`,
+  `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned ssh, takes
+  `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, pins `core.attributesFile`
+  empty, and refuses every call when a repository scope sets an http key that redirects or
+  intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`, `sslKey`,
+  `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL `http.<url>.*`),
+  `remote.<name>.proxy`, or a `remote.<name>.url`/`pushurl` whose name contains `:` or `/` (a remote
+  named like a URL captures `git fetch <that url>`). Harmless keys such as `http.postBuffer` pass.
+ The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
+  `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
+  an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
+  repository were not listed. A clone with no location lists the global scope, so the operator's credential
+  helpers still apply, and a leading option other than `-C`, `-c`, `--git-dir` or `--work-tree`
+  (for example `--namespace`, `--config-env` or `--bare`) is refused. `hostGh` now runs
+  through `safeGh`: it refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com`
+  (with none, gh takes the only host in `hosts.yml` as its default), and removes `GH_REPO`,
+  `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR`. On Windows git and ssh
+  still come from PATH. Release tests now prove "pushed nothing" from the repositories' refs,
+  because a PATH git shim can no longer observe host git.
 - **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
   subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
   cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each
@@ -35,6 +73,14 @@
 
 ### Fixed
 
+- **A lead can finish a task it delegated to an existing terminal (TM-412, EP-028).** A dispatch tm
+  had already collected still counted as the task's writer, so after a duplicate pool worker exited
+  `manage bind --pid` refused the real writer and `manage report` failed with "Only a currently live
+  registered worker can establish a new ownership binding" (agent-browser TM-033). Bind, report and
+  the integration liveness check now share one predicate that ignores a collected dispatch. The
+  documented path: `tm collect`, then `manage bind --task <id> --pid <harness pid>`, then
+  `manage report`. The admission and base revision are kept, the terminal is never closed, and an
+  uncollected dispatch is still refused with the `tm collect` step named.
 - **A live persona holder is no longer freed, and no launch or ensure kills a live agent by mistake (TM-484, EP-028).**
   - Presence is now also published per node, under `ORCH_PRESENCE` key `<repo>.<node>`. The
     gateway's `<repo>` key is unchanged.
