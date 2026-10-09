@@ -27541,9 +27541,8 @@ var init_lineage = __esm({
 });
 
 // topology/lib/providers.mjs
-function providerDirs({ pluginRoot, consumer, home, extra = [] }) {
+function providerDirs({ pluginRoot, home, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(consumer, "providers"));
   if (home) dirs.push((0, import_node_path39.join)(home, ".config", "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push((0, import_node_path39.join)(pluginRoot, "providers"));
   return dirs;
@@ -80467,10 +80466,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e";
+  return false ? null : "6c0dde13e53bb99b226ad510df270ff33411f140210192798c19dd6efb4eb85f";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e";
+  const fingerprint2 = false ? null : "6c0dde13e53bb99b226ad510df270ff33411f140210192798c19dd6efb4eb85f";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80895,7 +80894,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "1b40fe28eb1c0376a7fef69a2a0a4813416ab53b98ec3d007c39baeef093d28e",
+  sourceFingerprint: false ? null : "6c0dde13e53bb99b226ad510df270ff33411f140210192798c19dd6efb4eb85f",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
