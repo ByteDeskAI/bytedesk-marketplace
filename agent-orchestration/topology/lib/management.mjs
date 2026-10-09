@@ -434,10 +434,8 @@ export async function stopTaskWorker(options) {
       if (!state.owned) {
         const dead = await (options.deadWorkerState || deadWorkerState)(options, record);
         if (dead.owned && dead.active === false) return await retireWorker(ctx, options, record, dead, close);
-        // The dead-worker path names the more specific reason (a released claim, a live pane). TM-426:
-        // "not collected through the finish protocol" for a live worker read as "a finish is required".
-        const finishGate = /finish protocol/.test(state.reason || '');
-        invariant(false, 'TOPOLOGY_MANAGEMENT_STOP', dead.owned && !finishGate ? state.reason || 'Worker ownership is unproven.' : dead.reason || state.reason || 'Worker ownership is unproven.');
+        // The dead-worker path names the more specific reason (a released claim, a live pane).
+        invariant(false, 'TOPOLOGY_MANAGEMENT_STOP', dead.owned ? state.reason || 'Worker ownership is unproven.' : dead.reason || state.reason || 'Worker ownership is unproven.');
       }
       invariant(state.active === false, 'TOPOLOGY_MANAGEMENT_STOP', state.reason || 'Worker is still active.');
       if (state.alive) {

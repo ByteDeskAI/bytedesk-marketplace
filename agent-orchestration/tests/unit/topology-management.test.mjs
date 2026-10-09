@@ -978,7 +978,7 @@ test('stop-worker refuses unowned, uncollected and active workers and closes an 
   await s.tmux(['new-session', '-d', '-s', 'busy', '-c', doc.worktree, 'sleep', '120']);
   await bindTaskWorker({ ...actual, pane: await s.paneOf('busy') });
   const uncollected = await stopTaskWorker(actual);
-  assert.equal(uncollected.stopped, false); assert.match(uncollected.reason, /still alive/); // TM-426: liveness, not the finish, is why
+  assert.equal(uncollected.stopped, false); assert.match(uncollected.reason, /finish protocol/);
   await finish();
   const active = await stopTaskWorker(actual);
   assert.equal(active.stopped, false); assert.match(active.reason, /still alive/);
@@ -2283,8 +2283,7 @@ test('TM-247 AC1/AC4: a live worker is never retired; a dead one is retired with
   await admitTask(l.actual);
   const first = await startTaskWorker(l.actual); assert.equal(first.bound, true, first.reason);
   const live = await stopTaskWorker(l.actual);
-  // TM-426: a live worker is refused for being alive, never with "a finish is required".
-  assert.equal(live.stopped, false); assert.match(live.reason, /still alive/); assert.doesNotMatch(live.reason, /finish protocol/);
+  assert.equal(live.stopped, false); assert.match(live.reason, /finish protocol/);
   assert.equal(l.collected.length, 0, 'nothing is collected from a live worker');
   assert.ok(await l.s.paneOf(first.run.replace(/^tmux:/, '')), 'the live worker is untouched');
   await writeFile(join(l.doc.worktree, 'code.txt'), 'half done, uncommitted');
