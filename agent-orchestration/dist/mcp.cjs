@@ -33039,10 +33039,10 @@ async function bindingAgentId({ consumer, env = process.env, home = (0, import_n
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
   return (census?.agents || []).find((a) => sameBinding(here, a.binding))?.agentId || null;
 }
-async function callerUnderBoundPane({ consumer, env = process.env, home = (0, import_node_os22.homedir)(), readCensusFn = readCensus, callerProc = {} }) {
+async function callerUnderBoundPane({ consumer, env = process.env, home = (0, import_node_os22.homedir)(), readCensusFn = readCensus, callerProc = {}, passwdHome = (0, import_node_os22.userInfo)().homedir }) {
   const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
-  const dir = (0, import_node_path48.join)(stateRoot2(env, home), "census");
-  for (const file2 of (await (0, import_promises38.readdir)(dir).catch(() => [])).filter((f) => f.endsWith(".json"))) docs.push(await readJson3((0, import_node_path48.join)(dir, file2)).catch(() => null));
+  const dirs = /* @__PURE__ */ new Set([(0, import_node_path48.join)(stateRoot2(env, home), "census"), (0, import_node_path48.join)(stateRoot2({}, passwdHome), "census")]);
+  for (const dir of dirs) for (const file2 of (await (0, import_promises38.readdir)(dir).catch(() => [])).filter((f) => f.endsWith(".json"))) docs.push(await readJson3((0, import_node_path48.join)(dir, file2)).catch(() => null));
   const pids = new Set(docs.flatMap((doc) => doc?.agents || []).map((a) => a.binding?.panePid));
   for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
   return false;
@@ -79859,10 +79859,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "8048b1ffc11307b1c9ac1485a5b12c601872133ce1c0dd5d84f28e654318a705";
+  return false ? null : "2683660d31b09602495dd59e1946ee08917618d1496f335764c3648e4f7fc036";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "8048b1ffc11307b1c9ac1485a5b12c601872133ce1c0dd5d84f28e654318a705";
+  const fingerprint2 = false ? null : "2683660d31b09602495dd59e1946ee08917618d1496f335764c3648e4f7fc036";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80287,7 +80287,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "8048b1ffc11307b1c9ac1485a5b12c601872133ce1c0dd5d84f28e654318a705",
+  sourceFingerprint: false ? null : "2683660d31b09602495dd59e1946ee08917618d1496f335764c3648e4f7fc036",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

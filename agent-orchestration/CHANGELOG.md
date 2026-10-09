@@ -19,7 +19,8 @@
   EP-028).** `console show` admitted any process with no identity variables and no census-bound
   pane as the operator, so a worker that unset `TMUX_PANE` and its `AO_*` variables could read every
   agent's mail. The gate now walks the caller's `/proc` ancestry against every census-bound
-  `pane_pid` (this repository's census and every other one under the state home) and refuses on a
+  `pane_pid` (this repository's census, every other one under the state home, and the default one
+  under the passwd home, which no env variable can redirect) and refuses on a
   match, or when ancestry is unreadable. The autonomy allowlist (#222) never approves `console show`.
   Remaining boundary: a process that has left every agent's tree (`setsid -f`) is still the
   operator to this check; TM-427B's identity proof closes that.

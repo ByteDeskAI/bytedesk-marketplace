@@ -409,8 +409,12 @@ test('TM-464 F1: receipt and publication readers fail closed without a bound age
   const minted = await show({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha });
   assert.deepEqual([minted.code, minted.json?.code], [1, 'TOPOLOGY_OPERATOR_ONLY'], minted.stdout);
   // A bare operator shell (no identity, no bound pane) passes the gate and reaches the lookup.
+  // TM-473: the CLI child also reads the passwd home's census, which no env can redirect. When this
+  // suite itself runs inside a live census-bound agent pane, the child is that agent and is refused.
+  const { callerUnderBoundPane } = await import('../../topology/lib/delegation.mjs');
+  const insideAgent = await callerUnderBoundPane({ consumer: w.alpha, env: {}, home: w.env.HOME, readCensusFn: async () => null });
   const bare = await show({});
-  assert.deepEqual([bare.code, bare.json?.code], [1, 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
+  assert.deepEqual([bare.code, bare.json?.code], [1, insideAgent ? 'TOPOLOGY_OPERATOR_ONLY' : 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
   // The MCP list tool cannot smuggle allAgents through its input.
   const mcp = await mcpAs(w, { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha });
   const listed = await mcp.mailboxList({ consumerCwd: w.alpha, allAgents: true });
@@ -550,7 +554,7 @@ test('TM-464 F1: the console gate admits only a bare operator shell or the prove
   const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
   const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
   const proof = (boundTo, leaf = 5151) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
-    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf) });
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), passwdHome: w.env.HOME });
   const inPane = { TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: PANE.paneId };
   const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
   const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
@@ -579,7 +583,7 @@ test('TM-473: with TMUX_PANE unset, a process under any census-bound pane is ref
   const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
   const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
   const proof = (boundTo, leaf = 5151, extra = {}) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
-    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), ...extra });
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), passwdHome: w.env.HOME, ...extra });
   const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
   const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
   // The rv-225 reproduction: a worker with TM_DISPATCH_WORKER, AO_* and TMUX_PANE all unset, still in its pane's tree.
@@ -591,6 +595,12 @@ test('TM-473: with TMUX_PANE unset, a process under any census-bound pane is ref
   await mkdir(censusDir, { recursive: true });
   await writeFile(join(censusDir, 'other-repo.json'), JSON.stringify({ agents: [{ agentId: 'elsewhere', binding: { ...PANE } }] }));
   await assert.rejects(gate({}, proof(null)), refused);
+  // TM-473 review: pointing the state home at a forged empty directory does not hide the default
+  // census under the passwd home.
+  const forged = join(w.env.HOME, 'forged-empty-state');
+  await mkdir(forged, { recursive: true });
+  await assert.rejects(gate({ AGENT_ORCHESTRATION_STATE_HOME: forged }, proof(null)), refused);
+  await assert.rejects(gate({ XDG_STATE_HOME: forged }, proof(null)), refused);
   // Unreadable ancestry fails closed.
   await assert.rejects(gate({}, proof(null, 5151, { callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } })), refused);
   // A process outside every bound pane's tree is still the operator.
