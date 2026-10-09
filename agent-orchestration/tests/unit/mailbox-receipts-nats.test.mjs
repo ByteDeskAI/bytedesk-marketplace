@@ -75,14 +75,14 @@ test('real NATS redelivers before acceptance and durable acceptance survives pro
       if (!delivery) throw Error('missing delivery');
       ${persist ? `const { acceptMailboxDelivery } = await import(${JSON.stringify(moduleURL('mailbox-receipts'))}); await acceptMailboxDelivery({ consumer:${JSON.stringify(f.consumer)},agent:'worker',delivery:{...delivery,ack:async()=>process.exit(${code})} });` : `process.exit(${code});`}
     `, code);
-    const before = await listMailboxReceipts({ consumer: f.consumer, env: f.env });
+    const before = await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true });
     assert.equal(before.some(item => item.messageId === id), persist);
     await pause(250);
     const inbox = await readStandingInbox({ consumer: f.consumer, agent: 'worker', env: f.env, transport: f.transport, limit: 2 });
     assert.equal(inbox.filter(item => item.messageId === id).length, 1);
     await setMailboxDisposition({ consumer: f.consumer, agent: 'worker', messageId: id, disposition: 'handled', resultRef: 'verified-result', env: f.env });
   }
-  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env })).length, 2);
+  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true })).length, 2);
 });
 
 test('held standing obligation is actually published on recovery and retries retain one accepted obligation', async t => {
@@ -93,7 +93,7 @@ test('held standing obligation is actually published on recovery and retries ret
     router: async () => ({ deliver_to: 'worker', resolved: 'worker', redirected: false }) };
   const input = { id: 'phase-obligation', consumer: f.consumer, fromProject: source, from: 'lead', to: 'worker', body: 'original phase', context: { workflowId: 'loop:goal', taskId: 'TM-267' } };
   assert.equal((await sendStandingMessage(input, options)).status, 'held');
-  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env })).length, 0);
+  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true })).length, 0);
   ready = true;
   const [resumed] = await resumeStandingMessages({ consumer: f.consumer, force: true, ...options });
   assert.equal(resumed.status, 'delivered'); assert.equal(resumed.publication.status, 'published');
@@ -116,7 +116,7 @@ test('uncertain sender publish recovers after broker dedup window without duplic
   await pause(150);
   await resumeMailboxPublications({ consumer: f.consumer, env: f.env, transport: f.transport });
   assert.equal((await readStandingInbox({ consumer: f.consumer, agent: 'worker', env: f.env, transport: f.transport })).length, 1);
-  const stored = await listMailboxReceipts({ consumer: f.consumer, env: f.env }); assert.equal(stored.length, 1);
+  const stored = await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true }); assert.equal(stored.length, 1);
 });
 
 test('run replies remain available to a second waiter process after broker ACK', async t => {

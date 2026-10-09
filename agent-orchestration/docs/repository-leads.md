@@ -244,11 +244,12 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    It calls `tm dispatch` in the admitted worktree, then binds the observed worker: tmux server,
    session, pane, pane PID and creation time, plus the workflow run ID. It refuses a task that is not
    admitted or has a bound worker that is not stopped. After `stop-worker`, `start-worker` starts the
-   next round's worker, for example after changes are requested, and keeps the stopped binding in
-   `previous_workers`. A dispatch tm has already collected no longer blocks the re-dispatch; if tm
-   still refuses because the previous worker is uncollected, run `tm collect TM-id` first. A refused
-   `tm dispatch` is reported as `TOPOLOGY_MANAGEMENT_DISPATCH` with tm's own message. If the worker cannot be observed yet, the result says
-   `bound: false`; run `manage bind --task TM-id` then. Do not launch a second worker.
+   next round's worker and keeps the stopped binding in `previous_workers`. After changes are
+   requested, run `manage rework` first (see below). A dispatch tm has already collected no longer
+   blocks the re-dispatch; if tm still refuses because the previous worker is uncollected, run
+   `tm collect TM-id` first. A refused `tm dispatch` is reported as `TOPOLOGY_MANAGEMENT_DISPATCH`
+   with tm's own message. If the worker cannot be observed yet, the result says `bound: false`; run
+   `manage bind --task TM-id` then. Do not launch a second worker.
 2. **Adopt.** For a worker started before this rule, run `manage bind --task TM-id --pane <id>
    [--server <socket>]` or `--pid <pid>`. The pane must be live, the only live pane in its session,
    and in the task worktree, its session must have been created after the task was admitted, and its
@@ -257,6 +258,16 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    the caller's own tmux server. The caller itself, a pane or process another task already binds, and
    a respawned pane are refused. An in-process subagent runs in the lead's own process, so it cannot
    be adopted; finish it and start the next worker with `start-worker`.
+
+   **Delegating to an existing terminal (TM-412).** The pane rules above refuse an operator's
+   long-lived terminal, so adopt the harness process inside it instead: `manage bind --task TM-id
+   --pid <pid of the Codex or Claude process>`, run from the lead's own session. A process binding is
+   never closed by `stop-worker` or `cleanup`; integration waits until that process has exited. If an
+   earlier dispatch of the task (a duplicate pool worker, say) has exited, bind refuses until
+   `tm collect TM-id` records it as ended; a dispatch tm has collected is history and never stands in
+   for the adopted writer. The lead then submits the finish with `manage report`; the admission, its
+   base revision and the worktree are unchanged. Once bound, `manage assignment` reports the writer,
+   so tm's duplicate-dispatch guard does not send a second writer into the worktree.
 3. **Stop.** Run `manage stop-worker --task TM-id`. It closes the bound pane only when this session
    owns the binding, the worker's finish report is recorded, and the pane is idle: its process is a
    shell with no children, so the harness has exited. Idle detection reads `/proc`, so it works on
@@ -289,6 +300,24 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    - A worker stopped before the transfer still counts toward integration under its original
      owner's identity.
 
+### Rework after changes are requested
+
+A finish report moves the task to `ready-for-review`, and a governed task cannot be dispatched again
+from there. When the independent review of the finish revision returns `changes_requested`:
+
+1. Stop the finished worker with `manage stop-worker --task TM-id`.
+2. Run `manage rework --task TM-id`. It refuses with `TOPOLOGY_MANAGEMENT_REWORK_REVIEW` unless the
+   latest review is `changes_requested` for the exact current finish revision (no review, an
+   approval, or a review of another revision is refused), and with `TOPOLOGY_MANAGEMENT_REWORK`
+   for an unadmitted or landed task, another session, or a worker that is not stopped. It records
+   a `rework` event that keeps the reviewed revision and its findings, clears the finish, returns
+   the record to `working`, and runs `tm rework`, which returns the governed task to `working` and
+   moves its finished dispatch into `governance.reworks`.
+3. Run `manage start-worker --task TM-id` and give the worker the findings from the `rework` event.
+4. The next finish report must name a new commit; the reviewed revision is refused with
+   `TOPOLOGY_MANAGEMENT_REVISION`. That new revision needs its own review: integration keys the
+   review on the exact revision, so the earlier verdict never applies to it.
+
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
 review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a
 shell, `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
@@ -314,7 +343,10 @@ publication and spending retain separate authorization.
 ### Integration policy for a repository
 
 `manage eligible` and `manage integrate` refuse every task until the repository sets two keys in
-`<repo>/.bytedesk/agent-orchestration/config.json`. That file merges over the global layer.
+`<repo>/.bytedesk/agent-orchestration/config.json`. These keys, and `management.integrate_via`, are
+honoured only as that file is committed on the server's default branch (TM-442, TM-469): a value in
+the global layer or in the checkout's working copy is ignored with a warning, because a worker can
+write both.
 
 - `management.target_branch` is the branch the main checkout must have checked out. Integration
   fast-forwards only that branch.
@@ -336,9 +368,9 @@ agent-orchestration and task-management, the agent-orchestration bundle check, a
     "target_branch": "main",
     "required_checks": [
       { "name": "agent-orchestration: npm ci", "argv": ["npm", "--prefix", "agent-orchestration", "ci", "--no-audit", "--no-fund"], "timeout_ms": 300000 },
-      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs"], "timeout_ms": 900000 },
+      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit"], "timeout_ms": 900000 },
       { "name": "agent-orchestration: build:check", "argv": ["npm", "--prefix", "agent-orchestration", "run", "-s", "build:check"], "timeout_ms": 300000 },
-      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
+      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
       { "name": "agent-orchestration: plugin validate", "argv": ["claude", "plugin", "validate", "./agent-orchestration"], "timeout_ms": 120000 },
       { "name": "task-management: plugin validate", "argv": ["claude", "plugin", "validate", "./task-management"], "timeout_ms": 120000 }
     ]

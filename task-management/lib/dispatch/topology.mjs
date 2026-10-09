@@ -5,8 +5,16 @@
  * This is the backend ADR-0001 (agent-orchestration/docs/adr/0001-authoritative-
  * orchestration-layer.md) makes the default. What it buys over the raw `tmux`
  * backend is everything the topology layer already has and a bare `claude -p`
- * pane does not: an identity from the repo's agent library, a file mailbox and
- * journal, a bootstrap briefing, and a provider failover chain.
+ * pane does not: a file mailbox and journal, a bootstrap briefing, and a
+ * provider failover chain.
+ *
+ * TM-467: the worker is always an INLINE agent. It used to borrow an identity
+ * from the repo's agent library (`.bytedesk/agent-orchestration/agents/`), and a
+ * library agent carries its own cli, args, env, mcp servers and cwd — all
+ * git-tracked, so a worker whose PR merged chose the command every later worker
+ * ran. What the pane runs now comes from agent-orchestration's provider adapters
+ * and the candidate chain in the user's own config (trustedDispatch), never from
+ * the repository.
  *
  * Rules this module never breaks:
  *   1. **tm owns the checkout.** `--consumer <req.worktree>` — the checkout
@@ -33,13 +41,28 @@
  */
 import { spawnSync } from "node:child_process";
 import { toolFailureReason } from "./backend.mjs";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
 import { pidsOf } from "../worker-identity.mjs";
-import { GUARD_HOOK, PROMPT_FILE, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
+import { GUARD_HOOK, PROMPT_FILE, passEnvNames, trustedDispatch, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
+
+/**
+ * TM-449: what this dispatch's passEnv config will NOT reach the worker, as warnings. ao-topology
+ * passes only the names in agent-orchestration's own global `workers.passEnv`; it has no channel
+ * for tm's `dispatch.passEnv`, and the spec's agent env is written into the launcher script, so a
+ * value must never travel there. A tm-only name is reported here rather than silently dropped.
+ */
+export function topologyPassEnvWarnings(req) {
+  const plan = passEnvNames(req);
+  const tmOnly = plan.names.filter((n) => !plan.viaAo.includes(n));
+  return [
+    ...plan.warnings,
+    ...(tmOnly.length ? [`passEnv ${tmOnly.join(", ")} not passed by the topology backend: ao-topology passes only agent-orchestration's global workers.passEnv; name it there, or dispatch with --backend tmux`] : []),
+  ];
+}
 
 export const name = "topology";
 
@@ -51,71 +74,10 @@ export const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 /** Where the durable copy of the prompt lives, relative to the worktree root. */
 export { PROMPT_FILE };
 
-/**
- * Where a repo keeps its agent library, relative to the consumer. Current
- * convention first, the layer's own legacy path second — the same two the
- * topology layer's `consumerResourceDirs` searches, so a repo mid-migration
- * resolves identically here and there.
- */
-export const AGENT_DIRS = [join(".bytedesk", "agent-orchestration", "agents"), join(".orchestration", "agents")];
-
 /** Available exactly when hostcaps found ao-topology AND tmux to run it in. */
 export function available(caps = null) {
   const report = caps ?? detectHostCaps();
   return Boolean(report?.backends?.topology?.available);
-}
-
-/**
- * The repo's agent roster, read as JSON off disk.
- *
- * Deliberately NOT an import of the topology layer's own `agents.mjs`: that is a
- * sibling plugin, resolved at runtime from a path hostcaps probed, and importing
- * across that boundary would make dispatch fail to load whenever the sibling
- * moves. The on-disk shape (`<dir>/<id>/agent.json`) is the contract; a
- * malformed definition is simply not in the roster.
- */
-export function roster(consumer, { readdirImpl = readdirSync, readImpl = readFileSync } = {}) {
-  const found = [];
-  const seen = new Set();
-  for (const kind of AGENT_DIRS) {
-    let entries = [];
-    try {
-      entries = readdirImpl(join(consumer, kind), { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || seen.has(entry.name)) continue;
-      try {
-        const raw = JSON.parse(readImpl(join(consumer, kind, entry.name, "agent.json"), "utf8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-        seen.add(entry.name);
-        found.push({ ...raw, id: raw.id || entry.name });
-      } catch {
-        /* an unreadable definition is not a roster entry */
-      }
-    }
-  }
-  return found;
-}
-
-/**
- * Which stored agent a dispatch borrows its identity from, as a reference the
- * topology layer resolves (`agents[].agent` takes an id or a full name).
- *
- * `dispatch.topologyAgent` pins one. Otherwise the first non-lead agent: a repo
- * has exactly one lead and it is the human-facing one, so spending it on a
- * dispatched worker is the wrong default. No roster, or a roster that is only a
- * lead, returns null and the spec goes inline.
- */
-export function agentRef(consumer, { p, list = null } = {}) {
-  const wanted = p ? config(p).dispatch?.topologyAgent : null;
-  const agents = list ?? roster(consumer);
-  if (wanted) {
-    const hit = agents.find((a) => a.id === wanted || a.full_name === wanted);
-    return hit && !["lead", "reviewer"].includes(hit.role) ? hit.id : null;
-  }
-  return agents.find((a) => !["lead", "reviewer"].includes(a.role))?.id ?? null;
 }
 
 /**
@@ -124,18 +86,14 @@ export function agentRef(consumer, { p, list = null } = {}) {
  * DATA — without a launcher.
  *
  * The single agent's role is `orchestrator` because the spec schema requires
- * exactly one, and a solo worker conducts itself. When `ref` names a stored
- * agent the entry inherits that agent's cli chain, skills, mcp servers and
- * system prompt; the handoff is appended to it as `instructions` rather than
- * replacing it, so the identity survives.
+ * exactly one, and a solo worker conducts itself. TM-467: always inline — no
+ * `agent` reference, so nothing from the repo's version-controlled agent library
+ * (cli, args, env, mcp, cwd, template) is merged into what the pane runs.
  */
-export function specFor(req, ref = null, { candidates = null, stored = null } = {}) {
-  const base = ref
-    ? { id: "worker", agent: ref, role: "orchestrator", candidates: candidates || "claude,codex", instructions: req.prompt }
-    : { id: "worker", role: "orchestrator", candidates: candidates || "claude,codex", instructions: req.prompt };
+export function specFor(req, { candidates = null } = {}) {
+  const base = { id: "worker", role: "orchestrator", candidates: candidates || "claude,codex", instructions: req.prompt };
   // TM-177: the pane exports ONLY the spec agent's env — ao-topology writes it into the launcher
-  // script — so the worker marker travels here, not just in ao-topology's own env. An inline field
-  // replaces the stored agent's wholesale, so the stored env and args are carried over, not dropped.
+  // script — so the worker marker travels here, not just in ao-topology's own env.
   //
   // The dispatch identity rides here for the same reason, and its absence was the same bug the
   // marker had: envFor() puts it on the ao-topology LAUNCHER, and the pane inherits none of the
@@ -151,13 +109,11 @@ export function specFor(req, ref = null, { candidates = null, stored = null } = 
   const agent = {
     ...base,
     env: {
-      ...(stored?.env ?? {}),
       ...Object.fromEntries(workerIdentityEnv(req)),
       ...Object.fromEntries(workerEnv(req)),
     },
   };
   // The producer applies worker_guard separately for each provider candidate.
-  if (stored?.args) agent.args = [...stored.args];
   return {
     version: 1,
     name: String(req.task.id).toLowerCase(),
@@ -207,7 +163,7 @@ function parseLaunch(stdout) {
 
 /**
  * Launch the worker. req = { task, worktree, prompt, session, actor, p }.
- * Injectables (caps/spawnImpl/writeImpl/mkdtempImpl/env/rosterList) exist for tests;
+ * Injectables (caps/spawnImpl/writeImpl/mkdtempImpl/env) exist for tests;
  * production takes the probed hostcaps and the real child_process.spawnSync.
  */
 export function spawn(
@@ -218,7 +174,6 @@ export function spawn(
     writeImpl = writeFileSync,
     mkdtempImpl = mkdtempSync,
     env = process.env,
-    rosterList = null,
     timeoutMs = LAUNCH_TIMEOUT_MS,
     maxBuffer = MAX_BUFFER_BYTES,
   } = {},
@@ -235,14 +190,15 @@ export function spawn(
   }
 
   const worker = { ...req, branch: workerBranch(req) };
-  const agents = rosterList ?? roster(req.worktree);
-  const ref = agentRef(req.worktree, { p: req.p, list: agents });
-  if (config(req.p).dispatch?.topologyAgent && !ref) return { ok: false, code: "TM_WORKER_IDENTITY_HELD", failureScope: "task", reason: "configured worker identity is missing or reserved for the standing lead/reviewer" };
+  // TM-467: the candidate chain picks the CLI and model, so it comes from the user's config only.
+  const cfg = config(req.p);
+  const chain = trustedDispatch("topologyCandidates", cfg);
+  const commandWarnings = [
+    ...(chain.warning ? [chain.warning] : []),
+    ...(cfg.dispatch?.topologyAgent !== undefined ? ["dispatch.topologyAgent ignored: a topology worker is always an inline agent, never one from the repository's agent library"] : []),
+  ];
   const specFile = specFileFor(req, mkdtempImpl);
-  const spec = specFor(worker, ref, {
-    candidates: config(req.p).dispatch?.topologyCandidates ?? null,
-    stored: agents.find((a) => a.id === ref) ?? null,
-  });
+  const spec = specFor(worker, { candidates: chain.value ?? null });
   const unsupported = cliChain(spec.agents[0]).filter((cli) => !["claude", "codex"].includes(cli));
   if (unsupported.length) return { ok: false, code: "TM_UNSUPPORTED_FALLBACK", failureScope: "task", reason: `unattended topology fallback is not approved for ${unsupported.join(", ")}; use the supported Claude → Codex chain` };
   const promptFile = join(req.worktree, PROMPT_FILE);
@@ -270,6 +226,8 @@ export function spawn(
 
   const parsed = parseLaunch(res.stdout);
   if (!parsed.run) return { ok: false, reason: parsed.reason, detail: { args } };
+  const passEnvWarnings = topologyPassEnvWarnings(req);
+  const nativeRunId = parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session);
   return {
     ok: true,
     // The tmux session is the handle: `tmux attach -t <session>` is how a human looks in,
@@ -277,15 +235,18 @@ export function spawn(
     run: `topology:${parsed.run.session}`,
     // TM-470: the pane pids ao-topology bound — the dispatch-ancestry anchors (../worker-identity.mjs).
     anchors: pidsOf([parsed.run.binding?.panePid, ...(Array.isArray(parsed.run.agents) ? parsed.run.agents.map((a) => a?.binding?.panePid) : [])]),
-    nativeRunId: parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
-    workflowRunId: parsed.run.workflow_id ?? parsed.run.workflowId ?? parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
+    nativeRunId,
+    // TM-417: the producer's canonical workflow id is `topology:<native run id>`; a bare run id
+    // here made every governed finish refuse with "Canonical workflow and native task run IDs differ".
+    workflowRunId: parsed.run.workflow_id ?? parsed.run.workflowId ?? `topology:${nativeRunId}`,
     detail: {
       args,
       promptFile,
       specFile,
-      agent: ref,
       runDir: parsed.run.runDir ?? null,
       warnings: parsed.run.warnings ?? [],
+      ...(passEnvWarnings.length ? { passEnvWarnings } : {}),
+      ...(commandWarnings.length ? { commandWarnings } : {}),
     },
   };
 }

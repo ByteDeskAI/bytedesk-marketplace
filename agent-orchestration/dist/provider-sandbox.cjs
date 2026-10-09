@@ -39,10 +39,10 @@ module.exports = __toCommonJS(provider_sandbox_exports);
 var import_node_child_process2 = require("node:child_process");
 var import_node_events = require("node:events");
 var import_promises3 = require("node:fs/promises");
-var import_node_fs = require("node:fs");
-var import_node_path3 = require("node:path");
+var import_node_fs2 = require("node:fs");
+var import_node_path4 = require("node:path");
 var import_node_url = require("node:url");
-var import_node_os2 = __toESM(require("node:os"), 1);
+var import_node_os3 = __toESM(require("node:os"), 1);
 var import_node_readline = __toESM(require("node:readline"), 1);
 
 // src/errors.mjs
@@ -71,13 +71,97 @@ function serializeError(error) {
 var import_node_child_process = require("node:child_process");
 var import_node_crypto = require("node:crypto");
 var import_promises = require("node:fs/promises");
-var import_node_path = require("node:path");
+var import_node_path2 = require("node:path");
 var import_promises2 = require("node:timers/promises");
 var import_node_util = require("node:util");
+
+// topology/lib/safe-git.mjs
+var import_node_fs = require("node:fs");
+var import_node_os = require("node:os");
+var import_node_path = require("node:path");
+var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+var GIT_PATHS = Object.freeze(["/usr/bin/git", "/bin/git", "/usr/local/bin/git"]);
+var SSH_PATHS = Object.freeze(["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh"]);
+function rootOwnedChain(real, paths = GH_PATHS, stat2 = import_node_fs.statSync) {
+  if (!paths.includes(real)) return false;
+  try {
+    for (let p = real; ; p = (0, import_node_path.dirname)(p)) {
+      const s = stat2(p);
+      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
+      if (p === "/") return true;
+    }
+  } catch {
+    return false;
+  }
+}
+function trustedBinary({ paths, stat: stat2 = import_node_fs.statSync, realpath: realpath3 = import_node_fs.realpathSync }) {
+  for (const candidate of paths) {
+    let real;
+    try {
+      real = realpath3(candidate);
+    } catch {
+      continue;
+    }
+    if (rootOwnedChain(real, paths, stat2) && rootOwnedChain(candidate, paths, stat2)) return candidate;
+  }
+  return null;
+}
+var SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
+var GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
+var NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
+var PASSWD_HOME = (() => {
+  try {
+    return (0, import_node_os.userInfo)().homedir || null;
+  } catch {
+    return null;
+  }
+})();
+var SAFE_GIT_CONFIG = Object.freeze([
+  "core.fsmonitor=false",
+  "core.hooksPath=/dev/null",
+  "core.pager=cat",
+  "diff.external=",
+  `core.sshCommand=${SSH}`,
+  "core.askPass=",
+  "core.attributesFile=",
+  "core.editor=true",
+  "sequence.editor=true",
+  "core.alternateRefsCommand=true",
+  "uploadpack.packObjectsHook=env",
+  "protocol.allow=never",
+  "protocol.https.allow=always",
+  "protocol.ssh.allow=always",
+  "protocol.file.allow=always",
+  "protocol.ext.allow=never",
+  "gpg.program=gpg",
+  "gpg.ssh.program=ssh-keygen",
+  "gpg.x509.program=gpgsm",
+  "commit.gpgSign=false",
+  "tag.gpgSign=false",
+  "merge.verifySignatures=false",
+  "log.showSignature=false",
+  "submodule.recurse=false",
+  "fetch.recurseSubmodules=false",
+  "gc.auto=0",
+  "maintenance.auto=false",
+  "credential.helper="
+]);
+var DIFF_FAMILY = ["diff", "diff-tree", "diff-index", "diff-files", "log", "show", "format-patch", "whatchanged"];
+var SUBCOMMAND_FLAGS = Object.freeze({
+  fetch: ["--upload-pack=git-upload-pack"],
+  pull: ["--upload-pack=git-upload-pack"],
+  "ls-remote": ["--upload-pack=git-upload-pack"],
+  push: ["--receive-pack=git-receive-pack"],
+  ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
+});
+var GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
+var GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
+
+// src/util.mjs
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
 function isPathWithin(parent, candidate) {
-  const rel = (0, import_node_path.relative)((0, import_node_path.resolve)(parent), (0, import_node_path.resolve)(candidate));
-  return rel === "" || !rel.startsWith("..") && !(0, import_node_path.isAbsolute)(rel);
+  const rel = (0, import_node_path2.relative)((0, import_node_path2.resolve)(parent), (0, import_node_path2.resolve)(candidate));
+  return rel === "" || !rel.startsWith("..") && !(0, import_node_path2.isAbsolute)(rel);
 }
 async function ensurePrivateDir(path) {
   await (0, import_promises.mkdir)(path, { recursive: true, mode: 448 });
@@ -101,11 +185,11 @@ async function restoreDirectoryWrite(path) {
   });
   const entries = await (0, import_promises.readdir)(path, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
-    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path.join)(path, entry.name));
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path2.join)(path, entry.name));
   }
 }
 async function atomicWriteJson(path, value) {
-  await ensurePrivateDir((0, import_node_path.dirname)(path));
+  await ensurePrivateDir((0, import_node_path2.dirname)(path));
   const tempPath = `${path}.${process.pid}.${(0, import_node_crypto.randomUUID)()}.tmp`;
   const handle = await (0, import_promises.open)(tempPath, "wx", 384);
   try {
@@ -126,7 +210,7 @@ async function atomicWriteJson(path, value) {
     }
   }
   if (process.platform !== "win32") {
-    const directory = await (0, import_promises.open)((0, import_node_path.dirname)(path), "r");
+    const directory = await (0, import_promises.open)((0, import_node_path2.dirname)(path), "r");
     try {
       await directory.sync();
     } finally {
@@ -136,14 +220,14 @@ async function atomicWriteJson(path, value) {
 }
 
 // src/providers/adapters.mjs
-var import_node_os = __toESM(require("node:os"), 1);
-var import_node_path2 = require("node:path");
+var import_node_os2 = __toESM(require("node:os"), 1);
+var import_node_path3 = require("node:path");
 var WINDOWS_EXECUTABLE_ROOTS = Object.freeze([
   process.env.ProgramFiles,
   process.env["ProgramFiles(x86)"],
-  process.env.LOCALAPPDATA && (0, import_node_path2.join)(process.env.LOCALAPPDATA, "Programs"),
-  process.env.APPDATA && (0, import_node_path2.join)(process.env.APPDATA, "npm"),
-  (0, import_node_path2.join)(import_node_os.default.homedir(), ".local", "bin")
+  process.env.LOCALAPPDATA && (0, import_node_path3.join)(process.env.LOCALAPPDATA, "Programs"),
+  process.env.APPDATA && (0, import_node_path3.join)(process.env.APPDATA, "npm"),
+  (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "bin")
 ].filter(Boolean));
 var SYSTEM_EXECUTABLE_ROOTS = Object.freeze(process.platform === "win32" ? WINDOWS_EXECUTABLE_ROOTS : ["/usr/bin", "/usr/local/bin"]);
 var PROVIDER_ADAPTERS = Object.freeze({
@@ -151,7 +235,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     providerId: "claude",
     agentTarget: "claude",
     executable: "claude",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path2.join)(import_node_os.default.homedir(), ".claude"), (0, import_node_path2.join)(import_node_os.default.homedir(), ".local", "share", "claude")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".claude"), (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "claude")]),
     executableEnv: "CLAUDE_CODE_EXECUTABLE",
     bridgeLauncher: "claude-agent-acp",
     args: Object.freeze([]),
@@ -167,9 +251,9 @@ var PROVIDER_ADAPTERS = Object.freeze({
     providerId: "codex",
     agentTarget: "codex",
     executable: "codex",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path2.join)(import_node_os.default.homedir(), ".codex"), (0, import_node_path2.join)(import_node_os.default.homedir(), ".cache", "codex-runtimes"), (0, import_node_path2.join)(import_node_os.default.homedir(), ".volta", "tools", "image")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".codex"), (0, import_node_path3.join)(import_node_os2.default.homedir(), ".cache", "codex-runtimes"), (0, import_node_path3.join)(import_node_os2.default.homedir(), ".volta", "tools", "image")]),
     candidateResolvers: Object.freeze([
-      Object.freeze({ executable: (0, import_node_path2.join)(import_node_os.default.homedir(), ".volta", "bin", "volta"), args: Object.freeze(["which", "codex"]) })
+      Object.freeze({ executable: (0, import_node_path3.join)(import_node_os2.default.homedir(), ".volta", "bin", "volta"), args: Object.freeze(["which", "codex"]) })
     ]),
     executableEnv: "CODEX_PATH",
     bridgeLauncher: "codex-acp",
@@ -182,7 +266,7 @@ var PROVIDER_ADAPTERS = Object.freeze({
     providerId: "grok-build",
     agentTarget: "grok-build",
     executable: "grok",
-    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path2.join)(import_node_os.default.homedir(), ".grok", "downloads")]),
+    executableRoots: Object.freeze([...SYSTEM_EXECUTABLE_ROOTS, (0, import_node_path3.join)(import_node_os2.default.homedir(), ".grok", "downloads")]),
     executableEnv: null,
     bridgeLauncher: null,
     args: Object.freeze(["agent", "--always-approve", "stdio"]),
@@ -200,9 +284,9 @@ var PROVIDER_ADAPTERS = Object.freeze({
     executable: "kimi",
     executableRoots: Object.freeze([
       ...SYSTEM_EXECUTABLE_ROOTS,
-      (0, import_node_path2.join)(import_node_os.default.homedir(), ".kimi-code", "bin"),
-      (0, import_node_path2.join)(import_node_os.default.homedir(), ".local", "share", "uv", "tools", "kimi-cli"),
-      (0, import_node_path2.join)(import_node_os.default.homedir(), ".local", "share", "pipx", "venvs", "kimi-cli")
+      (0, import_node_path3.join)(import_node_os2.default.homedir(), ".kimi-code", "bin"),
+      (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "uv", "tools", "kimi-cli"),
+      (0, import_node_path3.join)(import_node_os2.default.homedir(), ".local", "share", "pipx", "venvs", "kimi-cli")
     ]),
     executableEnv: null,
     bridgeLauncher: null,
@@ -309,11 +393,11 @@ async function pathExists(path) {
   return (0, import_promises3.lstat)(path).then(() => true, () => false);
 }
 async function resolveExecutable(name, env = process.env) {
-  for (const directory of (env.PATH ?? "").split(import_node_path3.delimiter)) {
+  for (const directory of (env.PATH ?? "").split(import_node_path4.delimiter)) {
     if (!directory) continue;
-    const candidate = (0, import_node_path3.join)(directory, name);
+    const candidate = (0, import_node_path4.join)(directory, name);
     try {
-      await (0, import_promises3.access)(candidate, import_node_fs.constants.X_OK);
+      await (0, import_promises3.access)(candidate, import_node_fs2.constants.X_OK);
       return candidate;
     } catch {
     }
@@ -321,20 +405,20 @@ async function resolveExecutable(name, env = process.env) {
   invariant(false, "AO_PROVIDER_EXECUTABLE_NOT_FOUND", `Trusted provider executable '${name}' was not found on PATH.`);
 }
 function nodeInstallationRoot(executable) {
-  const marker = `${import_node_path3.sep}lib${import_node_path3.sep}node_modules${import_node_path3.sep}`;
+  const marker = `${import_node_path4.sep}lib${import_node_path4.sep}node_modules${import_node_path4.sep}`;
   const markerIndex = executable.indexOf(marker);
   if (markerIndex >= 0) {
     const candidate2 = executable.slice(0, markerIndex);
-    return candidate2 !== "/" && !isPathWithin(candidate2, import_node_os2.default.homedir()) ? candidate2 : null;
+    return candidate2 !== "/" && !isPathWithin(candidate2, import_node_os3.default.homedir()) ? candidate2 : null;
   }
-  const binMarker = `${import_node_path3.sep}bin${import_node_path3.sep}`;
+  const binMarker = `${import_node_path4.sep}bin${import_node_path4.sep}`;
   const binIndex = executable.lastIndexOf(binMarker);
   if (binIndex < 0) return null;
   const candidate = executable.slice(0, binIndex);
-  return candidate !== "/" && !isPathWithin(candidate, import_node_os2.default.homedir()) ? candidate : null;
+  return candidate !== "/" && !isPathWithin(candidate, import_node_os3.default.homedir()) ? candidate : null;
 }
 function assertSafeInstallationRoot(root, protectedPaths) {
-  invariant(root !== "/" && !isPathWithin(root, import_node_os2.default.homedir()), "AO_UNSAFE_INSTALLATION_ROOT", "Refusing to mount an installation root that contains the user home.");
+  invariant(root !== "/" && !isPathWithin(root, import_node_os3.default.homedir()), "AO_UNSAFE_INSTALLATION_ROOT", "Refusing to mount an installation root that contains the user home.");
   for (const protectedPath of protectedPaths) {
     invariant(!isPathWithin(root, protectedPath) && !isPathWithin(protectedPath, root), "AO_UNSAFE_INSTALLATION_ROOT", "Provider installation roots must not overlap workspace, Git, state, or broker paths.", { root, protectedPath });
   }
@@ -343,29 +427,29 @@ async function trustedCommand(providerId, pluginRoot, selectedExecutable) {
   const adapter = getProviderAdapter(providerId);
   invariant(adapter, "AO_PROVIDER_ADAPTER_MISSING", `No trusted sandbox command exists for ${providerId}.`);
   const selected = selectedExecutable || await resolveExecutable(adapter.executable);
-  invariant((0, import_node_path3.isAbsolute)(selected), "AO_PROVIDER_EXECUTABLE_NOT_ABSOLUTE", "The broker-selected provider executable must be absolute.");
-  await (0, import_promises3.access)(selected, import_node_fs.constants.X_OK);
+  invariant((0, import_node_path4.isAbsolute)(selected), "AO_PROVIDER_EXECUTABLE_NOT_ABSOLUTE", "The broker-selected provider executable must be absolute.");
+  await (0, import_promises3.access)(selected, import_node_fs2.constants.X_OK);
   const providerExecutable = await (0, import_promises3.realpath)(selected);
   invariant(!isPathWithin(pluginRoot, providerExecutable), "AO_PROVIDER_EXECUTABLE_UNTRUSTED", "A provider executable cannot come from the plugin installation.");
   invariant(adapter.executableRoots.some((root) => isPathWithin(root, providerExecutable)), "AO_PROVIDER_EXECUTABLE_UNTRUSTED", "The provider executable is outside its declared trusted installation roots.", { providerId, providerExecutable });
-  const command = adapter.bridgeLauncher ? process.platform === "win32" ? [process.execPath, "--preserve-symlinks", "--preserve-symlinks-main", (0, import_node_path3.join)(pluginRoot, "dist", `${adapter.bridgeLauncher}.mjs`)] : [(0, import_node_path3.join)(pluginRoot, "bin", adapter.bridgeLauncher)] : [providerExecutable];
+  const command = adapter.bridgeLauncher ? process.platform === "win32" ? [process.execPath, "--preserve-symlinks", "--preserve-symlinks-main", (0, import_node_path4.join)(pluginRoot, "dist", `${adapter.bridgeLauncher}.mjs`)] : [(0, import_node_path4.join)(pluginRoot, "bin", adapter.bridgeLauncher)] : [providerExecutable];
   return { adapter, providerExecutable, command: [...command, ...adapter.args] };
 }
 async function prepareNativeProviderHome(adapter, brokerControlDir) {
   if (!adapter.sandboxHome) return { environment: {}, bootstrapFiles: [], root: null };
-  const root = (0, import_node_path3.join)(brokerControlDir, "provider-home", adapter.providerId);
+  const root = (0, import_node_path4.join)(brokerControlDir, "provider-home", adapter.providerId);
   await (0, import_promises3.mkdir)(root, { recursive: true, mode: 448 });
   const bootstrapFiles = [];
   for (const name of adapter.sandboxHome.bootstrapFiles) {
-    const source = (0, import_node_path3.join)(import_node_os2.default.homedir(), adapter.sandboxHome.sourceDir, name);
+    const source = (0, import_node_path4.join)(import_node_os3.default.homedir(), adapter.sandboxHome.sourceDir, name);
     try {
       await (0, import_promises3.access)(source);
     } catch {
       continue;
     }
-    const target = (0, import_node_path3.join)(root, name);
-    await (0, import_promises3.mkdir)((0, import_node_path3.dirname)(target), { recursive: true, mode: 448 });
-    await (0, import_promises3.copyFile)(await (0, import_promises3.realpath)(source), target, import_node_fs.constants.COPYFILE_EXCL);
+    const target = (0, import_node_path4.join)(root, name);
+    await (0, import_promises3.mkdir)((0, import_node_path4.dirname)(target), { recursive: true, mode: 448 });
+    await (0, import_promises3.copyFile)(await (0, import_promises3.realpath)(source), target, import_node_fs2.constants.COPYFILE_EXCL);
     await (0, import_promises3.chmod)(target, 384);
     bootstrapFiles.push(target);
   }
@@ -373,11 +457,11 @@ async function prepareNativeProviderHome(adapter, brokerControlDir) {
 }
 async function prepareProviderHome(adapter, brokerControlDir, tempDir) {
   if (!adapter.sandboxHome) return { environment: {}, bootstrapFiles: [], bootstrapMounts: [], protectedDirectories: [] };
-  const sourceHome = (0, import_node_path3.join)(brokerControlDir, "provider-home", adapter.providerId);
-  const hostHomeRoot = (0, import_node_path3.join)(tempDir, "provider-home");
-  const targetHome = (0, import_node_path3.join)(hostHomeRoot, adapter.providerId);
-  const sandboxHomeRoot = (0, import_node_path3.join)(SANDBOX_RUNTIME_ROOT, "provider-home");
-  const sandboxHome = (0, import_node_path3.join)(sandboxHomeRoot, adapter.providerId);
+  const sourceHome = (0, import_node_path4.join)(brokerControlDir, "provider-home", adapter.providerId);
+  const hostHomeRoot = (0, import_node_path4.join)(tempDir, "provider-home");
+  const targetHome = (0, import_node_path4.join)(hostHomeRoot, adapter.providerId);
+  const sandboxHomeRoot = (0, import_node_path4.join)(SANDBOX_RUNTIME_ROOT, "provider-home");
+  const sandboxHome = (0, import_node_path4.join)(sandboxHomeRoot, adapter.providerId);
   await Promise.all([
     (0, import_promises3.mkdir)(sourceHome, { recursive: true, mode: 448 }),
     (0, import_promises3.mkdir)(targetHome, { recursive: true, mode: 448 })
@@ -389,27 +473,27 @@ async function prepareProviderHome(adapter, brokerControlDir, tempDir) {
     [targetHome, sandboxHome]
   ]);
   for (const name of adapter.sandboxHome.bootstrapFiles) {
-    const source = (0, import_node_path3.join)(import_node_os2.default.homedir(), adapter.sandboxHome.sourceDir, name);
+    const source = (0, import_node_path4.join)(import_node_os3.default.homedir(), adapter.sandboxHome.sourceDir, name);
     try {
       await (0, import_promises3.access)(source);
     } catch {
       continue;
     }
-    const target = (0, import_node_path3.join)(sourceHome, name);
-    const sandboxTargetHost = (0, import_node_path3.join)(targetHome, name);
-    const sandboxTarget = (0, import_node_path3.join)(sandboxHome, name);
-    await (0, import_promises3.mkdir)((0, import_node_path3.dirname)(target), { recursive: true, mode: 448 });
-    await (0, import_promises3.mkdir)((0, import_node_path3.dirname)(sandboxTargetHost), { recursive: true, mode: 448 });
-    let protectedHostDirectory = (0, import_node_path3.dirname)(sandboxTargetHost);
+    const target = (0, import_node_path4.join)(sourceHome, name);
+    const sandboxTargetHost = (0, import_node_path4.join)(targetHome, name);
+    const sandboxTarget = (0, import_node_path4.join)(sandboxHome, name);
+    await (0, import_promises3.mkdir)((0, import_node_path4.dirname)(target), { recursive: true, mode: 448 });
+    await (0, import_promises3.mkdir)((0, import_node_path4.dirname)(sandboxTargetHost), { recursive: true, mode: 448 });
+    let protectedHostDirectory = (0, import_node_path4.dirname)(sandboxTargetHost);
     while (isPathWithin(targetHome, protectedHostDirectory)) {
-      const suffix = (0, import_node_path3.relative)(targetHome, protectedHostDirectory);
-      protectedDirectories.set(protectedHostDirectory, suffix ? (0, import_node_path3.join)(sandboxHome, suffix) : sandboxHome);
+      const suffix = (0, import_node_path4.relative)(targetHome, protectedHostDirectory);
+      protectedDirectories.set(protectedHostDirectory, suffix ? (0, import_node_path4.join)(sandboxHome, suffix) : sandboxHome);
       if (protectedHostDirectory === targetHome) break;
-      protectedHostDirectory = (0, import_node_path3.dirname)(protectedHostDirectory);
+      protectedHostDirectory = (0, import_node_path4.dirname)(protectedHostDirectory);
     }
     const present = await pathExists(target);
     if (!present) {
-      await (0, import_promises3.copyFile)(await (0, import_promises3.realpath)(source), target, import_node_fs.constants.COPYFILE_EXCL);
+      await (0, import_promises3.copyFile)(await (0, import_promises3.realpath)(source), target, import_node_fs2.constants.COPYFILE_EXCL);
       await (0, import_promises3.chmod)(target, 384);
     }
     const sandboxTargetInfo = await (0, import_promises3.lstat)(sandboxTargetHost).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
@@ -431,7 +515,7 @@ async function revokeBootstrapFiles(paths) {
     const info = await (0, import_promises3.lstat)(path).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
     if (!info) continue;
     invariant(info.isFile() && !info.isSymbolicLink(), "AO_BOOTSTRAP_FILE_REPLACED", "Provider bootstrap material was replaced before revocation.");
-    const handle = process.platform === "win32" ? await (0, import_promises3.open)(path, "r+") : await (0, import_promises3.open)(path, import_node_fs.constants.O_WRONLY | import_node_fs.constants.O_TRUNC | import_node_fs.constants.O_NOFOLLOW);
+    const handle = process.platform === "win32" ? await (0, import_promises3.open)(path, "r+") : await (0, import_promises3.open)(path, import_node_fs2.constants.O_WRONLY | import_node_fs2.constants.O_TRUNC | import_node_fs2.constants.O_NOFOLLOW);
     try {
       if (process.platform === "win32") await handle.truncate(0);
       await handle.sync();
@@ -442,12 +526,12 @@ async function revokeBootstrapFiles(paths) {
   }
 }
 function parentDirectoryArgs(path, created) {
-  const root = (0, import_node_path3.parse)(path).root;
-  const segments = (0, import_node_path3.relative)(root, (0, import_node_path3.dirname)(path)).split(import_node_path3.sep).filter(Boolean);
+  const root = (0, import_node_path4.parse)(path).root;
+  const segments = (0, import_node_path4.relative)(root, (0, import_node_path4.dirname)(path)).split(import_node_path4.sep).filter(Boolean);
   const args = [];
   let current = root;
   for (const segment of segments) {
-    current = (0, import_node_path3.resolve)(current, segment);
+    current = (0, import_node_path4.resolve)(current, segment);
     if (created.has(current)) continue;
     args.push("--dir", current);
     created.add(current);
@@ -464,10 +548,10 @@ function sandboxEnvironment({ adapter, providerExecutable, command, providerHome
   const sandboxHome = adapter.sandboxHome ? providerHomeEnvironment[adapter.sandboxHome.env] : null;
   const environment = {
     HOME: sandboxHome || tempDir,
-    USER: import_node_os2.default.userInfo().username,
-    LOGNAME: import_node_os2.default.userInfo().username,
+    USER: import_node_os3.default.userInfo().username,
+    LOGNAME: import_node_os3.default.userInfo().username,
     TMPDIR: tempDir,
-    PATH: [...new Set(process.platform === "win32" ? [(0, import_node_path3.dirname)(process.execPath), (0, import_node_path3.dirname)(providerExecutable), (0, import_node_path3.dirname)(command[0]), process.env.SystemRoot && (0, import_node_path3.join)(process.env.SystemRoot, "System32")].filter(Boolean) : ["/usr/local/bin", "/usr/bin", "/bin", (0, import_node_path3.dirname)(process.execPath), (0, import_node_path3.dirname)(providerExecutable), (0, import_node_path3.dirname)(command[0])])].join(import_node_path3.delimiter),
+    PATH: [...new Set(process.platform === "win32" ? [(0, import_node_path4.dirname)(process.execPath), (0, import_node_path4.dirname)(providerExecutable), (0, import_node_path4.dirname)(command[0]), process.env.SystemRoot && (0, import_node_path4.join)(process.env.SystemRoot, "System32")].filter(Boolean) : ["/usr/local/bin", "/usr/bin", "/bin", (0, import_node_path4.dirname)(process.execPath), (0, import_node_path4.dirname)(providerExecutable), (0, import_node_path4.dirname)(command[0])])].join(import_node_path4.delimiter),
     ...providerHomeEnvironment
   };
   if (process.platform === "win32") {
@@ -510,20 +594,20 @@ function sandboxEnvironment({ adapter, providerExecutable, command, providerHome
 }
 async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir, sandboxTempDir, brokerControlDir, providerExecutable, permissionProfile }) {
   invariant(getProviderAdapter(providerId), "AO_PROVIDER_ADAPTER_MISSING", `No trusted sandbox command exists for ${providerId}.`);
-  invariant((0, import_node_path3.isAbsolute)(workspacePath) && (0, import_node_path3.isAbsolute)(commonGitDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox paths must be absolute.");
-  invariant((0, import_node_path3.isAbsolute)(sandboxTempDir) && (0, import_node_path3.isAbsolute)(brokerControlDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox temp and broker control paths must be absolute.");
+  invariant((0, import_node_path4.isAbsolute)(workspacePath) && (0, import_node_path4.isAbsolute)(commonGitDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox paths must be absolute.");
+  invariant((0, import_node_path4.isAbsolute)(sandboxTempDir) && (0, import_node_path4.isAbsolute)(brokerControlDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox temp and broker control paths must be absolute.");
   const [workspace, gitDir, tempDir] = await Promise.all([(0, import_promises3.realpath)(workspacePath), (0, import_promises3.realpath)(commonGitDir), (0, import_promises3.realpath)(sandboxTempDir)]);
   if (permissionProfile === "write") {
     invariant(!isPathWithin(workspace, gitDir), "AO_UNSAFE_GIT_LAYOUT", "Shared Git metadata cannot be inside the writable workspace.");
   }
-  const gitFile = (0, import_node_path3.join)(workspace, ".git");
+  const gitFile = (0, import_node_path4.join)(workspace, ".git");
   const gitMarker = await (0, import_promises3.lstat)(gitFile);
   if (permissionProfile === "write") invariant(gitMarker.isFile(), "AO_UNSAFE_GIT_LAYOUT", "A write workspace must be a linked worktree with a .git pointer file.");
   const wslHosted = process.env.AGENT_ORCHESTRATION_HOST_PLATFORM === "win32";
   await Promise.all([(0, import_promises3.access)("/usr/bin/bwrap"), (0, import_promises3.access)(wslHosted ? "/usr/bin/pasta" : "/usr/bin/slirp4netns")]);
   if (!wslHosted) {
     for (const executable2 of ["/usr/bin/python3", "/usr/bin/nsenter"]) {
-      await (0, import_promises3.access)(executable2, import_node_fs.constants.X_OK).catch(() => {
+      await (0, import_promises3.access)(executable2, import_node_fs2.constants.X_OK).catch(() => {
         throw new AgentOrchestrationError("AO_SANDBOX_DEPENDENCY_MISSING", `Linux provider networking requires ${executable2}; install python3 and util-linux before launching.`);
       });
     }
@@ -569,7 +653,7 @@ async function sandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir
   ]) {
     if (await pathExists(systemPath)) await addReadOnlyMount(args, systemPath, systemPath, created, mounted);
   }
-  const sandboxDnsConfig = (0, import_node_path3.join)(controlDir, "resolv.conf");
+  const sandboxDnsConfig = (0, import_node_path4.join)(controlDir, "resolv.conf");
   const dnsConfig = wslHosted ? await (0, import_promises3.readFile)("/etc/resolv.conf", "utf8") : "nameserver 10.0.2.3\noptions timeout:2 attempts:3\n";
   await (0, import_promises3.writeFile)(sandboxDnsConfig, dnsConfig, { mode: 384, flag: "wx" });
   await addReadOnlyMount(args, sandboxDnsConfig, "/etc/resolv.conf", created, mounted);
@@ -621,7 +705,7 @@ async function sandboxArguments(params) {
 }
 async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commonGitDir, sandboxTempDir, brokerControlDir, providerExecutable, permissionProfile }) {
   invariant(process.platform === "win32" || process.env.AGENT_ORCHESTRATION_TEST_WINDOWS_SANDBOX === "1", "AO_WINDOWS_SANDBOX_PLATFORM", "The AppContainer sandbox strategy runs only on Windows.");
-  invariant((0, import_node_path3.isAbsolute)(workspacePath) && (0, import_node_path3.isAbsolute)(commonGitDir) && (0, import_node_path3.isAbsolute)(sandboxTempDir) && (0, import_node_path3.isAbsolute)(brokerControlDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox paths must be absolute.");
+  invariant((0, import_node_path4.isAbsolute)(workspacePath) && (0, import_node_path4.isAbsolute)(commonGitDir) && (0, import_node_path4.isAbsolute)(sandboxTempDir) && (0, import_node_path4.isAbsolute)(brokerControlDir), "AO_SANDBOX_PATH_NOT_ABSOLUTE", "Sandbox paths must be absolute.");
   const [workspace, gitDir, tempDir, controlDir, canonicalPluginRoot] = await Promise.all([
     (0, import_promises3.realpath)(workspacePath),
     (0, import_promises3.realpath)(commonGitDir),
@@ -630,7 +714,7 @@ async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commo
     (0, import_promises3.realpath)(pluginRoot)
   ]);
   if (permissionProfile === "write") invariant(!isPathWithin(workspace, gitDir), "AO_UNSAFE_GIT_LAYOUT", "Shared Git metadata cannot be inside the writable workspace.");
-  const gitFile = (0, import_node_path3.join)(workspace, ".git");
+  const gitFile = (0, import_node_path4.join)(workspace, ".git");
   const gitMarker = await (0, import_promises3.lstat)(gitFile);
   if (permissionProfile === "write") invariant(gitMarker.isFile(), "AO_UNSAFE_GIT_LAYOUT", "A write workspace must be a linked worktree with a .git pointer file.");
   const controlInfo = await (0, import_promises3.lstat)(controlDir);
@@ -644,17 +728,17 @@ async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commo
     return roots.some((root) => isPathWithin(root, path));
   };
   if (protectedWindowsRoot(executable)) {
-    const stagedProvider = (0, import_node_path3.join)(tempDir, "native-provider");
+    const stagedProvider = (0, import_node_path4.join)(tempDir, "native-provider");
     await (0, import_promises3.mkdir)(stagedProvider, { recursive: true, mode: 448 });
-    sandboxExecutable = (0, import_node_path3.join)(stagedProvider, (0, import_node_path3.parse)(executable).base);
-    await (0, import_promises3.copyFile)(executable, sandboxExecutable, import_node_fs.constants.COPYFILE_EXCL);
+    sandboxExecutable = (0, import_node_path4.join)(stagedProvider, (0, import_node_path4.parse)(executable).base);
+    await (0, import_promises3.copyFile)(executable, sandboxExecutable, import_node_fs2.constants.COPYFILE_EXCL);
     if (!adapter.bridgeLauncher) command[0] = sandboxExecutable;
   }
   if (adapter.bridgeLauncher) {
-    const stagedRuntime = (0, import_node_path3.join)(tempDir, "native-runtime");
+    const stagedRuntime = (0, import_node_path4.join)(tempDir, "native-runtime");
     await (0, import_promises3.mkdir)(stagedRuntime, { recursive: true, mode: 448 });
-    const stagedNode = (0, import_node_path3.join)(stagedRuntime, "node.exe");
-    await (0, import_promises3.copyFile)(await (0, import_promises3.realpath)(process.execPath), stagedNode, import_node_fs.constants.COPYFILE_EXCL);
+    const stagedNode = (0, import_node_path4.join)(stagedRuntime, "node.exe");
+    await (0, import_promises3.copyFile)(await (0, import_promises3.realpath)(process.execPath), stagedNode, import_node_fs2.constants.COPYFILE_EXCL);
     command[0] = stagedNode;
   }
   invariant(!/[.](?:bat|cmd)$/i.test(command[0]), "AO_WINDOWS_PROVIDER_SHIM_UNSUPPORTED", "Native Windows isolation requires a provider executable, not a batch or command shim.", { providerId, executable: command[0] });
@@ -664,8 +748,8 @@ async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commo
     canonicalPluginRoot,
     gitFile,
     gitDir,
-    protectedWindowsRoot(executable) ? null : (0, import_node_path3.dirname)(executable),
-    (0, import_node_path3.dirname)(command[0])
+    protectedWindowsRoot(executable) ? null : (0, import_node_path4.dirname)(executable),
+    (0, import_node_path4.dirname)(command[0])
   ].filter(Boolean);
   const writablePaths = [tempDir];
   if (providerHome.root) writablePaths.push(providerHome.root);
@@ -673,7 +757,7 @@ async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commo
   else readablePaths.push(workspace);
   const profileSuffix = `${process.pid}-${Date.now().toString(36)}`.replace(/[^a-z0-9-]/gi, "").slice(-32);
   return {
-    helper: (0, import_node_path3.join)(canonicalPluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll"),
+    helper: (0, import_node_path4.join)(canonicalPluginRoot, "dist", "windows-native", "AgentOrchestration.Windows.dll"),
     config: {
       profileName: `ByteDesk.AO.${profileSuffix}`,
       // AppContainer process creation needs a writable current directory on
@@ -694,7 +778,7 @@ async function windowsSandboxPlan({ providerId, pluginRoot, workspacePath, commo
   };
 }
 async function runWindowsSandbox({ providerId, pluginRoot }) {
-  const brokerControlDir = await (0, import_promises3.mkdtemp)((0, import_node_path3.join)(import_node_os2.default.tmpdir(), `agent-orchestration-broker-${process.pid}-`));
+  const brokerControlDir = await (0, import_promises3.mkdtemp)((0, import_node_path4.join)(import_node_os3.default.tmpdir(), `agent-orchestration-broker-${process.pid}-`));
   let child;
   const plan = await windowsSandboxPlan({
     providerId,
@@ -709,7 +793,7 @@ async function runWindowsSandbox({ providerId, pluginRoot }) {
     await removeTree(brokerControlDir);
     throw error;
   });
-  const configPath = (0, import_node_path3.join)(brokerControlDir, "appcontainer.json");
+  const configPath = (0, import_node_path4.join)(brokerControlDir, "appcontainer.json");
   await atomicWriteJson(configPath, plan.config);
   let bootstrapRevoked = false;
   const revokeBootstrap = async () => {
@@ -718,7 +802,7 @@ async function runWindowsSandbox({ providerId, pluginRoot }) {
     bootstrapRevoked = true;
   };
   try {
-    const dotnet = (0, import_node_path3.join)(process.env.ProgramFiles || "C:\\Program Files", "dotnet", "dotnet.exe");
+    const dotnet = (0, import_node_path4.join)(process.env.ProgramFiles || "C:\\Program Files", "dotnet", "dotnet.exe");
     child = (0, import_node_child_process2.spawn)(dotnet, [plan.helper, "sandbox", "--config", configPath, "--", ...plan.command], {
       stdio: ["pipe", "pipe", "pipe"],
       env: plan.environment,
@@ -978,10 +1062,10 @@ async function main() {
     try {
       process.kill(Number(match[1]), 0);
     } catch (error) {
-      if (error?.code === "ESRCH") await removeTree((0, import_node_path3.join)("/dev/shm", entry.name));
+      if (error?.code === "ESRCH") await removeTree((0, import_node_path4.join)("/dev/shm", entry.name));
     }
   }
-  const brokerControlDir = await (0, import_promises3.mkdtemp)((0, import_node_path3.join)("/dev/shm", `agent-orchestration-broker-${process.pid}-`));
+  const brokerControlDir = await (0, import_promises3.mkdtemp)((0, import_node_path4.join)("/dev/shm", `agent-orchestration-broker-${process.pid}-`));
   let child;
   let network;
   let terminating = false;
@@ -1092,7 +1176,7 @@ async function main() {
   if (outcome.signal) process.kill(process.pid, outcome.signal);
   else process.exitCode = outcome.code ?? 1;
 }
-if (process.argv[1] && (0, import_node_path3.resolve)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path3.resolve)(process.argv[1])) {
+if (process.argv[1] && (0, import_node_path4.resolve)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)) === (0, import_node_path4.resolve)(process.argv[1])) {
   main().catch((error) => {
     process.stderr.write(`[agent-orchestration-sandbox] ${JSON.stringify(serializeError(error))}
 `);

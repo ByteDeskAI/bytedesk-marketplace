@@ -177,8 +177,10 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
     const home = join(repo, '.bytedesk', 'agent-orchestration');
     // Git repositories are enrolled by default, so an unenrolled one opts out explicitly.
     if (!enrolled.includes(name)) { await writeJson(join(home, 'config.json'), { enabled: false }); continue; }
-    await mkdir(join(home, 'providers'), { recursive: true });
-    await copyFile(join(fixtures, 'fake-agent.json'), join(home, 'providers', 'fake-agent.json'));
+    await mkdir(home, { recursive: true });
+    // TM-467: providers load only from the user's config or the plugin, never the repository.
+    await mkdir(join(base, 'config', 'agent-orchestration', 'providers'), { recursive: true });
+    await copyFile(join(fixtures, 'fake-agent.json'), join(base, 'config', 'agent-orchestration', 'providers', 'fake-agent.json'));
     // A template must name a prompt; relative paths resolve beside this config file.
     await writeFile(join(home, 'fake-lead.md'), 'You are a test lead. Answer nonce probes with ao-topology lead ack.\n');
     // Enrolled explicitly, not merely by the lead registration `lead ensure` writes below, so the
@@ -272,7 +274,8 @@ test('a dead managed lead is restarted by its own supervisor, then held cross-re
     assert.deepEqual([recovery.action, recovery.attempts, recovery.last_error, recovery.next_retry_at], ['reused', 0, null, null], 'backoff resets once the lead answers');
 
     // Exactly once: more reconciles change nothing.
-    const inbox = () => ao(['mailbox', 'inbox', '--consumer', repos.destination, '--agent', dead.agent_id], env);
+    // TM-464: an inbox is read only as its own agent.
+    const inbox = () => ao(['mailbox', 'inbox', '--consumer', repos.destination, '--agent', dead.agent_id], { ...env, AO_AGENT_ID: dead.agent_id, AO_CONSUMER: repos.destination });
     assert.equal((await inbox()).length, 1);
     const settled = await readStandingMessage({ id: 'tm167-dead-managed', env });
     await sleep(5_000);

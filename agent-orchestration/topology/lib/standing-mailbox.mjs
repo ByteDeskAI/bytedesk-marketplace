@@ -17,6 +17,11 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { leadState, readLeadRegistration } from './lead.mjs';
+import { composerFormat, ringCapability, wakeForProbe } from './delivery.mjs';
+import { incarnationOf } from './incarnation.mjs';
+import { tmuxFailureTrigger } from './launch.mjs';
+import { adapterFor, loadAdapters, providerDirs } from './providers.mjs';
+import { withServer } from './tmux.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
 import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
@@ -24,7 +29,7 @@ import { canonicalRepoId, stateRoot } from './repoid.mjs';
 import { hopExceeded, isAssignmentStage, nextVia, routeMessage } from './routing.mjs';
 import { callerIdentity, resolvePresentRecipient } from './session-identity.mjs';
 import { invariant, nowIso, shellQuote, sleep } from './util.mjs';
-import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt } from './mailbox-receipts.mjs';
+import { createMailboxEnvelope, publishMailboxEnvelope, acceptMailboxDelivery, listMailboxReceipts, resumeMailboxPublications, getMailboxReceipt, escalateUnreadable } from './mailbox-receipts.mjs';
 
 export function standingMailboxRoot({ env = process.env, home = homedir() } = {}) {
   return join(stateRoot(env, home), 'standing-mailbox');
@@ -102,9 +107,59 @@ async function scheduleRecovery(record, opts) {
   }
   return sides;
 }
-async function withRecovery(record, opts) {
+// TM-354 widened recovery to no_lead; TM-384's ring stays leads_not_ready only (ringDue), since a
+// no_lead hold has no lead pane to ring.
+async function withRecovery(record, opts, { ring = false } = {}) {
   if (record.status !== 'held' || !RECOVERABLE_HOLDS.has(record.reason)) return record;
-  return { ...record, recovery: await scheduleRecovery(record, opts) };
+  const recovery = await scheduleRecovery(record, opts);
+  return { ...(ring ? await ringHeldLead(record, opts) : record), recovery };
+}
+
+// TM-384 / ADR-0041. Recovery proves a lead by probe, and a probe that never lands leaves mail held
+// with nothing on the screen of a lead that is alive and could read it. So once a hold has
+// survived one recovery backoff (attempt 2 or later, reached only through resume), ring the
+// destination lead pane with a pointer naming the message and the inbox command, through the same
+// safe bell probes use. At most once per message per backoff window; the outcome is kept on the
+// record as lead_ring. The ring never delivers: admission still waits for proven readiness.
+const pointerText = value => String(value ?? '').replace(/[^A-Za-z0-9._:@\/+=-]/g, '?').slice(0, 128);
+
+function ringDue(record, now) {
+  if (record?.status !== 'held' || record.reason !== 'leads_not_ready' || record.readiness?.destination !== 'unresponsive') return false;
+  if ((record.attempts ?? 0) < 2) return false;
+  const prior = record.lead_ring;
+  return !prior?.at || now >= Date.parse(prior.at) + retryDelayMs(prior.attempt);
+}
+
+async function ringDestinationLead(record, opts) {
+  const e = record.envelope;
+  const registration = await (opts.readLead ?? readLeadRegistration)({ consumer: e.consumer, env: opts.env, home: opts.home });
+  const lead = registration?.record, binding = incarnationOf(lead?.binding);
+  if (!lead?.pane || !binding) return { rang: false, reason: 'the destination lead has no registered pane incarnation' };
+  const adapters = await (opts.loadAdapters ?? loadAdapters)(providerDirs({ consumer: e.consumer, home: opts.home, pluginRoot: opts.pluginRoot, env: opts.env }));
+  const adapter = adapterFor({ cli: lead.provider, model: null, args: [], skills: [] }, adapters);
+  if (ringCapability(adapter) !== 'supported') return { rang: false, agent: lead.agent_id, reason: 'the lead provider has no measured safe composer' };
+  const consumer = shellQuote(e.consumer);
+  const text = '[ao] Standing mail ' + pointerText(e.id) + ' from ' + pointerText(e.from) + ' is held for you: your readiness is not proven. '
+    + 'Answer any pending probe (ao-topology lead probes --consumer ' + consumer + '), then read it with: ao-topology mailbox inbox --consumer ' + consumer + ' --agent ' + shellQuote(lead.agent_id) + '.';
+  const result = await withServer(binding.serverKey, () => (opts.wake ?? wakeForProbe)({ pane: lead.pane, adapter, binding,
+    format: composerFormat(adapter, tmuxFailureTrigger(adapter)), text }));
+  return result?.rang ? { rang: true, agent: lead.agent_id, pane: lead.pane } : { rang: false, agent: lead.agent_id, pane: lead.pane, reason: result?.reason ?? 'the lead composer cannot safely receive a pointer' };
+}
+
+async function ringHeldLead(record, opts) {
+  const now = (opts.now ?? Date.now)();
+  if (!ringDue(record, now)) return record;
+  const p = paths(record.envelope.id, opts);
+  // Under the message lock, so two resumers cannot both ring for one window. The bell is one look
+  // and one keystroke batch; it never waits for a model turn.
+  return withLock(p.lock, async () => {
+    const current = await read(p.file);
+    if (!ringDue(current, now)) return current ?? record;
+    const outcome = await ringDestinationLead(current, opts).catch(error => ({ rang: false, reason: error?.code ?? 'ERROR' }));
+    const next = { ...current, lead_ring: { ...outcome, reason: outcome.reason ?? null, at: new Date(now).toISOString(), attempt: current.attempts } };
+    await atomicWrite(p.file, next);
+    return next;
+  });
 }
 
 function standingEnvelope(record) {
@@ -181,7 +236,7 @@ async function attempt(record, opts) {
     // This is intentionally rerun, including delegationAllows/verifyAgainstStore,
     // for EACH resume. A held record contains no cached grant.
     let decision = await (opts.router ?? routeMessage)({
-      consumer: e.consumer, pluginRoot: opts.pluginRoot, home: opts.home,
+      consumer: e.consumer, pluginRoot: opts.pluginRoot, home: opts.home, env: opts.env,
       from: e.from, fromProject: sameRepo ? e.consumer : e.fromProject,
       to: e.to, task: e.task, token: e.token, via: e.via,
     });
@@ -266,36 +321,53 @@ async function records(opts) {
   try { names = await readdir(dir); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   const results = [];
   for (const name of names.filter(n => /^[0-9a-f]{64}\.json$/.test(n)).sort()) {
-    const record = await read(join(dir, name));
-    invariant(record?.version === 1 && record.envelope?.id, 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
-    results.push(record);
+    try {
+      const record = await read(join(dir, name));
+      invariant(record?.version === 1 && record.envelope?.id, 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
+      results.push(record);
+    } catch (error) {
+      // TM-483: the store is host-wide, so the resume sweep (`errors` given) reports and skips an
+      // unreadable record, possibly another repository's, instead of failing the whole tick.
+      if (!opts.errors) throw error;
+      opts.errors.push({ file: join(dir, name), code: error.code || 'TOPOLOGY_STANDING_STATE_INVALID' });
+    }
   }
   return results;
 }
 
 /** Safe-boundary watcher calls this without a run. Delivered records are final;
  * each held request rechecks both leads and the live receiving task store. */
-export async function resumeStandingMessages({ consumer, force = false, ...options }) {
+export async function resumeStandingMessages({ consumer, force = false, errors = [], ...options }) {
   const identity = await canonicalRepoId(consumer);
   const now = options.now ?? Date.now;
   const resumed = [];
-  for (const old of await records(options)) {
+  for (const old of await records({ ...options, errors })) {
     // TM-167: a held message is retried when it is due, not on every tick. `force` skips backoff
     // for a human who asked; nothing retries a permanent hold.
     if (old.envelope.destinationRepoId !== identity.id || !due(old, now, force)) continue;
     const p = paths(old.envelope.id, options);
-    const settled = await withLock(p.lock, async () => {
-      const current = await read(p.file);
-      invariant(current, 'TOPOLOGY_STANDING_STATE_INVALID', 'Standing message disappeared during resume.');
-      if (current.status === 'delivered') return current;
-      // Re-checked under the lock: a concurrent resumer may have just attempted and re-held it.
-      if (!due(current, now, force)) return null;
-      const next = current.status === 'publishing' ? current : await advance(current, { ...options, now });
-      return publishAdmitted(next, p, { ...options, now });
-    });
-    if (settled) resumed.push(await withRecovery(settled, options));
+    // TM-483: one message that fails is reported into `errors`; the others still resume.
+    try {
+      const settled = await withLock(p.lock, async () => {
+        const current = await read(p.file);
+        invariant(current, 'TOPOLOGY_STANDING_STATE_INVALID', 'Standing message disappeared during resume.');
+        if (current.status === 'delivered') return current;
+        // Re-checked under the lock: a concurrent resumer may have just attempted and re-held it.
+        if (!due(current, now, force)) return null;
+        const next = current.status === 'publishing' ? current : await advance(current, { ...options, now });
+        return publishAdmitted(next, p, { ...options, now });
+      });
+      if (settled) resumed.push(await withRecovery(settled, { ...options, now }, { ring: true }));
+    } catch (error) { errors.push({ messageId: old.envelope.id, code: error?.code || 'TOPOLOGY_STANDING_RESUME_FAILED' }); }
   }
-  await resumeMailboxPublications({ consumer, ...options });
+  // F5: a publication sweep that fails outright is one more reported error; the standing results
+  // already gathered above are still returned.
+  try { await resumeMailboxPublications({ consumer, force, errors, ...options }); }
+  catch (error) { errors.push({ code: error?.code || 'TOPOLOGY_PUBLICATION_RESUME_FAILED' }); }
+  // F6: each skipped unreadable record is escalated to the operator once.
+  // N3: escalation is reporting; its failure is one more error, never a loss of the results above.
+  try { await escalateUnreadable(errors, options); }
+  catch (error) { errors.push({ code: error?.code || 'TOPOLOGY_ESCALATION_FAILED' }); }
   return resumed;
 }
 
@@ -513,7 +585,7 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
       await atomicWrite(marker, next);
       results.push(next);
     };
-    const receipt = await getMailboxReceipt({ consumer, agent, messageId: id, env: options.env, home: options.home }).catch(() => null);
+    const receipt = await getMailboxReceipt({ consumer, agent, messageId: id, from: record.envelope.from ?? null, env: options.env, home: options.home }).catch(() => null);
     if (!standingUnread(record, { ...scope, receipt })) { await settle({ state: 'read', done: true, reason: 'the recipient already read or answered it' }); continue; }
     const pane = panes.find(p => p.agentId === agent);
     if (!pane?.paneId || !pane.serverKey) { await settle({ state: 'held', done: false, reason: 'the recipient has no live pane' }); continue; }
@@ -532,11 +604,18 @@ export async function ringStandingMail({ consumer, panes = [], adapters = null, 
 
 // TM-352. Block until a standing message has a reply. Unknown ids are an error, never ok:true; a
 // permanent hold returns at once, since no reply can ever come. Polls; KV watch is TM-311.
-export async function waitForStandingReply({ id, timeoutMs = 20 * 60_000, pollMs = 2000, ...options }) {
+// TM-465: `caller` is the waiter's sessionIdentity() and is required. Only the message's own sender,
+// in its own source repository, is told anything about it; anyone else gets TOPOLOGY_SENDER_MISMATCH
+// and no status, recipient or body. Message ids are often guessable (caller-chosen --id, nonces).
+export async function waitForStandingReply({ id, caller, timeoutMs = 20 * 60_000, pollMs = 2000, ...options }) {
+  invariant(caller?.agent && caller?.consumer, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED', 'Waiting on a standing reply requires the waiting session\'s identity. Nothing was read.');
+  const callerRepo = (await canonicalRepoId(caller.consumer)).id;
   const started = Date.now();
   for (;;) {
     const record = await readStandingMessage({ id, ...options });
-    invariant(record, 'TOPOLOGY_MESSAGE_NOT_FOUND', `No standing message ${id} exists on this host.`);
+    // F4: an unknown id and another sender's id are one answer, so waiting cannot probe which ids exist.
+    invariant(record && record.envelope.from === caller.agent && record.envelope.sourceRepoId === callerRepo, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session (${caller.agent}) sent no standing message ${id}; only its sender may wait on its reply. Nothing was read.`);
     const base = { id, status: record.status, delivered_to: record.delivered_to ?? null, elapsed_ms: Date.now() - started };
     if (record.reply) return { ok: true, ...base, reply: record.reply };
     if (record.permanent) return { ok: false, code: 'TOPOLOGY_MESSAGE_UNDELIVERABLE', ...base, reason: record.reason,

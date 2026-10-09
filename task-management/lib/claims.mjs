@@ -7,6 +7,7 @@
  * lock a task out of the board forever. Taking a live claim is allowed but never
  * silent — you steal explicitly, and it lands in the event log.
  */
+import { isWorkerCaller } from "./worker-identity.mjs";
 import { captureGatewayBinding } from "./gateway-binding.mjs";
 import { existsSync } from "node:fs";
 import { config, logEvent, now, state, withLock, writeState } from "./store.mjs";
@@ -67,7 +68,17 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     }
 
     const stolenFrom = owned && held.session !== session ? held.session : null;
-    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: now(), ...(gateway ? { gateway } : {}) };
+    // `ts` moves with every heartbeat; `since` is when this claim was TAKEN, which is what
+    // collect asks when it decides whether a lead re-claimed after a dispatch (TM-460).
+    // A dispatched worker carries its lead's TM_SESSION_ID, so its own `tm start`/`tm claim` would
+    // otherwise look like the lead re-claiming: it is marked `worker` and keeps the earlier `since`.
+    const at = now();
+    const worker = isWorkerCaller().worker;
+    const keep = worker && live && held.session === session && held.since;
+    // Kept `since` keeps its `worker` flag, so the flag always describes whoever took `since`.
+    const since = keep ? held.since : at;
+    const taker = keep ? Boolean(held.worker) : worker;
+    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since, ...(taker ? { worker: true } : {}), ...(gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);
     else logEvent("claim", { id, session }, p);

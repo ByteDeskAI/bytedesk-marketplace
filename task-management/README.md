@@ -221,6 +221,8 @@ prose string in `checks` is kept as a note and never counts as evidence.
 The producer persists the finish, calls `tm review-ready`, and queues a review request bound
 to that revision and reviewer incarnation. A bare `review-ready` call cannot skip this report.
 It keeps its claim while review is pending; `review_blocked` names a producer hold for the lead.
+If the review requests changes, the lead runs `ao-topology manage rework --task <id>`, which
+records the rework and calls `tm rework`; the task is then `working` and can be dispatched again.
 Worker exit, a PR, or acceptance ticks cannot close the task. Every completion surface rereads
 the producer's exact-revision review and separately attributed integration decision, and
 checks the reviewed commit landed on the target branch. Ordinary gate overrides do not
@@ -344,6 +346,23 @@ and mail. It **allows** exactly what the finish line needs — pushing the worke
 `gh pr create --base <dispatch.integrationBranch>`. Every
 refusal names why and what to do instead. It is a guard against accidents, not against an
 adversary: the rules live in one table in `lib/worker-guard.mjs`.
+
+**Secrets a worker needs are named in your user config, never the repository's (TM-448).** Put
+`{"dispatch":{"passEnv":["TYPESAFE_API_KEY"]}}` in `~/.config/task-management/config.json`
+(`$XDG_CONFIG_HOME` if set), or `workers.passEnv` in agent-orchestration's global config. A name in
+a git-tracked `.bytedesk/*/config.json` is ignored with a warning, because a worker's merged PR
+could otherwise add one. Names that steer the worker's identity, loader, shell or credentials are
+refused: `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`, `NODE_OPTIONS`,
+`NODE_PATH`, `BASH_ENV`, `ENV`, `ZDOTDIR`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`,
+`XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`.
+
+- **Workers push over HTTPS with `gh auth`, not over SSH.** `SSH_AUTH_SOCK` is refused, so a worker
+  cannot borrow your SSH agent. Use an HTTPS `origin` remote and run `gh auth setup-git` once, so
+  `git push` authenticates through `gh`'s stored credential.
+- **Proof-window tunables stop at the pool.** A pool started by `tm` (and a `tm` child acting on
+  another repo) no longer inherits agent-orchestration's `AO_*TTL*_MS` and `AO_*GRACE*_MS`
+  variables, so it cannot be told to treat an old lead heartbeat as fresh. Other AO configuration
+  (`AO_HOME`, `AO_NATS_*`, other `AO_*_MS` timeouts) still passes.
 
 The flags, refusals, backend order, config keys, MCP/HTTP twins, and per-harness recipes
 are in [`docs/agent-first.md`](docs/agent-first.md). Skills chain as
@@ -1287,8 +1306,9 @@ sections such as `dispatch.tmuxCommand` and `board.views` are not type-checked.
 | `agentTtlMinutes` | `30` | when a silent agent reads as dead (`0` disables) |
 | `webhooks` / `webhooksAllowRemote` | `[]` / `false` | POST every event row to these (loopback-only) URLs; the flag admits remote ones |
 | `dispatch.backends` | topology → tmux → orchestration → manual | the fallback order `.bytedesk/task-management/bin/tm dispatch` walks |
-| `dispatch.topologyAgent` | first worker | stored worker identity; standing lead and reviewer roles are reserved |
-| `dispatch.topologyCandidates` | `"claude,codex"` | approved topology candidate order; each candidate needs an enforced ownership guard |
+| `dispatch.tmuxCommand` | `["claude","-p","--dangerously-skip-permissions"]` | the tmux worker's argv. **User config only** (`$XDG_CONFIG_HOME/task-management/config.json`); set in this file it is ignored with a `commandWarnings` entry, because a merged PR could change it (TM-467) |
+| `dispatch.topologyCandidates` | `"claude,codex"` | approved topology candidate order; each candidate needs an enforced ownership guard. **User config only**, like `tmuxCommand` |
+| `dispatch.topologyAgent` | — | ignored (TM-467): a topology worker is always an inline agent, never one from the repository's agent library |
 | `dispatch.governed` | `false` | require persistent-lead admission before dispatch and exact independent review plus authorized integration before done |
 | `dispatch.integrationBranch` | `HEAD` | branch used for new task checkouts and integrated duplicate evidence. A dispatched worker's PR always opens against this branch, stated literally as `gh pr create --base <branch>` and enforced by the worker guard — never the repository default. Unconfigured, dispatch resolves `HEAD` to the main checkout's actual branch name rather than leave it unstated; it refuses to dispatch only when that also fails to resolve (a detached HEAD) |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |

@@ -25,7 +25,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../store.mjs";
@@ -37,7 +37,7 @@ export const name = "tmux";
 /** Where the durable copy of the prompt lives, relative to the worktree root. */
 export const PROMPT_FILE = ".tm-dispatch-prompt.md";
 
-/** What the pane runs. Config `dispatch.tmuxCommand` overrides the whole argv. */
+/** What the pane runs, unless the user's own config names another argv (see workerCommand). */
 export const DEFAULT_COMMAND = ["claude", "-p", "--dangerously-skip-permissions"];
 
 /** This plugin's hook wrapper, resolved from this module's own location — never a home path. */
@@ -113,20 +113,87 @@ export function available(caps = null) {
 }
 
 /**
- * TM-375: the environment variable NAMES a worker inherits — `dispatch.passEnv` in tm config plus
- * `workers.passEnv` in the repository's agent-orchestration config, read as a plain JSON file when
- * present (no import: the two plugins stay independent). Names only; values are never configured.
+ * TM-375 / TM-448: the environment variable NAMES a worker inherits. Names only; values are never
+ * configured.
+ *
+ * Only the user's own config counts: `dispatch.passEnv` in `$XDG_CONFIG_HOME/task-management/
+ * config.json` and `workers.passEnv` in agent-orchestration's global layer
+ * (`$XDG_CONFIG_HOME/agent-orchestration/config.json`), both read as plain JSON (no import: the
+ * plugins stay independent). The repository's `.bytedesk/task-management/config.json` and
+ * `.bytedesk/agent-orchestration/config.json` are git-tracked, so a worker that lands a PR could
+ * name `GITHUB_TOKEN` there for every later worker: a name set there is ignored, with a warning.
+ * A reserved name — one that steers tm, agent-orchestration, the harness, the loader or git — is
+ * refused wherever it is set.
  */
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-export function passEnvNames(req, cfg = config(req.p)) {
-  let ao = [];
+export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|XDG_CONFIG_HOME|TMUX|TMUX_PANE|SSH_AUTH_SOCK)$/;
+const RESERVED_LIST = "TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, shell/interpreter startup and module paths, XDG_CONFIG_HOME, TMUX, TMUX_PANE, SSH_AUTH_SOCK";
+const readNames = (file, pick) => {
   try {
-    ao = JSON.parse(readFileSync(join(req.p.root, ".bytedesk", "agent-orchestration", "config.json"), "utf8")).workers?.passEnv;
+    const raw = pick(JSON.parse(readFileSync(file, "utf8")));
+    return Array.isArray(raw) ? raw.filter((n) => typeof n === "string" && ENV_NAME.test(n)) : [];
   } catch {
-    /* no ao config is the common case */
+    return []; // absent is the common case
   }
-  const names = [...(Array.isArray(cfg.dispatch?.passEnv) ? cfg.dispatch.passEnv : []), ...(Array.isArray(ao) ? ao : [])];
-  return [...new Set(names.filter((n) => typeof n === "string" && ENV_NAME.test(n)))];
+};
+
+/** The user's config directory — where tm's and agent-orchestration's user layers live. */
+export function userConfigDir(env = process.env) {
+  return env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config");
+}
+
+/**
+ * TM-467: a dispatch setting that chooses WHAT a worker runs — its argv, its CLI, its model — read
+ * from the user's own `$XDG_CONFIG_HOME/task-management/config.json` and nowhere else. The same key
+ * in the repository's `.bytedesk/task-management/config.json` is git-tracked, so a worker whose PR
+ * merges would choose the command every later worker runs: there it is ignored, and `warning` says
+ * so rather than dropping it silently. `value` is undefined when the user set nothing, and the
+ * caller falls back to what this plugin ships.
+ */
+export function trustedDispatch(key, cfg, env = process.env) {
+  const file = join(userConfigDir(env), "task-management", "config.json");
+  let value;
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"))?.dispatch?.[key];
+  } catch {
+    /* absent is the common case */
+  }
+  const repo = cfg?.dispatch?.[key];
+  const warning = repo !== undefined && JSON.stringify(repo) !== JSON.stringify(value)
+    ? `dispatch.${key} ignored: set in git-tracked repository config, which a merged PR can change; set it in ${file} instead`
+    : null;
+  return { value, warning };
+}
+
+/** TM-467: the argv a tmux worker pane runs — the user's `dispatch.tmuxCommand`, else DEFAULT_COMMAND. */
+export function workerCommand(cfg, env = process.env) {
+  const { value, warning } = trustedDispatch("tmuxCommand", cfg, env);
+  const ok = Array.isArray(value) && value.length > 0 && value.every((w) => typeof w === "string" && w);
+  return { command: ok ? value : DEFAULT_COMMAND, warnings: warning ? [warning] : [] };
+}
+
+/**
+ * `{ names, ignored, refused, warnings, viaAo }` — names are what a tmux worker gets; `viaAo` is
+ * the subset agent-orchestration itself passes (its global workers.passEnv), which is all a
+ * topology worker gets (TM-449).
+ */
+export function passEnvNames(req, cfg = config(req.p), env = process.env) {
+  const base = userConfigDir(env);
+  const userFile = join(base, "task-management", "config.json");
+  const aoUser = readNames(join(base, "agent-orchestration", "config.json"), (d) => d?.workers?.passEnv);
+  const user = [...readNames(userFile, (d) => d?.dispatch?.passEnv), ...aoUser];
+  const repo = [
+    ...(Array.isArray(cfg.dispatch?.passEnv) ? cfg.dispatch.passEnv : []).filter((n) => typeof n === "string" && ENV_NAME.test(n)),
+    ...readNames(join(req.p.root, ".bytedesk", "agent-orchestration", "config.json"), (d) => d?.workers?.passEnv),
+  ];
+  const refused = [...new Set([...user, ...repo].filter((n) => RESERVED_ENV.test(n)))];
+  const names = [...new Set(user.filter((n) => !RESERVED_ENV.test(n)))];
+  const ignored = [...new Set(repo.filter((n) => !RESERVED_ENV.test(n) && !names.includes(n)))];
+  const warnings = [
+    ...(ignored.length ? [`passEnv ${ignored.join(", ")} ignored: named only in git-tracked repository config; name it in ${userFile} (dispatch.passEnv) instead`] : []),
+    ...(refused.length ? [`passEnv ${refused.join(", ")} refused: reserved names (${RESERVED_LIST}) are never passed to a worker`] : []),
+  ];
+  return { names, ignored, refused, warnings, viaAo: names.filter((n) => aoUser.includes(n)) };
 }
 
 /**
@@ -161,25 +228,34 @@ export function argvFor(req, tmuxCommand = null) {
   // Who the worker works for, in the environment — the same variables lib/actor.mjs
   // reads, so the worker's claims and events land under the dispatching session —
   // and the worker marker, which a configured tmuxCommand gets too.
-  for (const [k, v] of [...workerIdentityEnv(req), ...workerEnv(req)]) {
-    args.push("-e", `${k}=${v}`);
-  }
+  const guardPairs = [...workerIdentityEnv(req), ...workerEnv(req)].map(([k, v]) => `${k}=${v}`);
+  for (const pair of guardPairs) args.push("-e", pair);
   // Only claude understands --settings; any other harness would refuse to start.
   const guard = basename(String(command[0])) === "claude" ? ["--settings", guardSettings()] : [];
   // The prompt is one positional argv element. `claude -p <prompt>` takes it
   // positionally; the prompt file (written by spawn) is the durable copy, not the
   // delivery channel — delivering by path would send the harness the path as text.
-  return [...args, ...(envFile ? [...PASS_ENV_WRAPPER, envFile] : []), ...command, ...guard, prompt];
+  // TM-448: the wrapper sources the secrets file after tmux applied -e, so the file could override
+  // TM_ROOT, TM_ACTOR or TM_SESSION_ID. `env` re-applies the same variables after it, and they win.
+  const wrapper = envFile ? [...PASS_ENV_WRAPPER, envFile, "env", ...guardPairs] : [];
+  return [...args, ...wrapper, ...command, ...guard, prompt];
 }
 
 export function spawn(req, { spawnImpl = spawnSync, writeImpl = writeFileSync } = {}) {
   const file = join(req.worktree, PROMPT_FILE);
   writeImpl(file, req.prompt);
   const cfg = config(req.p);
-  const pass = stagePassEnv(passEnvNames(req, cfg), req.env ?? process.env);
-  const args = argvFor({ ...req, branch: workerBranch(req, cfg), envFile: pass.file }, cfg.dispatch?.tmuxCommand);
-  // Names only: what was passed and what the dispatching environment lacked (TM-375).
-  const passEnv = pass.passed.length || pass.missing.length ? { passEnv: pass.passed, passEnvMissing: pass.missing } : {};
+  const plan = passEnvNames(req, cfg);
+  const pass = stagePassEnv(plan.names, req.env ?? process.env);
+  const worker = workerCommand(cfg);
+  const args = argvFor({ ...req, branch: workerBranch(req, cfg), envFile: pass.file }, worker.command);
+  // Names only: what was passed, what the dispatching environment lacked (TM-375), and what
+  // config named but was ignored or refused (TM-448).
+  const passEnv = {
+    ...(pass.passed.length || pass.missing.length ? { passEnv: pass.passed, passEnvMissing: pass.missing } : {}),
+    ...(plan.warnings.length ? { passEnvWarnings: plan.warnings } : {}),
+    ...(worker.warnings.length ? { commandWarnings: worker.warnings } : {}),
+  };
   const res = spawnImpl("tmux", args, { shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if ((res.error || res.status !== 0) && pass.file) rmSync(dirname(pass.file), { recursive: true, force: true });
   if (res.error) return { ok: false, reason: `tmux failed to start: ${res.error.message}`, detail: { args, ...passEnv } };

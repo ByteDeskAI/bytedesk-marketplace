@@ -231,7 +231,7 @@ function register(server, service, name, description, inputSchema, outputDataSch
 
 export async function createServer(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.16.0" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.16.1" });
 
   register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function () { return this.capabilities(); });
   register(server, service, "orchestration_doctor", "Check provider readiness through bounded, sandboxed, non-prompting ACP sessions without reading or exposing credentials. Pass consumerCwd so provider discovery runs where the caller runs.", { consumerCwd: consumerCwd.optional() }, doctorData, service.doctor);
@@ -282,7 +282,7 @@ export async function createServer(options = {}) {
     z.object({ ok: z.literal(true), replies: z.array(record) }).passthrough(), topology.runMailWait);
   register(server, topology, 'orchestration_lead_status', 'Report the repository lead (ao-topology lead status). cached: true answers from proof on disk in under a second and mints no probe; otherwise a probe waits at most ackTimeoutMs (default 30s).',
     { consumerCwd, cached: z.boolean().optional(), ackTimeoutMs: z.number().int().positive().max(55_000).optional() }, record, topology.leadStatus);
-  register(server, topology, 'orchestration_session_handoff', 'Point an agent\'s live session at a handoff file (ao-topology session handoff).',
+  register(server, topology, 'orchestration_session_handoff', 'Point an agent\'s live session at a handoff file (ao-topology session handoff). Only the repository\'s proven lead, or the agent itself, may do this.',
     { consumerCwd, agent: z.string().min(1).max(160), file: z.string().min(1) }, record, topology.sessionHandoff);
   register(server, topology, 'orchestration_mailbox_send', 'Send a durable inter-agent message through the logical mailbox, as this session\'s own agent (AO_AGENT_ID); `from` may only repeat it. Publication, recipient acceptance and task ownership are separate outcomes.',
     { consumerCwd, destinationConsumerCwd: consumerCwd.optional(), from: agent.optional(), to: z.string().min(1).max(512), id: z.string().min(1).max(200), body: z.string().min(1).max(131072),
@@ -290,14 +290,15 @@ export async function createServer(options = {}) {
     z.object({ envelope: record, status: z.string() }).passthrough(), topology.mailboxSend);
   register(server, topology, 'orchestration_mailbox_receive', 'Receive mail into a durable recipient inbox before broker ACK. This accepts an obligation but does not claim or complete a task. Use mailbox_list for nondestructive inspection.',
     { consumerCwd, agent: agent.optional(), limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
-  register(server, topology, 'orchestration_mailbox_wait', 'Wait up to 55 seconds for the reply to a standing message. An unknown id, a timeout or a permanently held message is an error naming the message.',
+  register(server, topology, 'orchestration_mailbox_wait', 'Wait up to 55 seconds for the reply to a standing message this session sent; anyone else is refused with TOPOLOGY_SENDER_MISMATCH. An unknown id is the same refusal (ids cannot be probed); a timeout or a permanently held message is an error naming the message.',
     { consumerCwd, id: z.string().min(1).max(256), timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(5_000).optional() },
     z.object({ ok: z.literal(true), id: z.string(), reply: record }).passthrough(), topology.mailboxWait);
-  register(server, topology, 'orchestration_mailbox_list', 'Inspect retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',
+  register(server, topology, 'orchestration_mailbox_list', 'Inspect this session\'s own retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',
     mailboxFields, z.object({ receipts: z.array(receipt) }).passthrough(), topology.mailboxList);
   register(server, topology, 'orchestration_mailbox_dispose', 'Record handled, deferred or rejected disposition for a retained recipient obligation. Task claims and completion remain in Task Management.',
     { consumerCwd, agent: agent.optional(), messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
-      disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional() }, receipt, topology.mailboxDispose);
+      disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional(),
+      sender: z.string().min(1).max(512).nullable().optional().describe('The sender, when several senders used this message ID; null names the receipt that has no sender.') }, receipt, topology.mailboxDispose);
   register(server, topology, 'orchestration_goal_start', 'Start a persistent feedback loop for an explicitly admitted Task Management goal, pinned authority and approved deployment recipe.',
     { consumerCwd, goalId: z.string().regex(/^EP-\d+$/), request: record }, loopRecord, topology.goalStart);
   register(server, topology, 'orchestration_goal_status', 'Inspect a goal loop or list this repository\'s loops without launching work or consuming mail.',

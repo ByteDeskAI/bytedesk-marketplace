@@ -29,6 +29,7 @@
  * recorded for the backends that report the pane pids they started (tmux, topology); the others fall
  * back to the env marker alone.
  */
+import { safeGitText } from "./safe-git.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
@@ -175,7 +176,7 @@ export function parseRepoSlug(url) {
 /** TM-481: the repository a worker of this checkout may merge in — the main checkout's origin. */
 export function repoSlug(root) {
   try {
-    return parseRepoSlug(execFileSync("git", ["-C", root, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }));
+    return parseRepoSlug(safeGitText(null, ["-C", root, "remote", "get-url", "origin"], { timeout: 5000 })); // TM-443
   } catch {
     return null;
   }

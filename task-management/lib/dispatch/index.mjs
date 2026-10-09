@@ -265,7 +265,11 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     }
   }
   // TM-375: a configured secret the dispatching environment lacked is named here; values never are.
-  logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session, ...(prefixWarning ? { prefixWarning } : {}), ...(res.detail?.passEnvMissing?.length ? { passEnvMissing: res.detail.passEnvMissing } : {}) }, p);
+  // TM-448/TM-449: passEnv names config set but this dispatch did not pass, and why.
+  const passEnvWarnings = res.detail?.passEnvWarnings?.length ? res.detail.passEnvWarnings : null;
+  // TM-467: a worker command the repository's git-tracked config tried to choose, and was ignored.
+  const commandWarnings = res.detail?.commandWarnings?.length ? res.detail.commandWarnings : null;
+  logEvent("dispatched", { id, backend: picked.name, run: res.run ?? null, session, ...(prefixWarning ? { prefixWarning } : {}), ...(res.detail?.passEnvMissing?.length ? { passEnvMissing: res.detail.passEnvMissing } : {}), ...(passEnvWarnings ? { passEnvWarnings } : {}), ...(commandWarnings ? { commandWarnings } : {}) }, p);
   /**
    * Register the worker the spawn just started. Additive and failure-tolerant by
    * contract: the registry observes the dispatch, it must never be able to fail
@@ -306,5 +310,7 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     detail: res.detail,
     ...(ungoverned ? { ungoverned } : {}),
     ...(prefixWarning ? { prefixWarning } : {}),
+    ...(passEnvWarnings ? { passEnvWarnings } : {}),
+    ...(commandWarnings ? { commandWarnings } : {}),
   };
 }

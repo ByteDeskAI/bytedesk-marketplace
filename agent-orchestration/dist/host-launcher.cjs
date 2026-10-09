@@ -26,13 +26,97 @@ function serializeError(error) {
 // src/platform/host-adapters.mjs
 var import_node_child_process2 = require("node:child_process");
 var import_node_events = require("node:events");
-var import_node_path = require("node:path");
+var import_node_path2 = require("node:path");
 var import_node_url = require("node:url");
 var import_promises = require("node:fs/promises");
 
 // src/util.mjs
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
+
+// topology/lib/safe-git.mjs
+var import_node_fs = require("node:fs");
+var import_node_os = require("node:os");
+var import_node_path = require("node:path");
+var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+var GIT_PATHS = Object.freeze(["/usr/bin/git", "/bin/git", "/usr/local/bin/git"]);
+var SSH_PATHS = Object.freeze(["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh"]);
+function rootOwnedChain(real, paths = GH_PATHS, stat = import_node_fs.statSync) {
+  if (!paths.includes(real)) return false;
+  try {
+    for (let p = real; ; p = (0, import_node_path.dirname)(p)) {
+      const s = stat(p);
+      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
+      if (p === "/") return true;
+    }
+  } catch {
+    return false;
+  }
+}
+function trustedBinary({ paths, stat = import_node_fs.statSync, realpath = import_node_fs.realpathSync }) {
+  for (const candidate of paths) {
+    let real;
+    try {
+      real = realpath(candidate);
+    } catch {
+      continue;
+    }
+    if (rootOwnedChain(real, paths, stat) && rootOwnedChain(candidate, paths, stat)) return candidate;
+  }
+  return null;
+}
+var SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
+var GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
+var NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
+var PASSWD_HOME = (() => {
+  try {
+    return (0, import_node_os.userInfo)().homedir || null;
+  } catch {
+    return null;
+  }
+})();
+var SAFE_GIT_CONFIG = Object.freeze([
+  "core.fsmonitor=false",
+  "core.hooksPath=/dev/null",
+  "core.pager=cat",
+  "diff.external=",
+  `core.sshCommand=${SSH}`,
+  "core.askPass=",
+  "core.attributesFile=",
+  "core.editor=true",
+  "sequence.editor=true",
+  "core.alternateRefsCommand=true",
+  "uploadpack.packObjectsHook=env",
+  "protocol.allow=never",
+  "protocol.https.allow=always",
+  "protocol.ssh.allow=always",
+  "protocol.file.allow=always",
+  "protocol.ext.allow=never",
+  "gpg.program=gpg",
+  "gpg.ssh.program=ssh-keygen",
+  "gpg.x509.program=gpgsm",
+  "commit.gpgSign=false",
+  "tag.gpgSign=false",
+  "merge.verifySignatures=false",
+  "log.showSignature=false",
+  "submodule.recurse=false",
+  "fetch.recurseSubmodules=false",
+  "gc.auto=0",
+  "maintenance.auto=false",
+  "credential.helper="
+]);
+var DIFF_FAMILY = ["diff", "diff-tree", "diff-index", "diff-files", "log", "show", "format-patch", "whatchanged"];
+var SUBCOMMAND_FLAGS = Object.freeze({
+  fetch: ["--upload-pack=git-upload-pack"],
+  pull: ["--upload-pack=git-upload-pack"],
+  "ls-remote": ["--upload-pack=git-upload-pack"],
+  push: ["--receive-pack=git-receive-pack"],
+  ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
+});
+var GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
+var GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
+
+// src/util.mjs
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
 async function runFile(command, args, options = {}) {
   invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
@@ -48,8 +132,8 @@ async function runFile(command, args, options = {}) {
 }
 
 // src/platform/host-adapters.mjs
-var PLUGIN_ROOT = (0, import_node_path.dirname)((0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)));
-var NATIVE_HELPER = (0, import_node_path.join)(PLUGIN_ROOT, "dist", "windows-native", "AgentOrchestration.Windows.dll");
+var PLUGIN_ROOT = (0, import_node_path2.dirname)((0, import_node_path2.dirname)((0, import_node_url.fileURLToPath)(__aoImportMetaUrl)));
+var NATIVE_HELPER = (0, import_node_path2.join)(PLUGIN_ROOT, "dist", "windows-native", "AgentOrchestration.Windows.dll");
 function defaultBackend(platform) {
   if (platform === "win32") return "windows-native";
   return platform === "darwin" ? "darwin-native" : "linux-native";
@@ -127,7 +211,7 @@ async function createHostAdapter({ platform = process.platform, env = process.en
   }, () => false);
   return nativeAvailable ? new DirectHostAdapter({ backend: "windows-native" }) : new WindowsWslHostAdapter({ distro: env.AGENT_ORCHESTRATION_WSL_DISTRO });
 }
-async function runHost(entrypoint = (0, import_node_path.join)(PLUGIN_ROOT, "dist", "mcp.cjs")) {
+async function runHost(entrypoint = (0, import_node_path2.join)(PLUGIN_ROOT, "dist", "mcp.cjs")) {
   const adapter = await createHostAdapter();
   const command = await adapter.command(entrypoint);
   const child = (0, import_node_child_process2.spawn)(command.executable, command.args, {

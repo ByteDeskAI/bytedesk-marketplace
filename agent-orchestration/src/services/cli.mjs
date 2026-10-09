@@ -1,5 +1,5 @@
 // `agent-orchestration services install|ensure|status|probe|uninstall` (TM-272).
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,8 +8,8 @@ import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from ".
 import { serializeError } from "../errors.mjs";
 import { registerRepository } from "../../topology/lib/services-client.mjs";
 import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicePaths, servicesStatus, uninstallServices, waitForServices } from "./services.mjs";
-import { projectScopeWarning } from "./project-scope.mjs";
 import { selfHeal } from "./self-heal.mjs";
+import { repairRegisteredCheckouts } from "../../topology/lib/checkout-repair.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
 
 const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
@@ -21,6 +21,7 @@ export function summary(report) {
       ...transportLines(report.transport)].join("\n");
   }
   return [`services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`,
+    ...(report.checkouts ?? []).map((c) => `  checkout ${c.path}: ${c.action}${c.alert ? `: ${c.alert.message}` : ""}`),
     ...healLines(report.selfHeal)].join("\n");
 }
 
@@ -45,12 +46,6 @@ export function healLines(heal) {
   if (heal.tmuxSocket && !heal.tmuxSocket.ok) lines.push(`  ${heal.tmuxSocket.problem} Fix: ${heal.tmuxSocket.fix}.`);
   for (const [name, part] of Object.entries(heal)) if (part?.error) lines.push(`  self-heal ${name} failed: ${part.error}`);
   return lines;
-}
-
-/** The project-scope warning for `cwd`'s repository: the guard's predicate at the guard's repo top. */
-export function sessionStartWarning(cwd) {
-  const top = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5_000 });
-  return projectScopeWarning(top.status === 0 ? top.stdout.trim() : cwd);
 }
 
 /**
@@ -97,17 +92,18 @@ export async function runServicesCommand(sub, values, positionals, env = process
     case "ensure": {
       const consumerCwd = values["consumer-cwd"] ? resolve(values["consumer-cwd"]) : null;
       if (values.detach) {
-        // TM-285: the SessionStart hook's stdout reaches the session, so the commit guard's finding
-        // is announced now instead of at the first blocked commit. One file read; still instant.
-        const warning = consumerCwd ? sessionStartWarning(consumerCwd) : null;
-        if (warning) process.stdout.write(`${warning}\n`);
         return detach(stateRoot, consumerCwd);
       }
       try {
         // The session's own repository gets a supervisor, enrolled or not, as the `ao-topology
         // supervise` monitor gave it before TM-272. One rule, shared with `ao-topology repos add`.
         if (consumerCwd) await registerRepository(consumerCwd, { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot } });
-        const report = await ensureServices({ stateRoot });
+        // TM-394: repair broken registered checkouts first. A repaired repository's supervisor is
+        // restarted so it re-keys on the repaired identity; its first reconcile ensures the lead.
+        const restartSupervisor = ({ repo }) => controlProcess("restart", `supervise-${repo.key}`, { stateRoot });
+        const checkouts = await repairRegisteredCheckouts({ env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot }, ensureLead: restartSupervisor })
+          .catch((error) => [{ action: "failed", error: error.message }]);
+        const report = { ...await ensureServices({ stateRoot }), ...(checkouts.length ? { checkouts } : {}) };
         // SessionStart and the monitor can ensure at once; one self-heal at a time, so two never swap the same copy.
         const dir = servicePaths({ stateRoot, data: dataHome() }).dir;
         report.selfHeal = await withLock(join(dir, "self-heal.lock"), () => selfHeal({ pointer: report.pointer, stateRoot, home: os.homedir() }), { timeoutMs: 120_000 })

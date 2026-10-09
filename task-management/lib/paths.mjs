@@ -12,19 +12,16 @@
  *      is not that: developing the plugin is working on a project, and the marketplace
  *      repo tracks its own work like any other repo, with no TM_ROOT and no local config.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep, basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { safeGitText } from "./safe-git.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 function git(cwd, args) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    return safeGitText(cwd, args); // TM-443
   } catch {
     return "";
   }

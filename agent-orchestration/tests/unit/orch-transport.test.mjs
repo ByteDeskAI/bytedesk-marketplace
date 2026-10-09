@@ -131,7 +131,11 @@ function spawnCli(args, env) {
 }
 
 function runCli(args, env, timeoutMs = 30000) {
-  const child = spawnCli(args, env);
+  // TM-462/TM-464: a named --from (send) or --agent (mailbox) must be the calling session's identity,
+  // so each such call runs as the agent it names.
+  const flag = { send: '--from', mailbox: '--agent' }[args[0]];
+  const named = flag && args.includes(flag) ? { ...env, AO_AGENT_ID: args[args.indexOf(flag) + 1] } : env;
+  const child = spawnCli(args, named);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill('SIGKILL');

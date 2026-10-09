@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { invariant } from "./errors.mjs";
+import { safeGit } from "../topology/lib/safe-git.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -28,8 +29,10 @@ export async function runFile(command, args, options = {}) {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
+/** TM-443: host-side git, through safe-git (planted repository config never executes). Throws on failure. */
 export async function git(cwd, args, options = {}) {
-  return runFile(process.platform === "win32" ? "git.exe" : "/usr/bin/git", ["-C", cwd, ...args], options);
+  const result = await safeGit(cwd, args, options);
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
 export function assertAbsolutePath(value, fieldName) {

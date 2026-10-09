@@ -161,7 +161,9 @@ test('CLI send persists notification without injecting a live terminal composer'
  await writeFile(join(bin,'tmux'),'#!/bin/sh\nprintf \'%s\\037%s\\037%s\\n\' "$PPID" "$(ps -o args= -p $PPID)" "$*" >> "$AO_TEST_TMUX_LOG"\nexit 0\n',{mode:0o755});
  const env={...process.env,TMUX:'',TMUX_TMPDIR:tmuxTmp,PATH:`${bin}:${process.env.PATH}`,AO_TEST_TMUX_LOG:calls,AO_TMUX_COMMAND:undefined,
    // Pin the state home, or `send` spawns a real daemon into ~/.local/state (how TM-139's orphans appeared).
-   AGENT_ORCHESTRATION_STATE_HOME:join(runDir,'state')};
+   AGENT_ORCHESTRATION_STATE_HOME:join(runDir,'state'),
+   // TM-462: a named --from/--from-project must be this session's identity.
+   AO_AGENT_ID:'conductor',AO_CONSUMER:runDir};
  const readCalls=async()=>(await readFile(calls,'utf8').catch(()=>'')).split('\n').filter(Boolean).map(line=>{const [ppid,caller,args]=line.split('\x1f');return {ppid:Number(ppid),caller,args:args.split(/\s+/)};});
  // Coverage first: prove the shim intercepts `tmux` in this env, so an empty log below means "not called".
  await exec('tmux',['-V'],{env});

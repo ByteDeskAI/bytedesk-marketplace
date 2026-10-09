@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { run } from '../topology/lib/util.mjs';
+import { safeGit } from '../topology/lib/safe-git.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveConsumerRepository } from './workspace/repository.mjs';
@@ -59,7 +60,8 @@ async function rolePromptEvidence(options, record, role, repositoryId) {
  * would install.
  */
 export async function pluginFreshness({pluginRoot,home=homedir(),env=process.env,timeoutMs=5000,deps={}}) {
-  const exec=deps.run??run;
+  // TM-443: git goes through safe-git; deps.run is the test seam and receives the same ('git', args) call.
+  const exec=deps.run??((_command,args,options)=>safeGit(null,args,options));
   const root=await realpath(pluginRoot).catch(()=>pluginRoot);
   const cached=/[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
   let installed=null,source=null;
@@ -75,7 +77,7 @@ export async function pluginFreshness({pluginRoot,home=homedir(),env=process.env
   const repository=typeof manifest?.repository==='string'?manifest.repository:manifest?.repository?.url??null;
   let remote=null,remoteError=null;
   if(repository) {
-    const listed=await exec('git',['ls-remote',repository,'refs/heads/main'],{allowFailure:true,timeoutMs,env:{...env,GIT_TERMINAL_PROMPT:'0'}});
+    const listed=await exec('git',['ls-remote','--',repository,'refs/heads/main'],{allowFailure:true,timeoutMs,env:{...env,GIT_TERMINAL_PROMPT:'0'}});
     remote=listed.code===0?(/^([0-9a-f]{40})\s/.exec(listed.stdout)?.[1]??null):null;
     if(!remote) remoteError=listed.code===124?`git ls-remote timed out after ${timeoutMs}ms`:(listed.stderr||'no refs/heads/main').trim().slice(0,300);
   } else remoteError='plugin.json names no repository';

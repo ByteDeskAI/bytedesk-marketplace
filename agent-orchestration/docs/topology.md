@@ -18,7 +18,7 @@ repository, not the prompts.
 |---|---|---|
 | Spec | JSON, see `ao-topology schema` | One declarative document: agents, stages, gates, inputs. Natural language compiles into it; a workflow is a saved one. |
 | Workflows | `workflows/*.json`, `~/.config/agent-orchestration/workflows/`, `<repo>/.bytedesk/agent-orchestration/workflows/` | Reusable specs. Earlier locations override later ones by name. Every location is also searched under its former name `templates/`, and `<repo>/.orchestration/` is still read, so a repo laid out the old way needs no migration. |
-| Provider adapters | `providers/*.json` plus the same user/consumer overrides | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, failure patterns, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
+| Provider adapters | `providers/*.json` plus user (`~/.config/agent-orchestration/providers/`) and `--providers-dir` overrides — never the consumer repository (TM-467) | How to launch one CLI: command, model flag, system-prompt flag, auto-approve flag, idle-prompt regex, failure patterns, submit keys. Unknown `cli` ids fall back to `generic` with the id as the command, so any installed CLI works. |
 | Agents | `.bytedesk/agent-orchestration/agents/<id>/` in the consumer, plus the same user/plugin overrides | A durable per-repo roster. Each agent has a stable minted id, a generated name and title, a role, a provider chain, skills, MCP servers and an optional file-backed system prompt. A spec may reference one instead of restating it. |
 | Role packs | `roles/*.md` plus overrides | The abstract, domain-free part of an agent's instructions: what an orchestrator, worker, designer, judge, reviewer, researcher, or implementer owes the run. |
 | Skills | resolved by name from the consumer repo, the user's home, and this plugin | Domain knowledge an agent must read before working (for example `brand-brief`, `brand-concept`, `brand-judge` from the design-system plugin). Nothing is copied; agents are told which SKILL.md files to read. |
@@ -69,10 +69,15 @@ The preservation step rejects active or uncertain runs, symlinks, changed copies
 history. It never deletes the worktree or evidence. Retention is the default; do not infer missing
 native history from transcripts.
 
-All five per-repo resource types — workflows, skills, roles, providers and agents — resolve from
+Four per-repo resource types — workflows, skills, roles and agents — resolve from
 `<repo>/.bytedesk/agent-orchestration/<kind>/`, with `<repo>/.orchestration/<kind>/` read as a
 fallback so a repository laid out under the old convention keeps working. Writes always use the
 new path.
+
+Provider adapters are the exception (TM-467). An adapter is the command a pane executes, and a
+repository's files are version-controlled, so a merged PR could rename `claude` to any program for
+every later launch. Adapters load only from `--providers-dir`, `~/.config/agent-orchestration/providers/`
+and this plugin's `providers/`; a repository's `providers/` directory is not read.
 
 ## Agents, identity, and the team
 

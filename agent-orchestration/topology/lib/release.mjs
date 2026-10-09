@@ -5,25 +5,27 @@
 //
 //   management.cutover = { branch, argv, postflight_argv?, identity_argv, timeout_ms? }
 //   management.release = { branch, argv, verify_argv, finish_argv?, timeout_ms?,
-//                          teamcity?: { build_type, url?, timeout_ms?, poll_ms? } }
+//                          teamcity?: { build_type, branch?, url?, timeout_ms?, poll_ms? } }
 //
 // TM-368: `management.autonomy` (pr | merge | publish, default pr) drives `manage land`, and at
-// `publish` it is the grant for these External-class verbs; the record names the layer that set it.
+// `publish` it is the grant for cut-release; the record names where it came from. TM-458: it never
+// grants cutover, which always needs an operator shell's --authorized.
 // A stop after anything has run (a failed step, a red or missing TeamCity build, a failed verify or
 // postflight, a missing reviewer approval) pages the operator through ntfy.
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, resolve } from 'node:path';
-import { autonomyOf, loadConfig } from './config.mjs';
+import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
 import { managedSessionEvidence } from './delegation.mjs';
-import { foreignDirtyPaths, integrateTask, integrationEligibility, recordTaskEvent, taskStore } from './management.mjs';
+import { fetchPinned, foreignDirtyPaths, governedAutonomy, hostGh, serverCompareStatus, trackingRefspec, integrateTask, integrationEligibility, loadGovernedConfig, recordTaskEvent, taskStore } from './management.mjs';
 import { page } from './ntfy.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { teamcityClient, teamcityTarget } from './teamcity.mjs';
 import { fail, nowIso, run, writeJson } from './util.mjs';
+import { safeGit } from './safe-git.mjs';
 
-/** TM-368: the effective autonomy policy for this repository and the config layer that set it. */
+/** TM-368 / TM-442: the effective autonomy policy for this repository and where it came from. Only
+ * the repository config committed on the server's default branch can raise it above "pr". */
 export async function resolveAutonomy(options, loaded = null) {
-  return autonomyOf(loaded || await loadConfig(options));
+  return governedAutonomy(loaded || await loadGovernedConfig(options));
 }
 
 /** Page, then throw: the run stops, and the operator hears about it whether or not ntfy answers. */
@@ -33,15 +35,37 @@ async function stop(options, loaded, code, message, details = {}) {
 }
 
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
-const git = (cwd, args) => run('git', ['-C', cwd, ...args], { allowFailure: true });
+const git = (cwd, args) => safeGit(cwd, args, { allowFailure: true }); // TM-443
 
-/** A lead never runs these directly, and neither does a configured step: the step must be the
- * repository's own script. ponytail: argv[0] only; the script itself is the repo's reviewed code. */
-export const FORBIDDEN_EXECUTABLES = Object.freeze(['systemctl', 'launchctl', 'service', 'sudo', 'doas', 'git', 'gh', 'sh', 'bash', 'zsh', 'dash', 'env', 'ssh']);
+/** A lead never runs these directly, and neither does a configured step. TM-442: argv[0] is an
+ * ALLOWLIST, not a denylist: it must be a repo-relative path (no absolute path, no `..`, no bare
+ * command name looked up on PATH) to a script tracked at the release revision, whose working-tree
+ * bytes equal the committed blob (trackedScriptProblem). These names are refused even as paths, since
+ * each would run arbitrary code through its arguments. */
+export const FORBIDDEN_EXECUTABLES = Object.freeze(['systemctl', 'launchctl', 'service', 'sudo', 'doas', 'git', 'gh', 'ssh',
+  'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'busybox', 'env', 'node', 'nodejs', 'npx', 'npm', 'pnpm', 'yarn', 'deno', 'bun',
+  'perl', 'ruby', 'php', 'lua', 'python', 'osascript', 'xargs', 'nohup', 'timeout', 'nice', 'exec', 'eval', 'command']);
+const INTERPRETER = /^(python|pypy|perl|ruby|php|lua|node)[0-9.]*$/;
 export function argvProblem(argv, key) {
   if (!Array.isArray(argv) || !argv.length || !argv.every(nonempty)) return `configure ${key} as a nonempty argv array`;
-  const exe = basename(argv[0]);
-  if (FORBIDDEN_EXECUTABLES.includes(exe)) return `${key} runs ${exe} directly; it must name the repository's own script (deploy-safe.sh, release-gitflow.sh), never ${FORBIDDEN_EXECUTABLES.join(', ')}`;
+  const exe = argv[0], name = basename(exe);
+  if (FORBIDDEN_EXECUTABLES.includes(name) || INTERPRETER.test(name)) return `${key} runs ${name} directly; it must name the repository's own tracked script (deploy-safe.sh, release-gitflow.sh), never an interpreter, shell or ${FORBIDDEN_EXECUTABLES.slice(0, 8).join(', ')}`;
+  if (isAbsolute(exe) || exe.startsWith('~')) return `${key} names an absolute path ${exe}; it must be a repo-relative path to the repository's own tracked script`;
+  if (!exe.includes('/')) return `${key} names ${exe}, which would be looked up on PATH; name the repository's own script by its repo-relative path (for example scripts/${exe})`;
+  if (normalize(exe).split('/').includes('..') || exe.split('/').includes('..')) return `${key} leaves the repository (${exe}); it must be a repo-relative path inside it`;
+  return null;
+}
+
+/** TM-442: argv[0] is a regular executable file tracked at `revision` and the working tree holds exactly
+ * the committed bytes (hash-object without filters), so what runs is the reviewed, committed script. */
+export async function trackedScriptProblem(root, revision, argv, key) {
+  const path = normalize(argv[0]).replace(/^\.\//, '');
+  const listed = (await git(root, ['ls-tree', '-z', revision, '--', path])).stdout.split('\0').filter(Boolean);
+  const [meta] = listed.length === 1 ? listed[0].split('\t') : [];
+  const [mode, type, blob] = (meta || '').split(' ');
+  if (type !== 'blob' || mode !== '100755') return `${key} names ${argv[0]}, which is not an executable script tracked at ${revision}${type ? ` (mode ${mode} ${type})` : ''}`;
+  const disk = await git(root, ['hash-object', '--no-filters', '--', path]);
+  if (disk.code !== 0 || disk.stdout.trim() !== blob) return `${key} script ${path} differs from its committed content at ${revision}; only the committed script runs`;
   return null;
 }
 
@@ -56,12 +80,17 @@ const STEPS = {
 async function externalAuthority(options, env, home, verb, loaded) {
   const base = { decision: verb, class: 'external', adr: 'ADR-0001', at: nowIso() };
   const autonomy = await resolveAutonomy(options, loaded);
-  if (autonomy.level === 'publish') return { authorization: { ...base, channel: 'autonomy-policy', autonomy: autonomy.level, granted_by: { scope: autonomy.scope, path: autonomy.path }, actor: env.AO_AGENT_ID || env.USER || 'lead' } };
+  // TM-458: `publish` is a standing grant for cut-release ONLY. A cutover deploys to a live production
+  // host, and that always asks a human first: an operator shell passing --authorized, every time.
+  if (autonomy.level === 'publish' && verb === 'release') return { authorization: { ...base, channel: 'autonomy-policy', autonomy: autonomy.level, granted_by: { scope: autonomy.scope, path: autonomy.path }, actor: env.AO_AGENT_ID || env.USER || 'lead' } };
   const managed = await managedSessionEvidence({ env, ancestors: options.ancestors, home });
   if (options.authorized === true && !managed.length) return { authorization: { ...base, channel: 'operator-explicit', actor: env.USER || 'operator' } };
+  const grants = verb === 'cutover' ? 'no autonomy level grants cutover (a production deploy always needs the operator)' : `only "publish" grants ${verb}`;
   return { refusal: options.authorized === true
-    ? `--authorized cannot be self-asserted inside a managed agent session (${managed[0]}); autonomy is "${autonomy.level}", and only "publish" grants ${verb}`
-    : `${verb} is an External-class action (ADR-0001); autonomy is "${autonomy.level}", so pass --authorized from an operator shell or set management.autonomy to "publish"` };
+    ? `--authorized cannot be self-asserted inside a managed agent session (${managed[0]}); autonomy is "${autonomy.level}", and ${grants}`
+    : verb === 'cutover'
+      ? `cutover is an External-class production deploy (ADR-0001); autonomy is "${autonomy.level}", and ${grants}: pass --authorized from an operator shell`
+      : `${verb} is an External-class action (ADR-0001); autonomy is "${autonomy.level}", so pass --authorized from an operator shell or set management.autonomy to "publish"` };
 }
 
 /** Read-only gate: every condition is checked and every failure is named, nothing runs. */
@@ -69,9 +98,10 @@ export async function releaseReadiness(options, kind) {
   const env = options.env || process.env, home = options.home || homedir();
   const verb = kind === 'cutover' ? 'cutover' : 'release';
   const refusals = [], refuse = (condition, reason) => refusals.push({ condition, reason });
-  const loaded = await loadConfig(options);
+  const loaded = await loadGovernedConfig(options);
   if (loaded.errors.length) refuse('config', `configuration is invalid: ${loaded.errors.map(e => e.message).join('; ')}`);
   const config = loaded.config.management?.[kind] || {};
+  if (!loaded.config.management?.[kind]) refuse('config', `management.${kind} is honoured only from ${loaded.policy.source || `the repository config on the server's default branch (${loaded.policy.reason})`} (TM-442)`);
   for (const key of STEPS[kind].required) { const problem = argvProblem(config[key], `management.${kind}.${key}`); if (problem) refuse('config', problem); }
   for (const key of STEPS[kind].optional) { if (config[key] !== undefined) { const problem = argvProblem(config[key], `management.${kind}.${key}`); if (problem) refuse('config', problem); } }
   const branch = nonempty(config.branch) ? config.branch : 'develop';
@@ -87,11 +117,24 @@ export async function releaseReadiness(options, kind) {
     if (current !== branch) refuse('branch', `${verb} runs only from ${branch}; the checkout is on ${current || 'a detached HEAD'}`);
     const foreign = await foreignDirtyPaths(root);
     if (foreign.length) refuse('dirty', `the checkout has uncommitted work outside the tool store paths: ${foreign.slice(0, 5).join(', ')}`);
-    const fetched = await git(root, ['fetch', '--quiet', 'origin', branch]);
+    const fetched = await fetchPinned(root, [trackingRefspec(branch)], { env, home, allowFailure: true }); // TM-472
     revision = (await git(root, ['rev-parse', 'HEAD'])).stdout.trim();
     const remote = (await git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`])).stdout.trim();
     if (fetched.code !== 0) refuse('sync', `cannot fetch origin/${branch}: ${fetched.stderr.trim()}`);
     else if (remote !== revision) refuse('sync', `${branch} is at ${revision}, origin/${branch} is at ${remote || 'nothing'}; ${verb} runs only from a checkout synced with origin`);
+    else {
+      // PR #226 review: `origin` is whatever the worker set remote.origin.url to, so "synced with origin"
+      // proves nothing alone. The pinned repository on the server must have exactly this commit as the branch tip.
+      const server = await serverCompareStatus(options.gh || hostGh(root), root, revision, branch, { env, home });
+      if (server.status !== 'identical') refuse('sync', `${branch} at ${revision} is not the tip of ${branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); ${verb} runs only from the server's own revision`);
+    }
+    if (revision) {
+      for (const key of [...STEPS[kind].required, ...STEPS[kind].optional]) {
+        if (config[key] === undefined || argvProblem(config[key], `management.${kind}.${key}`)) continue;
+        const problem = await trackedScriptProblem(root, revision, config[key], `management.${kind}.${key}`);
+        if (problem) refuse('config', problem);
+      }
+    }
   }
 
   // All planned tasks landed: the approved plan is an epic (or, for a task with no epic, the task
@@ -115,7 +158,7 @@ export async function releaseReadiness(options, kind) {
       else {
         const target = teamcityTarget({ config: tc, env });
         if (target.reason) refuse('teamcity', target.reason);
-        else teamcity = { ...target, build_type: tc.build_type, timeout_ms: tc.timeout_ms, poll_ms: tc.poll_ms };
+        else teamcity = { ...target, build_type: tc.build_type, branch: tc.branch ?? null, timeout_ms: tc.timeout_ms, poll_ms: tc.poll_ms };
       }
     }
   }
@@ -184,7 +227,11 @@ export async function cutRelease(options) {
   const cut = await step(gate, gate.config.argv, 'release'); steps.push(cut);
   if (cut.code !== 0) await stopped('TOPOLOGY_RELEASE_FAILED', `release step ${gate.config.argv.join(' ')} exited ${cut.code}: ${cut.stderr || cut.stdout}`);
   if (tc) {
-    try { build = await client.waitForBuild({ buildType: tc.build_type, after: since, timeoutMs: tc.timeout_ms, pollMs: tc.poll_ms }); }
+    // TM-457: the build must be of THIS release: the revision the checkout was at, or the one the
+    // release step left it at (a gitflow release commits), on the configured branch when one is set.
+    const after = (await git(gate.root, ['rev-parse', 'HEAD'])).stdout.trim();
+    const revisions = [...new Set([gate.revision, after].filter(Boolean))];
+    try { build = await client.waitForBuild({ buildType: tc.build_type, after: since, revisions, branch: tc.branch, timeoutMs: tc.timeout_ms, pollMs: tc.poll_ms }); }
     catch (error) { await stopped('TOPOLOGY_RELEASE_BUILD_UNKNOWN', `the release ran, but TeamCity could not be read: ${error.message}`); }
     if (build.timeout) await stopped('TOPOLOGY_RELEASE_BUILD_TIMEOUT', `no finished TeamCity ${tc.build_type} build after the release${build.build ? ` (build ${build.build.number ?? build.build.id} is ${build.build.state})` : ''}.`, { build: build.build });
     if (build.status !== 'SUCCESS') await stopped('TOPOLOGY_RELEASE_BUILD_RED', `TeamCity ${tc.build_type} build ${build.number ?? build.id} is ${build.status}${build.statusText ? `: ${build.statusText}` : ''}${build.webUrl ? ` (${build.webUrl})` : ''}.`, { build });
@@ -195,7 +242,7 @@ export async function cutRelease(options) {
     const finish = await step(gate, gate.config.finish_argv, 'finish'); steps.push(finish);
     if (finish.code !== 0) await stopped('TOPOLOGY_RELEASE_FAILED', `release finish ${gate.config.finish_argv.join(' ')} exited ${finish.code}: ${finish.stderr || finish.stdout}`);
   }
-  const teamcity = build ? { build_type: tc.build_type, id: build.id, number: build.number ?? null, status: build.status, web_url: build.webUrl ?? null } : null;
+  const teamcity = build ? { build_type: tc.build_type, id: build.id, number: build.number ?? null, status: build.status, web_url: build.webUrl ?? null, revision: build.revision ?? null, branch: build.branchName ?? null } : null;
   return writeRecord(options, gate, 'release', { kind: 'release', at: nowIso(), branch: gate.branch, revision: gate.revision, epic: options.epic ?? null, teamcity, verified: true, steps, authorization: gate.authorization });
 }
 
@@ -205,8 +252,8 @@ export async function cutRelease(options) {
  *   publish integrate, then, once every task of the plan has landed, cut-release (TeamCity wait and
  *           verify included), record the publish with its grant source, and notify the origin. */
 export async function landTask(options) {
-  const loaded = await loadConfig(options);
-  const autonomy = autonomyOf(loaded), base = { task: options.task, autonomy };
+  const loaded = await loadGovernedConfig(options);
+  const autonomy = governedAutonomy(loaded), base = { task: options.task, autonomy };
   if (autonomy.level === 'pr') return { ...base, landed: false, stopped: 'pr', reason: 'autonomy is "pr": the lead stops at the reviewed pull request, and a human merges it' };
 
   const gate = await integrationEligibility(options);

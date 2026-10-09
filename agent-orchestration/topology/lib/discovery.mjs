@@ -4,8 +4,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { cp, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { canonicalRepoId, repoKey, repositoryConsumer, stateRoot } from './repoid.mjs';
-import { invariant, isInside, nowIso, readJson, run as command, writeJson } from './util.mjs';
+import { invariant, isInside, nowIso, readJson, writeJson } from './util.mjs';
 import { withLock } from './lockfile.mjs';
+import { safeGit } from './safe-git.mjs';
 import { incarnationOf } from './incarnation.mjs';
 import * as tmux from './tmux.mjs';
 
@@ -146,7 +147,7 @@ export async function publishGoalLoopWorkflow({ loop, recordPath, ...options }) 
 
 export async function registeredWorktrees(consumer) {
   const repository = await workflowRepository(consumer);
-  const result = await command('git', ['-C', consumer, 'worktree', 'list', '--porcelain', '-z'], { allowFailure: true, timeoutMs: 10_000 });
+  const result = await safeGit(consumer, ['worktree', 'list', '--porcelain', '-z'], { allowFailure: true, timeoutMs: 10_000 });
   if (result.code !== 0) return [repository.root];
   const paths = result.stdout.split('\0').filter(part => part.startsWith('worktree ')).map(part => part.slice(9));
   const accepted = [];

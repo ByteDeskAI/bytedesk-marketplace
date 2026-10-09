@@ -11,6 +11,7 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, tempStore } from "./helpers.mjs";
 import { boardIdentity, boardOwner, create, read, storeBoard, write, writeConfig } from "../../lib/store.mjs";
 import { addLink, foreignRef } from "../../lib/issue.mjs";
@@ -154,14 +155,22 @@ describe("the person is recorded beside the board, not as it (ADR-0002, TM-045)"
     // answer to "who is working here" — a person is a person whether or not this directory is a repo.
     assert.equal(gitUser(p.root), gitUser(process.cwd()) ? gitUser(process.cwd()) : null);
 
-    const saved = process.env.GIT_CONFIG_GLOBAL;
-    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    // Host git reads only the passwd home's .gitconfig (safe-git, TM-443/TM-475), so moving $HOME
+    // changes nothing, and "no identity" is a repository whose own config blanks both keys.
+    const machine = gitUser(process.cwd());
+    const saved = process.env.HOME;
+    process.env.HOME = p.root;
     try {
-      assert.equal(gitUser(p.root), null, "git configured with no identity yields none, not a guess");
+      assert.equal(gitUser(p.root), machine, "a moved $HOME does not choose the identity (TM-475)");
     } finally {
-      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-      else process.env.GIT_CONFIG_GLOBAL = saved;
+      if (saved === undefined) delete process.env.HOME;
+      else process.env.HOME = saved;
     }
+    const blank = join(p.root, "blank");
+    execFileSync("git", ["init", "-q", blank]);
+    execFileSync("git", ["-C", blank, "config", "user.name", ""]);
+    execFileSync("git", ["-C", blank, "config", "user.email", ""]);
+    assert.equal(gitUser(blank), null, "git configured with no identity yields none, not a guess");
   });
 });
 

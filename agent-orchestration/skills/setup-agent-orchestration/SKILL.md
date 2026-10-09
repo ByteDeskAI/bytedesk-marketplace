@@ -93,14 +93,19 @@ ao ignores the generic `NATS_URL`; use `AO_NATS_URL` to point ao at another serv
 
 ### Secrets workers need
 
-Name them in the repository config, never their values:
+Name them in the global config, never their values:
 
 ```json
 { "workers": { "passEnv": ["TYPESAFE_API_KEY"] } }
 ```
 
-in `.bytedesk/agent-orchestration/config.json` (or the global layer; `ao-topology config set`
-writes either). When a run agent or a durable session starts, ao copies each named variable from
+in `~/.config/agent-orchestration/config.json` (`$XDG_CONFIG_HOME` if set;
+`ao-topology config set --scope global` writes it). The repository layer is git-tracked, so a name
+set only there is ignored with a warning. Reserved names are refused: `TM_*`, `AO_*`, `CLAUDE_*`,
+`LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`, `NODE_OPTIONS`, `NODE_PATH`, `BASH_ENV`, `ENV`,
+`ZDOTDIR`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `XDG_CONFIG_HOME`, `TMUX`,
+`TMUX_PANE` and `SSH_AUTH_SOCK`. Because `SSH_AUTH_SOCK` is refused, workers push over an HTTPS
+`origin` remote authenticated with `gh auth setup-git`, not through your SSH agent. When a run agent or a durable session starts, ao copies each named variable from
 the launching environment into a 0600 file beside the launcher, which the launcher sources and
 deletes. The value never enters the launcher, `run.json`, the journal, a prompt, tmux's
 environment or any argv. A name the launching environment lacks is warned about by name, and the

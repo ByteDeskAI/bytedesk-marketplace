@@ -6,7 +6,7 @@
  *
  * Usage: tm <verb> [args]        tm help
  */
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,8 +58,8 @@ import { accept as acceptCap, capLine, drop as dropCap, propose, ranked, score a
 import { mirrorNative, preCreateGate } from "../lib/harness/index.mjs";
 import { claimTask, claimant, noteClaimWorker, releaseClaim, staleClaims, sweepClaims } from "../lib/claims.mjs";
 import { actor, actorLabel, sessionId, stamp as stampAt } from "../lib/actor.mjs";
-import { TRIAGE_LABELS, addComment, addLink, assign, backlog, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, setType, subtasks, typeOf } from "../lib/issue.mjs";
-import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor } from "../lib/ticket.mjs";
+import { addComment, addLink, assign, backlog, DECISION_INTAKE, dependencies, estimate, foreignRef, labelCatalog, labels, prioritise, rank, removeLink, resolveForeign, setType, subtasks, TRIAGE_LABELS, typeOf } from "../lib/issue.mjs";
+import { EVENT_KINDS, aoTopologyBin, fileTicket, notifyOrigin, originEventFor, strayFlag } from "../lib/ticket.mjs";
 import { CATALOG, messageFor, ntfyConfig, send, shouldPublish } from "../lib/ntfy.mjs";
 import { graphData, mermaid, renderWhy, why } from "../lib/graph.mjs";
 import { diagnose, ignoreRule, render as renderDoctor, repairAll } from "../lib/doctor.mjs";
@@ -77,9 +77,10 @@ import { dispatch as dispatchTask } from "../lib/dispatch/index.mjs";
 import { liveOwner } from "../lib/dispatch/live-owner.mjs";
 import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
-import { governTask, readyForReview } from "../lib/governance.mjs";
-import { collect as collectResult } from "../lib/dispatch/collect.mjs";
+import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
+import { collect as collectResult, rebindTopology } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolable, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
+import { safeGitText } from "../lib/safe-git.mjs";
 
 /** This file, as an argv element — `pool start` re-executes it detached. */
 const SELF = fileURLToPath(import.meta.url);
@@ -172,15 +173,18 @@ function renderEvidenceCheck(rows) {
 }
 
 const USAGE_EDIT = 'usage: tm edit <id> "<new title>" [--body <text|->]   (or --title "<new title>")';
-const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human]';
+const USAGE_TASK_NEW = 'usage: tm task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] [--filed-by <board>/<agent>/<task>]';
 const USAGE_TICKET = 'usage: tm ticket <repo-path|slug> "<title>" --ac "<criterion>"... [--priority critical|highest|high|medium|low] [--body <text>] [--from-task TM-n]\n       tm ticket event <id> <' + "pr_opened|review|merged|published|failed|done" + '> [detail]';
+
+/** One foreign blocker as text: the ref, and the landing sha once `tm upstream-resolved` recorded it. */
+const foreignLine = (f) => `${f?.ref ?? "?"} (${f?.resolved?.sha ? `landed ${f.resolved.sha}` : "unresolved"})`;
 
 /** The checkout we're standing in — which is NOT the store root when we're in a worktree. */
 const CHECKOUT = P.root ? currentCheckout() : process.cwd();
 
 function git(args, cwd = CHECKOUT) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return safeGitText(cwd, args); // TM-443
   } catch {
     return "";
   }
@@ -347,6 +351,17 @@ const VERBS = {
       const hi = rest.indexOf("--human");
       const human = hi !== -1;
       if (human) rest.splice(hi, 1);
+      // --filed-by <board>/<agent>/<task>: another repo's lead filed this (ADR-0041). The board is
+      // owner/repo, so the agent and task are the last two segments. decision:intake vetoes
+      // dispatch until this board's lead or a person removes it.
+      const fi = rest.indexOf("--filed-by");
+      let filedBy;
+      if (fi !== -1) {
+        const m = /^([\w.-]+\/[\w.-]+)\/([^/\s]+)\/([^/\s]+)$/.exec(rest[fi + 1] || "");
+        if (!m) die(`--filed-by needs <owner/repo>/<agent>/<task>, got "${rest[fi + 1] ?? ""}"\n${USAGE_TASK_NEW}`);
+        filedBy = { board: m[1].toLowerCase(), agent: m[2], task: m[3] };
+        rest.splice(fi, 2);
+      }
       // --origin '<json>' is written by `tm ticket` in another repo (TM-381): where this task came
       // from, so its progress can be reported back there.
       const oi = rest.indexOf("--origin");
@@ -379,6 +394,9 @@ const VERBS = {
           labels: [...(applied.fields.labels || []).filter((l) => !TRIAGE_LABELS.includes(l)), "ready-for-human"],
           triagedBy: "human",
         });
+      }
+      if (filedBy) {
+        Object.assign(applied.fields, { filedBy, labels: [...new Set([...(applied.fields.labels || []), DECISION_INTAKE])] });
       }
       const gate = gateTaskCreate(P, { body: applied.body, acceptance: applied.fields.acceptance });
       if (!gate.allow) die(gate.reason, 2);
@@ -620,6 +638,13 @@ const VERBS = {
     const at = args.indexOf("--revision");
     const task = readyForReview(id, { revision: at < 0 ? null : args[at + 1], p: P });
     out(JSON_OUT ? JSON.stringify(task.governance) : `${id} ready-for-review — independent review and an integration decision remain required`);
+  },
+
+  rework(id, ...args) {
+    requireInit();
+    const at = args.indexOf("--revision");
+    const task = reworkGovernance(id, { revision: at < 0 ? null : args[at + 1], p: P });
+    out(JSON_OUT ? JSON.stringify(task.governance) : `${id} back to working after review of ${task.governance.reworks.at(-1).revision}; dispatch the next worker`);
   },
 
   done(id) {
@@ -881,9 +906,15 @@ const VERBS = {
     requireInit();
     if (!read(id, P)) die(`not found: ${id}`);
     if (!args.length) {
-      const rows = read(id, P).blockedBy || [];
-      return emit(rows, () => rows.join("\n") || "(nothing blocking it)");
+      const doc = read(id, P);
+      const local = doc.blockedBy || [];
+      const foreign = doc.foreignBlockers || [];
+      const rows = [...local, ...foreign.map((f) => f?.ref)];
+      return emit(rows, () => [...local, ...foreign.map(foreignLine)].join("\n") || "(nothing blocking it)");
     }
+    // A `--flag` would otherwise be read as removing a blocker named `-flag`, and succeed silently.
+    const stray = args.find((a) => a.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\nusage: tm dep <id> [-]<blocker|owner/repo#TM-n>...`);
     const remove = args.filter((a) => a.startsWith("-")).map((a) => a.slice(1));
     const add = args.filter((a) => !a.startsWith("-"));
     let blockedBy;
@@ -892,10 +923,36 @@ const VERBS = {
     } catch (err) {
       die(err.message, 2);
     }
+    const foreign = (read(id, P).foreignBlockers || []).map(foreignLine);
     out(
-      `${id} blocked by ${blockedBy.join(", ") || "(nothing)"}` +
+      `${id} blocked by ${[...blockedBy, ...foreign].join(", ") || "(nothing)"}` +
         (add.length ? `\n   +${add.join(", ")}` : "") +
         (remove.length ? `\n   -${remove.join(", ")}` : ""),
+    );
+  },
+
+  /**
+   * `tm upstream-resolved <owner/repo#TM-n> --landed <sha>`: a foreign blocker landed (ADR-0041).
+   * Marks it on every local task holding it; the ordinary unblock pass reopens what is now free.
+   */
+  "upstream-resolved"(...args) {
+    requireInit();
+    const usage = "usage: tm upstream-resolved <owner/repo#TM-n> --landed <sha>";
+    const li = args.indexOf("--landed");
+    const landed = li === -1 ? undefined : args[li + 1];
+    if (li !== -1) args.splice(li, 2);
+    const stray = args.find((a) => a.startsWith("--"));
+    if (stray) die(`unknown option ${stray}\n${usage}`);
+    if (args.length !== 1 || landed === undefined || landed.startsWith("--")) die(usage);
+    let res;
+    try {
+      res = resolveForeign(args[0], { landed }, P);
+    } catch (err) {
+      die(err.message, 2);
+    }
+    emit(res, () =>
+      `${res.ref} landed at ${res.sha}: ${res.resolved.length ? `resolved on ${res.resolved.join(", ")}` : "no local task was waiting on it"}` +
+      (res.freed.length ? ` (unblocked: ${res.freed.join(", ")})` : ""),
     );
   },
 
@@ -1378,7 +1435,7 @@ const VERBS = {
     const fromTask = take("--from-task") ?? null;
     const acceptance = [];
     for (let v = take("--ac"); v !== undefined; v = take("--ac")) acceptance.push(v);
-    const stray = rest.find((w) => w.startsWith("--"));
+    const stray = strayFlag(rest);
     if (stray) die(`unknown option ${stray}\n${USAGE_TICKET}`);
     const title = rest.join(" ");
     if (!target || !title) die(USAGE_TICKET);
@@ -1590,6 +1647,7 @@ const VERBS = {
     if (res.ungoverned) process.stderr.write(`WARNING: ${res.ungoverned}\n`);
     // TM-300: a missing ao prefix never blocks a dispatch, but it is never silent either.
     if (res.prefixWarning) process.stderr.write(`WARNING: ${res.prefixWarning}\n`);
+    for (const w of res.passEnvWarnings ?? []) process.stderr.write(`WARNING: ${w}\n`);
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     out(`${res.id} dispatched to ${res.backend}${res.run ? ` as ${res.run}` : ""}`);
     // The manual backend launches nothing: what it returns IS the hand-off.
@@ -1641,6 +1699,15 @@ const VERBS = {
     if (JSON_OUT) return out(JSON.stringify(res, null, 2));
     if (res.pending) return out(`${id} still running (${res.state || "pending"})`);
     out(`${id} result: ${res.outcome}${res.downgraded ? " (downgraded)" : ""}${res.parked ? " — parked" : ""}`);
+  },
+
+  /** TM-417: repair a topology dispatch whose workflow id is not `topology:<native run id>`. */
+  rebind(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm rebind <id>");
+    const res = rebindTopology(id, { p: P });
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    out(res.rebound ? `${id} rebound: ${res.from} -> ${res.to}` : `${id} dispatch already canonical (${res.dispatched.workflowRunId})`);
   },
 
   /**
@@ -1720,7 +1787,7 @@ const VERBS = {
     }
     if (action === "wait") {
       // TM-374: the verb an agent runs instead of `sleep N; tm pool status`. One JSON result
-      // always; exit 0 met, 2 timed out, 1 bad argument.
+      // always; exit 0 met, 2 timed out, 3 the task parked or blocked short of done, 1 bad argument.
       const at = rest.indexOf("--until");
       const until = at >= 0 ? rest[at + 1] : "idle";
       const id = at >= 0 && rest[at + 2] && !rest[at + 2].startsWith("--") ? rest[at + 2] : undefined;
@@ -1734,7 +1801,8 @@ const VERBS = {
         die(e.message);
       }
       out(JSON.stringify(res));
-      process.exit(res.ok ? 0 : 2);
+      // TM-450: 3 = the task stopped short of done (parked or blocked) — a person is needed.
+      process.exit(res.ok ? 0 : res.ended ? 3 : 2);
     }
     die(`unknown pool action: ${action} (once | ensure | start | stop | status | resume | wait [--dry-run])`);
   },
@@ -1916,24 +1984,26 @@ const VERBS = {
         "",
         "  init                          create the store here",
         '  epic new "<title>" [--body <text|->] | use <id> | done <id> | (list)',
-        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] | (list)',
+        '  task new "<title>" [--body <text|->] [--ac "<criterion>"]... [--human] [--filed-by <board>/<agent>/<task>] | (list)',
         "  triage [--all] [--dry-run]    re-run auto-triage: ready-for-agent or needs-triage; a person's triage label stays",
         '  adr new "<title>"',
         '  cap new "<title>" [--area --impact --effort --confidence --source]   the enhancement backlog',
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  enhance-mine [--apply] [--days 14] [--top 15] [--min-count 2] [--test-log <f>]...   mine transcripts + board for issues (dry-run by default)",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
-        "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
+        "  goal open|finding|assess|revise|complete|resume EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
         "  review-ready <id> --revision <full SHA>   reflect an accepted producer finish report",
+        "  rework <id> --revision <full SHA>         reflect the producer rework after changes_requested",
         "  govern <id> --workflow <id> --lead <id> --record <path>   bind producer-owned admission",
         "  defer <id> | todo <id>        move to the backlog column, or back to todo (`backlog` alone lists the ranked queue)",
         "  reopen <id> [why]             bring a done task back, and its epic with it",
         '  ac <id> "<criterion>" | ac <id> --rm <n> | accept <id> <n> [--undo]',
         "  evidence <id> <path|-> | evidence [<id>] --check   attach proof, or check it still matches its source",
-        "  link <id> <ref> | dep <id> [-]<blocker>...",
+        "  link <id> <ref> | dep <id> [-]<blocker|owner/repo#TM-n>...",
+        "  upstream-resolved <owner/repo#TM-n> --landed <sha>   a foreign blocker landed; reopens what it freed",
         "  touches <id> [path...]        paths a task owns; `tm parallel` batches on these",
         "  edit <id> \"<title>\" [--body <text|->]   move <id> <EP-nnn|none>",
         "  assign <id> <who> | label <id> [-]<name>... [--force] | label --catalog",
@@ -1960,9 +2030,10 @@ const VERBS = {
         "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
+        "  rebind <id>                   repair a topology dispatch's workflow id from the producer record",
         "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
-        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0) or timeout (exit 2); never sleep-poll",
+        "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0), timeout (exit 2) or, for done, the task parks or blocks (exit 3); never sleep-poll",
         "  ntfy [on|off <kind>|enable|disable|test|topic <t>|board <url>]   push notifications",
         "  tm-dashboard [--browser|--no-browser]   live board; --browser opens it",
         "",
@@ -2137,6 +2208,8 @@ function renderShow(doc) {
   for (const [label, key] of [["blocked by", "blockedBy"], ["blocks", "blocks"], ["evidence", "evidence"], ["commits", "commits"], ["touches", "touches"]]) {
     if ((doc[key] || []).length) lines.push(`${label}: ${doc[key].join(", ")}`);
   }
+  if ((doc.foreignBlockers || []).length) lines.push(`foreign blockers: ${doc.foreignBlockers.map(foreignLine).join(", ")}`);
+  if (doc.filedBy) lines.push(`filed by: ${doc.filedBy.board}/${doc.filedBy.agent}/${doc.filedBy.task}`);
   // Comments were the one first-class field `show` did not print, though it prints labels, links,
   // evidence and commits — so the detail view was missing the discussion about the thing.
   if ((doc.comments || []).length) {

@@ -18,7 +18,10 @@ async function fixture(t) {
   await run('git', ['-C', consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'base']);
   const revision = (await run('git', ['-C', consumer, 'rev-parse', 'HEAD'])).stdout.trim();
   await writeJson(join(pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'codex', instructions: 'Review independently.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
-  const env = { ...process.env, XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+  // TM-471: pin the file transport here rather than inherit it from the suite preload. Without it
+  // a bare `node --test` (or a host AO_TRANSPORT=nats) sends probes over the live NATS server, so
+  // no probe file is ever minted and the late-ack tests fail on the operator's machine.
+  const env = { ...process.env, AO_TRANSPORT: 'file', XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
   const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
   const identity = await canonicalRepoId(consumer);
   const managementPath = join(env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey(identity.id), 'TM-1.json');
@@ -856,7 +859,7 @@ test('TM-418 the review sweep files the finish report check runs, so the reviewe
   const passing = await filed();
   assert.notEqual(passing.nonce, blocked.nonce);
   assert.deepEqual(passing.checks_unsatisfied, []);
-  assert.deepEqual(JSON.parse(await readFile(join(passing.packet_path, 'checks.json'), 'utf8')).checks.map(c => [c.name, c.command, c.revision]), [['unit', 'npm test', finish], ['lint', 'npm run lint', finish]]);
+  assert.deepEqual(JSON.parse(await readFile(join(passing.packet_path, 'checks.json'), 'utf8')).checks.map(c => [c.name, c.command, c.revision]), [['unit', '[claimed by the worker; not run by the host] npm test', finish], ['lint', '[claimed by the worker; not run by the host] npm run lint', finish]], 'TM-430: the packet labels them as claims');
   await submitVerdict(f, passing, 'approve');
   assert.equal((await collectReview(o)).verdict, 'approve');
 });

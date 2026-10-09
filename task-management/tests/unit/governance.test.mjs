@@ -9,7 +9,7 @@ import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, read, removeConfigKey, seedGitContract, state, update, write, writeConfig } from "../../lib/store.mjs";
 import { provision, removeWorktree } from "../../lib/worktree.mjs";
-import { governTask, readyForReview } from "../../lib/governance.mjs";
+import { governTask, readyForReview, reworkGovernance } from "../../lib/governance.mjs";
 import { governedCompletion, managementIdentity, REVIEW_SEVERITIES } from "../../lib/governance-check.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
@@ -157,6 +157,54 @@ describe("governed completion is shared by every task write surface", () => {
     assert.throws(() => readyForReview(f.task.id, { revision: f.revision, p: f.p }), /accepted exact-revision finish/);
   });
 
+  // TM-492: the finish JSON the handoff tells a worker to write must itself reach review-ready.
+  const handoffFinish = (f) => {
+    const line = workerBrief(f.task.id, f.p).split("\n").find((l) => l.includes('{"kind":"finish"'));
+    const json = line.slice(line.indexOf("{"), line.lastIndexOf("}") + 1).replaceAll("<full commit SHA>", f.revision).replaceAll("<SHA>", f.revision);
+    return JSON.parse(json).report;
+  };
+  const submit = (f, finish) => {
+    f.record.finish = finish; f.record.state = "ready-for-review"; save(f.path, f.record);
+    return () => readyForReview(f.task.id, { revision: f.revision, p: f.p });
+  };
+
+  it("accepts the structured check runs the worker handoff asks for (TM-492)", () => {
+    const f = fixture(), finish = handoffFinish(f);
+    assert.equal(typeof finish.checks[0], "object");
+    submit(f, finish)();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
+  it("accepts a failing exit_code and an argv command; review judges failures (TM-492)", () => {
+    const f = fixture();
+    submit(f, { ...handoffFinish(f), checks: [{ name: "unit", command: ["npm", "test"], exit_code: 1, revision: f.revision }] })();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
+  it("still accepts legacy prose check strings (TM-492)", () => {
+    const f = fixture();
+    submit(f, { ...handoffFinish(f), checks: ["unit tests passed"] })();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
+  it("refuses a malformed check run and names the field (TM-492)", () => {
+    for (const [bad, field] of [
+      [{ command: "npm test", exit_code: 0 }, /finish\.checks\[0\]\.name/],
+      [{ name: "unit", exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: "npm test", exit_code: "0" }, /finish\.checks\[0\]\.exit_code/],
+      [{ name: "unit", command: "npm test", exit_code: 0, revision: "abc123" }, /finish\.checks\[0\]\.revision/],
+      [{ name: "unit", command: [1, null], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: [{}], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: ["", ""], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: ["", " x"], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: "npm test", exit_code: 0, revision: "1".repeat(40) }, /finish\.checks\[0\]\.revision must equal finish\.revision/],
+    ]) {
+      const f = fixture();
+      assert.throws(submit(f, { ...handoffFinish(f), checks: [bad] }), field);
+      assert.equal(read(f.task.id, f.p).governance.state, "working");
+    }
+  });
+
   it("session-end preserves a submitted governed task and its ownership", () => {
     const f = fixture(); submitted(f);
     const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../../bin/tm", import.meta.url)), "hook", "session-end"], {
@@ -179,6 +227,34 @@ describe("governed completion is shared by every task write surface", () => {
     const tick = await poolTick({ p: f.p, registry: { fake: backend }, caps: {} });
     assert.equal(tick.dispatched[0]?.id, f.task.id);
     assert.equal(state(f.p).claims[f.task.id].session, "worker-1");
+  });
+
+  it("returns a submitted task to working only after the producer records a rework of that revision (TM-347)", async () => {
+    const f = fixture();
+    const backend = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
+    assert.equal((await dispatch(f.task.id, { p: f.p, backend })).ok, true);
+    submitted(f);
+    assert.equal((await dispatch(f.task.id, { p: f.p, backend })).code, "TM_GOVERNED_ADMISSION_REQUIRED");
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "no producer rework recorded");
+    delete f.record.finish; f.record.state = "working";
+    f.record.events = [{ event: "rework", revision: "0".repeat(40) }]; save(f.path, f.record);
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a rework of another revision");
+    f.record.events.push({ event: "rework", revision: f.revision }); save(f.path, f.record);
+    save(f.path, { ...f.record, branch: "some/other-branch" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another branch");
+    save(f.path, { ...f.record, worktree: "/elsewhere" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another worktree");
+    save(f.path, f.record);
+    process.env.TM_DISPATCH_WORKER = "1";
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /dispatched worker/);
+    delete process.env.TM_DISPATCH_WORKER;
+    const g = reworkGovernance(f.task.id, { revision: f.revision, p: f.p }).governance;
+    assert.equal(g.state, "working"); assert.equal(g.revision, undefined); assert.equal(g.workflowRunId, "workflow-1");
+    assert.equal(g.reworks.length, 1); assert.equal(g.reworks[0].revision, f.revision); assert.equal(g.reworks[0].dispatched.run, "fake:1");
+    assert.equal(read(f.task.id, f.p).dispatched, undefined);
+    assert.equal(reworkGovernance(f.task.id, { revision: f.revision, p: f.p }).governance.reworks.length, 1, "idempotent retry");
+    const again = await dispatch(f.task.id, { p: f.p, backend });
+    assert.equal(again.ok, true, again.reason);
   });
 
   // TM-240: a standing reviewer makes admission the default; only an explicit false opts out.

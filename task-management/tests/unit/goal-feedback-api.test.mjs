@@ -37,6 +37,7 @@ describe("goal public contracts", () => {
       delete process.env.TM_MCP_PROFILE;
       const tools = handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { p }).result.tools.map(t => t.name);
       for (const op of ["open", "show", "finding", "assess", "revise", "complete"]) assert.ok(tools.includes(`tm_goal_${op}`));
+      assert.ok(!tools.includes("tm_goal_resume"), "TM-486: resume is a human decision, CLI-only, never an agent tool");
       assert.equal(callTool("tm_goal_open", { id: epic.id, input: admission }, p).ok, true);
       process.env.TM_MCP_PROFILE = "planner";
       assert.equal(callTool("tm_goal_show", { id: epic.id }, p).ok, true);

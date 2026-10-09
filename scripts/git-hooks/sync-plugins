@@ -16,10 +16,16 @@ case "$1:$2" in
   *) before=$(git rev-parse -q --verify ORIG_HEAD 2>/dev/null) ;;
 esac
 [ -n "$before" ] || before=$(git hash-object -t tree /dev/null)
-plugins=$(git diff --name-only "$before" HEAD | cut -d/ -f1 | sort -u | while read -r d; do
-  [ -f "$root/$d/.claude-plugin/plugin.json" ] && echo "$d"; done | paste -sd, -)
-[ -n "$plugins" ] || exit 0
 log="$root/.git/plugin-rsync.log"
+# plugin-rsync copies the working tree, not HEAD, so a plugin with uncommitted changes (another
+# session's edit in progress) is skipped until its tree is clean; the next sync that touches it catches up.
+plugins=$(git diff --name-only "$before" HEAD | cut -d/ -f1 | sort -u | while read -r d; do
+  [ -f "$root/$d/.claude-plugin/plugin.json" ] || continue
+  if [ -n "$(git -C "$root" status --porcelain -- "$d")" ]; then
+    echo "[$(date -Is)] $1 skip $d: uncommitted changes" >>"$log"; continue
+  fi
+  echo "$d"; done | paste -sd, -)
+[ -n "$plugins" ] || exit 0
 echo "[$(date -Is)] $1 $(git rev-parse --short HEAD): $plugins" >>"$log"
 BYTEDESK_MARKETPLACE="$root" nohup "$rsync_bin" "$plugins" >>"$log" 2>&1 &
 exit 0

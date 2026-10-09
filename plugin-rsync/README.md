@@ -12,7 +12,19 @@ plugin-rsync task-management         # one
 plugin-rsync task-management,fleet   # several (commas; spaces also work)
 plugin-rsync --list
 plugin-rsync --dry-run task-management
+plugin-rsync --json task-management            # copy, then report what changed as JSON
+plugin-rsync --json --dry-run task-management  # preview (rsync -n); copies nothing
 ```
+
+`--json` reports, per plugin, every cache refreshed (`host`, `path`, `changed`) and each changed
+path classified as `live` (runs fresh: `bin/` CLIs and the code they load), `needs-reload` (`hooks/`,
+`skills/`, `commands/`, `agents/`, `monitors/`, plugin manifests, `.mcp.json`/`.codex-mcp.json`, every
+file a long-running process starts from — the MCP server entry and each `monitors/monitors.json`
+command, such as `bin/tm-dashboard` — and `lib/`/`src/`/`dist/` when the plugin declares an MCP
+server or a monitor), or a
+`skipped` cache entry for a host with no install. `reloads_required` lists, per host, the plugins
+that need a session reload. It is a report only; it never reloads anything. Default output is
+unchanged. The full rule is in `plugin-rsync --help`.
 
 Source is `BYTEDESK_MARKETPLACE`, or the marketplace checkout next to this plugin, or the `bytedesk` directory marketplace in `~/.claude/plugins/known_marketplaces.json`.
 
@@ -33,6 +45,15 @@ Installed in Claude, Codex or Grok, this plugin's SessionStart hook sets
 that, every commit, merge or rebase in the main checkout rsyncs the plugins it touched (log:
 `.git/plugin-rsync.log`). After a Codex sync, `trust-codex-hooks` records the new hook hashes
 as trusted so Codex runs them without asking.
+
+The same hook keeps each machine current. In the background, at most every 10 minutes, it
+fast-forwards the machine's marketplace checkout (only the one Claude registered as a local
+directory; another checkout the session starts in is set up but never pulled) from `origin/main`;
+the post-merge hook then syncs what the pull changed. Only a main checkout on `main` that is behind
+origin moves; local commits and other branches are left alone. A plugin with uncommitted changes is
+not synced (the sync copies the working tree, so it would publish them); the skip and any failed
+pull are logged to `.git/plugin-rsync.log`, and a failed pull is retried at the next session start.
+A machine that has never pulled this change needs one manual `git pull` to start.
 
 On a machine that only runs Codex, nothing is trusted at first, so the hook cannot trust itself.
 The plugin's MCP server (no tools) does it instead: Codex starts it without approval, and its start

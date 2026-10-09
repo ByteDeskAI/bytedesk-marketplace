@@ -20,6 +20,7 @@ import { cleanup, tempRepo } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, seedGitContract, update, writeConfig } from "../../lib/store.mjs";
 import * as pool from "../../lib/dispatch/pool.mjs";
+import { mailEnv, runTmEnv } from "../../lib/ticket.mjs";
 
 delete process.env.TM_ENFORCE;
 
@@ -232,6 +233,49 @@ describe("TM-235 — the detached pool sheds a worker's pinned PR base", () => {
       assert.equal(key in seen[0], false, `${key} does not reach the pool`);
     }
     assert.equal(seen[0].TM_ROOT, p.root, "the store still does");
+  });
+});
+
+describe("TM-447 — a woken pool and a cross-repo tm child shed agent-orchestration identity", () => {
+  const AO_IDENTITY = { AO_AGENT_ID: "worker-w", AO_CONSUMER: "/repo/a", AO_SESSION_AGENT_ID: "worker-w", AO_SESSION_CONSUMER: "/repo/a", AO_AGENT_TOKEN: "tok", AO_RUN_DIR: "/run", AO_LEAD_ID: "lead-a", AO_SOMETHING_NEW: "x", AO_RESPONSIVE_TTL_MS: "99999999", AO_LEAD_HEARTBEAT_TTL_MS: "99999999" };
+
+  it("review: TMUX_PANE never reaches the pool or a runTm child, and TMUX not a runTm child", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    const seen = [];
+    pool.ensurePool(p, { spawnImpl: (_c, _a, o) => (seen.push(o.env), { pid: 4244, unref() {} }), env: { PATH: process.env.PATH, TM_DISPATCH_REGISTRY: REGISTRY, TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%7" } });
+    assert.equal("TMUX_PANE" in seen[0], false, "a lead's pane id is its identity to ao-topology manage");
+    const child = runTmEnv("/repo/b", { PATH: "/usr/bin", TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%7" });
+    assert.equal("TMUX" in child, false);
+    assert.equal("TMUX_PANE" in child, false);
+  });
+
+  it("review: mail to a lead carries only the sender identity of the caller's AO env", () => {
+    const env = mailEnv("/repo/b", { PATH: "/usr/bin", TMUX_PANE: "%7", ...AO_IDENTITY, ...AO_CONFIG });
+    assert.deepEqual(Object.keys(env).filter((k) => k.startsWith("AO_")).sort(), ["AO_AGENT_ID", "AO_CONSUMER", "AO_SESSION_AGENT_ID", "AO_SESSION_CONSUMER", ...Object.keys(AO_CONFIG)].sort());
+    assert.equal("TMUX_PANE" in env, false);
+  });
+  const AO_CONFIG = { AO_HOME: "/ao", AO_NATS_URL: "nats://x", AO_TRANSPORT: "nats" };
+
+  it("B's pool env has no AO_AGENT_ID or other AO identity, and keeps AO machine config", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    const seen = [];
+    const spawnImpl = (_cmd, _args, options) => (seen.push(options.env), { pid: 4243, unref() {} });
+    const res = pool.ensurePool(p, { spawnImpl, env: { PATH: process.env.PATH, TM_DISPATCH_REGISTRY: REGISTRY, TMUX: "", ...AO_IDENTITY, ...AO_CONFIG } });
+    assert.equal(res.action, "started");
+    assert.deepEqual(Object.keys(seen[0]).filter((k) => k.startsWith("AO_")).sort(), Object.keys(AO_CONFIG).sort());
+  });
+
+  it("a runTm child (file, notify, pool ensure on the target) gets the same env", () => {
+    const env = runTmEnv("/repo/b", { PATH: "/usr/bin", CLAUDE_PROJECT_DIR: "/repo/a", ...AO_IDENTITY, ...AO_CONFIG });
+    assert.deepEqual(Object.keys(env).filter((k) => k.startsWith("AO_")).sort(), Object.keys(AO_CONFIG).sort());
+    assert.equal(env.TM_ROOT, "/repo/b");
+    assert.equal("CLAUDE_PROJECT_DIR" in env, false);
   });
 });
 

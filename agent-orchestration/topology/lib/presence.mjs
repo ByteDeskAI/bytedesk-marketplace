@@ -14,7 +14,8 @@ import { censusPath, withStaleness } from "./census.mjs";
 import { queueDepth } from "./mailbox.mjs";
 import { roleVisual } from "./identity.mjs";
 import { sessionIdentity } from "./session-names.mjs";
-import { invariant, run } from "./util.mjs";
+import { invariant } from "./util.mjs";
+import { safeGit } from "./safe-git.mjs";
 import { durableTopologyRoot } from './discovery.mjs';
 
 export const PRESENCE_BINDING_FIELDS = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
@@ -62,7 +63,7 @@ async function durableReplace(path, text) {
 }
 async function rootCheckout(consumer, identity) {
   if(identity.kind !== "git-common-dir") return realpath(consumer).catch(() => resolve(consumer));
-  const result = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], {allowFailure:true});
+  const result = await safeGit(consumer, ["worktree", "list", "--porcelain"], {allowFailure:true});
   const first = result.stdout.split("\n").find(line => line.startsWith("worktree "));
   invariant(first, "TOPOLOGY_PRESENCE_REPOSITORY", "Cannot resolve the main repository checkout.");
   return realpath(first.slice(9));
@@ -225,7 +226,7 @@ export async function collectPresenceAgents({consumer, repositoryRoot, identity,
   repositoryRoot ??= await rootCheckout(consumer, identity);
   const roots = [...new Set([repositoryRoot, resolve(consumer)])];
   if(identity.kind === "git-common-dir") {
-    const listing = await run("git", ["-C", consumer, "worktree", "list", "--porcelain"], {allowFailure:true});
+    const listing = await safeGit(consumer, ["worktree", "list", "--porcelain"], {allowFailure:true});
     invariant(listing.code === 0,"TOPOLOGY_PRESENCE_REPOSITORY","Cannot enumerate repository worktrees.");
     for(const line of listing.stdout.split("\n")) if(line.startsWith("worktree ")) {
       const root=await realpath(line.slice(9)).catch(()=>null);
