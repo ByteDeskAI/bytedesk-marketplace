@@ -8,8 +8,11 @@
   (byte-identical with agent-orchestration's) now runs git from a root-owned pinned path
   (`/usr/bin`, `/bin`, `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned
   ssh, takes `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, pins
-  `core.attributesFile` empty, and refuses every call when a repository scope sets any `http.*` key
-  or `remote.<name>.proxy`. Governance's server compare (`runGh`) now goes through `safeGhSync`: it
+  `core.attributesFile` empty, and refuses every call when a repository scope sets an http key that
+  redirects or intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`,
+  `sslKey`, `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL), `remote.<name>.proxy`,
+  or a `remote.<name>.url` whose name contains `:` or `/`. Harmless keys such as `http.postBuffer`
+  pass. Governance's server compare (`runGh`) now goes through `safeGhSync`: it
   refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
   the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
   `SSL_CERT_FILE`/`SSL_CERT_DIR`.

@@ -16,9 +16,12 @@
 //     global (operator's ~/.gitconfig) ones are re-added;
 //   - FAIL CLOSED: a repository scope that sets url.<base>.insteadOf / pushInsteadOf (rewrites the
 //     URL a host fetch reads), remote.<name>.vcs (a remote helper), lfs.standalonetransferagent or
-//     lfs.customtransfer.* (programs git-lfs runs), any http.* key or remote.<name>.proxy (a proxy, a
-//     CA, sslVerify=false or a per-URL http.<url>.* form, which outranks any generic override; TM-475)
-//     makes every call refuse with exit 128; none of them can be neutralised by an override;
+//     lfs.customtransfer.* (programs git-lfs runs), an http key that redirects or intercepts a
+//     transfer (proxy, sslVerify, sslCAInfo, sslCAPath, sslCert, sslKey, curloptResolve, extraHeader,
+//     cookieFile, plain or per-URL http.<url>.*, which outranks any generic override),
+//     remote.<name>.proxy, or a remote.<name>.url/pushurl whose name holds `:` or `/` (a remote named
+//     like a URL captures `git fetch <that url>`) (TM-475) makes every call refuse with exit 128; none
+//     of them can be neutralised by an override. Harmless http keys (postBuffer, version) still pass;
 //   - remote.<name>.uploadpack/receivepack are first-value-wins, so no override reaches them: fetch,
 //     pull and ls-remote get --upload-pack=git-upload-pack and push gets --receive-pack=git-receive-pack;
 //   - diff-family commands get --no-ext-diff --no-textconv;
@@ -107,8 +110,8 @@ const SUBCOMMAND_FLAGS = Object.freeze({
   push: ['--receive-pack=git-receive-pack'],
   ...Object.fromEntries(DIFF_FAMILY.map(name => [name, ['--no-ext-diff', '--no-textconv']])),
 });
-const DRIVER_KEYS = '^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\..+|remote\\..+\\.proxy)$';
-const REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\..+|remote\..+\.proxy)$/;
+const DRIVER_KEYS = '^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\.(.+\\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\\..+\\.proxy|remote\\..*[:/].*\\.(url|pushurl))$';
+const REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\.(.+\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\..+\.proxy|remote\..*[:/].*\.(url|pushurl))$/;
 const UNTRUSTED_SCOPES = new Set(['local', 'worktree', 'command', 'unknown']);
 const pair = entry => { const at = entry.indexOf('='); return [entry.slice(0, at), entry.slice(at + 1)]; };
 

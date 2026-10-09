@@ -25888,8 +25888,8 @@ var SUBCOMMAND_FLAGS = Object.freeze({
   push: ["--receive-pack=git-receive-pack"],
   ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
 });
-var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\..+|remote\\..+\\.proxy)$";
-var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\..+|remote\..+\.proxy)$/;
+var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\.(.+\\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\\..+\\.proxy|remote\\..*[:/].*\\.(url|pushurl))$";
+var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\.(.+\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\..+\.proxy|remote\..*[:/].*\.(url|pushurl))$/;
 var UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
 var pair = (entry) => {
   const at2 = entry.indexOf("=");

@@ -308,14 +308,33 @@ test('TM-475 review H1: a hosts.yml naming only another host never moves host gh
 
 // TM-475 review M2: a repository-scope http.* (a proxy, sslVerify=false, a per-URL http.<url>.* form that
 // outranks any generic override) or remote.<name>.proxy would let a worker intercept a host fetch.
-test('TM-475 review M2: repository-scope http.* and remote.<name>.proxy refuse every host git call', async t => {
+test('TM-475 review M2: repository-scope transfer-redirecting http keys, remote proxies and URL-named remotes refuse every host git call', async t => {
   const { repo } = await repoWithOrigin(t);
   assert.equal(safeGitSync(repo, ['status']).status, 0, 'control: a clean repository runs');
-  for (const [key, value] of [['http.proxy', 'http://127.0.0.1:9'], ['http.sslVerify', 'false'], ['http.https://github.com/.proxy', 'http://127.0.0.1:9'], ['remote.origin.proxy', 'http://127.0.0.1:9']]) {
+  const escape = text => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const refused = [
+    ['http.proxy', 'http://127.0.0.1:9'], ['http.sslVerify', 'false'], ['http.https://github.com/.sslVerify', 'false'],
+    ['http.https://github.com/.proxy', 'http://127.0.0.1:9'], ['http.sslCAInfo', '/tmp/evil.pem'], ['http.sslCAPath', '/tmp/evil-ca'],
+    ['http.sslCert', '/tmp/c.pem'], ['http.sslKey', '/tmp/k.pem'], ['http.curloptResolve', 'github.com:443:127.0.0.1'],
+    ['http.https://github.com/.extraHeader', 'X-Evil: 1'], ['http.cookieFile', '/tmp/cookies'], ['remote.origin.proxy', 'http://127.0.0.1:9'],
+    // A remote named like a URL captures `git fetch <that url>` (review round 2, item 3).
+    ['remote.https://github.com/O/R.url', 'file:///evil'], ['remote.git@github.com:O/R.pushurl', 'file:///evil'],
+  ];
+  for (const [key, value] of refused) {
     raw(repo, 'config', key, value);
-    const r = safeGitSync(repo, ['status']);
+    const r = safeGitSync(repo, ['rev-parse', 'HEAD']);
     assert.equal(r.status, 128, `${key} was not refused`);
-    assert.match(r.stderr, new RegExp(`safe-git refused .*${key.toLowerCase().replace(/[.:/]/g, c => `\\${c}`)}`), r.stderr);
+    assert.match(r.stderr, new RegExp(`safe-git refused .*${escape(key)}`, 'i'), r.stderr);
     raw(repo, 'config', '--unset-all', key);
   }
+});
+
+test('TM-475 review M2: harmless repository-scope http keys (postBuffer, version) never block host git', async t => {
+  const { repo } = await repoWithOrigin(t);
+  for (const [key, value] of [['http.postBuffer', '524288000'], ['http.version', 'HTTP/1.1'], ['http.https://github.com/.lowSpeedLimit', '1000'], ['remote.origin.url', join(repo, '..', 'origin.git')]]) {
+    raw(repo, 'config', key, value);
+    const r = safeGitSync(repo, ['status']);
+    assert.equal(r.status, 0, `${key} was refused: ${r.stderr}`);
+  }
+  assert.equal(safeGitSync(repo, ['config', '--get', 'remote.origin.url']).stdout.trim(), join(repo, '..', 'origin.git'), 'an ordinary remote URL is not overridden');
 });

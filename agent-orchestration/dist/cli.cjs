@@ -232,8 +232,8 @@ var init_safe_git = __esm({
       push: ["--receive-pack=git-receive-pack"],
       ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
     });
-    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\..+|remote\\..+\\.proxy)$";
-    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\..+|remote\..+\.proxy)$/;
+    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\.(.+\\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\\..+\\.proxy|remote\\..*[:/].*\\.(url|pushurl))$";
+    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\.(.+\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\..+\.proxy|remote\..*[:/].*\.(url|pushurl))$/;
     UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
     pair = (entry) => {
       const at2 = entry.indexOf("=");
@@ -504,6 +504,7 @@ async function pinnedFetchUrl(repoDir, { env = process.env, home = (0, import_no
     if (githubRepoOfUrl(url2)?.toLowerCase() === github.toLowerCase()) return url2;
     fail("TOPOLOGY_REPOSITORY_PIN", `origin is ${url2}, which is not the pinned GitHub repository ${github}; refusing to fetch from it. If the change is intended, the operator writes {"url": "<fetch url>"} to ${path3}.`, { origin: url2, pinned: github });
   }
+  if (githubRepoOfUrl(url2)) return url2;
   const dirs = await safeGit(repoDir, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 });
   const [gitDir, commonDir] = dirs.stdout.trim().split("\n");
   if (dirs.code !== 0 || !gitDir || gitDir !== commonDir) fail("TOPOLOGY_REPOSITORY_PIN", `the origin URL is pinned only from the main checkout, never from a linked worktree (${repoDir}); run a host fetch there first`);
@@ -63367,10 +63368,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "07fcff2b16e71c2ebc311f40bcf856b348297f9051060a1f5e7d9424a79faf16";
+  return false ? null : "f2e1d6b28a9bdf78b92f2004c1d80939641818545d6999c0f8240ae33a9d44df";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "07fcff2b16e71c2ebc311f40bcf856b348297f9051060a1f5e7d9424a79faf16";
+  const fingerprint2 = false ? null : "f2e1d6b28a9bdf78b92f2004c1d80939641818545d6999c0f8240ae33a9d44df";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -63987,7 +63988,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "07fcff2b16e71c2ebc311f40bcf856b348297f9051060a1f5e7d9424a79faf16",
+  sourceFingerprint: false ? null : "f2e1d6b28a9bdf78b92f2004c1d80939641818545d6999c0f8240ae33a9d44df",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
