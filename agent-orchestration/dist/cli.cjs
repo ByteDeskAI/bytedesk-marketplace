@@ -142,13 +142,14 @@ function listArgs(cwd, args) {
       location.push(args[i], args[i + 1]);
       i += 2;
     } else if (args[i] === "-c") i += 2;
-    else {
-      if (/^--(git-dir|work-tree)=/.test(args[i])) location.push(args[i]);
+    else if (/^--(git-dir|work-tree)=/.test(args[i])) {
+      location.push(args[i]);
       i += 1;
-    }
+    } else return { list: null, refusal: `host git does not accept the leading option ${args[i]}; name the repository with -C or --git-dir` };
   }
-  if (args[i] === "clone" && !cwd && !location.length) return null;
-  return [...at(cwd), ...location, "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+  const listing = ["config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+  if (args[i] === "clone" && !cwd && !location.length) return { list: ["config", "--global", ...listing.slice(1)], refusal: null };
+  return { list: [...at(cwd), ...location, ...listing], refusal: null };
 }
 function safeGitPlan(cwd, args, listing = "") {
   const { overrides, refusal } = driverOverrides(listing);
@@ -167,10 +168,11 @@ function execAsync(argv, config2, options) {
   });
 }
 async function safeGit(cwd, args, options = {}) {
-  const list2 = listArgs(cwd, args);
+  const { list: list2, refusal } = listArgs(cwd, args);
   const listing = list2 ? await execAsync(list2, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: "" };
   const plan = safeGitPlan(cwd, args, listing.stdout);
-  const result = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
+  const why = refusal || plan.refusal;
+  const result = why ? { code: 128, stdout: "", stderr: refused(args, why) } : await execAsync(plan.argv, plan.config, options);
   if (result.code !== 0 && !options.allowFailure) {
     throw Object.assign(new Error(`git ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`), result);
   }
@@ -179,8 +181,9 @@ async function safeGit(cwd, args, options = {}) {
 function safeGitSync(cwd, args, options = {}) {
   if (!GIT) return { status: 127, stdout: "", stderr: NO_GIT, error: void 0 };
   const base = { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
-  const list2 = listArgs(cwd, args);
-  const listing = list2 ? (0, import_node_child_process.spawnSync)(GIT, list2, { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] }) : { stdout: "" };
+  const { list: list2, refusal } = listArgs(cwd, args);
+  if (refusal) return { status: 128, stdout: "", stderr: refused(args, refusal), error: void 0 };
+  const listing = (0, import_node_child_process.spawnSync)(GIT, list2, { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] });
   const plan = safeGitPlan(cwd, args, listing.stdout);
   if (plan.refusal) return { status: 128, stdout: "", stderr: refused(args, plan.refusal), error: void 0 };
   return (0, import_node_child_process.spawnSync)(GIT, plan.argv, { ...base, env: safeGitEnv(options.env, plan.config), input: options.input, stdio: [options.input != null ? "pipe" : "ignore", "pipe", "pipe"] });
@@ -64324,10 +64327,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "4958f358d928b9d4df608964b1356b62b7539fdfdc59e96fa552c80351661456";
+  return false ? null : "6f6213c2e123127ae54ea4172cb5ef6f9ff847c8171e02636db013de1ecd5199";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "4958f358d928b9d4df608964b1356b62b7539fdfdc59e96fa552c80351661456";
+  const fingerprint2 = false ? null : "6f6213c2e123127ae54ea4172cb5ef6f9ff847c8171e02636db013de1ecd5199";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64944,7 +64947,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "4958f358d928b9d4df608964b1356b62b7539fdfdc59e96fa552c80351661456",
+  sourceFingerprint: false ? null : "6f6213c2e123127ae54ea4172cb5ef6f9ff847c8171e02636db013de1ecd5199",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

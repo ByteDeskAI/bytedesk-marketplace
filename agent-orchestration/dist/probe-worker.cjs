@@ -25951,13 +25951,14 @@ function listArgs(cwd2, args) {
       location.push(args[i], args[i + 1]);
       i += 2;
     } else if (args[i] === "-c") i += 2;
-    else {
-      if (/^--(git-dir|work-tree)=/.test(args[i])) location.push(args[i]);
+    else if (/^--(git-dir|work-tree)=/.test(args[i])) {
+      location.push(args[i]);
       i += 1;
-    }
+    } else return { list: null, refusal: `host git does not accept the leading option ${args[i]}; name the repository with -C or --git-dir` };
   }
-  if (args[i] === "clone" && !cwd2 && !location.length) return null;
-  return [...at(cwd2), ...location, "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+  const listing = ["config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+  if (args[i] === "clone" && !cwd2 && !location.length) return { list: ["config", "--global", ...listing.slice(1)], refusal: null };
+  return { list: [...at(cwd2), ...location, ...listing], refusal: null };
 }
 function safeGitPlan(cwd2, args, listing = "") {
   const { overrides, refusal } = driverOverrides(listing);
@@ -25977,10 +25978,11 @@ function execAsync(argv, config2, options) {
   });
 }
 async function safeGit(cwd2, args, options = {}) {
-  const list = listArgs(cwd2, args);
+  const { list, refusal } = listArgs(cwd2, args);
   const listing = list ? await execAsync(list, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: "" };
   const plan = safeGitPlan(cwd2, args, listing.stdout);
-  const result = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
+  const why = refusal || plan.refusal;
+  const result = why ? { code: 128, stdout: "", stderr: refused(args, why) } : await execAsync(plan.argv, plan.config, options);
   if (result.code !== 0 && !options.allowFailure) {
     throw Object.assign(new Error(`git ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`), result);
   }

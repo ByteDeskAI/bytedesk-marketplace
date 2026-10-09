@@ -32,7 +32,9 @@
  The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
   `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
   an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
-  repository were not listed. `hostGh` now runs
+  repository were not listed. A clone with no location lists the global scope, so the operator's credential
+  helpers still apply, and a leading option other than `-C`, `-c`, `--git-dir` or `--work-tree`
+  (for example `--namespace`, `--config-env` or `--bare`) is refused. `hostGh` now runs
   through `safeGh`: it refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com`
   (with none, gh takes the only host in `hosts.yml` as its default), and removes `GH_REPO`,
   `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR`. On Windows git and ssh

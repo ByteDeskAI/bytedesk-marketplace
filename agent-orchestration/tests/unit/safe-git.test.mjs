@@ -362,3 +362,42 @@ test('PR #241 CI: the driver listing reads the repository named by -C / --git-di
   // A call with no location still checks the cwd repository, which it reads.
   assert.equal(safeGitSync(null, ['status']).status, 128, 'the cwd repository was not checked for a call that reads it');
 });
+
+// Review of 97fba771, M1: a clone with no location still lists the GLOBAL scope, because
+// SAFE_GIT_CONFIG empties credential.helper and only listed global helpers are re-added; without it a
+// private https clone ran with no helper at all. The global file is the passwd home's, so a child
+// process stands a fake home in for os.userInfo() and runs the exact listing safe-git runs.
+test('97fba771 review M1: a clone with no location still carries the global credential.helper', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const fakeHome = join(dir, 'passwd-home');
+  execFileSync('mkdir', ['-p', fakeHome]);
+  await writeFile(join(fakeHome, '.gitconfig'), '[credential]\n\thelper = !tm475-operator-helper\n');
+  const lib = new URL('../../topology/lib/safe-git.mjs', import.meta.url).href;
+  const script = `
+    import os from 'node:os'; import { syncBuiltinESMExports } from 'node:module'; import { spawnSync } from 'node:child_process';
+    const real = os.userInfo; os.userInfo = (...a) => ({ ...real(...a), homedir: ${JSON.stringify(fakeHome)} }); syncBuiltinESMExports();
+    const sg = await import(${JSON.stringify(lib)});
+    const { list } = sg.listArgs(null, ['clone', '--no-checkout', '--', 'https://github.com/o/private.git', '/tmp/x']);
+    const listing = spawnSync('git', list, { encoding: 'utf8', env: sg.safeGitEnv(process.env) });
+    process.stdout.write(JSON.stringify({ list, overrides: sg.driverOverrides(listing.stdout).overrides }));`;
+  const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', cwd: dir }));
+  assert.ok(Array.isArray(out.list) && out.list.includes('--global'), `the clone listing is ${JSON.stringify(out.list)}`);
+  assert.deepEqual(out.overrides.filter(([key]) => key.startsWith('credential.')), [['credential.helper', '!tm475-operator-helper']]);
+});
+
+// Review of 97fba771, L1/L2: a leading option the scan does not understand could make the listing read
+// another repository than git uses (--namespace and --config-env take a separate value; --bare makes git
+// take the original cwd as its git directory despite -C). Only -C, -c, --git-dir and --work-tree pass.
+test('97fba771 review L1/L2: an unrecognised leading option, and --bare, are refused', async t => {
+  const { repo } = await repoWithOrigin(t);
+  for (const args of [['--namespace', 'ns', '-C', repo, 'status'], ['--config-env', 'core.pager=PAGER', '-C', repo, 'status'], ['--bare', '-C', repo, 'status'], ['--no-pager', '-C', repo, 'status']]) {
+    const sync = safeGitSync(null, args), async_ = await safeGit(null, args, { allowFailure: true });
+    for (const r of [{ code: sync.status, stderr: sync.stderr }, async_]) {
+      assert.equal(r.code, 128, `${args[0]} was not refused`);
+      assert.match(r.stderr, new RegExp(`does not accept the leading option ${args[0]}`));
+    }
+  }
+  // The forms callers use still run.
+  for (const args of [['-C', repo, 'status'], ['-c', 'user.name=T', '-C', repo, 'status'], [`--git-dir=${join(repo, '.git')}`, 'rev-parse', 'HEAD'], ['--git-dir', join(repo, '.git'), '--work-tree', repo, 'status']])
+    assert.equal(safeGitSync(null, args).status, 0, args.join(' '));
+});
