@@ -134,8 +134,8 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // new nonce, look for an ack against a probe still inside its own expiry — that is a lead which
   // was MID-TURN when the last ring landed, read it at its next boundary, and ran the command
   // correctly and promptly. It is the normal case for a working agent, and it used to be discarded.
-  const late = await lateAck(dir, record, log, { readOnly });
-  if (late && await current()) { log(`lead acknowledged probe ${late.nonce} after the previous wait returned`); onProof({ source: "late", age_ms: late.age_ms }); return true; }
+  const late = await lateAck(dir, record, log, { readOnly, confirm: current });
+  if (late) { log(`lead acknowledged probe ${late.nonce} after the previous wait returned`); onProof({ source: "late", age_ms: late.age_ms }); return true; }
   // TM-222. A LEAD MID-TURN IS WORKING, NOT UNRESPONSIVE. Its harness fires hooks between and inside
   // turns without the model's involvement, and each one leaves a heartbeat bound to this pane. A
   // fresh one is host-side proof that a live agent runs in this exact incarnation, so the lead is
@@ -273,7 +273,7 @@ export async function lateAckForTest(dir, record, log = () => {}) { return (awai
 /** The real probe-minting path, so a test can assert which files survive the wait. */
 export async function responsiveForTest(record, ackTimeoutMs, opts) { return defaultResponsive(record, ackTimeoutMs, opts); }
 
-async function lateAck(dir, record, log = () => {}, { readOnly = false } = {}) {
+async function lateAck(dir, record, log = () => {}, { readOnly = false, confirm = async () => true } = {}) {
   for (const name of await readdir(dir).catch(() => [])) {
     if (!name.endsWith(".ack.json")) continue;
     const nonce = name.slice(0, -".ack.json".length);
@@ -284,9 +284,12 @@ async function lateAck(dir, record, log = () => {}, { readOnly = false } = {}) {
     // The probe's own expiry is the line, exactly as `leadNonceAck` enforces it at write time.
     const bound = probe?.nonce === nonce && probe.repo_id === record.repo_id && probe.agent_id === record.agent_id && probe.session === record.session && ack.session === record.session && sameIncarnation(probe.binding, record.binding) && sameIncarnation(ack.binding, record.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
-      // Recorded before the removal, for the same reason as in the waiter: see defaultResponsive.
-      if (!readOnly) await rememberAck(dir, record, nonce);
+      // The incarnation is confirmed and the answer recorded BEFORE the removal, for the same reason
+      // as in the waiter (see defaultResponsive). An incarnation gone by now has proven nothing.
+      const live = await confirm();
+      if (live && !readOnly) await rememberAck(dir, record, nonce);
       if (!readOnly) await Promise.all([rm(join(dir, `${nonce}.json`), { force: true }), rm(join(dir, name), { force: true })]);
+      if (!live) return null;
       const at = Date.parse(ack.created_at);
       return { nonce, age_ms: Number.isFinite(at) ? Math.max(0, Date.now() - at) : null };
     }

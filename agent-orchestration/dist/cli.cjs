@@ -33791,8 +33791,8 @@ async function defaultResponsive(record2, ackTimeoutMs, { registryDir, log = () 
     onProof({ source: "cached", age_ms: cached3.age_ms });
     return true;
   }
-  const late = await lateAck(dir, record2, log, { readOnly });
-  if (late && await current()) {
+  const late = await lateAck(dir, record2, log, { readOnly, confirm: current });
+  if (late) {
     log(`lead acknowledged probe ${late.nonce} after the previous wait returned`);
     onProof({ source: "late", age_ms: late.age_ms });
     return true;
@@ -33882,7 +33882,7 @@ async function responsiveForTest(record2, ackTimeoutMs, opts) {
   return defaultResponsive(record2, ackTimeoutMs, opts);
 }
 async function lateAck(dir, record2, log = () => {
-}, { readOnly = false } = {}) {
+}, { readOnly = false, confirm = async () => true } = {}) {
   for (const name of await (0, import_promises58.readdir)(dir).catch(() => [])) {
     if (!name.endsWith(".ack.json")) continue;
     const nonce = name.slice(0, -".ack.json".length);
@@ -33892,8 +33892,10 @@ async function lateAck(dir, record2, log = () => {
     if (!mine) continue;
     const bound = probe?.nonce === nonce && probe.repo_id === record2.repo_id && probe.agent_id === record2.agent_id && probe.session === record2.session && ack.session === record2.session && sameIncarnation(probe.binding, record2.binding) && sameIncarnation(ack.binding, record2.binding);
     if (bound && Number(probe.expires_at) >= Date.now()) {
-      if (!readOnly) await rememberAck(dir, record2, nonce);
+      const live2 = await confirm();
+      if (live2 && !readOnly) await rememberAck(dir, record2, nonce);
       if (!readOnly) await Promise.all([(0, import_promises58.rm)((0, import_node_path66.join)(dir, `${nonce}.json`), { force: true }), (0, import_promises58.rm)((0, import_node_path66.join)(dir, name), { force: true })]);
+      if (!live2) return null;
       const at2 = Date.parse(ack.created_at);
       return { nonce, age_ms: Number.isFinite(at2) ? Math.max(0, Date.now() - at2) : null };
     }
@@ -64325,10 +64327,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "484535efa045ca4d2e0dc4d15fa08c608e12a6b50360f5efa91f520839d59a43";
+  return false ? null : "06910727660901ab58f05f16fe4d3e3c865557fa7759af621774653acae57203";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "484535efa045ca4d2e0dc4d15fa08c608e12a6b50360f5efa91f520839d59a43";
+  const fingerprint2 = false ? null : "06910727660901ab58f05f16fe4d3e3c865557fa7759af621774653acae57203";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64945,7 +64947,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "484535efa045ca4d2e0dc4d15fa08c608e12a6b50360f5efa91f520839d59a43",
+  sourceFingerprint: false ? null : "06910727660901ab58f05f16fe4d3e3c865557fa7759af621774653acae57203",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
