@@ -405,8 +405,8 @@ export function handoff(id, p = paths()) {
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",
       `- Push your own branch: git push -u origin ${branch}`,
-      "- Run every gh and git push command on its own, as one plain command: no &&, ;, |, $(…), redirection or env prefix. The worker guard refuses anything else that mentions them (TM-481). Put a long PR body in a file and pass --body-file.",
-      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"${prBase}`,
+      "- Run every gh and git push command on its own, as one plain command: no &&, ;, |, $(…), redirection or env prefix. The worker guard refuses anything else that mentions them (TM-481). Push with `git push -u origin <your branch>` — not a bare `git push` or `--set-upstream`.",
+      `- Write the PR body (what changed, and how you verified it) to a file such as pr-body.md, then open the PR with --body-file — an inline --body with Markdown backticks, $, < or > is refused: gh pr create --title "${t.id}: ${t.title}" --body-file pr-body.md${prBase}`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       ...(t.governance
         ? governedFinishSteps(t, p)

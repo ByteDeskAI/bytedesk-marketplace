@@ -139,7 +139,7 @@ function interpreterCode(tool, args, bodies = []) {
 }
 
 /** Commands that may take the word `gh` as an argument without running it. */
-const READS_GH = new Set(["echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "which", "type", "whereis", "man", "info", "cat", "less", "head", "tail", "ls", "test", "[", "tm", "apropos", "hash"]);
+const READS_GH = new Set(["echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "which", "type", "whereis", "man", "info", "cat", "less", "head", "tail", "wc", "ls", "test", "[", "tm", "apropos", "hash"]);
 
 /** TM-481: a GraphQL call that names a merge mutation, or whose query this guard cannot read. */
 const graphqlMayMerge = (args) =>
@@ -809,7 +809,7 @@ const READ_VERBS = { pr: ["view", "status", "checks", "diff", "list"], run: ["vi
 const MERGE_METHODS = ["--merge", "--squash", "--rebase"];
 
 export const ALLOWED_FORMS = [
-  "gh pr create … (no -R/--repo; --base <integration branch>)",
+  "gh pr create --base <integration branch> --title … --body-file <file> (no -R/--repo)",
   "gh pr view|status|checks|diff|list …",
   "gh run view|list|watch …",
   "gh issue view|list …",
@@ -818,16 +818,37 @@ export const ALLOWED_FORMS = [
   "git push origin HEAD:<your branch>",
 ];
 
+/**
+ * U1: programs that only read or record text and cannot run a command, so a line made of ONE of them
+ * may mention gh or a push freely (`git commit -m "retry the push"`, `rg graphql lib/`). Only when the
+ * line is plain and the program is the first word with nothing before it. Nothing that takes a command
+ * to run (`find -exec`, `xargs`, `watch`) is here, and the options that make these run one are refused.
+ */
+const TEXT_ONLY = new Set(["grep", "rg", "cat", "head", "tail", "less", "wc", "tm", ".bytedesk/task-management/bin/tm", "./.bytedesk/task-management/bin/tm"]);
+const TEXT_ONLY_GIT = new Set(["commit", "log", "diff", "show", "status"]);
+/** Options that make a "text only" program run another one: rg's preprocessor, git's external diff/textconv. */
+const RUNS_HELPER = /^(--pre(=|$)|--pre-glob|--ext-diff|--textconv|--exec)/;
+
+function textOnly(w) {
+  if (w.some((a) => RUNS_HELPER.test(a))) return false;
+  if (TEXT_ONLY.has(w[0])) return true;
+  return w[0] === "git" && TEXT_ONLY_GIT.has(w[1]); // `git <sub>` directly: no -c, -C or other global option first
+}
+
 function allowlisted(src, ctx) {
   const stripped = src.replace(/['"\\]/g, "");
   if (!MENTIONS_GUARDED.test(src) && !MENTIONS_GUARDED.test(stripped)) return ALLOW;
   const refuse = (why) =>
-    block("worker-allowlist", `${why} A dispatch worker may run gh or git push only as one plain command on its own line, in one of these forms: ${ALLOWED_FORMS.map((f) => `\`${f}\``).join("; ")}. Anything else that mentions gh, git push, GraphQL or api.github.com is refused — that needs a human.`);
-  if (NOT_SIMPLE.test(src)) return refuse("This line chains, pipes, substitutes, redirects, expands or escapes.");
+    block("worker-allowlist", `${why} A dispatch worker may run gh or git push only as one plain command on its own line, in one of these forms: ${ALLOWED_FORMS.map((f) => `\`${f}\``).join("; ")}. Refused, with what to use instead: bare \`git push\` or \`--set-upstream\` → \`git push -u origin <your branch>\`; an inline --body with backticks, $, <, > or ; → \`gh pr create --body-file <file>\`; \`--delete-branch\` → leave the branch, it is cleaned up after the merge; anything chained with && or ; → run each command on its own. Anything else that mentions gh, git push, GraphQL or api.github.com is refused — that needs a human.`);
+  if (NOT_SIMPLE.test(src)) {
+    if (/^\s*gh\s+pr\s+(create|new)\b/.test(src)) return refuse("This `gh pr create` has shell syntax in it (often Markdown in an inline --body): use --body-file <file> for the body.");
+    return refuse("This line chains, pipes, substitutes, redirects, expands or escapes.");
+  }
   const commands = [];
   const { ok } = read(src, 0, commands, null);
   if (!ok || commands.length !== 1 || commands[0].bodies.length) return refuse("This is not exactly one simple command.");
   const w = commands[0].words;
+  if (textOnly(w)) return ALLOW; // U1: the table behind still checks it
   if (w[0] === "gh") {
     if (hasRepoOption(w)) return refuse("No -R/--repo.");
     const [, noun, verb, ...rest] = w;
@@ -836,9 +857,10 @@ function allowlisted(src, ctx) {
     if (noun === "pr" && verb === "merge") {
       const [target, ...flags] = rest;
       const methods = flags.filter((f) => MERGE_METHODS.includes(f));
-      const extra = flags.filter((f) => !MERGE_METHODS.includes(f) && f !== "--auto" && f !== "--delete-branch");
+      if (flags.some((f) => f === "--delete-branch" || f === "-d")) return refuse("No --delete-branch: a worker never deletes a branch.");
+      const extra = flags.filter((f) => !MERGE_METHODS.includes(f) && f !== "--auto");
       if (target && !target.startsWith("-") && methods.length === 1 && !extra.length) return ALLOW; // the table decides own/checks/repo
-      return refuse("A merge is `gh pr merge <your branch>` with exactly one of --merge/--squash/--rebase.");
+      return refuse("A merge is `gh pr merge <your branch>` with exactly one of --merge/--squash/--rebase, and optionally --auto.");
     }
     return refuse(`\`gh ${noun ?? ""} ${verb ?? ""}\` is not an allowed form.`);
   }
@@ -847,6 +869,8 @@ function allowlisted(src, ctx) {
     const args = w.slice(2);
     const forms = own ? [["origin", own], ["-u", "origin", own], ["origin", `HEAD:${own}`]] : [];
     if (forms.some((f) => f.length === args.length && f.every((x, i) => x === args[i]))) return ALLOW;
+    if (own && args.length === 0) return refuse(`A bare \`git push\` relies on upstream config; name the branch: \`git push -u origin ${own}\`.`);
+    if (own && args.includes("--set-upstream")) return refuse(`Use the short form: \`git push -u origin ${own}\`.`);
     return refuse(own ? `A push is \`git push -u origin ${own}\` or \`git push origin HEAD:${own}\` — nothing else: no --force, no +refspec, no other branch.` : "No own branch is pinned for this worker, so no push is allowed.");
   }
   return refuse("This command mentions gh, git push, GraphQL or the GitHub API without being an allowed gh or git push form (a launcher, wrapper, interpreter or env prefix).");

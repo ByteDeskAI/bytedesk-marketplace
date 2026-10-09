@@ -272,6 +272,12 @@ describe("guardCommand — TM-481: the worker allowlist (fail closed)", () => {
     "bash <(echo gh pr merge 12)", "source <(echo gh pr merge 12)", '. /dev/stdin <<< "gh pr merge 12"',
     // N4: a contents write straight to the integration branch
     "gh api -X PUT repos/o/r/contents/README.md -f branch=main -f message=x -f content=eA==",
+    // U1: what the text-only exemption must NOT reach — a runner, an env prefix, a chain, a helper option.
+    `find . -name x -exec gh pr merge 12 ;`, "find . -name gh", "echo 12 | xargs grep gh", "GH_REPO=x grep gh README.md", "grep gh README.md; gh pr merge 12",
+    "grep gh README.md && gh pr merge 12", "rg --pre gh pr", "rg --pre=gh x", "git diff --ext-diff gh", "git -c diff.external=gh diff", "git log | gh pr merge 12",
+    `git commit -m "x" && git push --force`, `watch grep gh x`, `cat $(gh pr merge 12)`, "tm comment TM-9 `gh pr merge 12`",
+    // U1 items 2–4: the inline body, bare push, --set-upstream, --delete-branch
+    'gh pr create --base main --title x --body "Adds `foo` -> bar"', "git push", `git push --set-upstream origin ${OWN}`, `gh pr merge ${OWN} --merge --delete-branch`, `gh pr merge ${OWN} --squash -d`,
     // H1/H2 and earlier rounds
     `G=gh; $G pr merge ${OWN} --admin`, `$(printf '\\x67h') pr merge ${OWN} --admin`, "echo 12 | xargs gh pr merge",
     `python3 -c "import os; os.system('gh pr merge 12')"`, `node -e "require('child_process').execSync('gh pr merge 12')"`,
@@ -307,19 +313,39 @@ describe("guardCommand — TM-481: the worker allowlist (fail closed)", () => {
       `gh pr merge ${OWN} --merge`, `gh pr merge ${OWN} --squash`, `gh pr merge ${OWN} --rebase`, `gh pr merge ${OWN} --merge --auto`,
       `git push -u origin ${OWN}`, `git push origin ${OWN}`, `git push origin HEAD:${OWN}`,
       "npm test", "git commit -m 'TM-001: fix'", "git status --short", "node --test tests/unit/", "ls -la",
+      // U1: one plain text-only command may mention gh, a push or GraphQL.
+      `git commit -m "retry the push"`, `grep -rn "gh pr" docs/`, "rg graphql lib/", `tm comment TM-9 "opened the PR with gh"`,
+      ".bytedesk/task-management/bin/tm comment TM-9 'pushed with git push'", "git log --grep 'git push' -5", "git diff HEAD~1 -- lib/gh.mjs",
+      "git show HEAD:docs/graphql.md", "cat docs/gh-notes.md", "head -20 api.github.com.txt", "tail -5 gh.log", "wc -l gh.log", "less docs/gh.md",
+      // U1 item 2: the body goes in a file
+      "gh pr create --base main --title 'TM-001: fix' --body-file pr-body.md", "gh pr create --base main --title 'TM-001: fix' --body 'plain words'",
     ];
     for (const cmd of allowed) {
       const v = guardCommand(cmd, WORKER);
       assert.equal(v.allow, true, `allowed: ${cmd} — refused by ${v.rule}: ${v.reason}`);
     }
     console.log(`# worker allowlist: ${allowed.length} allowed`);
+  });
+
+  it("U1: each refusal names the allowed alternative", () => {
+    const why = (cmd) => guardCommand(cmd, WORKER).reason;
+    assert.match(why('gh pr create --base main --title x --body "Adds `foo` -> bar"'), /use --body-file/);
+    assert.match(why("git push"), new RegExp(`git push -u origin ${OWN}`));
+    assert.match(why(`git push --set-upstream origin ${OWN}`), new RegExp(`git push -u origin ${OWN}`));
+    for (const cmd of [`gh pr merge ${OWN} --merge --delete-branch`, `gh pr merge ${OWN} --merge`]) {
+      const v = guardCommand(cmd, { ...WORKER, requiredChecksPass: () => true });
+      if (cmd.includes("--delete-branch")) assert.equal(v.rule, "worker-allowlist", "one message for --delete-branch, from the allowlist");
+      else assert.equal(v.allow, true);
+    }
+    const generic = why("watch grep gh x");
+    for (const named of ["bare `git push`", "--set-upstream", "--body-file", "--delete-branch"]) assert.ok(generic.includes(named), `the message names ${named}`);
     assert.equal(ALLOWED_FORMS.length, 7);
   });
 
   it("an allowed merge form still goes through the own-branch, checks and governance rules behind it", () => {
     assert.equal(guardCommand(`gh pr merge ${OWN} --merge`, { ...WORKER, requiredChecksPass: () => false }).allow, false, "red checks");
     assert.equal(guardCommand(`gh pr merge ${OWN} --merge`, { ...WORKER, governed: true }).rule, "gh-pr-merge-governed");
-    assert.equal(guardCommand(`gh pr merge ${OWN} --merge --delete-branch`, WORKER).rule, "gh-pr-merge", "--delete-branch is still a branch delete");
+    assert.equal(guardCommand(`gh pr merge ${OWN} --merge --delete-branch`, { ...WORKER, allowlist: false }).rule, "gh-pr-merge", "--delete-branch is still refused by the table behind");
     assert.equal(guardCommand("gh pr merge tm/TM-9-other --merge", WORKER).rule, "gh-pr-merge", "someone else's branch");
   });
 });

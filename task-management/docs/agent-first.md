@@ -209,7 +209,7 @@ Ordinary overrides do not bypass these completion gates.
 
 For an ungoverned task, the handoff ends with the legacy completion contract, in order: tick
 each criterion (`tm accept`), **commit**, **`git push -u origin <the task's tm/ branch>`**,
-**`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`**,
+**`gh pr create --title "<TM-id>: <title>" --body-file <file: what changed, and how it was verified> --base <dispatch.integrationBranch>`**,
 attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no remote, no
 `gh`, no auth — `tm block <id> "<the error>"` instead of closing. Never leave the task
 `in_progress`, and **never merge any PR but its own**, named by its branch (the guard refuses

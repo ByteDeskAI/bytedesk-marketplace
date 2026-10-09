@@ -322,7 +322,7 @@ that sent it. The handoff brief for a `ready-for-agent` task ends with the compl
 contract spelled out, because the worker may never read anything else: tick each criterion
 once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its own branch
 (`git push -u origin <the task's tm/ branch>`) and open a pull request
-(`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`)**,
+(`gh pr create --title "<TM-id>: <title>" --body-file <file: what changed, and how it was verified> --base <dispatch.integrationBranch>`)**,
 attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
 error instead. **An ungoverned worker merges only its own PR**, by its pinned branch name, without

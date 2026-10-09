@@ -23,6 +23,14 @@
   refused for workers. **This guard is best effort, not the control.** A script written to disk and
   then run, or a name built without ever spelling `gh`, is not seen. The real control is TM-489: a
   server-side worker credential with no merge rights.
+  - *U1:* one plain command whose first word only reads or records text — `grep`, `rg`, `cat`,
+    `head`, `tail`, `less`, `wc`, `git commit|log|diff|show|status`, `tm` or
+    `.bytedesk/task-management/bin/tm` — may mention gh or a push (`git commit -m "retry the push"`).
+    Not exempt: anything that runs a command (`find`, `xargs`, `watch`), env prefixes, `git -c`, and
+    the helper options `rg --pre` and `git --ext-diff/--textconv`. An inline `gh pr create --body`
+    with shell syntax is refused with "use --body-file"; the worker handoff now writes the body to a
+    file. `--delete-branch` is refused by the allowlist itself, and the refusal names the allowed
+    alternative for a bare `git push` and `--set-upstream`.
 - **SECURITY review fixes on the worker guard (TM-481, EP-028).**
   - *C1:* the guard takes task, branch, store root and repository from the harness env set at spawn,
     never from the registry record (a same-UID file); a record that disagrees with the env is refused.
