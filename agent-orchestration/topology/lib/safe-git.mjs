@@ -16,8 +16,9 @@
 //     global (operator's ~/.gitconfig) ones are re-added;
 //   - FAIL CLOSED: a repository scope that sets url.<base>.insteadOf / pushInsteadOf (rewrites the
 //     URL a host fetch reads), remote.<name>.vcs (a remote helper), lfs.standalonetransferagent or
-//     lfs.customtransfer.* (programs git-lfs runs) makes every call refuse with exit 128; none of
-//     them can be neutralised by an override, since each is multi-valued or read by git-lfs itself;
+//     lfs.customtransfer.* (programs git-lfs runs), any http.* key or remote.<name>.proxy (a proxy, a
+//     CA, sslVerify=false or a per-URL http.<url>.* form, which outranks any generic override; TM-475)
+//     makes every call refuse with exit 128; none of them can be neutralised by an override;
 //   - remote.<name>.uploadpack/receivepack are first-value-wins, so no override reaches them: fetch,
 //     pull and ls-remote get --upload-pack=git-upload-pack and push gets --receive-pack=git-receive-pack;
 //   - diff-family commands get --no-ext-diff --no-textconv;
@@ -34,9 +35,10 @@
 // and not group- or world-writable, never whatever comes first on PATH. That is gh (`trustedGh()`),
 // git itself and ssh (core.sshCommand names the pinned ssh) (TM-475).
 //
-// `safeGh` / `safeGhSync` run that gh with the environment that would redirect it removed (GH_HOST,
-// GH_REPO, GH_CONFIG_DIR, proxies, CA bundles), and refuse outright when gh's own config sets
-// http_unix_socket or api_host, so a compare cannot be answered by a worker-served socket (TM-475).
+// `safeGh` / `safeGhSync` run that gh with GH_HOST pinned to github.com (otherwise gh takes the only
+// host in its same-uid-writable hosts.yml as the default) and GH_REPO, GH_CONFIG_DIR, proxies and CA
+// bundles removed, and refuse outright when gh's own config sets http_unix_socket, so a compare cannot
+// be answered by a worker-served socket (TM-475).
 //
 // Which repository a host fetch reads is decided by its caller: agent-orchestration fetches the
 // origin URL pinned in host state (TM-472), and trust decisions compare against the server through gh
@@ -83,8 +85,8 @@ export function trustedBinary({ paths, stat = statSync, realpath = realpathSync 
 export function trustedGh(options = {}) { return trustedBinary({ paths: GH_PATHS, ...options }); }
 // Resolved once: git spawns core.sshCommand through the shell, so a bare `ssh` would be a PATH lookup.
 // No trusted ssh means ssh transports fail (`false`), never fall back to PATH.
-const SSH = trustedBinary({ paths: SSH_PATHS }) ?? 'false';
-// Windows has no root-owned chain to check; there git still comes from the lead's PATH.
+// Windows has no root-owned chain to check: there git and ssh still come from the lead's PATH.
+const SSH = process.platform === 'win32' ? 'ssh' : trustedBinary({ paths: SSH_PATHS }) ?? 'false';
 const GIT = process.platform === 'win32' ? 'git.exe' : trustedBinary({ paths: GIT_PATHS });
 const NO_GIT = `no root-owned git at ${GIT_PATHS.join(', ')}`;
 // The passwd entry's home, which a worker-derived $HOME cannot move; none means no global config at all.
@@ -105,8 +107,8 @@ const SUBCOMMAND_FLAGS = Object.freeze({
   push: ['--receive-pack=git-receive-pack'],
   ...Object.fromEntries(DIFF_FAMILY.map(name => [name, ['--no-ext-diff', '--no-textconv']])),
 });
-const DRIVER_KEYS = '^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$';
-const REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
+const DRIVER_KEYS = '^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\..+|remote\\..+\\.proxy)$';
+const REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\..+|remote\..+\.proxy)$/;
 const UNTRUSTED_SCOPES = new Set(['local', 'worktree', 'command', 'unknown']);
 const pair = entry => { const at = entry.indexOf('='); return [entry.slice(0, at), entry.slice(at + 1)]; };
 
@@ -147,13 +149,14 @@ export function driverOverrides(listing) {
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
 
-/** TM-475: the environment names that point gh at another host, repository, config directory, proxy or CA. */
+/** TM-475: the environment names that point gh at another host, repository, config directory, proxy or CA.
+ * GH_HOST is not removed but set: with none, gh's default host is the only one in hosts.yml. */
 export const GH_REDIRECT_ENV = Object.freeze(['GH_HOST', 'GH_REPO', 'GH_CONFIG_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR']);
-export const safeGhEnv = (base = process.env) => Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name)));
-/** TM-475: a refusal when gh's own config (same-uid writable) sends its requests anywhere but GitHub's
- * API, else null. A key gh cannot read counts as set. */
+export const safeGhEnv = (base = process.env) => ({ ...Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name))), GH_HOST: 'github.com' });
+/** TM-475: a refusal when gh's own config (same-uid writable) sends its requests through a unix socket,
+ * else null. A key gh cannot read counts as set. (gh has no api_host key; the host is GH_HOST, pinned.) */
 export function ghRedirectRefusal(bin, { cwd, env = process.env, spawn = spawnSync } = {}) {
-  for (const key of ['http_unix_socket', 'api_host']) {
+  for (const key of ['http_unix_socket']) {
     const r = spawn(bin, ['config', 'get', key], { cwd, env: safeGhEnv(env), encoding: 'utf8', timeout: 10_000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     if (r.error || r.status !== 0) return `gh config get ${key} failed (exit ${r.status}): ${String(r.stderr || r.error?.message || '').trim()}; refusing to trust gh`;
     const value = String(r.stdout).trim();

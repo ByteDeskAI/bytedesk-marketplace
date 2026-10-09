@@ -58,7 +58,8 @@ it("TM-475: governance gh refuses a config that redirects it, and never passes G
     // Compare names only: the child's environment holds the operator's tokens and must not reach test output.
     const names = r.stdout.split("\n").map((line) => line.split("=")[0]);
     assert.ok(names.includes("TM475_KEEP"), "the fake printed its environment, so absence below is meaningful");
-    assert.deepEqual(Object.keys(planted).filter((n) => n !== "TM475_KEEP" && names.includes(n)), []);
+    assert.deepEqual(Object.keys(planted).filter((n) => !["TM475_KEEP", "GH_HOST"].includes(n) && names.includes(n)), []);
+    assert.match(r.stdout, /^GH_HOST=github\.com$/m, "GH_HOST is pinned to github.com, not the planted host (TM-475 review H1)");
     writeFileSync(answer, "/tmp/worker.sock\n");
     const refused = runGh(["api", "repos/o/r/compare/a...b"], repo);
     assert.notEqual(refused.status, 0);

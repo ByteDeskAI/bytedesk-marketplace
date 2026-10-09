@@ -249,14 +249,13 @@ test('TM-475 core.attributesFile is pinned empty: $XDG_CONFIG_HOME/git/attribute
   assert.match(safeGitSync(repo, ['check-attr', 'tm475', '--', 'a.txt'], { env }).stdout, /tm475: unspecified/);
 });
 
-test('TM-475 host gh refuses when its config sets http_unix_socket or api_host, before any request', async t => {
+test('TM-475 host gh refuses when its config sets http_unix_socket, before any request', async t => {
   const { dir } = await repoWithOrigin(t);
   const { trustedGh, ghRedirectRefusal } = await import('../../topology/lib/safe-git.mjs');
   const { hostGh } = await import('../../topology/lib/management.mjs');
-  // The rule, on an injected gh: either key set refuses; both empty passes; an unreadable key refuses.
+  // The rule, on an injected gh: the key set refuses; empty passes; an unreadable key refuses.
   const answers = values => (_bin, args) => ({ status: 0, stdout: `${values[args[2]] ?? ''}\n`, stderr: '' });
   assert.match(ghRedirectRefusal('gh', { spawn: answers({ http_unix_socket: '/tmp/w.sock' }) }), /http_unix_socket/);
-  assert.match(ghRedirectRefusal('gh', { spawn: answers({ api_host: 'evil.example' }) }), /api_host/);
   assert.equal(ghRedirectRefusal('gh', { spawn: answers({}) }), null);
   assert.match(ghRedirectRefusal('gh', { spawn: () => ({ status: 1, stdout: '', stderr: 'boom' }) }), /failed/);
   if (!trustedGh()) return t.skip('no root-owned gh at a pinned path on this machine');
@@ -272,7 +271,7 @@ test('TM-475 host gh refuses when its config sets http_unix_socket or api_host, 
   assert.match(answer.stderr, /gh config sets http_unix_socket/);
 });
 
-test('TM-475 safeGh and safeGhSync run gh with GH_HOST, GH_REPO, GH_CONFIG_DIR, proxies and CA overrides removed', async t => {
+test('TM-475 safeGh and safeGhSync run gh with GH_HOST pinned to github.com and GH_REPO, GH_CONFIG_DIR, proxies and CA overrides removed', async t => {
   const { dir } = await repoWithOrigin(t);
   const { safeGh, safeGhSync, GH_REDIRECT_ENV } = await import('../../topology/lib/safe-git.mjs');
   const fake = join(dir, 'gh');
@@ -281,7 +280,42 @@ test('TM-475 safeGh and safeGhSync run gh with GH_HOST, GH_REPO, GH_CONFIG_DIR, 
   for (const out of [(await safeGh(fake, ['api', 'x'], { env })).stdout, safeGhSync(fake, ['api', 'x'], { env }).stdout]) {
     const names = out.split('\n').map(line => line.split('=')[0]); // names only: never echo an environment into test output
     assert.ok(names.includes('KEEP'), 'the fake printed its environment, so absence below is meaningful');
-    assert.deepEqual(GH_REDIRECT_ENV.filter(name => names.includes(name)), []);
+    assert.deepEqual(GH_REDIRECT_ENV.filter(name => name !== 'GH_HOST' && names.includes(name)), []);
+    assert.match(out, /^GH_HOST=github\.com$/m, 'GH_HOST is pinned, not removed');
   }
   assert.ok(['GH_HOST', 'GH_REPO', 'GH_CONFIG_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR'].every(n => GH_REDIRECT_ENV.includes(n)));
+});
+
+// TM-475 review H1: with GH_HOST unset, gh takes the only host in its (same-uid writable) hosts.yml as the
+// default, so `gh api repos/...` went to https://evil.invalid/api/v3/. GH_HOST is pinned to github.com.
+test('TM-475 review H1: a hosts.yml naming only another host never moves host gh off github.com', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { safeGh, safeGhSync } = await import('../../topology/lib/safe-git.mjs');
+  const config = join(dir, 'xdg', 'gh');
+  execFileSync('mkdir', ['-p', config]);
+  await writeFile(join(config, 'hosts.yml'), 'evil.invalid:\n    oauth_token: planted\n    user: worker\n');
+  // The shim records what gh would act on: its argv and the host and config it was given.
+  const log = join(dir, 'gh.log'), shim = join(dir, 'gh');
+  await writeFile(shim, `#!/bin/sh\n[ "$1" = config ] && exit 0\nprintf 'argv=%s\\nGH_HOST=%s\\nXDG=%s\\n' "$*" "$GH_HOST" "$XDG_CONFIG_HOME" >> '${log}'\n`, { mode: 0o755 });
+  const env = { PATH: process.env.PATH, XDG_CONFIG_HOME: join(dir, 'xdg'), GH_HOST: 'evil.invalid' };
+  await safeGh(shim, ['api', 'repos/o/r/compare/a...b'], { env });
+  safeGhSync(shim, ['api', 'repos/o/r/compare/a...b'], { env });
+  const lines = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.deepEqual(lines.filter(l => l.startsWith('argv=')), ['argv=api repos/o/r/compare/a...b', 'argv=api repos/o/r/compare/a...b'], 'argv passes through unchanged');
+  assert.deepEqual(lines.filter(l => l.startsWith('GH_HOST=')), ['GH_HOST=github.com', 'GH_HOST=github.com'], 'gh targets github.com whatever hosts.yml or the caller says');
+  assert.ok(lines.includes(`XDG=${join(dir, 'xdg')}`), 'the hosts.yml naming evil.invalid was in reach, so the pin is what kept gh on github.com');
+});
+
+// TM-475 review M2: a repository-scope http.* (a proxy, sslVerify=false, a per-URL http.<url>.* form that
+// outranks any generic override) or remote.<name>.proxy would let a worker intercept a host fetch.
+test('TM-475 review M2: repository-scope http.* and remote.<name>.proxy refuse every host git call', async t => {
+  const { repo } = await repoWithOrigin(t);
+  assert.equal(safeGitSync(repo, ['status']).status, 0, 'control: a clean repository runs');
+  for (const [key, value] of [['http.proxy', 'http://127.0.0.1:9'], ['http.sslVerify', 'false'], ['http.https://github.com/.proxy', 'http://127.0.0.1:9'], ['remote.origin.proxy', 'http://127.0.0.1:9']]) {
+    raw(repo, 'config', key, value);
+    const r = safeGitSync(repo, ['status']);
+    assert.equal(r.status, 128, `${key} was not refused`);
+    assert.match(r.stderr, new RegExp(`safe-git refused .*${key.toLowerCase().replace(/[.:/]/g, c => `\\${c}`)}`), r.stderr);
+    raw(repo, 'config', '--unset-all', key);
+  }
 });
