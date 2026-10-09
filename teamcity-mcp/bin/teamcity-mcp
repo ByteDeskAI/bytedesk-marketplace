@@ -5,9 +5,23 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 BUNDLE="$ROOT/dist/bundle.cjs"
 
-# Credentials/config: MCP hosts spawn us with a bare environment, so load the
-# user-level env file (override with TEAMCITY_MCP_ENV).
-ENV_FILE="${TEAMCITY_MCP_ENV:-$HOME/.config/teamcity-mcp/env}"
+# Credentials/config: MCP hosts spawn us with a bare environment, so load an env
+# file. TEAMCITY_MCP_ENV wins; else a per-repository profile
+# ~/.config/teamcity-mcp/repos/<repo>.env (a lead's scoped token, used INSTEAD of
+# the user-level file so the broader token never loads); else the user-level file.
+# <repo> is the main checkout's directory name, so task worktrees share it.
+CONFIG_DIR="$HOME/.config/teamcity-mcp"
+ENV_FILE="${TEAMCITY_MCP_ENV:-}"
+if [ -z "$ENV_FILE" ]; then
+  ENV_FILE="$CONFIG_DIR/env"
+  COMMON="$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [ -n "$COMMON" ]; then
+    REPO="$(basename -- "$(dirname -- "$COMMON")")"
+    if [ -f "$CONFIG_DIR/repos/$REPO.env" ]; then
+      ENV_FILE="$CONFIG_DIR/repos/$REPO.env"
+    fi
+  fi
+fi
 if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck source=/dev/null

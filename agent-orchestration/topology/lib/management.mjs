@@ -732,7 +732,9 @@ export async function workerReport(options) {
     if (kind === 'finish') {
       invariant(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every(check => nonempty(check) || (check && typeof check === 'object')) && report.checks.length && list(report.risks) && nonempty(report.evidence), 'TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL', 'Finish requires artifacts, checks/evidence, remaining risks and exact revision.');
       invariant(report.revision === await gitText(doc.worktree, ['rev-parse', 'HEAD']), 'TOPOLOGY_MANAGEMENT_REVISION', 'Finish must name the current exact task commit.');
-      invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_DIRTY', 'Commit or preserve outstanding changes before readiness for review.');
+      // TM-507: the same filter integrate applies, so tool-written store paths never block a finish.
+      const dirty = await foreignDirtyPaths(doc.worktree);
+      invariant(!dirty.length, 'TOPOLOGY_MANAGEMENT_DIRTY', `Commit or preserve outstanding changes before readiness for review: ${dirty.slice(0, 10).join(', ')}.`);
       // TM-347: a revision whose review requested changes is never resubmitted; rework makes a new one.
       invariant(!(prior.events || []).some(e => e.event === 'rework' && e.revision === report.revision), 'TOPOLOGY_MANAGEMENT_REVISION', `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report); // TM-418: a malformed check run is refused here, where the worker can still fix it.

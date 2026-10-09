@@ -1,5 +1,6 @@
 // Environment diagnosis and setup guidance. Read-only: it never installs anything itself; the
 // setup-agent-orchestration skill runs the commands it suggests after the operator agrees.
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { platform, release } from "node:os";
@@ -7,6 +8,7 @@ import { detectAdapter } from "./providers.mjs";
 import { socketPathProblem, tmuxVersion } from "./tmux.mjs";
 import { exists, run } from "./util.mjs";
 import { canonicalRepoId, repoKey, repoSlug } from "./repoid.mjs";
+import { REVIEW_SUBMIT_SERVER } from "./reviewer.mjs";
 
 async function hasCommand(name) {
   const which = process.platform === "win32" ? "where" : "which";
@@ -127,7 +129,100 @@ async function claudeTrust(consumer, home) {
   return { known: false, trusted: false, path };
 }
 
-export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home }) {
+/**
+ * TM-520 (audit-mcp T7). DID THE LAUNCH FLAGS ACTUALLY LOAD THE ROLE'S TOOLS?
+ *
+ * A role's MCP servers are child processes of its `claude` process, so `ps --ppid` is the ground
+ * truth. Two reviewers ran for days on the argv from before TM-365 (`--safe-mode`, no
+ * `--mcp-config`): no review_submit tool, no verdict channel, and nothing said so (TM-488).
+ *
+ * Expected = the servers the role REQUIRES (the reviewer's ao-review) plus every server its own
+ * argv declares with --mcp-config. Under --strict-mcp-config with nothing declared the answer is
+ * "none" — said explicitly, so an empty list is never mistaken for a check that did not run.
+ * Without --strict-mcp-config the session loads user/project servers this check cannot predict.
+ */
+export const ROLE_REQUIRED_MCP = { reviewer: [REVIEW_SUBMIT_SERVER] };
+
+export function mcpServersFromArgv(argv) {
+  const servers = {};
+  argv.forEach((arg, i) => {
+    if (arg !== "--mcp-config" || argv[i + 1] === undefined) return;
+    const value = argv[i + 1];
+    let text = value;
+    if (!value.trimStart().startsWith("{")) {
+      try { text = readFileSync(value, "utf8"); } catch { return; }
+    }
+    try { Object.assign(servers, JSON.parse(text).mcpServers ?? {}); } catch { /* unreadable config: its servers stay undeclared and show as missing if required */ }
+  });
+  return servers;
+}
+
+const serverRunsIn = (spec, child) => child.includes(spec.args?.length ? spec.args.at(-1) : spec.command);
+
+export function verifyRoleMcp({ role, agentId = null, pid, argv, children, consumer = null }) {
+  const servers = mcpServersFromArgv(argv);
+  const safeMode = argv.includes("--safe-mode");
+  const strict = argv.includes("--strict-mcp-config");
+  const expectedNames = [...new Set([...(ROLE_REQUIRED_MCP[role] ?? []), ...Object.keys(servers)])];
+  const base = { role, agent_id: agentId, pid, children: children.length };
+  if (!expectedNames.length) {
+    return strict
+      ? { ...base, expected: "none", present: [], missing: [], ok: true, note: children.length ? `expected none; ${children.length} other child process(es) run` : "expected none, none running" }
+      : { ...base, expected: "ambient", present: [], missing: [], ok: true, note: "no --strict-mcp-config: user and project MCP servers load, so the expected set is not known here" };
+  }
+  const present = [], missing = [];
+  for (const name of expectedNames) {
+    const spec = servers[name];
+    if (spec && !safeMode && children.some((child) => serverRunsIn(spec, child))) { present.push(name); continue; }
+    missing.push({
+      name,
+      reason: safeMode ? "launched with --safe-mode, which turns off every MCP server (argv from before TM-365)"
+        : !spec ? "the launch argv has no --mcp-config declaring it"
+          : "declared in --mcp-config, but no child process runs it",
+    });
+  }
+  const result = { ...base, expected: expectedNames, present, missing, ok: missing.length === 0 };
+  if (missing.length && agentId) {
+    result.fix = {
+      command: `ao-topology agent restart ${agentId} --mode handoff${consumer ? ` --consumer ${consumer}` : ""}`,
+      note: "A forced relaunch is required: `reviewer ensure` / `lead ensure` reattach a live session with its old argv instead of relaunching it (TM-488).",
+    };
+  }
+  return result;
+}
+
+/** The live argv and MCP-capable children of one pid, or null when the process is gone. */
+export async function readProcess(pid) {
+  const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => null);
+  if (!cmdline) return null;
+  const result = await run("ps", ["-o", "args=", "--ppid", String(pid)], { allowFailure: true, timeoutMs: 5000 }).catch(() => ({ stdout: "" }));
+  // Bash tool shells are children too; they are never MCP servers, and counting them would make a
+  // lead that "expects none" look polluted.
+  const children = String(result.stdout ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !/^\/bin\/(ba|z)?sh -c /.test(line));
+  return { argv: cmdline.split("\0").filter(Boolean), children };
+}
+
+/** The registered lead and reviewer of `consumer`, each checked against its live process. */
+export async function roleMcpReport({ consumer, env = process.env, home, procs = readProcess }) {
+  const [{ readLeadRegistration }, { readReviewerRecord }] = await Promise.all([import("./lead.mjs"), import("./reviewer.mjs")]);
+  const records = [
+    ["lead", (await readLeadRegistration({ consumer, env, home }).catch(() => null))?.record],
+    ["reviewer", await readReviewerRecord(consumer, env, home).catch(() => null)],
+  ];
+  const report = [];
+  for (const [role, record] of records) report.push(await roleMcpFor({ role, record, consumer, procs }));
+  return report.filter(Boolean);
+}
+
+export async function roleMcpFor({ role, record, consumer = null, procs = readProcess }) {
+  const pid = record?.binding?.panePid;
+  if (!pid) return null;
+  const proc = await procs(pid);
+  if (!proc) return { role, agent_id: record.agent_id ?? null, pid, live: false, ok: true, note: "not running; nothing to verify" };
+  return { live: true, ...verifyRoleMcp({ role, agentId: record.agent_id ?? null, pid, argv: proc.argv, children: proc.children, consumer }) };
+}
+
+export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, providerDirs, consumer, env, home, procs = readProcess }) {
   const osInfo = await detectOs();
   const tmux = await tmuxVersion();
   const node = process.version;
@@ -213,5 +308,12 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   // TM-371: which readable repository the `orch.<key>` NATS subjects belong to.
   const repoId = consumer ? await canonicalRepoId(consumer).catch(() => null) : null;
   const repository = repoId ? { slug: repoSlug(repoId.id), key: repoKey(repoId.id), subjects: `orch.${repoKey(repoId.id)}.>` } : null;
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, repository, trust, problems };
+  // TM-520: each live role's MCP children against what the role expects.
+  const roleMcp = consumer ? await roleMcpReport({ consumer, env, home, procs }).catch((error) => [{ error: error.message }]) : [];
+  for (const entry of roleMcp) {
+    if (entry.ok !== false) continue;
+    const what = entry.missing.length ? `lacks MCP server(s) ${entry.missing.map((m) => `${m.name} (${m.reason})`).join(", ")}` : entry.note;
+    problems.push({ code: "ROLE_MCP_MISSING", message: `Live ${entry.role} ${entry.agent_id} (pid ${entry.pid}) ${what}.`, fix: entry.fix ?? null });
+  }
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, repository, trust, role_mcp: roleMcp, problems };
 }

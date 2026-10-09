@@ -80,6 +80,13 @@
   refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
   the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
   `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+- **A fresh task worktree no longer starts dirty from graft's session hook (TM-507, EP-029).**
+  graft keeps its "wired by version V" stamp in the gitignored `graft/.cache/`, so every new
+  worktree read as unwired and graft rewrote the tracked `.claude`, `.grok` and `.mcp.json` wiring
+  with machine-specific paths and added `opencode.json`. `createWorktree` now seeds that stamp from
+  the main checkout (keeping its hosts and opts, such as `global: false`) at the newest version any
+  checkout's stamp or installed graft package names, so graft's refresh is a no-op. A repo graft
+  never wired is left alone.
 - **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
   A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
   resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
@@ -92,6 +99,19 @@
   goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
 
 ### Fixed
+
+- **A dispatched worker is told to run its checks in the foreground (TM-426, EP-028).** The
+  no-later-turn rule now names `run_in_background` and Monitor, since a headless `claude -p` worker
+  that backgrounded its checks and ended its turn exited with its fix uncommitted.
+- **A governed worker's brief keeps its "When you finish" block (TM-426).** The governed protocol
+  alone exceeded the 1200-character brief cap, so the worker never saw the accept, evidence, block or
+  "stop at ready-for-review" lines. Governed briefs now have a 2000-character cap, and in every brief
+  the acceptance criteria get only the room left after the rules and endings, so the cap never cuts
+  those. The cap now cuts only the head, never the ending.
+- **A worker's handoff carries the lead's latest `LEAD BRIEF` comment (TM-426).** A rework round's
+  requirements lived only in a comment the handoff never rendered, so the worker redid the previous
+  round. The newest `LEAD BRIEF` comment is rendered before "You are on your own"; earlier rounds are
+  superseded.
 
 - **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
   `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so
