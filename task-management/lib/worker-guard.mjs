@@ -375,7 +375,8 @@ export const RULES = [
     // substitution, cannot be inspected here, so it is refused rather than guessed at.
     id: "gh-api-graphql-merge",
     tools: ["gh"],
-    when: (a) => a[0] === "api" && positionals(a.slice(1), GH_API_VALUED)[0] === "graphql" && graphqlMayMerge(a.slice(1)),
+    // N1: `graphql`, `/graphql`, `graphql/`, `https://api.github.com/graphql` are all the GraphQL endpoint.
+    when: (a) => a[0] === "api" && /(^|\/)graphql\/?(\?|$)/i.test(positionals(a.slice(1), GH_API_VALUED)[0] ?? "") && graphqlMayMerge(a.slice(1)),
     reason: `a GraphQL mergePullRequest / enablePullRequestAutoMerge call (or a query this guard cannot read: --input, a field from @file, a $(…) substitution) merges a PR, ${HUMAN}.`,
   },
   {
@@ -773,6 +774,80 @@ function check(src, ctx, depth) {
  * allowed — absent, no merge is. Returns `{ allow, reason, rule }` — `rule` is the RULES id that
  * blocked, or "unparsed" for the fail-safe.
  */
-export function guardCommand(command, { branch = null, head = branch, integrationBranch = null, governed = false, requiredChecksPass = null } = {}) {
-  return check(String(command ?? ""), { branch: branch || null, head: head || null, integrationBranch: integrationBranch || null, governed: Boolean(governed), requiredChecksPass }, 0);
+export function guardCommand(command, { branch = null, head = branch, integrationBranch = null, governed = false, requiredChecksPass = null, allowlist = true } = {}) {
+  const src = String(command ?? "");
+  const ctx = { branch: branch || null, head: head || null, integrationBranch: integrationBranch || null, governed: Boolean(governed), requiredChecksPass };
+  // TM-481: the allowlist goes first and fails closed; the table below is defense in depth behind it.
+  // `allowlist: false` exists only so tests can exercise the table rows on their own — the hook never passes it.
+  if (allowlist) {
+    const verdict = allowlisted(src, ctx);
+    if (!verdict.allow) return verdict;
+  }
+  return check(src, ctx, 0);
+}
+
+// ── the worker allowlist (TM-481, fail closed) ───────────────────────────────
+
+/**
+ * Every round of review found a new shape that reached gh or a push past the block list (a
+ * `/graphql` spelling, a launcher with a quoted command, `bash <(…)`, a contents write). So for a
+ * worker the guard is inverted: a command whose text mentions gh, a git push, GraphQL or the GitHub
+ * API at all — raw, or with quotes and backslashes stripped (`g""h`, `g\h`) — is refused unless the
+ * WHOLE line is one of the strict simple forms below. Everything else about it still goes through
+ * the table afterwards (own branch, required checks, pinned repo, -R/GH_*, remotes, aliases).
+ *
+ * ponytail: still best effort — a script written to disk and run, or a name built from pieces that
+ * never spell `gh`, is not seen. The real control is TM-489: a worker credential with no merge rights.
+ */
+export const MENTIONS_GUARDED = /\bgh\b|\bgit\b[\s\S]*\bpush\b|graphql|api\.github\.com/i;
+/**
+ * Shell syntax a simple command must not contain: `;`, `&`/`&&`, `|`/`||`, backticks, any `$` (`$(`,
+ * `${`, `$VAR`), `<`/`>` (`<(`, `>(`, `<<`, redirection), backslashes and newlines.
+ */
+const NOT_SIMPLE = /[;&|`<>$\\\n\r]/;
+const READ_VERBS = { pr: ["view", "status", "checks", "diff", "list"], run: ["view", "list", "watch"], issue: ["view", "list"] };
+const MERGE_METHODS = ["--merge", "--squash", "--rebase"];
+
+export const ALLOWED_FORMS = [
+  "gh pr create … (no -R/--repo; --base <integration branch>)",
+  "gh pr view|status|checks|diff|list …",
+  "gh run view|list|watch …",
+  "gh issue view|list …",
+  "gh pr merge <your branch> --merge|--squash|--rebase [--auto] (ungoverned only, required checks green)",
+  "git push [-u] origin <your branch>",
+  "git push origin HEAD:<your branch>",
+];
+
+function allowlisted(src, ctx) {
+  const stripped = src.replace(/['"\\]/g, "");
+  if (!MENTIONS_GUARDED.test(src) && !MENTIONS_GUARDED.test(stripped)) return ALLOW;
+  const refuse = (why) =>
+    block("worker-allowlist", `${why} A dispatch worker may run gh or git push only as one plain command on its own line, in one of these forms: ${ALLOWED_FORMS.map((f) => `\`${f}\``).join("; ")}. Anything else that mentions gh, git push, GraphQL or api.github.com is refused — that needs a human.`);
+  if (NOT_SIMPLE.test(src)) return refuse("This line chains, pipes, substitutes, redirects, expands or escapes.");
+  const commands = [];
+  const { ok } = read(src, 0, commands, null);
+  if (!ok || commands.length !== 1 || commands[0].bodies.length) return refuse("This is not exactly one simple command.");
+  const w = commands[0].words;
+  if (w[0] === "gh") {
+    if (hasRepoOption(w)) return refuse("No -R/--repo.");
+    const [, noun, verb, ...rest] = w;
+    if (noun === "pr" && verb === "create") return ALLOW;
+    if (READ_VERBS[noun]?.includes(verb)) return ALLOW;
+    if (noun === "pr" && verb === "merge") {
+      const [target, ...flags] = rest;
+      const methods = flags.filter((f) => MERGE_METHODS.includes(f));
+      const extra = flags.filter((f) => !MERGE_METHODS.includes(f) && f !== "--auto" && f !== "--delete-branch");
+      if (target && !target.startsWith("-") && methods.length === 1 && !extra.length) return ALLOW; // the table decides own/checks/repo
+      return refuse("A merge is `gh pr merge <your branch>` with exactly one of --merge/--squash/--rebase.");
+    }
+    return refuse(`\`gh ${noun ?? ""} ${verb ?? ""}\` is not an allowed form.`);
+  }
+  if (w[0] === "git" && w[1] === "push") {
+    const own = ownBranch(ctx);
+    const args = w.slice(2);
+    const forms = own ? [["origin", own], ["-u", "origin", own], ["origin", `HEAD:${own}`]] : [];
+    if (forms.some((f) => f.length === args.length && f.every((x, i) => x === args[i]))) return ALLOW;
+    return refuse(own ? `A push is \`git push -u origin ${own}\` or \`git push origin HEAD:${own}\` — nothing else: no --force, no +refspec, no other branch.` : "No own branch is pinned for this worker, so no push is allowed.");
+  }
+  return refuse("This command mentions gh, git push, GraphQL or the GitHub API without being an allowed gh or git push form (a launcher, wrapper, interpreter or env prefix).");
 }

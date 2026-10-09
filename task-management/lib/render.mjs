@@ -405,6 +405,7 @@ export function handoff(id, p = paths()) {
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",
       `- Push your own branch: git push -u origin ${branch}`,
+      "- Run every gh and git push command on its own, as one plain command: no &&, ;, |, $(…), redirection or env prefix. The worker guard refuses anything else that mentions them (TM-481). Put a long PR body in a file and pass --body-file.",
       `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"${prBase}`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       ...(t.governance

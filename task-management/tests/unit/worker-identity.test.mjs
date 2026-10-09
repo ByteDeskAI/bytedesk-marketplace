@@ -150,7 +150,7 @@ describe("worker-identity — env -u TM_DISPATCH_WORKER from inside the worker's
     const env = cleanEnv({ TM_WORKER_REGISTRY: registry });
     const inside = await underAnchor(["sh", HOOK, "pre-bash"], { registry, record: { task: "TM-001", branch: "tm/x", integrationBranch: "main" }, env, input });
     assert.equal(inside.code, 2, `refused inside the tree (stderr: ${inside.stderr})`);
-    assert.match(inside.stderr, /force/);
+    assert.match(inside.stderr, /dispatch guard/);
     assert.doesNotMatch(inside.stderr, /TM-001/, "the task is never taken from the record (TM-481 C1)");
     const outside = spawnSync("sh", [HOOK, "pre-bash"], { input, env, encoding: "utf8" });
     assert.equal(outside.status, 0, outside.stderr);
