@@ -24,7 +24,7 @@ import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDirs, isInitialized, paths } from "../lib/paths.mjs";
 import { reindex } from "../lib/store.mjs";
-import { assignPort, ensurePort, liveInstance, release, takeover, writeInstance } from "../lib/singleton.mjs";
+import { TOKEN_HEADER, assignPort, ensurePort, issueToken, liveInstance, readToken, release, takeover, tokenMatches, writeInstance } from "../lib/singleton.mjs";
 import { boardPayload, handleAsync } from "../lib/dashboard-api.mjs";
 import { exportStore } from "../lib/export.mjs";
 import { createHash } from "node:crypto";
@@ -94,6 +94,20 @@ if (!isInitialized(resolved)) {
   process.exit(0);
 }
 const P = ensureDirs(resolved);
+
+/**
+ * TM-468: the board acts as ITSELF. It runs as a plugin monitor of whichever session started it —
+ * often the lead's — and inherited that session's id, so every claim, status stamp, dispatch and
+ * event a browser click caused was recorded as the lead's. TM_SESSION_ID is first in SESSION_ENV
+ * and TM_ACTOR outranks every other actor signal (lib/actor.mjs), so these two lines move every
+ * write this process makes. The terminal-tab variables go too: a board claim is not that tab's.
+ */
+process.env.TM_SESSION_ID = "tm-dashboard";
+process.env.TM_ACTOR = "dashboard";
+delete process.env.BYTEDESK_EMOTE_GATEWAY_TAB_ID;
+delete process.env.BYTEDESK_EMOTE_GATEWAY_TAB_SESSION;
+let TOKEN = null; // minted once the port is bound — see the `listening` handler
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = resolve(HERE, "..", "dashboard", "dist");
 const PAGE = join(DIST, "index.html");
@@ -228,6 +242,11 @@ function receiveMultipart(req, res) {
   });
 }
 const url = (port) => `http://127.0.0.1:${port}`;
+/**
+ * The link a person opens: the URL plus the write token in the FRAGMENT, which a browser never
+ * sends to the server and the SPA moves into its own storage on load (dashboard/src/lib/write-token.mjs).
+ */
+const openLink = (port, token) => (token ? `${url(port)}/#tm-token=${token}` : url(port));
 
 // ── singleton, first-wins ────────────────────────────────────────────────────
 if (args.has("--status")) {
@@ -244,7 +263,7 @@ const evicted = args.has("--restart") ? takeover(P) : null;
 if (!args.has("--restart")) {
   const live = liveInstance(P);
   if (live) {
-    const u = url(live.port);
+    const u = openLink(live.port, readToken(P));
     process.stdout.write(`task-management board already running: ${u}  (pid ${live.pid})\n`);
     if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
     process.exit(0);
@@ -381,6 +400,11 @@ const server = createServer((req, res) => {
   if (req.method === "POST" || req.method === "PATCH") {
     const refusal = crossOriginRefusal(req);
     if (refusal) return json(res, 403, { error: refusal });
+    // TM-468: knowing the port is not enough. Any process on this host can reach 127.0.0.1, and
+    // the origin rules above let a client with no browser headers through by design.
+    if (!tokenMatches(req.headers[TOKEN_HEADER], TOKEN)) {
+      return json(res, 401, { error: `this board's write token is ${req.headers[TOKEN_HEADER] ? "wrong or stale" : "missing"} — open the link tm-dashboard prints (it ends #tm-token=…)` });
+    }
     const upload = req.method === "POST" && uploadTarget(req.url)
       && String(req.headers["content-type"] || "").includes("multipart/form-data");
     if (upload) {
@@ -716,7 +740,7 @@ function listen(port, { waits = 0, moves = 0 } = {}) {
     // Someone else claimed the store while we were starting — they win.
     const live = liveInstance(P);
     if (live) {
-      const u = url(live.port);
+      const u = openLink(live.port, readToken(P));
       process.stdout.write(`task-management board already running: ${u}  (pid ${live.pid})\n`);
       if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
       process.exit(0);
@@ -749,8 +773,11 @@ server.on("listening", () => {
   const { port } = server.address();
   // What the origin check compares against: the port actually bound, not one a header claims.
   boundPort = port;
+  // Minted only once this process owns the port: a launch that lost the race above exits without
+  // overwriting the winner's token file.
+  TOKEN = issueToken(P);
   writeInstance(P, { pid: process.pid, port });
-  const u = url(port);
+  const u = openLink(port, TOKEN);
   process.stdout.write(`task-management board: ${u}  (${P.root})\n`);
   if (launchBrowserEnabled(P, process.env, process.argv)) openUrl(u);
 });
