@@ -71,7 +71,8 @@ those for full lifecycle (start/done/block/AC); native tools are mirrored into t
   worker's own branch, and `gh pr create`.
 - A worker's identity is its environment: `TM_SESSION_ID` and `TM_ACTOR` name the session that
   dispatched it, and `TM_DISPATCH_WORKER` / `_TASK` / `_BRANCH` are what the guard reads. Do not
-  override them.
+  override them. Unsetting them changes nothing: dispatch records the worker's pane pid, and every
+  worker refusal asks `isWorkerCaller` (`lib/worker-identity.mjs`), which checks process ancestry.
 - **The pool only picks up tasks that pass the readiness check.** It re-checks `agentReadiness`
   itself, so a stale or hand-set label cannot push unready work at a worker.
 - With `dispatch.governed: true`, the persistent lead must admit the task before dispatch. A

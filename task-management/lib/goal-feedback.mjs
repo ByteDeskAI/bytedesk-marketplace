@@ -1,4 +1,5 @@
 /** Original-goal feedback, stored on the existing epic. No scheduler or foreign store imports. */
+import { isWorkerCaller } from "./worker-identity.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
@@ -322,7 +323,8 @@ export const RESUME_LIMITS = Object.freeze({ maxGrantCycles: 3, maxResumes: 3 })
 export function goalResume(id, input, p = paths(), env = process.env) {
   // A dispatched worker runs with permissions skipped, so CLI-only is no guard for it: refuse the
   // agent identities outright. Same-user env trust (TM-427B) still bounds this.
-  if (env.TM_DISPATCH_WORKER || env.AO_AGENT_ID) fail(`goal resume is a human's decision; refused for an agent session (${env.TM_DISPATCH_WORKER ? "TM_DISPATCH_WORKER" : "AO_AGENT_ID"} is set)`);
+  const worker = isWorkerCaller({ env });
+  if (worker.worker || env.AO_AGENT_ID) fail(`goal resume is a human's decision; refused for an agent session (${worker.worker ? `dispatched worker via ${worker.via}` : "AO_AGENT_ID is set"})`);
   return writeGoal(id, "resume", input, p, epic => {
     const goal = structuredClone(epic.goal); scopeMatches(goal, input);
     if (goal.status !== "human_required" || !goal.escalation) fail(`goal is ${goal.status}; only a human_required goal can be resumed`);

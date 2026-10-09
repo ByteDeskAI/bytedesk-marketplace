@@ -12,6 +12,7 @@
  * only through its `ao-topology` CLI, and only when it is installed — nothing here imports it, and
  * every step that needs it degrades to "not sent, here is why" when it is absent.
  */
+import { isWorkerCaller } from "./worker-identity.mjs";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -183,7 +184,7 @@ export function wakePool(root, detail = {}, env = process.env) {
   } catch (err) {
     return { woke: false, reason: err.message };
   }
-  if (env.TM_DISPATCH_WORKER) return { woke: true, pool: "not started: a dispatched worker does not start pools in other repos (TM-467)" };
+  if (isWorkerCaller({ env }).worker) return { woke: true, pool: "not started: a dispatched worker does not start pools in other repos (TM-467)" };
   const ensure = runTm(root, ["pool", "ensure"]);
   return { woke: true, pool: ensure.stdout.trim() || ensure.stderr.trim() };
 }

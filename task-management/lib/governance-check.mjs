@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./store.mjs";
+import { isWorkerCaller } from "./worker-identity.mjs";
 import { GH_PATHS, safeGhSync, safeGitText, trustedGh } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
@@ -189,7 +190,7 @@ function reviewedHead(worktree, revision, target) {
 export function governedCompletion(task, p) {
   if (!task?.governance) return { allow: true };
   const refuse = (reason) => ({ allow: false, code: "TM_GOVERNED_COMPLETION_REQUIRED", reason: `${task.id}: ${reason}` });
-  if (process.env.TM_DISPATCH_WORKER) return refuse("workers finish at ready-for-review; only reviewed and authorized integration can close this task");
+  if (isWorkerCaller({ task }).worker) return refuse("workers finish at ready-for-review; only reviewed and authorized integration can close this task");
   try {
     const { record } = readManagementRecord(task, p), g = task.governance;
     if (g.version !== 1 || g.runtime !== "topology" || !g.workflowRunId || !g.leadId ||
