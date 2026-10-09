@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { doctor, verifyRoleMcp } from '../../topology/lib/doctor.mjs';
 import { leadRegistryDir } from '../../topology/lib/lead.mjs';
 import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
-import { reviewSubmitMcpConfig, reviewersRoot, REVIEW_MCP_SCRIPT } from '../../topology/lib/reviewer.mjs';
+import { reviewerInboxRoot, reviewSubmitMcpConfig, reviewersRoot, REVIEW_MCP_SCRIPT } from '../../topology/lib/reviewer.mjs';
 import { roleStatus } from '../../topology/lib/roles.mjs';
 
 const exec = promisify(execFile);
@@ -66,4 +66,22 @@ test('TM-520: a relaunched reviewer whose ao-review child runs is healthy; one w
   const dead = verifyRoleMcp({ role: 'reviewer', agentId: 'rev2', pid: 9, argv: healthyReviewer(), children: [] });
   assert.equal(dead.ok, false);
   assert.match(dead.missing[0].reason, /no child process runs it/);
+});
+
+test('TM-525: with a request pending, doctor names the withdraw, restart, re-request sequence', async (t) => {
+  const f = await fixture(t, { 101: { argv: HEALTHY_LEAD, children: [] }, 202: { argv: STALE_REVIEWER, children: [] } });
+  const binding = { serverKey: '/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 202 };
+  const key = repoKey((await canonicalRepoId(f.repo)).id);
+  await writeFile(join(reviewersRoot(f.env, f.home), `${key}.json`), JSON.stringify({ agent_id: 'rev1', binding }));
+  const dir = join(await reviewerInboxRoot(f.repo, f.env, f.home), 'requests');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'TM-16-abc.json'), JSON.stringify({ task: 'TM-16', revision: 'abc', nonce: 'n1', reviewer_id: 'rev1', binding, state: 'published' }));
+  const report = await doctor({ adapters: new Map(), workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [], consumer: f.repo, env: f.env, home: f.home, procs: f.procs });
+  const reviewer = report.role_mcp.find((r) => r.role === 'reviewer');
+  assert.deepEqual(reviewer.fix.pending, [{ task: 'TM-16', revision: 'abc', nonce: 'n1' }]);
+  assert.equal(reviewer.fix.sequence.length, 3);
+  assert.match(reviewer.fix.sequence[0], /^ao-topology reviewer withdraw --task TM-16 --revision abc --reason /);
+  assert.equal(reviewer.fix.sequence[1], reviewer.fix.command);
+  assert.match(reviewer.fix.sequence[2], /^ao-topology reviewer request --task TM-16 --revision abc /);
+  assert.match(reviewer.fix.note, /withdraws them, restarts, then requests/);
 });

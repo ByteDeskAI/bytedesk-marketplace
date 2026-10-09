@@ -778,7 +778,7 @@ async function assertNoReviewInFlight(consumer, record, env, home) {
   const agentId = record.agent_id;
   const pending = await uncollectedReviewRequests(consumer, record, env, home);
   invariant(!pending.length, 'TOPOLOGY_AGENT_BUSY',
-    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map(r => `${r.task} nonce ${r.nonce}`).join(', ')}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>.`,
+    `Reviewer ${agentId} has ${pending.length} review request(s) published and not yet collected (${pending.map(r => `${r.task} nonce ${r.nonce}`).join(', ')}); restarting would orphan the verdict. Collect it first: ao-topology reviewer collect --task <id> --revision <sha>. If this reviewer can never answer it (no review_submit tool), the lead withdraws it: ao-topology reviewer withdraw --task <id> --revision <sha> --reason <text>, then restarts and requests the review again.`,
     { agent_id: agentId, pending: pending.map(r => ({ task: r.task, revision: r.revision, nonce: r.nonce, state: r.state ?? null })) });
 }
 
@@ -1683,6 +1683,43 @@ export async function collectReview({ consumer, task, revision, env = process.en
   await writeJson(path, { ...request, collected_at: nowIso(), verdict: review.verdict,state:'collected' });
   return review;
   });
+}
+
+/**
+ * TM-525: the lead withdraws an uncollected review request, e.g. one sent to a reviewer that has no
+ * review_submit tool and so can never answer it. The request becomes `failed` with code
+ * TOPOLOGY_REVIEWER_WITHDRAWN, so every path that already treats a failed request as final applies:
+ * it no longer holds off `agent restart`, its verdict can never be submitted or collected, and a
+ * re-request of the same revision mints a fresh nonce for the current incarnation. The withdraw is
+ * recorded in the task's management events before the request changes. `requireLead` and `store`
+ * are injected by tests.
+ */
+export async function withdrawReview({ consumer, task, revision, reason, env = process.env, home = homedir(), requireLead = null, store = null, proof = {} }) {
+  invariant(typeof reason === 'string' && reason.trim(), 'TOPOLOGY_REVIEWER_WITHDRAW', 'Pass --reason <text>: a withdraw is recorded with why.');
+  const { bindingAgentId, requireLeadCaller } = await import('./delegation.mjs');
+  const lookup = { consumer, env, home, ...proof };
+  const named = env.AO_AGENT_ID || await bindingAgentId(lookup).catch(() => null);
+  const lead = await (requireLead || requireLeadCaller)({ ...lookup, env: named ? { ...env, AO_AGENT_ID: named } : env });
+  invariant(lead, 'TOPOLOGY_REVIEWER_WITHDRAW', `Only this repository's proven lead may withdraw a review request; this session is ${named ?? 'unidentified'}. Nothing was changed.`);
+  const path = join(await reviewerInboxRoot(consumer, env, home), 'requests', `${segment(task, 'TOPOLOGY_REVIEWER_TASK', 'task')}-${segment(revision, 'TOPOLOGY_REVIEWER_REVISION_REQUIRED', 'revision')}.json`);
+  return withLock(path.replace(/\.json$/, '.lock'), async () => {
+    const request = await readJson(path).catch(error => { if (error.code === 'ENOENT') fail('TOPOLOGY_REVIEWER_NONCE', `No review request exists for ${task} at ${revision}.`, { task, revision }); throw error; });
+    invariant(!request.collected_at, 'TOPOLOGY_REVIEWER_RESPONSE', `Review request ${request.nonce} was already collected; a recorded review cannot be withdrawn.`);
+    invariant(request.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `Review request ${request.nonce} already failed (${request.failure?.reason ?? 'no reason recorded'}); request the review again.`);
+    const withdrawn = { at: nowIso(), by: lead, reason: reason.trim() };
+    const { recordTaskEvent } = await import('./management.mjs');
+    await recordTaskEvent({ consumer, task, env, home, ...(store ? { store } : {}) }, 'review-withdrawn', { revision, nonce: request.nonce, reviewer_id: request.reviewer_id, by: lead, reason: withdrawn.reason });
+    const next = { ...request, state: 'failed', withdrawn, failure: { at: withdrawn.at, code: 'TOPOLOGY_REVIEWER_WITHDRAWN', reason: `Withdrawn by the lead ${lead}: ${withdrawn.reason}` } };
+    await writeJson(path, next);
+    return { ok: true, withdrawn: true, task, revision, nonce: request.nonce, reviewer_id: request.reviewer_id, by: lead, reason: withdrawn.reason,
+      next: [`ao-topology agent restart ${request.reviewer_id} --mode handoff`, `ao-topology reviewer request --task ${task} --revision ${revision} --author <id>`] };
+  });
+}
+
+/** TM-525: this repository's review requests still waiting on the registered reviewer, for doctor's advice. */
+export async function pendingReviewRequests(consumer, env = process.env, home = homedir()) {
+  const record = await readReviewerRecord(consumer, env, home);
+  return record ? uncollectedReviewRequests(consumer, record, env, home) : [];
 }
 
 /** A repository tick collects responses automatically; no provider turn or
