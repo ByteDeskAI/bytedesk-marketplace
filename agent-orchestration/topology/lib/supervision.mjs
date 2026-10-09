@@ -51,10 +51,12 @@ import { listAgents, agentDirs } from './agents.mjs';
 import { refreshPrompt, collectPromptAcknowledgement } from './prompt-lifecycle.mjs';
 import { resumeStandingMessages, ringStandingMail } from './standing-mailbox.mjs';
 import { recoverLead } from './lead-recovery.mjs';
+import { repairConsumerCheckout, superviseCheckout } from './checkout-repair.mjs';
 import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
+import { createIdleNudge, idleNudgeTick } from './idle-nudge.mjs';
 import { exists, sleep, writeJson, readJson } from './util.mjs';
 import { safeGit } from './safe-git.mjs';
 import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
@@ -104,6 +106,10 @@ function reconcileFloor(env, override) {
 
 export async function superviseRepository(options, { signal, once = false, intervalMs, reconcileMinMs, onTick = () => {}, onOwned = () => {}, sleepFn = sleep } = {}) {
  const { env=process.env, home=homedir() }=options;
+ // TM-394: a broken checkout (dangling gitdir, missing .git, fsck errors) is repaired BEFORE the
+ // identity below is computed, so the supervisor keys on the repository and not on a bare path.
+ const checkout=await repairConsumerCheckout({consumer:options.consumer,env,home,fsck:true})
+   .catch(error=>({action:'failed',error:error?.code ?? String(error)}));
  const consumer=await repositoryConsumer(options.consumer);
  options={...options,consumer};
  const identity=await canonicalRepoId(consumer), root=join(stateRoot(env,home),'supervision');
@@ -170,6 +176,7 @@ export async function superviseRepository(options, { signal, once = false, inter
    //   null      -> a listing was attempted and failed; every agent is `unknown`
    //   array     -> the listing succeeded; an EMPTY array is a real answer, every agent is dead
    // Collapsing the first two would make a tmux hiccup report every agent dead. `let`, not `=null`.
+   let checkoutReport=checkout;
    const censusMemo=new Map();
    let censusRoster=[], censusRunDirs=[], censusPanes, census=null;
    // Which run dir each run agent belongs to. The quota watch needs it for exactly one reason: a
@@ -181,6 +188,7 @@ export async function superviseRepository(options, { signal, once = false, inter
    // suspicions waiting for their second look. Closed in the same `finally` as the heartbeat, so a
    // supervisor that exits never leaves tmux clients attached.
    const quotaWatch=createQuotaWatch();
+   const idleNudge=createIdleNudge({path:join(root,`${key}.idle-nudge.json`)});   // TM-408: survives a restart
    // The expensive body. Returns the report it wrote plus whether anything actually moved.
    const reconcile=async()=>{
      // The census reuses the listing this call already takes; wrapping listPanesFn is what makes
@@ -243,8 +251,13 @@ export async function superviseRepository(options, { signal, once = false, inter
      // ensures a missing lead or restarts a confirmed-dead managed one, so the mail it was holding can
      // land in this same reconcile. Absorbed the way slots and quota absorb theirs: a lead that cannot
      // be recovered is reported with its backoff, never a reason to stop supervising.
+     // TM-394: a checkout that broke while supervised; a repair ends this process (see superviseCheckout).
+     checkoutReport=(await superviseCheckout({consumer,env,home,once})) ?? checkoutReport;
      const recovery=await recoverLead(options).catch(error=>({action:'failed',attempts:null,last_error:error?.code ?? String(error),next_retry_at:null}));
-     const resumed=await resumeStandingMessages(options);
+     // TM-483: absorbed like lead recovery. A failed publish retry or an unreadable mailbox record is
+     // reported in mail_errors (and keeps its own backoff), never a reason to stop supervising.
+     const mailErrors=[];
+     const resumed=await resumeStandingMessages({...options,errors:mailErrors}).catch(error=>{mailErrors.push({code:error?.code ?? String(error)});return [];});
      // TM-351: ring each recipient whose standing mail landed, once per message. A held ring (unsafe
      // composer, no pane) is retried here next tick. Absorbed: a ring failure never stops supervision.
      const rings=await ringStandingMail({...options,adapters,panes:observed.filter(p=>p.lifecycle!=='dead')
@@ -266,10 +279,12 @@ export async function superviseRepository(options, { signal, once = false, inter
        reconciled:true,reconcile_min_ms:floorMs,activity,
        prompts:prompts.map(p=>({agent:p.agent,status:p.state.status,errors:p.state.errors})),
        mail:resumed.map(m=>({id:m.envelope.id,status:m.status,reason:m.reason})),
+       ...(mailErrors.length ? {mail_errors:mailErrors} : {}),
        ...(rings.length ? {mail_rings:rings} : {}),
        ...(goalLoops.length ? {goal_loops:goalLoops} : {}),
        // Only when there is something to say, like slots and quota: a healthy lead adds no key.
        ...(launched || recovery.alert || recovery.woken || recovery.attempts!==0 ? {lead_recovery:recovery} : {}),
+       ...(checkoutReport && !['healthy','not-a-checkout','absent'].includes(checkoutReport.action) ? {checkout:checkoutReport} : {}),
        transport,...(natsOutage ? {nats_outage:natsOutage} : {}),...(reviewSweep ? {review_sweep:reviewSweep} : {})};
      report.reviews=await collectPendingReviews(options).catch(error=>[{state:'collection-failed',reason:error.code??error.message}]);
      await writeJson(join(root,`${key}.json`),report);
@@ -372,6 +387,12 @@ export async function superviseRepository(options, { signal, once = false, inter
              incidents:(quota.incidents??[]).map(i=>({agent:i.agent_id,provider:i.provider,id:i.incident_id,announced:i.announced?.status??null})),
              dismissed:quota.dismissed??[],unwatched:quota.unwatched??[]}};
          }
+       }
+       // TM-408: an idle standing agent is rung once to pull its next assignment (idle-nudge.mjs).
+       // Absorbed like the quota watch, and reported only when it rang or refused someone.
+       if(Array.isArray(censusPanes)) {
+         const nudges=await idleNudgeTick({...options,env,home},{census,panes:censusPanes,adapters,state:idleNudge}).catch(error=>[{error:error?.code ?? String(error)}]);
+         if(nudges.length) report={...report,idle_nudges:nudges};
        }
        censusPanes=undefined;   // consumed; the next tick reuses L2's or takes its own
        report={...report,census:{at:census.at,tick_ms:census.tickMs,captures:census.captures,

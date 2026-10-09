@@ -258,6 +258,16 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    the caller's own tmux server. The caller itself, a pane or process another task already binds, and
    a respawned pane are refused. An in-process subagent runs in the lead's own process, so it cannot
    be adopted; finish it and start the next worker with `start-worker`.
+
+   **Delegating to an existing terminal (TM-412).** The pane rules above refuse an operator's
+   long-lived terminal, so adopt the harness process inside it instead: `manage bind --task TM-id
+   --pid <pid of the Codex or Claude process>`, run from the lead's own session. A process binding is
+   never closed by `stop-worker` or `cleanup`; integration waits until that process has exited. If an
+   earlier dispatch of the task (a duplicate pool worker, say) has exited, bind refuses until
+   `tm collect TM-id` records it as ended; a dispatch tm has collected is history and never stands in
+   for the adopted writer. The lead then submits the finish with `manage report`; the admission, its
+   base revision and the worktree are unchanged. Once bound, `manage assignment` reports the writer,
+   so tm's duplicate-dispatch guard does not send a second writer into the worktree.
 3. **Stop.** Run `manage stop-worker --task TM-id`. It closes the bound pane only when this session
    owns the binding, the worker's finish report is recorded, and the pane is idle: its process is a
    shell with no children, so the harness has exited. Idle detection reads `/proc`, so it works on
@@ -333,7 +343,10 @@ publication and spending retain separate authorization.
 ### Integration policy for a repository
 
 `manage eligible` and `manage integrate` refuse every task until the repository sets two keys in
-`<repo>/.bytedesk/agent-orchestration/config.json`. That file merges over the global layer.
+`<repo>/.bytedesk/agent-orchestration/config.json`. These keys, and `management.integrate_via`, are
+honoured only as that file is committed on the server's default branch (TM-442, TM-469): a value in
+the global layer or in the checkout's working copy is ignored with a warning, because a worker can
+write both.
 
 - `management.target_branch` is the branch the main checkout must have checked out. Integration
   fast-forwards only that branch.
@@ -355,9 +368,9 @@ agent-orchestration and task-management, the agent-orchestration bundle check, a
     "target_branch": "main",
     "required_checks": [
       { "name": "agent-orchestration: npm ci", "argv": ["npm", "--prefix", "agent-orchestration", "ci", "--no-audit", "--no-fund"], "timeout_ms": 300000 },
-      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs"], "timeout_ms": 900000 },
+      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit"], "timeout_ms": 900000 },
       { "name": "agent-orchestration: build:check", "argv": ["npm", "--prefix", "agent-orchestration", "run", "-s", "build:check"], "timeout_ms": 300000 },
-      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
+      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
       { "name": "agent-orchestration: plugin validate", "argv": ["claude", "plugin", "validate", "./agent-orchestration"], "timeout_ms": 120000 },
       { "name": "task-management: plugin validate", "argv": ["claude", "plugin", "validate", "./task-management"], "timeout_ms": 120000 }
     ]

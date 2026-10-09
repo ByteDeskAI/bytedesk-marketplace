@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { addWorktree, cleanup, tempRepo, tempStore } from "./helpers.mjs";
 import { handoff } from "../../lib/render.mjs";
 import { create, mutate, now, read, readEvents, seedGitContract, state, update, writeConfig, writeState } from "../../lib/store.mjs";
-import { collect, collectOrchestration, collectTmux, collectTopology, recordResult } from "../../lib/dispatch/collect.mjs";
+import { collect, collectOrchestration, collectTmux, collectTopology, rebindTopology, recordResult } from "../../lib/dispatch/collect.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { poolTick } from "../../lib/dispatch/pool.mjs";
 import { managementIdentity } from "../../lib/governance-check.mjs";
@@ -421,6 +421,41 @@ describe("collectTopology — exact native workflow observation", () => {
     assert.deepEqual(calls, ["console", "status", "console", "status", "status"]);
   });
 
+  // TM-417 (agent-fabric TM-016): a pool dispatch recorded the bare run id as its workflow id.
+  function bareFixture() {
+    const f = legacyFixture();
+    delete f.entry.legacySourcePath;
+    mutate(f.id, (task) => ({ dispatched: { ...task.dispatched, runDir: undefined, nativeRunId: "native-old-1", workflowRunId: "native-old-1", recordPath: f.entry.recordPath } }), f.p);
+    const spawn = (index = f.index) => (bin, args, opts) => args[0] === "console" ? { status: 0, stdout: JSON.stringify(index) } : response(f.entry.nativeRunId)(bin, args, opts);
+    return { ...f, spawn };
+  }
+
+  it("TM-417: tm rebind repairs a bare workflow id from the producer record, without collecting", () => {
+    const f = bareFixture();
+    const res = rebindTopology(f.id, { p: f.p, caps, env: {}, spawnImpl: f.spawn() });
+    assert.deepEqual([res.rebound, res.from, res.to], [true, "native-old-1", "topology:native-old-1"]);
+    assert.equal(read(f.id, f.p).dispatched.workflowRunId, "topology:native-old-1");
+    assert.equal(read(f.id, f.p).status, "in_progress"); assert.equal(claimed(f.p, f.id), true);
+    assert.equal(results(f.p).length, 0);
+    assert.equal(rebindTopology(f.id, { p: f.p, caps, env: {}, spawnImpl: () => assert.fail("canonical needs no producer") }).rebound, false);
+  });
+
+  it("TM-417: collection repairs a bare workflow id before observing", () => {
+    const f = bareFixture();
+    assert.equal(collectTopology(f.id, { p: f.p, caps, spawnImpl: f.spawn() }).pending, true);
+    assert.equal(read(f.id, f.p).dispatched.workflowRunId, "topology:native-old-1");
+  });
+
+  it("TM-417: rebind refuses a worker, a foreign workload checkout and a different native run", () => {
+    const f = bareFixture();
+    assert.throws(() => rebindTopology(f.id, { p: f.p, caps, env: { TM_DISPATCH_WORKER: "1" }, spawnImpl: f.spawn() }), /dispatched worker cannot rebind/);
+    for (const change of [(index) => { index.workflows[0].workloadCwd = f.p.root; }, (index) => { index.workflows[0].nativeRunId = "other"; index.workflows[0].workflowId = "topology:other"; }]) {
+      const index = structuredClone(f.index); change(index);
+      assert.throws(() => rebindTopology(f.id, { p: f.p, caps, env: {}, spawnImpl: f.spawn(index) }), /does not match/);
+      assert.equal(read(f.id, f.p).dispatched.workflowRunId, "native-old-1");
+    }
+  });
+
   it("holds missing, ambiguous, rejected and foreign legacy references without observing or releasing a worker", () => {
     const f = legacyFixture();
     for (const change of [
@@ -558,7 +593,7 @@ describe("the handoff's completion contract", () => {
     writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
     const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
     const out = handoff(t.id, p);
-    assert.match(out, /gh pr create --title "[^"]+" --body "[^"]+" --base develop/, "the PR base, stated literally");
+    assert.match(out, /gh pr create --title "[^"]+" --body-file \S+ --base develop/, "the PR base, stated literally");
   });
 
   it("says nothing about it for a task a human is picking up", () => {

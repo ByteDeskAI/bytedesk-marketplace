@@ -2,8 +2,158 @@
 
 ## Unreleased
 
+- **SECURITY: a governed worker can no longer merge its own PR, and an ungoverned one needs green
+  required checks (TM-481, EP-028).** The worker guard refuses every `gh pr merge` for a governed task
+  (`TM_DISPATCH_GOVERNED`, the dispatch record, or task governance; an unidentifiable task counts as
+  governed). An ungoverned worker's own-PR merge is allowed only when `gh pr checks --required`
+  reports every check passed, and `--admin` is always refused. Newly refused: attached `-R<repo>`,
+  `GH_REPO`/`GH_HOST` set anywhere in the command, `gh repo set-default`, `gh alias set|import`, and
+  `gh api graphql` with `mergePullRequest`/`enablePullRequestAutoMerge` or an unreadable query. The
+  own branch is the pinned one only; HEAD no longer stands in. The handoff no longer suggests `--admin`.
+- **SECURITY: the worker guard is now an allowlist that fails closed (TM-481, EP-028).** For a
+  dispatched worker, any Bash command whose text mentions `gh`, a `git … push`, `graphql` or
+  `api.github.com` (also after stripping quotes and backslashes) is refused unless the whole line is
+  one plain command in one of these forms: `gh pr create …` (no `-R`/`--repo`);
+  `gh pr view|status|checks|diff|list …`; `gh run view|list|watch …`; `gh issue view|list …`;
+  `gh pr merge <own branch> --merge|--squash|--rebase [--auto]`; `git push [-u] origin <own branch>`;
+  `git push origin HEAD:<own branch>`. Plain means no `;`, `&`, `|`, backticks, `$`, `<`, `>`,
+  backslashes, newlines or env-var prefixes. The block-list table stays behind it as defense in
+  depth. This closes N1 (`/graphql` spellings), N2 (launchers with a quoted command), N3
+  (`bash <(…)`, `. /dev/stdin <<<`) and N4 (`gh api` contents writes); every `gh api` call is now
+  refused for workers. **This guard is best effort, not the control.** A script written to disk and
+  then run, or a name built without ever spelling `gh`, is not seen. The real control is TM-489: a
+  server-side worker credential with no merge rights.
+  - *U1:* one plain command whose first word only reads or records text — `grep`, `rg`, `cat`,
+    `head`, `tail`, `less`, `wc`, `git commit|log|diff|show|status`, `tm` or
+    `.bytedesk/task-management/bin/tm` — may mention gh or a push (`git commit -m "retry the push"`).
+    Not exempt: anything that runs a command (`find`, `xargs`, `watch`), env prefixes, `git -c`, and
+    the helper options `rg --pre` and `git --ext-diff/--textconv`. An inline `gh pr create --body`
+    with shell syntax is refused with "use --body-file"; the worker handoff now writes the body to a
+    file. `--delete-branch` is refused by the allowlist itself, and the refusal names the allowed
+    alternative for a bare `git push` and `--set-upstream`.
+- **SECURITY review fixes on the worker guard (TM-481, EP-028).**
+  - *C1:* the guard takes task, branch, store root and repository from the harness env set at spawn,
+    never from the registry record (a same-UID file); a record that disagrees with the env is refused.
+    The guard **no longer releases** when the pinned task reads `done` or `deleted`: that file is
+    worker-writable, so a forged `done` released it. A worker session now stays guarded for its life.
+  - *H1:* refused — any command whose name is an expansion (`$G …`, `$(printf …) …`), `xargs <command>`,
+    `gh`/`git push` handed to another program (`setsid`, `find -exec`, `watch`, `flock`), interpreter
+    inline code (`python -c`, `node -e`, `perl -e`, awk programs, stdin scripts) that mentions gh or
+    git push or spawns a process, and `gh api` with `$`, `%` or a backtick in its endpoint or fields.
+  - *H2:* `gh pr merge` is allowed only as the whole command line. The hook checks that
+    `gh repo view` in the cwd resolves the repository pinned at dispatch (`TM_DISPATCH_REPO`, from
+    origin) and asks `gh pr checks -R <that repo>`. Refused: `gh extension` and any gh command the
+    guard does not know (aliases included), `gh config set`, `git remote set-url|add|rename`, and
+    `git config` writes to `remote.*.url` or `gh-resolved`.
+- **SECURITY: worker refusals decide by recorded dispatch ancestry, not `TM_DISPATCH_WORKER` (TM-470,
+  EP-028).** Dispatch records the worker's pane pid (tmux `-P -F '#{pane_pid}'`, or ao-topology's
+  binding) with its start time in a registry under the passwd home. One predicate,
+  `isWorkerCaller` in `lib/worker-identity.mjs`, now backs the pre-bash guard, `governTask`,
+  `readyForReview` and `governedCompletion`; `env -u TM_DISPATCH_WORKER` from inside the worker's
+  process tree is still a worker. `WORKER_RULE` and `workerRecordFor` are exported for
+  agent-orchestration to copy. **This is best effort, not a boundary:** deleting the registry,
+  `setsid -f`, a double fork, `tmux new -d` or `systemd-run --user` all leave the recorded ancestry.
+  To narrow that, dispatch also writes the anchors onto the task (`dispatched.anchors`), and a task
+  whose anchor is still alive but whose registry record is gone makes the caller a worker (fail
+  closed). The real fix is a server-side token, tracked separately.
 ### Security
 
+- **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `lib/safe-git.mjs`
+  (byte-identical with agent-orchestration's) now runs git from a root-owned pinned path
+  (`/usr/bin`, `/bin`, `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned
+  ssh, takes `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, pins
+  `core.attributesFile` empty, and refuses every call when a repository scope sets an http key that
+  redirects or intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`,
+  `sslKey`, `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL), `remote.<name>.proxy`,
+  or a `remote.<name>.url` whose name contains `:` or `/`. Harmless keys such as `http.postBuffer`
+  pass. The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
+  `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
+  an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
+  repository were not listed. A clone with no location lists the global scope, so the operator's credential
+  helpers still apply, and a leading option other than `-C`, `-c`, `--git-dir` or `--work-tree`
+  (for example `--namespace`, `--config-env` or `--bare`) is refused. Governance's server compare (`runGh`) now goes through `safeGhSync`: it
+  refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
+  the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
+  `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+- **A fresh task worktree no longer starts dirty from graft's session hook (TM-507, EP-029).**
+  graft keeps its "wired by version V" stamp in the gitignored `graft/.cache/`, so every new
+  worktree read as unwired and graft rewrote the tracked `.claude`, `.grok` and `.mcp.json` wiring
+  with machine-specific paths and added `opencode.json`. `createWorktree` now seeds that stamp from
+  the main checkout (keeping its hosts and opts, such as `global: false`) at the newest version any
+  checkout's stamp or installed graft package names, so graft's refresh is a no-op. A repo graft
+  never wired is left alone.
+- **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
+  A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
+  resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
+  `authorizedBy: "human:<owner>"` and bound to that one escalation (`escalationAt`), the current
+  scope, the reason and the cycles it grants. It resets the stall counter, raises `maxCycles` by
+  exactly the grant, refuses a zero grant on a spent budget, captures the receipt as evidence and
+  keeps the escalation in `goal.resumptions`. It is CLI-only (no `tm_goal_resume` MCP tool), and the
+  autonomy allowlist never approves it. It refuses outright when `TM_DISPATCH_WORKER` or `AO_AGENT_ID`
+  is set (dispatched workers skip permission prompts), grants at most 3 cycles per resume, and a
+  goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
+
+### Fixed
+
+- **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
+  `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so
+  `manage report` refused every governed finish from a pool-dispatched worker. It now records
+  `topology:<native run id>`. The new verb `tm rebind <id>` repairs a dispatch that was already
+  recorded the old way. It goes through the same producer-verified reconciliation that collection
+  uses, never collects, and refuses a dispatched worker. `tm collect` repairs the id too, before it
+  observes the run.
+- **`lock.test.mjs` no longer fails on a busy machine (TM-490, EP-028).** Tests 6 and 9 wrote a lock
+  held by the hardcoded pid 999999 and expected it to be dead. On the operator's machine that number
+  was a live thread of an unrelated node process, and `kill(pid, 0)` accepts a thread id, so
+  `staleLock` correctly reported the holder alive. Environment, not a code regression: the tests now
+  use the pid of a child that has already exited. The governed "task-management: unit" check also
+  stops inheriting session identity and `TM_NTFY_*` (TM-491).
+
+### Added
+
+- **Conformance test for the two finish-check readers (TM-493, EP-028).**
+  `tests/unit/finish-checks-conformance.test.mjs` runs one table of check shapes through
+  `finishChecksRefusal` and agent-orchestration's `finishCheckEvidence`/`normalizeChecks` (loaded from
+  its source file at test time, skipped when that plugin is not in the checkout) and pins each side's
+  verdict, so either side changing alone fails. It records six current divergences, among them: a
+  structured run without `revision` passes tm's review-ready but is refused by AO's automatic review
+  request, and AO accepts a missing or empty `command` that tm refuses.
+
+- **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**
+  `readyForReview` required every `finish.checks` entry to be a string, so a governed task whose
+  worker followed the handoff (`{name, command, exit_code, revision}`, TM-418) could never reach
+  ready-for-review. Checks now go through one reader, `finishChecksRefusal` in
+  `lib/governance-check.mjs`, which accepts structured runs and legacy strings, and a malformed
+  finish is refused with the field named (for example `finish.checks[0].exit_code must be an integer`).
+  An argv `command` must hold only non-empty strings, and a run that carries `revision` must equal
+  `finish.revision`. A failing `exit_code` is still accepted; review judges it.
+
+### Security
+
+- **The dashboard's write API needs a per-dashboard token (TM-468, EP-028).** Every POST/PATCH
+  must carry `x-tm-token`; without it, or with a wrong one, the board answers 401 and changes
+  nothing. A fresh token is minted each time a dashboard binds its port, written 0600 to
+  `dashboard.token` under the store, and compared in constant time. The link the dashboard prints
+  and opens carries it in the fragment (`/#tm-token=…`), and the SPA adds it to every same-origin
+  write (`dashboard/src/lib/write-token.mjs`). After a dashboard restart, reopen the board from the
+  new link.
+- **Board writes are the board's, not the launching session's (TM-468, EP-028).** The dashboard
+  process runs as `TM_SESSION_ID=tm-dashboard` / `TM_ACTOR=dashboard`, so a claim, start, dispatch
+  or event made from a browser records `@dashboard` and never borrows the lead's session. A task
+  started on the board is held by the board; take it over from a terminal with `--steal`.
+- **A worker's command comes from user config or plugin defaults, never the repository (TM-467,
+  EP-028).** `dispatch.tmuxCommand` and `dispatch.topologyCandidates` are read only from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`trustedDispatch` in `lib/dispatch/tmux.mjs`).
+  Set in the repository's version-controlled config they are ignored, and the dispatch result and
+  `dispatched` event carry a `commandWarnings` entry that says so. A topology worker is always an
+  inline agent: it no longer borrows a stored agent from the repository's agent library, whose cli,
+  args, env, mcp servers and cwd ao-topology would merge into the pane's command.
+  `dispatch.topologyAgent` is ignored with a warning. The manual backend's hint uses the same
+  trusted command.
+- **A dispatched worker no longer starts a pool in another repo (TM-467, EP-028).** `wakePool`
+  still writes the wake file but skips `tm pool ensure` when `TM_DISPATCH_WORKER` is set. The
+  known-repo set stays writable by any same-user process; the residual risk and why there is no
+  operator-only registry are in `docs/adr/0001-known-repos-are-same-uid-writable.md`.
 - **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
   `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
   path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`

@@ -41,15 +41,18 @@ export function sourceOrdinal(root, fingerprint, git = defaultGit) {
 /**
  * Why a same-version copy of a different build must be kept, or null to refresh it. Ordered by the
  * ordinal a refresh recorded in the copy; by bundle mtime only for a copy without one (installed
- * before TM-299 or by another tool). Equal ordinals cannot be ordered, so the copy is kept: leaving
- * it is recoverable, a downgrade is not.
+ * before TM-299 or by another tool). Only a strictly newer copy is kept. TM-485: an equal ordinal is
+ * not newer, so the services' build wins; it used to be reported and left, which kept two builds live.
  */
 function keepBuild(copy, fingerprint, source, ordinalOf) {
   const a = recordedOrdinal(copy, fingerprint);
-  if (a) { const b = ordinalOf(); return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null; }
+  if (a) { const b = ordinalOf(); return a > b ? "same version, newer build than the services" : null; }
   return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
 }
-const looksLikeCopy = (dir) => existsSync(join(dir, "package.json")) && existsSync(join(dir, "dist"));
+// TM-485: a refresh replaces the directory and deletes the old one, so only a directory that IS
+// this plugin qualifies; a host config naming any other package with a dist/ must never be touched.
+const PACKAGE = "@bytedesk/agent-orchestration";
+const looksLikeCopy = (dir) => readJsonSync(join(dir, "package.json"))?.name === PACKAGE && existsSync(join(dir, "dist"));
 
 /** Numeric x.y.z comparison; a missing or unparsable version sorts lowest. */
 export function compareVersions(a, b) {

@@ -1,3 +1,4 @@
+import "../helpers/bare-run.mjs"; // TM-491: a bare `node --test` of this file must not reach live NATS or hang
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";

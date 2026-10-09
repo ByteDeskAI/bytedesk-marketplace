@@ -163,10 +163,10 @@ function presenceHolds(agent, holderId) {
  * checked, so the bucket itself is the lock:
  *  - allocate walks the candidates (first name, first-last, the holder's id) and takes the first one
  *    whose atomic `create` succeeds; a name the holder already holds is returned as is.
- *  - a taken name is reclaimed only when its holder is stale — older than `graceMs` AND not live per
- *    presence (that repository's presence entry missing, older than its staleAfterMs + skew, or not
- *    listing the holder) — and only by an `update` at the revision that was judged, so of two
- *    reclaimers exactly one wins. A record without a presence key cannot be judged and is never freed.
+ *  - a taken name is reclaimed only when its holder is provably dead — older than `graceMs` AND
+ *    absent from fresh presence that its own node (`record.node`) published for its repository — and
+ *    only by an `update` at the revision that was judged, so of two reclaimers exactly one wins.
+ *    Missing or stale presence, or a record without a presence key or node, is unknown: never freed.
  *  - release deletes at the revision it read, so a release never frees a persona someone else
  *    reclaimed in between.
  * The caller's `isStale` is ignored here: it inspects this node's tmux server, which cannot see a
@@ -203,15 +203,20 @@ export function natsPersonaRegistry({ transport, graceMs = RUN_PERSONA_GRACE_MS,
     }
     return held;
   };
+  // TM-484: liveness is read from the holder's own node's presence (`<repo>.<node>`), never the shared
+  // `<repo>` key another node with the same checkout path overwrites. Only fresh presence from that
+  // node that does not list the holder proves it dead; missing, unreadable or stale presence is
+  // UNKNOWN, and an unknown holder keeps its persona. ponytail: a node that never comes back leaks
+  // its personas; the allocator falls through to first-last and the holder's id, so nobody is stuck.
   const live = async (record) => {
     if (now() - (Date.parse(record.allocatedAt ?? "") || 0) < graceMs) return true;
-    if (!record.presence) return true;
-    const published = await transport.getPresence({ repo: record.presence });
-    if (!published) return false;
+    if (!record.presence || !record.node) return true;
+    const published = await transport.getPresence({ repo: record.presence, node: record.node });
+    if (!published) return true;
     let snapshot;
     try { snapshot = JSON.parse(published.body); } catch { return true; }
     const age = now() - (Date.parse(snapshot.generatedAt ?? "") || 0);
-    if (age > (snapshot.staleAfterMs ?? 30_000) + (snapshot.clockSkewToleranceMs ?? 0)) return false;
+    if (age > (snapshot.staleAfterMs ?? 30_000) + (snapshot.clockSkewToleranceMs ?? 0)) return true;
     return (snapshot.agents ?? []).some((agent) => presenceHolds(agent, record.holder));
   };
   // A write that lost a revision race is a normal outcome (false); anything else is not.

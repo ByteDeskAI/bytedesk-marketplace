@@ -157,6 +157,54 @@ describe("governed completion is shared by every task write surface", () => {
     assert.throws(() => readyForReview(f.task.id, { revision: f.revision, p: f.p }), /accepted exact-revision finish/);
   });
 
+  // TM-492: the finish JSON the handoff tells a worker to write must itself reach review-ready.
+  const handoffFinish = (f) => {
+    const line = workerBrief(f.task.id, f.p).split("\n").find((l) => l.includes('{"kind":"finish"'));
+    const json = line.slice(line.indexOf("{"), line.lastIndexOf("}") + 1).replaceAll("<full commit SHA>", f.revision).replaceAll("<SHA>", f.revision);
+    return JSON.parse(json).report;
+  };
+  const submit = (f, finish) => {
+    f.record.finish = finish; f.record.state = "ready-for-review"; save(f.path, f.record);
+    return () => readyForReview(f.task.id, { revision: f.revision, p: f.p });
+  };
+
+  it("accepts the structured check runs the worker handoff asks for (TM-492)", () => {
+    const f = fixture(), finish = handoffFinish(f);
+    assert.equal(typeof finish.checks[0], "object");
+    submit(f, finish)();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
+  it("accepts a failing exit_code and an argv command; review judges failures (TM-492)", () => {
+    const f = fixture();
+    submit(f, { ...handoffFinish(f), checks: [{ name: "unit", command: ["npm", "test"], exit_code: 1, revision: f.revision }] })();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
+  it("still accepts legacy prose check strings (TM-492)", () => {
+    const f = fixture();
+    submit(f, { ...handoffFinish(f), checks: ["unit tests passed"] })();
+    assert.equal(read(f.task.id, f.p).governance.state, "ready-for-review");
+  });
+
+  it("refuses a malformed check run and names the field (TM-492)", () => {
+    for (const [bad, field] of [
+      [{ command: "npm test", exit_code: 0 }, /finish\.checks\[0\]\.name/],
+      [{ name: "unit", exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: "npm test", exit_code: "0" }, /finish\.checks\[0\]\.exit_code/],
+      [{ name: "unit", command: "npm test", exit_code: 0, revision: "abc123" }, /finish\.checks\[0\]\.revision/],
+      [{ name: "unit", command: [1, null], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: [{}], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: ["", ""], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: ["", " x"], exit_code: 0 }, /finish\.checks\[0\]\.command/],
+      [{ name: "unit", command: "npm test", exit_code: 0, revision: "1".repeat(40) }, /finish\.checks\[0\]\.revision must equal finish\.revision/],
+    ]) {
+      const f = fixture();
+      assert.throws(submit(f, { ...handoffFinish(f), checks: [bad] }), field);
+      assert.equal(read(f.task.id, f.p).governance.state, "working");
+    }
+  });
+
   it("session-end preserves a submitted governed task and its ownership", () => {
     const f = fixture(); submitted(f);
     const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../../bin/tm", import.meta.url)), "hook", "session-end"], {

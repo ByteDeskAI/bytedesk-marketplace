@@ -17,14 +17,16 @@ import { displayName, firstNames, mintSpawn, roleVisual } from "./identity.mjs";
 import { composeSessionName, legacyRoleSessionName, nodeName, repoIdentity, sessionIdentity, slugPart, PART_CAPS, ulid } from "./session-names.mjs";
 import { personaRegistryFor, personaScope, presenceKeyOf, releaseRunPersona, runHolder, RUN_PERSONA_GRACE_MS } from "./persona-registry.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
-import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
+import { bindStagedPrompt, promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
+import { canonicalRepoId } from "./repoid.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
 import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
-import { claimAgent } from './respawn.mjs';
+import { claimAgent, prepareClaim } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
+import { orchName, subjectTakenBy } from './orch-transport.mjs';
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -956,8 +958,10 @@ export async function launchRun(options) {
   }
 }
 
+// TM-484: respawn is opt-in here too. Only the `launch` command passes it (its --no-respawn flag); a
+// console start and a child workflow an agent asks for pass nothing, so they refuse a live agent.
 async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun = false, maxDepth = undefined, lineage = lineageFromEnv(), launchChild = null, replyToken = null, log = () => {},
-  respawn = true, respawnBounds = {}, requestedBy = null }) {
+  respawn = false, respawnBounds = {}, requestedBy = null }) {
   const warnings = [];
 
   // Where this run sits in the tree, decided before anything is created. A run launched by an agent
@@ -986,24 +990,43 @@ async function launchRunNative({ spec, adapters, skillSearchDirs, roleSearchDirs
   // turn waited out, a handoff collected, the old session ended exactly once — unless the caller opted
   // out (`respawn: false` → TOPOLOGY_AGENT_ALREADY_LIVE). Each claim holds that agent's lock until this
   // launch has created its session, so a concurrent re-spawn joins this one instead of replacing it.
+  // TM-484: every claim is prepared — locked, checked, its turn waited out — before ANY is committed,
+  // so a refusal for one agent cannot leave another's session already ended. Locks are taken in agent
+  // id order, so two launches sharing agents cannot each hold one the other is waiting for.
   const claims = [];
+  const respawned = [];
   try {
     if (!dryRun) {
-      for (const agent of spec.agents.filter((entry) => entry._agent)) {
+      const pending = [];
+      const members = spec.agents.filter((entry) => entry._agent).sort((a, b) => String(a._agent).localeCompare(String(b._agent)));
+      for (const agent of members) {
         const first = agent.candidates?.[0];
         const adapter = first ? adapterFor({ ...agent, cli: first.cli, model: first.model }, adapters) : null;
-        const claim = await claimAgent({ agentId: agent._agent, agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null, adapter, respawn,
+        const prepared = await prepareClaim({ agentId: agent._agent, agentsDir: agent._agent_dir ? dirname(agent._agent_dir) : null, adapter, respawn,
           requestedBy, bounds: respawnBounds });
-        claims.push(claim);
+        claims.push(prepared);
+        pending.push([agent, prepared]);
+      }
+      // Settle every claim — second turn look and handoff, the last steps that can refuse — before
+      // ending any session, so a refusal here still leaves every agent's session untouched.
+      for (const [, prepared] of pending) await prepared.settle();
+      for (const [agent, prepared] of pending) {
+        let claim;
+        try { claim = await prepared.commit(); }
+        catch (error) {
+          // Only an end failure gets here. Name what was already replaced, and where its handoff is.
+          error.details = { ...error.details, replaced: respawned.map((record) => ({ agent: record.agent, session: record.predecessor.session, handoff: record.handoff?.path ?? null })) };
+          throw error;
+        }
         if (claim.respawn) {
           // The new incarnation names the one it replaced: on its pane, and on the session of a spawn.
           agent._predecessor = claim.respawn.predecessor.id;
           claim.respawn.spec_agent = agent.id;
           if (spec.session_identity?.agent === agent._agent) spec.session_identity = { ...spec.session_identity, predecessor: claim.respawn.predecessor.id };
+          respawned.push(claim.respawn);
         }
       }
     }
-    const respawned = claims.filter((claim) => claim.respawn).map((claim) => claim.respawn);
     const result = await launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings });
     return respawned.length ? { ...result, respawned } : result;
   } finally {
@@ -1015,6 +1038,13 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
   // TM-274: no session-exists refusal. Every name is planned unique — a run holds its own persona, an
   // agent one live session — so a second run of one workflow coexists with the first.
 
+  // TM-487: run members are mailbox owners too, addressed by orchName(id): a fan-out child `rev.a`
+  // and a sibling `rev_a` would share one inbox. Refused before anything is created.
+  const memberIds = spec.agents.map((agent) => agent.id);
+  memberIds.forEach((id, index) => {
+    const clash = subjectTakenBy(id, memberIds.slice(0, index));
+    invariant(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Run members ${clash} and ${id} map to the same mailbox subject token "${orchName(id)}"; rename one so they differ after non [A-Za-z0-9_-] characters become "_".`);
+  });
   const prepared = [];
   // A participant is a team, not a process: it gets a mailbox so the conductor can address it, and
   // nothing else. No skills, no role pack, no launcher, no pane. Its child run is started after the
@@ -1233,6 +1263,11 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     agent.session_kind = "run";
   }
   await saveRun(spec.run_dir, run);
+  // TM-417: the staged prompt names this pane, so the member's own `prompt ack` can prove itself.
+  const promptRepoId = (await canonicalRepoId(spec.consumer || spec.cwd)).id;
+  const stampPrompts = () => Promise.all(ordered.map(item => bindStagedPrompt({ dir: item.dir, session: run.session, repoId: promptRepoId,
+    binding: run.agents.find(agent => agent.id === item.agent.id)?.binding })));
+  await stampPrompts();
 
   // One control-mode client for the session: the readiness signal for every pane, pushed by the
   // server. If control mode is unavailable the starts fall back to the capture loop.
@@ -1281,6 +1316,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent, leadId), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
   }
   await saveRun(spec.run_dir, run);
+  await stampPrompts();
   if (spec.layout !== "windows") await tmux.selectPane(panes.get(first.agent.id));
 
   // Children last, and only once this run's own session exists. A child needs to be told where to
@@ -1418,7 +1454,7 @@ export function roleSessionNeedsGovernance({ role, coordinatesOnly = false }) {
 }
 
 export async function openRoleSession({ agentsDir, agentId, adapter, argv, env = {}, session: chosen = null, role = "worker", coordinatesOnly = false, controlledRestart = false, log = () => {},
-  respawn = true, respawnBounds = {}, requestedBy = null, replace = null, home = homedir() }) {
+  respawn = false, respawnBounds = {}, requestedBy = null, replace = null, home = homedir() }) {
   // TM-297 `agent restart`: `replace` ("handoff" | "resume") replaces the agent's LIVE session — its own
   // role-session included — through the TM-280 re-spawn rather than reattaching to it.
   invariant(replace === null || replace === "handoff" || replace === "resume", "TOPOLOGY_RESTART_MODE", "Restart mode is handoff or resume.");
@@ -1487,7 +1523,10 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   // ADR-0030 part 4 / TM-280: creating, not reattaching. An agent live in another session is re-spawned
   // (turn waited out, handoff collected, that session ended once) unless `respawn` is false; the lock
   // is held until this session exists, so a concurrent re-spawn joins rather than replaces it again.
-  const claim = await claimAgent({ agentId, agentsDir, except: replace ? null : session, adapter, respawn, requestedBy, mode: replace ?? "handoff",
+  // TM-484: respawn is opt-in. Lead ensure, reviewer ensure and other automated opens pass nothing, so a
+  // live agent elsewhere is refused (TOPOLOGY_AGENT_ALREADY_LIVE), never killed; `session open` and
+  // `agent restart` (replace) are the explicit requests that may replace it.
+  const claim = await claimAgent({ agentId, agentsDir, except: replace ? null : session, adapter, respawn: respawn || replace !== null, requestedBy, mode: replace ?? "handoff",
     env: { ...process.env, ...env }, home, bounds: respawnBounds });
   try {
     invariant(!replace || claim.respawn, "TOPOLOGY_AGENT_NOT_LIVE", `Agent ${agentId} has no live session to restart; open it instead, and it starts on the current prompt.`, { agent_id: agentId });
@@ -1674,6 +1713,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
   // now provably absent — and a slot reconcile would read that as "the holder is gone" and hand its
   // cutover slot to the next in the queue. Re-stamp before anything can observe the gap. Best
   // effort: a failover must not fail because a slot record could not be rewritten.
+  await bindStagedPrompt({ dir: agentDir(runDir, agentId), session: run.session, repoId: (await canonicalRepoId(run.consumer || runDir)).id, binding: entry.binding });
   if (entry.binding) {
     const { restampSlotBindings } = await import("./slots.mjs");
     await restampSlotBindings({ consumer: run.consumer || runDir, agentId, binding: entry.binding }).catch(() => {});

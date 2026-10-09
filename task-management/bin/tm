@@ -78,7 +78,7 @@ import { liveOwner } from "../lib/dispatch/live-owner.mjs";
 import { reviewSweep } from "../lib/review-sweep.mjs";
 import { envRegistry } from "../lib/dispatch/backend.mjs";
 import { governTask, readyForReview, reworkGovernance } from "../lib/governance.mjs";
-import { collect as collectResult } from "../lib/dispatch/collect.mjs";
+import { collect as collectResult, rebindTopology } from "../lib/dispatch/collect.mjs";
 import { ensurePool, livePool, poolable, poolEnabled, poolLine, poolLogFile, poolStatus, poolTick, poolWait, poolWorkers, readPoolState, renewLiveClaims, resumePool, runPool, stopPool } from "../lib/dispatch/pool.mjs";
 import { safeGitText } from "../lib/safe-git.mjs";
 
@@ -1701,6 +1701,15 @@ const VERBS = {
     out(`${id} result: ${res.outcome}${res.downgraded ? " (downgraded)" : ""}${res.parked ? " — parked" : ""}`);
   },
 
+  /** TM-417: repair a topology dispatch whose workflow id is not `topology:<native run id>`. */
+  rebind(id) {
+    requireInit();
+    if (!id || id.startsWith("--")) die("usage: tm rebind <id>");
+    const res = rebindTopology(id, { p: P });
+    if (JSON_OUT) return out(JSON.stringify(res, null, 2));
+    out(res.rebound ? `${id} rebound: ${res.from} -> ${res.to}` : `${id} dispatch already canonical (${res.dispatched.workflowRunId})`);
+  },
+
   /**
    * The dispatcher loop: agent-first pickup of ready-for-agent tasks.
    *
@@ -1982,7 +1991,7 @@ const VERBS = {
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  enhance-mine [--apply] [--days 14] [--top 15] [--min-count 2] [--test-log <f>]...   mine transcripts + board for issues (dry-run by default)",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
-        "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
+        "  goal open|finding|assess|revise|complete|resume EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
@@ -2021,6 +2030,7 @@ const VERBS = {
         "  dispatch-check <id> [--json]   is a worker already live for this task (tm dispatch or agent-orchestration)?",
         "  agent [list] | agent heartbeat <name> | agent reap   the dispatched-worker registry",
         "  collect <id>                  pull a dispatched worker's result into the store",
+        "  rebind <id>                   repair a topology dispatch's workflow id from the producer record",
         "  claim renew --live            renew the claims of dispatched workers proven alive (for a supervisor)",
         "  pool [once|ensure|start|stop|status|resume] [--dry-run]   the ready-for-agent pickup loop (once is the default)",
         "  pool wait [--until idle|running|stopped|dispatched <id>|done <id>] [--timeout <s>]   block until the condition (exit 0), timeout (exit 2) or, for done, the task parks or blocks (exit 3); never sleep-poll",

@@ -1,13 +1,38 @@
 /** Producer-owned review and integration records are the authority for governed completion. */
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./store.mjs";
-import { GH_PATHS, safeGitText, trustedGh } from "./safe-git.mjs";
+import { isWorkerCaller } from "./worker-identity.mjs";
+import { GH_PATHS, safeGhSync, safeGitText, trustedGh } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
+const nonempty = (value) => typeof value === "string" && value.trim() !== "";
+/**
+ * TM-492: the one reader of a producer finish report's `checks`. Each entry is either a structured
+ * run, the shape the worker handoff asks for and agent-orchestration's finishCheckEvidence (TM-418)
+ * accepts — {name, command, exit_code, revision?, log_tail?} — or a legacy prose string. Mirrors
+ * agent-orchestration's normalizeChecks without importing it (the plugins stay independent).
+ * Returns null when every entry is valid, otherwise a refusal naming the entry and field.
+ */
+export function finishChecksRefusal(checks, revision) {
+  if (!Array.isArray(checks) || !checks.length) return "finish.checks must be a non-empty array";
+  for (const [index, check] of checks.entries()) {
+    const at = `finish.checks[${index}]`;
+    if (typeof check === "string") { if (!check.trim()) return `${at} is an empty string`; continue; }
+    if (!check || typeof check !== "object" || Array.isArray(check)) return `${at} must be a check run object or a string`;
+    if (!nonempty(check.name)) return `${at}.name must be a non-empty string`;
+    // AO also accepts an argv array for command; every item must be a non-empty string.
+    const c = check.command, command = Array.isArray(c) ? (c.length && c.every(nonempty) ? c.join(" ") : null) : c;
+    if (!nonempty(command)) return `${at}.command must be a non-empty string or an array of non-empty strings`;
+    // A failing exit_code is accepted: this is a format gate, and the reviewer judges failures.
+    if (!Number.isInteger(check.exit_code)) return `${at}.exit_code must be an integer`;
+    if (check.revision !== undefined && !fullRevision(check.revision)) return `${at}.revision must be a full commit SHA`;
+    if (check.revision !== undefined && check.revision !== revision) return `${at}.revision must equal finish.revision (${revision}); a run at another commit is not evidence for it`;
+  }
+  return null;
+}
 // TM-221: mirrors agent-orchestration topology/lib/reviewer.mjs SEVERITIES (TM-215); a conformance test holds them equal.
 export const REVIEW_SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
 const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
@@ -152,7 +177,7 @@ export const ghResolver = { resolve: () => trustedGh() };
 export function runGh(args, cwd) {
   const bin = ghResolver.resolve();
   if (!bin) return { status: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
-  return spawnSync(bin, args, { cwd, encoding: "utf8", timeout: 60_000, windowsHide: true });
+  return safeGhSync(bin, args, { cwd }); // TM-475: redirecting env removed; a redirecting gh config is refused
 }
 
 /** The worktree still holds the reviewed revision, or only merged the integration branch into it. */
@@ -165,7 +190,7 @@ function reviewedHead(worktree, revision, target) {
 export function governedCompletion(task, p) {
   if (!task?.governance) return { allow: true };
   const refuse = (reason) => ({ allow: false, code: "TM_GOVERNED_COMPLETION_REQUIRED", reason: `${task.id}: ${reason}` });
-  if (process.env.TM_DISPATCH_WORKER) return refuse("workers finish at ready-for-review; only reviewed and authorized integration can close this task");
+  if (isWorkerCaller({ task }).worker) return refuse("workers finish at ready-for-review; only reviewed and authorized integration can close this task");
   try {
     const { record } = readManagementRecord(task, p), g = task.governance;
     if (g.version !== 1 || g.runtime !== "topology" || !g.workflowRunId || !g.leadId ||

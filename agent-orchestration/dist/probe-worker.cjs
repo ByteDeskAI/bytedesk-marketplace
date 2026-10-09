@@ -25810,15 +25810,54 @@ var import_node_util2 = require("node:util");
 
 // topology/lib/safe-git.mjs
 var import_node_child_process2 = require("node:child_process");
+var import_node_fs2 = require("node:fs");
 var import_node_os3 = require("node:os");
 var import_node_path4 = require("node:path");
+var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+var GIT_PATHS = Object.freeze(["/usr/bin/git", "/bin/git", "/usr/local/bin/git"]);
+var SSH_PATHS = Object.freeze(["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh"]);
+function rootOwnedChain(real, paths = GH_PATHS, stat2 = import_node_fs2.statSync) {
+  if (!paths.includes(real)) return false;
+  try {
+    for (let p = real; ; p = (0, import_node_path4.dirname)(p)) {
+      const s = stat2(p);
+      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
+      if (p === "/") return true;
+    }
+  } catch {
+    return false;
+  }
+}
+function trustedBinary({ paths, stat: stat2 = import_node_fs2.statSync, realpath: realpath2 = import_node_fs2.realpathSync }) {
+  for (const candidate of paths) {
+    let real;
+    try {
+      real = realpath2(candidate);
+    } catch {
+      continue;
+    }
+    if (rootOwnedChain(real, paths, stat2) && rootOwnedChain(candidate, paths, stat2)) return candidate;
+  }
+  return null;
+}
+var SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
+var GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
+var NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
+var PASSWD_HOME = (() => {
+  try {
+    return (0, import_node_os3.userInfo)().homedir || null;
+  } catch {
+    return null;
+  }
+})();
 var SAFE_GIT_CONFIG = Object.freeze([
   "core.fsmonitor=false",
   "core.hooksPath=/dev/null",
   "core.pager=cat",
   "diff.external=",
-  "core.sshCommand=ssh",
+  `core.sshCommand=${SSH}`,
   "core.askPass=",
+  "core.attributesFile=",
   "core.editor=true",
   "sequence.editor=true",
   "core.alternateRefsCommand=true",
@@ -25849,8 +25888,8 @@ var SUBCOMMAND_FLAGS = Object.freeze({
   push: ["--receive-pack=git-receive-pack"],
   ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
 });
-var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
-var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
+var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\.(.+\\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\\..+\\.proxy|remote\\..*[:/].*\\.(url|pushurl))$";
+var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\.(.+\.)?(proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|curloptresolve|extraheader|cookiefile)|remote\..+\.proxy|remote\..*[:/].*\.(url|pushurl))$/;
 var UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
 var pair = (entry) => {
   const at2 = entry.indexOf("=");
@@ -25859,7 +25898,7 @@ var pair = (entry) => {
 var GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
 function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
   const env = Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("GIT_") || GIT_ENV_ALLOWLIST.includes(name)));
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: (0, import_node_path4.join)((0, import_node_os3.homedir)(), ".gitconfig"), GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: PASSWD_HOME ? (0, import_node_path4.join)(PASSWD_HOME, ".gitconfig") : "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
   env.GIT_CONFIG_COUNT = String(config2.length);
   config2.forEach(([key, value], i) => {
     env[`GIT_CONFIG_KEY_${i}`] = key;
@@ -25896,7 +25935,7 @@ function driverOverrides(listing) {
   }
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
-var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+var GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
 function hardenArgs(args) {
   let i = 0;
   while (i < args.length && args[i].startsWith("-")) i += ["-C", "-c", "--git-dir", "--work-tree"].includes(args[i]) ? 2 : 1;
@@ -25904,14 +25943,30 @@ function hardenArgs(args) {
   return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
 }
 var at = (cwd2) => cwd2 ? ["-C", cwd2] : [];
-var LIST = (cwd2) => [...at(cwd2), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+function listArgs(cwd2, args) {
+  const location = [];
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-")) {
+    if (["-C", "--git-dir", "--work-tree"].includes(args[i])) {
+      location.push(args[i], args[i + 1]);
+      i += 2;
+    } else if (args[i] === "-c") i += 2;
+    else if (/^--(git-dir|work-tree)=/.test(args[i])) {
+      location.push(args[i]);
+      i += 1;
+    } else return { list: null, refusal: `host git does not accept the leading option ${args[i]}; name the repository with -C or --git-dir` };
+  }
+  const listing = ["config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+  if (args[i] === "clone" && !cwd2 && !location.length) return { list: ["config", "--global", ...listing.slice(1)], refusal: null };
+  return { list: [...at(cwd2), ...location, ...listing], refusal: null };
+}
 function safeGitPlan(cwd2, args, listing = "") {
   const { overrides, refusal } = driverOverrides(listing);
   return { argv: [...at(cwd2), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
 }
-var GIT = process.platform === "win32" ? "git.exe" : "git";
 var refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
 function execAsync(argv, config2, options) {
+  if (!GIT) return Promise.resolve({ code: 127, stdout: "", stderr: NO_GIT });
   return new Promise((resolve2) => {
     const child = (0, import_node_child_process2.execFile)(
       GIT,
@@ -25923,9 +25978,11 @@ function execAsync(argv, config2, options) {
   });
 }
 async function safeGit(cwd2, args, options = {}) {
-  const listing = await execAsync(LIST(cwd2), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const { list, refusal } = listArgs(cwd2, args);
+  const listing = list ? await execAsync(list, SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs }) : { stdout: "" };
   const plan = safeGitPlan(cwd2, args, listing.stdout);
-  const result = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
+  const why = refusal || plan.refusal;
+  const result = why ? { code: 128, stdout: "", stderr: refused(args, why) } : await execAsync(plan.argv, plan.config, options);
   if (result.code !== 0 && !options.allowFailure) {
     throw Object.assign(new Error(`git ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`), result);
   }

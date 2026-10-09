@@ -20,7 +20,7 @@
         "argv": [
           "sh",
           "-c",
-          "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs"
+          "cd agent-orchestration && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" npm run -s test:unit"
         ],
         "timeout_ms": 900000
       },
@@ -41,7 +41,7 @@
         "argv": [
           "sh",
           "-c",
-          "cd task-management && node --test tests/unit/*.test.mjs"
+          "cd task-management && env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" node --test tests/unit/*.test.mjs"
         ],
         "timeout_ms": 600000
       },
@@ -64,6 +64,15 @@
           "./task-management"
         ],
         "timeout_ms": 120000
+      },
+      {
+        "name": "plugin-rsync: tests",
+        "argv": [
+          "sh",
+          "-c",
+          "env -i PATH=\"$PATH\" HOME=\"$HOME\" LANG=\"${LANG:-C.UTF-8}\" USER=\"$USER\" TMPDIR=\"${TMPDIR:-/tmp}\" bash plugin-rsync/tests/test-plugin-rsync.sh"
+        ],
+        "timeout_ms": 300000
       }
     ],
     "integrate_via": "pull-request",

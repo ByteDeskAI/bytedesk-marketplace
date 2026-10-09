@@ -24,6 +24,7 @@ import { stateRoot } from "./lib/repoid.mjs";
 import { dispatchedWorker } from "./lib/delegation.mjs";
 import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
 import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
+import { callerIdentity } from "./lib/session-identity.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topology");
@@ -127,7 +128,7 @@ Standing repository services
   goal-loop reconcile --consumer <repo> [--loop <id>]
   mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
   mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
-       [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+       [--kind mail|reply] [--sender <agent>] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   repos list [--json]                           registered repositories and each supervisor's state
@@ -175,6 +176,8 @@ Standing repository services
   manage transfer --task <TM-id> [--to <session>] --reason <text>   hand the admission to another
                                                lead (owner), or take over one whose owner's claim
                                                is no longer live (TM-247)
+  manage rebind --task <TM-id>                 repair a topology dispatch recorded with a bare
+                                               workflow id, from the producer record (TM-417)
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
@@ -192,7 +195,9 @@ Standing repository services
                                                on the SERVER default branch names it (integrate scope).
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
-  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
+  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker;
+                                        --pid adopts the harness in an existing terminal once any
+                                        exited dispatch is collected (tm collect), never closing it (TM-412)
   manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected;
                                         retire one observed dead without a finish (TM-247)
   manage rework --task <TM-id>          after a changes_requested review of the finish revision and a
@@ -240,6 +245,7 @@ function manageSummary(verb, task, r) {
     case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
     case 'transfer': return `${task} transferred from ${r.from} to ${r.to}`;
+    case 'rebind': return r.rebound ? `${task} dispatch rebound: ${r.from} -> ${r.to}` : `${task} dispatch already canonical (${r.workflow_run_id})`;
     case 'close': return r.closed ? `${task} closed (${r.steps.join(', ') || 'nothing left to do'})` : `${task} NOT closed at ${r.refused} after [${r.steps.join(', ')}]: ${r.reason} — ${r.recovery}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
@@ -254,6 +260,13 @@ function externalSummary(verb, r) {
   if (!r.landed) return `${r.task} not landed: ${r.reason} (${level})`;
   if (r.published) return `${r.task} merged and published at ${r.release.revision ?? ''}${r.origin ? `; origin ${r.origin.notified ? 'notified' : `NOT notified: ${r.origin.reason}`}` : ''} (${level})`;
   return `${r.task} merged${r.waiting ? `; publish waits for ${r.waiting.join(', ')}` : ''} (${level})`;
+}
+
+/** TM-474: the names this caller may read standing reply bodies as under `wait`: exactly the two names
+ * `send` gives a sender, its launcher id (or "operator") and its session identity (send --from). Same
+ * env trust as `send` (TM-427B); a reply body reaches only the sender it answers. */
+function runMailViewers(env) {
+  return new Set([env.AO_AGENT_ID || "operator", callerIdentity(env)?.agentId].filter(Boolean));
 }
 
 function list(value) {
@@ -687,7 +700,10 @@ const commands = {
         kind: flags.kind, status: flags.status, workflowId: flags.workflow, runId: flags.run, taskId: flags.task }));
       return out(await receipts.setMailboxDisposition({ ...ctx, agent,
         messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
-        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'] }));
+        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'],
+        // TM-482 F2: receipts are per sender; --sender picks one when several senders reused the ID.
+        // N2: --sender '' names the receipt whose sender is null (a legacy or anonymous message).
+        from: typeof flags.sender === 'string' ? flags.sender || null : undefined }));
     }
     if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
@@ -703,7 +719,13 @@ const commands = {
     ctx.transport = await selectLiveTransport({ env: process.env });
     try {
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
-    if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
+    // TM-482 F1: a failure the resume collected is printed and fails the command, never dropped.
+    if (sub === 'resume') {
+      const errors = [];
+      out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true, errors }));
+      if (errors.length) { process.stderr.write(`${JSON.stringify({ ok: false, errors }, null, 2)}\n`); process.exitCode = 1; }
+      return;
+    }
     if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
     if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
     if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
@@ -890,9 +912,9 @@ const commands = {
       return out(flags.summary ? externalSummary(verb, result) : result);
     }
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask' };
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask', rebind:'rebindTaskWorker' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|rebind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
@@ -958,8 +980,10 @@ const commands = {
     // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
     // drives both and compares — which is also why both pass the same activation reason.
     if (sub === 'ensure') {
+      // TM-394: repair a broken checkout first; a still-broken one refuses rather than mint a lead.
+      const checkout = await (await import('./lib/checkout-repair.mjs')).ensureCheckout(ctx);
       const result = await api.ensureLead(options);
-      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
+      return out({ ...result, ...(checkout.action === 'repaired' ? { checkout } : {}), supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });
@@ -1120,6 +1144,14 @@ const commands = {
     out("Search paths:");
     for (const [label, dirs] of Object.entries(report.dirs)) {
       out(`  ${label}: ${dirs.filter((dir) => dir.exists).map((dir) => dir.dir).join(", ") || "(none exist yet)"}`);
+    }
+    if (report.role_mcp?.length) {
+      out("Role MCP:");
+      for (const r of report.role_mcp) {
+        if (r.error) { out(`  ? ${r.error}`); continue; }
+        const expected = Array.isArray(r.expected) ? `expected ${r.expected.join(", ")}; running ${r.present.join(", ") || "none"}` : r.note;
+        out(`  ${r.ok ? "✓" : "✗"} ${r.role} ${r.agent_id ?? ""} pid ${r.pid} — ${r.live === false ? r.note : expected}`);
+      }
     }
     if (report.problems.length === 0) return out("OK — ready to launch.");
     out("Problems:");
@@ -1822,6 +1854,7 @@ const commands = {
       timeoutMs,
       pollMs,
       transport,
+      viewers: runMailViewers(process.env),
       onTick: flags.quiet ? undefined : (pending, elapsed) => process.stderr.write(`waiting ${Math.round(elapsed / 1000)}s — pending: ${pending.map((item) => `${item.agent}:${item.id}`).join(", ")}\n`),
     });
     } finally { await closeLiveTransports(); }
@@ -1836,7 +1869,7 @@ const commands = {
     }
     out(`All replies received in ${Math.round(result.elapsed_ms / 1000)}s.`);
     for (const reply of result.replies) {
-      out(`\n===== ${reply.agent} · ${reply.id} · ${reply.path} =====\n${reply.body.trim()}`);
+      out(`\n===== ${reply.agent} · ${reply.id} · ${reply.path} =====\n${reply.body === null ? `(${reply.body_withheld})` : reply.body.trim()}`);
     }
   },
 
