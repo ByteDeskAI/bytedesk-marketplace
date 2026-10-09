@@ -45,6 +45,7 @@ import { liveOwner } from "./live-owner.mjs";
 import { PREFIXED_BACKENDS, aoGlobalPrefix, withPrefix } from "./prefix.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { governanceMode, governedAdmission } from "../governance-check.mjs";
+import { recordWorker, repoSlug, startTime } from "../worker-identity.mjs";
 
 /**
  * One heartbeat, driven from outside — the pool loop and other supervisors call
@@ -237,16 +238,32 @@ export async function dispatch(id, { backend = null, session = null, actor = nul
     prompt = withPrefix(prompt, got.text);
     prefixWarning = got.warning;
   }
+  // TM-481: governance and the repository the worker may merge in, pinned into its env at spawn.
+  const governed = gm.mode === "admitted" || gm.mode === "required";
+  const repo = repoSlug(p.root);
   let res;
   try {
-    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, prompt, session, actor, p });
+    res = await picked.backend.spawn({ task: read(id, p), worktree: prov.path, branch: prov.branch, integrationBranch: integration, governed, repo, prompt, session, actor, p });
   } catch (err) {
     return fail(`worker launch failed: ${err.message}`, { failureScope: failureScope({ reason: err.message }, "backend") });
   }
   if (!res?.ok) return fail(res?.reason || `${picked.name} did not start a worker`, { detail: res?.detail, failureScope: failureScope(res || {}, "backend") });
 
-  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now(), ...(res.nativeRunId ? { nativeRunId: res.nativeRunId } : {}), ...(res.workflowRunId ? { workflowRunId: res.workflowRunId } : {}), ...(res.detail?.runDir ? { recordPath: join(res.detail.runDir, "run.json") } : {}) };
+  /**
+   * TM-470: the worker's pane pids are its dispatch ancestry (lib/worker-identity.mjs). They go to the
+   * registry AND onto the task (`dispatched.anchors`), so a deleted registry record fails closed rather
+   * than releasing the worker. A backend that reports no anchors leaves the env marker the only signal.
+   */
+  const anchors = (Array.isArray(res.anchors) ? res.anchors : []).map((pid) => ({ pid, start: startTime(pid) })).filter((a) => a.start != null);
+  const dispatched = { backend: picked.name, run: res.run ?? null, session, at: now(), ...(anchors.length ? { anchors } : {}), ...(res.nativeRunId ? { nativeRunId: res.nativeRunId } : {}), ...(res.workflowRunId ? { workflowRunId: res.workflowRunId } : {}), ...(res.detail?.runDir ? { recordPath: join(res.detail.runDir, "run.json") } : {}) };
   mutate(id, () => ({ dispatched, dispatchFailure: undefined }), p);
+  if (anchors.length) {
+    try {
+      recordWorker(anchors.map((a) => a.pid), { task: id, branch: prov.branch, integrationBranch: integration, governed, repo, root: p.root, run: res.run ?? null });
+    } catch {
+      /* a registry error must never fail a dispatch */
+    }
+  }
   // TM-375: a configured secret the dispatching environment lacked is named here; values never are.
   // TM-448/TM-449: passEnv names config set but this dispatch did not pass, and why.
   const passEnvWarnings = res.detail?.passEnvWarnings?.length ? res.detail.passEnvWarnings : null;

@@ -7,6 +7,7 @@
  * lock a task out of the board forever. Taking a live claim is allowed but never
  * silent — you steal explicitly, and it lands in the event log.
  */
+import { isWorkerCaller } from "./worker-identity.mjs";
 import { captureGatewayBinding } from "./gateway-binding.mjs";
 import { existsSync } from "node:fs";
 import { config, logEvent, now, state, withLock, writeState } from "./store.mjs";
@@ -72,7 +73,7 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     // A dispatched worker carries its lead's TM_SESSION_ID, so its own `tm start`/`tm claim` would
     // otherwise look like the lead re-claiming: it is marked `worker` and keeps the earlier `since`.
     const at = now();
-    const worker = Boolean(process.env.TM_DISPATCH_WORKER);
+    const worker = isWorkerCaller().worker;
     const keep = worker && live && held.session === session && held.since;
     // Kept `since` keeps its `worker` flag, so the flag always describes whoever took `since`.
     const since = keep ? held.since : at;

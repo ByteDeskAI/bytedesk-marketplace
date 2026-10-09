@@ -27,52 +27,45 @@ try {
 // that run this file directly (the Codex launcher). In a worker it fails SAFE: anything it cannot
 // read or run is refused, because the worker is running with every permission prompt skipped.
 if (event === "pre-bash") {
-  if (!process.env.TM_DISPATCH_WORKER) process.exit(0);
+  // TM-470: a worker by recorded dispatch ancestry OR its env marker — unsetting the marker is no exit.
+  const { isWorkerCaller } = await import("../lib/worker-identity.mjs");
+  const who = isWorkerCaller();
+  if (!who.worker) process.exit(0);
+  /**
+   * TM-481 C1: the pins come from THIS process's env — the harness's, set at spawn, which no Bash call
+   * the worker makes can edit. The registry record is a same-UID file the worker can rewrite, so it is
+   * never preferred: it can only add a restriction (governed), and a record that disagrees with the
+   * env is itself a refusal. A pin the env lacks stays null, and a null branch or repo allows nothing.
+   */
+  const pin = {
+    task: process.env.TM_DISPATCH_TASK || null,
+    branch: process.env.TM_DISPATCH_BRANCH || null,
+    integrationBranch: process.env.TM_DISPATCH_INTEGRATION_BRANCH || null,
+    root: process.env.TM_ROOT || null,
+    repo: process.env.TM_DISPATCH_REPO || null,
+  };
+  const conflict = Object.keys(pin).find((k) => who.record?.[k] && pin[k] && String(who.record[k]) !== String(pin[k]));
 
   /**
-   * The guard releases when the task does.
-   *
-   * TM_DISPATCH_* is pinned into the worker's environment at spawn and nothing
-   * ever clears it, so without this the guard outlives the work: a session whose
-   * task is finished and merged keeps being told it may push only its own branch
-   * — a branch that, after the usual post-merge cleanup, does not exist any more.
-   * Every push it could name is then impossible, and the session can do nothing.
-   *
-   * The task's own resolution is the release: `done` or `deleted` (store RESOLVED).
-   * Parked and blocked deliberately do not release — that work can resume.
-   *
-   * Fail closed, like the rest of the guard, and only release a task whose STORE
-   * we have identified. Task ids are unique only within a store, so a worker
-   * pinned to TM-001 must not be released by an unrelated TM-001 that is done in
-   * some other repo. Two things identify one, and one of them must hold:
-   *
-   *   TM_ROOT             the dispatcher naming the store outright.
-   *   the recorded branch  the task we read records the very branch this worker
-   *                       was pinned to. A same-id task in a different store does
-   *                       not carry this worker's branch name.
-   *
-   * Neither available means we cannot tell which task this is, and an unidentified
-   * worker stays guarded. So does an unreadable store, a missing task, or one that
-   * is still open: a guard that cannot see must not stand down.
+   * TM-481 C1: the guard NEVER releases. It used to stand down when the pinned task read `done`, but
+   * the task file is in a store the worker can write, so a forged `status: done` released it. A
+   * worker session stays guarded for its whole life; a finished worker is ended, not un-guarded.
+   * The store is still read, but only to ADD a restriction: a governed task, or one that cannot be
+   * identified (no TM_ROOT and no matching recorded branch), refuses every merge.
    */
-  const releaseGuard = async (cwd) => {
-    const pinned = process.env.TM_DISPATCH_TASK;
-    if (!pinned) return false;
-    const storeRoot = process.env.TM_ROOT;
-    const pinnedBranch = process.env.TM_DISPATCH_BRANCH;
-    if (!storeRoot && !pinnedBranch) return false;
+  const pinnedTask = async (cwd) => {
+    if (!pin.task || (!pin.root && !pin.branch)) return { task: null, identified: false };
     try {
-      const [{ RESOLVED, read }, { paths }] = await Promise.all([import("../lib/store.mjs"), import("../lib/paths.mjs")]);
-      const task = read(pinned, paths(storeRoot || cwd));
-      if (!task || !RESOLVED.has(task.status)) return false;
-      return Boolean(storeRoot) || task.branch === pinnedBranch;
+      const [{ read }, { paths }] = await Promise.all([import("../lib/store.mjs"), import("../lib/paths.mjs")]);
+      const task = read(pin.task, paths(pin.root || cwd));
+      return { task, identified: Boolean(task) && (Boolean(pin.root) || task.branch === pin.branch) };
     } catch {
-      return false; // a store we cannot read is not a release
+      return { task: null, identified: false }; // a store we cannot read identifies nothing
     }
   };
 
   const refuse = (why) => {
-    process.stderr.write(`task-management dispatch guard (worker for ${process.env.TM_DISPATCH_TASK || "an unnamed task"}): ${why}\n`);
+    process.stderr.write(`task-management dispatch guard (worker for ${pin.task || "an unnamed task"}): ${why}\n`);
     process.exit(2);
   };
   let payload = null;
@@ -84,14 +77,39 @@ if (event === "pre-bash") {
   const command = payload?.tool_input?.command;
   if (typeof command !== "string") refuse("could not read a Bash command from the PreToolUse payload, so it cannot be checked; refusing rather than guessing.");
   const payloadCwd = typeof payload.cwd === "string" && payload.cwd ? payload.cwd : process.cwd();
-  if (await releaseGuard(payloadCwd)) process.exit(0);
+  if (conflict) refuse(`the dispatch record's ${conflict} (${who.record[conflict]}) disagrees with the one pinned at spawn (${pin[conflict]}); a rewritten record is refused, not believed.`);
+  const pinned = await pinnedTask(payloadCwd);
   try {
     const { guardCommand } = await import("../lib/worker-guard.mjs");
     const cwd = payloadCwd;
     const { safeGitSync } = await import("../lib/safe-git.mjs");
     const rev = safeGitSync(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]); // TM-443
     const head = rev.status === 0 ? rev.stdout.trim() : null;
-    const verdict = guardCommand(command, { branch: process.env.TM_DISPATCH_BRANCH || head, head, integrationBranch: process.env.TM_DISPATCH_INTEGRATION_BRANCH });
+    /**
+     * TM-481: governed when dispatch recorded it, the env says so, or the task carries governance —
+     * and, failing safe, when the task cannot be identified at all. A governed worker never merges.
+     */
+    const governed = Boolean(who.record?.governed || process.env.TM_DISPATCH_GOVERNED || !pinned.identified || pinned.task?.governance);
+    /**
+     * TM-481: an ungoverned worker merges its own PR only in the pinned repository (TM_DISPATCH_REPO)
+     * and only when every required check has passed. H2: the repository `gh` resolves from this cwd
+     * must BE the pinned one — a `cd`, `git remote set-url` or `gh-resolved` write made in an earlier
+     * call shows up here — and the checks are asked of the pinned repository with -R, not the cwd's.
+     */
+    const requiredChecksPass = (branch) => {
+      if (!pin.repo) return false;
+      const gh = (args) => spawnSync("gh", args, { cwd, encoding: "utf8", timeout: 4500, windowsHide: true });
+      const view = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+      if (view.status !== 0 || String(view.stdout).trim().toLowerCase() !== pin.repo.toLowerCase()) return false;
+      try {
+        const checks = JSON.parse(gh(["pr", "checks", branch, "-R", pin.repo, "--required", "--json", "bucket"]).stdout);
+        return Array.isArray(checks) && checks.length > 0 && checks.every((c) => c.bucket === "pass");
+      } catch {
+        return false;
+      }
+    };
+    // TM-481: the own branch is the PINNED one only — HEAD is what the worker checked out, not proof.
+    const verdict = guardCommand(command, { branch: pin.branch || null, head, integrationBranch: pin.integrationBranch, governed, requiredChecksPass });
     if (!verdict.allow) refuse(verdict.reason);
   } catch (err) {
     refuse(`the guard itself failed (${err.message}); refusing rather than guessing.`);
