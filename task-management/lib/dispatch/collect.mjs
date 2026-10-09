@@ -29,6 +29,7 @@ import { toolFailureReason } from "./backend.mjs";
 import { claimant, releaseClaim } from "../claims.mjs";
 import { addComment } from "../issue.mjs";
 import { detectHostCaps } from "../hostcaps.mjs";
+import { withoutAoIdentity } from "../actor.mjs";
 import { config, logEvent, mutate, now, read, update } from "../store.mjs";
 import { paths } from "../paths.mjs";
 import { rpcSession } from "./mcp-client.mjs";
@@ -136,15 +137,34 @@ function retryPlan(task, final, scope, reviewReady, p) {
  * TM-247: a governed task whose live claim belongs to its admission owner is that lead's to recover.
  * The collector records what the worker did and leaves the task, claim and status alone; parking
  * here dropped a lead's re-claim between ticks (TM-242) and forced a manual TM_SESSION_ID tm start.
+ *
+ * TM-460: the dispatch itself claims under the admission owner (AC13), so "the owner holds the
+ * claim" was true for EVERY governed dispatch, and a worker that crashed after its lead was gone
+ * was never parked or retried. The owner's claim counts only when agent-orchestration proves the
+ * lead responsive from proof already on disk (`lead status --cached`: no probe, no ring, no wait).
+ * A re-claim is NOT evidence: the worker carries the lead's TM_SESSION_ID, so it can produce one
+ * (`env -u TM_DISPATCH_WORKER tm start`, or the dashboard API in the lead's process). The claim's
+ * `worker`/`since` fields stay as information only. No ao, no proof: not held.
  */
-function heldByAdmissionOwner(task, p) {
+function heldByAdmissionOwner(task, p, { caps = null, exec = spawnSync } = {}) {
   if (!task.governance) return false;
   try {
-    const owner = readManagementRecord(task, p).record.owner;
-    return Boolean(owner) && claimant(task.id, p)?.session === owner;
+    const { record } = readManagementRecord(task, p);
+    const claim = claimant(task.id, p);
+    if (!record.owner || claim?.session !== record.owner) return false;
+    return leadProvenAlive(record.lead_id || record.owner, p, { caps, exec });
   } catch {
     return false;
   }
+}
+
+function leadProvenAlive(leadId, p, { caps, exec }) {
+  const bin = caps ? caps.backends?.topology?.path : detectHostCaps().backends?.topology?.path;
+  if (!bin) return false;
+  const res = exec(bin, ["lead", "status", "--cached"], { cwd: p.root, env: withoutAoIdentity(process.env), shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: PR_LOOKUP_TIMEOUT_MS });
+  if (res?.error) return false;
+  const status = JSON.parse(String(res.stdout || "{}"));
+  return status.status === "responsive" && status.record?.agent_id === leadId;
 }
 
 /**
@@ -159,7 +179,7 @@ function heldByAdmissionOwner(task, p) {
  *
  * Returns { ok, id?, outcome?, downgraded?, parked?, reason? }. Never throws.
  */
-export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } = {}) {
+export function recordResult(id, result = {}, p = paths(), { exec = spawnSync, caps = null } = {}) {
   try {
     const { run = null, outcome, summary = "" } = result ?? {};
     const task = read(id, p);
@@ -197,7 +217,7 @@ export function recordResult(id, result = {}, p = paths(), { exec = spawnSync } 
       const dirty = dirtyPaths(task.worktree);
       if (dirty.length) note = `${note || "worker failed"}\n\nuncommitted in ${task.worktree}: ${dirty.slice(0, 20).join(", ")}${dirty.length > 20 ? ` (+${dirty.length - 20} more)` : ""}`;
     }
-    const leadHeld = heldByAdmissionOwner(task, p);
+    const leadHeld = heldByAdmissionOwner(task, p, { caps, exec });
     const retry = leadHeld ? null : retryPlan(task, final, scope, reviewReady, p);
     if (leadHeld) {
       /* the admission owner recovers it: manage stop-worker retires the worker, start-worker replaces it */
@@ -328,7 +348,7 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
  *
  * Raw tmux puts its session name after the backend prefix in the dispatched handle.
  */
-function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync } = {}) {
+function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync, caps = null } = {}) {
   try {
     const task = read(id, p);
     if (!task) return { ok: false, reason: `not found: ${id}` };
@@ -349,7 +369,7 @@ function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync } = {}
       return recordResult(id, { run: handle, outcome: "done", summary: `${backend} worker exited; the task was closed through the gates` }, p);
     }
     if (after.status === "in_progress") {
-      return recordResult(id, { run: handle, outcome: "failed", summary: "worker exited without closing" }, p);
+      return recordResult(id, { run: handle, outcome: "failed", summary: "worker exited without closing" }, p, { caps });
     }
     if (after.status === "blocked") return recordBlocked(id, handle, after, `${backend} worker`, p);
     // Parked/blocked/reopened already — the board was told by another path.
@@ -434,7 +454,7 @@ export function collectTopology(id, { p = paths(), caps = null, spawnImpl = spaw
     const after = read(id, p) || task;
     if (after.governance?.state === "ready-for-review") return recordResult(id, { run: dispatched.run, outcome: "ready-for-review", summary: "native worker ended after submitting its exact revision; independent review and integration remain required" }, p);
     if (after.status === "done") return recordResult(id, { run: dispatched.run, outcome: "done", summary: "native worker ended; task completion was already verified" }, p);
-    if (after.status === "in_progress") return recordResult(id, { run: dispatched.run, outcome: "failed", summary: "native worker ended without completing its task protocol" }, p);
+    if (after.status === "in_progress") return recordResult(id, { run: dispatched.run, outcome: "failed", summary: "native worker ended without completing its task protocol" }, p, { caps });
     if (after.status === "blocked") return recordBlocked(id, dispatched.run, after, "native worker", p);
     return { ok: true, pending: false, skipped: `task is ${after.status}; nothing to collect` };
   } catch (error) { return hold(`native workflow observation failed: ${error.message}`); }
@@ -498,7 +518,7 @@ export function collectIdle(id, { caps = null, p = paths(), spawnImpl = spawnSyn
       return { ok: false, reason: `ao-topology manage assignment reported an unknown outcome for ${id}: ${JSON.stringify(record.outcome)}` };
     }
 
-    const recorded = recordResult(id, { run: handle, outcome: record.outcome, summary: String(record.summary || "").trim() }, p);
+    const recorded = recordResult(id, { run: handle, outcome: record.outcome, summary: String(record.summary || "").trim() }, p, { caps });
     // Release AFTER recording, so the agent is never free while the board still says nobody
     // reported — and unconditionally, so a refused recording cannot strand it. Its own failure is
     // reported alongside rather than replacing the result: two facts, both true.

@@ -12,7 +12,7 @@ import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from 
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
-import { finishCheckEvidence, githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { INTEGRATION_BRANCH, currentReviewStatus, finishCheckEvidence, githubBranchTip, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
@@ -102,6 +102,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     done: async (id, actor = null) => exec(['done', taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
+    // TM-347: reflects a producer rework; tm checks the record names this revision.
+    rework: async (id, revision) => exec(['rework', taskId(id), '--revision', revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async epic => JSON.parse((await exec(['find', `epic:${epic}`, 'kind:task', '--json'])).stdout).filter(t => t.epic === epic).map(t => t.id),
     // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
@@ -435,6 +437,68 @@ export async function taskWorkerState(options, record) {
   } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
 }
 
+/** TM-349: the admission base is merge-base(HEAD, integration branch), never HEAD itself, so commits a
+ * worker made before admission stay inside the review range. Returns { base, source }.
+ *  - server-tip: the anchor branch tip on the pinned server (githubBranchTip), fetched if absent;
+ *    merge-base(HEAD, tip). Primary, because it works while the task commits are still unpushed.
+ *  - server: the TM-325 compare helper names merge_base(branch, HEAD) on the server copy of the
+ *    integration branch (the recorded one, else management.target_branch, else the default branch).
+ *    A worker can write any local ref, so the server answer always wins when there is one.
+ *  - local-fallback: the server cannot answer (no gh, offline, HEAD unpushed). The OLDEST merge-base
+ *    across every resolvable candidate (origin/<name> and <name> for the recorded branch, the target
+ *    branch, the PR base only when it equals one of those, and the default branch), so a forged ref
+ *    can never narrow the range below a genuine one. Recorded on the record; the review range widens a
+ *    local-fallback base to the server merge-base once the server can answer (reviewer.effectiveBase).
+ * Nothing resolving fails closed; there is never a HEAD fallback. A fresh worktree is unchanged. */
+async function defaultBranch(options, worktree) {
+  const head = await git(worktree, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], true);
+  if (head.code === 0 && head.stdout.trim().startsWith('origin/')) return head.stdout.trim().slice('origin/'.length);
+  const viewed = await (options.gh || defaultGh(worktree))(['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name']).catch(() => null);
+  return viewed?.code === 0 ? viewed.stdout.trim() : null;
+}
+async function admissionBase(options, worktree, integration, branch) {
+  const head = await gitText(worktree, ['rev-parse', 'HEAD']);
+  const target = (await loadConfig(options)).config.management?.target_branch;
+  const anchor = [integration, target].find(nonempty) ?? null;
+  if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
+    // Primary: the anchor branch tip on the pinned server. It needs nothing of the task pushed.
+    let tip = null;
+    try { tip = String(await (options.serverBranchTip || githubBranchTip)(worktree, anchor) ?? ''); } catch { /* unreachable: compare, then local */ }
+    if (/^[a-f0-9]{40,64}$/.test(tip)) {
+      const local = async () => (await git(worktree, ['cat-file', '-e', `${tip}^{commit}`], true)).code === 0;
+      if (!(await local())) await git(worktree, ['fetch', '--quiet', 'origin', tip], true);
+      invariant(await local(), 'TOPOLOGY_MANAGEMENT_BASE', `The server tip ${tip} of ${anchor ?? 'the default branch'} is not in this repository and could not be fetched from origin; fetch it and retry admission.`);
+      const found = await git(worktree, ['merge-base', 'HEAD', tip], true);
+      invariant(found.code === 0 && found.stdout.trim(), 'TOPOLOGY_MANAGEMENT_BASE', `The task HEAD shares no history with the server tip ${tip} of ${anchor ?? 'the default branch'}.`);
+      return { base: found.stdout.trim(), source: 'server-tip' };
+    }
+    let server = null;
+    try { server = await (options.serverCompare || githubCompare)(worktree, anchor, head); } catch { /* unanswerable: local fallback below */ }
+    const mb = String(server?.merge_base ?? '');
+    if (/^[a-f0-9]{40,64}$/.test(mb)) {
+      invariant((await git(worktree, ['merge-base', '--is-ancestor', mb, head], true)).code === 0, 'TOPOLOGY_MANAGEMENT_BASE',
+        `The server merge-base ${mb} of ${anchor ?? 'the default branch'} is not a local ancestor of the task HEAD; fetch it and retry admission.`);
+      return { base: mb, source: 'server' };
+    }
+  }
+  // The PR base is worker-chosen: it only counts when it names a branch the repository already trusts.
+  const pull = (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0];
+  const named = [...new Set([integration, target, [integration, target].includes(pull) ? pull : null, await defaultBranch(options, worktree)].filter(nonempty).map(name => name.trim()))];
+  const bases = [];
+  for (const name of named) for (const ref of [`refs/remotes/origin/${name}`, `refs/heads/${name}`]) {
+    const found = await git(worktree, ['merge-base', 'HEAD', ref], true);
+    if (found.code === 0 && found.stdout.trim()) bases.push(found.stdout.trim());
+  }
+  if (!bases.length) fail('TOPOLOGY_MANAGEMENT_BASE', named.length
+    ? `Cannot resolve any integration branch candidate (${named.join(', ')}) to a merge-base with the task HEAD as origin/<name> or <name>; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`
+    : 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, no management.target_branch and no repository default branch. Configure management.target_branch.');
+  const unique = [...new Set(bases)];
+  const octopus = unique.length === 1 ? { code: 0, stdout: unique[0] } : await git(worktree, ['merge-base', '--octopus', ...unique], true);
+  const base = octopus.code === 0 ? octopus.stdout.trim() : '';
+  invariant(/^[a-f0-9]{40,64}$/.test(base), 'TOPOLOGY_MANAGEMENT_BASE', `The integration branch candidates (${named.join(', ')}) share no common ancestor with the task HEAD; refusing rather than guessing a base.`);
+  return { base, source: 'local-fallback' };
+}
+
 /** TM-247: the same observation without the finish requirement, for retiring a worker that died
  * before reporting. The claim may be released (a parked or blocked task) but never foreign. */
 export async function deadWorkerState(options, record) {
@@ -498,24 +562,76 @@ export async function admitTask(options) {
       return { admitted: false, state: 'ownership-review-required' };
     }
     if (held) ownClaim(held, owner, task); // TTL expiry never authorizes silent reassignment here.
-    if (prior?.owner === owner && prior.started) { await reclaimAdmission(ctx, task, prior); return { admitted: true, resumed: true, record: prior }; }
+    // TM-348 review: a released claim (park, block, defer, reap) is not an invitation. Another session
+    // never takes over a started record, and a done or landed task never gets its worktree or claim back.
+    if (prior?.started && prior.owner !== owner) {
+      await recordEvent(ctx, task, prior, 'ownership-review-required', { owner, existing_owner: prior.owner, worktree: doc.worktree || null, recovery: 'The task was admitted by another session; reconcile ownership with that owner instead of re-admitting.' });
+      return { admitted: false, state: 'ownership-review-required' };
+    }
+    invariant(doc.status !== 'done' && !prior?.merge && !['merged', 'cleaned'].includes(prior?.state), 'TOPOLOGY_MANAGEMENT_LANDED', `${task} is done or landed; admission never recreates its worktree or claim.`);
+    if (prior?.owner === owner && prior.started) {
+      // TM-247: a released claim is re-claimed through tm start for this owner (never stolen; a blocked
+      // task refuses until tm unblock), then the record is resumed.
+      const current = await reclaimAdmission(ctx, task, prior);
+      // TM-349: a record admitted at a worker commit hides that commit; a resumed admission only ever widens it.
+      const { base, source } = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
+      if (base !== prior.base_revision && (await git(current.worktree, ['merge-base', '--is-ancestor', base, prior.base_revision], true)).code === 0) {
+        const widened = await recordEvent(ctx, task, prior, 'base-widened', { from: prior.base_revision, to: base, base_source: source });
+        Object.assign(widened, { base_revision: base, base_source: source }); await writeJson(ctx.path, widened);
+        return { admitted: true, resumed: true, record: widened };
+      }
+      return { admitted: true, resumed: true, record: prior };
+    }
     invariant(doc.labels?.includes('ready-for-agent') && list(doc.touches) && doc.touches.length, 'TOPOLOGY_MANAGEMENT_SCOPE', 'Task needs approved ready-for-agent scope and declared files/touches.');
     const available = await (options.reviewerReady || reviewerAvailability)(options);
     invariant(available.available, 'TOPOLOGY_MANAGEMENT_REVIEWER', available.reason || 'Designated reviewer is not ready.');
     for (const id of doc.blockedBy || []) invariant((await ctx.store.show(id)).status === 'done', 'TOPOLOGY_MANAGEMENT_DEPENDENCY', `Dependency ${id} is not complete.`);
-    if (!doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
+    // TM-348: tm worktree new is idempotent and claims first, so an unclaimed task with a recorded
+    // worktree is re-claimed here; a claim held by another session was already refused above.
+    if (!held || !doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
     const provisioned = await ownedTask(ctx, task, owner);
+    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
+    const recorded = String(provisioned.integrationBranch ?? '').trim(), integration = recorded && recorded !== 'HEAD' ? recorded : null;
+    const { base, source } = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
     await ctx.store.start(task, provisioned.worktree);
-    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, intent, boundaries, dependencies, checks, files: doc.touches });
+    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
     const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
-    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
-    const integration = String(provisioned.integrationBranch ?? '').trim();
-    Object.assign(record, { integration_branch: integration && integration !== 'HEAD' ? integration : null, base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
+    Object.assign(record, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
     await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});
     return { admitted: true, record };
+  });
+}
+
+/** TM-347: the one way back to working after an independent review requests changes. Gated on a
+ * changes_requested review of the CURRENT finish revision and a stopped (or absent) worker. The rework
+ * event keeps the reviewed revision and its findings; finish and collected are cleared, owner,
+ * worktree, branch and base are kept, and the task store returns the governed task to working.
+ * A retry after the store call failed only repeats that call. */
+export async function reworkTask(options) {
+  const ctx = await context(options), { task, owner } = options;
+  return withLock(`${ctx.path}.lock`, async () => {
+    let record = await loadRecord(ctx.path);
+    invariant(record?.started && record.owner === owner, 'TOPOLOGY_MANAGEMENT_REWORK', `Only the admitting session can return ${task} to work; admit it first.`);
+    const last = record.events?.at(-1);
+    let revision = last?.event === 'rework' && record.state === 'working' && !record.finish ? last.revision : null;
+    if (!revision) {
+      revision = record.finish?.revision;
+      invariant(record.state === 'ready-for-review' && nonempty(revision) && !record.merge, 'TOPOLOGY_MANAGEMENT_REWORK', `rework needs a finished, unlanded revision under review; ${task} is ${record.state ?? 'not started'}.`);
+      invariant(!record.worker || record.worker.stopped_at, 'TOPOLOGY_MANAGEMENT_REWORK', 'Stop the finished worker with manage stop-worker before rework; findings never go to a live writer.');
+      await ownedTask(ctx, task, owner);
+      const { state, review } = await (options.reviewStatus || currentReviewStatus)(options.consumer, task, revision, ctx.env, ctx.home);
+      invariant(state === 'changes_requested' && review?.verified_commit === revision, 'TOPOLOGY_MANAGEMENT_REWORK_REVIEW',
+        `rework needs an independent changes_requested review of the current finish revision ${revision}; the review is ${state}${review?.revision && review.revision !== revision ? ` of ${review.revision}` : ''}.`);
+      record = await recordEvent(ctx, task, record, 'rework', { owner, revision, review: { reviewer_id: review.reviewer_id, verdict: review.verdict, created_at: review.created_at ?? null, request_nonce: review.request_nonce ?? null, findings: review.findings ?? [] } });
+      for (const key of ['finish', 'collected', 'review_request', 'review_blocked']) delete record[key];
+      record.state = 'working';
+      await writeJson(ctx.path, record);
+    }
+    await ctx.store.rework?.(task, revision);
+    return { reworked: true, revision, record };
   });
 }
 
@@ -536,6 +652,8 @@ export async function workerReport(options) {
       invariant(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every(check => nonempty(check) || (check && typeof check === 'object')) && report.checks.length && list(report.risks) && nonempty(report.evidence), 'TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL', 'Finish requires artifacts, checks/evidence, remaining risks and exact revision.');
       invariant(report.revision === await gitText(doc.worktree, ['rev-parse', 'HEAD']), 'TOPOLOGY_MANAGEMENT_REVISION', 'Finish must name the current exact task commit.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_DIRTY', 'Commit or preserve outstanding changes before readiness for review.');
+      // TM-347: a revision whose review requested changes is never resubmitted; rework makes a new one.
+      invariant(!(prior.events || []).some(e => e.event === 'rework' && e.revision === report.revision), 'TOPOLOGY_MANAGEMENT_REVISION', `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report); // TM-418: a malformed check run is refused here, where the worker can still fix it.
     } else invariant(nonempty(report?.message), 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'A during-work report requires a visible reason.');
     // The same native workflow can undergo a producer-controlled fallback. A new finish
