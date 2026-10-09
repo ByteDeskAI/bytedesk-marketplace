@@ -47,10 +47,11 @@ trash.push(XDG);
 const savedXdg = process.env.XDG_CONFIG_HOME;
 process.env.XDG_CONFIG_HOME = XDG;
 after(() => (savedXdg === undefined ? delete process.env.XDG_CONFIG_HOME : (process.env.XDG_CONFIG_HOME = savedXdg)));
-function userConfig({ tm = ["TM375_SECRET", "TM375_ABSENT"], ao = ["TM375_AO", "not a name"] } = {}) {
+function userConfig({ tm = ["TM375_SECRET", "TM375_ABSENT"], ao = ["TM375_AO", "not a name"], tmuxCommand } = {}) {
   mkdirSync(join(XDG, "task-management"), { recursive: true });
   mkdirSync(join(XDG, "agent-orchestration"), { recursive: true });
-  writeFileSync(join(XDG, "task-management", "config.json"), JSON.stringify({ dispatch: { passEnv: tm } }));
+  // TM-467: the worker command is user config too; the repository's is ignored.
+  writeFileSync(join(XDG, "task-management", "config.json"), JSON.stringify({ dispatch: { passEnv: tm, ...(tmuxCommand ? { tmuxCommand } : {}) } }));
   writeFileSync(join(XDG, "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: ao } }));
 }
 userConfig();
@@ -185,7 +186,8 @@ describe("TM-375 tmux backend passes configured secrets", () => {
       // The server starts WITHOUT the secret, as the operator's long-lived server would have.
       execFileSync("tmux", ["new-session", "-d", "-s", "keepalive", "sleep 120"]);
       assert.ok(existsSync(socket), "the isolated server is the one in use");
-      const p = storeWithPassEnv(["sh", "-c", 'printf %s "$TM375_SECRET" | sha256sum > seen.sha; printf %s "$TM375_AO" | sha256sum > ao.sha; exec sleep 30']);
+      userConfig({ tmuxCommand: ["sh", "-c", 'printf %s "$TM375_SECRET" | sha256sum > seen.sha; printf %s "$TM375_AO" | sha256sum > ao.sha; exec sleep 30'] });
+      const p = storeWithPassEnv();
       const req = { task: { id: "TM-375", title: "x" }, worktree, prompt: "prompt", session: "s", actor: "@a", p, env: { ...process.env, TM375_SECRET: SENTINEL, TM375_AO: `${SENTINEL}-ao` } };
       const res = tmux.spawn(req);
       assert.equal(res.ok, true, res.reason);
@@ -204,6 +206,7 @@ describe("TM-375 tmux backend passes configured secrets", () => {
       const ps = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" });
       assert.ok(ps.includes("sleep 30") && !ps.includes(SENTINEL), "no argv carries it");
     } finally {
+      userConfig();
       spawnSync("tmux", ["-S", socket, "kill-server"]);
       Object.assign(process.env, saved);
       if (saved.TMUX === undefined) delete process.env.TMUX;

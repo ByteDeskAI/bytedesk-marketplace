@@ -25,6 +25,13 @@
   match, or when ancestry is unreadable. The autonomy allowlist (#222) never approves `console show`.
   Remaining boundary: a process that has left every agent's tree (`setsid -f`) is still the
   operator to this check; TM-427B's identity proof closes that.
+### Security
+
+- **Provider adapters no longer load from the consumer repository (TM-467, EP-028).** An adapter
+  is the command a pane executes, and `<repo>/.bytedesk/agent-orchestration/providers/` (and the
+  legacy `.orchestration/providers/`) is version-controlled, so a worker's merged PR could replace
+  `claude` with any program for every later launch in that repo. `providerDirs` now searches only
+  `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
 ### Fixed
 
 - **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission

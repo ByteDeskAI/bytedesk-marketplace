@@ -36,7 +36,7 @@ export const name = "tmux";
 /** Where the durable copy of the prompt lives, relative to the worktree root. */
 export const PROMPT_FILE = ".tm-dispatch-prompt.md";
 
-/** What the pane runs. Config `dispatch.tmuxCommand` overrides the whole argv. */
+/** What the pane runs, unless the user's own config names another argv (see workerCommand). */
 export const DEFAULT_COMMAND = ["claude", "-p", "--dangerously-skip-permissions"];
 
 /** This plugin's hook wrapper, resolved from this module's own location — never a home path. */
@@ -138,6 +138,36 @@ export function userConfigDir(env = process.env) {
 }
 
 /**
+ * TM-467: a dispatch setting that chooses WHAT a worker runs — its argv, its CLI, its model — read
+ * from the user's own `$XDG_CONFIG_HOME/task-management/config.json` and nowhere else. The same key
+ * in the repository's `.bytedesk/task-management/config.json` is git-tracked, so a worker whose PR
+ * merges would choose the command every later worker runs: there it is ignored, and `warning` says
+ * so rather than dropping it silently. `value` is undefined when the user set nothing, and the
+ * caller falls back to what this plugin ships.
+ */
+export function trustedDispatch(key, cfg, env = process.env) {
+  const file = join(userConfigDir(env), "task-management", "config.json");
+  let value;
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"))?.dispatch?.[key];
+  } catch {
+    /* absent is the common case */
+  }
+  const repo = cfg?.dispatch?.[key];
+  const warning = repo !== undefined && JSON.stringify(repo) !== JSON.stringify(value)
+    ? `dispatch.${key} ignored: set in git-tracked repository config, which a merged PR can change; set it in ${file} instead`
+    : null;
+  return { value, warning };
+}
+
+/** TM-467: the argv a tmux worker pane runs — the user's `dispatch.tmuxCommand`, else DEFAULT_COMMAND. */
+export function workerCommand(cfg, env = process.env) {
+  const { value, warning } = trustedDispatch("tmuxCommand", cfg, env);
+  const ok = Array.isArray(value) && value.length > 0 && value.every((w) => typeof w === "string" && w);
+  return { command: ok ? value : DEFAULT_COMMAND, warnings: warning ? [warning] : [] };
+}
+
+/**
  * `{ names, ignored, refused, warnings, viaAo }` — names are what a tmux worker gets; `viaAo` is
  * the subset agent-orchestration itself passes (its global workers.passEnv), which is all a
  * topology worker gets (TM-449).
@@ -211,12 +241,14 @@ export function spawn(req, { spawnImpl = spawnSync, writeImpl = writeFileSync } 
   const cfg = config(req.p);
   const plan = passEnvNames(req, cfg);
   const pass = stagePassEnv(plan.names, req.env ?? process.env);
-  const args = argvFor({ ...req, branch: workerBranch(req, cfg), envFile: pass.file }, cfg.dispatch?.tmuxCommand);
+  const worker = workerCommand(cfg);
+  const args = argvFor({ ...req, branch: workerBranch(req, cfg), envFile: pass.file }, worker.command);
   // Names only: what was passed, what the dispatching environment lacked (TM-375), and what
   // config named but was ignored or refused (TM-448).
   const passEnv = {
     ...(pass.passed.length || pass.missing.length ? { passEnv: pass.passed, passEnvMissing: pass.missing } : {}),
     ...(plan.warnings.length ? { passEnvWarnings: plan.warnings } : {}),
+    ...(worker.warnings.length ? { commandWarnings: worker.warnings } : {}),
   };
   const res = spawnImpl("tmux", args, { shell: false, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if ((res.error || res.status !== 0) && pass.file) rmSync(dirname(pass.file), { recursive: true, force: true });

@@ -9348,6 +9348,191 @@ var init_prompt_lifecycle = __esm({
   }
 });
 
+// topology/lib/agents.mjs
+function libraryConsumer(consumer) {
+  try {
+    const paths2 = safeGitText(consumer, ["worktree", "list", "--porcelain"], { raw: true });
+    const first = paths2.split("\n").find((line) => line.startsWith("worktree "));
+    return first ? first.slice(9) : consumer;
+  } catch {
+    return consumer;
+  }
+}
+function agentDirs({ pluginRoot, consumer, home, extra = [] }) {
+  const dirs = [...extra];
+  if (consumer) dirs.push(...consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND), ...consumerResourceDirs(consumer, AGENTS_KIND));
+  if (home) dirs.push((0, import_node_path33.join)(home, ".config", "agent-orchestration", AGENTS_KIND));
+  if (pluginRoot) dirs.push((0, import_node_path33.join)(pluginRoot, AGENTS_KIND));
+  return [...new Set(dirs)];
+}
+function agentsRoot(consumer) {
+  return consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND)[0];
+}
+function listAgentsSync(dirs) {
+  const seen = /* @__PURE__ */ new Map();
+  for (const dir of dirs) {
+    let entries2 = [];
+    try {
+      entries2 = (0, import_node_fs8.readdirSync)(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries2) {
+      if (!entry.isDirectory() || seen.has(entry.name)) continue;
+      const file2 = (0, import_node_path33.join)(dir, entry.name, DEFINITION);
+      let raw;
+      try {
+        raw = JSON.parse((0, import_node_fs8.readFileSync)(file2, "utf8"));
+      } catch {
+        continue;
+      }
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      seen.set(entry.name, { ...raw, id: raw.id || entry.name, _dir: (0, import_node_path33.join)(dir, entry.name), _file: file2 });
+    }
+  }
+  return [...seen.values()];
+}
+async function listAgents(dirs) {
+  return listAgentsSync(dirs);
+}
+function matchAgent(roster, ref) {
+  const wanted = String(ref || "").trim();
+  if (!wanted) return null;
+  const byId = roster.find((a) => a.id === wanted);
+  if (byId) return byId;
+  const key = humanKey(wanted);
+  return roster.find((a) => humanKey(a.full_name) === key || humanKey(displayName(a)) === key) || null;
+}
+async function resolveAgentRef(ref, dirs) {
+  return matchAgent(await listAgents(dirs), ref);
+}
+async function findLead(dirs) {
+  const leads = (await listAgents(dirs)).filter((a) => a.role === "lead");
+  invariant2(
+    leads.length <= 1,
+    "TOPOLOGY_MULTIPLE_LEADS",
+    `A repo may declare one lead; found ${leads.length}: ${leads.map((a) => displayName(a)).join("; ")}. Demote all but one.`
+  );
+  return leads[0] || null;
+}
+async function createAgent(consumer, spec = {}, dirs = null, context4 = {}) {
+  const role = String(spec.role || "worker");
+  const searchDirs = dirs || [agentsRoot(consumer)];
+  const existing = await listAgents(searchDirs);
+  if (role === "lead") {
+    const lead = existing.find((a) => a.role === "lead");
+    invariant2(
+      !lead,
+      "TOPOLOGY_LEAD_EXISTS",
+      `This repo already has a lead: ${displayName(lead)}. A repo may declare one lead.`
+    );
+  }
+  const taken = new Set(existing.map((a) => a.full_name).filter(Boolean));
+  const id = spec.id || mintId();
+  invariant2(!existing.some((a) => a.id === id), "TOPOLOGY_AGENT_EXISTS", `Agent id ${id} already exists.`);
+  invariant2(
+    !spec.full_name || !taken.has(spec.full_name),
+    "TOPOLOGY_AGENT_NAME_TAKEN",
+    `This repo already has an agent named ${spec.full_name}. Two agents may not share a display identity \u2014 pick another name or let one be minted.`
+  );
+  const named = spec.full_name ? {
+    first_name: spec.first_name || String(spec.full_name).split(" ")[0] || "",
+    last_name: spec.last_name || String(spec.full_name).split(" ").slice(1).join(" "),
+    full_name: spec.full_name,
+    title: spec.title || titleForRole(role)
+  } : mintName(role, { taken });
+  const agent = {
+    id,
+    ...named,
+    role,
+    // Template provenance: which named template this instance was minted from. The instance gets
+    // a fresh identity regardless — the template shapes it, it never shares one.
+    template: spec.template || null,
+    coordinates_only: ["lead", "observer"].includes(role) ? spec.coordinates_only !== false : spec.coordinates_only === true,
+    own_state_only: role === "observer",
+    reports_to: spec.reports_to ?? null,
+    cli: spec.cli || "claude",
+    candidates: spec.candidates,
+    model: spec.model,
+    skills: Array.isArray(spec.skills) ? spec.skills : [],
+    mcp: Array.isArray(spec.mcp) ? spec.mcp : [],
+    instructions: [spec.instructions, spec.prompt].filter((value) => typeof value === "string" && value.trim()).join("\n\n"),
+    instructions_file: spec.instructions_file || PROMPT,
+    args: Array.isArray(spec.args) ? spec.args : [],
+    env: spec.env && typeof spec.env === "object" ? spec.env : {},
+    // TM-214: absent means on; explicit false opts out. A reviewer is never auto-approved (TM-150):
+    // its stored definition must say false, so no path that reads agent.json can launch it unprompted.
+    auto_approve: role === "reviewer" ? false : spec.auto_approve !== false,
+    created_at: nowIso()
+  };
+  const dir = (0, import_node_path33.join)(agentsRoot(consumer), agentDirName(agent));
+  await (0, import_promises27.mkdir)(dir, { recursive: true });
+  await writeJson((0, import_node_path33.join)(dir, DEFINITION), agent);
+  if (!await exists((0, import_node_path33.join)(dir, PROMPT))) {
+    await (0, import_promises27.writeFile)((0, import_node_path33.join)(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer, dir), "utf8");
+  }
+  const enriched = { ...agent, _dir: dir, _file: (0, import_node_path33.join)(dir, DEFINITION) };
+  const state = await refreshPrompt({ agent: enriched, consumer, pluginRoot: (0, import_node_path33.dirname)((0, import_node_path33.dirname)((0, import_node_path33.dirname)((0, import_node_url3.fileURLToPath)(__aoImportMetaUrl)))), ...context4 });
+  invariant2(state.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Cannot create agent with invalid prompt configuration.", { errors: state.errors });
+  return enriched;
+}
+function defaultPrompt(agent, consumer, dir = (0, import_node_path33.join)(agentsRoot(consumer), agentDirName(agent))) {
+  return `# ${displayName(agent)}
+
+You are **${agent.full_name}**, ${agent.title} on this project.
+
+## Where you are, and where the work is
+
+Your working directory is \`${dir}\` \u2014 your own agent directory. It is yours: notes, scratch files
+and whatever memory your CLI keeps are scoped to it, and nothing you leave here collides with
+another agent.
+
+**Your working directory is NOT the project.** The project you work on is \`${consumer}\`, and you
+have been granted access to it.
+
+**Every path you use for project work must be absolute and begin with \`${consumer}/\`.** A relative
+path \u2014 \`src/app.ts\`, \`./README.md\`, \`docs/\` \u2014 resolves against your own agent directory instead.
+Written that way a file looks saved while being nowhere the project can see it; read that way an
+existing file reports as missing. This is the one mistake that looks like success, so check the
+paths in your own commands before you run them.
+
+## Who you are
+
+- Address: \`${agent.id}\` \u2014 machines and other agents use this. People never see it.
+- Role: ${agent.role}
+${agent.reports_to ? `- You report to: \`${agent.reports_to}\`
+` : ""}${agent.coordinates_only ? `
+## You coordinate; you do not implement
+
+You do not write project code yourself. You receive requests, decide who should handle them,
+delegate, and report back. When work arrives that belongs to someone on your team, hand it to them
+rather than doing it.
+` : ""}`;
+}
+async function requireAgent(ref, dirs) {
+  const agent = await resolveAgentRef(ref, dirs);
+  if (!agent) fail("TOPOLOGY_AGENT_NOT_FOUND", `No agent matches ${JSON.stringify(ref)} in this repo.`);
+  return agent;
+}
+var import_node_fs8, import_promises27, import_node_path33, import_node_url3, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
+var init_agents = __esm({
+  "topology/lib/agents.mjs"() {
+    import_node_fs8 = require("node:fs");
+    import_promises27 = require("node:fs/promises");
+    import_node_path33 = require("node:path");
+    import_node_url3 = require("node:url");
+    init_config();
+    init_prompt_lifecycle();
+    init_util();
+    init_identity();
+    init_safe_git();
+    AGENTS_KIND = "agents";
+    DEFINITION = "agent.json";
+    PROMPT = "prompt.md";
+    humanKey = (value) => String(value || "").trim().replace(/\s+/g, " ").replace(/\s*,\s*/g, ", ").toLowerCase();
+  }
+});
+
 // topology/lib/services-client.mjs
 var services_client_exports = {};
 __export(services_client_exports, {
@@ -9365,10 +9550,10 @@ function servicesEnabled(env = process.env) {
   return value !== "0";
 }
 function servicesDir(env = process.env, home = (0, import_node_os11.homedir)()) {
-  return (0, import_node_path33.join)(stateRoot2(env, home), "services");
+  return (0, import_node_path34.join)(stateRoot2(env, home), "services");
 }
 function reposPath(env = process.env, home = (0, import_node_os11.homedir)()) {
-  return (0, import_node_path33.join)(servicesDir(env, home), "repos.json");
+  return (0, import_node_path34.join)(servicesDir(env, home), "repos.json");
 }
 async function readServiceRepos(env = process.env, home = (0, import_node_os11.homedir)()) {
   const value = await readJson3(reposPath(env, home)).catch(() => null);
@@ -9398,7 +9583,7 @@ async function removeServiceRepo({ key, consumer }, { env = process.env, home = 
   });
 }
 function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
-  const cli = (0, import_node_url3.fileURLToPath)(new URL("../../dist/cli.cjs", __aoImportMetaUrl));
+  const cli = (0, import_node_url4.fileURLToPath)(new URL("../../dist/cli.cjs", __aoImportMetaUrl));
   return new Promise((resolve24) => {
     const child = (0, import_node_child_process11.spawn)(process.execPath, [cli, "services", "ensure", "--json"], {
       env: { ...process.env, ...env },
@@ -9428,13 +9613,13 @@ function runServicesEnsure({ env = process.env, timeoutMs = 12e4 } = {}) {
     });
   });
 }
-var import_node_child_process11, import_node_os11, import_node_path33, import_node_url3;
+var import_node_child_process11, import_node_os11, import_node_path34, import_node_url4;
 var init_services_client = __esm({
   "topology/lib/services-client.mjs"() {
     import_node_child_process11 = require("node:child_process");
     import_node_os11 = require("node:os");
-    import_node_path33 = require("node:path");
-    import_node_url3 = require("node:url");
+    import_node_path34 = require("node:path");
+    import_node_url4 = require("node:url");
     init_lockfile();
     init_repoid();
     init_util();
@@ -9443,11 +9628,11 @@ var init_services_client = __esm({
 
 // topology/lib/nats-local.mjs
 function localNatsHome(env = process.env) {
-  return env.AO_NATS_HOME || (0, import_node_path34.join)((0, import_node_os12.homedir)(), ".bytedesk", "agent-orchestration", "nats");
+  return env.AO_NATS_HOME || (0, import_node_path35.join)((0, import_node_os12.homedir)(), ".bytedesk", "agent-orchestration", "nats");
 }
 async function findNatsServer(env = process.env) {
   const { execFile: execFile6 } = await import("node:child_process");
-  const candidates = [env.AO_NATS_SERVER, (0, import_node_path34.join)((0, import_node_os12.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
+  const candidates = [env.AO_NATS_SERVER, (0, import_node_path35.join)((0, import_node_os12.homedir)(), ".cache", "ao-orch", "nats-server"), "nats-server"].filter(Boolean);
   for (const bin of candidates) {
     const ok = await new Promise((resolve24) => execFile6(bin, ["--version"], { timeout: 5e3 }, (error51) => resolve24(!error51)));
     if (ok) return bin;
@@ -9503,7 +9688,7 @@ function portHolder(port) {
   for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
     let lines2 = [];
     try {
-      lines2 = (0, import_node_fs8.readFileSync)(table, "utf8").trim().split("\n").slice(1);
+      lines2 = (0, import_node_fs9.readFileSync)(table, "utf8").trim().split("\n").slice(1);
     } catch {
       continue;
     }
@@ -9513,24 +9698,24 @@ function portHolder(port) {
     }
   }
   if (inodes.size === 0) return null;
-  for (const pid of (0, import_node_fs8.readdirSync)("/proc").filter((name) => /^\d+$/.test(name))) {
+  for (const pid of (0, import_node_fs9.readdirSync)("/proc").filter((name) => /^\d+$/.test(name))) {
     let fds = [];
     try {
-      fds = (0, import_node_fs8.readdirSync)(`/proc/${pid}/fd`);
+      fds = (0, import_node_fs9.readdirSync)(`/proc/${pid}/fd`);
     } catch {
       continue;
     }
     for (const fd of fds) {
       let link = null;
       try {
-        link = (0, import_node_fs8.readlinkSync)(`/proc/${pid}/fd/${fd}`);
+        link = (0, import_node_fs9.readlinkSync)(`/proc/${pid}/fd/${fd}`);
       } catch {
         continue;
       }
       if (inodes.has(link)) {
         let command = null;
         try {
-          command = (0, import_node_fs8.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
+          command = (0, import_node_fs9.readFileSync)(`/proc/${pid}/comm`, "utf8").trim();
         } catch {
         }
         return { pid: Number(pid), command };
@@ -9591,27 +9776,27 @@ function unavailable(message) {
 }
 function readState(home) {
   try {
-    return JSON.parse((0, import_node_fs8.readFileSync)((0, import_node_path34.join)(home, "state.json"), "utf8"));
+    return JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path35.join)(home, "state.json"), "utf8"));
   } catch {
     return null;
   }
 }
 async function writeServerConfig(home, { port, user, pass }) {
-  const confPath = (0, import_node_path34.join)(home, "nats-server.conf");
-  await (0, import_promises27.writeFile)(confPath, serverConfig({ port, user, password: pass, storeDir: (0, import_node_path34.join)(home, "jetstream") }), { mode: 384 });
-  await (0, import_promises27.chmod)(confPath, 384);
+  const confPath = (0, import_node_path35.join)(home, "nats-server.conf");
+  await (0, import_promises28.writeFile)(confPath, serverConfig({ port, user, password: pass, storeDir: (0, import_node_path35.join)(home, "jetstream") }), { mode: 384 });
+  await (0, import_promises28.chmod)(confPath, 384);
   return confPath;
 }
 async function writeState(home, state) {
-  const statePath = (0, import_node_path34.join)(home, "state.json");
-  await (0, import_promises27.writeFile)(statePath, JSON.stringify(state), { mode: 384 });
-  await (0, import_promises27.chmod)(statePath, 384);
+  const statePath = (0, import_node_path35.join)(home, "state.json");
+  await (0, import_promises28.writeFile)(statePath, JSON.stringify(state), { mode: 384 });
+  await (0, import_promises28.chmod)(statePath, 384);
 }
 function absoluteBinary(bin, env) {
-  if ((0, import_node_path34.isAbsolute)(bin)) return bin;
-  for (const dir of String(env.PATH || "").split(import_node_path34.delimiter).filter(Boolean)) {
-    const candidate = (0, import_node_path34.join)(dir, bin);
-    if ((0, import_node_fs8.existsSync)(candidate)) return candidate;
+  if ((0, import_node_path35.isAbsolute)(bin)) return bin;
+  for (const dir of String(env.PATH || "").split(import_node_path35.delimiter).filter(Boolean)) {
+    const candidate = (0, import_node_path35.join)(dir, bin);
+    if ((0, import_node_fs9.existsSync)(candidate)) return candidate;
   }
   return bin;
 }
@@ -9626,8 +9811,8 @@ async function stopDetached(state, keepPort = null) {
 }
 async function prepareLocalNats({ env = process.env } = {}) {
   const home = localNatsHome(env);
-  await (0, import_promises27.mkdir)(home, { recursive: true, mode: 448 });
-  return withLock((0, import_node_path34.join)(home, "lock"), async () => {
+  await (0, import_promises28.mkdir)(home, { recursive: true, mode: 448 });
+  return withLock((0, import_node_path35.join)(home, "lock"), async () => {
     const bin = await findNatsServer(env);
     if (!bin) return null;
     const state = readState(home);
@@ -9639,12 +9824,12 @@ async function prepareLocalNats({ env = process.env } = {}) {
     const confPath = await writeServerConfig(home, { port, user, pass });
     const absolute = absoluteBinary(bin, env);
     await writeState(home, { managed: true, pid: null, port, user, pass, bin: absolute });
-    return { bin: absolute, args: ["-c", confPath], confPath, port, user, pass, home, log: (0, import_node_path34.join)(home, "nats-server.log") };
+    return { bin: absolute, args: ["-c", confPath], confPath, port, user, pass, home, log: (0, import_node_path35.join)(home, "nats-server.log") };
   });
 }
 function namesNatsServer(pid) {
   try {
-    return (0, import_node_fs8.readFileSync)(`/proc/${pid}/cmdline`, "utf8").includes("nats-server");
+    return (0, import_node_fs9.readFileSync)(`/proc/${pid}/cmdline`, "utf8").includes("nats-server");
   } catch {
     return process.platform !== "linux";
   }
@@ -9655,7 +9840,7 @@ async function waitForPort(port, attempts = 50) {
 }
 async function ensureLocalNats({ env = process.env } = {}) {
   const home = localNatsHome(env);
-  await (0, import_promises27.mkdir)(home, { recursive: true, mode: 448 });
+  await (0, import_promises28.mkdir)(home, { recursive: true, mode: 448 });
   if (servicesEnabled(env)) {
     const port = await managedNatsPort({ env, natsHome: home });
     let state = readState(home);
@@ -9669,37 +9854,37 @@ async function ensureLocalNats({ env = process.env } = {}) {
     }
     if (env.AGENT_ORCHESTRATION_SERVICES_MANAGED === "1") throw unavailable(`The managed nats-server on port ${port} is not answering; the service manager is expected to restart it.`);
   }
-  return withLock((0, import_node_path34.join)(home, "lock"), async () => {
+  return withLock((0, import_node_path35.join)(home, "lock"), async () => {
     const port = await managedNatsPort({ env, natsHome: home });
     const state = readState(home);
     await stopDetached(state, port);
     if (await checkNatsPort(port, env)) {
       if (state?.port === port && state.user) return { servers: `nats://127.0.0.1:${port}`, user: state.user, pass: state.pass, port, started: false };
-      throw unavailable(`An ao nats-server answers on 127.0.0.1:${port} but ${(0, import_node_path34.join)(home, "state.json")} holds no credentials for it.`);
+      throw unavailable(`An ao nats-server answers on 127.0.0.1:${port} but ${(0, import_node_path35.join)(home, "state.json")} holds no credentials for it.`);
     }
     const bin = await findNatsServer(env);
     if (!bin) throw unavailable(NO_BINARY);
     const user = state?.user || "ao-orch";
     const pass = state?.pass || (0, import_node_crypto17.randomBytes)(24).toString("hex");
     const confPath = await writeServerConfig(home, { port, user, pass });
-    const log = (0, import_node_fs8.openSync)((0, import_node_path34.join)(home, "nats-server.log"), "a", 384);
+    const log = (0, import_node_fs9.openSync)((0, import_node_path35.join)(home, "nats-server.log"), "a", 384);
     const child = (0, import_node_child_process12.spawn)(bin, ["-c", confPath], { detached: true, stdio: ["ignore", log, log] });
     child.unref();
-    if (!await waitForPort(port)) throw unavailable(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${(0, import_node_path34.join)(home, "nats-server.log")}`);
+    if (!await waitForPort(port)) throw unavailable(`nats-server (${bin}) did not open 127.0.0.1:${port}; see ${(0, import_node_path35.join)(home, "nats-server.log")}`);
     await writeState(home, { pid: child.pid, port, user, pass, bin });
     return { servers: `nats://127.0.0.1:${port}`, user, pass, port, started: true };
   });
 }
-var import_node_child_process12, import_node_crypto17, import_node_fs8, import_promises27, import_node_net, import_node_os12, import_node_path34, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, localNatsEnabled;
+var import_node_child_process12, import_node_crypto17, import_node_fs9, import_promises28, import_node_net, import_node_os12, import_node_path35, NATS_PORT_RANGE, SERVER_NAME, validNatsPort, configHome, NO_BINARY, localNatsEnabled;
 var init_nats_local = __esm({
   "topology/lib/nats-local.mjs"() {
     import_node_child_process12 = require("node:child_process");
     import_node_crypto17 = require("node:crypto");
-    import_node_fs8 = require("node:fs");
-    import_promises27 = require("node:fs/promises");
+    import_node_fs9 = require("node:fs");
+    import_promises28 = require("node:fs/promises");
     import_node_net = __toESM(require("node:net"), 1);
     import_node_os12 = require("node:os");
-    import_node_path34 = require("node:path");
+    import_node_path35 = require("node:path");
     init_config();
     init_lockfile();
     init_util();
@@ -25946,7 +26131,6 @@ __export(orch_transport_exports, {
   selectedTransportEnv: () => selectedTransportEnv,
   selectionView: () => selectionView,
   settleOutage: () => settleOutage,
-  subjectTakenBy: () => subjectTakenBy,
   touchFallback: () => touchFallback,
   transportMode: () => transportMode,
   transportStatePath: () => transportStatePath,
@@ -25964,14 +26148,10 @@ function orchName(value) {
   }
   return cleaned;
 }
-function subjectTakenBy(candidate, ids) {
-  const token = orchName(candidate);
-  return ids.find((id) => id && id !== candidate && orchName(id) === token) ?? null;
-}
 function orchSocketPath(env = process.env) {
   if (env.AO_ORCH_SOCKET) return env.AO_ORCH_SOCKET;
-  const home = env.GATEWAY_HOME || (0, import_node_path35.join)((0, import_node_os13.homedir)(), ".bytedesk", "remote-gateway");
-  return (0, import_node_path35.join)(home, "nats", "orch.sock");
+  const home = env.GATEWAY_HOME || (0, import_node_path36.join)((0, import_node_os13.homedir)(), ".bytedesk", "remote-gateway");
+  return (0, import_node_path36.join)(home, "nats", "orch.sock");
 }
 function fail2(code, message) {
   const error51 = new Error(message);
@@ -26132,7 +26312,7 @@ function createFileTransport() {
       const key = ORCH_LAYOUT.claimKey(orchName(repo), orchName(task));
       if (claims.has(key)) return claims.get(key).body;
       if (!storeDir) return null;
-      const state = await readJson3((0, import_node_path35.join)(storeDir, "state.json")).catch(() => null);
+      const state = await readJson3((0, import_node_path36.join)(storeDir, "state.json")).catch(() => null);
       return state?.claims?.[String(task)] ?? null;
     },
     async putPresence({ repo, body, persist: persist2, ttlMs = ORCH_LAYOUT.presenceTtlMs }) {
@@ -26440,7 +26620,7 @@ function ignoredNatsEnv(env = process.env) {
 async function probeConfiguredNats(outage, env = process.env, home = (0, import_node_os13.homedir)(), { timeoutMs = 2e3 } = {}) {
   let servers = null, bridge = null, nc = null;
   if (outage?.source === "AO_NATS_URL" && env.AO_NATS_URL && redactUrl(env.AO_NATS_URL) === outage.url) servers = env.AO_NATS_URL;
-  else if (outage?.source === "orch.sock" && outage.url && (0, import_node_fs9.existsSync)(outage.url)) {
+  else if (outage?.source === "orch.sock" && outage.url && (0, import_node_fs10.existsSync)(outage.url)) {
     bridge = await bridgeUnixSocket(outage.url).catch(() => null);
     servers = bridge?.servers;
   }
@@ -26448,7 +26628,7 @@ async function probeConfiguredNats(outage, env = process.env, home = (0, import_
   try {
     const { connect, credsAuthenticator } = await loadNats();
     const options = { servers, name: "ao-outage-probe", timeout: timeoutMs, maxReconnectAttempts: 0, reconnect: false };
-    if (env.AO_ORCH_CREDS) options.authenticator = credsAuthenticator((0, import_node_fs9.readFileSync)(env.AO_ORCH_CREDS));
+    if (env.AO_ORCH_CREDS) options.authenticator = credsAuthenticator((0, import_node_fs10.readFileSync)(env.AO_ORCH_CREDS));
     nc = await connect(options);
     const domain2 = await jetStreamDomain(env, home);
     await nc.jetstreamManager(domain2 ? { domain: domain2 } : {});
@@ -26504,7 +26684,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
   };
   if (!target) {
     const socketPath = orchSocketPath(env);
-    if ((0, import_node_fs9.existsSync)(socketPath)) {
+    if ((0, import_node_fs10.existsSync)(socketPath)) {
       bridge = await bridgeUnixSocket(socketPath);
       target = bridge.servers;
       selection = { ...selection, source: "orch.sock", url: socketPath };
@@ -26522,7 +26702,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
   const dial = () => {
     const options = { servers: target, name, timeout: 4e3, maxReconnectAttempts: -1, reconnectTimeWait: 200 };
     if (local) Object.assign(options, { user: local.user, pass: local.pass });
-    else if (creds) options.authenticator = credsAuthenticator((0, import_node_fs9.readFileSync)(creds));
+    else if (creds) options.authenticator = credsAuthenticator((0, import_node_fs10.readFileSync)(creds));
     return connect(options);
   };
   let nc;
@@ -26755,7 +26935,7 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
       const entry = await kv.get(key).catch(() => null);
       if (!entry || entry.operation === "DEL" || entry.operation === "PURGE") {
         if (!storeDir) return null;
-        const state = await readJson3((0, import_node_path35.join)(storeDir, "state.json")).catch(() => null);
+        const state = await readJson3((0, import_node_path36.join)(storeDir, "state.json")).catch(() => null);
         return state?.claims?.[String(task)] ?? null;
       }
       return entry.json();
@@ -26938,14 +27118,14 @@ async function publishReviewVerdict({ repo, nonce, verdict, transport, env = pro
   const body = typeof verdict === "string" ? verdict : JSON.stringify(verdict);
   return active.publishVerdict({ repo, nonce, body });
 }
-var import_node_crypto18, import_node_fs9, import_node_net2, import_node_os13, import_node_path35, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
+var import_node_crypto18, import_node_fs10, import_node_net2, import_node_os13, import_node_path36, ORCH_LAYOUT, liveTransports, openTransport, NATS_OUTAGE_CODES, JS_DOMAIN_PATTERN, MAX_PENDING, transportStatePath, OUTAGE_RETIRE_MS, AO_SOURCES, foreign, alive, liveHolders, describeError, loadNats;
 var init_orch_transport = __esm({
   "topology/lib/orch-transport.mjs"() {
     import_node_crypto18 = require("node:crypto");
-    import_node_fs9 = require("node:fs");
+    import_node_fs10 = require("node:fs");
     import_node_net2 = __toESM(require("node:net"), 1);
     import_node_os13 = require("node:os");
-    import_node_path35 = require("node:path");
+    import_node_path36 = require("node:path");
     init_util();
     init_nats_local();
     init_lockfile();
@@ -26987,7 +27167,7 @@ var init_orch_transport = __esm({
     ]);
     JS_DOMAIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
     MAX_PENDING = 1e4;
-    transportStatePath = (env = process.env, home = (0, import_node_os13.homedir)()) => (0, import_node_path35.join)(stateRoot2(env, home), "transport.json");
+    transportStatePath = (env = process.env, home = (0, import_node_os13.homedir)()) => (0, import_node_path36.join)(stateRoot2(env, home), "transport.json");
     OUTAGE_RETIRE_MS = 60 * 6e4;
     AO_SOURCES = /* @__PURE__ */ new Set(["AO_NATS_URL", "orch.sock", "managed-local"]);
     foreign = (entry) => Boolean(entry?.source) && !AO_SOURCES.has(entry.source);
@@ -27010,194 +27190,6 @@ var init_orch_transport = __esm({
         return fail2("TOPOLOGY_NATS_UNAVAILABLE", "The installed NATS client bundle is missing or invalid. Refresh the agent-orchestration plugin installation.");
       }
     });
-  }
-});
-
-// topology/lib/agents.mjs
-function libraryConsumer(consumer) {
-  try {
-    const paths2 = safeGitText(consumer, ["worktree", "list", "--porcelain"], { raw: true });
-    const first = paths2.split("\n").find((line) => line.startsWith("worktree "));
-    return first ? first.slice(9) : consumer;
-  } catch {
-    return consumer;
-  }
-}
-function agentDirs({ pluginRoot, consumer, home, extra = [] }) {
-  const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND), ...consumerResourceDirs(consumer, AGENTS_KIND));
-  if (home) dirs.push((0, import_node_path36.join)(home, ".config", "agent-orchestration", AGENTS_KIND));
-  if (pluginRoot) dirs.push((0, import_node_path36.join)(pluginRoot, AGENTS_KIND));
-  return [...new Set(dirs)];
-}
-function agentsRoot(consumer) {
-  return consumerResourceDirs(libraryConsumer(consumer), AGENTS_KIND)[0];
-}
-function listAgentsSync(dirs) {
-  const seen = /* @__PURE__ */ new Map();
-  for (const dir of dirs) {
-    let entries2 = [];
-    try {
-      entries2 = (0, import_node_fs10.readdirSync)(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries2) {
-      if (!entry.isDirectory() || seen.has(entry.name)) continue;
-      const file2 = (0, import_node_path36.join)(dir, entry.name, DEFINITION);
-      let raw;
-      try {
-        raw = JSON.parse((0, import_node_fs10.readFileSync)(file2, "utf8"));
-      } catch {
-        continue;
-      }
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      seen.set(entry.name, { ...raw, id: raw.id || entry.name, _dir: (0, import_node_path36.join)(dir, entry.name), _file: file2 });
-    }
-  }
-  return [...seen.values()];
-}
-async function listAgents(dirs) {
-  return listAgentsSync(dirs);
-}
-function matchAgent(roster, ref) {
-  const wanted = String(ref || "").trim();
-  if (!wanted) return null;
-  const byId = roster.find((a) => a.id === wanted);
-  if (byId) return byId;
-  const key = humanKey(wanted);
-  return roster.find((a) => humanKey(a.full_name) === key || humanKey(displayName(a)) === key) || null;
-}
-async function resolveAgentRef(ref, dirs) {
-  return matchAgent(await listAgents(dirs), ref);
-}
-async function findLead(dirs) {
-  const leads = (await listAgents(dirs)).filter((a) => a.role === "lead");
-  invariant2(
-    leads.length <= 1,
-    "TOPOLOGY_MULTIPLE_LEADS",
-    `A repo may declare one lead; found ${leads.length}: ${leads.map((a) => displayName(a)).join("; ")}. Demote all but one.`
-  );
-  return leads[0] || null;
-}
-async function createAgent(consumer, spec = {}, dirs = null, context4 = {}) {
-  const role = String(spec.role || "worker");
-  const searchDirs = dirs || [agentsRoot(consumer)];
-  const existing = await listAgents(searchDirs);
-  if (role === "lead") {
-    const lead = existing.find((a) => a.role === "lead");
-    invariant2(
-      !lead,
-      "TOPOLOGY_LEAD_EXISTS",
-      `This repo already has a lead: ${displayName(lead)}. A repo may declare one lead.`
-    );
-  }
-  const taken = new Set(existing.map((a) => a.full_name).filter(Boolean));
-  const id = spec.id || mintId();
-  invariant2(!existing.some((a) => a.id === id), "TOPOLOGY_AGENT_EXISTS", `Agent id ${id} already exists.`);
-  const clash = subjectTakenBy(id, existing.map((a) => a.id));
-  invariant2(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Agent id ${id} maps to the mailbox subject token "${orchName(id)}", which agent ${clash} already uses; pick an id that differs after non [A-Za-z0-9_-] characters become "_" (and past the first 64 characters).`);
-  invariant2(
-    !spec.full_name || !taken.has(spec.full_name),
-    "TOPOLOGY_AGENT_NAME_TAKEN",
-    `This repo already has an agent named ${spec.full_name}. Two agents may not share a display identity \u2014 pick another name or let one be minted.`
-  );
-  const named = spec.full_name ? {
-    first_name: spec.first_name || String(spec.full_name).split(" ")[0] || "",
-    last_name: spec.last_name || String(spec.full_name).split(" ").slice(1).join(" "),
-    full_name: spec.full_name,
-    title: spec.title || titleForRole(role)
-  } : mintName(role, { taken });
-  const agent = {
-    id,
-    ...named,
-    role,
-    // Template provenance: which named template this instance was minted from. The instance gets
-    // a fresh identity regardless — the template shapes it, it never shares one.
-    template: spec.template || null,
-    coordinates_only: ["lead", "observer"].includes(role) ? spec.coordinates_only !== false : spec.coordinates_only === true,
-    own_state_only: role === "observer",
-    reports_to: spec.reports_to ?? null,
-    cli: spec.cli || "claude",
-    candidates: spec.candidates,
-    model: spec.model,
-    skills: Array.isArray(spec.skills) ? spec.skills : [],
-    mcp: Array.isArray(spec.mcp) ? spec.mcp : [],
-    instructions: [spec.instructions, spec.prompt].filter((value) => typeof value === "string" && value.trim()).join("\n\n"),
-    instructions_file: spec.instructions_file || PROMPT,
-    args: Array.isArray(spec.args) ? spec.args : [],
-    env: spec.env && typeof spec.env === "object" ? spec.env : {},
-    // TM-214: absent means on; explicit false opts out. A reviewer is never auto-approved (TM-150):
-    // its stored definition must say false, so no path that reads agent.json can launch it unprompted.
-    auto_approve: role === "reviewer" ? false : spec.auto_approve !== false,
-    created_at: nowIso()
-  };
-  const dir = (0, import_node_path36.join)(agentsRoot(consumer), agentDirName(agent));
-  await (0, import_promises28.mkdir)(dir, { recursive: true });
-  await writeJson((0, import_node_path36.join)(dir, DEFINITION), agent);
-  if (!await exists((0, import_node_path36.join)(dir, PROMPT))) {
-    await (0, import_promises28.writeFile)((0, import_node_path36.join)(dir, PROMPT), spec.prompt || defaultPrompt(agent, consumer, dir), "utf8");
-  }
-  const enriched = { ...agent, _dir: dir, _file: (0, import_node_path36.join)(dir, DEFINITION) };
-  const state = await refreshPrompt({ agent: enriched, consumer, pluginRoot: (0, import_node_path36.dirname)((0, import_node_path36.dirname)((0, import_node_path36.dirname)((0, import_node_url4.fileURLToPath)(__aoImportMetaUrl)))), ...context4 });
-  invariant2(state.status !== "invalid-config", "TOPOLOGY_PROMPT_INVALID", "Cannot create agent with invalid prompt configuration.", { errors: state.errors });
-  return enriched;
-}
-function defaultPrompt(agent, consumer, dir = (0, import_node_path36.join)(agentsRoot(consumer), agentDirName(agent))) {
-  return `# ${displayName(agent)}
-
-You are **${agent.full_name}**, ${agent.title} on this project.
-
-## Where you are, and where the work is
-
-Your working directory is \`${dir}\` \u2014 your own agent directory. It is yours: notes, scratch files
-and whatever memory your CLI keeps are scoped to it, and nothing you leave here collides with
-another agent.
-
-**Your working directory is NOT the project.** The project you work on is \`${consumer}\`, and you
-have been granted access to it.
-
-**Every path you use for project work must be absolute and begin with \`${consumer}/\`.** A relative
-path \u2014 \`src/app.ts\`, \`./README.md\`, \`docs/\` \u2014 resolves against your own agent directory instead.
-Written that way a file looks saved while being nowhere the project can see it; read that way an
-existing file reports as missing. This is the one mistake that looks like success, so check the
-paths in your own commands before you run them.
-
-## Who you are
-
-- Address: \`${agent.id}\` \u2014 machines and other agents use this. People never see it.
-- Role: ${agent.role}
-${agent.reports_to ? `- You report to: \`${agent.reports_to}\`
-` : ""}${agent.coordinates_only ? `
-## You coordinate; you do not implement
-
-You do not write project code yourself. You receive requests, decide who should handle them,
-delegate, and report back. When work arrives that belongs to someone on your team, hand it to them
-rather than doing it.
-` : ""}`;
-}
-async function requireAgent(ref, dirs) {
-  const agent = await resolveAgentRef(ref, dirs);
-  if (!agent) fail("TOPOLOGY_AGENT_NOT_FOUND", `No agent matches ${JSON.stringify(ref)} in this repo.`);
-  return agent;
-}
-var import_node_fs10, import_promises28, import_node_path36, import_node_url4, AGENTS_KIND, DEFINITION, PROMPT, humanKey;
-var init_agents = __esm({
-  "topology/lib/agents.mjs"() {
-    import_node_fs10 = require("node:fs");
-    import_promises28 = require("node:fs/promises");
-    import_node_path36 = require("node:path");
-    import_node_url4 = require("node:url");
-    init_config();
-    init_prompt_lifecycle();
-    init_util();
-    init_identity();
-    init_orch_transport();
-    init_safe_git();
-    AGENTS_KIND = "agents";
-    DEFINITION = "agent.json";
-    PROMPT = "prompt.md";
-    humanKey = (value) => String(value || "").trim().replace(/\s+/g, " ").replace(/\s*,\s*/g, ", ").toLowerCase();
   }
 });
 
@@ -27549,10 +27541,10 @@ var init_lineage = __esm({
 });
 
 // topology/lib/providers.mjs
-function providerDirs({ pluginRoot, consumer, home, extra = [] }) {
+function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
   const dirs = [...extra];
-  if (consumer) dirs.push(...consumerResourceDirs(consumer, "providers"));
-  if (home) dirs.push((0, import_node_path39.join)(home, ".config", "agent-orchestration", "providers"));
+  const config2 = env.XDG_CONFIG_HOME || home && (0, import_node_path39.join)(home, ".config");
+  if (config2) dirs.push((0, import_node_path39.join)(config2, "agent-orchestration", "providers"));
   if (pluginRoot) dirs.push((0, import_node_path39.join)(pluginRoot, "providers"));
   return dirs;
 }
@@ -31149,20 +31141,11 @@ async function workflowDetail({ consumer, workflowId, ...options }) {
 }
 async function assertOperatorReader({ consumer, env = process.env, home, proof = {} }) {
   invariant2(!env.TM_DISPATCH_WORKER, "TOPOLOGY_OPERATOR_ONLY", "A dispatched worker session (TM_DISPATCH_WORKER) cannot read every agent's mail in the workflow console. Nothing was read.");
-  const { bindingAgentId: bindingAgentId2, callerUnderBoundPane: callerUnderBoundPane2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
+  const { bindingAgentId: bindingAgentId2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
   const lookup2 = { consumer, env, ...home ? { home } : {}, ...proof };
   const bound = await bindingAgentId2(lookup2).catch(() => null);
   const caller = callerIdentity(env);
-  if (!caller && !bound) {
-    let under;
-    try {
-      under = await callerUnderBoundPane2(lookup2);
-    } catch (error51) {
-      fail("TOPOLOGY_OPERATOR_ONLY", `Cannot prove this process is outside every agent pane: process ancestry is unreadable (${error51.code || error51.message}). Nothing was read.`);
-    }
-    invariant2(!under, "TOPOLOGY_OPERATOR_ONLY", "This process descends from a census-bound agent pane, so it is that agent, not the operator, even with TMUX_PANE and its identity variables unset. Nothing was read.");
-    return { as: "operator" };
-  }
+  if (!caller && !bound) return { as: "operator" };
   const named = env.AO_AGENT_ID || bound || caller?.agentId;
   const lead = await requireLeadCaller2({ ...lookup2, env: { ...env, AO_AGENT_ID: named } });
   invariant2(
@@ -32884,7 +32867,6 @@ __export(delegation_exports, {
   agentMarkers: () => agentMarkers,
   ancestorProcesses: () => ancestorProcesses,
   bindingAgentId: () => bindingAgentId,
-  callerUnderBoundPane: () => callerUnderBoundPane,
   dispatchedWorker: () => dispatchedWorker,
   findActiveDelegation: () => findActiveDelegation,
   grantDelegation: () => grantDelegation,
@@ -33083,14 +33065,6 @@ async function bindingAgentId({ consumer, env = process.env, home = (0, import_n
   if (!here) return null;
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
   return (census?.agents || []).find((a) => sameBinding(here, a.binding))?.agentId || null;
-}
-async function callerUnderBoundPane({ consumer, env = process.env, home = (0, import_node_os22.homedir)(), readCensusFn = readCensus, callerProc = {}, passwdHome = (0, import_node_os22.userInfo)().homedir }) {
-  const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
-  const dirs = /* @__PURE__ */ new Set([(0, import_node_path48.join)(stateRoot2(env, home), "census"), (0, import_node_path48.join)(stateRoot2({}, passwdHome), "census")]);
-  for (const dir of dirs) for (const file2 of (await (0, import_promises38.readdir)(dir).catch(() => [])).filter((f) => f.endsWith(".json"))) docs.push(await readJson3((0, import_node_path48.join)(dir, file2)).catch(() => null));
-  const pids = new Set(docs.flatMap((doc) => doc?.agents || []).map((a) => a.binding?.panePid));
-  for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
-  return false;
 }
 async function findActiveDelegation({ consumer, agentId, scope, task = null, env = process.env, home = (0, import_node_os22.homedir)(), now = Date.now(), listPanesFn, readCensusFn, callerProc }) {
   if (!agentId) return null;
@@ -35381,11 +35355,6 @@ async function launchRunNative({
   }
 }
 async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, cliBin, dryRun, lineage, launchChild, replyToken, log, warnings }) {
-  const memberIds = spec.agents.map((agent) => agent.id);
-  memberIds.forEach((id, index) => {
-    const clash = subjectTakenBy(id, memberIds.slice(0, index));
-    invariant2(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Run members ${clash} and ${id} map to the same mailbox subject token "${orchName(id)}"; rename one so they differ after non [A-Za-z0-9_-] characters become "_".`);
-  });
   const prepared = [];
   const participants = spec.agents.filter((agent) => agent.workflow);
   for (const agent of spec.agents) {
@@ -35979,7 +35948,6 @@ var init_launch = __esm({
     init_lockfile();
     init_respawn();
     init_spec();
-    init_orch_transport();
     POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
     BEGIN_CLAUSE = " Then begin the mission immediately, in the same turn \u2014 do not stop after READY and do not wait for another message. You are the conductor: nobody is going to tell you to start.";
     squash = (text) => String(text ?? "").replace(/\s+/g, "");
@@ -39886,7 +39854,7 @@ ${instructions}`;
   await appendJournal(runDir, { type: holds.length ? "message.held" : "message.sent", id, from, to, stage, round, contract, subject, task, holds });
   return { id, seq, deliveries, redirects: notices, holds };
 }
-async function obligations(runDir, run2, agentId, transport = null, viewers = null) {
+async function obligations(runDir, run2, agentId, transport = null) {
   const active = transport ?? await resolveTransport({ env: process.env });
   const redirects = run2.redirects || {};
   const inboxDir = (0, import_node_path64.join)(agentDir(runDir, agentId), "inbox");
@@ -39911,12 +39879,7 @@ async function obligations(runDir, run2, agentId, transport = null, viewers = nu
       standingId,
       status: natsStanding ? "delivered-unanswered" : state,
       reason: record2?.reason ?? null,
-      // TM-474: whether it is answered is the barrier's business; the answer itself belongs to the
-      // standing envelope's sender alone. A run wait by anyone else who knows the runDir sees
-      // "answered", never the body (TM-465's rule for standing mail, applied to run-originated mail).
-      answered: !natsStanding && state === "answered",
-      sender: record2?.envelope?.from ?? null,
-      replyBody: !natsStanding && state === "answered" && viewers?.has(record2.envelope.from) ? record2.reply.body : null,
+      replyBody: natsStanding ? null : state === "answered" ? record2.reply.body : null,
       transport: natsStanding ? "nats" : void 0,
       repo: natsStanding ? repoKey(record2.envelope.sourceRepoId || record2.envelope.destinationRepoId) : void 0,
       replyConsumer: natsStanding ? record2.envelope.fromProject || run2.consumer : void 0,
@@ -39986,7 +39949,7 @@ async function pendingReplies(runDir, agentIds, { addressing = {}, transport = n
     for (const item of await obligations(runDir, run2, agentId, active)) {
       if (item.transport === "nats") {
         if (await hasAnswer(item.outbox) || await readNatsReply(runDir, item, active)) continue;
-      } else if (item.standingId ? item.answered : await hasAnswer(item.outbox)) continue;
+      } else if (item.standingId ? item.replyBody !== null : await hasAnswer(item.outbox)) continue;
       pending.push({
         standingId: item.standingId,
         status: item.status ?? "delivered-unanswered",
@@ -40045,7 +40008,7 @@ async function observeQueueDepth(runDir, agentId, extra = {}) {
   });
   return record2;
 }
-var import_node_crypto37, import_promises56, import_node_path64, RUN_FILE, JOURNAL_FILE, WITHHELD;
+var import_node_crypto37, import_promises56, import_node_path64, RUN_FILE, JOURNAL_FILE;
 var init_mailbox = __esm({
   "topology/lib/mailbox.mjs"() {
     import_node_crypto37 = require("node:crypto");
@@ -40061,7 +40024,6 @@ var init_mailbox = __esm({
     init_mailbox_receipts();
     RUN_FILE = "run.json";
     JOURNAL_FILE = "journal.jsonl";
-    WITHHELD = Object.freeze({ body: null, body_withheld: "Only the standing message's sender may read its reply body (TM-474)." });
   }
 });
 
@@ -80505,10 +80467,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "056edb223e652b9929769d98bc6de8bb0ddaa8780a6ed5b48fa4f947b3538d3d";
+  return false ? null : "c558a053de0a8969404f709a218e9e92eb061f159b0a634242840b1a4bc8ab50";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "056edb223e652b9929769d98bc6de8bb0ddaa8780a6ed5b48fa4f947b3538d3d";
+  const fingerprint2 = false ? null : "c558a053de0a8969404f709a218e9e92eb061f159b0a634242840b1a4bc8ab50";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80933,7 +80895,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "056edb223e652b9929769d98bc6de8bb0ddaa8780a6ed5b48fa4f947b3538d3d",
+  sourceFingerprint: false ? null : "c558a053de0a8969404f709a218e9e92eb061f159b0a634242840b1a4bc8ab50",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
