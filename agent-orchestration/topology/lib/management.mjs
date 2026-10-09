@@ -490,7 +490,7 @@ async function defaultBranch(options, worktree) {
 }
 async function admissionBase(options, worktree, integration, branch) {
   const head = await gitText(worktree, ['rev-parse', 'HEAD']);
-  const target = (await loadConfig(options)).config.management?.target_branch;
+  const target = (await loadGovernedConfig(options)).config.management?.target_branch;
   const anchor = [integration, target].find(nonempty) ?? null;
   if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
     // Primary: the anchor branch tip on the pinned server. It needs nothing of the task pushed.
@@ -824,8 +824,9 @@ export async function serverPolicy(gh, repoDir, { env = process.env, home = home
  * ONLY from the repository config committed on the server's default branch. A worker runs as the
  * operator's OS user and can write the global layer (~/.config/agent-orchestration), the plugin
  * defaults and the checkout's own repo file, so a value there is ignored with a warning. A signed
- * operator layer would be a second honoured source; signing is not implemented. */
-export const PROTECTED_MANAGEMENT_KEYS = Object.freeze(['autonomy', 'release', 'cutover', 'required_checks']);
+ * operator layer would be a second honoured source; signing is not implemented.
+ * TM-469: integrate_via and target_branch choose where and how a task lands, so they are protected too. */
+export const PROTECTED_MANAGEMENT_KEYS = Object.freeze(['autonomy', 'release', 'cutover', 'required_checks', 'integrate_via', 'target_branch']);
 
 /** loadConfig, with PROTECTED_MANAGEMENT_KEYS replaced by the server's committed values (absent when the
  * server cannot be read: autonomy falls back to "pr", and release, cutover and required checks are
@@ -918,7 +919,7 @@ export async function integrationEligibility(options) {
     if (!writer.owned || writer.active !== false) refuse('worker', writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
   // TM-430: required checks are never satisfied here; integrate runs them on the host (runRequiredChecks).
-  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy,
+  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy, config_warnings: loaded.warnings,
     required_checks: { satisfied_by: 'host-run-at-integrate', claimed_check_reasons: claimedReasons } };
 }
 
@@ -969,7 +970,7 @@ export async function integrateTask(options) {
   const ctx = await context(options);
   refuseSelfAssertion(options, await managedSession(options, ctx));
   return withLock(join(ctx.root, 'integration.lock'), async () => {
-    if ((await loadConfig(options)).config.management?.integrate_via === 'pull-request') return integrateViaPullRequest(options, ctx);
+    if ((await loadGovernedConfig(options)).config.management?.integrate_via === 'pull-request') return integrateViaPullRequest(options, ctx);
     const gate = await integrationEligibility(options);
     if (gate.delegationError) throw gate.delegationError;
     invariant(gate.eligible, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', gate.reasons.join('; '));
@@ -1095,7 +1096,7 @@ async function integrateViaPullRequest(options, ctx) {
   // Closing still needs the same caller and plan authority the merge needed.
   if (prior?.state === 'merged' && prior.merge?.pull_request) {
     if (prior.closed) return prior;
-    const policy = (await loadConfig(options)).config.management || {};
+    const policy = (await loadGovernedConfig(options)).config.management || {};
     const { refusals, delegation, autonomy } = await integrationAuthority(options, ctx, policy);
     if (refusals.length) refuseIntegrate(refusals, prior.merge.pull_request.number);
     return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy, delegation, autonomy, revision: prior.merge.revision }));
@@ -1186,7 +1187,7 @@ export async function recordLanding(options) {
     const revision = record?.finish?.revision;
     invariant(!record?.merge, 'TOPOLOGY_MANAGEMENT_LANDING', 'Task already has a recorded landing.');
     invariant(record?.state === 'ready-for-review' && nonempty(revision), 'TOPOLOGY_MANAGEMENT_LANDING', 'Task has no finished worker revision ready for review.');
-    const policy = (await loadConfig(options)).config.management || {};
+    const policy = (await loadGovernedConfig(options)).config.management || {};
     invariant(nonempty(policy.target_branch), 'TOPOLOGY_MANAGEMENT_TARGET', 'Configure management.target_branch before recording a landing.');
     // A managed session needs a plan grant (TM-248) covering this caller, repository, task and the
     // record-landing scope, whatever auto_merge says; an operator shell may instead pass --authorized

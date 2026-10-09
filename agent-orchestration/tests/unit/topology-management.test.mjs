@@ -347,6 +347,22 @@ test('TM-442 required checks set only in a worker-writable layer are not honoure
   await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED' });
 });
 
+test('TM-469 integrate_via and target_branch set only in worker-writable layers are ignored with a warning by integrate and record-landing', async t => {
+  const { opts, finish, server } = await fixture(t);
+  await admitTask(opts); await finish();
+  const { target_branch: _, ...committed } = (await readJson(join(opts.pluginRoot, 'config.defaults.json'))).management;
+  server.document = { management: committed }; // the server's default branch names no target branch and no integrate_via
+  await writeJson(join(opts.env.XDG_CONFIG_HOME, 'agent-orchestration', 'config.json'), { management: { integrate_via: 'pull-request' } });
+  await writeJson(join(opts.consumer, '.bytedesk/agent-orchestration/config.json'), { management: { target_branch: 'main' } });
+  const gate = await integrationEligibility(opts);
+  assert.ok(gate.refusals.some(r => r.condition === 'config' && /configure management.target_branch/.test(r.reason)), JSON.stringify(gate.refusals));
+  assert.ok(gate.config_warnings.some(w => /management\.target_branch in .*repo .*ignored/.test(w)), gate.config_warnings.join('\n'));
+  assert.ok(gate.config_warnings.some(w => /management\.integrate_via in global .*ignored/.test(w)), gate.config_warnings.join('\n'));
+  // The PR path would have asked gh for the task's PR; the governed path never takes it.
+  await assert.rejects(integrateTask(opts), { code: 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', message: /configure management.target_branch/ });
+  await assert.rejects(recordLanding({ ...opts, reason: 'landed by hand' }), { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: /Configure management.target_branch/ });
+});
+
 test('TM-442 integrate refuses a landing that changes management in the committed repository config', async t => {
   const { opts, finish, doc, git } = await fixture(t);
   doc.touches = ['code.txt', '.bytedesk/agent-orchestration/config.json'];
@@ -1300,6 +1316,8 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
     if (noun === 'repo' && verb === 'view') return ok({ nameWithOwner: state.repo, defaultBranchRef: { name: 'main' } });
     const compared = noun === 'api' && COMPARE.exec(verb);
     if (compared) return ok({ status: serverCompare(origin, compared[1], compared[2]) });
+    // TM-469: integrate_via and target_branch come from the server's committed policy, as the fixture serves it.
+    if (noun === 'api' && verb === SERVER_POLICY_API) return fixtureServer(f.opts.pluginRoot, f.server, f.opts.consumer)(args);
     if (noun !== 'pr') return { code: 1, stdout: '', stderr: 'unexpected' };
     if (!args.includes('--repo') || args[args.indexOf('--repo') + 1] !== 'o/r') return { code: 1, stdout: '', stderr: `gh pr ${verb} without --repo o/r` };
     if (verb === 'list') return ok([pr]);
@@ -1325,6 +1343,17 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
   return { ...f, admitted, revision, base, origin, pr, state, gh, lead, grant: granted, closed, mergeInOrigin, attest };
 }
 const merges = state => state.argv.filter(a => a[1] === 'merge');
+// TM-469: with the server unreadable, integrate_via is unknown, so integrate never takes the PR path; the
+// fast-forward gate blocks instead, naming every reason, and nothing is merged or recorded.
+async function blockedAs(p, options, ...messages) {
+  await assert.rejects(integrateTask(options), err => {
+    assert.equal(err.code, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', err.message);
+    for (const message of messages) assert.match(err.message, message);
+    return true;
+  });
+  assert.deepEqual(merges(p.state), [], 'a refusal never reaches gh pr merge');
+  assert.equal((await managementStatus(p.opts)).management.merge, undefined, 'a refusal records nothing');
+}
 async function refusedAs(p, options, condition, message) {
   await assert.rejects(integrateTask(options), err => {
     assert.equal(err.code, 'TOPOLOGY_INTEGRATE_REFUSED', err.message);
@@ -1583,7 +1612,7 @@ const withServer = (p, server) => async args => {
   if (server.down) return { code: 1, stdout: '', stderr: 'error connecting to api.github.com' };
   if (args[0] === 'repo') return { code: 0, stdout: JSON.stringify({ nameWithOwner: server.repo || 'o/r', defaultBranchRef: { name: 'main' } }), stderr: '' };
   if (args.join(' ') !== POLICY_API.join(' ')) return { code: 1, stdout: '', stderr: `unexpected ${args.join(' ')}` };
-  const content = Buffer.from(JSON.stringify({ management: { target_branch: 'main', ...(server.policy ? { lead_autonomy: server.policy } : {}) } })).toString('base64');
+  const content = Buffer.from(JSON.stringify({ management: { target_branch: 'main', integrate_via: 'pull-request', ...(server.policy ? { lead_autonomy: server.policy } : {}) } })).toString('base64');
   return { code: 0, stdout: JSON.stringify({ content, encoding: 'base64' }), stderr: '' };
 };
 const policyTask = async (t, server, management = {}) => { const p = await prTask(t, { grant: null, management }); return { ...p, lead: { ...p.lead, gh: withServer(p, server) } }; };
@@ -1593,7 +1622,7 @@ test('TM-263 (d) with the server policy naming the lead, integrate merges withou
   const result = await integrateTask(p.lead);
   const VIEW = ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'];
   assert.deepEqual(p.state.argv, [
-    VIEW, POLICY_API, VIEW, POLICY_API, VIEW,
+    VIEW, POLICY_API, VIEW, POLICY_API, VIEW, POLICY_API, VIEW, // TM-469: integrate reads integrate_via from the server too
     ['pr', 'list', '--repo', 'o/r', '--head', 'tm/TM-1', '--state', 'all', '--json', 'number,state,baseRefName,headRefOid,mergeable'],
     ['pr', 'checks', '7', '--repo', 'o/r', '--json', 'name,state,bucket'], ['pr', 'checks', '7', '--required', '--repo', 'o/r', '--json', 'name,state,bucket'],
     ['pr', 'merge', '7', '--repo', 'o/r', '--merge', '--match-head-commit', p.revision],
@@ -1625,7 +1654,7 @@ test('TM-263 (e) a lead_autonomy policy only in the LOCAL config is ignored: a g
 
 test('TM-263 (f) the server unavailable fails closed to grant-required', async t => {
   const p = await policyTask(t, { policy: LEAD_POLICY, down: true });
-  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  await blockedAs(p, p.lead, /managed agent session needs a valid standing delegation/, /configure management.target_branch/);
 });
 
 test('TM-263 (g) a server policy naming a different lead, or not the integrate scope, needs a grant', async t => {
@@ -1669,13 +1698,12 @@ test('TM-263 (i) after pinning, a repointed remote or gh default refuses integra
   const p = await policyTask(t, server);
   await pinnedGithubRepo(p.opts.consumer, p.lead.gh, { env: p.opts.env, home: p.opts.home });
   server.repo = 'attacker/r'; // what `git remote set-url` or `gh repo set-default` would make gh answer
-  await refusedAs(p, p.lead, 'repository', /pinned to o\/r/);
-  await refusedAs(p, p.lead, 'plan', /managed agent session needs a valid standing delegation/);
+  await blockedAs(p, p.lead, /pinned to o\/r/, /managed agent session needs a valid standing delegation/);
   assert.ok(!p.state.argv.some(a => a[0] === 'pr' || (a[0] === 'api' && !a[1].startsWith('repos/o/r/'))), 'nothing was asked of the other repository');
 });
 
 test('TM-263 (j) record-landing: a server lead_autonomy policy naming another lead refuses the locally found lead', async t => {
-  const serverGh = (lead, f) => fakeGh(f.opts.consumer, { fallback: async () => ({ code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' }) });
+  const serverGh = (lead, f) => fakeGh(f.opts.consumer, { fallback: async () => ({ code: 0, stdout: JSON.stringify({ content: Buffer.from(JSON.stringify({ management: { target_branch: 'main', lead_autonomy: { ...LEAD_POLICY, lead } } })).toString('base64') }), stderr: '' }) });
   const refused = await leadServer(t, 'landed');
   await assert.rejects(recordLanding({ ...refused.lead, gh: serverGh('lead-2', refused), ...refused.landing }), { code: 'TOPOLOGY_MANAGEMENT_LANDING_AUTHORITY', message: /names lead-2 .* not lead-1/ });
   assert.equal((await managementStatus(refused.opts)).management.merge, undefined, 'nothing recorded by a refusal');
@@ -1815,7 +1843,9 @@ test("TM-349: admission is refused only when no integration branch candidate res
   await withTarget(opts, "absent-target");
   // TM-349 is about the candidates when no server answers; the shared fixture's GitHub server (TM-441) would
   // supply a default branch, so this test runs without one, as it did before TM-441.
-  const offline = { ...opts, gh: NO_SERVER_GH };
+  // TM-469: target_branch is honoured only from the server's committed policy, so the policy read still
+  // answers; the default-branch lookup (`repo view --jq`) and every other server call do not.
+  const offline = { ...opts, gh: args => (args[0] === 'api' && args[1] === SERVER_POLICY_API) || (args[0] === 'repo' && !args.includes('--jq')) ? opts.gh(args) : NO_SERVER_GH() };
   await assert.rejects(admitTask({ ...offline, serverPullBase: async () => ["no-such-branch"] }), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /\(absent-target\)/ });
   await withTarget(opts, null);
   await assert.rejects(admitTask(offline), { code: "TOPOLOGY_MANAGEMENT_BASE", message: /no repository default branch/ });

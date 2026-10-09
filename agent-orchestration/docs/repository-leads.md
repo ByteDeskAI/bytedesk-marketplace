@@ -333,7 +333,10 @@ publication and spending retain separate authorization.
 ### Integration policy for a repository
 
 `manage eligible` and `manage integrate` refuse every task until the repository sets two keys in
-`<repo>/.bytedesk/agent-orchestration/config.json`. That file merges over the global layer.
+`<repo>/.bytedesk/agent-orchestration/config.json`. These keys, and `management.integrate_via`, are
+honoured only as that file is committed on the server's default branch (TM-442, TM-469): a value in
+the global layer or in the checkout's working copy is ignored with a warning, because a worker can
+write both.
 
 - `management.target_branch` is the branch the main checkout must have checked out. Integration
   fast-forwards only that branch.

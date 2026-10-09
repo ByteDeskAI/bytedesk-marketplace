@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security
+
+- **`management.integrate_via` and `management.target_branch` are honoured only from the server's
+  default branch (TM-469, EP-028).** They choose where and how a task lands, yet still resolved from
+  the global layer and the checkout's working copy, which a worker can write. They now join the
+  TM-442 protected keys: a local value is ignored with a warning (`config_warnings` on
+  `manage eligible`), and with no server answer integrate and record-landing refuse to pick a target.
+
 ## [0.16.1] — 2026-10-08
 
 Security release. It closes the high-severity holes found in independent post-merge review of the

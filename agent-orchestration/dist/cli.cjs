@@ -26298,7 +26298,7 @@ async function defaultBranch(options, worktree) {
 }
 async function admissionBase(options, worktree, integration, branch) {
   const head = await gitText(worktree, ["rev-parse", "HEAD"]);
-  const target = (await loadConfig(options)).config.management?.target_branch;
+  const target = (await loadGovernedConfig(options)).config.management?.target_branch;
   const anchor = [integration, target].find(nonempty) ?? null;
   if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
     let tip = null;
@@ -26694,6 +26694,7 @@ async function integrationEligibility(options) {
     delegation,
     delegationError,
     autonomy: authority.autonomy,
+    config_warnings: loaded.warnings,
     required_checks: { satisfied_by: "host-run-at-integrate", claimed_check_reasons: claimedReasons }
   };
 }
@@ -26738,7 +26739,7 @@ async function integrateTask(options) {
   const ctx = await context2(options);
   refuseSelfAssertion(options, await managedSession(options, ctx));
   return withLock((0, import_node_path52.join)(ctx.root, "integration.lock"), async () => {
-    if ((await loadConfig(options)).config.management?.integrate_via === "pull-request") return integrateViaPullRequest(options, ctx);
+    if ((await loadGovernedConfig(options)).config.management?.integrate_via === "pull-request") return integrateViaPullRequest(options, ctx);
     const gate = await integrationEligibility(options);
     if (gate.delegationError) throw gate.delegationError;
     invariant2(gate.eligible, "TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED", gate.reasons.join("; "));
@@ -26832,7 +26833,7 @@ async function integrateViaPullRequest(options, ctx) {
   const prior = await loadRecord(ctx.path);
   if (prior?.state === "merged" && prior.merge?.pull_request) {
     if (prior.closed) return prior;
-    const policy2 = (await loadConfig(options)).config.management || {};
+    const policy2 = (await loadGovernedConfig(options)).config.management || {};
     const { refusals: refusals2, delegation: delegation2, autonomy: autonomy2 } = await integrationAuthority(options, ctx, policy2);
     if (refusals2.length) refuseIntegrate(refusals2, prior.merge.pull_request.number);
     return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy: policy2, delegation: delegation2, autonomy: autonomy2, revision: prior.merge.revision }));
@@ -26928,7 +26929,7 @@ async function recordLanding(options) {
     const revision = record2?.finish?.revision;
     invariant2(!record2?.merge, "TOPOLOGY_MANAGEMENT_LANDING", "Task already has a recorded landing.");
     invariant2(record2?.state === "ready-for-review" && nonempty(revision), "TOPOLOGY_MANAGEMENT_LANDING", "Task has no finished worker revision ready for review.");
-    const policy = (await loadConfig(options)).config.management || {};
+    const policy = (await loadGovernedConfig(options)).config.management || {};
     invariant2(nonempty(policy.target_branch), "TOPOLOGY_MANAGEMENT_TARGET", "Configure management.target_branch before recording a landing.");
     const lookup2 = { consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc };
     let delegation = null, lead = null;
@@ -27283,7 +27284,7 @@ var init_management = __esm({
     managedSession = (options, ctx) => managedSessionEvidence({ env: ctx.env, ancestors: options.ancestors, home: ctx.home });
     MANAGED_NEEDS_GRANT = "a managed agent session needs a valid standing delegation (an operator plan grant covering this caller, repository and task), whatever management.auto_merge says";
     LEAD_POLICY_PATH = ".bytedesk/agent-orchestration/config.json";
-    PROTECTED_MANAGEMENT_KEYS = Object.freeze(["autonomy", "release", "cutover", "required_checks"]);
+    PROTECTED_MANAGEMENT_KEYS = Object.freeze(["autonomy", "release", "cutover", "required_checks", "integrate_via", "target_branch"]);
     integrationAuthorization = (options, ctx, { record: record2, policy, delegation, autonomy = null, revision }) => ({
       decision: "integrate",
       actor: delegation ? delegation.grantee : autonomy ? autonomy.actor : options.actor || ctx.env.TM_ACTOR || ctx.env.USER || record2.lead_id,
@@ -63284,10 +63285,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "532c977335f6f90b5813da2bf9c060379c1dd5426aac3e2bbd96dbb2bc25a0c0";
+  return false ? null : "9ac9e4cfba742fcb32edc459c7c3f75276ad18d8325bc2271bac04ce2685e00a";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "532c977335f6f90b5813da2bf9c060379c1dd5426aac3e2bbd96dbb2bc25a0c0";
+  const fingerprint2 = false ? null : "9ac9e4cfba742fcb32edc459c7c3f75276ad18d8325bc2271bac04ce2685e00a";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -63904,7 +63905,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "532c977335f6f90b5813da2bf9c060379c1dd5426aac3e2bbd96dbb2bc25a0c0",
+  sourceFingerprint: false ? null : "9ac9e4cfba742fcb32edc459c7c3f75276ad18d8325bc2271bac04ce2685e00a",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
