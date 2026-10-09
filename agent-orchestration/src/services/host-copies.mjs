@@ -2,7 +2,7 @@
 // plugin, and every copy talks to the same managed services and state. Mixed builds disagree on
 // session names and identity, so `services ensure` and install-host bring OLDER copies up to the
 // build the services pointer runs. Node built-ins only: install-host imports this unbundled.
-import { spawnSync } from "node:child_process";
+import { safeGitSync } from "../../topology/lib/safe-git.mjs";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { cp, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -109,7 +109,7 @@ export function uncommitted(dir, git = defaultGit) {
 }
 
 function defaultGit(args) {
-  const result = spawnSync("git", args, { encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  const result = safeGitSync(null, args, { timeout: 10_000 });
   return { status: result.error ? 1 : result.status, stdout: result.stdout ?? "" };
 }
 

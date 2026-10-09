@@ -26,6 +26,6 @@ node <marketplace>/plugin-rsync/bin/plugin-rsync $ARGUMENTS
 - One name → that plugin (`plugin-rsync task-management`).
 - Several → comma-separated (`plugin-rsync task-management,fleet`) or spaces.
 
-`--list` prints destinations without copying. `--dry-run` prints the rsync argv.
+`--list` prints destinations without copying. `--dry-run` prints the rsync argv. `--json` reports refreshed caches and classifies changed paths as `live`, `needs-reload` or `skipped`, with a per-host `reloads_required` summary (report only; it never reloads).
 
 Tell the user which caches were updated. If a named plugin is not in the marketplace or has no install, report that and stop.

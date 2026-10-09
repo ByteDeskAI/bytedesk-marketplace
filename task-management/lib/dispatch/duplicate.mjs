@@ -7,17 +7,13 @@
  * reported as somebody else's implementation. Unreadable history returns no
  * accusation. A refusal names its evidence and remains local to this task.
  */
-import { execFileSync } from "node:child_process";
 import { config } from "../store.mjs";
+import { safeGitText } from "../safe-git.mjs";
 
 /** git, for questions where "no" is an answer and not a failure. */
 function git(root, args) {
   try {
-    return execFileSync("git", ["-C", root, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-    }).trim();
+    return safeGitText(root, args, { timeout: 5000 }); // TM-443
   } catch {
     return "";
   }

@@ -13,18 +13,18 @@
  * cycle and a done task with unmet criteria are decisions, not typos, so they are
  * reported and left alone.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { planFindings } from "./plans.mjs";
 import { missingFields } from "./completeness.mjs";
-import { RESOLVED, config, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
+import { RESOLVED, config, dependenciesMet, list, logEvent, missingContractRules, reindex, removeConfigKey, reopenEpic, seedGitContract, state, boardIdentity, storeBoard, trackedHostFiles, untrackHostFiles, update, writeState } from "./store.mjs";
 import { LINK_TYPES } from "./issue.mjs";
 import { governanceMode } from "./governance-check.mjs";
 import { unreviewedTasks } from "./review-sweep.mjs";
 import { releaseClaim, staleClaims, sweepClaims } from "./claims.mjs";
 import { KINDS, paths } from "./paths.mjs";
 import { evidenceSync } from "./evidence.mjs";
+import { safeGitText } from "./safe-git.mjs";
 import {
   launcherStatus,
   legacyCodexHooks,
@@ -88,11 +88,7 @@ const evidenceTarget = (ref, p) => (isAbsolute(ref) ? ref : join(p.root, ref));
  */
 export function ignoreRule(p) {
   try {
-    const out = execFileSync("git", ["check-ignore", "-v", "--no-index", join(p.base, "tasks")], {
-      cwd: p.root,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    }).trim();
+    const out = safeGitText(p.root, ["check-ignore", "-v", "--no-index", join(p.base, "tasks")]); // TM-443
     // `<source>:<line>:<pattern>\t<path>` — keep the part that tells you what to edit.
     return out ? out.split("\t")[0] : null;
   } catch {
@@ -235,8 +231,9 @@ export function diagnose(p = paths()) {
     }
 
     // Blocked, no written reason, and every blocker finished: unblockDependents should
-    // have reopened this. If the blocker was closed by hand it never ran.
-    const depsResolved = (t.blockedBy || []).every((d) => !byId.has(d) || RESOLVED.has(byId.get(d).status));
+    // have reopened this. If the blocker was closed by hand it never ran. The store's own predicate,
+    // so an unresolved foreign blocker (ADR-0041) is not "finished" here either.
+    const depsResolved = dependenciesMet(t, byId);
     if (t.status === "blocked" && !t.blockedReason && depsResolved && !dangling.length) {
       out.push(
         finding("warning", "stuck-blocked", t.id, "blocked with no reason and every blocker is finished", () => {

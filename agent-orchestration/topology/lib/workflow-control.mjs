@@ -7,6 +7,7 @@ import { appendJournal, loadRun, readJournal, saveRun, sendMessage } from './mai
 import { durableTopologyRoot, readWorkflowIndex, reconcileWorkflows, registeredWorktrees, workflowRepository } from './discovery.mjs';
 import { incarnationOf, sameIncarnation } from './incarnation.mjs';
 import { stateRoot } from './repoid.mjs';
+import { callerIdentity } from './session-identity.mjs';
 import { childrenFile } from './lineage.mjs';
 import { invariant, isInside, newRunId, nowIso, readJson, writeJson } from './util.mjs';
 import { withLock } from './lockfile.mjs';
@@ -215,7 +216,12 @@ export async function indexedWorkflow({ consumer, workflowId, ...options }) {
   return { entry, repository: index.repository };
 }
 
+// The gate reads the census from the same state home the console reads mail from.
+const gateEnv = options => ({ ...process.env, ...(options.env || {}), ...(options.stateHome ? { AGENT_ORCHESTRATION_STATE_HOME: options.stateHome } : {}) });
+
 export async function workflowDetail({ consumer, workflowId, ...options }) {
+  // TM-464 F1: refused before the workflow is even looked up, so a non-operator learns nothing.
+  await assertOperatorReader({ consumer, env: gateEnv(options), proof: options.proof });
   const { entry, run, runDir, loop } = await indexedWorkflow({ consumer, workflowId, ...options });
   if (loop) {
     const { goalLoopSummary } = await import('./goal-loop.mjs');
@@ -260,9 +266,33 @@ export async function workflowDetail({ consumer, workflowId, ...options }) {
 
 // Reading diagnostics must never pull or acknowledge a broker message. These are
 // retained producer/recipient facts, not task ownership or completion evidence.
+/** TM-464 F1: the workflow console shows every agent's mail, so it is the operator's view only.
+ * Allowed: a bare operator shell, i.e. NO agent identity (no AO_AGENT_ID, no minted session id) AND a
+ * pane this repository's census binds to no agent; or this repository's lead PROVEN by
+ * requireLeadCaller (census-bound live pane plus process ancestry). Anyone else is refused: a
+ * dispatched worker, a minted session, a non-lead agent, and a launched agent that unset AO_AGENT_ID
+ * but still runs in its bound pane (the binding names it). As in requireHandoffCaller, the pane's
+ * census binding stands in for the env name. `proof` injects pane, census and /proc readers for tests.
+ * Same-user limit: a process outside every bound pane with its identity variables removed is,
+ * to this check, the operator. */
+export async function assertOperatorReader({ consumer, env = process.env, home, proof = {} }) {
+  invariant(!env.TM_DISPATCH_WORKER, 'TOPOLOGY_OPERATOR_ONLY', 'A dispatched worker session (TM_DISPATCH_WORKER) cannot read every agent\'s mail in the workflow console. Nothing was read.');
+  const { bindingAgentId, requireLeadCaller } = await import('./delegation.mjs');
+  const lookup = { consumer, env, ...(home ? { home } : {}), ...proof };
+  const bound = await bindingAgentId(lookup).catch(() => null);
+  const caller = callerIdentity(env);
+  if (!caller && !bound) return { as: 'operator' };
+  const named = env.AO_AGENT_ID || bound || caller?.agentId;
+  const lead = await requireLeadCaller({ ...lookup, env: { ...env, AO_AGENT_ID: named } });
+  invariant(lead, 'TOPOLOGY_OPERATOR_ONLY',
+    `This session is ${named}, not this repository's proven lead or a bare operator shell, so it cannot read every agent's mail in the workflow console. Nothing was read.`);
+  return { as: 'lead', caller: lead };
+}
+
 async function workflowMessages(options) {
+  await assertOperatorReader({ consumer: options.consumer, env: gateEnv(options), proof: options.proof });
   const { listMailboxReceipts, listMailboxPublications } = await import('./mailbox-receipts.mjs');
-  const query = { ...options, env: { ...process.env, ...(options.env || {}), AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot(options.env) } };
+  const query = { ...options, allAgents: true, env: { ...process.env, ...(options.env || {}), AGENT_ORCHESTRATION_STATE_HOME: options.stateHome || stateRoot(options.env) } };
   const receipts = await listMailboxReceipts(query);
   const publications = await listMailboxPublications(query);
   const displayBody = envelope => options.workflowId.startsWith('goal-loop:') && envelope.context.stage === 'goal-phase'

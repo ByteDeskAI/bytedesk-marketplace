@@ -8,6 +8,9 @@
 //   FAKE_TURN_START_BUSY_MS  begin mid-turn for this long
 //   FAKE_TURN_BUSY_MS      each ordinary line typed in starts a turn this long
 //   FAKE_TURN_HANDOFF=1    answer a handoff request by writing the file (tmp + rename)
+//   FAKE_TURN_EXEC=1       a line `!run <file>` runs `sh <file>` as this process's child, so a test can
+//                          act from INSIDE the pane (TM-463: pane and process-ancestry proof)
+import { spawn } from "node:child_process";
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
@@ -31,6 +34,8 @@ turn(Number(process.env.FAKE_TURN_START_BUSY_MS ?? 0));
 createInterface({ input: process.stdin, terminal: false }).on("line", (line) => {
   log({ event: "received", phase: Date.now() < busyUntil ? "busy" : "idle", line });
   if (line.trim() === "/exit") { log({ event: "exit" }); process.exit(0); }
+  const run = /^!run (\S+)$/.exec(line.trim());
+  if (run && process.env.FAKE_TURN_EXEC === "1") { spawn("sh", [run[1]], { stdio: "ignore" }); process.stdout.write("> "); return; }
   const handoff = /to (\S+)\.tmp, then rename/.exec(line);
   if (handoff) {
     if (process.env.FAKE_TURN_HANDOFF === "1") {

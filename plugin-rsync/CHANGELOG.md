@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **`--json` activation report** (TM-388, ADR-0041). Per plugin: each refreshed cache (`host`, `path`, `changed`) and each changed path from `rsync -i`, classified `live` (bin/ CLIs), `needs-reload` (hooks, skills, commands, agents, monitors, manifests, MCP config, every MCP server and monitor entry point from `.mcp.json`, `.codex-mcp.json` and `monitors/monitors.json` with `./`, `${CLAUDE_PLUGIN_ROOT}/`, `${CODEX_PLUGIN_ROOT}/` or `${PLUGIN_ROOT}/` prefixes, and lib/src/dist when a server or monitor is declared) or a `skipped` host with no install; top-level `reloads_required` per host. With `--dry-run` it previews via `rsync -n`. Report only; never reloads. Default output unchanged.
 - **Codex-only machines trust bytedesk hooks with no TUI approval (TM-480).** Codex starts a
   plugin's MCP server without the per-hook trust its hooks need, so plugin-rsync now ships a
   tool-less MCP server (`bin/plugin-rsync-mcp`, `.codex-mcp.json`) whose start runs

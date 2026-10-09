@@ -141,8 +141,18 @@ export async function getMailboxReceipt({ consumer, agent, messageId, kind = 'ma
   return record ? verifyReceipt(record) : null;
 }
 
-/** Nondestructive operator view. No transport connection, broker pull, or ACK. */
-export async function listMailboxReceipts({ consumer, agent, kind, status, workflowId, runId, taskId, ...options }) {
+/** TM-464 F1: every reader that returns mail or receipt bodies is scoped. It names one bound
+ * `agent`, or says `allAgents: true` explicitly, which only an operator-only path may do (the
+ * workflow console, gated by workflow-control's assertOperatorReader, and the publication
+ * resume loop, which returns no body). A missing agent fails closed instead of meaning "everyone". */
+function readerScope(agent, allAgents) {
+  invariant(allAgents === true ? agent === undefined || agent === null : typeof agent === 'string' && agent.length > 0,
+    'TOPOLOGY_MAILBOX_SCOPE_REQUIRED', 'Reading mailbox records requires the bound agent, or allAgents: true from an operator-only path. Nothing was read.');
+}
+
+/** Nondestructive view of one agent's receipts. No transport connection, broker pull, or ACK. */
+export async function listMailboxReceipts({ consumer, agent, allAgents = false, kind, status, workflowId, runId, taskId, ...options }) {
+  readerScope(agent, allAgents);
   const identity = await identityOf(consumer);
   invariant(!status || STATES.has(status), 'TOPOLOGY_MAILBOX_DISPOSITION', 'Unknown receipt status.');
   const dir = join(mailboxLedgerRoot(options), repoKey(identity.id), 'receipts');
@@ -213,7 +223,7 @@ export async function publishMailboxEnvelope({ envelope, transport, ...options }
 
 export async function resumeMailboxPublications({ consumer, transport, ...options }) {
   const resumed = [];
-  for (const record of await listMailboxPublications({ ...options, consumer, status: 'pending' })) {
+  for (const record of await listMailboxPublications({ ...options, consumer, status: 'pending', allAgents: true })) {
     // Standing mail retains its own admission and retry deadline. Replies have
     // no standing delivery record and use this generic publication recovery.
     if (record.kind === 'mail' && record.envelope.context.standing === true) continue;
@@ -226,7 +236,8 @@ export async function resumeMailboxPublications({ consumer, transport, ...option
 
 /** Nondestructive sender view. A publication says only whether the broker
  * accepted it; recipient acceptance/disposition remains a separate receipt. */
-export async function listMailboxPublications({ consumer, agent, kind, status, workflowId, runId, taskId, ...options }) {
+export async function listMailboxPublications({ consumer, agent, allAgents = false, kind, status, workflowId, runId, taskId, ...options }) {
+  readerScope(agent, allAgents);
   const identity = await identityOf(consumer), root = mailboxLedgerRoot(options), records = [];
   invariant(!status || ['pending', 'published'].includes(status), 'TOPOLOGY_MAILBOX_PUBLICATION', 'Unknown publication status.');
   for (const repository of await readdir(root).catch(error => { if (error.code === 'ENOENT') return []; throw error; })) {

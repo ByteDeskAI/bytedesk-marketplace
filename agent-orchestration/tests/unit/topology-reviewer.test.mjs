@@ -859,7 +859,7 @@ test('TM-418 the review sweep files the finish report check runs, so the reviewe
   const passing = await filed();
   assert.notEqual(passing.nonce, blocked.nonce);
   assert.deepEqual(passing.checks_unsatisfied, []);
-  assert.deepEqual(JSON.parse(await readFile(join(passing.packet_path, 'checks.json'), 'utf8')).checks.map(c => [c.name, c.command, c.revision]), [['unit', 'npm test', finish], ['lint', 'npm run lint', finish]]);
+  assert.deepEqual(JSON.parse(await readFile(join(passing.packet_path, 'checks.json'), 'utf8')).checks.map(c => [c.name, c.command, c.revision]), [['unit', '[claimed by the worker; not run by the host] npm test', finish], ['lint', '[claimed by the worker; not run by the host] npm run lint', finish]], 'TM-430: the packet labels them as claims');
   await submitVerdict(f, passing, 'approve');
   assert.equal((await collectReview(o)).verdict, 'approve');
 });

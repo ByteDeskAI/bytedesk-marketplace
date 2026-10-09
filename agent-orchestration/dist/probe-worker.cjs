@@ -29,8 +29,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/runtime/acpx-driver.mjs
 var import_promises5 = require("node:fs/promises");
-var import_node_path5 = require("node:path");
-var import_node_os3 = __toESM(require("node:os"), 1);
+var import_node_path6 = require("node:path");
+var import_node_os4 = __toESM(require("node:os"), 1);
 
 // node_modules/acpx/dist/live-checkpoint-ClPCSdrW.js
 var import_node_fs = __toESM(require("node:fs"), 1);
@@ -25802,26 +25802,141 @@ function getProviderAdapter(providerId2) {
 }
 
 // src/util.mjs
-var import_node_child_process2 = require("node:child_process");
+var import_node_child_process3 = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises4 = require("node:fs/promises");
-var import_node_path4 = require("node:path");
+var import_node_path5 = require("node:path");
 var import_node_util2 = require("node:util");
-var execFile2 = (0, import_node_util2.promisify)(import_node_child_process2.execFile);
-async function runFile(command, args, options = {}) {
-  invariant(Array.isArray(args), "AO_INVALID_ARGUMENT", "Command arguments must be an array.");
-  const result = await execFile2(command, args, {
-    cwd: options.cwd,
-    env: options.env,
-    encoding: "utf8",
-    maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024,
-    timeout: options.timeoutMs ?? 3e4,
-    windowsHide: true
+
+// topology/lib/safe-git.mjs
+var import_node_child_process2 = require("node:child_process");
+var import_node_os3 = require("node:os");
+var import_node_path4 = require("node:path");
+var SAFE_GIT_CONFIG = Object.freeze([
+  "core.fsmonitor=false",
+  "core.hooksPath=/dev/null",
+  "core.pager=cat",
+  "diff.external=",
+  "core.sshCommand=ssh",
+  "core.askPass=",
+  "core.editor=true",
+  "sequence.editor=true",
+  "core.alternateRefsCommand=true",
+  "uploadpack.packObjectsHook=env",
+  "protocol.allow=never",
+  "protocol.https.allow=always",
+  "protocol.ssh.allow=always",
+  "protocol.file.allow=always",
+  "protocol.ext.allow=never",
+  "gpg.program=gpg",
+  "gpg.ssh.program=ssh-keygen",
+  "gpg.x509.program=gpgsm",
+  "commit.gpgSign=false",
+  "tag.gpgSign=false",
+  "merge.verifySignatures=false",
+  "log.showSignature=false",
+  "submodule.recurse=false",
+  "fetch.recurseSubmodules=false",
+  "gc.auto=0",
+  "maintenance.auto=false",
+  "credential.helper="
+]);
+var DIFF_FAMILY = ["diff", "diff-tree", "diff-index", "diff-files", "log", "show", "format-patch", "whatchanged"];
+var SUBCOMMAND_FLAGS = Object.freeze({
+  fetch: ["--upload-pack=git-upload-pack"],
+  pull: ["--upload-pack=git-upload-pack"],
+  "ls-remote": ["--upload-pack=git-upload-pack"],
+  push: ["--receive-pack=git-receive-pack"],
+  ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
+});
+var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
+var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
+var UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
+var pair = (entry) => {
+  const at2 = entry.indexOf("=");
+  return [entry.slice(0, at2), entry.slice(at2 + 1)];
+};
+var GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
+function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
+  const env = Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("GIT_") || GIT_ENV_ALLOWLIST.includes(name)));
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: (0, import_node_path4.join)((0, import_node_os3.homedir)(), ".gitconfig"), GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
+  env.GIT_CONFIG_COUNT = String(config2.length);
+  config2.forEach(([key, value], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = key;
+    env[`GIT_CONFIG_VALUE_${i}`] = value;
   });
-  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+  return env;
 }
+function driverOverrides(listing) {
+  const out = [], resets = [], helpers = [], seen = /* @__PURE__ */ new Set();
+  const fields = String(listing || "").split("\0");
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const scope = fields[i], nl = fields[i + 1].indexOf("\n");
+    const key = nl < 0 ? fields[i + 1] : fields[i + 1].slice(0, nl), value = nl < 0 ? "" : fields[i + 1].slice(nl + 1);
+    if (key.startsWith("credential.")) {
+      if (scope === "global") helpers.push([key, value]);
+      else if (UNTRUSTED_SCOPES.has(scope)) resets.push([key, ""]);
+      continue;
+    }
+    if (!UNTRUSTED_SCOPES.has(scope)) continue;
+    if (REFUSED_KEYS.test(key)) return { overrides: [], refusal: `the repository's ${scope} config sets ${key}, which host git cannot neutralise; remove it (git config --${scope === "worktree" ? "worktree" : "local"} --unset-all '${key}')` };
+    const name = key.slice(key.indexOf(".") + 1, key.lastIndexOf("."));
+    const add = (k, v) => {
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push([k, v]);
+      }
+    };
+    if (key.startsWith("filter.")) {
+      add(`filter.${name}.clean`, "");
+      add(`filter.${name}.smudge`, "");
+      add(`filter.${name}.process`, "");
+      add(`filter.${name}.required`, "false");
+    } else add(key, "false");
+  }
+  return { overrides: [...out, ...resets, ...helpers], refusal: null };
+}
+var GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+function hardenArgs(args) {
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-")) i += ["-C", "-c", "--git-dir", "--work-tree"].includes(args[i]) ? 2 : 1;
+  const extra = Object.hasOwn(SUBCOMMAND_FLAGS, args[i] ?? "") ? SUBCOMMAND_FLAGS[args[i]] : [];
+  return [...args.slice(0, i + 1), ...extra, ...args.slice(i + 1)];
+}
+var at = (cwd2) => cwd2 ? ["-C", cwd2] : [];
+var LIST = (cwd2) => [...at(cwd2), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
+function safeGitPlan(cwd2, args, listing = "") {
+  const { overrides, refusal } = driverOverrides(listing);
+  return { argv: [...at(cwd2), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
+}
+var GIT = process.platform === "win32" ? "git.exe" : "git";
+var refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
+function execAsync(argv, config2, options) {
+  return new Promise((resolve2) => {
+    const child = (0, import_node_child_process2.execFile)(
+      GIT,
+      argv,
+      { cwd: options.cwd, env: safeGitEnv(options.env, config2), encoding: "utf8", maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024, timeout: options.timeoutMs ?? 3e4, windowsHide: true },
+      (error51, stdout, stderr) => resolve2({ code: error51 ? error51.killed ? 124 : typeof error51.code === "number" ? error51.code : 1 : 0, stdout: stdout ?? "", stderr: stderr || (error51 ? String(error51.message) : "") })
+    );
+    child.stdin.end(options.input ?? void 0);
+  });
+}
+async function safeGit(cwd2, args, options = {}) {
+  const listing = await execAsync(LIST(cwd2), SAFE_GIT_CONFIG.map(pair), { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  const plan = safeGitPlan(cwd2, args, listing.stdout);
+  const result = plan.refusal ? { code: 128, stdout: "", stderr: refused(args, plan.refusal) } : await execAsync(plan.argv, plan.config, options);
+  if (result.code !== 0 && !options.allowFailure) {
+    throw Object.assign(new Error(`git ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`), result);
+  }
+  return result;
+}
+
+// src/util.mjs
+var execFile3 = (0, import_node_util2.promisify)(import_node_child_process3.execFile);
 async function git(cwd2, args, options = {}) {
-  return runFile(process.platform === "win32" ? "git.exe" : "/usr/bin/git", ["-C", cwd2, ...args], options);
+  const result = await safeGit(cwd2, args, options);
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 function newId(prefix) {
   return `${prefix}_${(0, import_node_crypto3.randomUUID)()}`;
@@ -25848,13 +25963,13 @@ async function restoreDirectoryWrite(path3) {
   });
   const entries = await (0, import_promises4.readdir)(path3, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
-    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path4.join)(path3, entry.name));
+    if (entry.isDirectory()) await restoreDirectoryWrite((0, import_node_path5.join)(path3, entry.name));
   }
 }
 
 // src/runtime/acpx-driver.mjs
 async function createEphemeralScratch(kind) {
-  const scratchRoot = process.platform === "win32" ? import_node_os3.default.tmpdir() : "/dev/shm";
+  const scratchRoot = process.platform === "win32" ? import_node_os4.default.tmpdir() : "/dev/shm";
   for (const entry of await (0, import_promises5.readdir)(scratchRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const match = /^agent-orchestration-(?:turn|probe-[a-z0-9-]+)-(\d+)-/.exec(entry.name);
@@ -25862,10 +25977,10 @@ async function createEphemeralScratch(kind) {
     try {
       process.kill(Number(match[1]), 0);
     } catch (error51) {
-      if (error51?.code === "ESRCH") await removeTree((0, import_node_path5.join)(scratchRoot, entry.name));
+      if (error51?.code === "ESRCH") await removeTree((0, import_node_path6.join)(scratchRoot, entry.name));
     }
   }
-  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path5.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
+  const path3 = await (0, import_promises5.mkdtemp)((0, import_node_path6.join)(scratchRoot, `agent-orchestration-${kind}-${process.pid}-`));
   return path3;
 }
 function shellQuote(value) {
@@ -25876,10 +25991,10 @@ function windowsQuote(value) {
 }
 function providerCommandOverrides(pluginRoot2, sandboxEnvironment = {}) {
   if (process.platform === "win32") {
-    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path5.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
+    const launcher2 = `${windowsQuote(process.execPath)} ${windowsQuote((0, import_node_path6.join)(pluginRoot2, "dist", "provider-sandbox.cjs"))}`;
     return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${launcher2} ${windowsQuote(adapter.providerId)}`]));
   }
-  const launcher = shellQuote((0, import_node_path5.join)(pluginRoot2, "bin", "provider-sandbox"));
+  const launcher = shellQuote((0, import_node_path6.join)(pluginRoot2, "bin", "provider-sandbox"));
   const environment = Object.entries(sandboxEnvironment).map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ");
   return Object.fromEntries(Object.values(PROVIDER_ADAPTERS).map((adapter) => [adapter.agentTarget, `${environment ? `env ${environment} ` : ""}${launcher} ${shellQuote(adapter.providerId)}`]));
 }
@@ -25905,13 +26020,13 @@ var YOLO_MODE_VALUES = Object.freeze(["bypassPermissions", "agent-full-access", 
 async function probeProviderSession({ pluginRoot: pluginRoot2, stateRoot: stateRoot2, cwd: cwd2, providerId: providerId2, providerExecutable: providerExecutable2 }) {
   const adapter = getProviderAdapter(providerId2);
   invariant(adapter, "AO_PROVIDER_ADAPTER_MISSING", `No trusted adapter is registered for provider ${providerId2}.`);
-  const probeWorkspace = await ensurePrivateDir((0, import_node_path5.join)(stateRoot2, "probe-workspaces", providerId2, "workspace"));
+  const probeWorkspace = await ensurePrivateDir((0, import_node_path6.join)(stateRoot2, "probe-workspaces", providerId2, "workspace"));
   await git(probeWorkspace, ["init", "-q"]);
-  const probeGitDir = (0, import_node_path5.join)(probeWorkspace, ".git");
+  const probeGitDir = (0, import_node_path6.join)(probeWorkspace, ".git");
   const sandboxTempDir = await createEphemeralScratch(`probe-${providerId2}`);
   const runtime = createProviderRuntime({
     pluginRoot: pluginRoot2,
-    sessionStateDir: (0, import_node_path5.join)(stateRoot2, "probe-sessions", providerId2),
+    sessionStateDir: (0, import_node_path6.join)(stateRoot2, "probe-sessions", providerId2),
     cwd: probeWorkspace,
     commonGitDir: probeGitDir,
     permissionProfile: "read",

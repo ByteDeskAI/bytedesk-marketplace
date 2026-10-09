@@ -55,7 +55,8 @@ import { collectPendingReviews } from './reviewer.mjs';
 import { reconcileGoalLoops } from './goal-loop.mjs';
 import { notifyGrants, reconcileSlots } from './slots.mjs';
 import { createQuotaWatch, quotaTick } from './quota.mjs';
-import { exists, sleep, writeJson, readJson, run } from './util.mjs';
+import { exists, sleep, writeJson, readJson } from './util.mjs';
+import { safeGit } from './safe-git.mjs';
 import { addServiceRepo, runServicesEnsure, servicesEnabled } from './services-client.mjs';
 import { absorbTransportFailure, describeTransport } from './orch-transport.mjs';
 import { natsOutageTick } from './nats-outage.mjs';
@@ -213,7 +214,7 @@ export async function superviseRepository(options, { signal, once = false, inter
        }
        prompts.push({agent:agent.id,state:promptState});
      }
-     const listing=await run('git',['-C',consumer,'worktree','list','--porcelain'],{allowFailure:true});
+     const listing=await safeGit(consumer,['worktree','list','--porcelain'],{allowFailure:true});
      const roots=new Set([consumer,...listing.stdout.split('\n').filter(line=>line.startsWith('worktree ')).map(line=>line.slice(9))]);
      // Where deaths.tsv lives. Collected at L2's cadence because that is how often it can change.
      const runDirs=[], runDirByAgent=new Map();

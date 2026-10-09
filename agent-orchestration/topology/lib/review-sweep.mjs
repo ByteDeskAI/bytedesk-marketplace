@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
 import { readLeadRegistration } from './lead.mjs';
-import { finishCheckEvidence, requestReview as fileReview } from './reviewer.mjs';
+import { requestReview as fileReview } from './reviewer.mjs';
 import { sendStandingMessage } from './standing-mailbox.mjs';
 import { SUPERVISOR_SENDER } from './nats-outage.mjs';
 import { exists, readJson, run } from './util.mjs';
@@ -55,7 +55,7 @@ export async function reviewSweepTick({ consumer, env = process.env, home = home
       const revision = record?.finish?.revision;
       if (revision && record.owner) {
         try {
-          await requestReview({ consumer, task: f.id, revision, authorAgentIds: [record.owner], checkEvidence: finishCheckEvidence(record.finish), env, home });
+          await requestReview({ consumer, task: f.id, revision, authorAgentIds: [record.owner], checkEvidence: (await import('./management.mjs')).claimedCheckEvidence(record.finish), env, home });
           out.delivered.push({ key: f.key, action: 'review-requested', task: f.id, revision });
           continue;
         } catch (error) { refused = `${error.code ?? 'error'}: ${error.message}`; }
