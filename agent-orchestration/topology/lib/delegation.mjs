@@ -21,7 +21,7 @@ import { readCensus } from './census.mjs';
 import { ancestorPids } from './heartbeat.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
-import { requireCallerInPane, resolveBinding, sameBinding } from './slots.mjs';
+import { callerRunsInPane, requireCallerInPane, resolveBinding, sameBinding } from './slots.mjs';
 import { listServerPanes } from './tmux.mjs';
 import { fail, invariant, nowIso, parseDuration, readJson, writeJson } from './util.mjs';
 

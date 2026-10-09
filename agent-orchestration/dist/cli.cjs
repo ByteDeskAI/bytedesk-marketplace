@@ -29942,7 +29942,7 @@ __export(slots_exports, {
   SLOT_RECORD_VERSION: () => SLOT_RECORD_VERSION,
   assertSlotName: () => assertSlotName,
   byTicket: () => byTicket,
-  callerRunsInPane: () => callerRunsInPane2,
+  callerRunsInPane: () => callerRunsInPane,
   formatSlot: () => formatSlot,
   grantSlot: () => grantSlot,
   liveness: () => liveness,
@@ -30046,7 +30046,7 @@ async function resolveBinding({ env = process.env, listPanesFn = listServerPanes
   invariant2(pane && pane.alive !== false, "TOPOLOGY_SLOT_BINDING_REQUIRED", `Pane ${env.TMUX_PANE} is not on server ${match[1]}; this incarnation cannot be identified.`);
   return Object.fromEntries(PRESENCE_BINDING_FIELDS.map((field) => [field, pane[field]]));
 }
-async function callerRunsInPane2(binding, { pid = process.pid, readStat = (p) => (0, import_promises45.readFile)(`/proc/${p}/stat`, "utf8") } = {}) {
+async function callerRunsInPane(binding, { pid = process.pid, readStat = (p) => (0, import_promises45.readFile)(`/proc/${p}/stat`, "utf8") } = {}) {
   const target = binding?.panePid;
   if (!Number.isSafeInteger(target) || target <= 1) return false;
   for (let i = 0; i < 64 && Number.isSafeInteger(pid) && pid > 1; i++) {
@@ -30059,7 +30059,7 @@ async function callerRunsInPane2(binding, { pid = process.pid, readStat = (p) =>
 async function requireCallerInPane(binding, { code, what = "the bound agent", callerProc = {} } = {}) {
   let inPane;
   try {
-    inPane = await callerRunsInPane2(binding, callerProc);
+    inPane = await callerRunsInPane(binding, callerProc);
   } catch (error51) {
     fail(code, `Cannot prove the caller runs in ${what}'s pane: process ancestry is unreadable (${error51.code || error51.message}); refusing rather than trusting AO_AGENT_ID or TMUX_PANE.`);
   }
@@ -64436,10 +64436,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "a6b175394ca0bb0edc53b19f4733fe03ee64c43292c69fee567f47150e402a6b";
+  return false ? null : "ea62584d53b5ff287248137d759438d893dbbd5c6171647301e33e8f9aa21219";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "a6b175394ca0bb0edc53b19f4733fe03ee64c43292c69fee567f47150e402a6b";
+  const fingerprint2 = false ? null : "ea62584d53b5ff287248137d759438d893dbbd5c6171647301e33e8f9aa21219";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -65056,7 +65056,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "a6b175394ca0bb0edc53b19f4733fe03ee64c43292c69fee567f47150e402a6b",
+  sourceFingerprint: false ? null : "ea62584d53b5ff287248137d759438d893dbbd5c6171647301e33e8f9aa21219",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
