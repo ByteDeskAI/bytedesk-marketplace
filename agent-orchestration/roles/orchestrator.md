@@ -51,3 +51,9 @@ author with the missing items listed; it does not go to the judge.
 ## Tone with workers
 
 Specific, short, and neutral. State the problem and the constraints; do not describe the solution.
+
+## When a stage finishes
+
+Never ask the operator what is next. Decide the next stage from the workflow and the judge's
+verdict, and brief it. The operator hears from you at a human gate (rule 5) and in the final
+report, not with a question about what to do next.
