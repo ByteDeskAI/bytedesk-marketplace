@@ -14,8 +14,10 @@ const HOSTS = Object.freeze(["claude", "codex", "grok", "kimi"]);
 const SKILL_NAMES = Object.freeze([
   "agent-orchestrate",
   "agent-orchestration-doctor",
-  "roadmap-orchestrator",
+  "roadmap-governance",
 ]);
+// TM-377: renamed skills. A link an older install made under the old name now points at nothing.
+const LEGACY_SKILL_NAMES = Object.freeze(["roadmap-orchestrator"]);
 
 export function pluginRootFromScript(scriptPath = fileURLToPath(import.meta.url)) {
   return path.resolve(path.dirname(scriptPath), "..", "..", "..");
@@ -126,6 +128,7 @@ export function planHostInstall(options) {
             from: path.join(pluginRoot, "skills", name),
             to: path.join(skillsDir, name),
           })),
+          ...LEGACY_SKILL_NAMES.map((name) => ({ kind: "unlink-legacy", path: path.join(skillsDir, name) })),
           {
             kind: "symlink",
             from: path.join(pluginRoot, "agents", "cross-provider-orchestrator.md"),
@@ -164,6 +167,12 @@ export function applyHostInstall(plan, { dryRun = false, spawn = spawnSync } = {
           symlinkSync(action.from, action.to, process.platform === "win32" ? "junction" : undefined);
         }
         results.push({ host: hostPlan.host, action, status: "ok" });
+      } else if (action.kind === "unlink-legacy") {
+        // Only a link: a real directory under that name is the user's, not ours.
+        let link = false;
+        try { link = lstatSync(action.path).isSymbolicLink(); } catch {}
+        if (link) rmSync(action.path, { force: true });
+        results.push({ host: hostPlan.host, action, status: link ? "ok" : "skipped" });
       } else if (action.kind === "exec") {
         const ran = spawn(action.command, action.args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
         const ok = ran.status === 0;

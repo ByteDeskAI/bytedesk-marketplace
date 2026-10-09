@@ -1,0 +1,40 @@
+{
+  "skill_name": "gateway-profiling",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "bytedesk-emote-gateway has been sitting at high CPU on this box. Find out which plugin and function is responsible and leave the host as you found it.",
+      "expected_output": "Lists profiling state first, records which plugins were already on, captures CPU for the gateway (or the suspect plugin after switching it on) while load is present, summarizes hot functions and traces them to the owning plugin, then switches off only the applied ids it switched on and confirms with profiling_list.",
+      "files": [],
+      "expectations": [
+        "The run called profiling_list or GET /profiling/api/plugins before switching anything",
+        "The run took a CPU capture and summarized it (profiling_summarize or /captures/{id}/summary)",
+        "The answer names the hottest function, its share and the owning plugin",
+        "Every plugin the run switched on was switched off again and the final state was read back"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "process-evaluator says the gateway's memory keeps growing. Check whether it is a heap leak or a goroutine leak.",
+      "expected_output": "Takes heap and goroutine snapshots (profiling_capture_snapshot kind heap and goroutine, or POST /profiling/api/capture), repeats after an interval, compares the pairs with profiling_compare or summary diffs, and says which one grows.",
+      "files": [],
+      "expectations": [
+        "The run captured at least one heap and one goroutine snapshot",
+        "The run took a second capture of the same kind later and compared the two",
+        "The answer states which resource grew, with the capture ids as evidence"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I deployed a fix for the terminal-runtime CPU spin. Prove whether it helped; earlier capture id was 10.",
+      "expected_output": "Takes a new CPU capture of the same kind, plugin and duration as capture 10, runs profiling_compare a=10 b=new (or diffs the two summaries over HTTP), and reports the flat-share delta of the hot function, then cleans up any switch it changed.",
+      "files": [],
+      "expectations": [
+        "The run read capture 10's metadata to match kind, plugin and duration",
+        "The run compared capture 10 with a new capture",
+        "The answer reports the before and after share of the hot function and a clear verdict",
+        "No token, cookie value or password appears in the transcript"
+      ]
+    }
+  ]
+}

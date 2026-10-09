@@ -3,7 +3,7 @@
 // fallback chain that actually comes up, and deliver each agent its bootstrap pointer.
 // `failoverAgent` re-runs the same start logic for one agent from the next candidate mid-run.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, dirname, isAbsolute, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -234,8 +234,73 @@ Begin when you have replied READY: the mission is the inputs above plus the work
 `;
 }
 
-export function launcherScript({ agent, candidate, argv, env }) {
+/**
+ * TM-375: secrets a worker inherits. Config names them (`workers.passEnv`, NAMES only); the values
+ * come from the launching process's environment at the moment a pane is started, and travel in a
+ * 0600 file beside the launcher that the launcher sources and deletes. They are never written to
+ * the launcher, run.json, the journal, a prompt, tmux's environment or any argv.
+ */
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * TM-448: names that steer tm, ao, the harness, the loader or git are never passed, whichever layer
+ * names them — a secrets file sourced into a worker must not be able to rename who it is.
+ */
+export const RESERVED_ENV = /^(TM_|AO_|CLAUDE_|LD_|DYLD_|GIT_)|^(PATH|HOME|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|RUBYOPT|XDG_CONFIG_HOME|TMUX|TMUX_PANE|SSH_AUTH_SOCK)$/;
+
+/**
+ * The configured names to pass, which of them the launching environment lacks, and what was set
+ * but not honoured, with `warnings` to show for it.
+ *
+ * TM-448: only the global and plugin-defaults layers count. The repository layer is git-tracked, so
+ * a worker whose PR lands could name a secret there for every later worker; a name set only there
+ * is ignored with a warning. The nearest trusted layer wins, as mergeConfig replaces an array whole.
+ */
+export async function passEnvFor(consumer, { env = process.env, home = homedir() } = {}) {
+  const pluginRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+  const loaded = await loadConfig({ consumer, env, home, pluginRoot }).catch(() => null);
+  const layer = (scope) => loaded?.layers?.find((l) => l.scope === scope && l.ok && l.present)?.raw?.workers?.passEnv;
+  const valid = (raw) => (Array.isArray(raw) ? [...new Set(raw.filter((name) => typeof name === "string" && ENV_NAME.test(name)))] : []);
+  const trusted = valid(layer("global") ?? layer("defaults"));
+  const repo = valid(layer("repo"));
+  const refused = [...new Set([...trusted, ...repo].filter((name) => RESERVED_ENV.test(name)))];
+  const names = trusted.filter((name) => !RESERVED_ENV.test(name));
+  const ignored = repo.filter((name) => !RESERVED_ENV.test(name) && !names.includes(name));
+  const warnings = [
+    ...(ignored.length ? [`workers.passEnv: ${ignored.join(", ")} ignored — named only in the repository config, which is git-tracked; name it in the global config instead`] : []),
+    ...(refused.length ? [`workers.passEnv: ${refused.join(", ")} refused — reserved names (TM_*, AO_*, CLAUDE_*, LD_*, DYLD_*, GIT_*, PATH, HOME, shell/interpreter startup and module paths, XDG_CONFIG_HOME, TMUX, TMUX_PANE, SSH_AUTH_SOCK) are never passed`] : []),
+  ];
+  return { names, missing: names.filter((name) => typeof env[name] !== "string"), ignored, refused, warnings };
+}
+
+/** The env file a launcher sources: always the launcher's own path plus `.env`. */
+export const passEnvFile = (launcher) => `${launcher}.env`;
+
+/** Write the present names' values, 0600, for the launcher to source and delete. Returns names only. */
+export async function stagePassEnv(launcher, names, source = process.env) {
+  const file = passEnvFile(launcher);
+  await rm(file, { force: true });
+  const passed = names.filter((name) => typeof source[name] === "string");
+  if (passed.length) await writeFile(file, passed.map((name) => `export ${name}=${shellQuote(source[name])}\n`).join(""), { mode: 0o600, flag: "wx" });
+  return { file, passed, missing: names.filter((name) => !passed.includes(name)) };
+}
+
+/**
+ * TM-450: remove a staged secrets file once its launcher had the chance to source it. The launcher
+ * deletes it itself when it runs; a launcher that never ran left the 0600 file beside it. Paths that
+ * wait for readiness already remove it after the wait; this is the same guarantee for those that
+ * do not — wait for the launcher to consume it (bounded), then remove it regardless.
+ */
+export async function retirePassEnv(launcher, { timeoutMs = 15_000 } = {}) {
+  const file = passEnvFile(launcher);
+  for (const until = Date.now() + timeoutMs; Date.now() < until && await exists(file);) await sleep(100);
+  await rm(file, { force: true });
+}
+
+export function launcherScript({ agent, candidate, argv, env, envFile = null }) {
   const lines = ["#!/usr/bin/env bash", `# Generated by ao-topology. Runs agent ${agent.id} on ${candidateLabel(candidate)} inside its tmux pane.`, "set -u", `cd ${shellQuote(agent.cwd)}`];
+  // TM-375: passed secrets first, so nothing they name can override the agent's own AO_* variables.
+  if (envFile) lines.push(`if [ -f ${shellQuote(envFile)} ]; then . ${shellQuote(envFile)}; rm -f ${shellQuote(envFile)}; fi`);
   for (const [key, value] of Object.entries(env)) {
     if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) fail("TOPOLOGY_ENV_INVALID", `Agent ${agent.id}: env name "${key}" is not a valid variable name.`);
     lines.push(`export ${key}=${shellQuote(value)}`);
@@ -704,7 +769,7 @@ function prepareCandidates({ spec, agent, adapters, bootstrapFile, dir, warnings
  * Start one agent in its pane, walking the candidate chain from `startIndex`. Returns
  * { ok, index, label, adapter, ready, attempts:[{label, outcome}] }.
  */
-async function startAgentInPane({ pane, agentId, role = null, candidates, startIndex = 0, runDir, log = () => {}, respawn = false, client = null }) {
+async function startAgentInPane({ pane, agentId, role = null, candidates, startIndex = 0, runDir, log = () => {}, respawn = false, client = null, passEnv = [] }) {
   const attempts = [];
   for (let index = startIndex; index < candidates.length; index += 1) {
     const item = candidates[index];
@@ -735,11 +800,14 @@ async function startAgentInPane({ pane, agentId, role = null, candidates, startI
     // and a CLI that exited 42 on startup is indistinguishable from one that is merely slow. Exec'd,
     // the pane's process IS the agent: its exit is the pane's exit, `remain-on-exit` keeps the body,
     // and `#{pane_dead_status}` is the agent's own status. Failover respawns the pane either way.
+    // TM-375: the secrets file exists only from here until the launcher sources and deletes it; the
+    // rm after readiness covers a launcher that never ran.
+    if (passEnv.length) await stagePassEnv(item.launcher, passEnv);
     await tmux.sendText(pane, `exec bash ${shellQuote(item.launcher)}`);
     const timeoutMs = item.adapter.ready.timeout_ms ?? 45_000;
-    const readiness = client && item.adapter.ready.tmux_pattern
-      ? await waitReadySubscribed({ client, pane, adapter: item.adapter, timeoutMs, subName: `ao-${agentId}`, baseline, promptLines })
-      : await waitReady(pane, item.adapter, timeoutMs, { baseline });
+    const readiness = await (client && item.adapter.ready.tmux_pattern
+      ? waitReadySubscribed({ client, pane, adapter: item.adapter, timeoutMs, subName: `ao-${agentId}`, baseline, promptLines })
+      : waitReady(pane, item.adapter, timeoutMs, { baseline })).finally(() => rm(passEnvFile(item.launcher), { force: true }));
     if (readiness.failed) {
       attempts.push({ label: item.label, outcome: readiness.reason });
       await appendJournal(runDir, { type: "agent.candidate_failed", agent: agentId, candidate: item.label, reason: readiness.reason, attention: readiness.attention === true, exit_status: readiness.exit_status ?? null });
@@ -975,6 +1043,10 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
 
   // Once per launch (TM-185): which of these agents, if any, is the repository's registered lead.
   const leadId = await registeredLeadId({ consumer: spec.consumer || spec.cwd });
+  // TM-375: names only, in the warning as everywhere else.
+  const passEnv = await passEnvFor(spec.consumer || spec.cwd);
+  warnings.push(...passEnv.warnings);
+  for (const name of passEnv.missing) warnings.push(`workers.passEnv: ${name} is not set in the launching environment; agents start without it`);
 
   if (dryRun) {
     return {
@@ -1016,7 +1088,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     await writeText(item.bootstrapFile, composed.text + "\n" + bootstrapText({ spec, agent: {...item.agent, instructions:""}, role: item.role, skills: item.skills, cliBin }));
     await writeJson(join(item.dir, "prompt-state.json"), { desired_revision: composed.revision, sources: composed.sources, status: "awaiting-ack", nonce: randomUUID(), replacement: "cold-start" });
     for (const candidate of item.candidates) {
-      await writeText(candidate.launcher, launcherScript({ agent: item.agent, candidate: candidate.candidate, argv: candidate.argv, env: candidate.env }), 0o700);
+      await writeText(candidate.launcher, launcherScript({ agent: item.agent, candidate: candidate.candidate, argv: candidate.argv, env: candidate.env, envFile: passEnvFile(candidate.launcher) }), 0o700);
     }
   }
 
@@ -1184,6 +1256,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
         runDir: spec.run_dir,
         log,
         client: subscribed ? client : null,
+        passEnv: passEnv.names,
       }).then((outcome) => ({ item, outcome })),
     ),
   );
@@ -1357,6 +1430,12 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
   // never written back. An agent with no definition on disk is shown by its id.
   const stored = await readJson(join(dir, "agent.json")).catch(() => null);
   const display = { agent: stored ? displayName(stored) : agentId, role, ...roleVisual({ role }) };
+  // TM-375: the secrets this session inherits, by name; values are read only when the pane starts.
+  const source = { ...process.env, ...env };
+  const passEnv = await passEnvFor(env.AO_CONSUMER || null, { env: source, home });
+  for (const line of passEnv.warnings) log(line);
+  for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in the launching environment; ${agentId} starts without it`);
+  const passed = { names: passEnv.names, source };
 
   if (env.AO_CONSUMER && roleSessionNeedsGovernance({ role, coordinatesOnly })) {
     const { leadState } = await import('./lead.mjs');
@@ -1385,16 +1464,17 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
       await writeJson(recordPath,record);
       const shell = await tmux.clearAndWaitForShell(observed.paneId, `ao-role-${randomUUID().slice(0,8)}`);
       invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Restarted shell did not become ready.');
-      await writeText(record.launcher, launcherScript({ agent: { id:agentId, role, cwd:dir }, candidate:{cli:adapter.id}, argv, env }), 0o700);
+      await writeText(record.launcher, launcherScript({ agent: { id:agentId, role, cwd:dir }, candidate:{cli:adapter.id}, argv, env, envFile: passEnvFile(record.launcher) }), 0o700);
+      if (passed.names.length) await stagePassEnv(record.launcher, passed.names, passed.source);
       await tmux.sendText(observed.paneId, `exec bash ${shellQuote(record.launcher)}`);
       if (env.AO_CONSUMER) {
-        const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
+        const readiness = await waitReady(observed.paneId, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline }).finally(() => rm(passEnvFile(record.launcher), { force: true }));
         invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting its startup instructions.');
         const startedBinding = (await panesOn(observed.serverKey)).find(p => p.paneId === observed.paneId);
         invariant(startedBinding && sameIncarnation(startedBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Restarted process incarnation changed before prompt delivery.');
         await promotePromptForIncarnation({ agent: { id: agentId, _dir: dir }, binding: startedBinding, consumer: env.AO_CONSUMER, session });
         await deliverPointer(observed.paneId, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
-      }
+      } else if (passed.names.length) await retirePassEnv(record.launcher);
       record.binding = (await panesOn(observed.serverKey)).find(p => p.paneId === observed.paneId);
       await writeJson(recordPath, record);
       return {session,pane:observed.paneId,binding:record.binding,created:false,reattached:false,restarted:true,record};
@@ -1413,20 +1493,20 @@ export async function openRoleSession({ agentsDir, agentId, adapter, argv, env =
     invariant(!replace || claim.respawn, "TOPOLOGY_AGENT_NOT_LIVE", `Agent ${agentId} has no live session to restart; open it instead, and it starts on the current prompt.`, { agent_id: agentId });
     const resumeId = claim.respawn?.resume?.provider_session_id;
     const startArgv = resumeId ? [...argv, ...adapter.resume_args.map((item) => render(item, { provider_session_id: resumeId }))] : argv;
-    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv: startArgv, env, session, role, dir, recordPath, display, log, predecessor: claim.respawn?.predecessor.id ?? null });
+    const opened = await createRoleSession({ agentsDir, agentId, adapter, argv: startArgv, env, session, role, dir, recordPath, display, log, predecessor: claim.respawn?.predecessor.id ?? null, passed });
     return claim.respawn ? { ...opened, respawn: claim.respawn } : opened;
   } finally {
     await claim.release();
   }
 }
 
-async function createRoleSession({ agentsDir, agentId, adapter, argv, env, session, role, dir, recordPath, display, log, predecessor }) {
+async function createRoleSession({ agentsDir, agentId, adapter, argv, env, session, role, dir, recordPath, display, log, predecessor, passed = { names: [] } }) {
   const identity = { ...await newIdentity({ consumer: env.AO_CONSUMER || agentsDir, role, agentId, env: { ...process.env, ...env } }), ...(predecessor ? { predecessor } : {}) };
   const launcher = join(dir, "session.sh");
   // The one command the session is ever started by — ours to run, and the gateway's to restore from.
   const command = `bash ${shellQuote(launcher)}`;
   await mkdir(dir, { recursive: true });
-  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: dir }, candidate: { cli: adapter.id }, argv, env }), 0o700);
+  await writeText(launcher, launcherScript({ agent: { id: agentId, role, cwd: dir }, candidate: { cli: adapter.id }, argv, env, envFile: passEnvFile(launcher) }), 0o700);
 
   const record = {
     version: 1,
@@ -1457,16 +1537,17 @@ async function createRoleSession({ agentsDir, agentId, adapter, argv, env, sessi
   await tmux.pipePane(pane, `cat >> ${shellQuote(join(dir, "pane.log"))}`);
   const shell = await tmux.clearAndWaitForShell(pane, `ao-role-${randomUUID().slice(0, 8)}`);
   invariant(shell.ok, 'TOPOLOGY_SESSION_START', 'Session shell did not become ready.');
+  if (passed.names.length) await stagePassEnv(launcher, passed.names, passed.source);
   await tmux.sendText(pane, `exec bash ${shellQuote(launcher)}`);
   if (env.AO_CONSUMER) {
-    const readiness = await waitReady(pane, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline });
+    const readiness = await waitReady(pane, adapter, adapter.ready?.timeout_ms || 30000, { baseline: shell.baseline }).finally(() => rm(passEnvFile(launcher), { force: true }));
     invariant(readiness.ready, 'TOPOLOGY_SESSION_START', 'Provider is not accepting startup instructions; session preserved.');
     const startedBinding = (await panesOn(sessionServer)).find(p => p.paneId === pane && p.sessionName === session) || null;
     invariant(startedBinding && sameIncarnation(startedBinding, record.binding), 'TOPOLOGY_SESSION_OWNERSHIP', 'Started process incarnation changed before prompt delivery.');
     await promotePromptForIncarnation({ agent: { id: agentId, _dir: dir }, binding: startedBinding, consumer: env.AO_CONSUMER, session });
     const delivery = await deliverPointer(pane, adapter, `Read ${join(dir,'prompt.md')} and begin your standing role. Poll your protocol inbox at safe boundaries.`);
     invariant(delivery.delivered, 'TOPOLOGY_SESSION_START', 'Standing bootstrap was not delivered.');
-  }
+  } else if (passed.names.length) await retirePassEnv(launcher);
   const binding = (await panesOn(sessionServer)).find(p => p.paneId === pane && p.sessionName === session) || null;
   record.binding = binding;
   await writeJson(recordPath, record);
@@ -1583,7 +1664,11 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
   invariant(candidates.slice(startIndex).some(candidate => candidate.guard.supported), 'TOPOLOGY_WORKER_GUARD_UNSUPPORTED', 'No remaining candidate has a measured task ownership guard. The current member is preserved and fallback is held.');
   await appendJournal(runDir, { type: "agent.failover", agent: agentId, from: previous, to_index: startIndex,
     ...(quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, consent: quota.consent } : {}) });
-  const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true });
+  // TM-375: a launcher written before passEnv existed has no source line; staging for it is a no-op the rm cleans up.
+  const passEnv = await passEnvFor(run.repository?.root || run.consumer || runDir, { env, home });
+  for (const line of passEnv.warnings) log(line);
+  for (const name of passEnv.missing) log(`workers.passEnv: ${name} is not set in this environment; ${agentId} restarts without it`);
+  const started = await startAgentInPane({ pane: entry.pane, agentId, role: entry.role, candidates, startIndex, runDir, log, respawn: true, passEnv: passEnv.names });
   entry.binding = (await panesOn(entry.binding?.serverKey ?? await tmux.serverOf(entry.pane))).find(p => p.paneId === entry.pane && p.sessionName === run.session) || null;
   // TM-132: the respawn keeps the pane but takes a new panePid, so this agent's OLD six-tuple is
   // now provably absent — and a slot reconcile would read that as "the holder is gone" and hand its

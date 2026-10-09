@@ -6,7 +6,7 @@ import { platform, release } from "node:os";
 import { detectAdapter } from "./providers.mjs";
 import { socketPathProblem, tmuxVersion } from "./tmux.mjs";
 import { exists, run } from "./util.mjs";
-import { canonicalRepoId } from "./repoid.mjs";
+import { canonicalRepoId, repoKey, repoSlug } from "./repoid.mjs";
 
 async function hasCommand(name) {
   const which = process.platform === "win32" ? "where" : "which";
@@ -210,5 +210,8 @@ export async function doctor({ adapters, workflowDirs, skillDirs, roleDirs, prov
   }
   const socket = socketPathProblem(env);
   if (socket) problems.push(socket);
-  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, trust, problems };
+  // TM-371: which readable repository the `orch.<key>` NATS subjects belong to.
+  const repoId = consumer ? await canonicalRepoId(consumer).catch(() => null) : null;
+  const repository = repoId ? { slug: repoSlug(repoId.id), key: repoKey(repoId.id), subjects: `orch.${repoKey(repoId.id)}.>` } : null;
+  return { ok: problems.length === 0, os: osInfo, tmux: tmux ?? null, node, providers, dirs, supervision, lead_recovery: leadRecovery, transport, repository, trust, problems };
 }

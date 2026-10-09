@@ -155,7 +155,7 @@ No mode can remove the generated identity and protocol layer, so the statement t
 no permissions is always present. Role protocol is protected the same way: the `lead` and
 `reviewer` templates and the bundled `common_by_role` variant (for example the reviewer's) survive a
 `replace`, which then replaces only the operator-authored text in that slot. `prompt preview` and
-`agent set-instructions` report each such kept layer in `warnings`, so the reviewer's `AO_REVIEW`
+`agent set-instructions` report each such kept layer in `warnings`, so the reviewer's `review_submit`
 verdict format cannot be configured away by accident.
 
 ### Global prefix
@@ -225,6 +225,14 @@ or reused identities fail closed. Finish requires
 artifacts, the exact committed revision, checks and risks, and records `ready-for-review`, never
 automatic task completion.
 
+A finish files the independent review request itself. If that request is refused (for example, no
+designated reviewer), the record keeps `review_blocked`, and the lead receives one standing-mail
+notice per task revision, from `ao-topology manage`, carrying the refusal text. Fix the cause, then
+retry with `ao-topology manage retry-review --task TM-id`. It re-files the request for the recorded
+finish revision and clears `review_blocked`. If it is refused again, it exits with the new refusal.
+`tm doctor` lists finished tasks that have commits and no review for their current revision.
+`tm review-sweep` uses the same detector.
+
 ### Starting, adopting and stopping a worker
 
 Leads do not launch workers ad hoc. A hand-made tmux session or an unrecorded subagent has no
@@ -236,10 +244,12 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    It calls `tm dispatch` in the admitted worktree, then binds the observed worker: tmux server,
    session, pane, pane PID and creation time, plus the workflow run ID. It refuses a task that is not
    admitted or has a bound worker that is not stopped. After `stop-worker`, `start-worker` starts the
-   next round's worker, for example after changes are requested, and keeps the stopped binding in
-   `previous_workers`. If tm refuses the re-dispatch because the task is still dispatched, collect the
-   previous worker with `tm collect TM-id` first. If the worker cannot be observed yet, the result says
-   `bound: false`; run `manage bind --task TM-id` then. Do not launch a second worker.
+   next round's worker and keeps the stopped binding in `previous_workers`. After changes are
+   requested, run `manage rework` first (see below). A dispatch tm has already collected no longer
+   blocks the re-dispatch; if tm still refuses because the previous worker is uncollected, run
+   `tm collect TM-id` first. A refused `tm dispatch` is reported as `TOPOLOGY_MANAGEMENT_DISPATCH`
+   with tm's own message. If the worker cannot be observed yet, the result says `bound: false`; run
+   `manage bind --task TM-id` then. Do not launch a second worker.
 2. **Adopt.** For a worker started before this rule, run `manage bind --task TM-id --pane <id>
    [--server <socket>]` or `--pid <pid>`. The pane must be live, the only live pane in its session,
    and in the task worktree, its session must have been created after the task was admitted, and its
@@ -255,9 +265,57 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    as stopped. Anything else is refused with a recovery path, and the worker keeps running. It never
    closes a session it did not start or bind, and never an active one. `manage cleanup` uses the same
    rule.
+4. **Retire a dead worker (TM-247).** When the worker's pane or process is observed gone (or its
+   pane is an idle shell) and it never sent a finish report, `manage stop-worker` retires it instead
+   of refusing. It moves the dead incarnation to `previous_workers` with the observation and what the
+   worker left behind (a `tm block` reason or a blocker report), runs `tm collect` so tm records the
+   dispatch as ended, and leaves the worktree and any uncommitted work untouched. A live or unproven
+   worker is still refused. Then `manage start-worker` binds a successor to the same admission and
+   base revision; its finish queues review as usual.
+5. **Unblock and resume (TM-247).** A worker that ran `tm block` released the claim. After the
+   blocker is resolved: `manage stop-worker` (retires it), `tm unblock TM-id`, then
+   `manage start-worker`. Start-worker, like a resumed `manage admit`, re-claims a released claim for
+   the admission owner through `tm start`, so no `TM_SESSION_ID=<owner> tm start` is needed. A claim
+   held by another session is never taken. While a lead holds the claim, the pool's collector records
+   a dead worker's result but never parks the task or drops the claim.
+6. **Hand over an admission (TM-247).** Run
+   `manage transfer --task TM-id [--to <session>] --reason "<why>"`.
+   - The owner can hand the task to `--to` at any time.
+   - Another lead can take the task over for itself only when the owner's claim is no longer live
+     (released or expired). So review rounds are not stranded when the admitting session leaves.
+   - A bound worker that is not stopped refuses the transfer. Stop or retire it first.
+   - The transfer is recorded as an `ownership-transfer` event and a task comment, which both leads
+     can read. Only the owner and the claim move. The admission, base, worktree, branch and lead id
+     stay the same.
+   - A worker stopped before the transfer still counts toward integration under its original
+     owner's identity.
+
+### Rework after changes are requested
+
+A finish report moves the task to `ready-for-review`, and a governed task cannot be dispatched again
+from there. When the independent review of the finish revision returns `changes_requested`:
+
+1. Stop the finished worker with `manage stop-worker --task TM-id`.
+2. Run `manage rework --task TM-id`. It refuses with `TOPOLOGY_MANAGEMENT_REWORK_REVIEW` unless the
+   latest review is `changes_requested` for the exact current finish revision (no review, an
+   approval, or a review of another revision is refused), and with `TOPOLOGY_MANAGEMENT_REWORK`
+   for an unadmitted or landed task, another session, or a worker that is not stopped. It records
+   a `rework` event that keeps the reviewed revision and its findings, clears the finish, returns
+   the record to `working`, and runs `tm rework`, which returns the governed task to `working` and
+   moves its finished dispatch into `governance.reworks`.
+3. Run `manage start-worker --task TM-id` and give the worker the findings from the `rework` event.
+4. The next finish report must name a new commit; the reviewed revision is refused with
+   `TOPOLOGY_MANAGEMENT_REVISION`. That new revision needs its own review: integration keys the
+   review on the exact revision, so the earlier verdict never applies to it.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
-review. `reviewer collect` accepts the challenge-bound response from the registered reviewer.
+review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a
+shell, `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
+--findings @file.json`). The submission is checked at once, written to
+`<state>/reviewers/inboxes/<repo>/verdicts/<task>-<revision>.json` and mirrored to the NATS
+`ORCH_REVIEWS` object store when NATS is live. `reviewer collect` reads that record; nothing reads
+a verdict off the reviewer pane (TM-365). A verdict submitted before a reviewer restart is still
+collected.
 Findings, a changed revision, wrong identity, or an unavailable reviewer block integration.
 Restricted reviewer providers must offer an enforced read-only launch; unsupported configurations
 fail closed instead of substituting another provider. Review role alone grants no merge authority.
@@ -384,12 +442,14 @@ integration writes. Record that landing with:
 ao-topology manage record-landing --task TM-123 --landed <commit> --actor <name> --reason "<why>" [--authorized]
 ```
 
-The command never merges, pushes or changes a branch. It accepts the landing only when all of
-these hold:
+The command never merges or pushes. It fetches `origin/<target>` first and checks the landing
+against it (TM-247), so an operator who has not pulled is not refused. When the landing is only on
+the server, it fast-forwards the local target branch, exactly as `manage integrate` does after a
+merge. It accepts the landing only when all of these hold:
 
 - The task has a finished worker revision in `ready-for-review` and no recorded landing yet.
 - The finish revision is an ancestor of `<commit>`.
-- `<commit>` is on `management.target_branch`.
+- `<commit>` is on `management.target_branch` (on `origin` after a fetch, else the local branch).
 - An eligible independent review of that exact finish revision exists. This is the same review
   gate integration uses, so the designated reviewer must be available and unchanged.
 - `--actor` and `--reason` are non-empty.
@@ -405,6 +465,31 @@ It collects the management record as task evidence. It then writes the same `mer
 integration writes, with `authorization.channel` set to `recorded-landing` and the reason
 attached, and it logs a `recorded-landing` event. The task's normal completion (`tm done`, or
 `manage cleanup`) then passes the governed completion gate unchanged. That gate has no override.
+
+**A merge-in of the integration branch counts as the approved revision (TM-247).** A PR updated
+with the target branch after review (GitHub's "Update branch", or `git merge develop`) has a new
+head. `eligible`, `integrate`, `cleanup` and governed completion accept that head only when all of
+these hold:
+
+- It is exactly one merge commit with two parents.
+- Its first parent is the approved revision.
+- Its second parent is on the target branch.
+- Its own change has the same patch-id as the approved revision's change.
+
+Any other head is refused, and the refusal names both revisions. A conflict resolution or any edit
+inside the merge changes the patch-id, so it needs a new finish report and a new review.
+
+**Closing a landed task with one verb (TM-247).**
+`ao-topology manage close --task TM-123 [--landed <commit> --reason "<why>"]` runs these steps in
+order:
+
+1. If no landing is recorded, it records one from `--landed` and `--reason`.
+2. It stops the bound worker.
+3. It runs `cleanup`, which removes the worktree and closes the task.
+
+Each step keeps its own gates. The first refusal ends the sequence and returns its recovery.
+`stop-worker` and `cleanup` also accept a task whose landing is already recorded and whose claim
+`tm done` has released. So closing the task first no longer strands the worker.
 
 ### Standing delegation of integration authority
 
@@ -586,9 +671,12 @@ The backstop is the independent reviewer's verdict, CI, and GitHub branch protec
 ### Permission rules for the lead
 
 Claude Code's auto mode can refuse a lead running `manage record-landing` or `manage admit` as
-self-approval, and the same command may pass one minute and be refused the next. Only a settings
-allow rule stops that check; a plugin cannot ship one. So the operator installs the rules once per
-repository:
+self-approval, and the same command may pass one minute and be refused the next. A plugin cannot
+ship a settings allow rule. Since TM-369, the plugin ships a `PreToolUse` allowlist hook instead
+(README, "Lead and worker autonomy"). It covers routine `ao-topology` verbs, including
+`manage admit|start-worker|stop-worker|report`, plus `tm` and read-only `tmux`. It deliberately
+leaves out `manage integrate`, `manage record-landing`, `manage cleanup` and `manage close`. For those verbs, the
+operator installs the per-lead rules once per repository:
 
 ```bash
 ao-topology permissions install [--mcp mcp__plugin_teamcity-mcp_teamcity] [--dry-run]
@@ -601,7 +689,8 @@ ao-topology permissions uninstall [--dry-run]
   covers the proven caller, this repository, the scope and the task's frozen plan (see above). A
   bare verb named by its pane binding is a managed session, so this holds even under
   `management.auto_merge: true` (TM-248).
-- `admit`, `start-worker` and `stop-worker` keep their claim-owner checks.
+- `admit`, `start-worker` and `stop-worker` keep their claim-owner checks. `close` (TM-247) runs
+  `record-landing`, `stop-worker` and `cleanup` in that order, each with its own gates.
 - A dispatched worker session (`TM_DISPATCH_WORKER` set by `tm dispatch`) is refused every
   `manage` verb except `report`, `status`, `eligible` and `assignment`, and a worker never reads
   the file the rules live in.
@@ -615,6 +704,7 @@ Bash(ao-topology manage start-worker *)
 Bash(ao-topology manage stop-worker *)
 Bash(ao-topology manage admit *)
 Bash(ao-topology manage report *)
+Bash(ao-topology manage close *)
 Bash(tm *)
 ```
 

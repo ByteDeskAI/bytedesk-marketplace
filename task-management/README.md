@@ -213,10 +213,16 @@ pick up that admitted task under the same owner. Missing admission holds that ta
 After committing, checking and attaching evidence, the worker saves its finish JSON outside
 the task worktree and submits
 `ao-topology manage report --consumer <repository> --task <id> --file <finish-report.json>`.
-The JSON is `{"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":["<check and result>"],"risks":[],"evidence":"<evidence path>"}}`.
+The JSON is `{"kind":"finish","report":{"revision":"<full commit SHA>","artifacts":["<artifact>"],"checks":[{"name":"<required check>","command":"<command run>","exit_code":0,"revision":"<full commit SHA>","log_tail":"<output tail>"}],"risks":[],"evidence":"<evidence path>"}}`.
+Each structured `checks` entry is a run of one of the repository's `management.required_checks`
+at the finish commit. The review request carries those runs as its check evidence (TM-418), so
+the reviewer can approve only when every required check has a passing run at that commit. A
+prose string in `checks` is kept as a note and never counts as evidence.
 The producer persists the finish, calls `tm review-ready`, and queues a review request bound
 to that revision and reviewer incarnation. A bare `review-ready` call cannot skip this report.
 It keeps its claim while review is pending; `review_blocked` names a producer hold for the lead.
+If the review requests changes, the lead runs `ao-topology manage rework --task <id>`, which
+records the rework and calls `tm rework`; the task is then `working` and can be dispatched again.
 Worker exit, a PR, or acceptance ticks cannot close the task. Every completion surface rereads
 the producer's exact-revision review and separately attributed integration decision, and
 checks the reviewed commit landed on the target branch. Ordinary gate overrides do not
@@ -321,7 +327,7 @@ once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its ow
 (`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`)**,
 attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
-error instead. **A worker never merges**; the PR is where its run ends and a human takes over.
+error instead. **A worker merges only its own PR**, by branch name, after review and green checks; never anyone else's.
 
 **A guard makes that contract hard to break by accident.** A dispatched worker runs
 `--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`,
@@ -335,6 +341,23 @@ and mail. It **allows** exactly what the finish line needs — pushing the worke
 `gh pr create --base <dispatch.integrationBranch>`. Every
 refusal names why and what to do instead. It is a guard against accidents, not against an
 adversary: the rules live in one table in `lib/worker-guard.mjs`.
+
+**Secrets a worker needs are named in your user config, never the repository's (TM-448).** Put
+`{"dispatch":{"passEnv":["TYPESAFE_API_KEY"]}}` in `~/.config/task-management/config.json`
+(`$XDG_CONFIG_HOME` if set), or `workers.passEnv` in agent-orchestration's global config. A name in
+a git-tracked `.bytedesk/*/config.json` is ignored with a warning, because a worker's merged PR
+could otherwise add one. Names that steer the worker's identity, loader, shell or credentials are
+refused: `TM_*`, `AO_*`, `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME`, `NODE_OPTIONS`,
+`NODE_PATH`, `BASH_ENV`, `ENV`, `ZDOTDIR`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`,
+`XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and `SSH_AUTH_SOCK`.
+
+- **Workers push over HTTPS with `gh auth`, not over SSH.** `SSH_AUTH_SOCK` is refused, so a worker
+  cannot borrow your SSH agent. Use an HTTPS `origin` remote and run `gh auth setup-git` once, so
+  `git push` authenticates through `gh`'s stored credential.
+- **Proof-window tunables stop at the pool.** A pool started by `tm` (and a `tm` child acting on
+  another repo) no longer inherits agent-orchestration's `AO_*TTL*_MS` and `AO_*GRACE*_MS`
+  variables, so it cannot be told to treat an old lead heartbeat as fresh. Other AO configuration
+  (`AO_HOME`, `AO_NATS_*`, other `AO_*_MS` timeouts) still passes.
 
 The flags, refusals, backend order, config keys, MCP/HTTP twins, and per-harness recipes
 are in [`docs/agent-first.md`](docs/agent-first.md). Skills chain as
@@ -386,6 +409,7 @@ a fresh repo from zero: [docs/install.md](docs/install.md).
 .bytedesk/task-management/bin/tm cap list [--status open]          the enhancement backlog, best bet first
 .bytedesk/task-management/bin/tm cap accept <CAP-id>               mint the task that builds it, criteria and all
 .bytedesk/task-management/bin/tm cap ship <CAP-id> | drop <CAP-id> shipping refuses without evidence
+.bytedesk/task-management/bin/tm enhance-mine [--apply]            mine transcripts + board for issues; dry-run by default
 .bytedesk/task-management/bin/tm evidence <id> <path|->            attach a log/screenshot as proof
 .bytedesk/task-management/bin/tm evidence [<id>] --check           does each attachment still match its source?
 .bytedesk/task-management/bin/tm task new "<title>" --template bug   start from a template
@@ -1003,7 +1027,7 @@ Twenty ship, in three groups:
 
 - **Lifecycle** — `/task-management:epic` · `board` · `adr` · `handoff` · `standup` · `groom` · `override`
 - **Decision-map pipeline** — `map` · `interview` · `research` · `prototype` · `spec` · `tickets` · `implement` · `route`
-- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track`
+- **Enhance pipeline** — `enhance` · `enhance-capture` · `enhance-research` · `enhance-propose` · `enhance-track` · `enhance-mine`
 
 ## Capabilities — what to build next
 

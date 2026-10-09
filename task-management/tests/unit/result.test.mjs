@@ -10,7 +10,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addWorktree, cleanup, tempRepo, tempStore } from "./helpers.mjs";
@@ -25,8 +25,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = join(HERE, "fixtures", "fake-orchestration-mcp.mjs");
 
 const stores = [];
-function store() {
+/** `retries` is 0 so these cases pin the park path; the retry cases set their own (TM-363). */
+function store({ retries = 0 } = {}) {
   const p = tempStore();
+  writeConfig({ dispatch: { retries } }, p);
   stores.push(p.root);
   return p;
 }
@@ -205,6 +207,29 @@ describe("collectTmux — the session is the liveness signal", () => {
     assert.equal(read(id, p).status, "parked");
     assert.equal(read(id, p).parkedReason, "worker exited without closing");
     assert.equal(claimed(p, id), false);
+  });
+
+  it("session gone + uncommitted work = the dirty paths are in the reason (TM-246)", () => {
+    const p = store();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "README.md"), "# edited\n");
+    writeFileSync(join(repo, "new-file.mjs"), "export {};\n");
+    const id = dispatched(p, { backend: "tmux", worktree: repo });
+    const res = collectTmux(id, { p, spawnImpl: spawnReturning({ status: 1 }) });
+
+    assert.equal(res.outcome, "failed");
+    const reason = read(id, p).parkedReason;
+    assert.match(reason, /^worker exited without closing\n\nuncommitted in /);
+    assert.match(reason, /README\.md/);
+    assert.match(reason, /new-file\.mjs/);
+    assert.match(lastComment(p, id), /new-file\.mjs/);
+  });
+
+  it("session gone + clean worktree = the reason stays as it was", () => {
+    const p = store();
+    const id = dispatched(p, { backend: "tmux", worktree: tempRepo() });
+    collectTmux(id, { p, spawnImpl: spawnReturning({ status: 1 }) });
+    assert.equal(read(id, p).parkedReason, "worker exited without closing");
   });
 
   it("a tmux that cannot run is a reason, not a throw", () => {
@@ -451,6 +476,15 @@ describe("collect — the dispatched record is the routing table", () => {
 });
 
 describe("the handoff's completion contract", () => {
+  it("tells a dispatched worker it has no later turn (TM-246)", () => {
+    const p = store();
+    const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
+    const out = handoff(t.id, p);
+    assert.match(out, /Do the task in your own session/);
+    assert.match(out, /Never end your turn while a background agent or command you started is still running/);
+    assert.match(out, new RegExp(`Never ask a question and wait for an answer; nobody will reply\\. Block instead: \\S+tm block ${t.id} "<the question>"`));
+  });
+
   it("tells a ready-for-agent worker exactly how to finish", () => {
     const p = store();
     const t = create(
@@ -690,5 +724,69 @@ describe("collect — one result per dispatch run (TM-238, TM-303)", () => {
     await collect(id, p, impls);
     await collect(id, p, impls);
     assert.deepEqual(results(p).map((e) => e.run), [`tmux:tm-${id}`, `tmux:tm-${id}-r2`]);
+  });
+});
+
+describe("recordResult — bounded retry with backoff before parking (TM-363)", () => {
+  const retryEvents = (p) => readEvents(p).filter((e) => e.event === "dispatch_retry");
+  const minutesAhead = (iso) => Math.round((Date.parse(iso) - Date.now()) / 60_000);
+  /** Put the task back as a fresh dispatch of the same task, the way the pool re-dispatches it. */
+  function redispatch(p, id, n) {
+    mutate(id, (t) => ({ dispatched: { ...t.dispatched, run: `tmux:tm-${id}-r${n}`, at: now(), collected: undefined } }), p);
+    update(id, { status: "in_progress" }, p);
+  }
+
+  it("a task-scoped failure reopens the task with 1- then 4-minute backoff, logs each retry, then parks", () => {
+    const p = store({ retries: 2 });
+    const id = dispatched(p);
+
+    const first = recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, p);
+    assert.equal(first.parked, false);
+    assert.deepEqual([first.retry.attempt, first.retry.retries], [1, 2]);
+    assert.equal(read(id, p).status, "open", "reopened for the pool, not parked");
+    assert.equal(read(id, p).dispatchRetries, 1);
+    assert.equal(minutesAhead(read(id, p).retryAt), 1);
+    assert.equal(claimed(p, id), false, "the claim is released so the pool can take it again");
+
+    redispatch(p, id, 2);
+    const second = recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, p);
+    assert.equal(second.retry.attempt, 2);
+    assert.equal(minutesAhead(read(id, p).retryAt), 4);
+
+    redispatch(p, id, 3);
+    const third = recordResult(id, { outcome: "failed", summary: "worker exited without closing" }, p);
+    assert.equal(third.retry, undefined, "retries exhausted");
+    assert.equal(third.parked, true);
+    assert.equal(read(id, p).status, "parked");
+
+    const events = retryEvents(p);
+    assert.deepEqual(events.map((e) => [e.id, e.attempt, e.retries]), [[id, 1, 2], [id, 2, 2]]);
+    assert.equal(events[0].reason, "worker exited without closing");
+    assert.ok(events[0].retryAt);
+  });
+
+  it("a system-scoped (provider) failure parks at once and is not retried", () => {
+    const p = store({ retries: 2 });
+    const id = dispatched(p);
+    const res = recordResult(id, { outcome: "failed", summary: "You've hit your usage limit" }, p);
+    assert.equal(res.failureScope, "provider");
+    assert.equal(res.retry, undefined);
+    assert.equal(res.parked, true);
+    assert.equal(retryEvents(p).length, 0);
+  });
+
+  it("a worker that reports blocked is asking for a person: it parks, no retry", () => {
+    const p = store({ retries: 2 });
+    const id = dispatched(p);
+    const res = recordResult(id, { outcome: "blocked", summary: "need a decision" }, p);
+    assert.equal(res.parked, true);
+    assert.equal(res.retry, undefined);
+  });
+
+  it("the default is 2 retries", () => {
+    const p = tempStore();
+    stores.push(p.root);
+    const id = dispatched(p);
+    assert.equal(recordResult(id, { outcome: "failed", summary: "x" }, p).retry.retries, 2);
   });
 });

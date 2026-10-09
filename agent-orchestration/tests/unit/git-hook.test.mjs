@@ -61,7 +61,10 @@ test('TM-392: a hook installed before the retirement lets a real commit through 
 
 test('TM-392: no PreToolUse hook gates Bash, so no command text (a heredoc that mentions a commit included) can be blocked', async () => {
   const hooks = JSON.parse(await readFile(join(PLUGIN_ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks;
-  assert.equal(hooks.PreToolUse, undefined);
+  // TM-369's autonomy allowlist is the only PreToolUse hook: it can only allow or fall through,
+  // never block (autonomy-allow.test.mjs), so nothing here gates a command.
+  const commands = (hooks.PreToolUse ?? []).flatMap((entry) => entry.hooks.map((h) => h.command));
+  assert.deepEqual(commands, ['node "${CLAUDE_PLUGIN_ROOT}/scripts/autonomy-allow.mjs"']);
   assert.doesNotMatch(JSON.stringify(hooks), /guard-project-install|check-no-project-plugin-installs/);
 });
 

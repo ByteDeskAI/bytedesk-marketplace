@@ -81,6 +81,20 @@ AGAIN="$(tm pool once --json)"
 [[ "$(echo "$AGAIN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{console.log(JSON.parse(s).dispatched.length)})')" == "0" ]] \
   && ok "a claimed task is not re-dispatched" || no "a claimed task is not re-dispatched" "$AGAIN"
 
+# ── pool wait (TM-374): block until a condition, exit 0 met / 2 timeout / 1 bad argument ──
+export TM_POOL_WAIT_INTERVAL_MS=100
+W="$(tm pool wait --until dispatched "$T1" --timeout 2)"; WRC=$?
+[[ $WRC -eq 0 && "$(echo "$W" | jget ok)" == "true" ]] && ok "wait --until dispatched exits 0 for a dispatched task" || no "wait --until dispatched exits 0 for a dispatched task" "rc=$WRC $W"
+W="$(tm pool wait --until done "$T1" --timeout 0.3)"; WRC=$?
+[[ $WRC -eq 2 && "$(echo "$W" | jget timedOut)" == "true" && "$(echo "$W" | jget status)" == "in_progress" ]] && ok "wait --until done times out with exit 2 and the last status" || no "wait --until done times out with exit 2 and the last status" "rc=$WRC $W"
+tm pool wait --until done --timeout 1 >/dev/null 2>&1; WRC=$?
+[[ $WRC -eq 1 ]] && ok "wait --until done without an id is a bad argument (exit 1)" || no "wait --until done without an id is a bad argument (exit 1)" "rc=$WRC"
+tm pool wait --until bogus --timeout 1 >/dev/null 2>"$TM_ROOT/wait.err"; WRC=$?
+[[ $WRC -eq 1 ]] && ok "wait --until <unknown> exits 1" || no "wait --until <unknown> exits 1" "rc=$WRC"
+has "$(cat "$TM_ROOT/wait.err")" "unknown condition: bogus" "the refusal names the bad condition"
+tm pool wait --until running --timeout x >/dev/null 2>&1; WRC=$?
+[[ $WRC -eq 1 ]] && ok "a non-numeric --timeout exits 1" || no "a non-numeric --timeout exits 1" "rc=$WRC"
+
 # ── brakes (TM-175): a paused pool dispatches nothing until `tm pool resume` ──
 # The pause lives in pool.state.json, so a new process (every `tm` call here) sees it.
 T2="$(tm task new "Poolable after resume" --body "context" --ac "it waits for resume" | cut -d' ' -f1)"
@@ -124,18 +138,28 @@ wait_gone "$STORE/pool.pid" && ok "pool stop releases the ensured pool" || no "p
 
 # ── status before a pool exists ──────────────────────────────────────────────
 [[ "$(tm pool status --json | jget running)" == "false" ]] && ok "status reports no pool" || no "status reports no pool"
+W="$(tm pool wait --until running --timeout 0.3)"; WRC=$?
+[[ $WRC -eq 2 && "$(echo "$W" | jget running)" == "false" ]] && ok "wait --until running times out (exit 2) with no pool" || no "wait --until running times out (exit 2) with no pool" "rc=$WRC $W"
 
 # ── start / status / second-start refusal / stop ─────────────────────────────
 START_OUT="$(tm pool start)" || no "pool start succeeds" "$START_OUT"
 has "$START_OUT" "pool started" "pool start reports the child pid"
 wait_file "$STORE/pool.pid" && ok "the child wrote pool.pid" || no "the child wrote pool.pid"
 [[ "$(tm pool status --json | jget running)" == "true" ]] && ok "status sees the running pool" || no "status sees the running pool" "$(tm pool status --json)"
+tm pool wait --until running --timeout 5 >/dev/null; WRC=$?
+[[ $WRC -eq 0 ]] && ok "wait --until running exits 0 while a pool runs" || no "wait --until running exits 0 while a pool runs" "rc=$WRC"
+# The wait must actually block: start it before the stop, and it resolves only after the stop.
+tm pool wait --until stopped --timeout 15 >"$TM_ROOT/wait-stopped.json" & WAITER=$!
+sleep 0.5
+kill -0 "$WAITER" 2>/dev/null && ok "wait --until stopped blocks while the pool runs" || no "wait --until stopped blocks while the pool runs" "$(cat "$TM_ROOT/wait-stopped.json")"
 
 tm pool start >/dev/null 2>"$TM_ROOT/second.err"
 [[ "$?" == "2" ]] && ok "a second start is refused with exit 2" || no "a second start is refused with exit 2"
 has "$(cat "$TM_ROOT/second.err")" "already running" "the refusal names the incumbent"
 
 tm pool stop >/dev/null && ok "pool stop succeeds" || no "pool stop succeeds"
+wait "$WAITER"; WRC=$?
+[[ $WRC -eq 0 && "$(jget running < "$TM_ROOT/wait-stopped.json")" == "false" ]] && ok "the blocked wait returns 0 once the pool stops" || no "the blocked wait returns 0 once the pool stops" "rc=$WRC $(cat "$TM_ROOT/wait-stopped.json")"
 wait_gone "$STORE/pool.pid" && ok "the child removed pool.pid on SIGTERM" || no "the child removed pool.pid on SIGTERM"
 [[ "$(tm pool status --json | jget running)" == "false" ]] && ok "status reports the pool stopped" || no "status reports the pool stopped"
 

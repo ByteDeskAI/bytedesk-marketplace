@@ -9,7 +9,7 @@ import { cleanup, git, tempRepo, tempStore } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, read, removeConfigKey, seedGitContract, state, update, write, writeConfig } from "../../lib/store.mjs";
 import { provision, removeWorktree } from "../../lib/worktree.mjs";
-import { governTask, readyForReview } from "../../lib/governance.mjs";
+import { governTask, readyForReview, reworkGovernance } from "../../lib/governance.mjs";
 import { governedCompletion, managementIdentity, REVIEW_SEVERITIES } from "../../lib/governance-check.mjs";
 import { gateDone } from "../../lib/enforce.mjs";
 import { recordResult } from "../../lib/dispatch/collect.mjs";
@@ -146,7 +146,8 @@ describe("governed completion is shared by every task write surface", () => {
       assert.match(brief, /ao-topology manage report .*--task TM-001 --file/);
       assert.match(brief, /"kind":"finish"/);
       assert.match(brief, /"artifacts":\[/);
-      assert.match(brief, /"checks":\[/);
+      assert.match(brief, /"checks":\[\{"name":.*"exit_code":0,"revision":/);
+      assert.match(brief, /run each management\.required_checks entry at that commit.*Never list a check you did not run/); // TM-418
       assert.match(brief, /"risks":\[\]/);
       assert.match(brief, /"evidence":/);
       assert.match(brief, /queues independent review/);
@@ -178,6 +179,34 @@ describe("governed completion is shared by every task write surface", () => {
     const tick = await poolTick({ p: f.p, registry: { fake: backend }, caps: {} });
     assert.equal(tick.dispatched[0]?.id, f.task.id);
     assert.equal(state(f.p).claims[f.task.id].session, "worker-1");
+  });
+
+  it("returns a submitted task to working only after the producer records a rework of that revision (TM-347)", async () => {
+    const f = fixture();
+    const backend = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1" }) };
+    assert.equal((await dispatch(f.task.id, { p: f.p, backend })).ok, true);
+    submitted(f);
+    assert.equal((await dispatch(f.task.id, { p: f.p, backend })).code, "TM_GOVERNED_ADMISSION_REQUIRED");
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "no producer rework recorded");
+    delete f.record.finish; f.record.state = "working";
+    f.record.events = [{ event: "rework", revision: "0".repeat(40) }]; save(f.path, f.record);
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a rework of another revision");
+    f.record.events.push({ event: "rework", revision: f.revision }); save(f.path, f.record);
+    save(f.path, { ...f.record, branch: "some/other-branch" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another branch");
+    save(f.path, { ...f.record, worktree: "/elsewhere" });
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /manage rework/, "a record for another worktree");
+    save(f.path, f.record);
+    process.env.TM_DISPATCH_WORKER = "1";
+    assert.throws(() => reworkGovernance(f.task.id, { revision: f.revision, p: f.p }), /dispatched worker/);
+    delete process.env.TM_DISPATCH_WORKER;
+    const g = reworkGovernance(f.task.id, { revision: f.revision, p: f.p }).governance;
+    assert.equal(g.state, "working"); assert.equal(g.revision, undefined); assert.equal(g.workflowRunId, "workflow-1");
+    assert.equal(g.reworks.length, 1); assert.equal(g.reworks[0].revision, f.revision); assert.equal(g.reworks[0].dispatched.run, "fake:1");
+    assert.equal(read(f.task.id, f.p).dispatched, undefined);
+    assert.equal(reworkGovernance(f.task.id, { revision: f.revision, p: f.p }).governance.reworks.length, 1, "idempotent retry");
+    const again = await dispatch(f.task.id, { p: f.p, backend });
+    assert.equal(again.ok, true, again.reason);
   });
 
   // TM-240: a standing reviewer makes admission the default; only an explicit false opts out.
@@ -234,5 +263,57 @@ describe("governed completion is shared by every task write surface", () => {
     // TM-300: with ao absent the one warning allowed is that its global prompt prefix was not applied.
     assert.deepEqual(res.stderr.split("\n").filter((l) => l.startsWith("WARNING")), ["WARNING: global prompt prefix not applied: ao-topology is not installed"]);
     assert.doesNotMatch(tm("doctor", "--json").stdout, /governance-opted-out/);
+  });
+});
+
+describe("tm doctor lists finished work with no review for its current revision (TM-244)", () => {
+  const PR = "https://github.com/example/repo/pull/7";
+  const unreviewed = (p) => diagnose(p).filter((f) => f.code === "unreviewed");
+
+  it("lists an ungoverned done task with a PR: no admission record", () => {
+    const f = fixture();
+    const t = create("task", { title: "ungoverned work" }, "scope", f.p);
+    update(t.id, { status: "done", closed: new Date().toISOString(), commits: [PR] }, f.p);
+    const rows = unreviewed(f.p);
+    assert.deepEqual(rows.map((r) => r.id), [t.id]);
+    assert.match(rows[0].message, /\(no admission record\)$/);
+  });
+
+  it("lists a governed task whose review request was refused: review_blocked, with the refusal text", () => {
+    const f = fixture();
+    submitted(f);
+    f.record.review_blocked = "No designated reviewer; preserve the finished task until one is available.";
+    save(f.path, f.record);
+    update(f.task.id, { commits: [PR] }, f.p);
+    const rows = unreviewed(f.p);
+    assert.deepEqual(rows.map((r) => r.id), [f.task.id]);
+    assert.match(rows[0].message, /\(review_blocked: No designated reviewer/);
+  });
+
+  it("does not list a governed task with a completed review of its finish revision, nor an outstanding request", () => {
+    const f = fixture();
+    submitted(f);
+    update(f.task.id, { commits: [PR] }, f.p);
+    f.record.review_request = { revision: f.revision, nonce: "n-1" };
+    save(f.path, f.record);
+    assert.deepEqual(unreviewed(f.p), [], "an outstanding request is moving");
+    f.record.review = { verdict: "approve", revision: f.revision };
+    save(f.path, f.record);
+    assert.deepEqual(unreviewed(f.p), []);
+    // A verdict on an older revision is not a review of this one.
+    f.record.review = { verdict: "approve", revision: "0".repeat(40) };
+    delete f.record.review_request;
+    save(f.path, f.record);
+    assert.match(unreviewed(f.p)[0]?.message ?? "", /\(never requested\)$/);
+  });
+
+  it("reports finding none with its coverage, and works with agent-orchestration absent", () => {
+    const f = fixture();
+    delete process.env.AGENT_ORCHESTRATION_STATE_HOME; // no producer state anywhere tm can see
+    const t = create("task", { title: "reviewed" }, "scope", f.p);
+    update(t.id, { status: "done", closed: new Date().toISOString(), commits: [PR], review: { verdict: "approve" } }, f.p);
+    const out = diagnose(f.p);
+    assert.deepEqual(out.filter((x) => x.code === "unreviewed"), []);
+    assert.deepEqual(out.reviewCoverage, { candidates: 1, sinceDays: 7 });
   });
 });

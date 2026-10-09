@@ -231,7 +231,7 @@ function register(server, service, name, description, inputSchema, outputDataSch
 
 export async function createServer(options = {}) {
   const service = await new OrchestrationService(options).initialize();
-  const server = new McpServer({ name: "agent-orchestration", version: "0.15.4" });
+  const server = new McpServer({ name: "agent-orchestration", version: "0.16.0" });
 
   register(server, service, "orchestration_capabilities", "Describe orchestration providers, intents, protocols, permissions, lifecycle, and repository isolation guarantees.", {}, capabilitiesData, function () { return this.capabilities(); });
   register(server, service, "orchestration_doctor", "Check provider readiness through bounded, sandboxed, non-prompting ACP sessions without reading or exposing credentials. Pass consumerCwd so provider discovery runs where the caller runs.", { consumerCwd: consumerCwd.optional() }, doctorData, service.doctor);
@@ -241,8 +241,14 @@ export async function createServer(options = {}) {
   register(server, service, "orchestration_status", "Get a run after proving it belongs to the explicit consumer repository.", runFields, runData, service.getRun);
   register(server, service, "orchestration_list", "List runs belonging only to the explicit consumer repository.", { consumerCwd }, z.array(runData), service.list);
   register(server, service, "orchestration_events", "Read durable run events after a sequence number.", { ...runFields, after: z.number().int().nonnegative().optional() }, z.array(eventData), service.events);
-  register(server, service, "orchestration_wait", "Wait up to 55 seconds for a run state change or terminal result.", { ...runFields, timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(2_000).optional() }, runData, service.wait);
-  register(server, service, "orchestration_send", "Start a cancellable child run that continues the final read-only provider session with a scoped follow-up message.", { ...runFields, message: z.string().min(1), timeoutMs: z.number().int().positive().max(7_200_000).optional() }, followupData, service.send);
+  // TM-355: these act on provider RUNS, not agent mail, so they are named for it. The old names stay
+  // as aliases of the same handler so existing callers keep working.
+  const runWaitFields = { ...runFields, timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(2_000).optional() };
+  const runFollowupFields = { ...runFields, message: z.string().min(1), timeoutMs: z.number().int().positive().max(7_200_000).optional() };
+  register(server, service, "orchestration_run_wait", "Wait up to 55 seconds for a provider run's state change or terminal result. For agent mail use orchestration_run_mail_wait or orchestration_mailbox_wait.", runWaitFields, runData, service.wait);
+  register(server, service, "orchestration_run_followup", "Start a cancellable child run that continues the final read-only provider session with a scoped follow-up message. For agent mail use orchestration_run_mail_send or orchestration_mailbox_send.", runFollowupFields, followupData, service.send);
+  register(server, service, "orchestration_wait", "Deprecated alias of orchestration_run_wait (provider runs, not agent mail).", runWaitFields, runData, service.wait);
+  register(server, service, "orchestration_send", "Deprecated alias of orchestration_run_followup (provider runs, not agent mail).", runFollowupFields, followupData, service.send);
   register(server, service, "orchestration_cancel", "Idempotently request cancellation and terminate the verified worker process group when active.", runFields, runData, service.cancel);
   register(server, service, "orchestration_cleanup", "Permanently discard and remove a terminal run worktree through Git after repository ownership checks.", runFields, cleanupData, service.cleanup);
   register(server, service, "orchestration_decision_get", "Return the attributed evidence and approval state for an architecture decision run.", runFields, decisionData, service.decision);
@@ -260,16 +266,37 @@ export async function createServer(options = {}) {
   const mailboxFields = { consumerCwd, agent: agent.optional(), kind: z.enum(['mail', 'reply']).optional(),
     status: z.enum(['accepted', 'handled', 'deferred', 'rejected']).optional(),
     workflowId: z.string().optional(), runId: z.string().optional(), taskId: z.string().optional() };
-  register(server, topology, 'orchestration_mailbox_send', 'Send a durable inter-agent message through the logical mailbox. Publication, recipient acceptance and task ownership are separate outcomes.',
-    { consumerCwd, destinationConsumerCwd: consumerCwd.optional(), from: agent, to: z.string().min(1).max(512), id: z.string().min(1).max(200), body: z.string().min(1).max(131072),
+  // TM-355: CLI parity for run mail (send/reply/wait), lead status and session handoff. The agent a
+  // tool acts as is this server's session identity (TM-356); `from`/`agent` may only repeat it.
+  const runMailFields = { consumerCwd, runDir: z.string().min(1).describe("Absolute run directory (contains run.json) belonging to consumerCwd.") };
+  register(server, topology, 'orchestration_run_mail_send', 'Send a message to agents in a topology run (ao-topology send), as this session\'s own agent (AO_AGENT_ID). Rings each recipient pane; `undelivered: true` means the pointer did not land.',
+    { ...runMailFields, from: agent.optional(), to: z.array(z.string().min(1).max(160)).min(1), stage: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/).optional(),
+      body: z.string().min(1).max(131072), subject: z.string().optional(), task: z.string().optional() },
+    z.object({ ok: z.literal(true), id: z.string() }).passthrough(), topology.runMailSend);
+  register(server, topology, 'orchestration_run_mail_reply', 'Reply to a run message (ao-topology reply) as this session\'s own agent; the launcher\'s AO_AGENT_TOKEN proves it.',
+    { ...runMailFields, agent: agent.optional(), messageId: z.string().min(1).max(200), body: z.string().min(1).max(131072) },
+    z.object({ ok: z.literal(true), reply: z.string() }).passthrough(), topology.runMailReply);
+  register(server, topology, 'orchestration_run_mail_wait', 'Wait up to 55 seconds for replies to run mail (ao-topology wait). A timeout is an error naming what is still pending.',
+    { ...runMailFields, from: z.array(z.string().min(1)).optional(), messageId: z.string().optional(),
+      timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(5_000).optional() },
+    z.object({ ok: z.literal(true), replies: z.array(record) }).passthrough(), topology.runMailWait);
+  register(server, topology, 'orchestration_lead_status', 'Report the repository lead (ao-topology lead status). cached: true answers from proof on disk in under a second and mints no probe; otherwise a probe waits at most ackTimeoutMs (default 30s).',
+    { consumerCwd, cached: z.boolean().optional(), ackTimeoutMs: z.number().int().positive().max(55_000).optional() }, record, topology.leadStatus);
+  register(server, topology, 'orchestration_session_handoff', 'Point an agent\'s live session at a handoff file (ao-topology session handoff). Only the repository\'s proven lead, or the agent itself, may do this.',
+    { consumerCwd, agent: z.string().min(1).max(160), file: z.string().min(1) }, record, topology.sessionHandoff);
+  register(server, topology, 'orchestration_mailbox_send', 'Send a durable inter-agent message through the logical mailbox, as this session\'s own agent (AO_AGENT_ID); `from` may only repeat it. Publication, recipient acceptance and task ownership are separate outcomes.',
+    { consumerCwd, destinationConsumerCwd: consumerCwd.optional(), from: agent.optional(), to: z.string().min(1).max(512), id: z.string().min(1).max(200), body: z.string().min(1).max(131072),
       task: z.string().optional(), stage: z.string().optional(), subject: z.string().optional(), context: record.optional() },
     z.object({ envelope: record, status: z.string() }).passthrough(), topology.mailboxSend);
   register(server, topology, 'orchestration_mailbox_receive', 'Receive mail into a durable recipient inbox before broker ACK. This accepts an obligation but does not claim or complete a task. Use mailbox_list for nondestructive inspection.',
-    { consumerCwd, agent, limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
-  register(server, topology, 'orchestration_mailbox_list', 'Inspect retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',
+    { consumerCwd, agent: agent.optional(), limit: z.number().int().min(1).max(100).optional() }, z.array(record), topology.mailboxReceive);
+  register(server, topology, 'orchestration_mailbox_wait', 'Wait up to 55 seconds for the reply to a standing message this session sent; anyone else is refused with TOPOLOGY_SENDER_MISMATCH. An unknown id is the same refusal (ids cannot be probed); a timeout or a permanently held message is an error naming the message.',
+    { consumerCwd, id: z.string().min(1).max(256), timeoutMs: z.number().int().positive().max(55_000).optional(), pollIntervalMs: z.number().int().positive().max(5_000).optional() },
+    z.object({ ok: z.literal(true), id: z.string(), reply: record }).passthrough(), topology.mailboxWait);
+  register(server, topology, 'orchestration_mailbox_list', 'Inspect this session\'s own retained mailbox receipts without consuming NATS messages. Receipt status is not task completion.',
     mailboxFields, z.object({ receipts: z.array(receipt) }).passthrough(), topology.mailboxList);
   register(server, topology, 'orchestration_mailbox_dispose', 'Record handled, deferred or rejected disposition for a retained recipient obligation. Task claims and completion remain in Task Management.',
-    { consumerCwd, agent, messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
+    { consumerCwd, agent: agent.optional(), messageId: z.string().min(1), kind: z.enum(['mail', 'reply']).default('mail'),
       disposition: z.enum(['handled', 'deferred', 'rejected']), reason: z.string().max(8192).optional(), retryAt: z.string().optional(), resultRef: z.string().optional() }, receipt, topology.mailboxDispose);
   register(server, topology, 'orchestration_goal_start', 'Start a persistent feedback loop for an explicitly admitted Task Management goal, pinned authority and approved deployment recipe.',
     { consumerCwd, goalId: z.string().regex(/^EP-\d+$/), request: record }, loopRecord, topology.goalStart);

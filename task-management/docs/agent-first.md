@@ -15,8 +15,8 @@ carries `needs-triage` and a `triageMissing` list. Nobody applies these by hand.
 stamps `triagedBy: human`, and no later write and no `tm triage` run will override it.
 `tm task new --human` files a task with the veto already set.
 
-**A worker's run ends at a pull request**, never a merge: commit, push its own branch,
-`gh pr create`, attach evidence, close. A human merges.
+**A worker's run ends at its own merged pull request**: commit, push its own branch,
+`gh pr create`, review, wait for checks, `gh pr merge <its branch>`, attach evidence, close.
 
 The three surfaces call the same `lib/` functions and return the same refusal wording.
 If a verb is missing from one column, that is a real gap — shell out to the CLI rather
@@ -70,6 +70,7 @@ the same `lib/` function; the full HTTP contract is [`dashboard-api.md`](dashboa
 | `tm_handoff` | `tm handoff <id>` | `GET /api/task/:id/handoff` |
 | `tm_worktree` | `tm worktree new\|rm\|list` | `POST /api/task/:id/worktree`, `GET /api/worktrees` |
 | `tm_link` | `tm link <id> <type> <id>` | `POST /api/task/:id/link` |
+| `tm_ticket` | `tm ticket <repo\|slug> "<title>" --ac …` | — |
 | `tm_graph` | `tm graph` | `GET /api/graph` |
 | `tm_parallel` | `tm parallel` | `GET /api/parallel` |
 | `tm_doctor` | `tm doctor [--fix]` | `GET /api/doctor`, `POST /api/doctor/fix` |
@@ -211,7 +212,8 @@ each criterion (`tm accept`), **commit**, **`git push -u origin <the task's tm/ 
 **`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`**,
 attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no remote, no
 `gh`, no auth — `tm block <id> "<the error>"` instead of closing. Never leave the task
-`in_progress`, and **never merge**: the PR is where the worker's run ends.
+`in_progress`, and **never merge any PR but its own**, named by its branch (the guard refuses
+`gh pr merge <number>`), and never over a failing or pending check.
 
 **A worker's PR always states its base explicitly (TM-235).** `gh pr create` with no `--base`
 targets the repository default branch, not `dispatch.integrationBranch` — a dispatched worker

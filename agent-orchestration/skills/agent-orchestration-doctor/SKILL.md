@@ -24,6 +24,14 @@ argument-hint: "[provider: claude | codex | grok-build | kimi]"
    configuration contents. Do not install software, authenticate, spawn an agent, or repair state
    unless the user separately authorizes that mutation.
 
+For one answer across agent-orchestration, task-management and the managed services, run
+`agent-orchestration doctor --consumer-cwd <repo>` (or `tm doctor --all` from the task-management
+side; without agent-orchestration it checks the store alone and says so). Its `combined` block leads
+the JSON: `agentOrchestration`, `services` (process-compose and every managed process Running),
+`taskManagement` (`tm doctor --json` through tm's CLI; `ok: null` when tm is absent) and
+`pluginFreshness` (informational, TM-373). Exit 0 means every present part is healthy; 1 means one
+is not.
+
 Provider availability is independent: a missing Kimi CLI must not make Claude, Codex, or Grok unhealthy.
 Differentiate a missing prerequisite, unauthenticated provider, incompatible adapter, invalid state,
 and transport failure rather than returning one generic unavailable result.

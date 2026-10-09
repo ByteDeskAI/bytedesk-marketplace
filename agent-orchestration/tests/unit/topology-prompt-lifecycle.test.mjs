@@ -82,3 +82,30 @@ test('restricted reviewer acknowledges through observed output without shell or 
   const ack=await collectPromptAcknowledgement({...opts,observe,output:async()=>`● AO_PROMPT_ACK ${state.nonce} ${state.desired_revision}`});
   assert.equal(ack.collected,true);assert.equal(ack.state.status,'current');assert.deepEqual(ack.state.applied_binding,binding);
 });
+
+// TM-411: `prompt ack` runs from a child shell of the agent's pane (a Bash tool call), so the caller
+// is a descendant of the pane process. Ancestry decides; an unrelated process is refused.
+test('prompt ack binding is proven by process ancestry: a child shell of the pane is accepted, an unrelated process is not', async t => {
+  const { spawn, execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const sibling = spawn('sleep', ['30'], { stdio: 'ignore' });
+  t.after(() => sibling.kill('SIGKILL'));
+  const moduleUrl = new URL('../../topology/lib/prompt-lifecycle.mjs', import.meta.url).href;
+  const script = `const { callerBinding } = await import(${JSON.stringify(moduleUrl)});
+    const pane = { serverKey: '/test/socket', serverPid: 1, sessionId: '$1', sessionCreated: 2, paneId: '%1' };
+    const own = { ...pane, panePid: Number(process.env.PANE) }, other = { ...pane, paneId: '%2', panePid: Number(process.env.OTHER) };
+    process.stdout.write(JSON.stringify({
+      child: await callerBinding({ panes: [other, own], recorded: own }),
+      unrelated: await callerBinding({ panes: [other], recorded: null }),
+      replaced: await callerBinding({ panes: [own], recorded: { ...own, serverPid: 9 } }),
+    }));`;
+  // The outer bash is the "pane process"; node runs two shells below it. The trailing `; true`
+  // keeps each bash from exec-ing its last command, so the ancestry is genuinely nested.
+  const { stdout } = await promisify(execFile)('bash', ['-c',
+    `PANE=$$ OTHER=${sibling.pid} bash -c 'node --input-type=module -e "$SCRIPT"; true'; true`],
+    { env: { ...process.env, SCRIPT: script, TMUX_PANE: '' } });
+  const result = JSON.parse(stdout);
+  assert.equal(result.child?.paneId, '%1', 'a child shell of the registered pane process is accepted');
+  assert.equal(result.unrelated, null, 'a pane whose process is not an ancestor is refused');
+  assert.equal(result.replaced, null, 'a different incarnation of the pane is refused');
+});

@@ -29,6 +29,8 @@ function repoStore() {
   const p = paths(root);
   ensureDirs(p);
   seedGitContract(p);
+  // These cases pin the park path; TM-363's retry-before-park is covered in result.test.mjs.
+  writeConfig({ dispatch: { retries: 0 } }, p);
   trash.push(root);
   return p;
 }

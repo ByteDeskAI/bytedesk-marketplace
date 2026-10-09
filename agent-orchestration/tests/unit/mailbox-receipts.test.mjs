@@ -23,11 +23,11 @@ test('accepted obligation survives ACK crash and repeated delivery without dupli
   assert.equal((await getMailboxReceipt({ ...f, agent: 'worker', messageId: f.envelope.id })).status, 'accepted');
   const replay = await acceptMailboxDelivery({ ...f, agent: 'worker', delivery: { ...delivery, ack: async () => { acks++; } } });
   assert.equal(replay.deduplicated, true); assert.equal(acks, 2);
-  assert.equal((await listMailboxReceipts(f)).length, 1);
+  assert.equal((await listMailboxReceipts({ ...f, allAgents: true , allAgents: true })).length, 1);
   await setMailboxDisposition({ ...f, agent: 'worker', messageId: f.envelope.id, disposition: 'handled', resultRef: 'artifact:verified' });
   const duplicate = await acceptMailboxDelivery({ ...f, agent: 'worker', delivery: { ...delivery, ack: async () => { acks++; } } });
   assert.equal(duplicate.status, 'handled');
-  assert.equal((await listMailboxReceipts({ ...f, status: 'accepted' })).length, 0);
+  assert.equal((await listMailboxReceipts({ ...f, status: 'accepted' , allAgents: true })).length, 0);
 });
 
 test('changed immutable content and foreign recipient never ACK; deferred obligations stay visible', async t => {
@@ -38,7 +38,7 @@ test('changed immutable content and foreign recipient never ACK; deferred obliga
   await assert.rejects(receive(createMailboxEnvelope({ ...f.envelope, to: 'other' })), { code: 'TOPOLOGY_MAILBOX_IDENTITY' });
   assert.equal(acks, 1);
   await setMailboxDisposition({ ...f, agent: 'worker', messageId: f.envelope.id, disposition: 'deferred', reason: 'dependency', retryAt: '2030-01-01T00:00:00.000Z' });
-  assert.equal((await listMailboxReceipts({ ...f, workflowId: 'topology:one', taskId: 'TM-1' }))[0].status, 'deferred');
+  assert.equal((await listMailboxReceipts({ ...f, workflowId: 'topology:one', taskId: 'TM-1' , allAgents: true }))[0].status, 'deferred');
   assert.equal((await listMailboxReceipts({ ...f, agent: 'other' })).length, 0);
 });
 
@@ -71,14 +71,14 @@ test('publication view separates sender PubAck from receipt and filters source i
   const transport = { kind: 'nats', publishMail: async () => { calls++; throw new Error('offline'); } };
   await assert.rejects(publishMailboxEnvelope({ ...f, envelope, transport }), /offline/);
   assert.equal((await listMailboxPublications({ ...f, agent: 'lead', workflowId: 'goal:one', runId: 'one', taskId: 'TM-1' }))[0].status, 'pending');
-  assert.equal((await listMailboxPublications({ ...f, consumer: destination })).length, 0);
+  assert.equal((await listMailboxPublications({ ...f, consumer: destination , allAgents: true })).length, 0);
   assert.equal((await listMailboxPublications({ ...f, agent: 'worker' })).length, 0);
-  assert.equal((await listMailboxReceipts(f)).length, 0); assert.equal(calls, 1);
+  assert.equal((await listMailboxReceipts({ ...f, allAgents: true , allAgents: true })).length, 0); assert.equal(calls, 1);
   transport.publishMail = async () => { calls++; return { subject: 'test', seq: 1 }; };
   await resumeMailboxPublications({ ...f, transport });
-  assert.equal((await listMailboxPublications({ ...f, status: 'published' })).length, 1);
-  assert.equal((await listMailboxPublications({ ...f, status: 'pending' })).length, 0);
-  assert.equal((await listMailboxReceipts({ ...f, consumer: destination })).length, 0);
+  assert.equal((await listMailboxPublications({ ...f, status: 'published' , allAgents: true })).length, 1);
+  assert.equal((await listMailboxPublications({ ...f, status: 'pending' , allAgents: true })).length, 0);
+  assert.equal((await listMailboxReceipts({ ...f, consumer: destination , allAgents: true })).length, 0);
   assert.equal(calls, 2);
 });
 

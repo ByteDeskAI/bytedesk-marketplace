@@ -25,6 +25,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readJson, writeJson, writeText } from './util.mjs';
 import { ensureLocalNats } from './nats-local.mjs';
+import { withLock } from './lockfile.mjs';
 import { stateRoot } from './repoid.mjs';
 
 // `nats` is loaded only when the NATS transport opens. A copied plugin tree that
@@ -41,6 +42,8 @@ export const ORCH_LAYOUT = Object.freeze({
   personasBucket: 'ORCH_PERSONAS',
   presenceTtlMs: 45_000,
   duplicateWindowMs: 120_000,
+  // TM-371: a header, not a subject change, so deployed peers keep matching `orch.<key>.…`.
+  repoSlugHeader: 'Orch-Repo-Slug',
   mailSubject: (repo, agent) => `orch.${repo}.mail.${agent}`,
   replySubject: (repo, agent) => `orch.${repo}.mail.${agent}.reply`,
   tasksSubject: (repo) => `orch.${repo}.tasks.ready`,
@@ -80,6 +83,12 @@ export function transportMode(env = process.env) {
   return env.AO_TRANSPORT === 'file' ? 'file' : 'nats';
 }
 
+// The env transport selection reads: a partial env inherits AO_TRANSPORT from the process. Shared by
+// resolveTransport and by callers that need the mode without opening a connection (TM-419).
+export function selectedTransportEnv(env = process.env) {
+  return env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+}
+
 const liveTransports = new Map();
 // Test seam (TM-277): lets a unit test count opens and hand out failing transports.
 let openTransport = openNatsTransport;
@@ -94,7 +103,7 @@ export async function resolveTransport({ env = process.env, transport, home } = 
   // Callers pass a partial env for the repo under test. Transport selection still
   // inherits AO_TRANSPORT from the process when that partial env does not set it,
   // so the file double stays selected for the existing suite.
-  const selected = env === process.env ? env : { ...env, AO_TRANSPORT: env.AO_TRANSPORT ?? process.env.AO_TRANSPORT };
+  const selected = selectedTransportEnv(env);
   if (transportMode(selected) === 'file') return createFileTransport();
   const key = `${selected.AO_NATS_URL || ''}|${selected.AO_ORCH_SOCKET || ''}|${selected.AO_ORCH_CREDS || ''}|${orchSocketPath(selected)}|${selected.AO_NATS_JS_DOMAIN || ''}`;
   const existing = liveTransports.get(key);
@@ -456,25 +465,61 @@ export async function readTransportState(env = process.env, home = homedir(), { 
   return retireStaleOutage(withoutForeignSources(await readJson(transportStatePath(env, home)).catch(() => null)), { now, retireAfterMs });
 }
 
-/** Persists an outage close (or a fresh last_fallback_at) that a reader derived. */
+/** Writes a state as-is. Read-modify-write callers go through updateTransportState. */
 export async function writeTransportState(env, home, state) {
   const { foreign_dropped: _dropped, ...clean } = state ?? {};
   await writeJson(transportStatePath(env, home), clean);
 }
 
 /**
+ * TM-309 B2: every read-modify-write of transport.json runs under one lock, so two racing opens can
+ * no longer mint two `since`s or drop each other's holder. `change` gets the current state and
+ * returns the next one; returning the same object writes nothing. A failed write throws.
+ */
+export async function updateTransportState(env, home, change, { read = {} } = {}) {
+  return withLock(`${transportStatePath(env, home)}.lock`, async () => {
+    const previous = await readTransportState(env, home, read);
+    const next = await change(previous);
+    if (next && next !== previous) await writeTransportState(env, home, next);
+    return next ?? previous;
+  }, { timeoutMs: 10_000 });
+}
+
+// TM-309 C2: an outage is held per pid. Every process that fell back is a holder until it closes,
+// dies, or reopens on the configured server, and recovery waits for the last one.
+// ponytail: liveness is kill(pid, 0); a reused pid keeps an outage open until that process exits too.
+const alive = (pid) => { try { process.kill(Number(pid), 0); return true; } catch (error) { return error.code === 'EPERM'; } };
+const liveHolders = (holders, drop) => Object.fromEntries(Object.entries(holders ?? {}).filter(([pid]) => Number(pid) !== drop && alive(pid)));
+
+/** Drops dead holders (and `drop`), and closes an outage whose configured server an open already
+ * proved (`reachable_at`) once no holder remains. An outage written before TM-309 has no holders and is left alone. */
+export function settleOutage(state, { now = Date.now(), drop } = {}) {
+  const outage = state?.outage;
+  if (!outage || outage.recovered_at || !outage.holders) return state;
+  const holders = liveHolders(outage.holders, drop);
+  const recovered = Boolean(outage.reachable_at) && Object.keys(holders).length === 0;
+  if (!recovered && Object.keys(holders).length === Object.keys(outage.holders).length) return state;
+  return { ...state, outage: { ...outage, holders, ...(recovered ? { recovered_at: new Date(now).toISOString() } : {}) } };
+}
+
+/**
  * TM-295: keeps an open outage live for a holder of its fallback, so a long-lived process that is not
  * a supervisor (an MCP server with a dead AO_NATS_URL) does not see its outage retired and then mint a
- * second one on reconnect. Writes only when last_fallback_at is over a quarter bound old. Returns
- * whether it wrote.
+ * second one on reconnect. Writes when last_fallback_at is over a quarter bound old, or when this pid
+ * is not yet a holder. Returns whether it wrote.
  */
 export async function touchFallback(env, home, { source, url }, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
-  const state = await readTransportState(env, home, { retireAfterMs: Infinity });
-  const outage = state?.outage;
-  if (!outage || outage.recovered_at || outage.source !== source || outage.url !== url) return false;
-  if (now - Date.parse(outage.last_fallback_at ?? outage.since) <= retireAfterMs / 4) return false;
-  await writeTransportState(env, home, { ...state, outage: { ...outage, last_fallback_at: new Date(now).toISOString() } });
-  return true;
+  let wrote = false;
+  await updateTransportState(env, home, (state) => {
+    const outage = state?.outage;
+    if (!outage || outage.recovered_at || outage.source !== source || outage.url !== url) return state;
+    const stale = now - Date.parse(outage.last_fallback_at ?? outage.since) > retireAfterMs / 4;
+    if (!stale && outage.holders?.[process.pid]) return state;
+    wrote = true;
+    const at = new Date(now).toISOString();
+    return { ...state, outage: { ...outage, last_fallback_at: stale ? at : outage.last_fallback_at, holders: { ...outage.holders, [process.pid]: at } } };
+  }, { read: { retireAfterMs: Infinity } });
+  return wrote;
 }
 
 /** True when a connection this process holds fell back from `source`+`url`: the outage is still in use here. */
@@ -492,32 +537,47 @@ export async function describeTransport(env = process.env, home = homedir()) {
     : { kind: 'nats', source: null, url: null, fallback: null, outage: null, note: 'no NATS connection recorded on this host yet' };
 }
 
+/** TM-309 C5: what THIS connection selected, in describeTransport's shape, for a log line that must
+ * not read the host-wide file another process may have just rewritten. */
+export function selectionView(transport) {
+  const s = transport?.selection;
+  if (!s) return null;
+  return { kind: s.kind, source: s.source, url: s.url, fallback: s.fallback ?? null,
+    outage: s.fallback ? { ...s.fallback, recovered_at: null } : null, ...(s.state_write_error ? { state_write_error: s.state_write_error } : {}) };
+}
+
+const describeError = (error) => `${error?.code ?? 'ERROR'}: ${String(error?.message ?? error).slice(0, 300)}`;
+
 /**
  * Writes transport.json only when the answer changed. A fallback opens an outage (its `since` is
- * the outage identity the lead is told about, kept across reopens); any later open that needs no
- * fallback AND dialled that outage's own source and url closes it with `recovered_at`. The file is
- * host-wide and processes differ in env, so an open that never tried the configured server (another
- * source, another url) proves nothing about it and leaves the outage open. Every fallback, and every
- * holder's heartbeat (touchFallback), refreshes `last_fallback_at`; readTransportState retires an outage once that is older than OUTAGE_RETIRE_MS.
- * ponytail: read-modify-write without a lock; two racing first fallbacks can mint two `since`s.
+ * the outage identity the lead is told about, kept across reopens) and makes this pid a holder. An
+ * open that needs no fallback AND dialled that outage's own source and url proves the server back
+ * (`reachable_at`) and stops this pid holding it; the outage closes with `recovered_at` only once no
+ * live holder remains (TM-309 C2). The file is host-wide and processes differ in env, so an open
+ * that never tried the configured server proves nothing about it and leaves the outage open. Every
+ * fallback, and every holder's heartbeat (touchFallback), refreshes `last_fallback_at`;
+ * readTransportState retires an outage once that is older than OUTAGE_RETIRE_MS.
  */
 async function recordTransportSelection(env, selection, home = homedir()) {
-  const previous = await readTransportState(env, home);
-  const at = new Date().toISOString();
-  const outageOf = (fallback) => fallback && { source: fallback.source, url: fallback.url, error: fallback.error,
-    since: previous?.outage && !previous.outage.recovered_at && previous.outage.url === fallback.url ? previous.outage.since : at,
-    last_fallback_at: at, recovered_at: null };
-  let outage = previous?.outage ?? null;
-  if (selection.fallback) outage = outageOf(selection.fallback);
-  else if (outage && !outage.recovered_at && outage.source === selection.source && outage.url === selection.url) {
-    outage = { ...outage, recovered_at: new Date().toISOString() };
-  }
-  // A record that held a foreign source is always rewritten, so the stale entry leaves the file.
-  const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url
-    && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
-  if (same) return;
-  await writeJson(transportStatePath(env, home), { kind: selection.kind, source: selection.source, url: selection.url,
-    fallback: selection.fallback, at: new Date().toISOString(), pid: process.pid, outage });
+  await updateTransportState(env, home, (raw) => {
+    const previous = settleOutage(raw);
+    const at = new Date().toISOString();
+    let outage = previous?.outage ?? null;
+    const open = outage && !outage.recovered_at ? outage : null;
+    if (selection.fallback) {
+      const same = open && open.url === selection.fallback.url;
+      outage = { source: selection.fallback.source, url: selection.fallback.url, error: selection.fallback.error,
+        since: same ? open.since : at, last_fallback_at: at, recovered_at: null, holders: { ...(same ? liveHolders(open.holders) : {}), [process.pid]: at } };
+    } else if (open && open.source === selection.source && open.url === selection.url) {
+      const holders = liveHolders(open.holders, process.pid);
+      outage = Object.keys(holders).length ? { ...open, holders, reachable_at: at } : { ...open, holders, recovered_at: at };
+    }
+    // A record that held a foreign source is always rewritten, so the stale entry leaves the file.
+    const same = previous && !previous.foreign_dropped && previous.source === selection.source && previous.url === selection.url
+      && JSON.stringify(previous.outage ?? null) === JSON.stringify(outage);
+    if (same) return previous;
+    return { kind: selection.kind, source: selection.source, url: selection.url, fallback: selection.fallback, at, pid: process.pid, outage };
+  });
 }
 
 /**
@@ -526,13 +586,14 @@ async function recordTransportSelection(env, selection, home = homedir()) {
  * it, and the next managed open that succeeds on that port closes it.
  */
 async function recordPortConflict(env, home, error) {
-  const previous = await readTransportState(env, home);
   const url = `nats://127.0.0.1:${error.details?.port}`;
-  const at = new Date().toISOString();
-  const open = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url ? previous.outage : null;
-  await writeJson(transportStatePath(env, home), { kind: 'nats', source: previous?.source ?? null, url: previous?.url ?? null,
-    fallback: null, at, pid: process.pid, outage: { source: 'managed-local', url, error: String(error.message).slice(0, 500),
-      conflict: { port: error.details?.port ?? null, holder: error.details?.holder ?? null }, since: open?.since ?? at, last_fallback_at: at, recovered_at: null } });
+  await updateTransportState(env, home, (previous) => {
+    const at = new Date().toISOString();
+    const open = previous?.outage && !previous.outage.recovered_at && previous.outage.url === url ? previous.outage : null;
+    return { kind: 'nats', source: previous?.source ?? null, url: previous?.url ?? null,
+      fallback: null, at, pid: process.pid, outage: { source: 'managed-local', url, error: String(error.message).slice(0, 500),
+        conflict: { port: error.details?.port ?? null, holder: error.details?.holder ?? null }, since: open?.since ?? at, last_fallback_at: at, recovered_at: null } };
+  });
 }
 
 /** ADR-0032: the generic NATS variables are not ao sources. One line for a supervisor to log at start, or null. */
@@ -540,6 +601,41 @@ export function ignoredNatsEnv(env = process.env) {
   const names = ['NATS_URL', 'NATS_USER', 'NATS_PASSWORD'].filter((name) => env[name]);
   return names.length ? { event: 'nats-env-ignored', variables: names,
     message: `${names.join(', ')} ${names.length > 1 ? 'are' : 'is'} set but ignored: ao uses AO_NATS_URL, the gateway orch.sock, or its managed NATS on nats.port (ADR-0032).` } : null;
+}
+
+const loadNats = () => import('nats').catch(async (error) => {
+  // Installed topology remains ESM and has no node_modules. Ship the same
+  // pinned client as a standalone bundle instead of requiring an install step.
+  if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+  try {
+    const client = await import(new URL('../../dist/nats-client.cjs', import.meta.url).href);
+    return client.default || client;
+  } catch {
+    return fail('TOPOLOGY_NATS_UNAVAILABLE', 'The installed NATS client bundle is missing or invalid. Refresh the agent-orchestration plugin installation.');
+  }
+});
+
+/**
+ * TM-309 C6: true only when an outage's configured server accepts a NATS connection AND answers
+ * JetStream, on a short-lived connection of its own. A TCP accept (auth refused, TLS, not NATS) is
+ * not enough, so the supervisor no longer force-closes its live connections for a server that would
+ * refuse the re-dial. False when this process cannot address it (another env's AO_NATS_URL).
+ */
+export async function probeConfiguredNats(outage, env = process.env, home = homedir(), { timeoutMs = 2000 } = {}) {
+  let servers = null, bridge = null, nc = null;
+  if (outage?.source === 'AO_NATS_URL' && env.AO_NATS_URL && redactUrl(env.AO_NATS_URL) === outage.url) servers = env.AO_NATS_URL;
+  else if (outage?.source === 'orch.sock' && outage.url && existsSync(outage.url)) { bridge = await bridgeUnixSocket(outage.url).catch(() => null); servers = bridge?.servers; }
+  if (!servers) return false;
+  try {
+    const { connect, credsAuthenticator } = await loadNats();
+    const options = { servers, name: 'ao-outage-probe', timeout: timeoutMs, maxReconnectAttempts: 0, reconnect: false };
+    if (env.AO_ORCH_CREDS) options.authenticator = credsAuthenticator(readFileSync(env.AO_ORCH_CREDS));
+    nc = await connect(options);
+    const domain = await jetStreamDomain(env, home);
+    await nc.jetstreamManager(domain ? { domain } : {});
+    return true;
+  } catch { return false; }
+  finally { await nc?.close().catch(() => {}); bridge?.server.close(); }
 }
 
 export async function openNatsTransport({ env = process.env, home = homedir(), servers, credsFile, name = 'ao-orch' } = {}) {
@@ -551,19 +647,16 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
     StringCodec,
     connect,
     credsAuthenticator,
+    headers,
     nanos,
-  } = await import('nats').catch(async (error) => {
-    // Installed topology remains ESM and has no node_modules. Ship the same
-    // pinned client as a standalone bundle instead of requiring an install step.
-    if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
-    try {
-      const client = await import(new URL('../../dist/nats-client.cjs', import.meta.url).href);
-      return client.default || client;
-    } catch {
-      return fail('TOPOLOGY_NATS_UNAVAILABLE', 'The installed NATS client bundle is missing or invalid. Refresh the agent-orchestration plugin installation.');
-    }
-  });
+  } = await loadNats();
   const sc = StringCodec();
+  const publishOptions = (msgID, slug) => {
+    if (!msgID && !slug) return undefined;
+    const options = msgID ? { msgID } : {};
+    if (slug) { options.headers = headers(); options.headers.set(ORCH_LAYOUT.repoSlugHeader, String(slug)); }
+    return options;
+  };
   // ADR-0032: AO_NATS_URL, then the gateway orch.sock, then managed local NATS on nats.port. The
   // generic NATS_URL belongs to other tools and is never read here.
   const url = servers || env.AO_NATS_URL || '';
@@ -579,7 +672,8 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   const useLocal = async () => {
     try { local = await ensureLocalNats({ env }); }
     catch (error) {
-      if (error?.code === 'TOPOLOGY_NATS_PORT_CONFLICT' && !servers) await recordPortConflict(env, home, error).catch(() => {});
+      // TM-309 C4: the conflict is still what is thrown, but a record that did not land says so.
+      if (error?.code === 'TOPOLOGY_NATS_PORT_CONFLICT' && !servers) await recordPortConflict(env, home, error).catch((e) => { error.state_write_error = describeError(e); });
       throw error;
     }
     target = local.servers;
@@ -623,18 +717,37 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}; local fallback failed: ${second.message}`);
     }
   }
-  // An explicit `servers` caller (a test reader, a probe) is not this host's selection; record only the rest.
-  if (!servers) await recordTransportSelection(env, selection, home).catch(() => {});
+  const jsOptions = domain ? { domain } : {};
+  const js = nc.jetstream(jsOptions);
+  let jsm;
+  try { jsm = await nc.jetstreamManager(jsOptions); }
+  catch (error) {
+    await nc.close().catch(() => {});
+    if (bridge) bridge.server.close();
+    throw error;
+  }
+  // TM-309 C3: recorded only once JetStream answers, so a server that takes the connection but not
+  // JetStream never closes an outage. An explicit `servers` caller (a test reader, a probe) is not
+  // this host's selection; record only the rest. C4: a write that fails is carried on the selection,
+  // where the supervisor start log and the tick report it, never swallowed.
+  const surface = (error) => { selection.state_write_error = describeError(error); };
+  if (!servers) await recordTransportSelection(env, selection, home).catch(surface);
   // TM-295: every process holding a fallback refreshes its outage, not only a repository supervisor.
   let heartbeat = null;
   if (!servers && selection.fallback) {
     const retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS;
-    heartbeat = setInterval(() => { if (!nc.isClosed()) touchFallback(env, home, selection.fallback, { retireAfterMs }).catch(() => {}); }, retireAfterMs / 4);
+    heartbeat = setInterval(async () => {
+      if (nc.isClosed()) return;
+      try {
+        await touchFallback(env, home, selection.fallback, { retireAfterMs });
+        // TM-309 C2: another process proved the configured server back and is waiting on the last
+        // holder. Re-dial so this one moves too (or falls back again, which reopens the outage).
+        const outage = (await readTransportState(env, home, { retireAfterMs: Infinity }))?.outage;
+        if (outage?.reachable_at && !outage.recovered_at && outage.url === selection.fallback.url) await transport.close({ force: true });
+      } catch (error) { surface(error); }
+    }, retireAfterMs / 4);
     heartbeat.unref();
   }
-  const jsOptions = domain ? { domain } : {};
-  const js = nc.jetstream(jsOptions);
-  const jsm = await nc.jetstreamManager(jsOptions);
   const ensured = new Set();
   const subscriptions = new Set();
   const timers = new Set();
@@ -708,12 +821,12 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         ensured.add(replyKey);
       }
     },
-    async publishMail({ repo, agent, messageId, body }) {
+    async publishMail({ repo, agent, messageId, body, slug = null }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, agents: [nameAgent] });
       const subject = ORCH_LAYOUT.mailSubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.${messageId}` } : undefined);
+      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId && `${nameRepo}.${nameAgent}.${messageId}`, slug));
       return { via: 'nats', subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullMail({ repo, agent, timeoutMs = 1000 }) {
@@ -728,17 +841,18 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
         via: 'nats',
         subject: msg.subject || subject,
         messageId: msg.headers?.get?.('Nats-Msg-Id') ?? null,
+        repoSlug: msg.headers?.get?.(ORCH_LAYOUT.repoSlugHeader) || null,
         body: sc.decode(msg.data),
         ack: async () => { msg.ack(); await nc.flush(); },
         nak: async () => { msg.nak(); },
       };
     },
-    async publishReply({ repo, agent, messageId, body }) {
+    async publishReply({ repo, agent, messageId, body, slug = null }) {
       const nameRepo = orchName(repo);
       const nameAgent = orchName(agent);
       await transport.ensure({ repo: nameRepo, replies: [nameAgent] });
       const subject = ORCH_LAYOUT.replySubject(nameRepo, nameAgent);
-      const ack = await js.publish(subject, sc.encode(body), messageId ? { msgID: `${nameRepo}.${nameAgent}.reply.${messageId}` } : undefined);
+      const ack = await js.publish(subject, sc.encode(body), publishOptions(messageId && `${nameRepo}.${nameAgent}.reply.${messageId}`, slug));
       return { via: 'nats', subject, duplicate: ack.duplicate === true, inboxPath: null, seq: ack.seq };
     },
     async pullReply({ repo, agent, replyTo, from, timeoutMs = 1000 }) {
@@ -938,6 +1052,10 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
       subscriptions.clear();
       await (force ? nc.close() : nc.drain().catch(() => nc.close())).catch(() => {});
       if (bridge) await new Promise((resolve) => bridge.server.close(resolve));
+      // TM-309 C2: this pid stops holding the outage once no connection here still falls back from it.
+      if (!servers && selection.fallback && !holdsFallbackFrom(selection.fallback)) {
+        await updateTransportState(env, home, (state) => settleOutage(state, { drop: process.pid }), { read: { retireAfterMs: Infinity } }).catch(surface);
+      }
     },
   };
   return transport;

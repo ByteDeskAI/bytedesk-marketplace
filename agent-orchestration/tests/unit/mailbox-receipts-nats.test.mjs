@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
-import { canonicalRepoId, repoKey } from '../../topology/lib/repoid.mjs';
+import { canonicalRepoId, repoKey, repoSlug } from '../../topology/lib/repoid.mjs';
 import { openNatsTransport, ORCH_LAYOUT } from '../../topology/lib/orch-transport.mjs';
 import { createMailboxEnvelope, publishMailboxEnvelope, listMailboxReceipts, setMailboxDisposition, resumeMailboxPublications } from '../../topology/lib/mailbox-receipts.mjs';
 import { sendStandingMessage, resumeStandingMessages, readStandingInbox } from '../../topology/lib/standing-mailbox.mjs';
@@ -75,14 +75,14 @@ test('real NATS redelivers before acceptance and durable acceptance survives pro
       if (!delivery) throw Error('missing delivery');
       ${persist ? `const { acceptMailboxDelivery } = await import(${JSON.stringify(moduleURL('mailbox-receipts'))}); await acceptMailboxDelivery({ consumer:${JSON.stringify(f.consumer)},agent:'worker',delivery:{...delivery,ack:async()=>process.exit(${code})} });` : `process.exit(${code});`}
     `, code);
-    const before = await listMailboxReceipts({ consumer: f.consumer, env: f.env });
+    const before = await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true });
     assert.equal(before.some(item => item.messageId === id), persist);
     await pause(250);
     const inbox = await readStandingInbox({ consumer: f.consumer, agent: 'worker', env: f.env, transport: f.transport, limit: 2 });
     assert.equal(inbox.filter(item => item.messageId === id).length, 1);
     await setMailboxDisposition({ consumer: f.consumer, agent: 'worker', messageId: id, disposition: 'handled', resultRef: 'verified-result', env: f.env });
   }
-  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env })).length, 2);
+  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true })).length, 2);
 });
 
 test('held standing obligation is actually published on recovery and retries retain one accepted obligation', async t => {
@@ -93,7 +93,7 @@ test('held standing obligation is actually published on recovery and retries ret
     router: async () => ({ deliver_to: 'worker', resolved: 'worker', redirected: false }) };
   const input = { id: 'phase-obligation', consumer: f.consumer, fromProject: source, from: 'lead', to: 'worker', body: 'original phase', context: { workflowId: 'loop:goal', taskId: 'TM-267' } };
   assert.equal((await sendStandingMessage(input, options)).status, 'held');
-  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env })).length, 0);
+  assert.equal((await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true })).length, 0);
   ready = true;
   const [resumed] = await resumeStandingMessages({ consumer: f.consumer, force: true, ...options });
   assert.equal(resumed.status, 'delivered'); assert.equal(resumed.publication.status, 'published');
@@ -116,7 +116,7 @@ test('uncertain sender publish recovers after broker dedup window without duplic
   await pause(150);
   await resumeMailboxPublications({ consumer: f.consumer, env: f.env, transport: f.transport });
   assert.equal((await readStandingInbox({ consumer: f.consumer, agent: 'worker', env: f.env, transport: f.transport })).length, 1);
-  const stored = await listMailboxReceipts({ consumer: f.consumer, env: f.env }); assert.equal(stored.length, 1);
+  const stored = await listMailboxReceipts({ consumer: f.consumer, env: f.env , allAgents: true }); assert.equal(stored.length, 1);
 });
 
 test('run replies remain available to a second waiter process after broker ACK', async t => {
@@ -129,4 +129,20 @@ test('run replies remain available to a second waiter process after broker ACK',
   const wait = `${common} const result=await api.waitForReplies({runDir,agentIds:['worker'],messageId:${JSON.stringify(sent.id)},timeoutMs:3000,pollMs:50}); console.log(JSON.stringify(result)); await (await import(${JSON.stringify(moduleURL('orch-transport'))})).closeLiveTransports();`;
   const first = JSON.parse(await f.runChild(wait)), second = JSON.parse(await f.runChild(wait));
   assert.equal(first.ok, true); assert.equal(second.ok, true); assert.equal(second.replies[0].body, 'verified answer');
+});
+
+test('TM-371: published mail carries a readable Orch-Repo-Slug header; the subject keeps its digest', async t => {
+  const f = await fixture(t);
+  await publishMailboxEnvelope({ envelope: f.make('slug-proof'), transport: f.transport, env: f.env });
+  const delivery = await f.transport.pullMail({ repo: f.repo, agent: 'worker' });
+  assert.equal(delivery?.subject, ORCH_LAYOUT.mailSubject(f.repo, 'worker'));
+  assert.equal(delivery.repoSlug, 'repo');
+  await delivery.ack();
+});
+
+test('TM-371: repoSlug names the checkout for <repo>/.git, a bare repo by its name, and is header-safe', () => {
+  assert.equal(repoSlug('/home/u/src/bytedesk-marketplace/.git'), 'bytedesk-marketplace');
+  assert.equal(repoSlug('/srv/git/tools.git'), 'tools');
+  assert.equal(repoSlug('/tmp/my repo:x'), 'my-repo-x');
+  assert.equal(repoSlug(''), 'repo');
 });

@@ -123,7 +123,7 @@ supervisor. It is idempotent. It:
    build is never overwritten, an equal ordinal is left alone, and so is the same build. The copy is built beside the old one and swapped in by rename, keeping the old
    copy's `node_modules`; it is refused when the source has uncommitted changes, when the copy lies
    inside a git checkout, or when the copy's `node_modules` does not satisfy the new
-   `package.json` (run `npm ci` there). `install-orchestration-host` does the same from its root;
+   `package.json` (run `npm ci` there). `setup-agent-orchestration` (its host-wiring step) does the same from its root;
 7. cleans up after earlier installs (TM-285): stops leaked `agent-orchestration-session-*.scope`
    units whose state root no longer exists, hands the managed state root over from a pre-services
    session host (a 24-hour scope or a hand-run host) and a detached `nats-server`, and never touches
@@ -231,8 +231,8 @@ grok plugin install /absolute/path/to/bytedesk-marketplace/agent-orchestration -
 Kimi Code (and a dry-run of every host):
 
 ```sh
-node skills/install-orchestration-host/scripts/install-host.mjs --dry-run --all
-node skills/install-orchestration-host/scripts/install-host.mjs --host kimi --host grok
+node skills/setup-agent-orchestration/scripts/install-host.mjs --dry-run --all
+node skills/setup-agent-orchestration/scripts/install-host.mjs --host kimi --host grok
 ```
 
 Start a fresh host session after installation so the MCP server and skills are discovered.
@@ -256,10 +256,11 @@ The `agent-orchestrate` skill drives the public MCP surface:
 |---|---|
 | Discovery | `orchestration_capabilities`, `orchestration_doctor` |
 | Routing | `orchestration_route`, `orchestration_plan` |
-| Lifecycle | `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events` |
+| Lifecycle | `orchestration_spawn`, `orchestration_run_followup` (alias `orchestration_send`), `orchestration_run_wait` (alias `orchestration_wait`), `orchestration_status`, `orchestration_list`, `orchestration_events` |
 | Control | `orchestration_cancel`, `orchestration_cleanup` |
 | Approval | `orchestration_decision_get`, `orchestration_decision_approve` |
-| Durable mail | `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose` |
+| Durable mail | `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`, `orchestration_mailbox_wait` |
+| Run mail and roles | `orchestration_run_mail_send`, `orchestration_run_mail_reply`, `orchestration_run_mail_wait`, `orchestration_lead_status`, `orchestration_session_handoff` |
 | Goal feedback | `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile` |
 
 The [goal feedback controller](docs/goal-loop-runtime.md) drives a bounded PM, build, QA,
@@ -271,7 +272,7 @@ task ownership and goal completion remain distinct facts.
 
 Mail send requires an explicit source `consumerCwd`; optional `destinationConsumerCwd`
 selects another admitted repository through the existing standing-mail routing rules.
-Use `mailbox_list` to inspect without consuming. `orchestration_send` continues to mean an
+Use `mailbox_list` to inspect without consuming. `orchestration_run_followup` (alias `orchestration_send`) means an
 ACP child follow-up. Human goal controls are refused through MCP and use Gateway's
 authenticated operator surface. This local bridge trusts the Gateway host process; it
 does not protect against another process with the same OS account editing local state.
@@ -333,7 +334,7 @@ Every mutating or consumer-grounded call requires `consumerCwd`: the explicit ab
 repository or worktree the external agent may observe or change. The server never infers it from its
 own process directory.
 
-`orchestration_send` creates a durable child run only when the parent was explicitly spawned with
+`orchestration_run_followup` (alias `orchestration_send`) creates a durable child run only when the parent was explicitly spawned with
 `sessionMode: "persistent"`, stayed read-only, and the provider advertises durable session loading.
 The child retains its own status, events, worker, and cancellation boundary. One-shot, unsupported,
 and writable follow-ups fail closed; spawn a new scoped run instead.
@@ -393,8 +394,8 @@ Runs live under `<consumer>/.bytedesk/agent-orchestration/runs/<run_id>/`, which
 
 The installed package includes `ROADMAP.md`, its append-only `ROADMAP-INVENTORY.json` identity
 ledger, its validator, portable `ROADMAP-SOURCES.json` seam integrity data, and the
-`roadmap-orchestrator` skill for reference and discovery. Invoke
-`$roadmap-orchestrator`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
+`roadmap-governance` skill (formerly `roadmap-orchestrator`) for reference and discovery. Invoke
+`$roadmap-governance`, ask to “enhance the roadmap” or “extend the roadmap,” or name a roadmap
 task, unlock, trajectory, gap, or goal ID. The skill reads the repository roadmap, runs
 `npm run roadmap:check` (or `node scripts/roadmap.mjs --check`), preserves IDs and reciprocal
 lineage, and validates again after an edit. With no target, it presents at most five eligible
@@ -420,6 +421,191 @@ packaged roadmap becomes an implicit consumer repository.
 
 Goals and trajectories remain strategic proposals. They cannot execute work, spend budget, reserve
 capacity, or mutate a workspace, and only a human roadmap steward may approve them for commitment.
+
+## Lead and worker autonomy: the shipped allowlist
+
+Leads and workers run routine orchestration commands without a permission prompt and without an
+auto-mode classifier round. You do not need to add global permission rules. The plugin ships this
+as a `PreToolUse(Bash)` hook, `scripts/autonomy-allow.mjs`, wired in `hooks/hooks.json` (TM-369).
+
+**Why a hook.** A plugin cannot ship permission allow rules: a plugin's `settings.json` applies only
+`agent` and `subagentStatusLine` ([plugins reference](https://code.claude.com/docs/en/plugins-reference)).
+A `PreToolUse` hook that returns `permissionDecision: "allow"` "bypasses the permission prompt"
+([hooks](https://code.claude.com/docs/en/hooks)). On Claude Code 2.1.289 we checked this live, from a
+plugin hook. In `default` mode, a hook-approved command ran and the same-shaped control was denied.
+In `auto` mode, the debug log showed `Hook approved tool use for Bash, bypassing permission prompt`
+with a 4 ms decision, against 534 ms for the classifier-reviewed control.
+
+**What it approves.** It approves only one simple command, with no `;`, `&`, `|`, `<`, `>`,
+backtick, `$`, backslash or newline anywhere. One exception applies: a trailing heredoc with a
+quoted delimiter (`<<'EOF'`) is treated as data. Each word must be fully quoted or plain: glob,
+brace, tilde and comment characters (`* ? [ { ~ #`) outside quotes, and joined quotes such as
+`"sta"tus`, fall through, because the shell would build a different argv than the one checked.
+
+It is an **allowlist** (TM-432, TM-433). The hook reads `ao-topology` argv with the CLI's own
+`parseArgs` (`topology/lib/util.mjs`), so flags before the verb or subcommand cannot hide it:
+`ao-topology manage --task TM-1 land` is read as `manage land`. A verb or subcommand that is not in
+the table below falls through, including any verb added to the CLI later. Each row carries its
+ADR-0001 class (`fleet/docs/adr/0001-hierarchical-authorization.md`).
+
+| Command | ADR-0001 class | Why it is safe to approve |
+|---|---|---|
+| `ao-topology status`, `capture`, `wait`, `doctor` | Local-blast (read) | Reads run state, a pane capture, reply files, or `which` and version probes |
+| `ao-topology repos list`, `manage status\|assignment\|eligible` | Local-blast (read) | Reads the registry and the management record; read-only `git` |
+| `ao-topology mailbox outbox\|receipts\|wait` | Local-blast (read) | Reads standing-mail records |
+| `ao-topology lead status --cached` | Local-blast (read) | A pure read. Without `--cached` it rings the lead's pane, so it falls through |
+| `ao-topology ack`, `reply`, `prompt ack`, `mailbox inbox` | Local-blast (report) | Records this agent's own receipt or reply. `ack`, `reply`, `mailbox inbox` and `prompt ack` are approved only with no agent named, or with the named agent (`--agent`, or the positional of `prompt ack`) equal to the caller's `AO_AGENT_ID` or `AO_SESSION_AGENT_ID` |
+| `ao-topology mailbox send` | Local-blast (report) | Writes one envelope as this session's own identity (TM-356). Delivery and the pointer-only arrival ring (TM-351) belong to admission and the supervisor, not to this command |
+| `agent-orchestration doctor\|status`, `agent-orchestration services status\|probe\|wait` | Local-blast (read) | Health and run status only |
+| `tm board\|show\|find\|next\|why\|graph\|log\|events\|standup\|stale\|where\|doctor`, `tm pool status` | Local-blast (read) | Read the board. `board` rewrites only `index.json`, a disposable cache. `doctor` falls through with `--fix` (repairs) or `--all` (runs another CLI). `caps` is not approved: it runs `<cli> -V` for every agent CLI on PATH |
+| `tmux [-L name\|-S path] capture-pane\|list-panes\|list-sessions\|list-windows\|has-session\|display-message -p …` | Local-blast (read) | Not approved: `#(…)` formats, `display-message -I`, `capture-pane -b` (writes a paste buffer), `-f`. Clustered flags such as `-pI` are checked too |
+
+**Which program runs (TM-434).** The hook judges the program's realpath, never its name. A bare
+name is resolved the way the shell resolves it: the first executable on `PATH`. `PATH` often holds
+user-writable directories such as `~/bin` and `~/.local/bin` ahead of the plugin's. The command is
+approved only when that realpath is one of these launchers:
+
+- this plugin's `bin/ao-topology` or `bin/agent-orchestration`;
+- the sibling `task-management/bin/tm`.
+
+An absolute path is judged the same way. A relative path, or a `PATH` with an empty or relative
+entry before the match, falls through, because the shell would search the current directory.
+`tmux` is approved only when its realpath is `/usr/bin/tmux`, `/bin/tmux` or `/usr/local/bin/tmux`,
+and the file and every directory up to `/` are owned by root and are not group- or world-writable.
+Ownership alone is not enough, because a FUSE mount can present root-owned files anywhere the user
+can mount one. A user-owned `tmux`, such as Homebrew's, falls through.
+
+As a result, a `tm` at any other path falls through, including `.bytedesk/task-management/bin/tm`
+in a worktree, because a worker can write any script there. So does a `tm` or `ao-topology` on
+`PATH` that resolves to a different install of the plugin, for example another host's plugin
+cache or a source checkout. Each of those commands then costs one prompt. A path that only starts
+with the same prefix as the launcher does not match.
+
+**The approved program is the one that runs.** The shell would otherwise resolve the name again
+when the command runs. A shell profile could prepend to `PATH`, a writable `PATH` directory could
+change in between, or an alias or function could use the same name. So when the hook approves a
+command, it also returns `updatedInput` (see [PreToolUse decision control](https://code.claude.com/docs/en/hooks)).
+That rewrites the command's first word to the absolute realpath it judged, and keeps the rest of the
+command and the other tool arguments unchanged. A command that began with a bare name also gets
+`command ` in front, which skips aliases and functions. For example, `tm board` runs as
+`command /…/task-management/bin/tm board`.
+
+**What stays gated.** The hook never approves these commands. They go through the normal
+permission flow (a prompt, or the auto-mode classifier). An explicit deny list in the hook wins
+over the allowlist, so a later edit that adds one of these by mistake still cannot approve it:
+
+- **External (deploy and release):** `ao-topology manage cutover|cut-release|land`. See
+  [Landing autonomy](#landing-autonomy-pr-merge-publish) below.
+- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup|close|transfer|assign|rework|rebind`
+  and `ao-topology review submit`. These verbs keep their own delegation checks. A lead that should
+  run them unprompted gets the per-lead rules from `ao-topology permissions install` (see
+  `docs/repository-leads.md`).
+- **Pane input, launch and configuration:** `ao-topology send|nudge|launch`, `config set`,
+  `startup install-hooks` and `git-hook install`. They type into another pane, start agents, or
+  write configuration and hooks.
+- **Operator-only:** `ao-topology delegate …` and `ao-topology permissions …`.
+- **Every other `tm` verb:** for example `dispatch` (spawns a worker), `export --out` (writes any
+  path), `ntfy`, `config`, `override`, `init`, `worktree`, `collect`, `agent`, `hook`, `migrate`,
+  `review-sweep`, `done`, `govern`, `task new` and `pool start|stop|resume|run|ensure`.
+- **Not listed, so not approved:** for example `ao-topology census` (self-starts the supervisor),
+  `presence` (publishes files), `manage report` (a finish queues a review run), `agent new` and
+  `session open`. These are Local-blast at most and cost one prompt.
+- **Repo-destructive and external:** every `git`, `gh`, deploy and secrets command. This includes
+  force pushes, history rewrites, branch deletion, releases, deploys and secret reads. None of these
+  is on the list.
+- **Anything compound:** for example, `tm board && git push --force` falls through as a whole.
+
+**Boundaries.** The hook only ever answers "allow" or says nothing. It never blocks a command, and
+any error falls through to the normal flow. Claude Code still applies your `deny` and `ask` rules
+after a hook allows a command ([permissions](https://code.claude.com/docs/en/permissions#extend-permissions-with-hooks)).
+Critical-path `rm` commands are still refused. Agents launched with `auto_approve` (the default,
+TM-214) skip prompts entirely, so this hook matters for the sessions that do not: your own lead
+session, and agents with `auto_approve: false`.
+
+## Landing autonomy: pr, merge, publish
+
+`management.autonomy` sets how far a repository's lead takes a reviewed task on its own (TM-368).
+The lead runs one verb, `ao-topology manage land --task <TM-id>`, and the policy decides the rest.
+
+| `management.autonomy` | What `manage land` does |
+|---|---|
+| `pr` (**default**) | Stops at the reviewed pull request. A human merges it. |
+| `merge` | Runs `manage integrate`, with its own authority and guardrails unchanged. Nothing is released. |
+| `publish` | Integrates, then, once every task of the task's epic has landed, runs `manage cut-release`: the repository's release step, a wait for the TeamCity build it started, and the verify step that proves the published artifact. It then records the publish and tells the origin. |
+
+**Where to set it (TM-442).** Only in the repository's `.bytedesk/agent-orchestration/config.json`
+as committed on the **server's default branch** of the pinned repository, read through `gh`. The same
+rule covers `management.release`, `management.cutover` and `management.required_checks`. A worker
+agent runs as your OS user and can write the global `~/.config/agent-orchestration/config.json`, the
+plugin defaults and the checkout's working copy, so a value for these keys in any of those layers is
+ignored, with a warning. When the server cannot be read, autonomy is `pr` and release, cutover and
+required checks are unconfigured, so every verb that needs them refuses. A signed operator layer would
+be the other trusted source; signing is not implemented. Commit the policy on the default branch:
+
+```json
+{ "management": { "autonomy": "publish", "ntfy": { "topic": "<your topic>" } } }
+```
+
+`manage integrate` refuses a task whose change touches `management` in that file: the policy is the
+operator's own change on the default branch, never landed through a task. `ao-topology config set`
+refuses inside a dispatched worker session (`TM_DISPATCH_WORKER`).
+
+**What `publish` grants.** Production deploy and release publish are ADR-0001's External class
+(`fleet/docs/adr/0001-hierarchical-authorization.md`). At `publish`, the policy is the operator's
+standing grant for `manage cut-release` only, so a lead needs no `--authorized` to release. The
+record names the grant: `authorization.channel` is `autonomy-policy`, and `authorization.granted_by`
+gives the server source that set `publish`. **`manage cutover` deploys to a live production host, so no
+autonomy level grants it (TM-458):** it always needs `--authorized` from an operator shell. At `pr` or
+`merge`, `cut-release` needs the same. A managed agent session cannot self-assert `--authorized`. The policy does not replace integrate's own authority: merging still needs a covering plan
+grant or the server-side `lead_autonomy` policy (ADR-0027).
+
+**What the release verbs run.** Only the repository's own scripts, configured as argv and run
+without a shell. `argv[0]` must be a repo-relative path (no absolute path, no `..`, no bare name looked
+up on `PATH`) to an executable file tracked at the release revision whose bytes on disk equal the
+committed blob (TM-442). Interpreters and launchers (`node`, `python*`, `perl`, `ruby`, shells,
+`busybox`, `env`, `npx`, `npm`, `deno`, `bun`), `systemctl`, `git`, `gh`, `sudo` and `ssh` are refused
+even as paths, so neither a lead nor a config line restarts a host, pushes directly or runs inline code.
+
+```json
+{ "management": {
+  "cutover": { "branch": "develop", "argv": ["<skill>/scripts/deploy-safe.sh", "deploy"],
+               "postflight_argv": ["<skill>/scripts/deploy-safe.sh", "postflight"],
+               "identity_argv": ["<a command that prints the running build's identity>"] },
+  "release": { "branch": "develop", "argv": ["<skill>/scripts/release-gitflow.sh", "start"],
+               "verify_argv": ["<skill>/scripts/release-gitflow.sh", "verify"],
+               "teamcity": { "build_type": "<the publish build configuration id>" } } } }
+```
+
+**Guardrails.** Both verbs refuse by name, and run nothing, unless every condition holds: the
+config is valid, the authority above exists, the checkout is on the configured branch (default
+`develop`), it has no uncommitted work outside the tool store paths, it equals `origin/<branch>`
+after a fetch, and every task of the plan (`--epic`) is done. `cutover` proves the running binary
+switched: `identity_argv` must answer before the deploy and answer differently after it.
+
+**Stops and pages.** Each of these stops the run and pages the operator through ntfy:
+
+- a red TeamCity build, or no finished build before `teamcity.timeout_ms` (default one hour);
+- a failed postflight: the release verify step, or the cutover postflight;
+- a missing reviewer approval, checked by `manage land` before it merges;
+- a failed release or deploy step, and a release refused after the merge.
+
+A plan with tasks still open is not a stop: `manage land` reports `waiting` and publishes when the
+last task lands. Under `publish`, TeamCity is required: set `management.release.teamcity.build_type`,
+and export `TEAMCITY_URL` (or set `teamcity.url`) and `TEAMCITY_TOKEN`. The adapter reads
+`/app/rest/builds` with the token as a bearer header and never writes the token anywhere.
+
+**ntfy.** agent-orchestration sends its own pages, so they work with task-management absent. The
+topic comes from `AO_NTFY_TOPIC` or `management.ntfy.topic`, then task-management's
+`TM_NTFY_TOPIC`. The token comes only from the environment: `AO_NTFY_TOKEN`, then `TM_NTFY_TOKEN`.
+With no topic, the stop still happens and its result says the page was not sent.
+
+**The origin.** When the task is a cross-repo ticket, a successful publish runs
+`tm ticket event <id> published "<detail>"` (TM-359), which comments on the origin task and mails
+the origin's lead.
+
+**Known limit.** The global config file is writable by any process running as you, as are the
+other same-user anchors documented in `docs/repository-leads.md`. A repository-layer edit cannot
+grant `publish` silently: an uncommitted change to it fails the `dirty` guardrail.
 
 ## Safety model
 

@@ -67,7 +67,17 @@ export function claimTask(id, { session = null, actor = null, worktree, branch, 
     }
 
     const stolenFrom = owned && held.session !== session ? held.session : null;
-    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: now(), ...(gateway ? { gateway } : {}) };
+    // `ts` moves with every heartbeat; `since` is when this claim was TAKEN, which is what
+    // collect asks when it decides whether a lead re-claimed after a dispatch (TM-460).
+    // A dispatched worker carries its lead's TM_SESSION_ID, so its own `tm start`/`tm claim` would
+    // otherwise look like the lead re-claiming: it is marked `worker` and keeps the earlier `since`.
+    const at = now();
+    const worker = Boolean(process.env.TM_DISPATCH_WORKER);
+    const keep = worker && live && held.session === session && held.since;
+    // Kept `since` keeps its `worker` flag, so the flag always describes whoever took `since`.
+    const since = keep ? held.since : at;
+    const taker = keep ? Boolean(held.worker) : worker;
+    claims[id] = { session, actor, worktree, branch, pid: process.pid, ts: at, since, ...(taker ? { worker: true } : {}), ...(gateway ? { gateway } : {}) };
     writeState({ claims }, p);
     if (stolenFrom) logEvent("claim_stolen", { id, from: stolenFrom, to: session }, p);
     else logEvent("claim", { id, session }, p);
@@ -99,6 +109,33 @@ export function heartbeatClaim(id, { session = null, p = paths() } = {}) {
     writeState({ claims }, p);
     return claims[id];
   });
+}
+
+/**
+ * TM-397: "a live worker of this session is doing this task" — the marker the Stop gate honours.
+ *
+ * A lead that hands claimed tasks to worker subagents was told at every stop to done/block/park
+ * them, and parking releases the claim mid-work so the pool re-dispatches it. The lead (or the
+ * worker) records `{ worker, until }` on the claim instead; it also re-stamps the claim, so it doubles
+ * as a heartbeat. Only the claim's own session may write it. Returns the claim, or null when the
+ * task is not claimed by this session.
+ */
+export function noteClaimWorker(id, { session = null, worker, ttlMs = 60 * 60_000, p = paths() } = {}) {
+  return withLock(p, () => {
+    const claims = { ...state(p).claims };
+    const held = claims[id];
+    if (!held || expired(held, p) || held.session !== session) return null;
+    claims[id] = { ...held, ts: now(), worker: { name: String(worker), until: new Date(Date.now() + ttlMs).toISOString() } };
+    writeState({ claims }, p);
+    logEvent("claim_worker_noted", { id, worker: String(worker), until: claims[id].worker.until }, p);
+    return claims[id];
+  });
+}
+
+/** The claim's worker marker while it is fresh, else null. */
+export function liveWorkerNote(claim, nowMs = Date.now()) {
+  const until = claim?.worker?.until ? new Date(claim.worker.until).getTime() : NaN;
+  return until > nowMs ? claim.worker : null;
 }
 
 export function releaseClaim(id, p = paths()) {

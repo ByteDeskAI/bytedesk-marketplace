@@ -1,9 +1,12 @@
 ---
-name: roadmap-orchestrator
-description: Govern and evolve ROADMAP.md with the repository roadmap validator. Use when asked to enhance the roadmap, extend the roadmap, select the next roadmap work, or act on task, unlock, trajectory, gap, or goal IDs.
+name: roadmap-governance
+description: Govern and evolve ROADMAP.md with the repository roadmap validator (formerly roadmap-orchestrator; $roadmap-orchestrator and /roadmap-orchestrator mean this skill). Use when asked to enhance the roadmap, extend the roadmap, select the next roadmap work, or act on task, unlock, trajectory, gap, or goal IDs.
 ---
 
-# Roadmap Orchestrator
+# Roadmap Governance
+
+This skill was called `roadmap-orchestrator` until TM-377. It governs `ROADMAP.md`; it does not
+orchestrate agents (for that, see `/agent-orchestration:orchestrate`).
 
 Treat roadmap edits as governed planning, never execution authority.
 

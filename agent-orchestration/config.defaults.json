@@ -35,7 +35,11 @@
     "retry_ms": 60000,
     "_why": "TM-408. The supervisor rings an idle standing agent through the safe bell (never over a draft or a tool prompt): a worker to ask its repository lead for its next assignment over the standing mailbox, a lead to take the next ready task from its own board. The census cannot tell an agent that finished from one that asked a human, so the guard is time: min_idle_ms (lead_min_idle_ms for a lead) of quiet counted from the end of its work. After a ring the agent is rung again only when the board's ready set changes (mail never reopens it: the nudge's own exchange is mail), and never sooner than backoff_ms, doubling per ring up to max_backoff_ms. retry_ms is how soon a refused ring is tried again. enabled false is the off switch."
   },
+  "workers": {
+    "passEnv": []
+  },
   "management": {
+    "autonomy": "pr",
     "auto_merge": true,
     "require_reviewer": true,
     "reviewer_providers": ["claude", "codex"]

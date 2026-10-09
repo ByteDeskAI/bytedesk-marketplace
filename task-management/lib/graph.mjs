@@ -11,7 +11,7 @@
  * same graph, because the store's whole thesis is "readable in a PR diff" and
  * GitHub renders Mermaid there.
  */
-import { RESOLVED, config, list, state, unresolvedForeign } from "./store.mjs";
+import { RESOLVED, config, foreignBlockers, list, state, unresolvedForeign } from "./store.mjs";
 import { agentReadiness } from "./completeness.mjs";
 import { claimant } from "./claims.mjs";
 import { paths } from "./paths.mjs";
@@ -117,6 +117,12 @@ export function why(id, p = paths()) {
   if (declared(task)) {
     reasons.push({ kind: "declared", blocking: true, text: `blocked by hand: ${task.blockedReason}` });
   }
+  // TM-381: a ticket on another board (`tm ticket --from-task`). This store cannot read that board,
+  // so the link itself is the blocker until the ticket's merge removes it (TM-359).
+  const foreign = foreignBlockers(task);
+  if (foreign.length) {
+    reasons.push({ kind: "cross-repo", blocking: true, text: `waiting on cross-repo ticket${foreign.length === 1 ? "" : "s"} ${foreign.join(", ")}` });
+  }
   const held = claimant(id, p);
   if (held && held.session && held.session !== sessionId()) {
     reasons.push({
@@ -217,7 +223,12 @@ export function renderWhy(w) {
   const out = [`${w.id}  ${w.title}`, `status: ${w.status}   startable: ${w.startable ? "yes" : "no"}`, ""];
   // The agent verdict prints alongside the blockers, marked `→` so it reads as a different kind of
   // statement: it never stops a person starting the task (TM-179).
-  const agent = w.readiness ? [`→ ${w.readiness.text}`] : [];
+  // A ready label on a task that cannot start yet means "ready once unblocked": say so, or the two
+  // lines contradict each other (the pool reads startability through nextTasks and skips it).
+  const verdict = w.readiness && w.readiness.ready && !w.readiness.human && !w.startable
+    ? "ready for an agent once its blockers clear — the pool skips it until then"
+    : w.readiness?.text;
+  const agent = w.readiness ? [`→ ${verdict}`] : [];
 
   if (!w.reasons.length) {
     return [...out, "nothing is holding this up — `.bytedesk/task-management/bin/tm start " + w.id + "`", ...agent].join("\n");

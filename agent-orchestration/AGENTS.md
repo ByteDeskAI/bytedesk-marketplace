@@ -15,10 +15,10 @@ commands.
 | Codex | `.codex-plugin/plugin.json`, `.codex-mcp.json`, `skills/` |
 | Codex custom agent | Explicitly installed template from `templates/codex-agents/` |
 | Grok Build | Same `.mcp.json` / `skills/` / `agents/` as Claude; `grok plugin install` this directory and trust it |
-| Kimi Code | `~/.kimi-code/mcp.json` plus skill/agent links from `skills/install-orchestration-host` |
+| Kimi Code | `~/.kimi-code/mcp.json` plus skill/agent links from `skills/setup-agent-orchestration` |
 
 A host remains itself: a Grok session that orchestrates is still Grok. Only an MCP provider execution
-changes the external model provider. Wire hosts with `skills/install-orchestration-host`.
+changes the external model provider. Wire hosts with `skills/setup-agent-orchestration`.
 
 
 ## tmux topology layer
@@ -50,10 +50,11 @@ keep `ao-topology schema`, the skills, and that document in sync.
 These names are compatibility contracts:
 
 - Discovery and routing: `orchestration_capabilities`, `orchestration_doctor`, `orchestration_route`, `orchestration_plan`
-- Lifecycle: `orchestration_spawn`, `orchestration_send`, `orchestration_wait`, `orchestration_status`, `orchestration_list`, `orchestration_events`
+- Lifecycle: `orchestration_spawn`, `orchestration_run_followup` (alias `orchestration_send`), `orchestration_run_wait` (alias `orchestration_wait`), `orchestration_status`, `orchestration_list`, `orchestration_events`
 - Control: `orchestration_cancel`, `orchestration_cleanup`
 - Approval: `orchestration_decision_get`, `orchestration_decision_approve`
-- Durable mail: `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`
+- Durable mail: `orchestration_mailbox_send`, `orchestration_mailbox_receive`, `orchestration_mailbox_list`, `orchestration_mailbox_dispose`, `orchestration_mailbox_wait`
+- Run mail and roles: `orchestration_run_mail_send`, `orchestration_run_mail_reply`, `orchestration_run_mail_wait`, `orchestration_lead_status`, `orchestration_session_handoff`
 - Goal feedback: `orchestration_goal_start`, `orchestration_goal_status`, `orchestration_goal_report`, `orchestration_goal_control`, `orchestration_goal_reconcile`
 
 Goal feedback uses the repository supervisor and standing lead, with Task Management as the
@@ -157,7 +158,7 @@ prior request, or a provider session. Reject missing, relative, nonexistent, or 
   and no path back to the source checkout.
 - No absolute symlinks, tracked `node_modules`, generated credentials, or mutable session data.
 - Ship `ROADMAP.md`, `ROADMAP-INVENTORY.json`, `ROADMAP-SOURCES.json`, `scripts/roadmap.mjs`, and
-  `skills/roadmap-orchestrator/` in clean
+  `skills/roadmap-governance/` in clean
   installed-cache copies without shipping the other development scripts.
 - Keep `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `package.json`, README, skills, and
   the MCP schemas synchronized when the public contract changes.
