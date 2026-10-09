@@ -43,3 +43,24 @@ describe('loadConfig transport', () => {
     expect(c.auth.kind).toBe('basic');
   });
 });
+
+describe('loadConfig lead mode', () => {
+  it('requires a project to scope it', () => {
+    expect(() => loadConfig({ ...BASE_ENV, TEAMCITY_MCP_MODE: 'lead' })).toThrow(/TEAMCITY_MCP_PROJECT/);
+  });
+
+  it('carries the project id', () => {
+    const c = loadConfig({ ...BASE_ENV, TEAMCITY_MCP_MODE: 'lead', TEAMCITY_MCP_PROJECT: 'ByteDesk_DS' });
+    expect(c).toMatchObject({ mode: 'lead', project: 'ByteDesk_DS' });
+  });
+
+  it('rejects a project that is not a plain id', () => {
+    expect(() =>
+      loadConfig({ ...BASE_ENV, TEAMCITY_MCP_MODE: 'lead', TEAMCITY_MCP_PROJECT: 'X),id:(Y' }),
+    ).toThrow(/project id/);
+  });
+
+  it('ignores a project outside lead mode', () => {
+    expect(loadConfig({ ...BASE_ENV, TEAMCITY_MCP_PROJECT: 'P' }).project).toBeUndefined();
+  });
+});

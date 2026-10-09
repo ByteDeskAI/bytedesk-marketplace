@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import { paginate } from '../teamcity/client.js';
 import { getBuildLog } from '../teamcity/logs.js';
+import type { TeamCityClient } from '../teamcity/client.js';
 import { FIELDS_HELP, handler, LOCATOR_HELP, type RegisterTools } from './util.js';
 
 const buildArg = z
@@ -19,7 +20,50 @@ const pageArgs = {
     .describe('Page through the whole collection (bounded by maxPages, hard cap 50).'),
 };
 
-export const register: RegisterTools = (server, client, mode) => {
+/** Deploy configurations stay operator-gated: refused by type or by name. */
+const DEPLOY_NAME = /deploy/i;
+
+/**
+ * Refuse unless buildTypeId is a non-deploy configuration inside `project` (or a subproject).
+ * The token's own TeamCity role is the real boundary; this keeps a lead off anything else
+ * even when the token is broader than it should be.
+ */
+export async function assertLeadMayTrigger(
+  client: TeamCityClient,
+  project: string,
+  buildTypeId: string,
+): Promise<void> {
+  if (!/^[A-Za-z0-9_]+$/.test(buildTypeId)) {
+    throw new Error(`Refused: "${buildTypeId}" is not a plain build configuration id`);
+  }
+  const found = (await client.get('buildTypes', {
+    locator: `id:${buildTypeId},affectedProject:(id:${project})`,
+    fields: 'count,buildType(id,name,type,settings(property(name,value)))',
+  })) as {
+    count?: number;
+    buildType?: Array<{
+      id: string;
+      name?: string;
+      type?: string;
+      settings?: { property?: Array<{ name: string; value: string }> };
+    }>;
+  };
+  const bt = found.buildType?.[0];
+  if (!found.count || !bt || bt.id !== buildTypeId) {
+    throw new Error(`Refused: ${buildTypeId} is not a build configuration of project ${project}`);
+  }
+  const kind = bt.settings?.property?.find((p) => p.name === 'buildConfigurationType')?.value;
+  if (
+    bt.type?.toLowerCase() === 'deployment' ||
+    kind?.toUpperCase() === 'DEPLOYMENT' ||
+    DEPLOY_NAME.test(bt.id) ||
+    DEPLOY_NAME.test(bt.name ?? '')
+  ) {
+    throw new Error(`Refused: ${buildTypeId} is a deploy configuration; deploys stay operator-gated`);
+  }
+}
+
+export const register: RegisterTools = (server, client, mode, project) => {
   server.registerTool(
     'list_builds',
     {
@@ -179,14 +223,18 @@ export const register: RegisterTools = (server, client, mode) => {
     }),
   );
 
-  if (mode !== 'full') return;
+  if (mode !== 'full' && mode !== 'lead') return;
+  const lead = mode === 'lead';
 
   server.registerTool(
     'trigger_build',
     {
       description:
         'Queue a new build for a build configuration. properties maps parameter names to values ' +
-        '(e.g. {"env.FOO":"bar"}); set queueAtTop to jump the queue.',
+        '(e.g. {"env.FOO":"bar"}); set queueAtTop to jump the queue.' +
+        (lead
+          ? ` Lead mode: only non-deploy configurations of project ${project} (or its subprojects).`
+          : ''),
       inputSchema: {
         buildTypeId: z.string().describe('Build configuration id, e.g. "MyProject_Build".'),
         branch: z.string().optional().describe('Branch name to build, e.g. "main".'),
@@ -200,8 +248,9 @@ export const register: RegisterTools = (server, client, mode) => {
           .describe('Build parameters, e.g. {"env.FOO":"bar","system.x":"y"}.'),
       },
     },
-    handler(async (args) =>
-      client.post('buildQueue', {
+    handler(async (args) => {
+      if (lead) await assertLeadMayTrigger(client, project!, args.buildTypeId);
+      return client.post('buildQueue', {
         buildType: { id: args.buildTypeId },
         ...(args.branch && { branchName: args.branch }),
         ...(args.personal !== undefined && { personal: args.personal }),
@@ -213,9 +262,11 @@ export const register: RegisterTools = (server, client, mode) => {
             property: Object.entries(args.properties).map(([name, value]) => ({ name, value })),
           },
         }),
-      }),
-    ),
+      });
+    }),
   );
+
+  if (lead) return;
 
   server.registerTool(
     'cancel_build',

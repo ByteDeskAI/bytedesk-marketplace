@@ -185,6 +185,12 @@ export async function recoverLead({ consumer, env = process.env, home = homedir(
       return active ? failure("kept-unresponsive", "TOPOLOGY_LEAD_UNRESPONSIVE: the lead is alive but did not acknowledge a probe; it is left running and untouched")
         : neutral("kept-unresponsive");
     }
+    // TM-478: the probe never reached the lead, so nothing is known about it. Retried on the same
+    // backoff, but never reported as an unresponsive lead.
+    if (observed.status === "unproven") {
+      return active ? failure("kept-unproven", `TOPOLOGY_LEAD_UNPROVEN: the lead is alive but the probe did not reach it (${observed.reason ?? "not delivered"}); it is left running and untouched`)
+        : neutral("kept-unproven");
+    }
     if (observed.status === "registered" && (!observed.record.managed || observed.record.externally_owned)) return heldExternal(observed.record);
     // Missing, or dead and managed. ensureLead re-reads the record and re-observes the incarnation
     // under the registration lock; only if it is still gone does anything open.

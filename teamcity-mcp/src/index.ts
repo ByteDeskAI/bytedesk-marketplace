@@ -103,7 +103,7 @@ function startHttp(config: Config, serverClient: TeamCityClient): void {
       if (config.stateless) {
         // No session: dedicated server+transport, torn down with the response.
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        const server = createMcpServer(client, config.mode);
+        const server = createMcpServer(client, config.mode, config.project);
         res.on('close', () => {
           transport.close().catch(() => {});
           server.close().catch(() => {});
@@ -124,7 +124,7 @@ function startHttp(config: Config, serverClient: TeamCityClient): void {
       transport.onclose = () => {
         if (transport.sessionId) transports.delete(transport.sessionId);
       };
-      const server = createMcpServer(client, config.mode);
+      const server = createMcpServer(client, config.mode, config.project);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
@@ -169,10 +169,10 @@ async function main(): Promise<void> {
 
   if (transport === 'stdio') {
     // JSON-RPC owns stdout: all diagnostics go to stderr.
-    const server = createMcpServer(client, config.mode);
+    const server = createMcpServer(client, config.mode, config.project);
     await server.connect(new StdioServerTransport());
     console.error(
-      `teamcity-mcp stdio ready (mode=${config.mode}, teamcity=${config.teamcityUrl}, auth=${config.auth.kind})`,
+      `teamcity-mcp stdio ready (mode=${config.mode}${config.project ? `, project=${config.project}` : ''}, teamcity=${config.teamcityUrl}, auth=${config.auth.kind})`,
     );
     return;
   }

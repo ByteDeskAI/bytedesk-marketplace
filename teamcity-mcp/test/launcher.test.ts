@@ -15,6 +15,7 @@ describe('teamcity-mcp launcher', () => {
   it.each([
     ['full', 71],
     ['read', 37],
+    ['lead', 38],
   ] as const)('runs the committed bundle in %s mode with %d tools', async (mode, expectedCount) => {
     const child = spawn(join(process.cwd(), 'bin', 'teamcity-mcp'), ['--stdio'], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -23,6 +24,7 @@ describe('teamcity-mcp launcher', () => {
         TEAMCITY_URL: 'https://teamcity.invalid',
         TEAMCITY_TOKEN: 'test-token',
         TEAMCITY_MCP_MODE: mode,
+        TEAMCITY_MCP_PROJECT: 'ByteDesk_Test',
         TEAMCITY_MCP_ENV: join(tmpdir(), 'teamcity-mcp-missing-env'),
       },
     });
@@ -50,7 +52,7 @@ describe('teamcity-mcp launcher', () => {
         clientInfo: { name: 'launcher-test', version: '1' },
       });
       expect(initialized).not.toHaveProperty('error');
-      expect(initialized).toMatchObject({ result: { serverInfo: { version: '0.2.0' } } });
+      expect(initialized).toMatchObject({ result: { serverInfo: { version: '0.3.0' } } });
       child.stdin.write(
         `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`,
       );
@@ -129,5 +131,51 @@ describe('teamcity-mcp launcher', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('shipped bundle is missing');
     expect(result.stderr).toContain('reinstall the plugin');
+  });
+
+  it('loads a per-repository profile instead of the user env, from the main checkout or a worktree', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'teamcity-mcp-launcher-'));
+    temporaryRoots.push(root);
+
+    const pluginRoot = join(root, 'plugin');
+    const config = join(root, '.config', 'teamcity-mcp');
+    const repo = join(root, 'design-system');
+    const elsewhere = join(root, 'other-repo');
+    await Promise.all([
+      mkdir(join(pluginRoot, 'bin'), { recursive: true }),
+      mkdir(join(pluginRoot, 'dist'), { recursive: true }),
+      mkdir(join(config, 'repos'), { recursive: true }),
+      mkdir(repo, { recursive: true }),
+      mkdir(elsewhere, { recursive: true }),
+    ]);
+    await cp(join(process.cwd(), 'bin', 'teamcity-mcp'), join(pluginRoot, 'bin', 'teamcity-mcp'));
+    await chmod(join(pluginRoot, 'bin', 'teamcity-mcp'), 0o755);
+    await writeFile(
+      join(pluginRoot, 'dist', 'bundle.cjs'),
+      "process.stdout.write([process.env.TEAMCITY_TOKEN, process.env.TEAMCITY_MCP_MODE, process.env.TEAMCITY_MCP_PROJECT].join(' '));\n",
+    );
+    await writeFile(join(config, 'env'), 'TEAMCITY_TOKEN=operator-full\n');
+    await writeFile(
+      join(config, 'repos', 'design-system.env'),
+      'TEAMCITY_TOKEN=lead-scoped\nTEAMCITY_MCP_MODE=lead\nTEAMCITY_MCP_PROJECT=ByteDesk_DesignSystem\n',
+    );
+    const git = (cwd: string, ...args: string[]) =>
+      expect(spawnSync('git', args, { cwd, encoding: 'utf8' }).status).toBe(0);
+    git(repo, 'init', '-q');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x');
+    git(repo, 'worktree', 'add', '-q', join(root, 'wt'));
+    git(elsewhere, 'init', '-q');
+
+    const run = (cwd: string) =>
+      spawnSync(join(pluginRoot, 'bin', 'teamcity-mcp'), ['--probe'], {
+        cwd,
+        encoding: 'utf8',
+        env: { HOME: root, PATH: `${dirname(process.execPath)}:/usr/bin:/bin` },
+      }).stdout;
+
+    expect(run(repo)).toBe('lead-scoped lead ByteDesk_DesignSystem');
+    expect(run(join(root, 'wt'))).toBe('lead-scoped lead ByteDesk_DesignSystem');
+    expect(run(elsewhere)).toBe('operator-full  ');
+    expect(run(root)).toBe('operator-full  ');
   });
 });

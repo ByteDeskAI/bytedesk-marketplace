@@ -41850,7 +41850,8 @@ var envSchema = external_exports.object({
   TEAMCITY_USERNAME: external_exports.string().optional(),
   TEAMCITY_PASSWORD: external_exports.string().optional(),
   TEAMCITY_PER_REQUEST_AUTH: external_exports.string().optional(),
-  TEAMCITY_MCP_MODE: external_exports.enum(["full", "read"]).optional(),
+  TEAMCITY_MCP_MODE: external_exports.enum(["full", "read", "lead"]).optional(),
+  TEAMCITY_MCP_PROJECT: external_exports.string().regex(/^[A-Za-z0-9_]+$/, "TEAMCITY_MCP_PROJECT must be a TeamCity project id").optional(),
   HOST: external_exports.string().optional(),
   PORT: external_exports.string().optional(),
   MCP_AUTH_TOKEN: external_exports.string().optional(),
@@ -41882,6 +41883,10 @@ function loadConfig(env = process.env) {
       "Set TEAMCITY_TOKEN, or TEAMCITY_USERNAME + TEAMCITY_PASSWORD, or enable TEAMCITY_PER_REQUEST_AUTH=true"
     );
   }
+  const mode = parsed.TEAMCITY_MCP_MODE ?? "full";
+  if (mode === "lead" && !parsed.TEAMCITY_MCP_PROJECT) {
+    throw new Error("TEAMCITY_MCP_MODE=lead requires TEAMCITY_MCP_PROJECT (the project id it may trigger in)");
+  }
   const host = parsed.HOST ?? "127.0.0.1";
   const mcpAuthToken = parsed.MCP_AUTH_TOKEN;
   if (transport === "http" && !LOOPBACK.has(host) && !mcpAuthToken) {
@@ -41893,7 +41898,8 @@ function loadConfig(env = process.env) {
     teamcityUrl: parsed.TEAMCITY_URL.replace(/\/+$/, ""),
     auth,
     perRequestAuth,
-    mode: parsed.TEAMCITY_MCP_MODE ?? "full",
+    mode,
+    project: mode === "lead" ? parsed.TEAMCITY_MCP_PROJECT : void 0,
     transport,
     host,
     port: parsed.PORT ? Number(parsed.PORT) : 3e3,
@@ -46242,7 +46248,25 @@ var pageArgs = {
   maxPages: external_exports.number().int().optional().describe("Max pages to fetch (default 1)."),
   all: external_exports.boolean().optional().describe("Page through the whole collection (bounded by maxPages, hard cap 50).")
 };
-var register = (server, client, mode) => {
+var DEPLOY_NAME = /deploy/i;
+async function assertLeadMayTrigger(client, project, buildTypeId) {
+  if (!/^[A-Za-z0-9_]+$/.test(buildTypeId)) {
+    throw new Error(`Refused: "${buildTypeId}" is not a plain build configuration id`);
+  }
+  const found = await client.get("buildTypes", {
+    locator: `id:${buildTypeId},affectedProject:(id:${project})`,
+    fields: "count,buildType(id,name,type,settings(property(name,value)))"
+  });
+  const bt = found.buildType?.[0];
+  if (!found.count || !bt || bt.id !== buildTypeId) {
+    throw new Error(`Refused: ${buildTypeId} is not a build configuration of project ${project}`);
+  }
+  const kind = bt.settings?.property?.find((p) => p.name === "buildConfigurationType")?.value;
+  if (bt.type?.toLowerCase() === "deployment" || kind?.toUpperCase() === "DEPLOYMENT" || DEPLOY_NAME.test(bt.id) || DEPLOY_NAME.test(bt.name ?? "")) {
+    throw new Error(`Refused: ${buildTypeId} is a deploy configuration; deploys stay operator-gated`);
+  }
+}
+var register = (server, client, mode, project) => {
   server.registerTool(
     "list_builds",
     {
@@ -46355,11 +46379,12 @@ var register = (server, client, mode) => {
       };
     })
   );
-  if (mode !== "full") return;
+  if (mode !== "full" && mode !== "lead") return;
+  const lead = mode === "lead";
   server.registerTool(
     "trigger_build",
     {
-      description: 'Queue a new build for a build configuration. properties maps parameter names to values (e.g. {"env.FOO":"bar"}); set queueAtTop to jump the queue.',
+      description: 'Queue a new build for a build configuration. properties maps parameter names to values (e.g. {"env.FOO":"bar"}); set queueAtTop to jump the queue.' + (lead ? ` Lead mode: only non-deploy configurations of project ${project} (or its subprojects).` : ""),
       inputSchema: {
         buildTypeId: external_exports.string().describe('Build configuration id, e.g. "MyProject_Build".'),
         branch: external_exports.string().optional().describe('Branch name to build, e.g. "main".'),
@@ -46370,8 +46395,9 @@ var register = (server, client, mode) => {
         properties: external_exports.record(external_exports.string()).optional().describe('Build parameters, e.g. {"env.FOO":"bar","system.x":"y"}.')
       }
     },
-    handler(
-      async (args) => client.post("buildQueue", {
+    handler(async (args) => {
+      if (lead) await assertLeadMayTrigger(client, project, args.buildTypeId);
+      return client.post("buildQueue", {
         buildType: { id: args.buildTypeId },
         ...args.branch && { branchName: args.branch },
         ...args.personal !== void 0 && { personal: args.personal },
@@ -46383,9 +46409,10 @@ var register = (server, client, mode) => {
             property: Object.entries(args.properties).map(([name, value]) => ({ name, value }))
           }
         }
-      })
-    )
+      });
+    })
   );
+  if (lead) return;
   server.registerTool(
     "cancel_build",
     {
@@ -48141,12 +48168,12 @@ var REGISTRARS = [
   register12,
   register13
 ];
-function createMcpServer(client, mode) {
+function createMcpServer(client, mode, project) {
   const server = new McpServer(
-    { name: "teamcity-mcp", version: "0.2.0" },
+    { name: "teamcity-mcp", version: "0.3.0" },
     { capabilities: { tools: {} } }
   );
-  for (const register14 of REGISTRARS) register14(server, client, mode);
+  for (const register14 of REGISTRARS) register14(server, client, mode, project);
   return server;
 }
 
@@ -48220,7 +48247,7 @@ function startHttp(config2, serverClient) {
       const client = await clientFor(req);
       if (config2.stateless) {
         const transport2 = new StreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
-        const server2 = createMcpServer(client, config2.mode);
+        const server2 = createMcpServer(client, config2.mode, config2.project);
         res.on("close", () => {
           transport2.close().catch(() => {
           });
@@ -48242,7 +48269,7 @@ function startHttp(config2, serverClient) {
       transport.onclose = () => {
         if (transport.sessionId) transports.delete(transport.sessionId);
       };
-      const server = createMcpServer(client, config2.mode);
+      const server = createMcpServer(client, config2.mode, config2.project);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
@@ -48281,10 +48308,10 @@ async function main() {
   const transport = process.argv.includes("--stdio") ? "stdio" : config2.transport;
   const client = new TeamCityClient(config2.teamcityUrl, config2.auth);
   if (transport === "stdio") {
-    const server = createMcpServer(client, config2.mode);
+    const server = createMcpServer(client, config2.mode, config2.project);
     await server.connect(new StdioServerTransport());
     console.error(
-      `teamcity-mcp stdio ready (mode=${config2.mode}, teamcity=${config2.teamcityUrl}, auth=${config2.auth.kind})`
+      `teamcity-mcp stdio ready (mode=${config2.mode}${config2.project ? `, project=${config2.project}` : ""}, teamcity=${config2.teamcityUrl}, auth=${config2.auth.kind})`
     );
     return;
   }
