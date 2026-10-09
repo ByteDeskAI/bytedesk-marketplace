@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-09
+
 ### Security
 
 - **A worker can no longer submit or record the reviewer's verdict by naming the reviewer (TM-427, EP-028).**
