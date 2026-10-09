@@ -155,7 +155,7 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
   const tmuxDir = join(base, 'tmux');
   await mkdir(tmuxDir, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxDir,
-    AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'),
+    AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'), HOME: join(base, 'home'),
     // Reconcile on every tick, and give a probe four seconds rather than a model turn's thirty.
     AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000' };
   for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION']) delete env[key];
@@ -177,8 +177,10 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
     const home = join(repo, '.bytedesk', 'agent-orchestration');
     // Git repositories are enrolled by default, so an unenrolled one opts out explicitly.
     if (!enrolled.includes(name)) { await writeJson(join(home, 'config.json'), { enabled: false }); continue; }
-    await mkdir(join(home, 'providers'), { recursive: true });
-    await copyFile(join(fixtures, 'fake-agent.json'), join(home, 'providers', 'fake-agent.json'));
+    await mkdir(home, { recursive: true });
+    // TM-467: providers load only from the user's config or the plugin, never the repository.
+    await mkdir(join(base, 'home', '.config', 'agent-orchestration', 'providers'), { recursive: true });
+    await copyFile(join(fixtures, 'fake-agent.json'), join(base, 'home', '.config', 'agent-orchestration', 'providers', 'fake-agent.json'));
     // A template must name a prompt; relative paths resolve beside this config file.
     await writeFile(join(home, 'fake-lead.md'), 'You are a test lead. Answer nonce probes with ao-topology lead ack.\n');
     // Enrolled explicitly, not merely by the lead registration `lead ensure` writes below, so the

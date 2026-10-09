@@ -98,7 +98,7 @@ test('concurrent session starts across linked worktrees converge on one supervis
   const tmuxDir = join(base, 'tmux');
   await mkdir(tmuxDir, { recursive: true });
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxDir,
-    AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'),
+    AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'), HOME: join(base, 'home'),
     AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000', AO_TRANSPORT: 'file' };
   for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION']) delete env[key];
   const stop = new AbortController();
@@ -118,8 +118,10 @@ test('concurrent session starts across linked worktrees converge on one supervis
   await execFile('git', ['init', '-q', repo]);
   await execFile('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init']);
   const home = join(repo, '.bytedesk', 'agent-orchestration');
-  await mkdir(join(home, 'providers'), { recursive: true });
-  await copyFile(join(fixtures, 'fake-agent.json'), join(home, 'providers', 'fake-agent.json'));
+  await mkdir(home, { recursive: true });
+  // TM-467: providers load only from the user's config or the plugin, never the repository.
+  await mkdir(join(base, 'home', '.config', 'agent-orchestration', 'providers'), { recursive: true });
+  await copyFile(join(fixtures, 'fake-agent.json'), join(base, 'home', '.config', 'agent-orchestration', 'providers', 'fake-agent.json'));
   await writeFile(join(home, 'fake-lead.md'), 'You are a test lead. Answer nonce probes with ao-topology lead ack.\n');
   await writeJson(join(home, 'config.json'), { enabled: true, lead: { template: 'fake-lead' },
     templates: { 'fake-lead': { role: 'lead', cli: 'fake-agent', model: 'fake', prompt: './fake-lead.md', args: [join(fixtures, 'fake-agent.mjs')] } } });
