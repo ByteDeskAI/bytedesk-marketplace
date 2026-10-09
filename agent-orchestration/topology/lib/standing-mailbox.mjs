@@ -378,12 +378,28 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
  * claimed agent or repository that differs is refused, so naming another agent cannot impersonate
  * it. Host-local protocol enforcement, as for replies: not isolation from a user who rewrites their
  * own environment.
+ *
+ * TM-462B: the host's own senders are never a session's to claim, from any process; host code sends
+ * as them by calling sendStandingMessage in process. A caller claiming to be this repository's lead
+ * must prove it (requireLeadCaller: census-bound live pane, lead pane pid an ancestor). A lead with
+ * no AO_AGENT_ID is named from its census binding, as manage does (TM-243).
  */
-export async function sessionIdentity({ env = process.env, agent = null, consumer = null } = {}) {
+// Literal rather than nats-outage's SUPERVISOR_SENDER: that module imports this one.
+export const RESERVED_SENDERS = Object.freeze(new Set(['ao-supervisor', 'ao-management', 'tm-dispatch']));
+
+export async function sessionIdentity({ env = process.env, agent = null, consumer = null, home = homedir(), listPanesFn, readCensusFn, callerProc = {} } = {}) {
   // TM-353: a launcher identity (AO_AGENT_ID) wins; otherwise the identity SessionStart minted.
-  const caller = callerIdentity(env);
+  let caller = callerIdentity(env);
+  const { bindingAgentId, requireLeadCaller } = await import('./delegation.mjs');
+  if (!env.AO_AGENT_ID) {
+    const repo = caller?.consumer ?? consumer ?? null;
+    const bound = repo ? await bindingAgentId({ consumer: repo, env, home, listPanesFn, readCensusFn }).catch(() => null) : null;
+    if (bound) caller = { agentId: bound, consumer: repo, source: 'census' };
+  }
   invariant(caller?.agentId && caller?.consumer, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED',
     'source_identity_required: this session has no agent-orchestration identity (neither AO_AGENT_ID/AO_CONSUMER from a launcher nor the session identity minted at SessionStart), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Nothing was done.');
+  invariant(!RESERVED_SENDERS.has(caller.agentId) && !RESERVED_SENDERS.has(agent), 'TOPOLOGY_SENDER_RESERVED',
+    `${RESERVED_SENDERS.has(agent) ? agent : caller.agentId} is a host sender; no session can act as it. Nothing was done.`);
   invariant(agent === null || agent === undefined || agent === caller.agentId, 'TOPOLOGY_SENDER_MISMATCH',
     `This session is ${caller.agentId}; it cannot act as ${JSON.stringify(agent)}. Drop the explicit sender, or run as that agent. Nothing was done.`);
   if (consumer !== null && consumer !== undefined) {
@@ -391,6 +407,7 @@ export async function sessionIdentity({ env = process.env, agent = null, consume
     invariant(mine.id === claimed.id, 'TOPOLOGY_SENDER_MISMATCH',
       `This session belongs to ${caller.consumer}; it cannot act for ${consumer}. Nothing was done.`);
   }
+  await requireLeadCaller({ consumer: caller.consumer, agentId: caller.agentId, env, home, listPanesFn, readCensusFn, callerProc });
   return { agent: caller.agentId, consumer: resolve(caller.consumer), source: caller.source };
 }
 

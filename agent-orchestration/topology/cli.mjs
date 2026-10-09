@@ -168,9 +168,6 @@ Standing repository services
   mailbox send ... --dry-run          resolve, route and print the would-be envelope; writes and publishes nothing
   mailbox send|send --to-repo <path|slug> (or --to lead@<path|slug>)   address that repository's registered lead
   mailbox send|send --to @all-leads [--max-recipients <n>]           every registered repository's lead but the sender (limit 24)
-  review submit <request-nonce> --verdict approve|changes_requested|blocked [--findings @file.json]
-                                               the reviewer's verdict as a durable record (TM-365);
-                                               the restricted reviewer uses its review_submit tool
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage close --task <TM-id> [--landed <sha> --reason <text>]   record the landing if none, stop the
@@ -757,25 +754,14 @@ const commands = {
   },
   async review({ flags, positional }) {
     const sub = positional[0];
+    // TM-427: there is no shell verdict channel. A verdict comes only from the reviewer's review_submit
+    // MCP tool, whose server runs inside the reviewer pane; refused before any transport is opened.
+    invariant(sub !== 'submit', 'TOPOLOGY_REVIEWER_IDENTITY', 'review submit is removed: the reviewer submits its verdict only through its review_submit MCP tool.');
     const ctx = context(flags);
     const { publishReviewerVerdict, listenForReviewer, readReviewerRecord, reviewerProbeReady, awaitReviewerVerdict } = await import('./lib/reviewer.mjs');
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     const transport = await selectLiveTransport({ env: process.env });
     try {
-      if (sub === 'submit') {
-        // TM-365: the reviewer's verdict as a durable record, never a pane line. The restricted
-        // reviewer calls the same function through its review_submit MCP tool.
-        const { submitReviewVerdict } = await import('./lib/reviewer.mjs');
-        const request = positional[1] ?? (flags.nonce && flags.nonce !== true ? String(flags.nonce) : null);
-        invariant(request, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review submit <request-nonce> --verdict approve|changes_requested|blocked --findings @file.json.');
-        const verdict = flags.verdict === 'changes' ? 'changes_requested' : flags.verdict;
-        let findings = [];
-        if (flags.findings && flags.findings !== true) {
-          const text = String(flags.findings);
-          findings = text.startsWith('@') ? await readJson(absolutize(text.slice(1))) : JSON.parse(text);
-        }
-        return out(await submitReviewVerdict({ consumer: flags.consumer || !process.env.AO_CONSUMER ? ctx.consumer : process.env.AO_CONSUMER, request, verdict, findings, env: process.env, home: ctx.home, transport }));
-      }
       if (sub === 'publish') {
         const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
         invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --response <b64:...|json>.');
@@ -835,7 +821,7 @@ const commands = {
         const received = await waiting.received;
         return out({ ok: true, subject: received.subject, body: received.body, via: received.via, transport: transport.kind });
       }
-      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review submit|publish|listen|probe|await.');
+      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review publish|listen|probe|await.');
     } finally { await closeLiveTransports(); }
   },
   async enrollment({ flags, positional }) {
@@ -1678,17 +1664,19 @@ const commands = {
     const run = await loadRun(runDir);
     // TM-462: a sender that is NAMED is checked by the same sessionIdentity() as `mailbox send`, so
     // `--from ao-supervisor --from-project /other` is refused rather than delivered as standing mail.
-    // Unnamed, the launcher defaults stand (part B, the env-trust itself, is TM-427's).
+    // TM-462B: unnamed, the sender is STILL this session's proven identity, never the raw env
+    // (AO_AGENT_ID || 'operator', AO_CONSUMER). Only a session with no identity at all sends as operator.
     const claimed = flags.from !== undefined || flags["from-project"] !== undefined;
-    const sender = claimed ? await (await import("./lib/standing-mailbox.mjs")).sessionIdentity({ env: process.env,
+    const { callerIdentity } = await import("./lib/session-identity.mjs");
+    const sender = claimed || callerIdentity(process.env) ? await (await import("./lib/standing-mailbox.mjs")).sessionIdentity({ env: process.env,
       agent: flags.from === undefined ? null : String(flags.from),
       consumer: flags["from-project"] === undefined ? null : absolutize(String(flags["from-project"])) }) : null;
-    const from = sender?.agent ?? (process.env.AO_AGENT_ID || "operator");
+    const from = sender?.agent ?? "operator";
     const stage = flags.stage && flags.stage !== true ? String(flags.stage) : "message";
     invariant(/^[a-z][a-z0-9-]{0,39}$/.test(stage), "TOPOLOGY_STAGE_INVALID", "--stage must be a lowercase slug.");
     const body = await bodyFrom(flags);
     const ctx = context(flags);
-    const fromProject = sender ? sender.consumer : process.env.AO_CONSUMER || null;
+    const fromProject = sender ? sender.consumer : null;
     const task = flags.task && flags.task !== true ? String(flags.task) : null;
     // The receiving repo is the one the RUN belongs to, recorded in run.json at launch — never the
     // caller's cwd. An agent sends from its own agent directory (its cwd is what scopes its memory),

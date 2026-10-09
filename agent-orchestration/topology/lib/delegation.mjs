@@ -21,7 +21,7 @@ import { readCensus } from './census.mjs';
 import { ancestorPids } from './heartbeat.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
-import { callerRunsInPane, resolveBinding, sameBinding } from './slots.mjs';
+import { requireCallerInPane, resolveBinding, sameBinding } from './slots.mjs';
 import { listServerPanes } from './tmux.mjs';
 import { fail, invariant, nowIso, parseDuration, readJson, writeJson } from './util.mjs';
 
@@ -247,11 +247,7 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
   invariant(!recorded || recorded.binding.panePid === here.panePid, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} now runs pane_pid ${here.panePid}, not the ${recorded?.binding?.panePid} the census recorded for ${grantee}; a different incarnation holds that pane.`);
   const bound = agents.find(a => sameBinding(here, a.binding));
   invariant(bound?.agentId === grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} is bound to ${bound ? `agent ${bound.agentId}` : 'no agent in this repository\'s census'}, not to the grantee ${grantee}; AO_AGENT_ID alone does not prove identity.`);
-  let inPane;
-  try { inPane = await callerRunsInPane(here, callerProc); }
-  catch (error) { fail('TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting TMUX_PANE.`); }
-  invariant(inPane, 'TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
-  return here;
+  return requireCallerInPane(here, { code: 'TOPOLOGY_DELEGATION_ACTOR', what: 'the grantee', callerProc });
 }
 
 /** TM-263 (ADR-0027): the caller proven to BE this repository's own lead (findLead over the
@@ -259,9 +255,11 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
  * another agent, or no lead). A caller naming the lead must pass requireGranteeCaller's proof,
  * unchanged: its live pane is census-bound to the lead and the lead's pane process is its ancestor;
  * otherwise TOPOLOGY_DELEGATION_ACTOR. A dispatched worker is refused by name even in the lead's pane. */
-export async function requireLeadCaller({ consumer, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
+export async function requireLeadCaller({ consumer, agentId = undefined, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
   const lead = await findLead(agentDirs({ consumer })).catch(() => null);
-  if (!lead?.id || env.AO_AGENT_ID !== lead.id) return null;
+  // TM-462B: `agentId` is the id the caller CLAIMS (a census binding, a session identity); it is
+  // proven below exactly as AO_AGENT_ID is, so a caller cannot dodge the proof by naming itself elsewhere.
+  if (!lead?.id || (agentId === undefined ? env.AO_AGENT_ID : agentId) !== lead.id) return null;
   invariant(!env.TM_DISPATCH_WORKER, 'TOPOLOGY_DELEGATION_ACTOR', `A dispatched worker session (TM_DISPATCH_WORKER) is never the repository lead ${lead.id}.`);
   await requireGranteeCaller({ consumer, grantee: lead.id, env, home, listPanesFn, readCensusFn, callerProc });
   return lead.id;

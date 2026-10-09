@@ -28708,6 +28708,7 @@ __export(reviewer_exports, {
   readySignalOnScreen: () => readySignalOnScreen,
   recordReview: () => recordReview,
   requestReview: () => requestReview,
+  requireReviewerCaller: () => requireReviewerCaller,
   requiredCheckNames: () => requiredCheckNames,
   restartReviewer: () => restartReviewer,
   reviewEligibility: () => reviewEligibility,
@@ -28951,13 +28952,18 @@ async function defaultWake({ consumer, record: record2, nonce, env, home, adapte
     text: `AO_PROBE ${nonce} \u2014 you are being asked to prove you are listening. Reply with exactly: AO_REVIEWER_READY ${nonce}`
   });
 }
-async function reviewerNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os18.homedir)(), alive: alive3 = bindingAlive }) {
+async function reviewerNonceAck({ consumer, nonce, env = process.env, home = (0, import_node_os18.homedir)(), alive: alive3 = bindingAlive, callerProc = {} }) {
   invariant2(/^[a-f0-9-]{36}$/.test(String(nonce)), "TOPOLOGY_REVIEWER_NONCE", "Invalid reviewer nonce.");
   const dir = (0, import_node_path44.join)(await reviewerInboxRoot(consumer, env, home), "probes");
   const probe = await readJson3((0, import_node_path44.join)(dir, `${nonce}.json`));
   const record2 = await readReviewerRecord(consumer, env, home);
   const identity = await canonicalRepoId(consumer);
-  invariant2(record2 && probe.repo_id === identity.id && probe.agent_id === record2.agent_id && env.AO_AGENT_ID === record2.agent_id && probe.nonce === nonce && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive3(record2), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  invariant2(record2 && probe.repo_id === identity.id && probe.agent_id === record2.agent_id && probe.nonce === nonce && probe.session === record2.session && sameIncarnation(probe.binding, record2.binding) && probe.expires_at >= Date.now() && await alive3(record2), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  try {
+    await requireReviewerCaller(record2, { alive: alive3, callerProc });
+  } catch (error51) {
+    fail("TOPOLOGY_REVIEWER_ACK_OWNER", `Only the designated reviewer can acknowledge its current unexpired challenge: ${error51.message}`);
+  }
   await writeJson((0, import_node_path44.join)(dir, `${nonce}.ack.json`), { ...probe, acknowledged_at: nowIso() });
   return { ok: true, nonce };
 }
@@ -29860,27 +29866,26 @@ async function verdictKey(env, home, create = false) {
   });
   return (0, import_promises34.readFile)(path3);
 }
+async function requireReviewerCaller(record2, { alive: alive3 = bindingAlive, callerProc = {} } = {}) {
+  invariant2(record2?.agent_id && incarnationOf(record2.binding) && await alive3(record2), "TOPOLOGY_REVIEWER_IDENTITY", "No live designated reviewer pane to prove the caller against.");
+  return requireCallerInPane(record2.binding, { code: "TOPOLOGY_REVIEWER_IDENTITY", what: `reviewer ${record2.agent_id}`, callerProc });
+}
 async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = (0, import_node_os18.homedir)(), transport = null, alive: alive3 = bindingAlive, callerProc = {} }) {
   const { request, path: path3 } = await findReviewRequest(consumer, id, env, home);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const current = await readJson3(path3);
     const record2 = await readReviewerRecord(consumer, env, home);
     invariant2(
-      record2 && env.AO_AGENT_ID === record2.agent_id && current.reviewer_id === record2.agent_id && sameIncarnation(current.binding, record2.binding) && await alive3(record2),
+      record2 && current.reviewer_id === record2.agent_id && sameIncarnation(current.binding, record2.binding),
       "TOPOLOGY_REVIEWER_IDENTITY",
       "Only the designated reviewer, at the incarnation the request was sent to, can submit its verdict."
     );
-    let inPane = false;
-    try {
-      inPane = await callerRunsInPane(record2.binding, callerProc);
-    } catch {
-    }
-    invariant2(inPane, "TOPOLOGY_REVIEWER_IDENTITY", `Only a process running in the reviewer's pane can submit its verdict: pane ${record2.binding?.paneId ?? "?"}'s process ${record2.binding?.panePid ?? "?"} is not an ancestor of this process (or ancestry is unreadable); AO_AGENT_ID alone does not prove identity.`);
+    await requireReviewerCaller(record2, { alive: alive3, callerProc });
     invariant2(current.nonce === request.nonce && !current.collected_at, "TOPOLOGY_REVIEWER_RESPONSE", "This review request was already collected; its verdict cannot change.");
     invariant2(current.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request failed (${current.failure?.reason ?? "no reason recorded"}); the lead must request the review again.`);
     invariant2(VERDICTS.has(verdict), "TOPOLOGY_REVIEWER_VERDICT", `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}.`);
     const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision), current.checks_unsatisfied ?? []);
-    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
+    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso(), submitter_pid: callerProc.pid ?? process.pid };
     submitted.seal = (await sealVerdict(submitted, env, home)).seal;
     submitted.mirror = await mirrorVerdict({ consumer, record: record2, submitted, env, transport });
     await writeJson(verdictPath(path3), submitted);
@@ -29928,7 +29933,7 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     invariant2(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review packet changed after the request.");
     const submitted = await readSubmittedVerdict(path3, request, env, home);
     invariant2(submitted || sameIncarnation(request.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed after the request; queue a new independent review.");
-    invariant2(submitted, "TOPOLOGY_REVIEWER_NO_VERDICT", `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
+    invariant2(submitted, "TOPOLOGY_REVIEWER_NO_VERDICT", `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool.`, { nonce: request.nonce });
     let review;
     try {
       invariant2(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), "TOPOLOGY_REVIEWER_IDENTITY", "The submitted verdict is not bound to the reviewer incarnation the request was sent to.");
@@ -30089,7 +30094,7 @@ var init_reviewer = __esm({
     B64_PREFIX = "b64:";
     verdictPath = (requestPath) => (0, import_node_path44.join)((0, import_node_path44.dirname)((0, import_node_path44.dirname)(requestPath)), "verdicts", (0, import_node_path44.basename)(requestPath));
     verdictKeyPath = (env, home) => (0, import_node_path44.join)(reviewersRoot(env, home), "verdict.key");
-    SEALED_FIELDS = ["nonce", "task", "revision", "reviewer_id", "binding", "verdict", "findings", "submitted_at"];
+    SEALED_FIELDS = ["nonce", "task", "revision", "reviewer_id", "binding", "verdict", "findings", "submitted_at", "submitter_pid"];
     verdictSeal = (key, submitted) => (0, import_node_crypto22.createHmac)("sha256", key).update(JSON.stringify(SEALED_FIELDS.map((field) => submitted[field] ?? null))).digest("hex");
     sealVerdict = async (submitted, env = process.env, home = (0, import_node_os18.homedir)()) => ({ ...submitted, seal: verdictSeal(await verdictKey(env, home, true), submitted) });
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
@@ -34478,18 +34483,11 @@ async function requireGranteeCaller({ consumer, grantee, env = process.env, home
   invariant2(!recorded || recorded.binding.panePid === here.panePid, "TOPOLOGY_DELEGATION_ACTOR", `Pane ${here.paneId} now runs pane_pid ${here.panePid}, not the ${recorded?.binding?.panePid} the census recorded for ${grantee}; a different incarnation holds that pane.`);
   const bound = agents.find((a) => sameBinding(here, a.binding));
   invariant2(bound?.agentId === grantee, "TOPOLOGY_DELEGATION_ACTOR", `Pane ${here.paneId} is bound to ${bound ? `agent ${bound.agentId}` : "no agent in this repository's census"}, not to the grantee ${grantee}; AO_AGENT_ID alone does not prove identity.`);
-  let inPane;
-  try {
-    inPane = await callerRunsInPane(here, callerProc);
-  } catch (error51) {
-    fail("TOPOLOGY_DELEGATION_ACTOR", `Cannot prove the caller runs in the grantee's pane: process ancestry is unreadable (${error51.code || error51.message}); refusing rather than trusting TMUX_PANE.`);
-  }
-  invariant2(inPane, "TOPOLOGY_DELEGATION_ACTOR", `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
-  return here;
+  return requireCallerInPane(here, { code: "TOPOLOGY_DELEGATION_ACTOR", what: "the grantee", callerProc });
 }
-async function requireLeadCaller({ consumer, env = process.env, home = (0, import_node_os27.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
+async function requireLeadCaller({ consumer, agentId = void 0, env = process.env, home = (0, import_node_os27.homedir)(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
   const lead = await findLead(agentDirs({ consumer })).catch(() => null);
-  if (!lead?.id || env.AO_AGENT_ID !== lead.id) return null;
+  if (!lead?.id || (agentId === void 0 ? env.AO_AGENT_ID : agentId) !== lead.id) return null;
   invariant2(!env.TM_DISPATCH_WORKER, "TOPOLOGY_DELEGATION_ACTOR", `A dispatched worker session (TM_DISPATCH_WORKER) is never the repository lead ${lead.id}.`);
   await requireGranteeCaller({ consumer, grantee: lead.id, env, home, listPanesFn, readCensusFn, callerProc });
   return lead.id;
@@ -36916,6 +36914,7 @@ var init_launch = __esm({
 // topology/lib/standing-mailbox.mjs
 var standing_mailbox_exports = {};
 __export(standing_mailbox_exports, {
+  RESERVED_SENDERS: () => RESERVED_SENDERS,
   STANDING_RING_WINDOW_MS: () => STANDING_RING_WINDOW_MS,
   forwardStandingMessage: () => forwardStandingMessage,
   readStandingInbox: () => readStandingInbox,
@@ -37298,12 +37297,23 @@ async function wakeStandingMessages({ ids = [], ...options }) {
   }
   return woken;
 }
-async function sessionIdentity2({ env = process.env, agent = null, consumer = null } = {}) {
-  const caller = callerIdentity(env);
+async function sessionIdentity2({ env = process.env, agent = null, consumer = null, home = (0, import_node_os31.homedir)(), listPanesFn, readCensusFn, callerProc = {} } = {}) {
+  let caller = callerIdentity(env);
+  const { bindingAgentId: bindingAgentId2, requireLeadCaller: requireLeadCaller2 } = await Promise.resolve().then(() => (init_delegation(), delegation_exports));
+  if (!env.AO_AGENT_ID) {
+    const repo = caller?.consumer ?? consumer ?? null;
+    const bound = repo ? await bindingAgentId2({ consumer: repo, env, home, listPanesFn, readCensusFn }).catch(() => null) : null;
+    if (bound) caller = { agentId: bound, consumer: repo, source: "census" };
+  }
   invariant2(
     caller?.agentId && caller?.consumer,
     "TOPOLOGY_SOURCE_IDENTITY_REQUIRED",
     "source_identity_required: this session has no agent-orchestration identity (neither AO_AGENT_ID/AO_CONSUMER from a launcher nor the session identity minted at SessionStart), so it cannot act on standing mail as any agent, and --from or a from field cannot supply one. Nothing was done."
+  );
+  invariant2(
+    !RESERVED_SENDERS.has(caller.agentId) && !RESERVED_SENDERS.has(agent),
+    "TOPOLOGY_SENDER_RESERVED",
+    `${RESERVED_SENDERS.has(agent) ? agent : caller.agentId} is a host sender; no session can act as it. Nothing was done.`
   );
   invariant2(
     agent === null || agent === void 0 || agent === caller.agentId,
@@ -37318,6 +37328,7 @@ async function sessionIdentity2({ env = process.env, agent = null, consumer = nu
       `This session belongs to ${caller.consumer}; it cannot act for ${consumer}. Nothing was done.`
     );
   }
+  await requireLeadCaller2({ consumer: caller.consumer, agentId: caller.agentId, env, home, listPanesFn, readCensusFn, callerProc });
   return { agent: caller.agentId, consumer: (0, import_node_path58.resolve)(caller.consumer), source: caller.source };
 }
 function standingInboxShows(record2, { repoId, agent, transportKind }) {
@@ -37547,7 +37558,7 @@ async function waitForStandingReply({ id, caller, timeoutMs = 20 * 6e4, pollMs =
     await sleep(Math.max(0, Math.min(pollMs, timeoutMs - (Date.now() - started))));
   }
 }
-var import_node_crypto33, import_promises49, import_node_os31, import_node_path58, import_node_util4, RECOVERABLE_HOLDS, PERMANENT_HOLDS, pointerText, STANDING_RING_WINDOW_MS;
+var import_node_crypto33, import_promises49, import_node_os31, import_node_path58, import_node_util4, RECOVERABLE_HOLDS, PERMANENT_HOLDS, pointerText, RESERVED_SENDERS, STANDING_RING_WINDOW_MS;
 var init_standing_mailbox = __esm({
   "topology/lib/standing-mailbox.mjs"() {
     import_node_crypto33 = require("node:crypto");
@@ -37572,6 +37583,7 @@ var init_standing_mailbox = __esm({
     RECOVERABLE_HOLDS = /* @__PURE__ */ new Set(["leads_not_ready", "no_lead"]);
     PERMANENT_HOLDS = /* @__PURE__ */ new Set(["source_identity_required", "repository_identity_changed", "hop_limit", "loop", "coordinator_not_worker"]);
     pointerText = (value) => String(value ?? "").replace(/[^A-Za-z0-9._:@\/+=-]/g, "?").slice(0, 128);
+    RESERVED_SENDERS = Object.freeze(/* @__PURE__ */ new Set(["ao-supervisor", "ao-management", "tm-dispatch"]));
     STANDING_RING_WINDOW_MS = Number(process.env.AO_STANDING_RING_WINDOW_MS ?? 3e3);
   }
 });
@@ -37593,6 +37605,7 @@ __export(slots_exports, {
   reconcileSlots: () => reconcileSlots,
   releaseSlot: () => releaseSlot,
   requestSlot: () => requestSlot,
+  requireCallerInPane: () => requireCallerInPane,
   resolveBinding: () => resolveBinding,
   restampSlotBindings: () => restampSlotBindings,
   sameBinding: () => sameBinding,
@@ -37696,6 +37709,16 @@ async function callerRunsInPane(binding, { pid = process.pid, readStat = (p) => 
     pid = Number(stat13.slice(stat13.lastIndexOf(")") + 2).split(" ")[1]);
   }
   return false;
+}
+async function requireCallerInPane(binding, { code, what = "the bound agent", callerProc = {} } = {}) {
+  let inPane;
+  try {
+    inPane = await callerRunsInPane(binding, callerProc);
+  } catch (error51) {
+    fail(code, `Cannot prove the caller runs in ${what}'s pane: process ancestry is unreadable (${error51.code || error51.message}); refusing rather than trusting AO_AGENT_ID or TMUX_PANE.`);
+  }
+  invariant2(inPane, code, `Cannot prove the caller runs in ${what}'s pane: pane ${binding?.paneId ?? "?"}'s process ${binding?.panePid ?? "?"} is not an ancestor of this process; AO_AGENT_ID alone does not prove identity.`);
+  return binding;
 }
 async function commit(paths2, next, previous) {
   if (JSON.stringify(next) !== JSON.stringify(previous)) await writeJson(paths2.record, next);
@@ -79621,10 +79644,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "d3958b0098b02248a15129ecbb949d05f23e0ab0faf36aeee229d81de575f9f3";
+  return false ? null : "5c19182bab436b4414c3cba0e84f23f4aadf8b292f5849ba06194cdb7c05fa7d";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "d3958b0098b02248a15129ecbb949d05f23e0ab0faf36aeee229d81de575f9f3";
+  const fingerprint2 = false ? null : "5c19182bab436b4414c3cba0e84f23f4aadf8b292f5849ba06194cdb7c05fa7d";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -80049,7 +80072,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "d3958b0098b02248a15129ecbb949d05f23e0ab0faf36aeee229d81de575f9f3",
+  sourceFingerprint: false ? null : "5c19182bab436b4414c3cba0e84f23f4aadf8b292f5849ba06194cdb7c05fa7d",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

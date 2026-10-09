@@ -46,7 +46,7 @@ import { withLock } from "./lockfile.mjs";
 import { composePrompt, promptErrorDetail } from "./prompts.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { incarnationOf, sameIncarnation } from "./incarnation.mjs";
-import { callerRunsInPane } from "./slots.mjs";
+import { requireCallerInPane } from "./slots.mjs";
 import { adapterFor, buildArgv, loadAdapters, providerDirs } from "./providers.mjs";
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from "./repoid.mjs";
 import * as tmux from "./tmux.mjs";
@@ -444,13 +444,16 @@ async function defaultWake({ consumer, record, nonce, env, home, adapters = null
   });
 }
 
-export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir(), alive = bindingAlive }) {
+export async function reviewerNonceAck({ consumer, nonce, env = process.env, home = homedir(), alive = bindingAlive, callerProc = {} }) {
   invariant(/^[a-f0-9-]{36}$/.test(String(nonce)), "TOPOLOGY_REVIEWER_NONCE", "Invalid reviewer nonce.");
   const dir = join(await reviewerInboxRoot(consumer, env, home), "probes");
   const probe = await readJson(join(dir, `${nonce}.json`));
   const record = await readReviewerRecord(consumer, env, home);
   const identity = await canonicalRepoId(consumer);
-  invariant(record && probe.repo_id === identity.id && probe.agent_id === record.agent_id && env.AO_AGENT_ID === record.agent_id && probe.nonce === nonce && probe.session === record.session && sameIncarnation(probe.binding, record.binding) && probe.expires_at >= Date.now() && await alive(record), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  invariant(record && probe.repo_id === identity.id && probe.agent_id === record.agent_id && probe.nonce === nonce && probe.session === record.session && sameIncarnation(probe.binding, record.binding) && probe.expires_at >= Date.now() && await alive(record), "TOPOLOGY_REVIEWER_ACK_OWNER", "Only the designated reviewer can acknowledge its current unexpired challenge.");
+  // TM-427: the probe file names the reviewer to anyone who reads it, so AO_AGENT_ID proves nothing.
+  try { await requireReviewerCaller(record, { alive, callerProc }); }
+  catch (error) { fail("TOPOLOGY_REVIEWER_ACK_OWNER", `Only the designated reviewer can acknowledge its current unexpired challenge: ${error.message}`); }
   await writeJson(join(dir, `${nonce}.ack.json`), { ...probe, acknowledged_at: nowIso() });
   return { ok: true, nonce };
 }
@@ -1571,8 +1574,8 @@ export function decodeReviewPayload(text) {
 // scraping was the most common reviewer failure (TOPOLOGY_REVIEWER_RESPONSE: wrapped rows, eaten
 // backslashes, a verdict that scrolled away or died with its pane). The restricted reviewer has no
 // shell and no Write tool, so its one way out is the `review_submit` MCP tool that buildReviewerArgv
-// grants it (topology/review-mcp.mjs); a reviewer with a shell may run `ao-topology review submit`.
-// Both call submitReviewVerdict, which writes <inbox>/verdicts/<task>-<revision>.json (durable on
+// grants it (topology/review-mcp.mjs). TM-427 removed the shell `review submit`: the MCP server runs
+// inside the reviewer pane, which is what requireReviewerCaller proves. It calls submitReviewVerdict, which writes <inbox>/verdicts/<task>-<revision>.json (durable on
 // disk, so neither a collector restart nor a reviewer restart loses it) and mirrors it to the NATS
 // ORCH_REVIEWS object store when NATS is live. collectReview reads that record and nothing else.
 
@@ -1606,10 +1609,22 @@ async function verdictKey(env, home, create = false) {
   await writeFile(path, randomBytes(32), { flag: 'wx', mode: 0o600 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
   return readFile(path);
 }
-const SEALED_FIELDS = ['nonce', 'task', 'revision', 'reviewer_id', 'binding', 'verdict', 'findings', 'submitted_at'];
+const SEALED_FIELDS = ['nonce', 'task', 'revision', 'reviewer_id', 'binding', 'verdict', 'findings', 'submitted_at', 'submitter_pid'];
 const verdictSeal = (key, submitted) => createHmac('sha256', key).update(JSON.stringify(SEALED_FIELDS.map(field => submitted[field] ?? null))).digest('hex');
 /** `submitted` with its seal. Exported for tests that need a sealed record written past the submit checks. */
 export const sealVerdict = async (submitted, env = process.env, home = homedir()) => ({ ...submitted, seal: verdictSeal(await verdictKey(env, home, true), submitted) });
+
+/**
+ * TM-427: the caller IS the designated reviewer. AO_AGENT_ID is caller-set and the request file a
+ * worker can read names the reviewer, so neither proves anything. Two facts do: the recorded reviewer
+ * pane is live at its incarnation (`alive`), and its pane pid is an ancestor of this process
+ * (requireCallerInPane, the delegation proof). The live listing is what makes pid equality sound.
+ * The restricted reviewer's review_submit MCP server is a child of its claude, so it passes.
+ */
+export async function requireReviewerCaller(record, { alive = bindingAlive, callerProc = {} } = {}) {
+  invariant(record?.agent_id && incarnationOf(record.binding) && await alive(record), 'TOPOLOGY_REVIEWER_IDENTITY', 'No live designated reviewer pane to prove the caller against.');
+  return requireCallerInPane(record.binding, { code: 'TOPOLOGY_REVIEWER_IDENTITY', what: `reviewer ${record.agent_id}`, callerProc });
+}
 
 /**
  * The designated reviewer submits its verdict for one request. Checked here, so a reviewer learns
@@ -1622,19 +1637,14 @@ export async function submitReviewVerdict({ consumer, request: id, verdict, find
   return withLock(path.replace(/\.json$/, '.lock'), async () => {
     const current = await readJson(path);
     const record = await readReviewerRecord(consumer, env, home);
-    invariant(record && env.AO_AGENT_ID === record.agent_id && current.reviewer_id === record.agent_id && sameIncarnation(current.binding, record.binding) && await alive(record),
+    invariant(record && current.reviewer_id === record.agent_id && sameIncarnation(current.binding, record.binding),
       'TOPOLOGY_REVIEWER_IDENTITY', 'Only the designated reviewer, at the incarnation the request was sent to, can submit its verdict.');
-    // TM-427: AO_AGENT_ID is caller-set, and the request file names the reviewer, so it alone does not
-    // prove identity. The caller must descend from the reviewer pane's recorded pid (the delegation
-    // proof); `alive` above saw that pane live, which is what makes pid equality sound. Fails closed.
-    let inPane = false;
-    try { inPane = await callerRunsInPane(record.binding, callerProc); } catch {}
-    invariant(inPane, 'TOPOLOGY_REVIEWER_IDENTITY', `Only a process running in the reviewer's pane can submit its verdict: pane ${record.binding?.paneId ?? '?'}'s process ${record.binding?.panePid ?? '?'} is not an ancestor of this process (or ancestry is unreadable); AO_AGENT_ID alone does not prove identity.`);
+    await requireReviewerCaller(record, { alive, callerProc });
     invariant(current.nonce === request.nonce && !current.collected_at, 'TOPOLOGY_REVIEWER_RESPONSE', 'This review request was already collected; its verdict cannot change.');
     invariant(current.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `This review request failed (${current.failure?.reason ?? 'no reason recorded'}); the lead must request the review again.`);
     invariant(VERDICTS.has(verdict), 'TOPOLOGY_REVIEWER_VERDICT', `Verdict must be one of ${[...VERDICTS].join(', ')}; got ${JSON.stringify(verdict)}.`);
     const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision), current.checks_unsatisfied ?? []);
-    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
+    const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso(), submitter_pid: callerProc.pid ?? process.pid };
     submitted.seal = (await sealVerdict(submitted, env, home)).seal;
     submitted.mirror = await mirrorVerdict({ consumer, record, submitted, env, transport });
     await writeJson(verdictPath(path), submitted);
@@ -1697,7 +1707,7 @@ export async function collectReview({ consumer, task, revision, env = process.en
   invariant(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, 'TOPOLOGY_REVIEWER_RESPONSE', 'Review packet changed after the request.');
   const submitted = await readSubmittedVerdict(path, request, env, home);
   invariant(submitted || sameIncarnation(request.binding, record.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'Reviewer incarnation changed after the request; queue a new independent review.');
-  invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
+  invariant(submitted, 'TOPOLOGY_REVIEWER_NO_VERDICT', `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool.`, { nonce: request.nonce });
   let review;
   try {
     invariant(submitted.reviewer_id === request.reviewer_id && sameIncarnation(submitted.binding, request.binding), 'TOPOLOGY_REVIEWER_IDENTITY', 'The submitted verdict is not bound to the reviewer incarnation the request was sent to.');

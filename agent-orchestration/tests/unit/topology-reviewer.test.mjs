@@ -8,7 +8,10 @@ import { isolatedTmux, killOwnedServer } from '../helpers/isolated-tmux.mjs';
 import { submitVerdict } from '../helpers/review-submit.mjs';
 import { ensureReviewer, reviewerAvailability, reviewerPaths, reviewerNonceAck, reviewerProbeReady, recordReview, reviewEligibility, requestReview, collectReview, collectPendingReviews, reviewerInboxRoot, reviewsRoot, assignReviewer } from '../../topology/lib/reviewer.mjs';
 
-const binding={serverKey:'/test/socket',serverPid:10,sessionId:'$1',sessionCreated:1,paneId:'%1',panePid:20};
+// TM-427: panePid is this test process, so the real pane-ancestry proof passes for the "reviewer";
+// a forged caller is simulated by walking from process.ppid, which does not descend from it.
+const binding={serverKey:'/test/socket',serverPid:10,sessionId:'$1',sessionCreated:1,paneId:'%1',panePid:process.pid};
+const forgedCaller={pid:process.ppid};
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-reviewer-'));
@@ -42,8 +45,10 @@ test('alive reviewer is unavailable without nonce; only current reviewer can ack
   const { record } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', pane: '%1', binding }) } });
   assert.equal((await reviewerAvailability({ ...f, probes: { alive: async () => true, responsive: async () => false } })).available, false);
   const ready = await reviewerProbeReady({ ...f, record, alive: async () => true, timeoutMs: 500, onProbe: async p => {
-    await assert.rejects(reviewerNonceAck({ ...f, alive: async () => true, nonce: p.nonce, env: { ...f.env, AO_AGENT_ID: 'author' } }), { code: 'TOPOLOGY_REVIEWER_ACK_OWNER' });
-    await reviewerNonceAck({ ...f, alive: async () => true, nonce: p.nonce, env: { ...f.env, AO_AGENT_ID: record.agent_id } });
+    await assert.rejects(reviewerNonceAck({ ...f, alive: async () => true, nonce: p.nonce, env: { ...f.env, AO_AGENT_ID: 'author' }, callerProc: forgedCaller }), { code: 'TOPOLOGY_REVIEWER_ACK_OWNER' });
+    // TM-427: naming the reviewer from outside its pane is refused too; AO_AGENT_ID proves nothing.
+    await assert.rejects(reviewerNonceAck({ ...f, alive: async () => true, nonce: p.nonce, env: { ...f.env, AO_AGENT_ID: record.agent_id }, callerProc: forgedCaller }), { code: 'TOPOLOGY_REVIEWER_ACK_OWNER', message: /not an ancestor/ });
+    await reviewerNonceAck({ ...f, alive: async () => true, nonce: p.nonce, env: f.env });
   } });
   assert.equal(ready, true);
 });
@@ -104,7 +109,7 @@ test('host collects nonce-bound read-only output and rejects forged response non
   assert.equal(request.nonce, repeated.nonce);
   await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_NO_VERDICT' }, 'no verdict submitted yet');
   await assert.rejects(submitVerdict(f, { nonce: 'forged' }), { code: 'TOPOLOGY_REVIEWER_NONCE' });
-  await assert.rejects(submitVerdict(f, request, 'approve', [], { env: { ...f.env, AO_AGENT_ID: 'author' } }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'only the designated reviewer submits');
+  await assert.rejects(submitVerdict(f, request, 'approve', [], { env: { ...f.env, AO_AGENT_ID: 'author' }, callerProc: forgedCaller }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'only the designated reviewer submits');
   await assert.rejects(submitVerdict(f, request, 'approve', [], { alive: async () => false }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'a dead reviewer pane cannot submit');
   await submitVerdict(f, request);
   const review = await collectReview({ ...f, task: 'TM-1' });
@@ -120,12 +125,21 @@ test('host collects nonce-bound read-only output and rejects forged response non
 });
 
 test('TM-427: a forged AO_AGENT_ID and a hand-written verdict file cannot approve a task', async t => {
-  const { requestReview, collectReview, independentReviewStatus } = await import('../../topology/lib/reviewer.mjs');
+  const { requestReview, collectReview, independentReviewStatus, submitReviewVerdict } = await import('../../topology/lib/reviewer.mjs');
   const f = await fixture(t);
   const { record } = await ensureReviewer({ ...f, probes: { alive: async () => false, open: async () => ({ session: 'review', binding }) } });
   const request = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'] });
   // The worker's attack: name the reviewer, pane alive, but run from its own process tree.
-  await assert.rejects(submitVerdict(f, request, 'approve', [], { callerProc: {} }), { code: 'TOPOLOGY_REVIEWER_IDENTITY', message: /AO_AGENT_ID alone/ }, 'this test process does not descend from pane pid 20');
+  await assert.rejects(submitVerdict(f, request, 'approve', [], { env: { ...f.env, AO_AGENT_ID: record.agent_id }, callerProc: forgedCaller }), { code: 'TOPOLOGY_REVIEWER_IDENTITY', message: /AO_AGENT_ID alone/ }, 'the parent process does not descend from the reviewer pane');
+  const { handleMessage } = await import('../../topology/review-mcp.mjs');
+  const viaMcp = await handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve' } } },
+    { env: { ...f.env, AO_AGENT_ID: record.agent_id, AO_CONSUMER: f.consumer }, submit: o => submitReviewVerdict({ ...o, home: f.home, alive: async () => true, callerProc: forgedCaller }) });
+  assert.match(viaMcp.result.content[0].text, /TOPOLOGY_REVIEWER_IDENTITY/, 'the MCP tool refuses a forged caller the same way');
+  // The shell channel is gone: `review submit` is refused by name, even naming the reviewer.
+  const { execFile } = await import('node:child_process');
+  const cli = await new Promise(resolve => execFile(process.execPath, [new URL('../../bin/ao-topology', import.meta.url).pathname, 'review', 'submit', request.nonce, '--verdict', 'approve', '--consumer', f.consumer, '--json'],
+    { env: { ...f.env, AO_AGENT_ID: record.agent_id, AO_CONSUMER: f.consumer, TMUX: '' } }, (error, stdout) => resolve({ code: error?.code ?? 0, stdout })));
+  assert.equal(cli.code, 1, cli.stdout); assert.equal(JSON.parse(cli.stdout).code, 'TOPOLOGY_REVIEWER_IDENTITY', cli.stdout);
   await assert.rejects(submitVerdict(f, request, 'approve', [], { callerProc: { pid: 99, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' }, 'unreadable ancestry fails closed');
   // Second route: copy reviewer_id and binding from the readable request into the verdict file.
   const verdictFile = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'verdicts', `TM-1-${f.revision}.json`);

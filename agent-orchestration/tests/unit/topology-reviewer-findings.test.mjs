@@ -16,7 +16,8 @@ import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewS
 import { submitVerdict } from '../helpers/review-submit.mjs';
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 20 };
+// TM-427: panePid is this process, so the real pane-ancestry proof passes for the fixture reviewer.
+const binding = { serverKey: '/test/socket', serverPid: 10, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: process.pid };
 const finding = (extra = {}) => ({ severity: 'minor', file: 'src/a.js', line: 2, claim: 'Name is unclear.', evidence: 'Line 2 adds `x`.', fix: 'Rename it.', ...extra });
 const requestPath = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests', `TM-1-${f.revision}.json`);
 const verdictFile = async f => join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'verdicts', `TM-1-${f.revision}.json`);
@@ -296,7 +297,7 @@ test('TM-365 the review_submit MCP tool lists one tool and submits through the s
   const f = await fixture(t);
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   const env = { ...f.env, AO_AGENT_ID: f.record.agent_id, AO_CONSUMER: f.consumer };
-  const submit = options => submitReviewVerdict({ ...options, home: f.home, alive: async () => true, callerProc: { pid: f.record.binding.panePid } });
+  const submit = options => submitReviewVerdict({ ...options, home: f.home, alive: async () => true });
   const refused = await handleMessage({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve', findings: [finding({ severity: 'blocker' })] } } }, { env, submit });
   assert.equal(refused.result.isError, true); assert.match(refused.result.content[0].text, /TOPOLOGY_REVIEWER_FINDINGS/);
   const ok = await handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve', findings: [] } } }, { env, submit });

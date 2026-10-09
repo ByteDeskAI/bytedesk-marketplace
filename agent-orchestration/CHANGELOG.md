@@ -5,14 +5,27 @@
 ### Security
 
 - **A worker can no longer submit the reviewer's verdict for its own task (TM-427, EP-028).**
-  `review submit` and the `review_submit` MCP tool checked only `AO_AGENT_ID` against the reviewer
-  record plus pane liveness, and the request file the worker can read names both. They now also
-  require the calling process to descend from the reviewer pane's recorded pid (the delegation proof,
-  `callerRunsInPane`), failing closed with `TOPOLOGY_REVIEWER_IDENTITY` when ancestry is unreadable.
-  The verdict file is sealed with an HMAC key kept outside the inbox (`reviewers/verdict.key`, 0600);
+  The `review_submit` MCP tool checked only `AO_AGENT_ID` against the reviewer record plus pane
+  liveness, and the request file a worker can read names both. `AO_AGENT_ID` is no longer consulted:
+  `requireReviewerCaller` requires the reviewer pane to be live and its recorded pid to be an ancestor
+  of the caller, failing closed with `TOPOLOGY_REVIEWER_IDENTITY` when ancestry is unreadable. The
+  MCP server is a child of the reviewer's CLI, so the real reviewer passes. The shell
+  `ao-topology review submit` is removed and refused by name. `reviewer ack` is bound the same way.
+  The verdict file is sealed with HMAC-SHA256 (nonce, task, revision, reviewer, binding, verdict,
+  findings, time, submitter pid) under a key kept outside the inbox (`reviewers/verdict.key`, 0600);
   `collectReview` and the restart guard ignore a verdict whose seal does not verify, so a hand-written
-  or edited `verdicts/<task>-<sha>.json` no longer approves anything. Limit: a same-user process that
-  reads the key file can still forge a seal; a key held by another uid is the upgrade path.
+  or edited `verdicts/<task>-<sha>.json` no longer approves anything.
+- **Host senders and the repository lead can no longer be claimed through the environment (TM-462B, EP-028).**
+  `sessionIdentity` (every CLI and MCP mailbox verb, and run `send`) refuses `ao-supervisor`,
+  `ao-management` and `tm-dispatch` from any process (`TOPOLOGY_SENDER_RESERVED`); host code still
+  sends as them in process. A caller claiming the repository's lead must prove it with the lead's
+  census-bound pane and process ancestry (`requireLeadCaller`, which now takes the claimed `agentId`).
+  A lead with no `AO_AGENT_ID` is named from its census binding. An unnamed run `send` no longer
+  trusts `AO_AGENT_ID`/`AO_CONSUMER`. One helper, `requireCallerInPane`, now backs the delegation,
+  reviewer and lead proofs.
+  **Same-user limit:** a process that reads `verdict.key`, or rewrites the reviewer record's binding,
+  can still forge. Closing that needs OS-level isolation (a key held by another uid, or the provider
+  sandbox).
 - **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**
   `manage record-landing`, including under an operator's `--authorized`, now requires the landed
   commit on the pinned repository's target branch on the server (`gh api .../compare`). Before, it

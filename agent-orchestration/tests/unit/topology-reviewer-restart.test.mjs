@@ -12,7 +12,7 @@ import { submitVerdict } from '../helpers/review-submit.mjs';
 import { refreshPrompt, promptRevisions } from '../../topology/lib/prompt-lifecycle.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 
-const incarnation = n => ({ serverKey: '/test/socket', serverPid: 10, sessionId: `$${n}`, sessionCreated: n, paneId: `%${n}`, panePid: 20 + n });
+const incarnation = n => ({ serverKey: '/test/socket', serverPid: 10, sessionId: `$${n}`, sessionCreated: n, paneId: `%${n}`, panePid: n === 1 ? process.pid : 20 + n }); // TM-427: incarnation 1 passes the real ancestry proof
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-reviewer-restart-'));
