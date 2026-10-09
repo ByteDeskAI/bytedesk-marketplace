@@ -27,6 +27,13 @@
   A record **committed here but never pushed** counts too, which `git status` is silent about. That
   gap was found by the end-to-end hook test, not by reading the code.
 
+  Finished in TM-530 (supersedes PR #228): every git call, the fetch included, goes through
+  safe-git, so a `core.fsmonitor` or filter driver planted in the shared `.git/config` never runs at
+  Stop; a refused or failed fetch is named in the warning ("may be stale") rather than thrown. The
+  warning now reads the store the hook payload names, the same one the Stop gate reads; it used to
+  read the process's own store. Tests run the real hook: once per fingerprint, again when the set
+  changes or after the store was clean, and never on a stop the gate refused.
+
 - **SessionStart surfaces `tm doctor` errors, and only errors.** A healthy store routinely carries
   warnings — evidence drift, an unticked criterion on a done task, an unreviewed revision — and
   reprinting those every session is how a notice becomes one people stop reading. An error means

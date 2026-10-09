@@ -2613,7 +2613,7 @@ function hook(event) {
         // notice on the same stop reads as the tool nagging twice.
         break;
       }
-      warnUncommittedStore();
+      warnUncommittedStore(P);
       break;
     }
 
@@ -2637,7 +2637,7 @@ function hook(event) {
  * fingerprint of the reported set is remembered, so a record JOINING the set
  * warns and an already-reported set stays quiet.
  */
-function warnUncommittedStore() {
+function warnUncommittedStore(P) {
   let res;
   try {
     res = uncommittedEntities(P);
@@ -2661,7 +2661,7 @@ function warnUncommittedStore() {
   const more = files.length - shown.length;
   const how = res.reason
     ? `could not compare against a remote (${res.reason})`
-    : `not on ${res.upstream}${res.fetched ? " (checked after a fetch)" : ""}`;
+    : `not on ${res.upstream}${res.fetched ? " (checked after a fetch)" : res.fetchError ? ` (fetch failed, so ${res.upstream} may be stale: ${res.fetchError})` : ""}`;
 
   process.stderr.write(
     `task-management: ${files.length} store record(s) ${how}.\n` +

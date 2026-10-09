@@ -18,7 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fingerprint, uncommittedEntities } from "../../lib/store-git.mjs";
@@ -243,4 +243,43 @@ test("fingerprint is stable, order-independent, and changes when the set does", 
   const shrunk = fingerprint(["tasks/TM-001.md"]);
   assert.notEqual(a, shrunk);
   assert.notEqual(fingerprint([]), a);
+});
+
+/* ─── TM-530: every git call goes through safe-git ────────────────────────── */
+
+test("a planted core.fsmonitor and clean filter never run during the Stop check, fetch included", (t) => {
+  const w = world();
+  t.after(w.cleanup);
+  const marker = join(w.dir, "planted-ran");
+  const script = join(w.dir, "planted.sh");
+  writeFileSync(script, `#!/bin/sh\necho ran >> ${marker}\ncat\n`, { mode: 0o755 });
+  // Unpushed AND dirty, so the check runs status, diff, hash-object and the fetch.
+  writeFileSync(join(w.work, STORE, "tasks", "TM-010-a.md"), "# a\n");
+  git(w.work, "add", "-A");
+  git(w.work, "commit", "--quiet", "-m", "TM-010");
+  writeFileSync(join(w.work, STORE, "tasks", "TM-011-b.md"), "# b\n");
+  git(w.work, "config", "core.fsmonitor", script);
+  git(w.work, "config", "filter.p.clean", script);
+  writeFileSync(join(w.work, ".git", "info", "attributes"), "* filter=p\n");
+
+  const res = uncommittedEntities(w.p);
+  assert.equal(res.files.length, 2, "the check ran and found both records");
+  assert.equal(res.fetched, true, "the fetch ran too");
+  assert.equal(existsSync(marker), false, "the planted program must not run");
+
+  // Control: PATH git in the same repo does run it, so the assertion above can fail.
+  git(w.work, "status", "--porcelain");
+  assert.equal(existsSync(marker), true, "control: plain git runs the planted fsmonitor");
+});
+
+test("a failed fetch is reported in fetchError, not thrown", (t) => {
+  const w = world();
+  t.after(w.cleanup);
+  git(w.work, "remote", "set-url", "origin", join(w.dir, "gone.git"));
+  writeFileSync(join(w.work, STORE, "tasks", "TM-012-c.md"), "# c\n");
+
+  const res = uncommittedEntities(w.p);
+  assert.equal(res.files.length, 1);
+  assert.equal(res.fetched, false);
+  assert.match(res.fetchError, /\S/, "the caller must be able to say the ref may be stale");
 });

@@ -25,11 +25,11 @@
  * still looks wrong after the local comparison, so the common case (nothing to
  * report) costs no network call at all.
  */
-import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { paths } from "./paths.mjs";
+import { safeGitSync, safeGitText } from "./safe-git.mjs";
 
 /** Entity directories. A change anywhere else under the store is not a record. */
 const ENTITY_DIRS = ["tasks", "epics", "adrs", "plans", "evidence", "sprints", "capabilities"];
@@ -37,14 +37,13 @@ const ENTITY_DIRS = ["tasks", "epics", "adrs", "plans", "evidence", "sprints", "
 /** Seconds a fetch may take before it is abandoned. A hook must not hang a turn. */
 const FETCH_TIMEOUT_MS = 8000;
 
+/**
+ * Every git call goes through safe-git (TM-443): this runs at every Stop, and a
+ * worker can plant core.fsmonitor or a filter driver in the shared .git/config.
+ */
 function git(cwd, args, { timeout } = {}) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-      timeout,
-    }).trim();
+    return safeGitText(cwd, args, { timeout });
   } catch {
     return "";
   }
@@ -190,20 +189,20 @@ export function uncommittedEntities(p = paths(), { allowFetch = true } = {}) {
   // Something still looks uncommitted. NOW the remote-tracking ref's own
   // freshness is worth a network call — and only now.
   let fetched = false;
+  let fetchError = "";
   if (allowFetch) {
     const slash = upstream.indexOf("/");
     const remote = slash === -1 ? "origin" : upstream.slice(0, slash);
     const branch = slash === -1 ? upstream : upstream.slice(slash + 1);
-    const r = spawnSync("git", ["-C", repo, "fetch", "--quiet", remote, branch], {
-      stdio: "ignore",
-      windowsHide: true,
-      timeout: FETCH_TIMEOUT_MS,
-    });
+    const r = safeGitSync(repo, ["fetch", "--quiet", remote, branch], { timeout: FETCH_TIMEOUT_MS });
     fetched = !r.error && r.status === 0;
     if (fetched) left = notOn(repo, upstream, left);
+    // A refused or failed fetch is reported, never thrown: the files were then
+    // judged against a possibly stale ref, and the caller says so.
+    else fetchError = String(r.stderr || r.error?.message || `exit ${r.status}`).trim().split(/\r?\n/)[0];
   }
 
-  return { files: left, repo, upstream, fetched, reason: "" };
+  return { files: left, repo, upstream, fetched, fetchError, reason: "" };
 }
 
 /** A stable id for a set of files, so the same set is reported once, not every turn. */
