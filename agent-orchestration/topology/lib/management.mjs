@@ -1,26 +1,28 @@
 // Task-store-backed management. The task store owns claims, WIP and worktree provisioning;
 // orchestration owns communication and the review/check/landing evidence it contributes.
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { callerServer, listServerPanes, tmux } from './tmux.mjs';
 import { readCensus } from './census.mjs';
-import { loadConfig } from './config.mjs';
+import { HEARTBEAT_TTL_MS, heartbeatDir } from './heartbeat.mjs';
+import { AUTONOMY_LEVELS, loadConfig } from './config.mjs';
 import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
-import { finishCheckEvidence, githubCompare, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
+import { INTEGRATION_BRANCH, currentReviewStatus, finishCheckEvidence, githubBranchTip, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
+import { GH_PATHS, safeGit, trustedGh } from './safe-git.mjs';
 
 const taskId = value => { invariant(/^TM-[0-9]+$/.test(value), 'TOPOLOGY_MANAGEMENT_TASK', 'Expected a task-store TM id.'); return value; };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const list = value => Array.isArray(value) && value.every(nonempty);
-const git = async (cwd, args, allowFailure = false) => run('git', ['-C', cwd, ...args], { allowFailure });
+// TM-443: every git here runs through safe-git, so a worker's planted git config never runs as the lead.
+const git = async (cwd, args, allowFailure = false) => safeGit(cwd, args, { allowFailure });
 const gitText = async (cwd, args) => (await git(cwd, args)).stdout.trim();
 
 /** Store paths the task store and orchestration write into the main checkout on their own.
@@ -43,25 +45,55 @@ export async function foreignDirtyPaths(cwd) {
 
 /** TM-247 (AC9): is `head` a merge-in of the integration branch on top of the approved `revision`?
  * Exactly: a two-parent merge whose first parent IS the revision, whose second parent is on the
- * integration branch (local or origin), and whose own change against that parent has the same
- * patch-id as the revision's change against its merge base, so the merge added nothing of its own.
+ * integration branch AS THE SERVER HAS IT (PR #226 review: never a local or remote-tracking ref, which
+ * a worker writes; `gh api repos/<pinned>/compare/<parent>...<target>` must say ahead or identical),
+ * and whose TREE is byte-for-byte the tree git itself computes
+ * for that merge (`git merge-tree --write-tree <revision> <integration>`), so the merge added nothing
+ * of its own. TM-441: never patch-id, which ignores whitespace (`rm -rf /tmp/build` and
+ * `rm -rf / tmp/build` share one); a conflicted merge has no clean tree and is never a merge-in.
  * Returns { head, integration } or null. task-management governance-check.mjs mirrors it (no import
  * crosses the plugins); a conformance test runs both on one repository.
  * ponytail: one merge-in commit; a chain of merge-ins needs a walk down first parents. */
-export async function mergeInOf(cwd, revision, head, target) {
+export async function mergeInOf(cwd, revision, head, target, { gh = defaultGh(cwd), env = process.env, home = homedir() } = {}) {
   if (!nonempty(head) || !nonempty(revision) || head === revision || !nonempty(target)) return null;
   const parents = (await git(cwd, ['rev-list', '--parents', '-n', '1', head], true)).stdout.trim().split(' ').slice(1);
   if (parents.length !== 2 || parents[0] !== revision) return null;
   const integration = parents[1];
-  const onTarget = async ref => (await git(cwd, ['merge-base', '--is-ancestor', integration, ref], true)).code === 0;
-  if (!(await onTarget(`refs/heads/${target}`) || await onTarget(`refs/remotes/origin/${target}`))) return null;
-  const base = (await git(cwd, ['merge-base', revision, integration], true)).stdout.trim();
-  if (!base) return null;
-  const patchId = async (from, to) => {
-    const diff = (await git(cwd, ['diff', '--binary', from, to])).stdout;
-    return diff ? execFileSync('git', ['-C', cwd, 'patch-id', '--stable'], { input: diff, encoding: 'utf8' }).split(' ')[0] : '';
-  };
-  return await patchId(base, revision) === await patchId(integration, head) ? { head, integration } : null;
+  if (!await onServerBranch(gh, cwd, integration, target, { env, home })) return null;
+  const merged = await git(cwd, ['merge-tree', '--write-tree', revision, integration], true);
+  const expected = merged.code === 0 ? merged.stdout.split('\n')[0].trim() : '';
+  const actual = (await git(cwd, ['rev-parse', '--verify', '--quiet', `${head}^{tree}`], true)).stdout.trim();
+  return expected && expected === actual ? { head, integration } : null;
+}
+
+/** TM-430: a worker's check runs, labelled as what they are. They are self-reported, so the review
+ * packet shows them as CLAIMED (command and log prefixed) and they never satisfy a required check:
+ * only the host's own run of the configured argv does (runRequiredChecks, in both integrate paths).
+ * Every automatic review request (manage report, retry-review, the supervisor sweep) goes through here. */
+export const CLAIMED = '[claimed by the worker; not run by the host]';
+export function claimedCheckEvidence(report) {
+  return finishCheckEvidence(report).map(check => ({ ...check, command: `${CLAIMED} ${check.command}`.trim(), log_tail: `${CLAIMED}\n${check.log_tail}` }));
+}
+
+/** TM-430: review reasons about check EVIDENCE in the review packet. The packet holds worker claims and
+ * lead-supplied runs, so integration never treats it as a check result: integrate runs the configured
+ * argv itself. These reasons stay visible as `claimed_check_reasons` on the gate. */
+const CHECK_EVIDENCE_REASON = /^(required check |no check evidence is recorded for revision )/;
+
+/** PR #226 review: is `sha` on `branch` of the PINNED repository on the server? Read through gh's compare
+ * API (`ahead` or `identical` from sha to branch); any failure, an unpinned or repointed repository, or
+ * another status is no. task-management governance-check.mjs `onServerBranch` mirrors it. */
+export async function onServerBranch(gh, repoDir, sha, branch, options = {}) {
+  return ['ahead', 'identical'].includes((await serverCompareStatus(gh, repoDir, sha, branch, options)).status);
+}
+
+/** { status } of `repos/<pinned>/compare/<sha>...<branch>` on the server, or { status: null, reason }. */
+export async function serverCompareStatus(gh, repoDir, sha, branch, { env = process.env, home = homedir() } = {}) {
+  if (!/^[0-9a-f]{40,64}$/.test(String(sha)) || !nonempty(branch)) return { status: null, reason: 'no commit or branch to compare' };
+  let repo;
+  try { ({ repo } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch (error) { return { status: null, reason: error.message }; }
+  const compared = await ghJson(gh, ['api', `repos/${repo}/compare/${sha}...${encodeURIComponent(branch)}`]);
+  return compared.code === 0 && typeof compared.value?.status === 'string' ? { status: compared.value.status, repo } : { status: null, reason: ghFailure(`gh api compare on ${repo}`, compared) };
 }
 
 /** Execute the repository's existing tm launcher, never a second provisioner or a shell. */
@@ -102,6 +134,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     done: async (id, actor = null) => exec(['done', taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
     reviewReady: async (id, revision) => exec(['review-ready',taskId(id),'--revision',revision]),
+    // TM-347: reflects a producer rework; tm checks the record names this revision.
+    rework: async (id, revision) => exec(['rework', taskId(id), '--revision', revision]),
     // TM-248: read-only; a plan grant freezes this list at grant time.
     epicTasks: async epic => JSON.parse((await exec(['find', `epic:${epic}`, 'kind:task', '--json'])).stdout).filter(t => t.epic === epic).map(t => t.id),
     // TM-368: report a cross-repo ticket's progress to its origin (TM-359's `tm ticket event`).
@@ -435,6 +469,68 @@ export async function taskWorkerState(options, record) {
   } catch (error) { return { owned: false, active: true, alive: null, reason: error.message }; }
 }
 
+/** TM-349: the admission base is merge-base(HEAD, integration branch), never HEAD itself, so commits a
+ * worker made before admission stay inside the review range. Returns { base, source }.
+ *  - server-tip: the anchor branch tip on the pinned server (githubBranchTip), fetched if absent;
+ *    merge-base(HEAD, tip). Primary, because it works while the task commits are still unpushed.
+ *  - server: the TM-325 compare helper names merge_base(branch, HEAD) on the server copy of the
+ *    integration branch (the recorded one, else management.target_branch, else the default branch).
+ *    A worker can write any local ref, so the server answer always wins when there is one.
+ *  - local-fallback: the server cannot answer (no gh, offline, HEAD unpushed). The OLDEST merge-base
+ *    across every resolvable candidate (origin/<name> and <name> for the recorded branch, the target
+ *    branch, the PR base only when it equals one of those, and the default branch), so a forged ref
+ *    can never narrow the range below a genuine one. Recorded on the record; the review range widens a
+ *    local-fallback base to the server merge-base once the server can answer (reviewer.effectiveBase).
+ * Nothing resolving fails closed; there is never a HEAD fallback. A fresh worktree is unchanged. */
+async function defaultBranch(options, worktree) {
+  const head = await git(worktree, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], true);
+  if (head.code === 0 && head.stdout.trim().startsWith('origin/')) return head.stdout.trim().slice('origin/'.length);
+  const viewed = await (options.gh || defaultGh(worktree))(['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name']).catch(() => null);
+  return viewed?.code === 0 ? viewed.stdout.trim() : null;
+}
+async function admissionBase(options, worktree, integration, branch) {
+  const head = await gitText(worktree, ['rev-parse', 'HEAD']);
+  const target = (await loadConfig(options)).config.management?.target_branch;
+  const anchor = [integration, target].find(nonempty) ?? null;
+  if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
+    // Primary: the anchor branch tip on the pinned server. It needs nothing of the task pushed.
+    let tip = null;
+    try { tip = String(await (options.serverBranchTip || githubBranchTip)(worktree, anchor) ?? ''); } catch { /* unreachable: compare, then local */ }
+    if (/^[a-f0-9]{40,64}$/.test(tip)) {
+      const local = async () => (await git(worktree, ['cat-file', '-e', `${tip}^{commit}`], true)).code === 0;
+      if (!(await local())) await git(worktree, ['fetch', '--quiet', 'origin', tip], true);
+      invariant(await local(), 'TOPOLOGY_MANAGEMENT_BASE', `The server tip ${tip} of ${anchor ?? 'the default branch'} is not in this repository and could not be fetched from origin; fetch it and retry admission.`);
+      const found = await git(worktree, ['merge-base', 'HEAD', tip], true);
+      invariant(found.code === 0 && found.stdout.trim(), 'TOPOLOGY_MANAGEMENT_BASE', `The task HEAD shares no history with the server tip ${tip} of ${anchor ?? 'the default branch'}.`);
+      return { base: found.stdout.trim(), source: 'server-tip' };
+    }
+    let server = null;
+    try { server = await (options.serverCompare || githubCompare)(worktree, anchor, head); } catch { /* unanswerable: local fallback below */ }
+    const mb = String(server?.merge_base ?? '');
+    if (/^[a-f0-9]{40,64}$/.test(mb)) {
+      invariant((await git(worktree, ['merge-base', '--is-ancestor', mb, head], true)).code === 0, 'TOPOLOGY_MANAGEMENT_BASE',
+        `The server merge-base ${mb} of ${anchor ?? 'the default branch'} is not a local ancestor of the task HEAD; fetch it and retry admission.`);
+      return { base: mb, source: 'server' };
+    }
+  }
+  // The PR base is worker-chosen: it only counts when it names a branch the repository already trusts.
+  const pull = (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0];
+  const named = [...new Set([integration, target, [integration, target].includes(pull) ? pull : null, await defaultBranch(options, worktree)].filter(nonempty).map(name => name.trim()))];
+  const bases = [];
+  for (const name of named) for (const ref of [`refs/remotes/origin/${name}`, `refs/heads/${name}`]) {
+    const found = await git(worktree, ['merge-base', 'HEAD', ref], true);
+    if (found.code === 0 && found.stdout.trim()) bases.push(found.stdout.trim());
+  }
+  if (!bases.length) fail('TOPOLOGY_MANAGEMENT_BASE', named.length
+    ? `Cannot resolve any integration branch candidate (${named.join(', ')}) to a merge-base with the task HEAD as origin/<name> or <name>; fetch it, or fix management.target_branch. Admission never falls back to HEAD.`
+    : 'No integration branch is known for the admission base: no branch recorded by tm, no task PR, no management.target_branch and no repository default branch. Configure management.target_branch.');
+  const unique = [...new Set(bases)];
+  const octopus = unique.length === 1 ? { code: 0, stdout: unique[0] } : await git(worktree, ['merge-base', '--octopus', ...unique], true);
+  const base = octopus.code === 0 ? octopus.stdout.trim() : '';
+  invariant(/^[a-f0-9]{40,64}$/.test(base), 'TOPOLOGY_MANAGEMENT_BASE', `The integration branch candidates (${named.join(', ')}) share no common ancestor with the task HEAD; refusing rather than guessing a base.`);
+  return { base, source: 'local-fallback' };
+}
+
 /** TM-247: the same observation without the finish requirement, for retiring a worker that died
  * before reporting. The claim may be released (a parked or blocked task) but never foreign. */
 export async function deadWorkerState(options, record) {
@@ -498,24 +594,76 @@ export async function admitTask(options) {
       return { admitted: false, state: 'ownership-review-required' };
     }
     if (held) ownClaim(held, owner, task); // TTL expiry never authorizes silent reassignment here.
-    if (prior?.owner === owner && prior.started) { await reclaimAdmission(ctx, task, prior); return { admitted: true, resumed: true, record: prior }; }
+    // TM-348 review: a released claim (park, block, defer, reap) is not an invitation. Another session
+    // never takes over a started record, and a done or landed task never gets its worktree or claim back.
+    if (prior?.started && prior.owner !== owner) {
+      await recordEvent(ctx, task, prior, 'ownership-review-required', { owner, existing_owner: prior.owner, worktree: doc.worktree || null, recovery: 'The task was admitted by another session; reconcile ownership with that owner instead of re-admitting.' });
+      return { admitted: false, state: 'ownership-review-required' };
+    }
+    invariant(doc.status !== 'done' && !prior?.merge && !['merged', 'cleaned'].includes(prior?.state), 'TOPOLOGY_MANAGEMENT_LANDED', `${task} is done or landed; admission never recreates its worktree or claim.`);
+    if (prior?.owner === owner && prior.started) {
+      // TM-247: a released claim is re-claimed through tm start for this owner (never stolen; a blocked
+      // task refuses until tm unblock), then the record is resumed.
+      const current = await reclaimAdmission(ctx, task, prior);
+      // TM-349: a record admitted at a worker commit hides that commit; a resumed admission only ever widens it.
+      const { base, source } = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
+      if (base !== prior.base_revision && (await git(current.worktree, ['merge-base', '--is-ancestor', base, prior.base_revision], true)).code === 0) {
+        const widened = await recordEvent(ctx, task, prior, 'base-widened', { from: prior.base_revision, to: base, base_source: source });
+        Object.assign(widened, { base_revision: base, base_source: source }); await writeJson(ctx.path, widened);
+        return { admitted: true, resumed: true, record: widened };
+      }
+      return { admitted: true, resumed: true, record: prior };
+    }
     invariant(doc.labels?.includes('ready-for-agent') && list(doc.touches) && doc.touches.length, 'TOPOLOGY_MANAGEMENT_SCOPE', 'Task needs approved ready-for-agent scope and declared files/touches.');
     const available = await (options.reviewerReady || reviewerAvailability)(options);
     invariant(available.available, 'TOPOLOGY_MANAGEMENT_REVIEWER', available.reason || 'Designated reviewer is not ready.');
     for (const id of doc.blockedBy || []) invariant((await ctx.store.show(id)).status === 'done', 'TOPOLOGY_MANAGEMENT_DEPENDENCY', `Dependency ${id} is not complete.`);
-    if (!doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
+    // TM-348: tm worktree new is idempotent and claims first, so an unclaimed task with a recorded
+    // worktree is re-claimed here; a claim held by another session was already refused above.
+    if (!held || !doc.worktree || resolve(doc.worktree) === resolve(ctx.store.root)) await ctx.store.provision(task);
     const provisioned = await ownedTask(ctx, task, owner);
+    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
+    const recorded = String(provisioned.integrationBranch ?? '').trim(), integration = recorded && recorded !== 'HEAD' ? recorded : null;
+    const { base, source } = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
     await ctx.store.start(task, provisioned.worktree);
-    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, intent, boundaries, dependencies, checks, files: doc.touches });
+    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
     const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
-    // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
-    const integration = String(provisioned.integrationBranch ?? '').trim();
-    Object.assign(record, { integration_branch: integration && integration !== 'HEAD' ? integration : null, base_revision: await gitText(provisioned.worktree, ['rev-parse', 'HEAD']), owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
+    Object.assign(record, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
     await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});
     return { admitted: true, record };
+  });
+}
+
+/** TM-347: the one way back to working after an independent review requests changes. Gated on a
+ * changes_requested review of the CURRENT finish revision and a stopped (or absent) worker. The rework
+ * event keeps the reviewed revision and its findings; finish and collected are cleared, owner,
+ * worktree, branch and base are kept, and the task store returns the governed task to working.
+ * A retry after the store call failed only repeats that call. */
+export async function reworkTask(options) {
+  const ctx = await context(options), { task, owner } = options;
+  return withLock(`${ctx.path}.lock`, async () => {
+    let record = await loadRecord(ctx.path);
+    invariant(record?.started && record.owner === owner, 'TOPOLOGY_MANAGEMENT_REWORK', `Only the admitting session can return ${task} to work; admit it first.`);
+    const last = record.events?.at(-1);
+    let revision = last?.event === 'rework' && record.state === 'working' && !record.finish ? last.revision : null;
+    if (!revision) {
+      revision = record.finish?.revision;
+      invariant(record.state === 'ready-for-review' && nonempty(revision) && !record.merge, 'TOPOLOGY_MANAGEMENT_REWORK', `rework needs a finished, unlanded revision under review; ${task} is ${record.state ?? 'not started'}.`);
+      invariant(!record.worker || record.worker.stopped_at, 'TOPOLOGY_MANAGEMENT_REWORK', 'Stop the finished worker with manage stop-worker before rework; findings never go to a live writer.');
+      await ownedTask(ctx, task, owner);
+      const { state, review } = await (options.reviewStatus || currentReviewStatus)(options.consumer, task, revision, ctx.env, ctx.home);
+      invariant(state === 'changes_requested' && review?.verified_commit === revision, 'TOPOLOGY_MANAGEMENT_REWORK_REVIEW',
+        `rework needs an independent changes_requested review of the current finish revision ${revision}; the review is ${state}${review?.revision && review.revision !== revision ? ` of ${review.revision}` : ''}.`);
+      record = await recordEvent(ctx, task, record, 'rework', { owner, revision, review: { reviewer_id: review.reviewer_id, verdict: review.verdict, created_at: review.created_at ?? null, request_nonce: review.request_nonce ?? null, findings: review.findings ?? [] } });
+      for (const key of ['finish', 'collected', 'review_request', 'review_blocked']) delete record[key];
+      record.state = 'working';
+      await writeJson(ctx.path, record);
+    }
+    await ctx.store.rework?.(task, revision);
+    return { reworked: true, revision, record };
   });
 }
 
@@ -536,6 +684,8 @@ export async function workerReport(options) {
       invariant(report && list(report.artifacts) && report.artifacts.length && Array.isArray(report.checks) && report.checks.every(check => nonempty(check) || (check && typeof check === 'object')) && report.checks.length && list(report.risks) && nonempty(report.evidence), 'TOPOLOGY_MANAGEMENT_FINISH_PROTOCOL', 'Finish requires artifacts, checks/evidence, remaining risks and exact revision.');
       invariant(report.revision === await gitText(doc.worktree, ['rev-parse', 'HEAD']), 'TOPOLOGY_MANAGEMENT_REVISION', 'Finish must name the current exact task commit.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_DIRTY', 'Commit or preserve outstanding changes before readiness for review.');
+      // TM-347: a revision whose review requested changes is never resubmitted; rework makes a new one.
+      invariant(!(prior.events || []).some(e => e.event === 'rework' && e.revision === report.revision), 'TOPOLOGY_MANAGEMENT_REVISION', `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report); // TM-418: a malformed check run is refused here, where the worker can still fix it.
     } else invariant(nonempty(report?.message), 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'A during-work report requires a visible reason.');
     // The same native workflow can undergo a producer-controlled fallback. A new finish
@@ -548,7 +698,7 @@ export async function workerReport(options) {
     if (kind === 'finish') {
       await ctx.store.reviewReady?.(task,report.revision);
       try {
-        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [...new Set([prior.owner, owner])], checkEvidence: finishCheckEvidence(report) });
+        const request = await (options.queueReview || requestReview)({ ...options, revision: report.revision, baseRevision: prior.base_revision, authorAgentIds: [...new Set([prior.owner, owner])], checkEvidence: claimedCheckEvidence(report) });
         next.review_request = request;
       } catch (error) {
         next.review_blocked = error.message;
@@ -591,7 +741,7 @@ export async function retryReview(options) {
     const record = await loadRecord(ctx.path);
     invariant(record?.state === 'ready-for-review' && record.finish?.revision, 'TOPOLOGY_MANAGEMENT_PROTOCOL', `${task} has no finish report awaiting review.`);
     try {
-      record.review_request = await (options.queueReview || requestReview)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner], checkEvidence: finishCheckEvidence(record.finish) });
+      record.review_request = await (options.queueReview || requestReview)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner], checkEvidence: claimedCheckEvidence(record.finish) });
       delete record.review_blocked; delete record.review_blocked_notice;
     } catch (error) { record.review_blocked = error.message; await writeJson(ctx.path, record); throw error; }
     await writeJson(ctx.path, record);
@@ -654,14 +804,53 @@ export const LEAD_POLICY_PATH = '.bytedesk/agent-orchestration/config.json';
  * or gh default is refused, so the policy is null. Same-uid limit as githubCompare: a process as this
  * user can replace gh. */
 export async function serverLeadAutonomy(gh, repoDir, { env = process.env, home = homedir() } = {}) {
+  const policy = (await serverPolicy(gh, repoDir, { env, home })).document?.management?.lead_autonomy;
+  return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
+}
+
+/** TM-263 / TM-442: the repository config (LEAD_POLICY_PATH) as committed on the SERVER's default
+ * branch of the PINNED repository, read through gh. { document, source } or { document: null, reason }.
+ * Never the local file, the shared .git refs or remote URL: a worker can write all three. */
+export async function serverPolicy(gh, repoDir, { env = process.env, home = homedir() } = {}) {
   let repo, branch;
-  try { ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch { return null; }
+  try { ({ repo, branch } = await pinnedGithubRepo(repoDir, gh, { env, home })); } catch (error) { return { document: null, reason: error.message }; }
   const file = await ghJson(gh, ['api', `repos/${repo}/contents/${LEAD_POLICY_PATH}?ref=${encodeURIComponent(branch)}`]);
-  if (file.code !== 0 || typeof file.value?.content !== 'string') return null;
-  try {
-    const policy = JSON.parse(Buffer.from(file.value.content, 'base64').toString('utf8'))?.management?.lead_autonomy;
-    return policy && nonempty(policy.lead) && list(policy.scopes) && nonempty(policy.adr) && nonempty(policy.authorized_by) ? policy : null;
-  } catch { return null; }
+  if (file.code !== 0 || typeof file.value?.content !== 'string') return { document: null, reason: `cannot read ${LEAD_POLICY_PATH} on ${repo}@${branch}${file.error ? `: ${file.error}` : ''}` };
+  try { return { document: JSON.parse(Buffer.from(file.value.content, 'base64').toString('utf8')), source: `${repo}@${branch}:${LEAD_POLICY_PATH}` }; }
+  catch { return { document: null, reason: `${LEAD_POLICY_PATH} on ${repo}@${branch} is not valid JSON` }; }
+}
+
+/** TM-442: the management keys that grant authority or choose what the lead executes. They are honoured
+ * ONLY from the repository config committed on the server's default branch. A worker runs as the
+ * operator's OS user and can write the global layer (~/.config/agent-orchestration), the plugin
+ * defaults and the checkout's own repo file, so a value there is ignored with a warning. A signed
+ * operator layer would be a second honoured source; signing is not implemented. */
+export const PROTECTED_MANAGEMENT_KEYS = Object.freeze(['autonomy', 'release', 'cutover', 'required_checks']);
+
+/** loadConfig, with PROTECTED_MANAGEMENT_KEYS replaced by the server's committed values (absent when the
+ * server cannot be read: autonomy falls back to "pr", and release, cutover and required checks are
+ * unconfigured, so every verb that needs them refuses). Adds { warnings, policy: { source, reason } }. */
+export async function loadGovernedConfig(options) {
+  const loaded = await loadConfig(options);
+  const server = await serverPolicy(options.gh || defaultGh(options.consumer), options.consumer, { env: options.env || process.env, home: options.home || homedir() });
+  const committed = server.document?.management && typeof server.document.management === 'object' ? server.document.management : {};
+  const management = { ...(loaded.config.management || {}) }, warnings = [];
+  for (const key of PROTECTED_MANAGEMENT_KEYS) {
+    const local = management[key];
+    delete management[key];
+    if (Object.hasOwn(committed, key) && !(key === 'autonomy' && !AUTONOMY_LEVELS.includes(committed[key]))) management[key] = committed[key];
+    if (local !== undefined && JSON.stringify(local) !== JSON.stringify(management[key])) {
+      const layers = loaded.layers.filter(l => l.ok && l.present && l.raw?.management?.[key] !== undefined).map(l => `${l.scope} (${l.path})`);
+      warnings.push(`management.${key} in ${layers.join(', ') || 'a local layer'} is ignored: it is honoured only from ${server.source || `the server's default branch (${server.reason})`} (TM-442)`);
+    }
+  }
+  return { ...loaded, config: { ...loaded.config, management }, warnings, policy: { source: server.source || null, reason: server.reason || null } };
+}
+
+/** TM-442: the effective autonomy and where it came from; "pr" unless the server's default branch says otherwise. */
+export function governedAutonomy(governed) {
+  const level = governed.config.management?.autonomy;
+  return level ? { level, scope: 'server-default-branch', path: governed.policy.source } : { level: 'pr', scope: 'built-in', path: null };
 }
 
 /** TM-263: integrate authority from the server policy, or null. The policy must name the caller and
@@ -692,24 +881,26 @@ export async function integrationEligibility(options) {
   // TM-249: every reason carries the condition it fails, so manage integrate refuses each by name.
   const refuse = (condition, reason) => { reasons.push(reason); refusals.push({ condition, reason }); };
   if (!record || record.state !== 'ready-for-review') refuse('protocol', 'task has no completed worker protocol ready for review');
-  let doc, review = null;
+  let doc, review = null, claimedReasons = [];
   try { doc = await ownedTask(ctx, options.task, record?.owner); } catch (error) { refuse('ownership', error.message); }
-  const loaded = await loadConfig(options);
+  const loaded = await loadGovernedConfig(options);
   const policy = loaded.config.management || {};
   if (loaded.errors.length) refuse('config', 'management configuration is invalid');
   const viaPullRequest = policy.integrate_via === 'pull-request';
   const authority = await integrationAuthority(options, ctx, policy);
   for (const { condition, reason } of authority.refusals) refuse(condition, reason);
   const { delegation, delegationError } = authority;
-  if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse('config', 'configure named management.required_checks with executable argv');
+  if (!viaPullRequest && (!Array.isArray(policy.required_checks) || !policy.required_checks.length || policy.required_checks.some(c => !nonempty(c.name) || !list(c.argv) || !c.argv.length))) refuse('config', `configure named management.required_checks with executable argv in ${LEAD_POLICY_PATH} on the server's default branch, the only source honoured (TM-442)${loaded.policy.reason ? `; ${loaded.policy.reason}` : ''}`);
   if (!nonempty(policy.target_branch)) refuse('config', 'configure management.target_branch before integration');
   if (doc && record?.finish) {
     if (!doc.labels?.includes('ready-for-agent')) refuse('scope', 'task scope is no longer approved');
     const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
-    if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch)) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
+    if (head !== record.finish.revision && !await mergeInOf(doc.worktree, record.finish.revision, head, policy.target_branch, { gh: options.gh || defaultGh(ctx.store.root), env: ctx.env, home: ctx.home })) refuse('head', `task changed after finish (approved ${record.finish.revision}, now ${head}); send a new report and obtain a new review`);
     if (await gitText(doc.worktree, ['status', '--porcelain'])) refuse('dirty', 'task worktree has uncommitted work');
     review = await (options.reviewGate || reviewEligibility)({ ...options, revision: record.finish.revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
-    for (const reason of review.reasons) refuse('review', reason);
+    claimedReasons = review.reasons.filter(reason => CHECK_EVIDENCE_REASON.test(reason));
+    const reviewReasons = review.reasons.filter(reason => !CHECK_EVIDENCE_REASON.test(reason));
+    for (const reason of reviewReasons) refuse('review', reason);
     if (review.eligible !== true && review.reasons.length === 0) refuse('review', 'review eligibility was not established');
     if (!record.base_revision || !list(doc.touches) || !doc.touches.length) refuse('scope', 'approved file scope or task base revision is unavailable');
     else {
@@ -720,10 +911,57 @@ export async function integrationEligibility(options) {
         if (paths.some(path => !doc.touches.some(scope => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/')))) refuse('scope', 'implementation changed files outside the approved task scope');
       } catch (error) { refuse('scope', error.message); }
     }
+    // TM-442: a task never changes the management policy it is judged by; that is the operator's edit.
+    const changed = await managementPolicyChange(doc.worktree, record.finish.revision, policy.target_branch);
+    if (changed) refuse('scope', changed);
     const writer = options.workerState ? await options.workerState(record) : await taskWorkerState(options, record);
     if (!writer.owned || writer.active !== false) refuse('worker', writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
-  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy };
+  // TM-430: required checks are never satisfied here; integrate runs them on the host (runRequiredChecks).
+  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy,
+    required_checks: { satisfied_by: 'host-run-at-integrate', claimed_check_reasons: claimedReasons } };
+}
+
+/** TM-442: a reason when `revision` changes `management` in the committed repo config relative to its
+ * merge base with the integration branch (local, else origin), or null. Unreadable counts as changed. */
+export async function managementPolicyChange(cwd, revision, target) {
+  if (!nonempty(target)) return null;
+  let base = '';
+  for (const ref of [`refs/heads/${target}`, `refs/remotes/origin/${target}`]) {
+    base = (await git(cwd, ['merge-base', revision, ref], true)).stdout.trim();
+    if (base) break;
+  }
+  if (!base) return `cannot find the merge base of ${revision} with ${target}, so a change to ${LEAD_POLICY_PATH} management cannot be ruled out`;
+  const management = async rev => {
+    const shown = await git(cwd, ['cat-file', '-p', `${rev}:${LEAD_POLICY_PATH}`], true);
+    if (shown.code !== 0) return { value: null };
+    try { return { value: JSON.parse(shown.stdout)?.management ?? null }; } catch { return { invalid: true }; }
+  };
+  const [before, after] = [await management(base), await management(revision)];
+  if (after.invalid || JSON.stringify(before.value) !== JSON.stringify(after.value)) return `the task changes "management" in ${LEAD_POLICY_PATH}; management policy is the operator's change, made on the default branch, never landed through a task (TM-442)`;
+  return null;
+}
+
+/** TM-444: the host runs each required check in a FRESH detached worktree of `revision`, never in the
+ * worker's worktree, where an ignored file (a planted node_modules/.bin/<runner> that exits 0) would
+ * fake a pass that `git status --porcelain` cannot see. The tree is created and removed through
+ * safe-git (no hooks, no repository-scope filters) and holds exactly the committed files. Throws
+ * TOPOLOGY_MANAGEMENT_CHECK_FAILED on the first failure; returns every run otherwise. */
+export async function runRequiredChecks(root, revision, required) {
+  const dir = await mkdtemp(join(tmpdir(), 'ao-checks-')), tree = join(dir, 'tree'), checks = [];
+  try {
+    await git(root, ['worktree', 'add', '--detach', tree, revision]);
+    for (const check of required) {
+      const result = await run(check.argv[0], check.argv.slice(1), { cwd: tree, allowFailure: true, timeoutMs: check.timeout_ms || 120000 });
+      checks.push({ name: check.name, code: result.code, revision, runner: 'host', tree: 'fresh-detached-worktree' });
+      invariant(result.code === 0, 'TOPOLOGY_MANAGEMENT_CHECK_FAILED', `Required check ${check.name} failed.`, { checks });
+    }
+    return checks;
+  } finally {
+    await git(root, ['worktree', 'remove', '--force', tree], true);
+    await rm(dir, { recursive: true, force: true });
+    await git(root, ['worktree', 'prune'], true);
+  }
 }
 
 /** Merge only the reviewed commit after freshly running configured checks. No push or deploy. */
@@ -743,11 +981,7 @@ export async function integrateTask(options) {
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', targetBefore, record.finish.revision], true)).code === 0, 'TOPOLOGY_MANAGEMENT_TARGET', `Cannot fast-forward ${policy.target_branch} to ${record.finish.revision}; rebase the task onto the target branch and obtain a new review.`);
     const incoming = (await git(ctx.store.root, ['diff', '--name-only', '-z', targetBefore, record.finish.revision])).stdout.split('\0').filter(Boolean);
     invariant(!incoming.some(storePath), 'TOPOLOGY_MANAGEMENT_STORE_PATHS', `The landing would change tool store paths (${INTEGRATION_STORE_PATHS.join(', ')}); land it by hand and record it with manage record-landing.`);
-    for (const check of policy.required_checks) {
-      const result = await run(check.argv[0], check.argv.slice(1), { cwd: doc.worktree, allowFailure: true, timeoutMs: check.timeout_ms || 120000 });
-      checks.push({ name: check.name, code: result.code, revision: record.finish.revision });
-      invariant(result.code === 0, 'TOPOLOGY_MANAGEMENT_CHECK_FAILED', `Required check ${check.name} failed.`, { checks });
-    }
+    checks.push(...await runRequiredChecks(ctx.store.root, record.finish.revision, policy.required_checks));
     // Reread claims, revision and reviewer readiness after potentially long checks.
     const fresh = await integrationEligibility(options);
     invariant(fresh.eligible && fresh.record.finish.revision === record.finish.revision && JSON.stringify(fresh.policy) === JSON.stringify(policy), 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', fresh.reasons.join('; ') || 'Revision changed during checks.');
@@ -776,7 +1010,13 @@ export async function integrateTask(options) {
 
 /** The one place gh runs. argv only, never a shell; tests inject options.gh. */
 const GH_TIMEOUT_MS = 60_000;
-const defaultGh = cwd => args => run('gh', args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS });
+// PR #226 follow-up: the root-owned gh at a pinned system path (trustedGh), never the first `gh` on PATH.
+export const hostGh = cwd => {
+  const bin = trustedGh();
+  return async args => (bin ? run(bin, args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS })
+    : { code: 127, stdout: '', stderr: `no root-owned gh at ${GH_PATHS.join(', ')}` });
+};
+const defaultGh = hostGh;
 async function ghJson(gh, args) {
   const result = await gh(args);
   try { return { code: result.code, value: JSON.parse(result.stdout) }; }
@@ -886,7 +1126,7 @@ async function integrateViaPullRequest(options, ctx) {
     // TM-247 (AC9): a head that only merged the integration branch into the approved revision lands that revision.
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
       await git(ctx.store.root, ['fetch', 'origin', policy.target_branch, `refs/pull/${pr.number}/head`], true);
-      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch);
+      mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch, { gh, env: ctx.env, home: ctx.home });
     }
     if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
     if (revision && pr.headRefOid !== revision && !mergeIn) refuse('head', `${at}, not the task's recorded finish revision ${revision}, nor a merge-in of ${policy.target_branch} on top of it`);
@@ -901,6 +1141,13 @@ async function integrateViaPullRequest(options, ctx) {
       if (incoming.code !== 0) refuse('base', `cannot diff ${revision} against the local ${policy.target_branch}: ${incoming.stderr.trim()}`);
       else if (incoming.stdout.split('\0').some(path => path && storePath(path))) refuse('scope', `the PR changes tool store paths (${INTEGRATION_STORE_PATHS.join(', ')}); land it by hand and record it with manage record-landing`);
     }
+  }
+  // TM-430: the PR path's required checks are the host's own run of the configured argv at the approved
+  // revision, never the worker's report (and CI is a separate gate above). Only before a merge.
+  let hostChecks = [];
+  if (!refusals.length && pr.state !== 'MERGED' && Array.isArray(policy.required_checks) && policy.required_checks.length) {
+    try { hostChecks = await runRequiredChecks(ctx.store.root, revision, policy.required_checks); }
+    catch (error) { refuse('checks', `${error.message}${error.details?.checks ? ` (${error.details.checks.map(c => `${c.name}: exit ${c.code}`).join(', ')})` : ''}`); }
   }
   if (refusals.length) refuseIntegrate(refusals, pr?.number);
   if (pr.state !== 'MERGED') {
@@ -918,7 +1165,7 @@ async function integrateViaPullRequest(options, ctx) {
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
-      pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === 'MERGED' }, ...(mergeIn ? { merge_in: mergeIn } : {}), authorization });
+      pull_request: { number: pr.number, head: pr.headRefOid, already_merged: pr.state === 'MERGED' }, ...(mergeIn ? { merge_in: mergeIn } : {}), required_checks: hostChecks, authorization });
   } catch (error) {
     fail('TOPOLOGY_INTEGRATE_UNRECORDED', `PR #${pr.number} is merged, but its landing was not recorded: ${error.message}. Do not merge again; rerun manage integrate, which records an already-merged PR.`, { pull_request: pr.number, merged: true, recorded: false });
   }
@@ -967,12 +1214,13 @@ export async function recordLanding(options) {
     const landed = resolved.stdout.trim();
     const ancestor = async (a, b) => (await git(ctx.store.root, ['merge-base', '--is-ancestor', a, b], true)).code === 0;
     invariant(await ancestor(revision, landed), 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of ${landed}.`);
-    // TM-247 (AC10): resolve the target on the server after a fetch, not the local ref an operator may
-    // not have pulled; then bring the local branch forward so governed completion can verify it too.
-    const fetched = await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
-    const remote = `refs/remotes/origin/${policy.target_branch}`;
-    const targetRef = fetched.code === 0 && (await git(ctx.store.root, ['rev-parse', '--verify', '--quiet', remote], true)).code === 0 ? remote : `refs/heads/${policy.target_branch}`;
-    invariant(await ancestor(landed, targetRef), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} (checked ${targetRef}${fetched.code === 0 ? ' after a fetch' : `; fetching origin failed: ${fetched.stderr.trim()}`}).`);
+    // TM-247 (AC10) / TM-472: the landing must be on the target branch of the PINNED repository on the
+    // server (gh compare), for every caller including an operator's --authorized: a local or origin ref is
+    // one `git update-ref` away from a worker. Then bring the local branch forward so governed completion
+    // can verify it locally too.
+    const server = await serverCompareStatus(options.gh || defaultGh(ctx.store.root), ctx.store.root, landed, policy.target_branch, ctx);
+    invariant(['ahead', 'identical'].includes(server.status), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); a local or origin ref is not evidence of a landing.`);
+    await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
     if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');
@@ -1017,7 +1265,7 @@ export async function cleanupTask(options) {
       invariant(record.worktree === doc.worktree && record.branch === doc.branch, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task worktree ownership changed.');
       invariant(!(await gitText(doc.worktree, ['status', '--porcelain'])), 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Task tree has uncommitted work.');
       const head = await gitText(doc.worktree, ['rev-parse', 'HEAD']);
-      invariant(head === record.merge.revision || await mergeInOf(doc.worktree, record.merge.revision, head, record.merge.target_branch), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Task branch changed after integration (landed ${record.merge.revision}, now ${head}).`);
+      invariant(head === record.merge.revision || await mergeInOf(doc.worktree, record.merge.revision, head, record.merge.target_branch, { gh: options.gh || defaultGh(ctx.store.root), env: ctx.env, home: ctx.home }), 'TOPOLOGY_MANAGEMENT_CLEANUP', `Task branch changed after integration (landed ${record.merge.revision}, now ${head}).`);
       invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', record.merge.revision, `refs/heads/${record.merge.target_branch}`], true)).code === 0, 'TOPOLOGY_MANAGEMENT_CLEANUP', 'Merge ancestry is no longer established.');
       const observe = value => options.workerState ? options.workerState(value) : taskWorkerState(options, value);
       const worker = await observe(record);
@@ -1062,6 +1310,16 @@ export async function transferTask(options) {
     const claim = await ctx.store.claim(options.task);
     invariant(!claim || claim.session === from || claim.session === to, 'TOPOLOGY_MANAGEMENT_OWNERSHIP', `${options.task} is claimed by ${claim?.session}, neither the owner ${from} nor ${to}; reconcile that claim first.`);
     invariant(caller === from || claim?.session !== from, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${from} still holds a live claim on ${options.task}; ask it to run manage transfer --task ${options.task} --to ${to}, or wait for its claim to expire.`);
+    if (caller !== from) {
+      // TM-459: a takeover. `tm block` or `tm park` releases the claim while the owner is still alive,
+      // so a released claim proves nothing. The caller must be proven to be this repository's lead, and
+      // the owner must be proven gone: no live pane bound to it and no fresh heartbeat from it.
+      const lookup = { consumer: options.consumer, env: ctx.env, home: ctx.home, listPanesFn: options.listPanesFn, readCensusFn: options.readCensusFn, callerProc: options.callerProc };
+      const lead = await (options.requireLead || requireLeadCaller)(lookup);
+      invariant(lead, 'TOPOLOGY_MANAGEMENT_TRANSFER', `Only this repository's proven lead may take over ${options.task} from ${from}; the caller is not it (requireLeadCaller). Ask ${from} to hand it over with manage transfer --to.`);
+      const present = await (options.ownerPresence || ownerPresence)(ctx, lookup, from);
+      invariant(!present, 'TOPOLOGY_MANAGEMENT_TRANSFER', `${from} is not proven absent (${present}); a released claim is not proof. Ask it to hand ${options.task} over with manage transfer --to, or retry once it has exited.`);
+    }
     const doc = await ctx.store.show(options.task);
     invariant(doc.worktree && resolve(doc.worktree) === resolve(record.worktree), 'TOPOLOGY_MANAGEMENT_WORKTREE', 'Task worktree differs from the admission record; reconcile it before transferring.');
     try { await ctx.store.claimFor(options.task, to, record.worktree, claim?.session === from); }
@@ -1072,6 +1330,25 @@ export async function transferTask(options) {
     await writeJson(ctx.path, next);
     return { transferred: true, from, to, record: next };
   });
+}
+
+/** TM-459: why `owner` may still be alive, or null when nothing shows it is: a live pane the census
+ * binds to it, or a heartbeat from it fresher than HEARTBEAT_TTL_MS. Unreadable panes are not absence. */
+export async function ownerPresence(ctx, lookup, owner) {
+  const census = await (lookup.readCensusFn || readCensus)({ consumer: lookup.consumer, env: ctx.env, home: ctx.home }).catch(() => null);
+  for (const entry of (census?.agents || []).filter(a => a.agentId === owner && a.binding?.paneId)) {
+    let panes;
+    try { panes = await (lookup.listPanesFn || listServerPanes)({ tmuxServer: entry.binding.serverKey, env: ctx.env }); }
+    catch (error) { return `its pane ${entry.binding.paneId} cannot be checked: ${error.message}`; }
+    if (panes.some(pane => pane.alive && pane.paneId === entry.binding.paneId)) return `it has a live pane ${entry.binding.paneId}`;
+  }
+  const dir = heartbeatDir(ctx.env, ctx.home);
+  for (const name of (await readdir(dir).catch(() => [])).filter(n => n.endsWith('.json'))) {
+    const beat = await readJson(join(dir, name)).catch(() => null);
+    const age = Date.now() - Number(beat?.at);
+    if (beat?.agent_id === owner && age >= 0 && age < HEARTBEAT_TTL_MS) return `it sent a heartbeat ${Math.round(age / 1000)}s ago`;
+  }
+  return null;
 }
 
 /** TM-247 (AC8): close a landed governed task in the one order that cannot strand a bound worker:

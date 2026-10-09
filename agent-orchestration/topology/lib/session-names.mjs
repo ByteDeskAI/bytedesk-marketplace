@@ -22,7 +22,8 @@ import { hostname as osHostname, homedir } from "node:os";
 import { basename } from "node:path";
 import { globalConfigPath } from "./config.mjs";
 import { repositoryConsumer } from "./repoid.mjs";
-import { readJson, run } from "./util.mjs";
+import { readJson } from "./util.mjs";
+import { safeGit } from "./safe-git.mjs";
 
 export const SEPARATOR = "--";
 /** Per-segment caps, so a long folder or name cannot push the role out of sight. */
@@ -67,7 +68,7 @@ export function originPath(url) {
  */
 export async function repoIdentity(consumer) {
   const main = await repositoryConsumer(consumer);
-  const remote = await run("git", ["-C", main, "remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 10_000 })
+  const remote = await safeGit(main, ["remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 10_000 })
     .catch(() => ({ code: 1, stdout: "" }));
   const origin = remote.code === 0 ? originPath(remote.stdout) : null;
   if (origin) return { slug: slugPart(origin.split("/").pop(), PART_CAPS.repo) || "repo", origin };

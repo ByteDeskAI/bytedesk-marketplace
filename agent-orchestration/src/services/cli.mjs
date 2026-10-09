@@ -1,5 +1,5 @@
 // `agent-orchestration services install|ensure|status|probe|uninstall` (TM-272).
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,7 +8,6 @@ import { PLUGIN_ROOT, stateRoot as resolveStateRoot, validateStateRoot } from ".
 import { serializeError } from "../errors.mjs";
 import { registerRepository } from "../../topology/lib/services-client.mjs";
 import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicePaths, servicesStatus, uninstallServices, waitForServices } from "./services.mjs";
-import { projectScopeWarning } from "./project-scope.mjs";
 import { selfHeal } from "./self-heal.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
 
@@ -45,12 +44,6 @@ export function healLines(heal) {
   if (heal.tmuxSocket && !heal.tmuxSocket.ok) lines.push(`  ${heal.tmuxSocket.problem} Fix: ${heal.tmuxSocket.fix}.`);
   for (const [name, part] of Object.entries(heal)) if (part?.error) lines.push(`  self-heal ${name} failed: ${part.error}`);
   return lines;
-}
-
-/** The project-scope warning for `cwd`'s repository: the guard's predicate at the guard's repo top. */
-export function sessionStartWarning(cwd) {
-  const top = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, timeout: 5_000 });
-  return projectScopeWarning(top.status === 0 ? top.stdout.trim() : cwd);
 }
 
 /**
@@ -97,10 +90,6 @@ export async function runServicesCommand(sub, values, positionals, env = process
     case "ensure": {
       const consumerCwd = values["consumer-cwd"] ? resolve(values["consumer-cwd"]) : null;
       if (values.detach) {
-        // TM-285: the SessionStart hook's stdout reaches the session, so the commit guard's finding
-        // is announced now instead of at the first blocked commit. One file read; still instant.
-        const warning = consumerCwd ? sessionStartWarning(consumerCwd) : null;
-        if (warning) process.stdout.write(`${warning}\n`);
         return detach(stateRoot, consumerCwd);
       }
       try {

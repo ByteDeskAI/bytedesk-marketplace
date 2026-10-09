@@ -48,6 +48,15 @@ for r in "$A" "$B" "$C"; do
 done
 tm "$A" task new "origin work needs the widget" --body "context" --ac "it ships" >/dev/null
 
+# TM-446: every store gets a planted launcher that only records that it ran. tm must never execute
+# a store's own bin/tm — only this plugin's — so the record must still be absent at the end.
+MARK="$TMP/planted.log"
+plant() {
+  mkdir -p "$1/.bytedesk/task-management/bin"
+  printf '%s\n' "process.getBuiltinModule('fs').appendFileSync('$MARK', '$1 ' + process.argv.slice(2).join(' ') + '\\n');" > "$1/.bytedesk/task-management/bin/tm"
+}
+for r in "$A" "$B" "$C"; do plant "$r"; done
+
 # ── TM-381 + TM-357: file by path, from a task ──────────────────────────────
 res="$(tm "$A" ticket "$B" "Fix the widget" --priority critical --ac "the widget works" --from-task TM-001)"
 has "$res" "repo-b#TM-001 filed" "tm ticket files the ticket on the target board"
@@ -113,6 +122,63 @@ TM_ENFORCE=off tm "$B" done TM-001 >/dev/null
 until_has "comments" "repo-b#TM-001 done" && ok "done reaches the origin task through the event bridge" || no "done reaches the origin task through the event bridge" "$(comments)"
 until_has "tm $A why TM-001" "nothing is holding this up" && ok "done clears the origin's cross-repo blocker" || no "done clears the origin's cross-repo blocker" "$(tm "$A" why TM-001)"
 lacks "$(tm "$A" show TM-001 --json | field links)" "repo-b#TM-001" "the blocker link is gone from the origin task"
+
+# ── TM-446: an unknown repo is refused and logged; no planted launcher ever runs ──
+D="$TMP/evil/repo-d"
+mkdir -p "$D"
+tm "$D" init >/dev/null
+tm "$D" epic new "work" >/dev/null
+tm "$D" config dispatch.enabled false >/dev/null
+tm "$D" task new "victim" --body "b" --ac "a" >/dev/null
+plant "$D"
+out="$(tm "$A" ticket "$D" "Not yours" --ac "x" 2>&1)"; code=$?
+[[ $code == 2 ]] && has "$out" "refusing $D" "a path target neither registered nor a sibling is refused" || no "a path target neither registered nor a sibling is refused" "exit $code: $out"
+has "$(cat "$A/.bytedesk/task-management/events.jsonl")" '"event":"ticket_refused"' "the refused target is logged"
+lacks "$(cat "$D"/.bytedesk/task-management/tasks/*.md)" "Not yours" "nothing was filed on the unknown repo"
+
+forged="$(tm "$B" task new "forged origin" --body "b" --ac "a" --origin "{\"repo\":\"$D\",\"task\":\"TM-001\"}")"
+fid="$(grep -oE 'TM-[0-9]+' <<<"$forged" | head -1)"
+out="$(AO_AGENT_ID=lead-123 tm "$B" ticket event "$fid" review approved 2>&1)"; code=$?
+[[ $code == 2 ]] && has "$out" "refusing $D" "an event for an unknown origin is refused" || no "an event for an unknown origin is refused" "exit $code: $out"
+AO_AGENT_ID=lead-123 TM_ENFORCE=off tm "$B" done "$fid" >/dev/null
+refusals() { grep '"event":"ticket_refused"' "$B/.bytedesk/task-management/events.jsonl" | grep -c "\"id\":\"$fid\""; }
+until_has refusals "2" && ok "done on a forged-origin ticket is refused through the event bridge, and logged" || no "done on a forged-origin ticket is refused through the event bridge, and logged" "$(grep ticket_refused "$B/.bytedesk/task-management/events.jsonl")"
+lacks "$(tm "$D" show TM-001 --json | field comments)" "$fid" "the unknown origin got no comment"
+
+# The pool's collect path: a recorded worker result reaches a KNOWN origin through this plugin's tm.
+tm "$A" task new "needs the collect fix" --body "b" --ac "a" >/dev/null
+cid="$(tm "$A" ticket "$B" "Collect me" --ac "x" --from-task TM-002 | grep -oE 'TM-[0-9]+' | head -1)"
+(cd "$B" && TM_ROOT="$B" node --input-type=module -e "
+import { mutate } from '$PLUGIN_ROOT/lib/store.mjs';
+import { recordResult } from '$PLUGIN_ROOT/lib/dispatch/collect.mjs';
+mutate('$cid', () => ({ dispatched: { backend: 'manual', run: 'r9', at: new Date().toISOString() } }));
+const r = recordResult('$cid', { outcome: 'failed', summary: 'collect path' });
+if (!r.ok) { console.error(JSON.stringify(r)); process.exit(1); }")
+until_has "tm $A show TM-002 --json" "repo-b#$cid failed: worker failed" && ok "a collected result reaches the origin task" || no "a collected result reaches the origin task" "$(tm "$A" show TM-002 --json | field comments)"
+
+# ── TM-450: one dedup key for done; a send that reached nobody can be retried; MCP refuses a stray flag ──
+has "$(tm "$B" ticket event TM-001 done "again by hand")" "already reported" "a manual done after the bridge's done is the same event"
+oid="$(tm "$A" task new "needs a retry" --body "b" --ac "a" | grep -oE "TM-[0-9]+" | head -1)"
+rid="$(tm "$A" ticket "$B" "Retry me" --ac "x" --from-task "$oid" | grep -oE 'TM-[0-9]+' | head -1)"
+chmod u-w "$A/.bytedesk/task-management/tasks"
+TM_TOPOLOGY_BIN="" tm "$B" ticket event "$rid" review "first try" >/dev/null 2>&1
+chmod u+w "$A/.bytedesk/task-management/tasks"
+lacks "$(tm "$A" show "$oid" --json | field comments)" "first try" "the control: the first send reached nobody"
+res="$(TM_TOPOLOGY_BIN="" tm "$B" ticket event "$rid" review "first try")"
+has "$res" "origin comment added" "a send that reached nobody is not recorded as reported, so the retry sends"
+has "$(tm "$A" show "$oid" --json | field comments)" "repo-b#$rid review: first try" "the retry lands on the origin task"
+mcp="$(cd "$A" && TM_ROOT="$A" TM_TOPOLOGY_BIN="" node --input-type=module -e "
+import { callTool } from '$PLUGIN_ROOT/lib/mcp.mjs';
+try { console.log(JSON.stringify(await callTool('tm_ticket', { target: '$B', title: 'Stray flag --priority high', acceptance: ['x'] }))); } catch (e) { console.log('threw: ' + e.message); }" 2>&1)"
+has "$mcp" "unknown option --priority" "MCP tm_ticket refuses a title with a stray flag, as the CLI does"
+lacks "$(cat "$B"/.bytedesk/task-management/tasks/*.md)" "Stray flag" "nothing was filed for it"
+
+# Review: a path target is resolved once and the resolved path is what is written to, so a link
+# swapped after the check cannot redirect the write.
+ln -s "$B" "$PARENT/repo-b-link"
+has "$(tm "$A" ticket "$PARENT/repo-b-link" "Via a link" --ac "x")" "filed on $B " "a linked target is filed on its real path"
+
+[[ ! -e "$MARK" ]] && ok "no planted bin/tm ran on file, notify, the event bridge or collect" || no "no planted bin/tm ran on file, notify, the event bridge or collect" "$(cat "$MARK")"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]

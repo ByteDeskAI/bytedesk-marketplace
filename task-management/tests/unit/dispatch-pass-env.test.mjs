@@ -11,9 +11,12 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import { cleanup, tempStore } from "./helpers.mjs";
-import { writeConfig } from "../../lib/store.mjs";
+import { cleanup, tempRepo, tempStore } from "./helpers.mjs";
+import { create, seedGitContract, writeConfig } from "../../lib/store.mjs";
+import { ensureDirs, paths } from "../../lib/paths.mjs";
 import * as tmux from "../../lib/dispatch/tmux.mjs";
+import * as topology from "../../lib/dispatch/topology.mjs";
+import { dispatch } from "../../lib/dispatch/index.mjs";
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -35,22 +38,117 @@ function filesContaining(root, needle) {
   return hits;
 }
 
-/** A store whose tm config names one secret and whose ao config names another. */
-function storeWithPassEnv(tmuxCommand) {
+/**
+ * TM-448: names come from the USER's config only — tm's and agent-orchestration's global layer,
+ * both under XDG_CONFIG_HOME, which every test here points at a private temp dir.
+ */
+const XDG = mkdtempSync(join(tmpdir(), "tm-passenv-xdg-"));
+trash.push(XDG);
+const savedXdg = process.env.XDG_CONFIG_HOME;
+process.env.XDG_CONFIG_HOME = XDG;
+after(() => (savedXdg === undefined ? delete process.env.XDG_CONFIG_HOME : (process.env.XDG_CONFIG_HOME = savedXdg)));
+function userConfig({ tm = ["TM375_SECRET", "TM375_ABSENT"], ao = ["TM375_AO", "not a name"] } = {}) {
+  mkdirSync(join(XDG, "task-management"), { recursive: true });
+  mkdirSync(join(XDG, "agent-orchestration"), { recursive: true });
+  writeFileSync(join(XDG, "task-management", "config.json"), JSON.stringify({ dispatch: { passEnv: tm } }));
+  writeFileSync(join(XDG, "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: ao } }));
+}
+userConfig();
+
+/** A store whose git-tracked tm and ao configs name their own secrets — which must be ignored. */
+function storeWithPassEnv(tmuxCommand, { tm = ["TM448_REPO_TM"], ao = ["TM448_REPO_AO"] } = {}) {
   const p = tempStore();
   trash.push(p.root);
-  writeConfig({ dispatch: { passEnv: ["TM375_SECRET", "TM375_ABSENT"], ...(tmuxCommand ? { tmuxCommand } : {}) } }, p);
+  writeConfig({ dispatch: { passEnv: tm, ...(tmuxCommand ? { tmuxCommand } : {}) } }, p);
   mkdirSync(join(p.root, ".bytedesk", "agent-orchestration"), { recursive: true });
-  writeFileSync(join(p.root, ".bytedesk", "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: ["TM375_AO", "not a name"] } }));
+  writeFileSync(join(p.root, ".bytedesk", "agent-orchestration", "config.json"), JSON.stringify({ workers: { passEnv: ao } }));
   return p;
 }
 
+describe("TM-448 passEnv trusts only user config and never a reserved name", () => {
+  it("repo-tracked passEnv is ignored with a warning, in tm config and in ao config", () => {
+    const p = storeWithPassEnv();
+    const plan = tmux.passEnvNames({ p });
+    assert.deepEqual(plan.names, ["TM375_SECRET", "TM375_ABSENT", "TM375_AO"]);
+    assert.deepEqual(plan.ignored, ["TM448_REPO_TM", "TM448_REPO_AO"]);
+    assert.match(plan.warnings.join("\n"), /TM448_REPO_TM, TM448_REPO_AO ignored: named only in git-tracked repository config/);
+    const res = tmux.spawn({ task: { id: "TM-448", title: "x" }, worktree: tmpdir(), prompt: "x", p, env: { TM448_REPO_TM: "v", TM448_REPO_AO: "v" } },
+      { writeImpl: () => {}, spawnImpl: () => ({ status: 0 }) });
+    assert.deepEqual(res.detail.passEnv, [], "nothing named only by the repo is passed");
+    assert.deepEqual(res.detail.passEnvWarnings, plan.warnings, "the dispatch reports why");
+    for (const a of res.detail.args.filter((a) => a.includes("tm-passenv-"))) rmSync(dirname(a), { recursive: true, force: true });
+  });
+
+  it("reserved names are refused from every layer", () => {
+    const reserved = ["TM_ROOT", "TM_ACTOR", "AO_AGENT_ID", "CLAUDE_CONFIG_DIR", "PATH", "HOME", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND", "BASH_ENV", "ENV", "ZDOTDIR", "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PERL5OPT", "RUBYOPT", "XDG_CONFIG_HOME", "TMUX", "TMUX_PANE", "SSH_AUTH_SOCK"];
+    userConfig({ tm: ["TM375_SECRET", ...reserved.slice(0, 5)], ao: reserved.slice(5) });
+    try {
+      const plan = tmux.passEnvNames({ p: storeWithPassEnv(null, { tm: ["GIT_DIR"], ao: ["AO_CONSUMER"] }) });
+      assert.deepEqual(plan.names, ["TM375_SECRET"]);
+      assert.deepEqual(plan.refused.sort(), [...reserved, "GIT_DIR", "AO_CONSUMER"].sort());
+      assert.match(plan.warnings.join("\n"), /refused: reserved names/);
+    } finally {
+      userConfig();
+    }
+  });
+
+  it("the guard variables are applied after the secrets file, so it cannot override them", () => {
+    const p = storeWithPassEnv();
+    const dir = mkdtempSync(join(tmpdir(), "tm448-env-"));
+    trash.push(dir);
+    const envFile = join(dir, "env");
+    // What a secrets file would have to contain to hijack the worker's store and identity.
+    writeFileSync(envFile, "export TM_ROOT=/evil TM_ACTOR=evil TM_SESSION_ID=evil TM_DISPATCH_TASK=evil\n");
+    const req = { task: { id: "TM-448", title: "x" }, worktree: dir, branch: "tm/TM-448-x", prompt: "prompt", session: "s-1", actor: "@a", p, envFile };
+    const args = tmux.argvFor(req, ["sh", "-c", 'printf "%s|%s|%s|%s" "$TM_ROOT" "$TM_ACTOR" "$TM_SESSION_ID" "$TM_DISPATCH_TASK"']);
+    // Run what the pane runs, with the -e values tmux would have set, and see who wins.
+    const pane = args.slice(args.indexOf("tm-pass-env") - (tmux.PASS_ENV_WRAPPER.length - 1));
+    const tmuxEnv = Object.fromEntries(args.flatMap((a, i) => (args[i - 1] === "-e" ? [a.split(/=(.*)/s).slice(0, 2)] : [])));
+    const out = spawnSync(pane[0], pane.slice(1), { env: { PATH: process.env.PATH, ...tmuxEnv }, encoding: "utf8" });
+    assert.equal(out.status, 0, `${out.stderr} ${out.error?.message} ${JSON.stringify(pane)}`);
+    assert.equal(out.stdout, `${p.root}|@a|s-1|TM-448`);
+  });
+});
+
+describe("TM-449 topology dispatch says which passEnv names it does not pass", () => {
+  it("a tm-only name is reported on the result and the dispatched event; an ao global name is not", async () => {
+    const p = storeWithPassEnv(null, { tm: [], ao: [] });
+    const worktree = mkdtempSync(join(tmpdir(), "tm449-wt-"));
+    trash.push(worktree);
+    const res = topology.spawn({ task: { id: "TM-449", title: "x" }, worktree, prompt: "x", session: "s", actor: "@a", p }, {
+      caps: { backends: { topology: { available: true, path: "/fake/ao-topology" } } },
+      rosterList: [],
+      writeImpl: () => {},
+      spawnImpl: () => ({ status: 0, stdout: JSON.stringify({ session: "ao-449", run_id: "r449" }) }),
+      env: { PATH: "/usr/bin" },
+    });
+    assert.equal(res.ok, true, res.reason);
+    const w = res.detail.passEnvWarnings.join("\n");
+    assert.match(w, /passEnv TM375_SECRET, TM375_ABSENT not passed by the topology backend/);
+    assert.doesNotMatch(w, /TM375_AO/, "ao's own global workers.passEnv does reach the worker");
+
+    // The same warnings reach the dispatch result and the `dispatched` event.
+    const repo = paths(tempRepo());
+    trash.push(repo.root);
+    ensureDirs(repo);
+    seedGitContract(repo);
+    writeConfig({ enforce: false, requireEpic: false, dispatch: { enabled: false, governed: false } }, repo);
+    const task = create("task", { title: "dispatch me", status: "open", labels: ["ready-for-agent"] }, "body", repo);
+    const backend = { name: "topology", available: () => true, spawn: (r) => topology.spawn(r, { caps: { backends: { topology: { available: true, path: "/fake/ao-topology" } } }, rosterList: [], writeImpl: () => {}, spawnImpl: () => ({ status: 0, stdout: JSON.stringify({ session: "ao-449b" }) }) }) };
+    const out = await dispatch(task.id, { p: repo, backend, caps: {}, session: "s-449" });
+    assert.equal(out.ok, true, out.reason);
+    assert.match(out.passEnvWarnings.join("\n"), /not passed by the topology backend/);
+    const ev = readFileSync(repo.events, "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.event === "dispatched");
+    assert.match(ev.passEnvWarnings.join("\n"), /TM375_SECRET, TM375_ABSENT not passed/);
+  });
+});
+
 describe("TM-375 tmux backend passes configured secrets", () => {
-  it("names come from tm config and the ao repo config; values never enter argv or detail", () => {
+  it("names come from user tm config and the ao global config; values never enter argv or detail", () => {
     const p = storeWithPassEnv();
     const worktree = mkdtempSync(join(tmpdir(), "tm-passenv-wt-"));
     const req = { task: { id: "TM-375", title: "x" }, worktree, prompt: "do it", session: "s", actor: "@a", p, env: { TM375_SECRET: SENTINEL, TM375_AO: `${SENTINEL}-ao` } };
-    assert.deepEqual(tmux.passEnvNames(req), ["TM375_SECRET", "TM375_ABSENT", "TM375_AO"]);
+    assert.deepEqual(tmux.passEnvNames(req).names, ["TM375_SECRET", "TM375_ABSENT", "TM375_AO"]);
     let args;
     const res = tmux.spawn(req, { writeImpl: () => {}, spawnImpl: (bin, a) => ((args = a), { status: 0 }) });
     assert.equal(res.ok, true);

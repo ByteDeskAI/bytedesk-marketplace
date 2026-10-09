@@ -31,6 +31,7 @@ import { paths } from "./paths.mjs";
 import { config as readConfig, list, logEvent, read, release, slug, update } from "./store.mjs";
 import { claimTask, claimant } from "./claims.mjs";
 import { detectHostCaps } from "./hostcaps.mjs";
+import { safeGitText } from "./safe-git.mjs";
 
 const DEFAULT_SHARE = [
   { path: "node_modules", mode: "symlink" },
@@ -56,10 +57,7 @@ const TM_WORKTREE_ARTIFACTS = [".tm-dispatch-prompt.md"];
 const SCAN_DEPTH = 6;
 
 function git(cwd, ...args) {
-  return execFileSync("git", ["-C", cwd, ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  return safeGitText(cwd, args); // TM-443
 }
 
 /** git, for questions where "no" is an answer and not a failure. */
