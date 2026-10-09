@@ -23,6 +23,7 @@
  *      collector that throws takes down whatever hook or sweep called it, so
  *      failures come back as `{ ok: false, reason }`.
  */
+import { isWorkerCaller } from "../worker-identity.mjs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { toolFailureReason } from "./backend.mjs";
@@ -441,7 +442,7 @@ function topologyProducer({ caps, spawnImpl, timeoutMs, env }) {
  * call, and never a collection: a live or finished worker keeps its claim and its state.
  */
 export function rebindTopology(id, { p = paths(), caps = null, spawnImpl = spawnSync, timeoutMs = COLLECT_TIMEOUT_MS, env = process.env } = {}) {
-  if (env.TM_DISPATCH_WORKER) throw new Error("a dispatched worker cannot rebind its own dispatch; the lead runs ao-topology manage rebind");
+  if (isWorkerCaller({ env }).worker) throw new Error("a dispatched worker cannot rebind its own dispatch; the lead runs ao-topology manage rebind");
   const task = read(id, p);
   if (!task) throw new Error(`not found: ${id}`);
   const dispatched = task.dispatched;

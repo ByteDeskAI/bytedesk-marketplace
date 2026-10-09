@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Security
+
+- **`management.integrate_via` and `management.target_branch` are honoured only from the server's
+  default branch (TM-469, EP-028).** They choose where and how a task lands, yet still resolved from
+  the global layer and the checkout's working copy, which a worker can write. They now join the
+  TM-442 protected keys: a local value is ignored with a warning (`config_warnings` on
+  `manage eligible`), and with no server answer integrate and record-landing refuse to pick a target.
+- **Host fetches never read a repointed origin (TM-472, EP-028).** `remote.origin.url` is in the
+  shared `.git/config`, so a worker could point it at a `file://` repository it controls and choose
+  what admission, integrate, record-landing and release fetched, including the commits a `main:main`
+  fetch fast-forwarded the local branch to. Every host fetch now goes through `fetchPinned`, with
+  explicit refspecs, so neither `remote.origin.url` nor `remote.origin.fetch` decides what is read.
+  The URL is `<state>/repositories/<key>.origin.json` when the operator wrote one; otherwise, for a
+  repository pinned to GitHub, origin is used only when it names that repository on github.com (by
+  https or ssh) and is refused otherwise, and nothing is recorded. With no GitHub pin yet, a
+  github.com origin is used but never recorded (so the later GitHub pin still decides), and any
+  other origin is recorded on first use, only from the main checkout, never a worker's worktree. A URL that
+  `url.*.insteadOf` rewrites in any scope, including `~/.gitconfig`, is refused.
+- **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `safe-git.mjs`
+  (byte-identical with task-management's) runs git from a root-owned pinned path (`/usr/bin`, `/bin`,
+  `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned ssh, takes
+  `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, pins `core.attributesFile`
+  empty, and refuses every call when a repository scope sets an http key that redirects or
+  intercepts a transfer (`proxy`, `sslVerify`, `sslCAInfo`, `sslCAPath`, `sslCert`, `sslKey`,
+  `curloptResolve`, `extraHeader`, `cookieFile`, plain or per-URL `http.<url>.*`),
+  `remote.<name>.proxy`, or a `remote.<name>.url`/`pushurl` whose name contains `:` or `/` (a remote
+  named like a URL captures `git fetch <that url>`). Harmless keys such as `http.postBuffer` pass.
+ The driver listing now reads the repository the call itself names (its `-C`, `--git-dir` or
+  `--work-tree`), not the process's working directory: before, a call aimed elsewhere was refused by
+  an unrelated checkout's config (a CI checkout's `extraheader`), and drivers planted in the named
+  repository were not listed. A clone with no location lists the global scope, so the operator's credential
+  helpers still apply, and a leading option other than `-C`, `-c`, `--git-dir` or `--work-tree`
+  (for example `--namespace`, `--config-env` or `--bare`) is refused. `hostGh` now runs
+  through `safeGh`: it refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com`
+  (with none, gh takes the only host in `hosts.yml` as its default), and removes `GH_REPO`,
+  `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR`. On Windows git and ssh
+  still come from PATH. Release tests now prove "pushed nothing" from the repositories' refs,
+  because a PATH git shim can no longer observe host git.
+- **A host copy must be this plugin before it is replaced (TM-485, EP-028).** `hostCopies` took any
+  directory with a `package.json` and a `dist/` as an ao copy, so a Kimi `mcp.json` naming another
+  package's root got that directory replaced and the original deleted. A copy now has to declare
+  `"name": "@bytedesk/agent-orchestration"`; anything else is never detected, so never touched.
+  A same-version copy of a different build whose recorded build ordinal EQUALS the services' build
+  is now refreshed behind the usual gates, instead of being reported and left; only a strictly
+  newer build is kept.
+- **Doctor and `role status` verify each live role's MCP servers (TM-520, EP-029).** For the
+  registered lead and reviewer, `ao-topology doctor` now compares the MCP child processes of the
+  live `claude` process with what the role expects: the servers its own `--mcp-config` declares,
+  plus `ao-review` for the reviewer. A reviewer still on the argv from before TM-365 (`--safe-mode`,
+  no `--mcp-config`) is reported as `ROLE_MCP_MISSING` with the reason and a forced relaunch
+  (`ao-topology agent restart <id> --mode handoff`), because `reviewer ensure` only reattaches it
+  (TM-488). A role launched with `--strict-mcp-config` and no servers reports `expected: "none"`
+  rather than an empty list. `role status lead|reviewer` carries the same verdict in `mcp`.
+- **A finish report applies integrate's dirty-path filter (TM-507, EP-029).** `manage report
+  --kind finish` refused on any `git status` output, while integrate tolerated the tools' own store
+  paths through `foreignDirtyPaths`. The finish check now uses the same filter, and its refusal
+  names the dirty paths.
 - **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
   subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
   cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each
@@ -32,8 +89,33 @@
   legacy `.orchestration/providers/`) is version-controlled, so a worker's merged PR could replace
   `claude` with any program for every later launch in that repo. `providerDirs` now searches only
   `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
+
 ### Fixed
 
+- **Lead probes no longer pile up in the lead's pane (TM-478, EP-028).** Every readiness caller
+  minted its own nonce and rang its own `AO_PROBE` pointer, so a lead that was mid-turn received
+  many pointers in one message at its next turn boundary, all of them expired. Now each pane
+  incarnation has at most one pending probe. Later callers extend that probe and wait on it, and
+  every waiter sees the answer, whichever one consumes it. The probe is rung again, under the same
+  nonce, only when the previous ring typed nothing or a backed-off window has passed.
+- **A probe that never reached the lead no longer marks it unresponsive (TM-478).** `wakeForProbe`
+  now reports whether the pointer was submitted. If the ring typed nothing, or the pointer stayed
+  in the composer, `lead status` reports the new status `unproven` (`verdict_source:
+  "undelivered"`), not `unresponsive`. Lead recovery retries `kept-unproven` on its normal backoff.
+  The TM-384 held-mail ring also rings an `unproven` destination lead.
+- **The probe interval backs off while the lead keeps answering (TM-478).** The cached answer's
+  lifetime doubles with each consecutive acknowledgement, up to `AO_RESPONSIVE_TTL_MAX_MS` (default
+  four times `AO_RESPONSIVE_TTL_MS`). A delivered probe that goes unanswered resets the count. The
+  probe sweep no longer deletes the per-agent answer memo, and the ring-outcome memo now lives in
+  `probe-state/`, beside `probes/`, so no reader of `probes/` can mistake it for a probe.
+- **A lead's ack is proof even when nobody is still waiting for it (TM-478).** `lead ack` now
+  records the answer itself and makes held mail that names the lead's repository (`leads_not_ready`)
+  due at once, so the next resume admits it even after the probe has expired. A waiter that
+  consumes an ack records the answer before removing the probe, so another waiter on the same probe
+  can no longer find neither and report the lead unresponsive. One answer advances the backoff once.
+- **The lead probe rings the lead's own tmux server (TM-402).** `wakeLead` checked and typed into
+  `%N` on the default tmux server. It now shares one helper, `ringLeadPane`, with the held-mail
+  ring, and that helper runs inside `withServer(binding.serverKey)`.
 - **A lead can finish a task it delegated to an existing terminal (TM-412, EP-028).** A dispatch tm
   had already collected still counted as the task's writer, so after a duplicate pool worker exited
   `manage bind --pid` refused the real writer and `manage report` failed with "Only a currently live
@@ -42,6 +124,29 @@
   documented path: `tm collect`, then `manage bind --task <id> --pid <harness pid>`, then
   `manage report`. The admission and base revision are kept, the terminal is never closed, and an
   uncollected dispatch is still refused with the `tm collect` step named.
+- **A live persona holder is no longer freed, and no launch or ensure kills a live agent by mistake (TM-484, EP-028).**
+  - Presence is now also published per node, under `ORCH_PRESENCE` key `<repo>.<node>`. The
+    gateway's `<repo>` key is unchanged.
+  - The team persona registry judges a holder only from its own node's presence. Two nodes with
+    the same checkout path share the `<repo>` key and overwrite each other there, which used to free
+    the other node's live persona.
+  - Missing, stale or unreadable presence now means unknown, and the holder keeps its persona.
+    Only fresh presence from the holder's node that does not list it frees the persona.
+  - A multi-agent launch now prepares and then settles every claim first: locks, refusals, turn
+    waits (looked at twice) and handoffs. It ends an old session only after every claim has settled,
+    so an agent that refuses, even one that went busy after it was prepared, no longer leaves another
+    agent's session already killed. If ending a session itself fails, the error lists the sessions
+    already replaced and their handoff paths. Claims are taken in agent-id order.
+  - The transcript fallback reads only the transcript that received this agent's handoff request.
+    In a shared directory it no longer takes another agent's newer conversation; with no match it
+    falls back to the pane capture.
+  - The fallback handoff is written to its own `<id>.fallback.md` file. An agent that finishes its
+    handoff after the timeout no longer has it overwritten, and `readHandoff` prefers that file.
+  - `openRoleSession` no longer respawns by default. Lead ensure, reviewer ensure and other
+    automated opens now refuse a live agent with `TOPOLOGY_AGENT_ALREADY_LIVE` instead of killing
+    it. `session open` and `agent restart` still respawn on request.
+  - A respawn of the caller's own live session is refused with `TOPOLOGY_RESPAWN_SELF`. The
+    caller is read from the `env` passed in, not from `process.env`.
 - **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission
   now always records the task's own governance id (`tm-<task>`) and no longer adopts a dispatch's
   workflow id, so the id no longer depends on whether a worker was dispatched first. A finish
@@ -67,8 +172,15 @@
 - **`topology-management.test.mjs` exits after its last test (TM-461, EP-028).** Same cause: run
   without the preloads it held a cached NATS connection open forever. It now imports
   `tests/helpers/bare-run.mjs`; 132/132 pass and the process exits in about 95 s.
+
 ### Added
 
+- **`mailbox withdraw <id> [--reason <text>]` (TM-478).** The sending session can take back its own
+  held standing mail. The sender is checked against the session identity, so naming another agent
+  does not work. Withdrawn mail is terminal: `resume` never retries it, and the held-mail ring stops
+  for it, and re-sending its id does not revive it. Mail that has already been admitted cannot be
+  withdrawn. An unknown id and another sender's message both return `TOPOLOGY_SENDER_MISMATCH`, so
+  the verb does not reveal which ids exist.
 - **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule
   is stated in `prompts/common.md`, `prompts/common-reviewer.md`, `prompts/lead.md`, every role
   pack under `roles/`, and the generated Protocol section (which no `replace` can remove): a worker

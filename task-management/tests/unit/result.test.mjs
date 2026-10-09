@@ -609,7 +609,7 @@ describe("the handoff's completion contract", () => {
     writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
     const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
     const out = handoff(t.id, p);
-    assert.match(out, /gh pr create --title "[^"]+" --body "[^"]+" --base develop/, "the PR base, stated literally");
+    assert.match(out, /gh pr create --title "[^"]+" --body-file \S+ --base develop/, "the PR base, stated literally");
   });
 
   it("says nothing about it for a task a human is picking up", () => {
