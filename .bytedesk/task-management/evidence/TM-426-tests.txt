@@ -38,3 +38,11 @@ Mutation: GOVERNED_BRIEF_CHARS=1200 -> governance test fails 'TM-426: the cap ne
 ## agent-orchestration npm run build:check: exit 0
 
 ## Live record, bytedesk-passport TM-262: refused 2026-10-05T15:23 on pre-TM-247 code (old 'reconcile ownership without stealing' text); retired 2026-10-08T23:34 'observed-pane-exited', successor started and finished.
+
+## management.required_checks at d16ccfaa (logs in TM-426-checks/)
+- agent-orchestration: npm ci — exit 0
+- agent-orchestration: unit — exit 1: 1277/1291 pass, 10 fail; base 4678c5d5 fails 11 (the same 10, plus one flaky concurrency test). None introduced here.
+- agent-orchestration: build:check — exit 0
+- task-management: unit — exit 1: 1650/1665 pass, 15 fail; the same 15 fail on clean base.
+- agent-orchestration: plugin validate — exit 0
+- task-management: plugin validate — exit 0
