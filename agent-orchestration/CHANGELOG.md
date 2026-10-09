@@ -4,6 +4,47 @@
 
 ### Added
 
+- **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule
+  is stated in `prompts/common.md`, `prompts/common-reviewer.md`, `prompts/lead.md`, every role
+  pack under `roles/`, and the generated Protocol section (which no `replace` can remove): a worker
+  or other standing agent asks its repository lead with `ao-topology mailbox send --consumer
+  <repo> --to <lead-id>` (the id is `record.agent_id` in `ao-topology lead status`) and waits on
+  its inbox; a lead reads its own board (`tm next`, ready-for-agent, blocked, stale in_progress)
+  and assigns or dispatches the next work, reporting to the operator only results, still-ask
+  blockers and operator-only decisions, and with nothing ready reports the board state once and
+  idles. The supervisor rings an idle, dispatchable standing agent through the safe bell
+  (`wakeForProbe`; never over a draft, an attention screen or active tool input): a worker with
+  the exact `mailbox send --to` command naming its registered lead, a lead with "pick the next
+  ready task with tm next". Run agents (their conductor routes them) and the read-only reviewer
+  are not rung. New module `topology/lib/idle-nudge.mjs`; the tick reports `idle_nudges` only
+  when it rang or newly refused someone, and the same refusal is reported once per idle period.
+  - **The census cannot tell an agent that finished from one that stopped to ask a human**: both
+    read needs-input for one tick and idle and dispatchable two seconds later. The minimum idle
+    time is the guard: `min_idle_ms` (default 10 minutes) for a worker and `lead_min_idle_ms`
+    (default 30 minutes) for a lead, which is often the operator's own session, both counted from
+    the end of the agent's work. An unanswered question therefore gets at most one nudge.
+  - **Repeats are gated on the board alone.** After a ring the agent is rung again only when the
+    board's ready set changes: a hash of the task files whose frontmatter carries the exact label
+    `ready-for-agent` and is not finished, with their status, read from the task store on disk
+    with no task-management import. Mail never reopens the gate, because the nudge's own exchange
+    (the worker asks, the lead answers "nothing ready") is mail; a mail-gated nudge re-armed itself
+    every backoff, and arriving mail already rings its recipient (TM-419). The floor is
+    `backoff_ms` (default 30 minutes), doubling per ring up to `max_backoff_ms` (default 8 hours)
+    and starting over after a quiet spell twice that long. The cheap refusals (no registered lead,
+    no measured safe composer) are decided before anything is read, and the board is read only
+    for an agent rung before, so a ring that can never succeed reads no task files. A store whose
+    task files carry no `status:` line reads as null and is reported once, so a format change is
+    visible. `retry_ms` (default 60 s) spaces retries of a refused ring, and is also how long the
+    tick caches config, the lead registration and the board fingerprint, so an agent idle for a
+    day costs at most one board read per minute; a repeated, unreported refusal writes nothing.
+  - **The memory survives a restart**: it is saved atomically beside the supervisor record
+    (`<state>/supervision/<repo-key>.idle-nudge.json`), and a missing or corrupt file reads as
+    empty. An entry for an agent absent from the census and untried for 7 days is pruned.
+  - `idle_nudge.enabled` defaults to `true`; `false` is the off switch.
+  - **Not yet live:** the census excludes an agent holding undelivered mail only when a caller
+    feeds `undeliveredMessages`, and nothing does yet (`census.mjs`), so that exclusion is proven
+    by fixture only.
+  - The prompt-golden fixtures gain the one generated line.
 - **Broken repository checkouts are detected and repaired without an operator (TM-394).** A new
   `topology/lib/checkout-repair.mjs` covers four cases. It recognises a `.git` pointer whose
   `gitdir` and owning repository are both gone, a registered repository with no `.git`, a pointer

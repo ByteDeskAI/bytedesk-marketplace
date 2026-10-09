@@ -33,6 +33,18 @@ import { exists, renderDeep, shellQuote } from "./util.mjs";
 
 const sha = (text) => createHash("sha256").update(text, "utf8").digest("hex");
 
+// TM-408: an agent that finishes never asks the operator "what next?". Stated here as well as in
+// prompts/common.md because nothing replaces the generated layer, so the rule survives a `replace`.
+function pullRule(agent, consumer) {
+  if (agent.role === 'lead') return `- When work finishes, never ask the operator what is next. Take the next ready task from your own
+  board (\`tm next\`) and assign or dispatch it; with nothing ready, report the board state once and idle.`;
+  if (agent.role === 'reviewer') return '- When a review is finished, never ask the operator what is next; wait for the next review request.';
+  if (agent._prompt_vars?.run_dir) return '- When your brief is done, never ask the operator what is next. Your reply is the hand-off; then wait on your inbox.';
+  return `- When your work is finished, never ask the operator what is next. Ask your repository lead (its id is
+  \`record.agent_id\` in \`ao-topology lead status --consumer ${shellQuote(consumer)}\`) with
+  \`ao-topology mailbox send --consumer ${shellQuote(consumer)} --to <lead-id>\`, then wait on your inbox.`;
+}
+
 /** The generated layer: identity and the cwd-vs-project discipline, parameterised by the agent. */
 export function generatedPrompt(agent, consumer, dir) {
   return `# ${displayName(agent)}
@@ -59,6 +71,7 @@ paths in your own commands before you run them.
 - Do the work in the same turn you read a message. Do not stop to confirm receipt and wait to
   be told to continue — nobody is going to tell you. If you are blocked or the request is
   ambiguous, still write a reply saying what is missing.
+${pullRule(agent, consumer)}
 ${agent.role === 'reviewer' ? `- Read prompt-state.json in this agent directory. Emit exactly one line AO_PROMPT_ACK followed by its nonce and desired_revision, separated by spaces. The host verifies your exact pane and records acknowledgement.
 - Submit review verdicts with your review_submit tool; the host never reads a verdict off your pane. Use your read tools only; do not run shell commands or write reply files.` : `- Reply files are complete answers; never rely on what you printed in the terminal.
 - Read prompt-state.json in this agent directory. Acknowledge its staged revision and nonce with
