@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Security
+
+- **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `lib/safe-git.mjs`
+  (byte-identical with agent-orchestration's) now runs git from a root-owned pinned path
+  (`/usr/bin`, `/bin`, `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned
+  ssh, takes `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, and pins
+  `core.attributesFile` empty. Governance's server compare (`runGh`) now goes through `safeGhSync`:
+  it refuses when `gh config` sets `http_unix_socket` or `api_host`, and runs gh with `GH_HOST`,
+  `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR` removed.
+
 ### Fixed
 
 - **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**

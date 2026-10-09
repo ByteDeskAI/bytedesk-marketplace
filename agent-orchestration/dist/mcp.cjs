@@ -6926,9 +6926,36 @@ var require_dist = __commonJS({
 });
 
 // topology/lib/safe-git.mjs
+function rootOwnedChain(real, paths2 = GH_PATHS, stat13 = import_node_fs.statSync) {
+  if (!paths2.includes(real)) return false;
+  try {
+    for (let p = real; ; p = (0, import_node_path2.dirname)(p)) {
+      const s = stat13(p);
+      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
+      if (p === "/") return true;
+    }
+  } catch {
+    return false;
+  }
+}
+function trustedBinary({ paths: paths2, stat: stat13 = import_node_fs.statSync, realpath: realpath14 = import_node_fs.realpathSync }) {
+  for (const candidate of paths2) {
+    let real;
+    try {
+      real = realpath14(candidate);
+    } catch {
+      continue;
+    }
+    if (rootOwnedChain(real, paths2, stat13) && rootOwnedChain(candidate, paths2, stat13)) return candidate;
+  }
+  return null;
+}
+function trustedGh(options = {}) {
+  return trustedBinary({ paths: GH_PATHS, ...options });
+}
 function safeGitEnv(base = process.env, config2 = SAFE_GIT_CONFIG.map(pair)) {
   const env = Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("GIT_") || GIT_ENV_ALLOWLIST.includes(name)));
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: (0, import_node_path2.join)((0, import_node_os2.homedir)(), ".gitconfig"), GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: PASSWD_HOME ? (0, import_node_path2.join)(PASSWD_HOME, ".gitconfig") : "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_LFS_SKIP_SMUDGE: "1" });
   env.GIT_CONFIG_COUNT = String(config2.length);
   config2.forEach(([key, value], i) => {
     env[`GIT_CONFIG_KEY_${i}`] = key;
@@ -6965,29 +6992,24 @@ function driverOverrides(listing) {
   }
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
-function rootOwnedChain(real, paths2 = GH_PATHS, stat13 = import_node_fs.statSync) {
-  if (!paths2.includes(real)) return false;
-  try {
-    for (let p = real; ; p = (0, import_node_path2.dirname)(p)) {
-      const s = stat13(p);
-      if (s.uid !== 0 || (s.mode & 18) !== 0) return false;
-      if (p === "/") return true;
-    }
-  } catch {
-    return false;
-  }
-}
-function trustedGh({ paths: paths2 = GH_PATHS, stat: stat13 = import_node_fs.statSync, realpath: realpath14 = import_node_fs.realpathSync } = {}) {
-  for (const candidate of paths2) {
-    let real;
-    try {
-      real = realpath14(candidate);
-    } catch {
-      continue;
-    }
-    if (rootOwnedChain(real, paths2, stat13) && rootOwnedChain(candidate, paths2, stat13)) return candidate;
+function ghRedirectRefusal(bin, { cwd, env = process.env, spawn: spawn13 = import_node_child_process.spawnSync } = {}) {
+  for (const key of ["http_unix_socket", "api_host"]) {
+    const r = spawn13(bin, ["config", "get", key], { cwd, env: safeGhEnv(env), encoding: "utf8", timeout: 1e4, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (r.error || r.status !== 0) return `gh config get ${key} failed (exit ${r.status}): ${String(r.stderr || r.error?.message || "").trim()}; refusing to trust gh`;
+    const value = String(r.stdout).trim();
+    if (value) return `gh config sets ${key} to ${value}, so its answers may not come from GitHub; refusing (gh config set ${key} "")`;
   }
   return null;
+}
+function safeGh(bin, args, { cwd, env = process.env, timeoutMs = 6e4 } = {}) {
+  const refusal = ghRedirectRefusal(bin, { cwd, env });
+  if (refusal) return Promise.resolve({ code: 1, stdout: "", stderr: refusal });
+  return new Promise((resolve23) => (0, import_node_child_process.execFile)(
+    bin,
+    args,
+    { cwd, env: safeGhEnv(env), encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
+    (error51, stdout, stderr) => resolve23({ code: error51 ? error51.killed ? 124 : typeof error51.code === "number" ? error51.code : 1 : 0, stdout: stdout ?? "", stderr: stderr || (error51 ? String(error51.message) : "") })
+  ));
 }
 function hardenArgs(args) {
   let i = 0;
@@ -7000,6 +7022,7 @@ function safeGitPlan(cwd, args, listing = "") {
   return { argv: [...at(cwd), ...hardenArgs(args)], config: [...SAFE_GIT_CONFIG.map(pair), ...overrides], refusal };
 }
 function execAsync(argv, config2, options) {
+  if (!GIT) return Promise.resolve({ code: 127, stdout: "", stderr: NO_GIT });
   return new Promise((resolve23) => {
     const child = (0, import_node_child_process.execFile)(
       GIT,
@@ -7020,6 +7043,7 @@ async function safeGit(cwd, args, options = {}) {
   return result2;
 }
 function safeGitSync(cwd, args, options = {}) {
+  if (!GIT) return { status: 127, stdout: "", stderr: NO_GIT, error: void 0 };
   const base = { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout: options.timeout, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 };
   const listing = (0, import_node_child_process.spawnSync)(GIT, LIST(cwd), { ...base, env: safeGitEnv(options.env), stdio: ["ignore", "pipe", "ignore"] });
   const plan = safeGitPlan(cwd, args, listing.stdout);
@@ -7033,20 +7057,34 @@ function safeGitText(cwd, args, options = {}) {
   }
   return options.raw ? result2.stdout : result2.stdout.trim();
 }
-var import_node_child_process, import_node_fs, import_node_os2, import_node_path2, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, GIT_ENV_ALLOWLIST, GH_PATHS, at, LIST, GIT, refused;
+var import_node_child_process, import_node_fs, import_node_os2, import_node_path2, GH_PATHS, GIT_PATHS, SSH_PATHS, SSH, GIT, NO_GIT, PASSWD_HOME, SAFE_GIT_CONFIG, DIFF_FAMILY, SUBCOMMAND_FLAGS, DRIVER_KEYS, REFUSED_KEYS, UNTRUSTED_SCOPES, pair, GIT_ENV_ALLOWLIST, GH_REDIRECT_ENV, safeGhEnv, at, LIST, refused;
 var init_safe_git = __esm({
   "topology/lib/safe-git.mjs"() {
     import_node_child_process = require("node:child_process");
     import_node_fs = require("node:fs");
     import_node_os2 = require("node:os");
     import_node_path2 = require("node:path");
+    GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+    GIT_PATHS = Object.freeze(["/usr/bin/git", "/bin/git", "/usr/local/bin/git"]);
+    SSH_PATHS = Object.freeze(["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh"]);
+    SSH = trustedBinary({ paths: SSH_PATHS }) ?? "false";
+    GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
+    NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
+    PASSWD_HOME = (() => {
+      try {
+        return (0, import_node_os2.userInfo)().homedir || null;
+      } catch {
+        return null;
+      }
+    })();
     SAFE_GIT_CONFIG = Object.freeze([
       "core.fsmonitor=false",
       "core.hooksPath=/dev/null",
       "core.pager=cat",
       "diff.external=",
-      "core.sshCommand=ssh",
+      `core.sshCommand=${SSH}`,
       "core.askPass=",
+      "core.attributesFile=",
       "core.editor=true",
       "sequence.editor=true",
       "core.alternateRefsCommand=true",
@@ -7085,10 +7123,10 @@ var init_safe_git = __esm({
       return [entry.slice(0, at2), entry.slice(at2 + 1)];
     };
     GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
-    GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+    GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
+    safeGhEnv = (base = process.env) => Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name)));
     at = (cwd) => cwd ? ["-C", cwd] : [];
     LIST = (cwd) => [...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
-    GIT = process.platform === "win32" ? "git.exe" : "git";
     refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
   }
 });
@@ -34285,7 +34323,7 @@ var init_management = __esm({
     GH_TIMEOUT_MS = 6e4;
     hostGh = (cwd) => {
       const bin = trustedGh();
-      return async (args) => bin ? run(bin, args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS }) : { code: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
+      return async (args) => bin ? safeGh(bin, args, { cwd, timeoutMs: GH_TIMEOUT_MS }) : { code: 127, stdout: "", stderr: `no root-owned gh at ${GH_PATHS.join(", ")}` };
     };
     defaultGh = hostGh;
     ghFailure = (what, r) => `${what} failed (exit ${r.code})${r.error ? `: ${r.error}` : ""}`;
@@ -79625,10 +79663,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "a2f0dad41b940dce36631e6ec2268fad71e0eb1593fad05de6ad2fe8cc3384b0";
+  return false ? null : "632a90dcd9241c36d13f5c42bbb12450a943e7825918199eeb5a2eda1e38aabf";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "a2f0dad41b940dce36631e6ec2268fad71e0eb1593fad05de6ad2fe8cc3384b0";
+  const fingerprint2 = false ? null : "632a90dcd9241c36d13f5c42bbb12450a943e7825918199eeb5a2eda1e38aabf";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80053,7 +80091,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "a2f0dad41b940dce36631e6ec2268fad71e0eb1593fad05de6ad2fe8cc3384b0",
+  sourceFingerprint: false ? null : "632a90dcd9241c36d13f5c42bbb12450a943e7825918199eeb5a2eda1e38aabf",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

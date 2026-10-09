@@ -67,26 +67,24 @@ export async function releaseFixture(t, { management = {}, global = null, policy
   const server = { management: { ...committed.management, ...policy } };
   const options = { consumer, home: join(root, 'home'), env: { ...operatorEnv(), XDG_CONFIG_HOME: config, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') },
     ancestors: OPERATOR, store, epic: 'EP-1', authorized: true, gh: serverGh(() => server, origin) };
-  return { root, consumer, logs, shims, git, tasks, options, server };
+  return { root, consumer, origin, logs, shims, git, tasks, options, server };
 }
 
-/** git, gh and systemctl shims that log their argv; git then runs the real git. */
+/** gh and systemctl shims that log their argv. Host git is pinned, never PATH (TM-475): see refState. */
 async function shimPath(t, fx) {
-  const realGit = (await run('sh', ['-c', 'command -v git'])).stdout.trim();
   const shim = (name, tail) => writeFile(join(fx.shims, name), `#!/bin/sh\necho "$*" >> ${fx.logs}/${name}.argv\n${tail}\n`, { mode: 0o755 });
-  // git logs its argv unit-separated (TM-443 adds `-c key=value` pairs whose values hold spaces).
-  await writeFile(join(fx.shims, 'git'), `#!/bin/sh\nprintf '%s\\037' "$@" >> ${fx.logs}/git.argv\necho >> ${fx.logs}/git.argv\nexec ${realGit} "$@"\n`, { mode: 0o755 });
   await shim('gh', 'exit 0'); await shim('systemctl', 'exit 0');
   const saved = process.env.PATH; process.env.PATH = `${fx.shims}:${saved}`; t.after(() => { process.env.PATH = saved; });
   fx.options.env.PATH = process.env.PATH;
 }
 
-/** TM-443: the git subcommand of each logged call, past the safe-git `-c` pairs and `-C <dir>`. */
-const gitSubcommands = async path => (await lines(path)).map(line => {
-  const argv = line.split('\x1f').filter((_, i, all) => i < all.length - 1 || all[i] !== '');
-  let i = 0; while (i < argv.length && ['-c', '-C'].includes(argv[i])) i += 2;
-  return argv[i];
-});
+/** TM-475: host git is the root-owned binary at a pinned path, never PATH, so a PATH shim cannot see its
+ * calls. "Pushed, tagged, committed or reset nothing" is read from the repositories instead: every ref
+ * (branches, tags, remote-tracking refs excluded) in the checkout and in origin, and the checkout's HEAD. */
+const refState = async fx => {
+  const refs = async dir => (await run('git', ['-C', dir, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/tags'])).stdout;
+  return { consumer: await refs(fx.consumer), origin: await refs(fx.origin), head: (await fx.git(['rev-parse', 'HEAD'])).stdout.trim() };
+};
 
 const refusedFor = async (promise, code, condition) => {
   const error = await promise.then(() => null, e => e);
@@ -101,12 +99,12 @@ const nothingRan = async fx => {
 
 test('TM-250 success: cutover runs only deploy-safe, proves the binary switched, and never pushes, tags, calls gh or systemctl', async t => {
   const fx = await releaseFixture(t); await shimPath(t, fx);
+  const before = await refState(fx);
   const result = await cutover(fx.options);
   assert.deepEqual(result.identity, { before: 'build-old', after: 'build-new' });
   assert.deepEqual(await lines(join(fx.logs, 'deploy-safe.sh.log')), ['deploy', 'postflight']);
-  const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
-  assert.ok(gitArgv.length > 0 && gitArgv.includes('fetch'), 'the git shim recorded calls, so absence below is meaningful');
-  assert.equal(gitArgv.filter(a => ['push', 'tag', 'commit', 'merge', 'reset'].includes(a)).length, 0, gitArgv.join('\n'));
+  assert.ok(before.consumer.includes('refs/heads/develop') && before.origin.includes('refs/heads/develop'), 'the snapshot sees the refs, so equality below is meaningful');
+  assert.deepEqual(await refState(fx), before, 'nothing was pushed, tagged, committed, merged or reset');
   assert.deepEqual(await lines(join(fx.logs, 'gh.argv')), []); assert.deepEqual(await lines(join(fx.logs, 'systemctl.argv')), []);
   assert.equal(result.authorization.channel, 'operator-explicit'); assert.equal(result.authorization.class, 'external');
   assert.match(await readFile(result.path, 'utf8'), /build-new/);
@@ -114,11 +112,12 @@ test('TM-250 success: cutover runs only deploy-safe, proves the binary switched,
 
 test('TM-250 success: cut-release runs the release script then its verify, and agent-orchestration pushes nothing itself', async t => {
   const fx = await releaseFixture(t); await shimPath(t, fx);
+  const before = await refState(fx);
   const result = await cutRelease(fx.options);
   assert.equal(result.verified, true);
   assert.deepEqual(await lines(join(fx.logs, 'release-gitflow.sh.log')), ['start', 'verify']);
-  const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
-  assert.ok(gitArgv.includes('fetch')); assert.equal(gitArgv.filter(a => ['push', 'tag'].includes(a)).length, 0, gitArgv.join('\n'));
+  assert.ok(before.origin.includes('refs/heads/develop'), 'the snapshot sees the refs, so equality below is meaningful');
+  assert.deepEqual(await refState(fx), before, 'agent-orchestration pushed and tagged nothing itself');
   assert.deepEqual(await lines(join(fx.logs, 'gh.argv')), []);
 });
 
@@ -384,14 +383,15 @@ test('TM-442/TM-458 CLI (formerly test 21, inverted): manage cutover from a mana
     `  show) ${show} ;;`, '  *) exit 9 ;;', 'esac', ''].join('\n'), { mode: 0o755 });
   const env = { ...fx.options.env, HOME: fx.options.home };
   delete env.TM_DISPATCH_WORKER; delete env.AO_AGENT_ID;
+  const before = await refState(fx);
   const r = spawnSync(process.execPath, [fileURLToPath(new URL('../../topology/cli.mjs', import.meta.url)), 'manage', 'cutover', '--epic', 'EP-1', '--consumer', fx.consumer, '--summary'], { encoding: 'utf8', env });
   assert.notEqual(r.status, 0, r.stdout);
   assert.match(r.stderr + r.stdout, /TOPOLOGY_CUTOVER_REFUSED/);
   assert.match(r.stderr + r.stdout, /autonomy is "pr"/, 'the global publish did not count (TM-442)');
   assert.match(r.stderr + r.stdout, /no autonomy level grants cutover/, 'and no level would have (TM-458)');
   await nothingRan(fx);
-  const gitArgv = await gitSubcommands(join(fx.logs, 'git.argv'));
-  assert.ok(gitArgv.length > 0 && gitArgv.includes('fetch')); assert.equal(gitArgv.filter(a => ['push', 'tag'].includes(a)).length, 0, gitArgv.join('\n'));
+  assert.ok(before.origin.includes('refs/heads/develop'), 'the snapshot sees the refs, so equality below is meaningful');
+  assert.deepEqual(await refState(fx), before, 'nothing was pushed or tagged');
   // gh is only read (the pinned repository and its committed policy), never asked to change anything.
   assert.ok((await lines(join(fx.logs, 'gh.argv'))).every(line => /^(repo view|api repos\/)/.test(line))); assert.deepEqual(await lines(join(fx.logs, 'systemctl.argv')), []);
 });

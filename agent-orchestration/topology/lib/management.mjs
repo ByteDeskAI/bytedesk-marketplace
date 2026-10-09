@@ -16,7 +16,7 @@ import { INTEGRATION_BRANCH, currentReviewStatus, finishCheckEvidence, githubBra
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
-import { GH_PATHS, safeGit, trustedGh } from './safe-git.mjs';
+import { GH_PATHS, safeGh, safeGit, trustedGh } from './safe-git.mjs';
 
 const taskId = value => { invariant(/^TM-[0-9]+$/.test(value), 'TOPOLOGY_MANAGEMENT_TASK', 'Expected a task-store TM id.'); return value; };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
@@ -1024,9 +1024,10 @@ export async function integrateTask(options) {
 /** The one place gh runs. argv only, never a shell; tests inject options.gh. */
 const GH_TIMEOUT_MS = 60_000;
 // PR #226 follow-up: the root-owned gh at a pinned system path (trustedGh), never the first `gh` on PATH.
+// TM-475: through safeGh, so redirecting env is removed and a gh config that redirects it is refused.
 export const hostGh = cwd => {
   const bin = trustedGh();
-  return async args => (bin ? run(bin, args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS })
+  return async args => (bin ? safeGh(bin, args, { cwd, timeoutMs: GH_TIMEOUT_MS })
     : { code: 127, stdout: '', stderr: `no root-owned gh at ${GH_PATHS.join(', ')}` });
 };
 const defaultGh = hostGh;

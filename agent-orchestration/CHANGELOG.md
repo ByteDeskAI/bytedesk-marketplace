@@ -18,6 +18,14 @@
   with explicit refspecs, so neither `remote.origin.url` nor `remote.origin.fetch` decides what is
   read. A local origin pinned this way keeps working, so local-only repositories and fixtures are
   unaffected. To move it, the operator removes that file.
+- **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `safe-git.mjs`
+  (byte-identical with task-management's) runs git from a root-owned pinned path (`/usr/bin`, `/bin`,
+  `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned ssh, takes
+  `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, and pins `core.attributesFile`
+  empty. `hostGh` now runs through `safeGh`: it refuses when `gh config` sets `http_unix_socket` or
+  `api_host`, and runs gh with `GH_HOST`, `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
+  `SSL_CERT_FILE`/`SSL_CERT_DIR` removed. Release tests now prove "pushed nothing" from the
+  repositories' refs, because a PATH git shim can no longer observe host git.
 
 ## [0.16.1] — 2026-10-08
 

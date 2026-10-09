@@ -134,7 +134,7 @@ test('TM-443 follow-up: a caller-supplied GIT_CONFIG_GLOBAL, GIT_DIR, GIT_SSH_CO
   assert.equal(await exists(pwned), false, 'a filter from a caller-supplied GIT_CONFIG_GLOBAL ran');
   const pinned = safeGitEnv(env);
   for (const name of ['GIT_DIR', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH', 'GIT_ASKPASS']) assert.equal(pinned[name], undefined, name);
-  assert.equal(pinned.GIT_CONFIG_GLOBAL, join((await import('node:os')).homedir(), '.gitconfig'));
+  assert.equal(pinned.GIT_CONFIG_GLOBAL, join((await import('node:os')).userInfo().homedir, '.gitconfig'));
   assert.equal(pinned.GIT_AUTHOR_NAME, 'Kept', 'commit identity passes through');
 });
 
@@ -195,4 +195,93 @@ test('TM-443 grep: no raw git spawn outside safe-git in the governance paths', a
   assert.ok(hits.some(hit => hit.rel.endsWith('reviewer.mjs')), 'the pattern no longer matches the known reviewer.mjs calls');
   const violations = hits.filter(hit => !ALLOWED.has(hit.rel));
   assert.deepEqual(violations, [], `route these through safe-git: ${violations.map(v => `${v.rel}:${v.line} ${v.call}`).join('; ')}`);
+});
+
+// ── TM-475: pinned git and ssh, the passwd home, no XDG attributes, and a gh that cannot be redirected ──
+const PLANT = (marker, tail = 'exit 1') => `#!/bin/sh\ntouch '${marker}'\n${tail}\n`;
+
+test('TM-475 host git is the root-owned binary at a pinned path; a git planted first on PATH never runs', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const bin = join(dir, 'home-bin'), marker = join(dir, 'PLANTED-GIT');
+  execFileSync('mkdir', ['-p', bin]);
+  await writeFile(join(bin, 'git'), PLANT(marker), { mode: 0o755 });
+  if (!await exists('/usr/bin/git') && !await exists('/usr/local/bin/git')) return t.skip('no git at a pinned system path on this machine');
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  assert.equal(safeGitSync(repo, ['status', '--porcelain'], { env }).status, 0);
+  assert.equal((await safeGit(repo, ['rev-parse', 'HEAD'], { env })).code, 0);
+  assert.equal(await exists(marker), false, 'the planted ~/bin git ran');
+});
+
+test('TM-475 core.sshCommand is the pinned ssh: an ssh planted first on PATH never runs for an ssh remote', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const bin = join(dir, 'home-bin'), marker = join(dir, 'PLANTED-SSH');
+  execFileSync('mkdir', ['-p', bin]);
+  await writeFile(join(bin, 'ssh'), PLANT(marker), { mode: 0o755 });
+  // Port 1 on loopback refuses at once, so the real ssh fails fast and nothing leaves the machine.
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  const fetched = await safeGit(repo, ['fetch', 'ssh://git@127.0.0.1:1/o/r.git', 'main'], { allowFailure: true, env, timeoutMs: 20_000 });
+  assert.notEqual(fetched.code, 0);
+  assert.equal(await exists(marker), false, 'the planted ~/bin ssh ran');
+  const { SSH_PATHS, trustedBinary } = await import('../../topology/lib/safe-git.mjs');
+  assert.ok(SAFE_GIT_CONFIG.includes(`core.sshCommand=${trustedBinary({ paths: SSH_PATHS }) ?? 'false'}`), SAFE_GIT_CONFIG.join(' '));
+});
+
+test('TM-475 GIT_CONFIG_GLOBAL is the passwd entry home, not $HOME', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const { safeGitEnv } = await import('../../topology/lib/safe-git.mjs');
+  const { userInfo } = await import('node:os');
+  const fake = join(dir, 'fake-home');
+  execFileSync('mkdir', ['-p', fake]);
+  await writeFile(join(fake, '.gitconfig'), '[tm475]\n\tmarker = from-fake-home\n');
+  const saved = process.env.HOME; process.env.HOME = fake; t.after(() => { process.env.HOME = saved; });
+  assert.equal(safeGitEnv({ HOME: fake }).GIT_CONFIG_GLOBAL, join(userInfo().homedir, '.gitconfig'));
+  const read = safeGitSync(repo, ['config', '--global', '--get', 'tm475.marker'], { env: { ...process.env, HOME: fake } });
+  assert.notEqual(read.stdout.trim(), 'from-fake-home', 'a worker-derived $HOME chose the global config');
+});
+
+test('TM-475 core.attributesFile is pinned empty: $XDG_CONFIG_HOME/git/attributes is never read', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const xdg = join(dir, 'xdg');
+  execFileSync('mkdir', ['-p', join(xdg, 'git')]);
+  await writeFile(join(xdg, 'git', 'attributes'), '* tm475=set\n');
+  const env = { ...process.env, XDG_CONFIG_HOME: xdg };
+  assert.match(execFileSync('git', ['-C', repo, 'check-attr', 'tm475', '--', 'a.txt'], { encoding: 'utf8', env }), /tm475: set/, 'control: plain git reads it');
+  assert.match(safeGitSync(repo, ['check-attr', 'tm475', '--', 'a.txt'], { env }).stdout, /tm475: unspecified/);
+});
+
+test('TM-475 host gh refuses when its config sets http_unix_socket or api_host, before any request', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { trustedGh, ghRedirectRefusal } = await import('../../topology/lib/safe-git.mjs');
+  const { hostGh } = await import('../../topology/lib/management.mjs');
+  // The rule, on an injected gh: either key set refuses; both empty passes; an unreadable key refuses.
+  const answers = values => (_bin, args) => ({ status: 0, stdout: `${values[args[2]] ?? ''}\n`, stderr: '' });
+  assert.match(ghRedirectRefusal('gh', { spawn: answers({ http_unix_socket: '/tmp/w.sock' }) }), /http_unix_socket/);
+  assert.match(ghRedirectRefusal('gh', { spawn: answers({ api_host: 'evil.example' }) }), /api_host/);
+  assert.equal(ghRedirectRefusal('gh', { spawn: answers({}) }), null);
+  assert.match(ghRedirectRefusal('gh', { spawn: () => ({ status: 1, stdout: '', stderr: 'boom' }) }), /failed/);
+  if (!trustedGh()) return t.skip('no root-owned gh at a pinned path on this machine');
+  // The real gh, configured (same-uid writable) to answer through a worker's socket: hostGh refuses.
+  const xdg = join(dir, 'xdg');
+  execFileSync('mkdir', ['-p', join(xdg, 'gh')]);
+  await writeFile(join(xdg, 'gh', 'config.yml'), `http_unix_socket: ${join(dir, 'worker.sock')}\n`);
+  const saved = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, GH_CONFIG_DIR: process.env.GH_CONFIG_DIR };
+  process.env.XDG_CONFIG_HOME = xdg; delete process.env.GH_CONFIG_DIR;
+  t.after(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  const answer = await hostGh(dir)(['api', 'repos/o/r/compare/0000000000000000000000000000000000000000...main']);
+  assert.notEqual(answer.code, 0);
+  assert.match(answer.stderr, /gh config sets http_unix_socket/);
+});
+
+test('TM-475 safeGh and safeGhSync run gh with GH_HOST, GH_REPO, GH_CONFIG_DIR, proxies and CA overrides removed', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { safeGh, safeGhSync, GH_REDIRECT_ENV } = await import('../../topology/lib/safe-git.mjs');
+  const fake = join(dir, 'gh');
+  await writeFile(fake, '#!/bin/sh\n[ "$1" = config ] && exit 0\nenv\n', { mode: 0o755 });
+  const env = { PATH: process.env.PATH, KEEP: 'kept', ...Object.fromEntries(GH_REDIRECT_ENV.map(name => [name, `planted-${name}`])) };
+  for (const out of [(await safeGh(fake, ['api', 'x'], { env })).stdout, safeGhSync(fake, ['api', 'x'], { env }).stdout]) {
+    const names = out.split('\n').map(line => line.split('=')[0]); // names only: never echo an environment into test output
+    assert.ok(names.includes('KEEP'), 'the fake printed its environment, so absence below is meaningful');
+    assert.deepEqual(GH_REDIRECT_ENV.filter(name => names.includes(name)), []);
+  }
+  assert.ok(['GH_HOST', 'GH_REPO', 'GH_CONFIG_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR'].every(n => GH_REDIRECT_ENV.includes(n)));
 });

@@ -30,6 +30,8 @@ export const fakeGh = (serverRepo, { tip = () => null, fallback = null } = {}) =
 export async function ghShim(dir, serverRepo) {
   const path = join(dir, 'gh');
   await writeFile(path, `#!/bin/sh
+# TM-475: safe-git asks gh config get http_unix_socket / api_host first; this gh sets neither.
+if [ "$1" = config ]; then exit 0; fi
 if [ "$1" = repo ]; then echo '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}'; exit 0; fi
 spec="\${2#repos/o/r/compare/}"; base="\${spec%%...*}"; branch="\${spec#*...}"
 tip=$(git -C '${serverRepo}' rev-parse "refs/heads/$branch" 2>/dev/null) || { echo '{"message":"Not Found"}'; exit 1; }
