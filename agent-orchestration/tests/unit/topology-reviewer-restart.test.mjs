@@ -11,7 +11,7 @@ import { submitVerdict } from '../helpers/review-submit.mjs';
 import { refreshPrompt, promptRevisions } from '../../topology/lib/prompt-lifecycle.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 
-const incarnation = n => ({ serverKey: '/test/socket', serverPid: 10, sessionId: `$${n}`, sessionCreated: n, paneId: `%${n}`, panePid: n === 1 ? process.pid : 20 + n }); // TM-427: incarnation 1 passes the real ancestry proof
+const incarnation = n => ({ serverKey: '/test/socket', serverPid: 10, sessionId: `$${n}`, sessionCreated: n, paneId: `%${n}`, panePid: n <= 2 ? process.pid : 20 + n }); // TM-427: incarnations 1 and 2 (the live pane before and after a TM-525 restart) pass the real ancestry proof; 9 is the foreign one
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-reviewer-restart-'));
