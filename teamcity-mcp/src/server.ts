@@ -32,11 +32,11 @@ const REGISTRARS = [
 ];
 
 /** Build a fresh McpServer with every tool module registered (mode-gated). */
-export function createMcpServer(client: TeamCityClient, mode: McpMode): McpServer {
+export function createMcpServer(client: TeamCityClient, mode: McpMode, project?: string): McpServer {
   const server = new McpServer(
-    { name: 'teamcity-mcp', version: '0.2.0' },
+    { name: 'teamcity-mcp', version: '0.3.0' },
     { capabilities: { tools: {} } },
   );
-  for (const register of REGISTRARS) register(server, client, mode);
+  for (const register of REGISTRARS) register(server, client, mode, project);
   return server;
 }

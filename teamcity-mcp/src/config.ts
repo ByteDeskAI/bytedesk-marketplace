@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-export type McpMode = 'full' | 'read';
+/**
+ * full = every tool; read = read-only tools; lead = read-only tools plus a trigger_build that
+ * refuses any build configuration outside `project` and any deploy configuration.
+ */
+export type McpMode = 'full' | 'read' | 'lead';
 export type McpTransport = 'http' | 'stdio';
 
 export interface TeamCityAuth {
@@ -15,6 +19,8 @@ export interface Config {
   auth: TeamCityAuth;
   perRequestAuth: boolean;
   mode: McpMode;
+  /** TeamCity project id a lead may trigger builds in (lead mode only). */
+  project?: string;
   transport: McpTransport;
   host: string;
   port: number;
@@ -28,7 +34,11 @@ const envSchema = z.object({
   TEAMCITY_USERNAME: z.string().optional(),
   TEAMCITY_PASSWORD: z.string().optional(),
   TEAMCITY_PER_REQUEST_AUTH: z.string().optional(),
-  TEAMCITY_MCP_MODE: z.enum(['full', 'read']).optional(),
+  TEAMCITY_MCP_MODE: z.enum(['full', 'read', 'lead']).optional(),
+  TEAMCITY_MCP_PROJECT: z
+    .string()
+    .regex(/^[A-Za-z0-9_]+$/, 'TEAMCITY_MCP_PROJECT must be a TeamCity project id')
+    .optional(),
   HOST: z.string().optional(),
   PORT: z.string().optional(),
   MCP_AUTH_TOKEN: z.string().optional(),
@@ -69,6 +79,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
 
+  const mode = parsed.TEAMCITY_MCP_MODE ?? 'full';
+  if (mode === 'lead' && !parsed.TEAMCITY_MCP_PROJECT) {
+    throw new Error('TEAMCITY_MCP_MODE=lead requires TEAMCITY_MCP_PROJECT (the project id it may trigger in)');
+  }
+
   const host = parsed.HOST ?? '127.0.0.1';
   const mcpAuthToken = parsed.MCP_AUTH_TOKEN;
   if (transport === 'http' && !LOOPBACK.has(host) && !mcpAuthToken) {
@@ -81,7 +96,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     teamcityUrl: parsed.TEAMCITY_URL.replace(/\/+$/, ''),
     auth,
     perRequestAuth,
-    mode: parsed.TEAMCITY_MCP_MODE ?? 'full',
+    mode,
+    project: mode === 'lead' ? parsed.TEAMCITY_MCP_PROJECT : undefined,
     transport,
     host,
     port: parsed.PORT ? Number(parsed.PORT) : 3000,
