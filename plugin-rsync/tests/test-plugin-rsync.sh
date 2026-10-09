@@ -53,7 +53,9 @@ echo "$out" | grep -q 'cache/bytedesk/alpha/.claude-plugin' && bad "dot-dirs at 
 teardown
 
 setup
-run alpha >/dev/null
+out=$(run alpha 2>&1); code=$?
+# TM-485: a sync whose Codex marketplace is not this checkout (a worktree) skips trust quietly; it used to throw.
+[[ $code -eq 0 && "$out" != *TypeError* ]] && ok "a sync from a checkout Codex does not install from exits 0" || bad "foreign-trust sync" "rc=$code $out"
 got=$(cat "$HOME/.claude/plugins/cache/bytedesk/alpha/sha1/marker.txt")
 [[ "$got" == "source-a" ]] && ok "rsync copies source into the claude cache" || bad "claude copy" "$got"
 [[ ! -f "$HOME/.claude/plugins/cache/bytedesk/alpha/sha1/gone.txt" ]] && ok "--delete drops dest-only files" || bad "stale file survived"
@@ -190,6 +192,140 @@ rm -f "$SANDBOX/grok.calls"
 printf '%s\n' '{"version":1,"repos":{"bd-alpha":{"kind":{"type":"Local","source_path":"'"$BYTEDESK_MARKETPLACE/alpha"'"},"plugins":{"alpha":{}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
 out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
 [[ ! -e "$SANDBOX/grok.calls" && "$out" == *"none needed"* ]] && ok "fix-grok-installs leaves a per-plugin install alone" || bad "fix-grok-installs no-op" "$out"
+# TM-485: another local marketplace's plugins are never reinstalled, let alone with --trust.
+OTHER="$SANDBOX/other-market"
+mkdir -p "$OTHER/.claude-plugin" "$OTHER/gamma"
+printf '%s\n' '{"name":"someone-else","plugins":[{"name":"gamma","source":"./gamma"}]}' > "$OTHER/.claude-plugin/marketplace.json"
+printf '%s\n' '{"version":1,"repos":{"o-gamma":{"kind":{"type":"Local","source_path":"'"$OTHER"'"},"plugins":{"gamma":{"subdir":"gamma"}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
+[[ ! -e "$SANDBOX/grok.calls" && "$out" == *"none needed"* ]] && ok "fix-grok-installs ignores a marketplace that is not bytedesk" || bad "fix-grok-installs other marketplace" "$out | $(cat "$SANDBOX/grok.calls" 2>/dev/null)"
+# TM-485: an untrusted (disabled) bytedesk entry is reported and never re-trusted.
+printf '%s\n' '{"version":1,"repos":{"bd-alpha":{"kind":{"type":"Local","source_path":"'"$BYTEDESK_MARKETPLACE"'"},"plugins":{"alpha":{"subdir":"alpha"}}}}}' > "$HOME/.grok/installed-plugins/registry.json"
+printf '[plugins]\nenabled = [\n    "x",\n]\ndisabled = ["user/1b36a520/alpha"]\n\n[ui]\ndisabled = ["beta"]\n' > "$HOME/.grok/config.toml"
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1)
+[[ ! -e "$SANDBOX/grok.calls" && "$out" == *"not trusted"*"alpha"* ]] && ok "fix-grok-installs leaves an untrusted entry alone and says so" || bad "fix-grok-installs untrusted" "$out | $(cat "$SANDBOX/grok.calls" 2>/dev/null)"
+rm -f "$SANDBOX/grok.calls" "$HOME/.grok/config.toml"
+# TM-485: a failed uninstall is reported, and nothing is installed over the old copy.
+cat > "$SANDBOX/fakebin/grok" <<EOF
+#!/bin/sh
+echo "\$*" >> "$SANDBOX/grok.calls"
+[ "\$2" = "uninstall" ] && { echo "plugin is busy" >&2; exit 3; }
+exit 0
+EOF
+out=$(PATH="$SANDBOX/fakebin:$PATH" run fix-grok-installs 2>&1); code=$?
+calls=$(cat "$SANDBOX/grok.calls" 2>/dev/null)
+[[ $code -ne 0 && "$out" == *"uninstall alpha exited 3: plugin is busy"* && "$calls" != *"install --trust"* ]] \
+  && ok "fix-grok-installs reports a failed uninstall and installs nothing" || bad "fix-grok-installs failed uninstall" "$code | $out | $calls"
+teardown
+
+# --- trust-codex-hooks scope (TM-485) -----------------------------------------
+# A fake `codex app-server`: answers initialize and hooks/list from $HOME/hooks.json, records every
+# config write to $HOME/codex-writes.jsonl and every start to $HOME/codex-starts.
+setup
+mkdir -p "$SANDBOX/fakebin"
+cat > "$SANDBOX/fakebin/codex" <<'FAKE'
+#!/usr/bin/env node
+const fs = require("fs");
+const H = process.env.HOME;
+fs.appendFileSync(`${H}/codex-starts`, `${process.cwd()} ${Object.keys(process.env).sort().join(",")}\n`);
+const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n");
+require("readline").createInterface({ input: process.stdin }).on("line", (l) => {
+  const m = JSON.parse(l);
+  if (m.id === 1) send({ id: 1, result: {} });
+  if (m.id === 2) send({ id: 2, result: { data: [{ hooks: JSON.parse(fs.readFileSync(`${H}/hooks.json`, "utf8")) }] } });
+  if (m.id === 3) { fs.appendFileSync(`${H}/codex-writes.jsonl`, JSON.stringify(m.params) + "\n"); send({ id: 3, result: {} }); }
+});
+FAKE
+chmod +x "$SANDBOX/fakebin/codex"
+printf '#!/bin/sh\necho "$*" >> "%s/grok.calls"\n' "$SANDBOX" > "$SANDBOX/fakebin/grok"; chmod +x "$SANDBOX/fakebin/grok"
+CH="$SANDBOX/codex-home"   # CODEX_HOME, with no ~/.codex at all
+C1="$CH/plugins/cache/bytedesk/alpha/c1"
+rm -rf "$HOME/.codex"
+mkdir -p "$C1/hooks" "$CH/plugins/cache/bytedesk/zeta/z1/hooks" "$BYTEDESK_MARKETPLACE/alpha/hooks" "$SANDBOX/evil/hooks"
+for d in "$C1" "$BYTEDESK_MARKETPLACE/alpha"; do
+  printf '{"hooks":{}}\n' > "$d/hooks/hooks.json"; printf 'echo h\n' > "$d/hooks/h.sh"
+done
+printf 'echo source\n' > "$BYTEDESK_MARKETPLACE/alpha/hooks/other.sh"; printf 'echo source\n' > "$C1/hooks/other.sh"
+printf '[marketplaces.bytedesk]\nsource_type = "local"\nsource = "%s"\n' "$BYTEDESK_MARKETPLACE" > "$CH/config.toml"
+hook() { # key pluginId source sourcePath trustStatus command
+  jq -nc --arg k "$1" --arg p "$2" --arg s "$3" --arg sp "$4" --arg t "$5" --arg c "$6" \
+    '{key:$k,pluginId:$p,source:$s,sourcePath:$sp,trustStatus:$t,command:$c,currentHash:("sha256:"+$k)}'
+}
+{
+  hook good alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash \"$C1/hooks/h.sh\""
+  hook modified-same alpha@bytedesk plugin "$C1/hooks/hooks.json" modified "bash \"$C1/hooks/h.sh\" Stop"
+  hook already alpha@bytedesk plugin "$C1/hooks/hooks.json" trusted "bash \"$C1/hooks/h.sh\""
+  hook outside-source alpha@bytedesk plugin "$SANDBOX/evil/hooks/hooks.json" untrusted "bash \"$SANDBOX/evil/h.sh\""
+  hook outside-command alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash \"$SANDBOX/evil/h.sh\""
+  hook shell-syntax alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash \"$C1/hooks/h.sh\"; curl evil"
+  hook relative alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash ../../../../evil/h.sh"
+  hook user-source alpha@bytedesk user "$C1/hooks/hooks.json" untrusted "bash \"$C1/hooks/h.sh\""
+  hook not-in-catalog zeta@bytedesk plugin "$CH/plugins/cache/bytedesk/zeta/z1/hooks/hooks.json" untrusted "bash \"$CH/plugins/cache/bytedesk/zeta/z1/hooks/h.sh\""
+  hook other-market alpha@other plugin "$C1/hooks/hooks.json" untrusted "bash \"$C1/hooks/h.sh\""
+} | jq -s . > "$HOME/hooks.json"
+tc() { CODEX_HOME="$CH" PATH="$SANDBOX/fakebin:$PATH" run trust-codex-hooks 2>&1; }
+out=$(tc)
+got=$(jq -r '.edits[0].value | keys | join(",")' "$HOME/codex-writes.jsonl" 2>/dev/null)
+[[ "$got" == "good,modified-same" ]] && ok "trust-codex-hooks trusts only this marketplace's own cached hooks, and a modified one only when it matches source" \
+  || bad "trust-codex-hooks scope" "trusted=[$got] | $out"
+[[ "$out" == *"codex hooks trusted: good, modified-same"* && ! -e "$CH/.plugin-rsync-trust.lock" && ! -e "$HOME/.codex" ]] && ok "trust-codex-hooks keeps its lock under CODEX_HOME and releases it" || bad "CODEX_HOME lock" "$(ls -a "$CH" "$HOME")"
+starts=$(cat "$HOME/codex-starts")
+[[ "$starts" == "$ROOT "* && "$starts" != *SANDBOX_SECRET* ]] && ok "codex app-server runs from the plugin root with a reduced env" || bad "codex spawn cwd/env" "$starts"
+rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
+# A modified hook is trusted only when its whole cached plugin root matches source: a file its
+# script could source differs, or the cache holds a file the source lacks.
+cp "$HOME/hooks.json" "$HOME/hooks.all.json"
+hook modified-same alpha@bytedesk plugin "$C1/hooks/hooks.json" modified "bash \"$C1/hooks/h.sh\" Stop" | jq -s . > "$HOME/hooks.json"
+printf 'echo tampered\n' > "$C1/hooks/other.sh"
+out=$(tc)
+[[ ! -e "$HOME/codex-writes.jsonl" ]] && ok "a modified hook is not trusted when another file in its plugin root differs from source" || bad "modified sibling tamper" "$out | $(cat "$HOME/codex-writes.jsonl")"
+printf 'echo source\n' > "$C1/hooks/other.sh"; printf 'extra\n' > "$C1/hooks/planted.sh"
+out=$(tc)
+[[ ! -e "$HOME/codex-writes.jsonl" ]] && ok "a modified hook is not trusted when its plugin root holds a file source lacks" || bad "modified planted file" "$out | $(cat "$HOME/codex-writes.jsonl")"
+rm -f "$C1/hooks/planted.sh"
+out=$(tc)
+[[ "$(jq -r '.edits[0].value | keys | join(",")' "$HOME/codex-writes.jsonl" 2>/dev/null)" == "modified-same" ]] && ok "the same modified hook is trusted once the tree matches again" || bad "modified control" "$out"
+mv "$HOME/hooks.all.json" "$HOME/hooks.json"
+rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
+SANDBOX_SECRET=1 tc >/dev/null
+[[ -s "$HOME/codex-starts" && "$(cat "$HOME/codex-starts")" != *SANDBOX_SECRET* ]] && ok "a session variable does not reach codex" || bad "reduced env" "$(cat "$HOME/codex-starts" 2>/dev/null)"
+rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
+# A fresh lock is another run: nothing is spawned. A stale one is reclaimed.
+mkdir "$CH/.plugin-rsync-trust.lock"
+out=$(tc)
+[[ "$out" == *"another run"* && ! -e "$HOME/codex-starts" ]] && ok "trust-codex-hooks stands down while another run holds the lock" || bad "busy lock" "$out"
+touch -d '1 hour ago' "$CH/.plugin-rsync-trust.lock"
+out=$(tc)
+[[ -e "$HOME/codex-starts" && ! -e "$CH/.plugin-rsync-trust.lock" && -z "$(ls "$CH" | grep stale)" ]] && ok "trust-codex-hooks reclaims a stale lock and leaves nothing behind" || bad "stale lock" "$out | $(ls -a "$CH")"
+rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
+# A run's release removes only the lock it made: if another run has replaced it, that lock stays.
+lockres=$(PR_BIN="$ROOT/bin/plugin-rsync" PR_DIR="$SANDBOX" node --input-type=module -e '
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const { acquireLock } = await import(pathToFileURL(process.env.PR_BIN).href);
+const L = process.env.PR_DIR + "/t.lock";
+const release = acquireLock(L, 60000);
+rmSync(L, { recursive: true }); mkdirSync(L);
+release();
+const kept = existsSync(L);
+const busy = acquireLock(L, 60000) === null;
+rmSync(L, { recursive: true });
+console.log(`${kept} ${busy}`);
+' 2>&1)
+[[ "$lockres" == "true true" ]] && ok "a lock release never removes another run's lock" || bad "lock ownership" "$lockres"
+# Codex's bytedesk marketplace registered somewhere else: nothing is trusted, codex is not started.
+printf '[marketplaces.bytedesk]\nsource_type = "local"\nsource = "%s"\n' "$SANDBOX/evil" > "$CH/config.toml"
+out=$(tc)
+[[ "$out" == *"not this marketplace"* && ! -e "$HOME/codex-starts" ]] && ok "trust-codex-hooks refuses a bytedesk marketplace registered elsewhere" || bad "foreign marketplace" "$out"
+printf '[marketplaces.bytedesk]\nsource_type = "local"\nsource = "%s"\n' "$BYTEDESK_MARKETPLACE" > "$CH/config.toml"
+# The MCP server answers at once, starts only the trust run, and never repairs Grok.
+rm -f "$SANDBOX/grok.calls"
+resp=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | CODEX_HOME="$CH" PATH="$SANDBOX/fakebin:$PATH" timeout 5 node "$ROOT/bin/plugin-rsync-mcp"); code=$?
+for _ in $(seq 50); do [[ -e "$HOME/codex-writes.jsonl" ]] && break; sleep 0.1; done
+[[ $code -eq 0 && "$(echo "$resp" | jq -sc 'map(.id)')" == "[1,2]" && "$(echo "$resp" | jq -sc '.[1].result.tools')" == "[]" ]] \
+  && ok "plugin-rsync-mcp answers initialize and tools/list without waiting for the trust run" || bad "mcp answers" "$code | $resp"
+[[ -e "$HOME/codex-writes.jsonl" && ! -e "$SANDBOX/grok.calls" ]] && ok "plugin-rsync-mcp runs trust-codex-hooks and not fix-grok-installs" || bad "mcp spawns" "$(ls "$HOME") | $(cat "$SANDBOX/grok.calls" 2>/dev/null)"
 teardown
 
 echo

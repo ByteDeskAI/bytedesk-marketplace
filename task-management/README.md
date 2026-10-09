@@ -324,14 +324,19 @@ that sent it. The handoff brief for a `ready-for-agent` task ends with the compl
 contract spelled out, because the worker may never read anything else: tick each criterion
 once verified (`.bytedesk/task-management/bin/tm accept`), **commit, push its own branch
 (`git push -u origin <the task's tm/ branch>`) and open a pull request
-(`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`)**,
+(`gh pr create --title "<TM-id>: <title>" --body-file <file: what changed, and how it was verified> --base <dispatch.integrationBranch>`)**,
 attach proof not claims (`.bytedesk/task-management/bin/tm evidence`), then close (`.bytedesk/task-management/bin/tm
 done`) — or, if the push or the PR fails for want of a remote, `gh`, or auth, block with that
-error instead. **A worker merges only its own PR**, by branch name, after review and green checks; never anyone else's.
+error instead. **An ungoverned worker merges only its own PR**, by its pinned branch name, without
+`--admin`, once every required check has passed; never anyone else's. **A governed worker never
+merges** — it stops at ready-for-review and the lead lands it (TM-481).
 
 **A guard makes that contract hard to break by accident.** A dispatched worker runs
 `--dangerously-skip-permissions`, so it is marked (`TM_DISPATCH_WORKER`, `_TASK`, `_BRANCH`,
-`_INTEGRATION_BRANCH`) and a PreToolUse hook, injected with the same `--settings`, refuses: force
+`_INTEGRATION_BRANCH`, `_GOVERNED`) and its pane pid is recorded at dispatch, so unsetting the marker
+does not stop it being a worker (TM-470, `lib/worker-identity.mjs`). A PreToolUse hook, injected
+with the same `--settings`, refuses: `--admin`, any `-R`/`--repo`/`GH_REPO` merge, `gh repo
+set-default`, `gh alias set`, GraphQL `mergePullRequest`; force
 pushes and pushes to any branch but the worker's own; branch, tag and ref deletion, `reset --hard`,
 history rewrites and rebasing main; `stash drop|clear|pop`; `gh pr merge`, releases, secrets,
 variables and `gh api` writes; a `gh pr create` / `gh pr new` whose `--base` is missing or is not

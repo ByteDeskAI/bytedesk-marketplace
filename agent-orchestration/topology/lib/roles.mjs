@@ -35,6 +35,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { agentDirs, createAgent, listAgents, requireAgent } from "./agents.mjs";
+import { roleMcpFor } from "./doctor.mjs";
 import { displayName, roleVisual, titleForRole } from "./identity.mjs";
 import { openRoleSession, recordedRoleSession, registeredLeadId, roleSessionFor, roleSessionPath } from "./launch.mjs";
 import { assignLead, detachLead, ensureLead, leadState, readLeadRegistration } from "./lead.mjs";
@@ -175,7 +176,7 @@ async function openAgentSession({ agent, consumer, home, pluginRoot, env = proce
  * for a designer, and reporting "not responsive" for a protocol that does not exist would be a
  * different lie from the one this function exists to avoid.
  */
-export async function roleStatus({ role, consumer, home = homedir(), env = process.env, pluginRoot = null, probes = null, ackTimeoutMs = undefined, listPanesFn = tmux.listServerPanes, log = () => {} }) {
+export async function roleStatus({ role, consumer, home = homedir(), env = process.env, pluginRoot = null, probes = null, ackTimeoutMs = undefined, listPanesFn = tmux.listServerPanes, procs = undefined, log = () => {} }) {
   const entry = kindOf(role);
   if (role === "lead") {
     const state = await leadState({ consumer, home, env, pluginRoot, probes, log, ...(ackTimeoutMs === undefined ? {} : { ackTimeoutMs }) });
@@ -189,6 +190,7 @@ export async function roleStatus({ role, consumer, home = homedir(), env = proce
       record: state.record,
       library_lead: state.library_lead,
       identity: state.identity,
+      mcp: await roleMcpFor({ role, record: state.record, consumer, procs }),
     };
   }
   if (role === "reviewer") {
@@ -200,6 +202,7 @@ export async function roleStatus({ role, consumer, home = homedir(), env = proce
       holder: standing.record?.agent_id ?? null,
       holder_name: standing.record?.agent_id ?? null,
       record: standing.record, reason: standing.reason,
+      mcp: await roleMcpFor({ role, record: standing.record, consumer, procs }),
     };
   }
   const agents = await holdersOf(role, { consumer, home, pluginRoot });

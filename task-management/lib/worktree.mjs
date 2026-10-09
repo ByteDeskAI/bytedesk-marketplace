@@ -325,9 +325,52 @@ export function createWorktree(task, { base, share = true, p = paths(), config =
     throw new Error(`git worktree add failed: ${String(err.stderr || err.message).trim()}`);
   }
   ignoreTmArtifacts(path, p.root);
+  seedGraftStamp(path, p.root);
   const shared = share ? applyShares(path, { p, config }) : [];
   if (read(task.id, p)) update(task.id, { worktree: path, branch }, p);
   return { path, branch, shared, reused: false };
+}
+
+const GRAFT_STAMP = join("graft", ".cache", "wiring-stamp.json");
+const releaseParts = (v) => String(v).split("-")[0].split(".").map((n) => Number(n) || 0);
+const newerVersion = (a, b) => {
+  const pa = releaseParts(a), pb = releaseParts(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+};
+const readJsonFile = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
+
+/**
+ * TM-507: graft records "wired by version V" in graft/.cache/wiring-stamp.json, which is
+ * gitignored, so a fresh worktree reads as unwired and graft's session hook rewrites the
+ * tracked .claude/.grok/.mcp wiring with this machine's paths (and adds opencode.json) —
+ * a dirty tree before the worker has done anything. graft skips the rewrite when the stamp
+ * matches the running version, so seed one: the main checkout's hosts and opts (keeping
+ * its choices, e.g. global:false), at the newest version any checkout's stamp or any
+ * installed graft package names. A repo graft never wired has no stamp and is left alone.
+ * ponytail: "newest installed" guesses the running graft from the npx cache and the repo's
+ * node_modules; a global npm install graft resolves elsewhere costs one rewrite per upgrade.
+ */
+export function seedGraftStamp(worktree, root, { home = process.env.HOME || "" } = {}) {
+  const main = readJsonFile(join(root, GRAFT_STAMP));
+  const target = join(worktree, GRAFT_STAMP);
+  if (!main || existsSync(target)) return null;
+  const versions = [main.version];
+  for (const block of (tryGit(root, "worktree", "list", "--porcelain") ?? "").split("\n\n")) {
+    const path = /^worktree (.+)$/m.exec(block)?.[1];
+    if (path) versions.push(readJsonFile(join(path, GRAFT_STAMP))?.version);
+  }
+  const pkgs = [join(root, "node_modules", "@nanonets", "graft", "package.json")];
+  const npx = join(home, ".npm", "_npx");
+  try { for (const d of readdirSync(npx)) pkgs.push(join(npx, d, "node_modules", "@nanonets", "graft", "package.json")); } catch { /* no npx cache */ }
+  for (const pkg of pkgs) versions.push(readJsonFile(pkg)?.version);
+  const version = versions.filter(Boolean).reduce((a, b) => (newerVersion(b, a) ? b : a));
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, `${JSON.stringify({ ...main, version, at: new Date().toISOString() }, null, 2)}\n`);
+  } catch { return null; /* best effort: graft just rewrites, as before */ }
+  ensureIgnored(worktree, root, GRAFT_STAMP);
+  return version;
 }
 
 /** Every git worktree of this project except the main checkout, joined to its task. */

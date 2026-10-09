@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, git, tempRepo } from "./helpers.mjs";
-import { governanceGit, runGh } from "../../lib/governance-check.mjs";
+import { ghResolver, governanceGit, runGh } from "../../lib/governance-check.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const trash = [];
@@ -37,6 +37,38 @@ it("TM-443 follow-up: governance gh is the root-owned binary at a pinned path; a
     assert.equal(existsSync(marker), false, "the planted ~/bin gh ran");
     if (r.status === 0) assert.match(r.stdout, /gh version/); else assert.equal(r.status, 127);
   } finally { process.env.PATH = saved; }
+});
+
+it("TM-475: governance gh refuses a config that redirects it, and never passes GH_*/proxy/CA env", () => {
+  const repo = tempRepo(); trash.push(repo);
+  const fake = join(repo, "..", `fake-gh-${process.pid}-${Date.now()}`);
+  trash.push(fake);
+  // A gh whose `config get http_unix_socket` answers from a file, and which otherwise prints its env.
+  const answer = `${fake}.socket`;
+  trash.push(answer);
+  writeFileSync(fake, `#!/bin/sh\nif [ "$1" = config ]; then [ "$3" = http_unix_socket ] && cat '${answer}'; exit 0; fi\nenv\n`); chmodSync(fake, 0o755);
+  const saved = { resolve: ghResolver.resolve, env: {} };
+  const planted = { GH_HOST: "evil.example", GH_REPO: "evil/r", GH_CONFIG_DIR: "/tmp/evil-gh", HTTPS_PROXY: "http://127.0.0.1:9", ALL_PROXY: "socks5://127.0.0.1:9", SSL_CERT_FILE: "/tmp/evil.pem", SSL_CERT_DIR: "/tmp/evil-ca", TM475_KEEP: "kept" };
+  for (const [k, v] of Object.entries(planted)) { saved.env[k] = process.env[k]; process.env[k] = v; }
+  ghResolver.resolve = () => fake;
+  try {
+    writeFileSync(answer, "");
+    const r = runGh(["api", "repos/o/r/compare/a...b"], repo);
+    assert.equal(r.status, 0, r.stderr);
+    // Compare names only: the child's environment holds the operator's tokens and must not reach test output.
+    const names = r.stdout.split("\n").map((line) => line.split("=")[0]);
+    assert.ok(names.includes("TM475_KEEP"), "the fake printed its environment, so absence below is meaningful");
+    assert.deepEqual(Object.keys(planted).filter((n) => !["TM475_KEEP", "GH_HOST"].includes(n) && names.includes(n)), []);
+    assert.match(r.stdout, /^GH_HOST=github\.com$/m, "GH_HOST is pinned to github.com, not the planted host (TM-475 review H1)");
+    writeFileSync(answer, "/tmp/worker.sock\n");
+    const refused = runGh(["api", "repos/o/r/compare/a...b"], repo);
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /http_unix_socket/);
+    assert.doesNotMatch(refused.stdout, /TM475_KEEP/, "the request never ran");
+  } finally {
+    ghResolver.resolve = saved.resolve;
+    for (const [k, v] of Object.entries(saved.env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
 });
 
 it("TM-443: no raw git spawn outside lib/safe-git.mjs", () => {

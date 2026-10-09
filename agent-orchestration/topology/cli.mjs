@@ -1166,6 +1166,14 @@ const commands = {
     for (const [label, dirs] of Object.entries(report.dirs)) {
       out(`  ${label}: ${dirs.filter((dir) => dir.exists).map((dir) => dir.dir).join(", ") || "(none exist yet)"}`);
     }
+    if (report.role_mcp?.length) {
+      out("Role MCP:");
+      for (const r of report.role_mcp) {
+        if (r.error) { out(`  ? ${r.error}`); continue; }
+        const expected = Array.isArray(r.expected) ? `expected ${r.expected.join(", ")}; running ${r.present.join(", ") || "none"}` : r.note;
+        out(`  ${r.ok ? "✓" : "✗"} ${r.role} ${r.agent_id ?? ""} pid ${r.pid} — ${r.live === false ? r.note : expected}`);
+      }
+    }
     if (report.problems.length === 0) return out("OK — ready to launch.");
     out("Problems:");
     for (const problem of report.problems) {
