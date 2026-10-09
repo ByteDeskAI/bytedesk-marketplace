@@ -322,3 +322,31 @@ export async function passHandoff({ pane, adapter = null, path }) {
   const { deliverPointer } = await import("./launch.mjs");
   return deliverPointer(pane, adapter ?? { submit_keys: ["Enter"] }, handoffPointer(path));
 }
+
+/**
+ * TM-463: `session handoff` types into a live pane, so its caller must be PROVEN, never claimed. It is
+ * the target agent itself, proven by requireGranteeCaller (its live pane is census-bound to that
+ * agent and that pane's process is the caller's ancestor), or this repository's lead, proven by
+ * requireLeadCaller. An env-only claim (AO_AGENT_ID=<target>) is refused. As `manage` does (TM-243),
+ * a session without AO_AGENT_ID is named from its pane's census binding before the proof.
+ * `proof` injects the pane, census and process readers for tests.
+ */
+export async function requireHandoffCaller({ agentId, consumer, env = process.env, home = homedir(), proof = {} }) {
+  const { bindingAgentId, requireGranteeCaller, requireLeadCaller } = await import("./delegation.mjs");
+  const { callerIdentity } = await import("./session-identity.mjs");
+  const lookup = { consumer, env, home, ...proof };
+  // Self is claimed by this session's identity OR by the census binding of its pane (a run-launched
+  // library agent's AO_AGENT_ID is its run id, not its library id); either way it must then be proven.
+  const bound = await bindingAgentId(lookup).catch(() => null);
+  if (bound === agentId || callerIdentity(env)?.agentId === agentId) {
+    await requireGranteeCaller({ ...lookup, grantee: agentId });
+    return { caller: agentId, as: "self" };
+  }
+  // For the lead: the launcher's id, else the pane's census binding (an assigned lead also carries a
+  // minted session id, which must not hide its binding), else the minted session id.
+  const named = env.AO_AGENT_ID || bound || callerIdentity(env)?.agentId || null;
+  const lead = await requireLeadCaller({ ...lookup, env: named ? { ...env, AO_AGENT_ID: named } : env });
+  invariant(lead, "TOPOLOGY_HANDOFF_UNAUTHORIZED",
+    `Only this repository's lead or ${agentId} itself may hand off to ${agentId}; this session is ${named ?? "unidentified"}. Nothing was typed.`, { agent_id: agentId });
+  return { caller: lead, as: "lead" };
+}

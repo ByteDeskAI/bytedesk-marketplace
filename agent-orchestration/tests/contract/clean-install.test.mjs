@@ -133,6 +133,8 @@ test("tracked install bundle starts from plugin cwd but resolves only explicit c
       // TM-272: this test is about the install bundle, not the managed services. With services on,
       // the spawn below would download process-compose and start it for a throwaway state root.
       AGENT_ORCHESTRATION_SERVICES: "0",
+      // TM-464 F1: mailbox_list reads only this session's own receipts, so the server needs an identity.
+      AO_AGENT_ID: "contract-agent", AO_CONSUMER: consumer,
     };
     const transport = new StdioClientTransport({
       command: join(installed, "bin", "agent-orchestration-mcp"),
