@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
+  subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
+  cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each
+  other's mail. `createAgent` (every `agent new`, lead, role and reviewer registration) now refuses
+  an id whose token another agent in the repository already uses, with `TOPOLOGY_AGENT_SUBJECT_TAKEN`.
+  Existing subjects are unchanged.
 - **The autonomy hook never auto-approves `tm goal resume` (TM-486, EP-028).** Clearing a goal's
   `human_required` is a human's decision, so it stays with the normal permission prompt, like
   `tm override`.

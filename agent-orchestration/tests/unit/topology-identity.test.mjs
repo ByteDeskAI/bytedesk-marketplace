@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { addressOf, displayName, mintId, mintName, mintSpawn, titleForRole } from "../../topology/lib/identity.mjs";
 import { agentDirs, agentsRoot, createAgent, findLead, listAgents, resolveAgentRef } from "../../topology/lib/agents.mjs";
+import { orchName } from "../../topology/lib/orch-transport.mjs";
 import { hopExceeded, wouldLoop } from "../../topology/lib/routing.mjs";
 import { roleDirs } from "../../topology/lib/resolve.mjs";
 
@@ -82,6 +83,25 @@ test("a repo takes exactly one lead, and agents resolve by id or by name", async
       (err) => err.code === "TOPOLOGY_AGENT_NAME_TAKEN",
       "an explicit duplicate name must be refused",
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("TM-487: ids that share a NATS subject token are refused at registration", async () => {
+  const dir = await repo();
+  try {
+    const first = await createAgent(dir, { role: "worker", id: "a.b" });
+    assert.equal(orchName(first.id), "a_b");
+    for (const id of ["a_b", "a b", "a:b"]) {
+      await assert.rejects(() => createAgent(dir, { role: "worker", id }), (err) => err.code === "TOPOLOGY_AGENT_SUBJECT_TAKEN" && /a\.b/.test(err.message), `${id} must be refused`);
+    }
+    // Ids past 64 characters truncate to the same token too.
+    await createAgent(dir, { role: "worker", id: `${"x".repeat(64)}1` });
+    await assert.rejects(() => createAgent(dir, { role: "worker", id: `${"x".repeat(64)}2` }), (err) => err.code === "TOPOLOGY_AGENT_SUBJECT_TAKEN");
+    // A distinct token is still fine, and the roster holds only the accepted agents.
+    await createAgent(dir, { role: "worker", id: "a-b" });
+    assert.deepEqual((await listAgents([agentsRoot(dir)])).map((a) => a.id).sort(), ["a-b", "a.b", `${"x".repeat(64)}1`]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
