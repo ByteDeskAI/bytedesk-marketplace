@@ -121,8 +121,9 @@ export function githubRepoOfUrl(url) {
  *    exactly that repository on github.com (any protocol, so the operator's ssh or https auth keeps
  *    working); a repointed origin (a file:// path, another repository, another host) is refused, and
  *    nothing is recorded, so an upgrade never pins whatever origin says at that moment;
- *  - else (no GitHub pin) origin is recorded on first use, and only from the main checkout: a worker's
- *    linked worktree never chooses it.
+ *  - else (no GitHub pin) a github.com origin is used but never recorded, so a GitHub pin made later
+ *    still decides; any other origin is recorded on first use, and only from the main checkout: a
+ *    worker's linked worktree never chooses it.
  * Same-uid limit as pinnedGithubRepo: host state is a file that user can edit; the operator writes or
  * removes `<key>.origin.json` to move it. Rewriting by url.*.insteadOf is checked by fetchPinned. */
 export async function pinnedFetchUrl(repoDir, { env = process.env, home = homedir() } = {}) {
@@ -140,6 +141,9 @@ export async function pinnedFetchUrl(repoDir, { env = process.env, home = homedi
     if (githubRepoOfUrl(url)?.toLowerCase() === github.toLowerCase()) return url;
     fail("TOPOLOGY_REPOSITORY_PIN", `origin is ${url}, which is not the pinned GitHub repository ${github}; refusing to fetch from it. If the change is intended, the operator writes {"url": "<fetch url>"} to ${path}.`, { origin: url, pinned: github });
   }
+  // A github.com origin is never recorded: it would outrank the GitHub pin made later (a release fetch can
+  // run before any pin), and the check above validates it once that pin exists.
+  if (githubRepoOfUrl(url)) return url;
   const dirs = await safeGit(repoDir, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { allowFailure: true, timeoutMs: 10_000 });
   const [gitDir, commonDir] = dirs.stdout.trim().split("\n");
   if (dirs.code !== 0 || !gitDir || gitDir !== commonDir) fail("TOPOLOGY_REPOSITORY_PIN", `the origin URL is pinned only from the main checkout, never from a linked worktree (${repoDir}); run a host fetch there first`);

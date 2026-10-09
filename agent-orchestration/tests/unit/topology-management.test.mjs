@@ -2629,6 +2629,22 @@ test('TM-472 record-landing refuses a landing that is only on a worker-forged or
   assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing recorded');
 });
 
+// TM-472 review round 2, item 1: a release fetch can run before any GitHub pin exists. Recording a
+// github.com origin then would outrank the GitHub pin made later, so such an origin is never recorded.
+test('TM-472 review: a github.com origin fetched before the GitHub pin exists is used but never recorded', async t => {
+  const { pinnedFetchUrl } = await import('../../topology/lib/repoid.mjs');
+  const { opts, git } = await fixture(t); // no admission ran, so there is no GitHub pin
+  const io = { env: opts.env, home: opts.home };
+  const pin = join(opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'repositories', `${repoKey((await canonicalRepoId(opts.consumer)).id)}.origin.json`);
+  await git(opts.consumer, ['remote', 'add', 'origin', 'https://github.com/o/r.git']);
+  assert.equal(await pinnedFetchUrl(opts.consumer, io), 'https://github.com/o/r.git');
+  await assert.rejects(readFile(pin), { code: 'ENOENT' }, 'a github.com origin was recorded before the GitHub pin');
+  // Once the GitHub pin exists, it decides: a repoint is refused, not read from a stale record.
+  await pinnedGithubRepo(opts.consumer, opts.gh, io);
+  await git(opts.consumer, ['remote', 'set-url', 'origin', 'https://github.com/attacker/r.git']);
+  await assert.rejects(pinnedFetchUrl(opts.consumer, io), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /not the pinned GitHub repository o\/r/ });
+});
+
 // TM-475 review M2: url.*.insteadOf in the operator's own ~/.gitconfig (the scope safe-git honours) would
 // still send a pinned fetch elsewhere. fetchPinned asks git which URL it would use and refuses a rewrite.
 // The global file is the passwd home's, so the child process stands a fake home in for os.userInfo().
