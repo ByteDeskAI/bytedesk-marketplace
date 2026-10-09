@@ -9,6 +9,7 @@ import { serializeError } from "../errors.mjs";
 import { registerRepository } from "../../topology/lib/services-client.mjs";
 import { controlProcess, dataHome, ensureServices, installProcessCompose, probeService, servicePaths, servicesStatus, uninstallServices, waitForServices } from "./services.mjs";
 import { selfHeal } from "./self-heal.mjs";
+import { repairRegisteredCheckouts } from "../../topology/lib/checkout-repair.mjs";
 import { withLock } from "../../topology/lib/lockfile.mjs";
 
 const USAGE = "Usage: agent-orchestration services install|ensure|status|restart <process>|stop <process>|wait --until healthy|<process> [running] [--timeout <s>]|probe <session-host|nats>|uninstall [--state-root <dir>] [--consumer-cwd <repo>] [--json] [--detach]";
@@ -20,6 +21,7 @@ export function summary(report) {
       ...transportLines(report.transport)].join("\n");
   }
   return [`services: ok (${report.mode}, process-compose ${report.version}, port ${report.port}) ${report.actions.length ? report.actions.join(", ") : "no changes"}`,
+    ...(report.checkouts ?? []).map((c) => `  checkout ${c.path}: ${c.action}${c.alert ? `: ${c.alert.message}` : ""}`),
     ...healLines(report.selfHeal)].join("\n");
 }
 
@@ -96,7 +98,12 @@ export async function runServicesCommand(sub, values, positionals, env = process
         // The session's own repository gets a supervisor, enrolled or not, as the `ao-topology
         // supervise` monitor gave it before TM-272. One rule, shared with `ao-topology repos add`.
         if (consumerCwd) await registerRepository(consumerCwd, { env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot } });
-        const report = await ensureServices({ stateRoot });
+        // TM-394: repair broken registered checkouts first. A repaired repository's supervisor is
+        // restarted so it re-keys on the repaired identity; its first reconcile ensures the lead.
+        const restartSupervisor = ({ repo }) => controlProcess("restart", `supervise-${repo.key}`, { stateRoot });
+        const checkouts = await repairRegisteredCheckouts({ env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: stateRoot }, ensureLead: restartSupervisor })
+          .catch((error) => [{ action: "failed", error: error.message }]);
+        const report = { ...await ensureServices({ stateRoot }), ...(checkouts.length ? { checkouts } : {}) };
         // SessionStart and the monitor can ensure at once; one self-heal at a time, so two never swap the same copy.
         const dir = servicePaths({ stateRoot, data: dataHome() }).dir;
         report.selfHeal = await withLock(join(dir, "self-heal.lock"), () => selfHeal({ pointer: report.pointer, stateRoot, home: os.homedir() }), { timeoutMs: 120_000 })

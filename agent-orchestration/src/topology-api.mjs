@@ -149,7 +149,8 @@ export function createTopologyApi(service) {
       const options = await context(input);
       const { agent } = await me(input.agent, options);
       const { setMailboxDisposition } = await import('../topology/lib/mailbox-receipts.mjs');
-      return setMailboxDisposition({ ...input, ...options, agent });
+      // TM-482 F2: receipts are per sender; `sender` picks one when several senders reused the ID.
+      return setMailboxDisposition({ ...input, ...options, agent, from: input.sender });
     },
     async goalStart(input) {
       const options = await context(input);

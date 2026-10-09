@@ -130,6 +130,8 @@ export async function taskStore({ consumer, owner = null, env = process.env, tmB
     claimFor: async (id, session, cwd, steal) => exec(['claim', taskId(id), ...(steal ? ['--steal'] : [])], cwd, { TM_SESSION_ID: session }),
     // TM-247: record a dead worker's result through tm's one write path (park rules, task_result event).
     collect: async id => JSON.parse((await exec(['collect', taskId(id), '--json'])).stdout),
+    // TM-417: repair a dispatch's workflow id from the producer record (never a collection).
+    rebind: async id => JSON.parse((await exec(['rebind', taskId(id), '--json'])).stdout),
     // TM-249: manage integrate closes as the grant's actor; tm stamps the done event from TM_ACTOR.
     done: async (id, actor = null) => exec(['done', taskId(id)], root, actor ? { TM_ACTOR: actor } : {}),
     govern: async (id, governance) => exec(['govern',taskId(id),'--workflow',governance.workflowRunId,'--lead',governance.leadId,'--record',governance.recordPath]),
@@ -230,7 +232,7 @@ async function observedNativeWorker(ctx, doc) {
   invariant(typeof dispatched?.nativeRunId === 'string' && isAbsolute(dispatched.recordPath || '') && basename(dispatched.recordPath) === 'run.json',
     'TOPOLOGY_MANAGEMENT_WORKER', 'Topology dispatch needs its authentic native run ID and record path; reconcile the task through tm collect before reporting a finish.');
   invariant(!dispatched.workflowRunId || dispatched.workflowRunId === `topology:${dispatched.nativeRunId}`,
-    'TOPOLOGY_MANAGEMENT_WORKER', 'Canonical workflow and native task run IDs differ.');
+    'TOPOLOGY_MANAGEMENT_WORKER', `Canonical workflow and native task run IDs differ; the lead repairs the dispatch with \`ao-topology manage rebind --task ${doc.id}\`.`);
   const observation = await observeNativeWorkflow({ consumer: ctx.store.root, runDir: dirname(dispatched.recordPath),
     nativeRunId: dispatched.nativeRunId, taskId: doc.id, workloadCwd: doc.worktree, stateHome: stateRoot(ctx.env, ctx.home) });
   invariant(observation.runId === dispatched.nativeRunId && observation.observationError === null && typeof observation.hasLiveWriters === 'boolean' && typeof observation.fingerprint === 'string',
@@ -333,6 +335,26 @@ export async function bindTaskWorker(options) {
     const record = await recordEvent(ctx, options.task, prior, 'worker-bound', { worker, workflow_run_id: prior.workflow_run_id ?? null });
     record.worker = worker; await writeJson(ctx.path, record);
     return { bound: true, worker };
+  });
+}
+
+/** TM-417: repair a topology dispatch recorded with a bare workflow id, so the finish report can
+ * verify it. Admission owner only; the task's worktree and branch must be the admitted ones, and tm
+ * rebind takes the canonical id from the producer's own discovery, never from the caller. */
+export async function rebindTaskWorker(options) {
+  const ctx = await context(options);
+  return withLock(`${ctx.path}.lock`, async () => {
+    const prior = await loadRecord(ctx.path);
+    invariant(prior?.started && prior.owner === options.owner, 'TOPOLOGY_MANAGEMENT_REBIND', `Only the admitting session can rebind ${options.task}; admit it first.`);
+    const doc = await ownedTask(ctx, options.task, prior.owner);
+    invariant(resolve(doc.worktree) === resolve(prior.worktree) && doc.branch === prior.branch, 'TOPOLOGY_MANAGEMENT_REBIND', 'The dispatched task worktree or branch differs from the admission record; reconcile it before rebinding.');
+    invariant(doc.dispatched?.backend === 'topology', 'TOPOLOGY_MANAGEMENT_REBIND', `${options.task} has no topology dispatch to rebind.`);
+    let result;
+    try { result = await ctx.store.rebind(options.task); }
+    catch (error) { fail('TOPOLOGY_MANAGEMENT_REBIND', `tm rebind ${options.task} failed: ${tmMessage(error)}`); }
+    if (!result.rebound) return { rebound: false, workflow_run_id: result.dispatched.workflowRunId };
+    await recordEvent(ctx, options.task, prior, 'rebind', { owner: prior.owner, from: result.from, to: result.to, native_run_id: result.dispatched.nativeRunId, record_path: result.dispatched.recordPath });
+    return { rebound: true, from: result.from, to: result.to };
   });
 }
 
@@ -628,7 +650,9 @@ export async function admitTask(options) {
     await ctx.store.start(task, provisioned.worktree);
     const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
-    const workflowRunId=options.workflowRunId || provisioned.dispatched?.workflowRunId || `tm-${task}`;
+    // TM-417: the governance identity is the task's, stable across rounds; adopting a dispatch's
+    // workflow id made it depend on whether a worker happened to be dispatched before admission.
+    const workflowRunId=options.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
     Object.assign(record, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);

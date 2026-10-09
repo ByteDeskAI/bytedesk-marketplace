@@ -1301,8 +1301,9 @@ sections such as `dispatch.tmuxCommand` and `board.views` are not type-checked.
 | `agentTtlMinutes` | `30` | when a silent agent reads as dead (`0` disables) |
 | `webhooks` / `webhooksAllowRemote` | `[]` / `false` | POST every event row to these (loopback-only) URLs; the flag admits remote ones |
 | `dispatch.backends` | topology → tmux → orchestration → manual | the fallback order `.bytedesk/task-management/bin/tm dispatch` walks |
-| `dispatch.topologyAgent` | first worker | stored worker identity; standing lead and reviewer roles are reserved |
-| `dispatch.topologyCandidates` | `"claude,codex"` | approved topology candidate order; each candidate needs an enforced ownership guard |
+| `dispatch.tmuxCommand` | `["claude","-p","--dangerously-skip-permissions"]` | the tmux worker's argv. **User config only** (`$XDG_CONFIG_HOME/task-management/config.json`); set in this file it is ignored with a `commandWarnings` entry, because a merged PR could change it (TM-467) |
+| `dispatch.topologyCandidates` | `"claude,codex"` | approved topology candidate order; each candidate needs an enforced ownership guard. **User config only**, like `tmuxCommand` |
+| `dispatch.topologyAgent` | — | ignored (TM-467): a topology worker is always an inline agent, never one from the repository's agent library |
 | `dispatch.governed` | `false` | require persistent-lead admission before dispatch and exact independent review plus authorized integration before done |
 | `dispatch.integrationBranch` | `HEAD` | branch used for new task checkouts and integrated duplicate evidence. A dispatched worker's PR always opens against this branch, stated literally as `gh pr create --base <branch>` and enforced by the worker guard — never the repository default. Unconfigured, dispatch resolves `HEAD` to the main checkout's actual branch name rather than leave it unstated; it refuses to dispatch only when that also fails to resolve (a detached HEAD) |
 | `dispatch.heartbeatSeconds` | `60` | how often a dispatched claim is re-stamped (`0` disables) |

@@ -19,3 +19,8 @@ written brief, and you explain your intent in words the judge can score.
    reported, not hidden.
 7. Never copy an existing logo, mascot, or brand element. Original work only.
 8. Put files under the artifacts directory in `<your-id>/<message-id>/` and list them in the reply.
+
+## When you finish
+
+Never ask the operator what is next. Your reply is the hand-off: write it, then wait on your
+inbox, where whoever briefed you sends the next assignment.

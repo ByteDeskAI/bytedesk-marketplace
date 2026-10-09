@@ -127,7 +127,7 @@ Standing repository services
   goal-loop reconcile --consumer <repo> [--loop <id>]
   mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
   mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
-       [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+       [--kind mail|reply] [--sender <agent>] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   repos list [--json]                           registered repositories and each supervisor's state
@@ -178,6 +178,8 @@ Standing repository services
   manage transfer --task <TM-id> [--to <session>] --reason <text>   hand the admission to another
                                                lead (owner), or take over one whose owner's claim
                                                is no longer live (TM-247)
+  manage rebind --task <TM-id>                 repair a topology dispatch recorded with a bare
+                                               workflow id, from the producer record (TM-417)
   manage record-landing --task <TM-id> --landed <sha> [--actor <name>] --reason <text> [--authorized]
                                                in place of --authorized, integrate and record-landing
                                                also accept a plan grant covering the task (see delegate
@@ -243,6 +245,7 @@ function manageSummary(verb, task, r) {
     case 'integrate': case 'record-landing': return `${task} ${verb === 'integrate' ? 'merged' : 'landing recorded'}: ${r.merge?.landed} on ${r.merge?.target_branch}${r.merge?.pull_request ? ` via PR #${r.merge.pull_request.number}` : ''}${auth(r.merge?.authorization)}${r.closed ? `; ${task} closed` : ''}`;
     case 'eligible': return r.eligible ? `${task} eligible for integration` : `${task} NOT eligible: ${r.reasons.join('; ')}`;
     case 'transfer': return `${task} transferred from ${r.from} to ${r.to}`;
+    case 'rebind': return r.rebound ? `${task} dispatch rebound: ${r.from} -> ${r.to}` : `${task} dispatch already canonical (${r.workflow_run_id})`;
     case 'close': return r.closed ? `${task} closed (${r.steps.join(', ') || 'nothing left to do'})` : `${task} NOT closed at ${r.refused} after [${r.steps.join(', ')}]: ${r.reason} — ${r.recovery}`;
     case 'cleanup': return r.cleaned ? `${task} cleaned` : `${task} NOT cleaned: ${r.reason} — ${r.recovery}`;
     default: return `${task} ${verb}: ${r.management?.state ?? r.state ?? 'ok'}`;
@@ -690,7 +693,10 @@ const commands = {
         kind: flags.kind, status: flags.status, workflowId: flags.workflow, runId: flags.run, taskId: flags.task }));
       return out(await receipts.setMailboxDisposition({ ...ctx, agent,
         messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
-        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'] }));
+        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'],
+        // TM-482 F2: receipts are per sender; --sender picks one when several senders reused the ID.
+        // N2: --sender '' names the receipt whose sender is null (a legacy or anonymous message).
+        from: typeof flags.sender === 'string' ? flags.sender || null : undefined }));
     }
     if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
@@ -706,7 +712,13 @@ const commands = {
     ctx.transport = await selectLiveTransport({ env: process.env });
     try {
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
-    if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
+    // TM-482 F1: a failure the resume collected is printed and fails the command, never dropped.
+    if (sub === 'resume') {
+      const errors = [];
+      out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true, errors }));
+      if (errors.length) { process.stderr.write(`${JSON.stringify({ ok: false, errors }, null, 2)}\n`); process.exitCode = 1; }
+      return;
+    }
     if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
     if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
     if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
@@ -904,9 +916,9 @@ const commands = {
       return out(flags.summary ? externalSummary(verb, result) : result);
     }
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask' };
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask', rebind:'rebindTaskWorker' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|rebind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
@@ -972,8 +984,10 @@ const commands = {
     // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
     // drives both and compares — which is also why both pass the same activation reason.
     if (sub === 'ensure') {
+      // TM-394: repair a broken checkout first; a still-broken one refuses rather than mint a lead.
+      const checkout = await (await import('./lib/checkout-repair.mjs')).ensureCheckout(ctx);
       const result = await api.ensureLead(options);
-      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
+      return out({ ...result, ...(checkout.action === 'repaired' ? { checkout } : {}), supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });

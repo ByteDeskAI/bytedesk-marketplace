@@ -127,8 +127,11 @@ function durableOptions(run, env = process.env) {
   return { env: { ...env, ...(run.state_home ? { AGENT_ORCHESTRATION_STATE_HOME: run.state_home } : {}) } };
 }
 
-function wireMessageId(runDir, run, id) {
-  return `run:${run.run_id || createHash('sha256').update(resolve(runDir)).digest('hex')}:${id}`;
+/** TM-482 F2: the wire ID names the run and its incarnation (when it was created), so a run
+ * recreated in the same directory or under the same name never reuses an earlier run's IDs. */
+export function wireMessageId(runDir, run, id) {
+  const incarnation = createHash('sha256').update(`${resolve(runDir)}\0${run.created ?? ''}`).digest('hex').slice(0, 16);
+  return `run:${run.run_id || 'dir'}:${incarnation}:${id}`;
 }
 
 /** A reply lives on its own subject. Inbox ack of ordinary mail cannot take it. */
