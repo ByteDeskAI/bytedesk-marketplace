@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **The reviewer tests pin the file transport themselves (TM-471, EP-028).** Two late-ack tests in
+  `topology-reviewer.test.mjs` passed only when the suite preload set `AO_TRANSPORT=file`. Run
+  bare, they used NATS, so no probe file was written and both tests failed. The fixture now sets
+  `AO_TRANSPORT: 'file'` in its own env. Test-only; no runtime change.
 ### Security
 
 - **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**

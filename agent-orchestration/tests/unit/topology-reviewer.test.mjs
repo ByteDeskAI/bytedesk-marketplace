@@ -18,7 +18,10 @@ async function fixture(t) {
   await run('git', ['-C', consumer, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'base']);
   const revision = (await run('git', ['-C', consumer, 'rev-parse', 'HEAD'])).stdout.trim();
   await writeJson(join(pluginRoot, 'config.defaults.json'), { reviewer: { template: 'r' }, templates: { r: { role: 'reviewer', cli: 'codex', instructions: 'Review independently.' } }, management: { reviewer_providers: ['codex', 'claude'] } });
-  const env = { ...process.env, XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+  // TM-471: pin the file transport here rather than inherit it from the suite preload. Without it
+  // a bare `node --test` (or a host AO_TRANSPORT=nats) sends probes over the live NATS server, so
+  // no probe file is ever minted and the late-ack tests fail on the operator's machine.
+  const env = { ...process.env, AO_TRANSPORT: 'file', XDG_CONFIG_HOME: join(root, 'config'), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
   const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
   const identity = await canonicalRepoId(consumer);
   const managementPath = join(env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey(identity.id), 'TM-1.json');
