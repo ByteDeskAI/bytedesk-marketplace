@@ -315,10 +315,17 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
   ];
   // Readers return bodies; actors send or act as an agent. Each call must carry its binding.
   const READERS = ['listMailboxReceipts', 'listMailboxPublications', 'readStandingInbox', 'readStandingOutbox', 'waitForStandingReply', 'readStandingMessage'];
-  // System readers of one record by id, none of which returns the body to a caller-named agent:
-  // wait checks the sender itself after the read; the run bridge and the outage notice are internal.
+  // System readers of one record by id. Each is listed for its own reason (TM-474 corrected this):
+  // - waitForStandingReply checks the sender itself after the read;
+  // - obligations DOES carry a reply body, but only when the standing envelope's sender is one of the
+  //   caller's `viewers` (run `wait`); anyone else gets "answered" with the body withheld;
+  // - recordReply (the run bridge) and natsOutageTick (the outage notice) return no body;
+  // - reconcileGoalLoop reads its own obligation's reply and accepts it only from the loop's lead;
+  // - assignmentResult reads the idle-dispatch assignee's reply to the system's own assignment and
+  //   returns its parsed assignment fields (tm's duplicate-dispatch guard), never another agent's mail.
   const INTERNAL_READERS = new Set(['topology/lib/standing-mailbox.mjs#waitForStandingReply', 'topology/lib/mailbox.mjs#obligations',
-    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick']);
+    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick',
+    'topology/lib/goal-loop.mjs#reconcileGoalLoop', 'topology/lib/management.mjs#assignmentResult']);
   const ACTORS = ['sendStandingMessage', 'forwardStandingMessage', 'recordStandingReply', 'setMailboxDisposition'];
   // allAgents: true is allowed only here: the operator console (gated by assertOperatorReader) and
   // the publication resume loop (returns no body).
@@ -329,15 +336,18 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     'topology/lib/supervision.mjs', 'topology/lib/lead-recovery.mjs', 'topology/lib/roles.mjs', 'topology/cli.mjs#observer']);
   const ENTRY = new Set(['topology/cli.mjs', 'src/topology-api.mjs']);
   const enclosing = (src, at) => [...src.slice(0, at).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?(?:function\s+([\w$]+)|['"]?([\w$-]+)['"]?\s*\(\{[^)\n]*\}\)\s*\{|([\w$]+)\s*\(input\)\s*\{)/g)].map((m) => m[1] || m[2] || m[3]).at(-1);
-  const seen = { reader: 0, actor: 0 };
+  const seen = { reader: 0, actor: 0, wrapped: 0 };
   const problems = [];
   for (const rel of files) {
     const src = await readFile(join(root, rel), 'utf8');
-    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\(`, 'g'))) {
+    // TM-474: also the `(options.readMessage ?? readStandingMessage)(` shape, where the name is
+    // closed by a paren before the call opens.
+    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\)?\\(`, 'g'))) {
       const at = match.index, name = match[1];
+      if (match[0].endsWith(')(')) seen.wrapped += 1;
       const line = src.slice(src.lastIndexOf('\n', at) + 1, src.indexOf('\n', at));
       if (/^\s*(\/\/|\*)/.test(line) || /export async function/.test(line) || /import\(|import \{/.test(line) && !/\)\(/.test(line)) continue;
-      const args = callArgs(src, at + name.length);
+      const args = callArgs(src, at + match[0].length - 1);
       const fn = enclosing(src, at);
       const where = `${rel}:${src.slice(0, at).split('\n').length} ${name} in ${fn}`;
       // Before the call, in its enclosing function: where the bound value came from.
@@ -360,7 +370,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     }
   }
   // Coverage, so an empty scan cannot pass: the known entry and library call sites were seen.
-  assert.ok(seen.reader >= 14 && seen.actor >= 6, `the audit saw the call sites (${JSON.stringify(seen)})`);
+  assert.ok(seen.reader >= 20 && seen.actor >= 6 && seen.wrapped >= 3, `the audit saw the call sites (${JSON.stringify(seen)})`);
   assert.deepEqual(problems, []);
   // me() is sessionIdentity(), and the CLI's send verb names its sender through sessionIdentity().
   const [api, cli] = await Promise.all([readFile(join(root, 'src/topology-api.mjs'), 'utf8'), readFile(join(root, 'topology/cli.mjs'), 'utf8')]);
@@ -369,7 +379,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
   // Every MCP mailbox/run-mail tool lands on an adapter method that calls me().
   const mcp = await readFile(join(root, 'src/mcp.mjs'), 'utf8');
   for (const [, tool, method] of mcp.matchAll(/register\(server, topology, '(orchestration_(?:mailbox|run_mail)_\w+)'[\s\S]*?topology\.(\w+)\);/g)) {
-    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory
+    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory; standing reply bodies reach only their sender (TM-474)
     const start = api.indexOf(`    async ${method}(input) {`);
     assert.match(api.slice(start, api.indexOf('\n    },\n', start)), /\bme\(/, `${tool} resolves its actor through me()`);
   }
@@ -399,8 +409,12 @@ test('TM-464 F1: receipt and publication readers fail closed without a bound age
   const minted = await show({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha });
   assert.deepEqual([minted.code, minted.json?.code], [1, 'TOPOLOGY_OPERATOR_ONLY'], minted.stdout);
   // A bare operator shell (no identity, no bound pane) passes the gate and reaches the lookup.
+  // TM-473: the CLI child also reads the passwd home's census, which no env can redirect. When this
+  // suite itself runs inside a live census-bound agent pane, the child is that agent and is refused.
+  const { callerUnderBoundPane } = await import('../../topology/lib/delegation.mjs');
+  const insideAgent = await callerUnderBoundPane({ consumer: w.alpha, env: {}, home: w.env.HOME, readCensusFn: async () => null });
   const bare = await show({});
-  assert.deepEqual([bare.code, bare.json?.code], [1, 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
+  assert.deepEqual([bare.code, bare.json?.code], [1, insideAgent ? 'TOPOLOGY_OPERATOR_ONLY' : 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
   // The MCP list tool cannot smuggle allAgents through its input.
   const mcp = await mcpAs(w, { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha });
   const listed = await mcp.mailboxList({ consumerCwd: w.alpha, allAgents: true });
@@ -540,7 +554,7 @@ test('TM-464 F1: the console gate admits only a bare operator shell or the prove
   const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
   const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
   const proof = (boundTo, leaf = 5151) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
-    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf) });
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), passwdHome: w.env.HOME });
   const inPane = { TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: PANE.paneId };
   const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
   const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
@@ -561,4 +575,34 @@ test('TM-464 F1: the console gate admits only a bare operator shell or the prove
   // Allowed: a bare operator shell, outside tmux or in a pane the census binds to nobody.
   assert.deepEqual(await gate({}, proof(null)), { as: 'operator' });
   assert.deepEqual(await gate({ ...inPane }, proof(null)), { as: 'operator' });
+});
+
+test('TM-473: with TMUX_PANE unset, a process under any census-bound pane is refused by ancestry', async (t) => {
+  const w = await world(t);
+  const { assertOperatorReader } = await import('../../topology/lib/workflow-control.mjs');
+  const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+  const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
+  const proof = (boundTo, leaf = 5151, extra = {}) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), passwdHome: w.env.HOME, ...extra });
+  const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
+  const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
+  // The rv-225 reproduction: a worker with TM_DISPATCH_WORKER, AO_* and TMUX_PANE all unset, still in its pane's tree.
+  await assert.rejects(gate({}, proof('work-a')), refused);
+  // A forged TMUX_PANE naming no live pane does not help either.
+  await assert.rejects(gate({ TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: '%999' }, proof('work-a')), refused);
+  // Another repository's census on disk counts too.
+  const censusDir = join(w.env.HOME, '.local', 'state', 'bytedesk', 'agent-orchestration', 'census');
+  await mkdir(censusDir, { recursive: true });
+  await writeFile(join(censusDir, 'other-repo.json'), JSON.stringify({ agents: [{ agentId: 'elsewhere', binding: { ...PANE } }] }));
+  await assert.rejects(gate({}, proof(null)), refused);
+  // TM-473 review: pointing the state home at a forged empty directory does not hide the default
+  // census under the passwd home.
+  const forged = join(w.env.HOME, 'forged-empty-state');
+  await mkdir(forged, { recursive: true });
+  await assert.rejects(gate({ AGENT_ORCHESTRATION_STATE_HOME: forged }, proof(null)), refused);
+  await assert.rejects(gate({ XDG_STATE_HOME: forged }, proof(null)), refused);
+  // Unreadable ancestry fails closed.
+  await assert.rejects(gate({}, proof(null, 5151, { callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } })), refused);
+  // A process outside every bound pane's tree is still the operator.
+  assert.deepEqual(await gate({}, proof('work-a', 6161)), { as: 'operator' });
 });

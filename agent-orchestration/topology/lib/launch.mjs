@@ -17,7 +17,8 @@ import { displayName, firstNames, mintSpawn, roleVisual } from "./identity.mjs";
 import { composeSessionName, legacyRoleSessionName, nodeName, repoIdentity, sessionIdentity, slugPart, PART_CAPS, ulid } from "./session-names.mjs";
 import { personaRegistryFor, personaScope, presenceKeyOf, releaseRunPersona, runHolder, RUN_PERSONA_GRACE_MS } from "./persona-registry.mjs";
 import { sameIncarnation } from "./incarnation.mjs";
-import { promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
+import { bindStagedPrompt, promotePromptForIncarnation } from "./prompt-lifecycle.mjs";
+import { canonicalRepoId } from "./repoid.mjs";
 import { loadRole, resolveSkill } from "./resolve.mjs";
 import * as tmux from "./tmux.mjs";
 import { ensureRunsIgnored, exists, fail, invariant, isInside, nowIso, readJson, render, shellQuote, sleep, terminalText, writeJson, writeText } from "./util.mjs";
@@ -25,6 +26,7 @@ import { reconcileWorkflows, topologyRunLocation } from './discovery.mjs';
 import { withLock } from './lockfile.mjs';
 import { claimAgent } from './respawn.mjs';
 import { materializeSpec, soloAgent } from './spec.mjs';
+import { orchName, subjectTakenBy } from './orch-transport.mjs';
 
 const POINTER_TEMPLATE = "[ao] Message {{id}} from {{from}} ({{stage}}): read {{inbox}} then write your complete reply to {{outbox}}";
 
@@ -1015,6 +1017,13 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
   // TM-274: no session-exists refusal. Every name is planned unique — a run holds its own persona, an
   // agent one live session — so a second run of one workflow coexists with the first.
 
+  // TM-487: run members are mailbox owners too, addressed by orchName(id): a fan-out child `rev.a`
+  // and a sibling `rev_a` would share one inbox. Refused before anything is created.
+  const memberIds = spec.agents.map((agent) => agent.id);
+  memberIds.forEach((id, index) => {
+    const clash = subjectTakenBy(id, memberIds.slice(0, index));
+    invariant(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Run members ${clash} and ${id} map to the same mailbox subject token "${orchName(id)}"; rename one so they differ after non [A-Za-z0-9_-] characters become "_".`);
+  });
   const prepared = [];
   // A participant is a team, not a process: it gets a mailbox so the conductor can address it, and
   // nothing else. No skills, no role pack, no launcher, no pane. Its child run is started after the
@@ -1233,6 +1242,11 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     agent.session_kind = "run";
   }
   await saveRun(spec.run_dir, run);
+  // TM-417: the staged prompt names this pane, so the member's own `prompt ack` can prove itself.
+  const promptRepoId = (await canonicalRepoId(spec.consumer || spec.cwd)).id;
+  const stampPrompts = () => Promise.all(ordered.map(item => bindStagedPrompt({ dir: item.dir, session: run.session, repoId: promptRepoId,
+    binding: run.agents.find(agent => agent.id === item.agent.id)?.binding })));
+  await stampPrompts();
 
   // One control-mode client for the session: the readiness signal for every pane, pushed by the
   // server. If control mode is unavailable the starts fall back to the capture loop.
@@ -1281,6 +1295,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     results.push({ id: item.agent.id, role: item.agent.role, ...runAgentVisual(item.agent, leadId), pane, provider: outcome.label, adapter: outcome.adapter?.id ?? null, ready: outcome.ready, attempts: outcome.attempts });
   }
   await saveRun(spec.run_dir, run);
+  await stampPrompts();
   if (spec.layout !== "windows") await tmux.selectPane(panes.get(first.agent.id));
 
   // Children last, and only once this run's own session exists. A child needs to be told where to
@@ -1674,6 +1689,7 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
   // now provably absent — and a slot reconcile would read that as "the holder is gone" and hand its
   // cutover slot to the next in the queue. Re-stamp before anything can observe the gap. Best
   // effort: a failover must not fail because a slot record could not be rewritten.
+  await bindStagedPrompt({ dir: agentDir(runDir, agentId), session: run.session, repoId: (await canonicalRepoId(run.consumer || runDir)).id, binding: entry.binding });
   if (entry.binding) {
     const { restampSlotBindings } = await import("./slots.mjs");
     await restampSlotBindings({ consumer: run.consumer || runDir, agentId, binding: entry.binding }).catch(() => {});

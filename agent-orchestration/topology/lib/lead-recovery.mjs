@@ -83,7 +83,27 @@ export async function leadRecoveryStatus({ consumer, env = process.env, home = h
   const p = await recoveryPaths({ consumer, env, home });
   const record = await readJson(p.state).catch(() => null);
   return { repo_id: p.identity.id, ...view(record ?? {}), pending_requests: (await readRequests(p.requests)).length,
+    ...(record?.checkout_repair ? { checkout_repair: record.checkout_repair } : {}),
     updated_at: record?.updated_at ?? null, state_path: p.state };
+}
+
+/**
+ * TM-394: the checkout-repair attempt for this repository, kept beside the lead recovery decision
+ * (recoverLead preserves it) and appended to the same journal. Keyed on the identity the checkout
+ * has NOW, so a refusal lands under the broken path's key and a repair under the repaired repo's.
+ */
+export async function recordCheckoutRepair({ consumer, entry, env = process.env, home = homedir() }) {
+  const p = await recoveryPaths({ consumer, env, home });
+  const prior = (await readJson(p.state).catch(() => null)) ?? {};
+  await writeJson(p.state, { version: 1, repo_id: p.identity.id, consumer, ...prior, checkout_repair: entry, updated_at: nowIso() });
+  await mkdir(dirname(p.journal), { recursive: true });
+  await appendFile(p.journal, `${JSON.stringify({ at: nowIso(), event: `checkout.${entry.action}`, ...entry })}\n`);
+  return p.state;
+}
+
+export async function readCheckoutRepair({ consumer, env = process.env, home = homedir() }) {
+  const p = await recoveryPaths({ consumer, env, home });
+  return (await readJson(p.state).catch(() => null))?.checkout_repair ?? null;
 }
 
 function deadExternalAlert(record, root) {
@@ -122,7 +142,8 @@ export async function recoverLead({ consumer, env = process.env, home = homedir(
   const base = { consumer: root, env: leadEnv, home, pluginRoot, probes, log };
 
   const save = async (fields) => {
-    const record = { version: 1, repo_id: p.identity.id, consumer: root, alert: null, verify: false, ...fields, updated_at: nowIso() };
+    const record = { version: 1, repo_id: p.identity.id, consumer: root, alert: null, verify: false,
+      ...(prior.checkout_repair ? { checkout_repair: prior.checkout_repair } : {}), ...fields, updated_at: nowIso() };
     await writeJson(p.state, record);
     return view(record);
   };

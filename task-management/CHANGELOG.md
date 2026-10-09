@@ -16,8 +16,42 @@
   refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com` (with none, gh takes
   the only host in `hosts.yml`), and removes `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
   `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+- **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
+  A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
+  resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed
+  `authorizedBy: "human:<owner>"` and bound to that one escalation (`escalationAt`), the current
+  scope, the reason and the cycles it grants. It resets the stall counter, raises `maxCycles` by
+  exactly the grant, refuses a zero grant on a spent budget, captures the receipt as evidence and
+  keeps the escalation in `goal.resumptions`. It is CLI-only (no `tm_goal_resume` MCP tool), and the
+  autonomy allowlist never approves it. It refuses outright when `TM_DISPATCH_WORKER` or `AO_AGENT_ID`
+  is set (dispatched workers skip permission prompts), grants at most 3 cycles per resume, and a
+  goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
 
 ### Fixed
+
+- **A topology dispatch records the producer's canonical workflow id (TM-417, EP-028).** When
+  `ao-topology launch` printed no `workflow_id`, dispatch fell back to the bare native run id, so
+  `manage report` refused every governed finish from a pool-dispatched worker. It now records
+  `topology:<native run id>`. The new verb `tm rebind <id>` repairs a dispatch that was already
+  recorded the old way. It goes through the same producer-verified reconciliation that collection
+  uses, never collects, and refuses a dispatched worker. `tm collect` repairs the id too, before it
+  observes the run.
+- **`lock.test.mjs` no longer fails on a busy machine (TM-490, EP-028).** Tests 6 and 9 wrote a lock
+  held by the hardcoded pid 999999 and expected it to be dead. On the operator's machine that number
+  was a live thread of an unrelated node process, and `kill(pid, 0)` accepts a thread id, so
+  `staleLock` correctly reported the holder alive. Environment, not a code regression: the tests now
+  use the pid of a child that has already exited. The governed "task-management: unit" check also
+  stops inheriting session identity and `TM_NTFY_*` (TM-491).
+
+### Added
+
+- **Conformance test for the two finish-check readers (TM-493, EP-028).**
+  `tests/unit/finish-checks-conformance.test.mjs` runs one table of check shapes through
+  `finishChecksRefusal` and agent-orchestration's `finishCheckEvidence`/`normalizeChecks` (loaded from
+  its source file at test time, skipped when that plugin is not in the checkout) and pins each side's
+  verdict, so either side changing alone fails. It records six current divergences, among them: a
+  structured run without `revision` passes tm's review-ready but is refused by AO's automatic review
+  request, and AO accepts a missing or empty `command` that tm refuses.
 
 - **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**
   `readyForReview` required every `finish.checks` entry to be a string, so a governed task whose
@@ -30,6 +64,30 @@
 
 ### Security
 
+- **The dashboard's write API needs a per-dashboard token (TM-468, EP-028).** Every POST/PATCH
+  must carry `x-tm-token`; without it, or with a wrong one, the board answers 401 and changes
+  nothing. A fresh token is minted each time a dashboard binds its port, written 0600 to
+  `dashboard.token` under the store, and compared in constant time. The link the dashboard prints
+  and opens carries it in the fragment (`/#tm-token=…`), and the SPA adds it to every same-origin
+  write (`dashboard/src/lib/write-token.mjs`). After a dashboard restart, reopen the board from the
+  new link.
+- **Board writes are the board's, not the launching session's (TM-468, EP-028).** The dashboard
+  process runs as `TM_SESSION_ID=tm-dashboard` / `TM_ACTOR=dashboard`, so a claim, start, dispatch
+  or event made from a browser records `@dashboard` and never borrows the lead's session. A task
+  started on the board is held by the board; take it over from a terminal with `--steal`.
+- **A worker's command comes from user config or plugin defaults, never the repository (TM-467,
+  EP-028).** `dispatch.tmuxCommand` and `dispatch.topologyCandidates` are read only from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`trustedDispatch` in `lib/dispatch/tmux.mjs`).
+  Set in the repository's version-controlled config they are ignored, and the dispatch result and
+  `dispatched` event carry a `commandWarnings` entry that says so. A topology worker is always an
+  inline agent: it no longer borrows a stored agent from the repository's agent library, whose cli,
+  args, env, mcp servers and cwd ao-topology would merge into the pane's command.
+  `dispatch.topologyAgent` is ignored with a warning. The manual backend's hint uses the same
+  trusted command.
+- **A dispatched worker no longer starts a pool in another repo (TM-467, EP-028).** `wakePool`
+  still writes the wake file but skips `tm pool ensure` when `TM_DISPATCH_WORKER` is set. The
+  known-repo set stays writable by any same-user process; the residual risk and why there is no
+  operator-only registry are in `docs/adr/0001-known-repos-are-same-uid-writable.md`.
 - **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
   `onServerBranch` runs `gh` through `runGh`, which uses only the root-owned `gh` at a pinned system
   path (`trustedGh` in `lib/safe-git.mjs`), never the first `gh` on `PATH`. `lib/safe-git.mjs`

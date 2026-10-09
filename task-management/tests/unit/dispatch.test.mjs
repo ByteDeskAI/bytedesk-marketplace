@@ -455,18 +455,27 @@ describe("tmux backend", () => {
   it("TM-177: a configured tmuxCommand keeps the worker env; --settings rides only on claude", () => {
     const p = tempStore();
     trash.push(p.root);
+    // TM-467: the command is the user's to configure, not the repository's.
+    const xdg = join(p.root, "xdg");
+    mkdirSync(join(xdg, "task-management"), { recursive: true });
+    const saved = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = xdg;
     const withCommand = (tmuxCommand) => {
-      writeConfig({ dispatch: { tmuxCommand } }, p);
+      writeFileSync(join(xdg, "task-management", "config.json"), JSON.stringify({ dispatch: { tmuxCommand } }));
       return argvOf({ ...req, p });
     };
+    try {
+      const codex = withCommand(["codex", "exec", "--full-auto"]);
+      assert.ok(codex.includes("TM_DISPATCH_WORKER=1") && codex.includes("TM_DISPATCH_TASK=TM-001"), JSON.stringify(codex));
+      assert.equal(codex.includes("--settings"), false, "codex has no --settings; appending it would break the worker");
+      assert.deepEqual(codex.slice(codex.indexOf("codex")), ["codex", "exec", "--full-auto", req.prompt]);
 
-    const codex = withCommand(["codex", "exec", "--full-auto"]);
-    assert.ok(codex.includes("TM_DISPATCH_WORKER=1") && codex.includes("TM_DISPATCH_TASK=TM-001"), JSON.stringify(codex));
-    assert.equal(codex.includes("--settings"), false, "codex has no --settings; appending it would break the worker");
-    assert.deepEqual(codex.slice(codex.indexOf("codex")), ["codex", "exec", "--full-auto", req.prompt]);
-
-    const byPath = withCommand(["/opt/bin/claude", "-p"]);
-    assert.ok(byPath.includes("--settings"), "claude named by path is still claude");
+      const byPath = withCommand(["/opt/bin/claude", "-p"]);
+      assert.ok(byPath.includes("--settings"), "claude named by path is still claude");
+    } finally {
+      if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = saved;
+    }
   });
 });
 

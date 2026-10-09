@@ -1,3 +1,4 @@
+import '../helpers/bare-run.mjs'; // TM-461: a bare `node --test` of this file must not reach live NATS or hang
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey } from '../../topology/lib/repoid.mjs';
-import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, rebindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
 // epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
@@ -560,6 +561,97 @@ test('a native fallback requires a new verified finish and incomplete or foreign
   delete f.doc.dispatched.nativeRunId;
   const legacy = await taskWorkerState(f.actual, record);
   assert.equal(legacy.owned, false); assert.match(legacy.reason, /authentic native run ID/);
+});
+
+// TM-417 (agent-fabric TM-016): a pool dispatch recorded the bare native run id as its workflow id.
+test('TM-417: a bare dispatch workflow id refuses the finish until the lead rebinds it, then the finish is accepted', async t => {
+  const f = await nativeFixture(t); if (!f) return;
+  f.doc.dispatched.workflowRunId = f.root.native.run_id;
+  let rebinds = 0;
+  f.opts.store.rebind = async () => {
+    rebinds++;
+    const from = f.doc.dispatched.workflowRunId;
+    f.doc.dispatched = { ...f.doc.dispatched, workflowRunId: `topology:${f.doc.dispatched.nativeRunId}` };
+    return { rebound: true, from, to: f.doc.dispatched.workflowRunId, dispatched: f.doc.dispatched };
+  };
+  await assert.rejects(f.finish(), /IDs differ; the lead repairs the dispatch with `ao-topology manage rebind --task TM-1`/);
+  // Refusals: another session, a dispatch whose checkout is not the admitted one, a non-topology dispatch.
+  await assert.rejects(rebindTaskWorker({ ...f.actual, owner: 'intruder' }), /Only the admitting session can rebind/);
+  const status = await managementStatus(f.actual), recordPath = join(f.opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(f.opts.consumer)).id), 'TM-1.json');
+  await writeJson(recordPath, { ...status.management, branch: 'tm/other' });
+  await assert.rejects(rebindTaskWorker(f.actual), /worktree or branch differs from the admission record/);
+  await writeJson(recordPath, status.management);
+  f.doc.dispatched.backend = 'tmux';
+  await assert.rejects(rebindTaskWorker(f.actual), /no topology dispatch to rebind/);
+  f.doc.dispatched.backend = 'topology';
+  assert.equal(rebinds, 0, 'no refusal reached tm rebind');
+  const rebound = await rebindTaskWorker(f.actual);
+  assert.deepEqual(rebound, { rebound: true, from: f.root.native.run_id, to: `topology:${f.root.native.run_id}` });
+  const record = (await managementStatus(f.actual)).management;
+  assert.equal(record.events.at(-1).event, 'rebind');
+  assert.equal(record.workflow_run_id, 'tm-TM-1', 'the governance identity is untouched by a rebind');
+  const revision = (await f.git(f.doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...f.opts, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision } });
+  assert.equal(finished.state, 'ready-for-review');
+  assert.equal(finished.worker.native_run_id, f.root.native.run_id);
+});
+
+test('TM-417: admission keeps the task governance id even when a dispatch is already recorded', async t => {
+  const { opts, doc } = await fixture(t);
+  doc.dispatched = { backend: 'topology', run: 'topology:s', session: 'author', nativeRunId: 'n-1', workflowRunId: 'topology:n-1' };
+  assert.equal((await admitTask(opts)).record.workflow_run_id, 'tm-TM-1');
+});
+
+test('TM-417 AC4: admit, tm dispatch on the topology backend, finish report and reviewer request agree on one run id', async t => {
+  if ((await run('tmux', ['-V'], { allowFailure: true })).code !== 0) { t.skip('tmux unavailable'); return; }
+  const { opts, git } = await fixture(t);
+  const { fileURLToPath } = await import('node:url');
+  const { reviewerPaths } = await import('../../topology/lib/reviewer.mjs');
+  const tmBin = fileURLToPath(new URL('../../../task-management/bin/tm', import.meta.url));
+  const topologyBackend = fileURLToPath(new URL('../../../task-management/lib/dispatch/topology.mjs', import.meta.url));
+  const env = { ...opts.env, TM_ROOT: opts.consumer, TM_SESSION_ID: 'author', CLAUDE_PROJECT_DIR: opts.consumer };
+  delete env.TM_DISPATCH_WORKER;
+  const tm = async args => run(tmBin, args, { cwd: opts.consumer, env });
+  await tm(['init']);
+  await tm(['epic', 'new', 'Fixture integration']);
+  await tm(['task', 'new', 'Implement scoped content change', '--body', 'Change code.txt to implemented and validate its exact contents.', '--ac', 'code.txt contains implemented']);
+  await tm(['label', 'TM-001', 'ready-for-agent']);
+  await tm(['touches', 'TM-001', 'code.txt']);
+  const reviewer = await reviewerPaths(opts.consumer, opts.env, opts.home);
+  await writeJson(reviewer.recordPath, { agent_id: 'reviewer-1', repo_id: reviewer.identity.id, provider: 'claude', binding: { serverKey: '/tmp/s', serverPid: 1, sessionId: '$1', sessionCreated: 1, paneId: '%1', panePid: 2 } });
+
+  const actual = { ...opts, store: undefined, task: 'TM-001', tmBin, env };
+  assert.equal((await admitTask(actual)).record.workflow_run_id, 'tm-TM-001');
+  const { worktree, branch } = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout);
+  // The native run the producer would have launched, on a test-owned tmux server.
+  const { socket } = isolatedTmux(t), session = 'tm-001-native', runId = '20261005-094720-bfl2';
+  await run('tmux', ['-S', socket, 'new-session', '-d', '-s', session, '-c', worktree, 'sleep', '120']);
+  const [binding] = await listServerPanes({ tmuxServer: socket, session });
+  const location = await topologyRunLocation({ consumer: opts.consumer, nativeRunId: runId, stateHome: opts.env.AGENT_ORCHESTRATION_STATE_HOME });
+  await writeJson(join(location.runDir, 'run.json'), { version: 1, run_id: runId, name: 'tm-TM-001', task_id: 'TM-001', consumer: worktree, workload_cwd: worktree,
+    repository: location.repository, run_dir: location.runDir, state: 'running', session, session_creation_attempted: true,
+    write_authority: { task_id: 'TM-001', worktree, branch, owner: 'author' }, launch_spec: { agents: [{ id: 'worker' }] },
+    agents: [{ id: 'worker', role: 'worker', pane: binding.paneId, binding, cwd: worktree }], parent: null });
+  // tm's real topology backend, with only the ao-topology process replaced by its launch JSON.
+  const registry = join(opts.consumer, '..', 'registry.mjs');
+  await writeFile(registry, `import * as topology from ${JSON.stringify(topologyBackend)};
+const launched = ${JSON.stringify({ run_id: runId, runDir: location.runDir, session, state: 'running', agents: [], warnings: [] })};
+export default { topology: { name: 'topology', available: () => true, spawn: req => topology.spawn(req, { caps: { backends: { topology: { available: true, path: '/fake/ao-topology' } } },
+  rosterList: [], writeImpl: () => {}, mkdtempImpl: p => p + 'X', spawnImpl: () => ({ status: 0, stdout: JSON.stringify(launched) }) }) } };`);
+  env.TM_DISPATCH_REGISTRY = registry;
+  assert.equal(JSON.parse((await tm(['dispatch', 'TM-001', '--backend', 'topology', '--json'])).stdout).ok, true);
+  const dispatched = JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout).dispatched;
+  assert.equal(dispatched.workflowRunId, `topology:${runId}`);
+
+  await writeFile(join(worktree, 'code.txt'), 'implemented'); await git(worktree, ['add', 'code.txt']);
+  await git(worktree, ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'implementation']);
+  const revision = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision }, wake: async () => ({ rang: false, reason: 'fixture' }) });
+  assert.equal(finished.worker.native_run_id, runId);
+  assert.equal(finished.review_blocked, undefined, finished.review_blocked);
+  assert.equal(finished.review_request?.revision, revision);
+  assert.equal(finished.review_request.reviewer_id, 'reviewer-1');
+  assert.equal(JSON.parse((await tm(['show', 'TM-001', '--json'])).stdout).governance.state, 'ready-for-review');
 });
 
 // TM-224: the tools' own store paths may be dirty in the integration checkout; nothing else may.
