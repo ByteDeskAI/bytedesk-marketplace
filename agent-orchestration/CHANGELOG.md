@@ -9,6 +9,15 @@
   the global layer and the checkout's working copy, which a worker can write. They now join the
   TM-442 protected keys: a local value is ignored with a warning (`config_warnings` on
   `manage eligible`), and with no server answer integrate and record-landing refuse to pick a target.
+- **Host fetches read the pinned origin URL, not `origin` (TM-472, EP-028).** `remote.origin.url` is
+  in the shared `.git/config`, so a worker could point it at a `file://` repository it controls and
+  choose what admission, integrate, record-landing and release fetched, including the commits a
+  `main:main` fetch fast-forwarded the local branch to. Every host fetch now goes through
+  `fetchPinned`: it fetches the URL pinned in host state
+  (`<state>/repositories/<key>.origin.json`, recorded with the GitHub pin or on the first host fetch)
+  with explicit refspecs, so neither `remote.origin.url` nor `remote.origin.fetch` decides what is
+  read. A local origin pinned this way keeps working, so local-only repositories and fixtures are
+  unaffected. To move it, the operator removes that file.
 
 ## [0.16.1] — 2026-10-08
 

@@ -101,8 +101,30 @@ export async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = 
   const path = join(stateRoot(env, home), "repositories", `${repoKey(identity.id)}.github.json`);
   const pinned = await readJson(path).catch(error => { if (error.code === "ENOENT") return null; throw error; });
   // ponytail: two first resolutions racing both write; the later rename wins. Add an O_EXCL create if that ever matters.
-  if (!pinned) await writeJson(path, { repo_id: identity.id, nameWithOwner: repo, pinned_at: new Date().toISOString() });
+  if (!pinned) {
+    await writeJson(path, { repo_id: identity.id, nameWithOwner: repo, pinned_at: new Date().toISOString() });
+    // TM-472: pin the fetch URL at the same moment when there is one; else the first host fetch pins it.
+    await pinnedFetchUrl(repoDir, { env, home }).catch(() => null);
+  }
   else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
     fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path });
   return { repo: pinned?.nameWithOwner ?? repo, branch };
+}
+
+/** TM-472: the URL every host fetch reads, pinned in host state the first time a host fetch needs it.
+ * `remote.origin.url` lives in the shared .git/config, which a worker can write, so after the pin a
+ * repointed origin (another GitHub repository, a file:// path the worker controls) is never fetched:
+ * host fetches name this URL, not `origin`. A local path pinned here keeps working, which is what
+ * local-only fixtures and repositories use. Same trust-on-first-use limit as pinnedGithubRepo: the
+ * operator removes the file to move it. */
+export async function pinnedFetchUrl(repoDir, { env = process.env, home = homedir() } = {}) {
+  const identity = await canonicalRepoId(repoDir);
+  const path = join(stateRoot(env, home), "repositories", `${repoKey(identity.id)}.origin.json`);
+  const pinned = await readJson(path).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  if (typeof pinned?.url === "string" && pinned.url) return pinned.url;
+  const got = await safeGit(repoDir, ["remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 10_000 });
+  const url = got.code === 0 ? got.stdout.trim().split("\n")[0] : "";
+  if (!url || url.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to pin host fetches to (exit ${got.code}): ${(got.stderr || url).trim().split("\n")[0]}`);
+  await writeJson(path, { repo_id: identity.id, url, pinned_at: new Date().toISOString() });
+  return url;
 }

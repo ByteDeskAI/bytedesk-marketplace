@@ -383,6 +383,7 @@ var init_util = __esm({
 var repoid_exports = {};
 __export(repoid_exports, {
   canonicalRepoId: () => canonicalRepoId,
+  pinnedFetchUrl: () => pinnedFetchUrl,
   pinnedGithubRepo: () => pinnedGithubRepo,
   repoKey: () => repoKey,
   repoSlug: () => repoSlug,
@@ -438,10 +439,26 @@ async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = (0, imp
     if (error51.code === "ENOENT") return null;
     throw error51;
   });
-  if (!pinned) await writeJson(path3, { repo_id: identity.id, nameWithOwner: repo, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
-  else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
+  if (!pinned) {
+    await writeJson(path3, { repo_id: identity.id, nameWithOwner: repo, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
+    await pinnedFetchUrl(repoDir, { env, home }).catch(() => null);
+  } else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
     fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path3}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path: path3 });
   return { repo: pinned?.nameWithOwner ?? repo, branch };
+}
+async function pinnedFetchUrl(repoDir, { env = process.env, home = (0, import_node_os5.homedir)() } = {}) {
+  const identity = await canonicalRepoId(repoDir);
+  const path3 = (0, import_node_path9.join)(stateRoot2(env, home), "repositories", `${repoKey(identity.id)}.origin.json`);
+  const pinned = await readJson3(path3).catch((error51) => {
+    if (error51.code === "ENOENT") return null;
+    throw error51;
+  });
+  if (typeof pinned?.url === "string" && pinned.url) return pinned.url;
+  const got = await safeGit(repoDir, ["remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 1e4 });
+  const url2 = got.code === 0 ? got.stdout.trim().split("\n")[0] : "";
+  if (!url2 || url2.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to pin host fetches to (exit ${got.code}): ${(got.stderr || url2).trim().split("\n")[0]}`);
+  await writeJson(path3, { repo_id: identity.id, url: url2, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
+  return url2;
 }
 var import_node_crypto5, import_promises5, import_node_os5, import_node_path9;
 var init_repoid = __esm({
@@ -25855,6 +25872,7 @@ __export(management_exports, {
   cleanupTask: () => cleanupTask,
   closeTask: () => closeTask,
   deadWorkerState: () => deadWorkerState,
+  fetchPinned: () => fetchPinned,
   foreignDirtyPaths: () => foreignDirtyPaths,
   governedAutonomy: () => governedAutonomy,
   hostGh: () => hostGh,
@@ -25881,9 +25899,20 @@ __export(management_exports, {
   stopTaskWorker: () => stopTaskWorker,
   taskStore: () => taskStore,
   taskWorkerState: () => taskWorkerState,
+  trackingRefspec: () => trackingRefspec,
   transferTask: () => transferTask,
   workerReport: () => workerReport
 });
+async function fetchPinned(root, refspecs, { env = process.env, home = (0, import_node_os26.homedir)(), allowFailure = false } = {}) {
+  let url2;
+  try {
+    url2 = await pinnedFetchUrl(root, { env, home });
+  } catch (error51) {
+    if (allowFailure) return { code: 128, stdout: "", stderr: error51.message };
+    throw error51;
+  }
+  return git2(root, ["fetch", "--quiet", url2, ...refspecs], allowFailure);
+}
 async function foreignDirtyPaths(cwd) {
   const fields = (await git2(cwd, ["status", "--porcelain", "-z", "--untracked-files=all"])).stdout.split("\0");
   const paths2 = [];
@@ -26308,7 +26337,7 @@ async function admissionBase(options, worktree, integration, branch) {
     }
     if (/^[a-f0-9]{40,64}$/.test(tip)) {
       const local = async () => (await git2(worktree, ["cat-file", "-e", `${tip}^{commit}`], true)).code === 0;
-      if (!await local()) await git2(worktree, ["fetch", "--quiet", "origin", tip], true);
+      if (!await local()) await fetchPinned(worktree, [tip], { env: options.env, home: options.home, allowFailure: true });
       invariant2(await local(), "TOPOLOGY_MANAGEMENT_BASE", `The server tip ${tip} of ${anchor ?? "the default branch"} is not in this repository and could not be fetched from origin; fetch it and retry admission.`);
       const found = await git2(worktree, ["merge-base", "HEAD", tip], true);
       invariant2(found.code === 0 && found.stdout.trim(), "TOPOLOGY_MANAGEMENT_BASE", `The task HEAD shares no history with the server tip ${tip} of ${anchor ?? "the default branch"}.`);
@@ -26789,14 +26818,14 @@ async function ciStatus(gh, repo, number4) {
   if (!all.value.some((check2) => check2.bucket === "pass")) return { refusal: `no CI check passed on PR #${number4}` };
   return { checks: all.value.map((check2) => ({ name: check2.name, bucket: check2.bucket })) };
 }
-async function syncTarget(root, target, landed) {
+async function syncTarget(root, target, landed, io) {
   const current = (await git2(root, ["symbolic-ref", "--short", "HEAD"], true)).stdout.trim();
   if (current === target) {
-    await git2(root, ["fetch", "origin", target]);
+    await fetchPinned(root, [trackingRefspec(target)], io);
     const foreign2 = await foreignDirtyPaths(root);
     invariant2(!foreign2.length, "TOPOLOGY_MANAGEMENT_DIRTY", `Integration checkout has uncommitted work outside the tool store paths: ${foreign2.slice(0, 5).join(", ")}`);
     await git2(root, ["merge", "--ff-only", landed]);
-  } else await git2(root, ["fetch", "origin", `${target}:${target}`]);
+  } else await fetchPinned(root, [`refs/heads/${target}:refs/heads/${target}`], io);
   invariant2((await git2(root, ["merge-base", "--is-ancestor", landed, `refs/heads/${target}`], true)).code === 0, "TOPOLOGY_MANAGEMENT_TARGET", `${landed} did not reach the local ${target}.`);
 }
 async function writeLanding(ctx, task, record2, review, event, merge2) {
@@ -26865,7 +26894,7 @@ async function integrateViaPullRequest(options, ctx) {
     const at2 = merged ? `PR #${pr.number} was already merged at ${pr.headRefOid}` : `PR #${pr.number} head ${pr.headRefOid}`;
     if (pr.baseRefName !== policy.target_branch) refuse("base", `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
-      await git2(ctx.store.root, ["fetch", "origin", policy.target_branch, `refs/pull/${pr.number}/head`], true);
+      await fetchPinned(ctx.store.root, [trackingRefspec(policy.target_branch), `refs/pull/${pr.number}/head`], { ...ctx, allowFailure: true });
       mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch, { gh, env: ctx.env, home: ctx.home });
     }
     if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse("head", `${at2}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
@@ -26900,7 +26929,7 @@ async function integrateViaPullRequest(options, ctx) {
     const v = view2.value;
     invariant2(v?.state === "MERGED" && v.headRefOid === pr.headRefOid && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), "TOPOLOGY_MANAGEMENT_LANDING", v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${pr.headRefOid} into ${policy.target_branch}` : ghFailure("gh pr view", view2));
     const landed = v.mergeCommit.oid;
-    await syncTarget(ctx.store.root, policy.target_branch, landed);
+    await syncTarget(ctx.store.root, policy.target_branch, landed, ctx);
     invariant2((await git2(ctx.store.root, ["merge-base", "--is-ancestor", revision, landed], true)).code === 0, "TOPOLOGY_MANAGEMENT_LANDING", `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record: record2, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record2, approved, "merge", {
@@ -26955,8 +26984,8 @@ async function recordLanding(options) {
     invariant2(await ancestor(revision, landed), "TOPOLOGY_MANAGEMENT_LANDING", `Finish revision ${revision} is not an ancestor of ${landed}.`);
     const server = await serverCompareStatus(options.gh || defaultGh(ctx.store.root), ctx.store.root, landed, policy.target_branch, ctx);
     invariant2(["ahead", "identical"].includes(server.status), "TOPOLOGY_MANAGEMENT_TARGET", `${landed} is not on the configured target branch ${policy.target_branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); a local or origin ref is not evidence of a landing.`);
-    await git2(ctx.store.root, ["fetch", "origin", policy.target_branch], true);
-    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
+    await fetchPinned(ctx.store.root, [trackingRefspec(policy.target_branch)], { ...ctx, allowFailure: true });
+    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed, ctx);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record2.base_revision, authorAgentIds: [record2.owner] });
     invariant2(review.eligible === true && review.reasons.length === 0 && review.status?.review, "TOPOLOGY_MANAGEMENT_REVIEW", review.reasons.join("; ") || "An eligible independent review of the finish revision is required.");
     if (lead && !delegation) {
@@ -27241,7 +27270,7 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os26, import_node_crypto29, import_node_path52, import_promises43, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, hostGh, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os26, import_node_crypto29, import_node_path52, import_promises43, taskId, nonempty, list, git2, gitText, trackingRefspec, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, hostGh, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os26 = require("node:os");
@@ -27269,6 +27298,7 @@ var init_management = __esm({
     list = (value) => Array.isArray(value) && value.every(nonempty);
     git2 = async (cwd, args, allowFailure = false) => safeGit(cwd, args, { allowFailure });
     gitText = async (cwd, args) => (await git2(cwd, args)).stdout.trim();
+    trackingRefspec = (branch) => `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
     INTEGRATION_STORE_PATHS = Object.freeze([".bytedesk/task-management/", ".bytedesk/agent-orchestration/agents/", ".bytedesk/knowledge/.km/"]);
     storePath = (path3) => INTEGRATION_STORE_PATHS.some((prefix) => path3.startsWith(prefix));
     CLAIMED = "[claimed by the worker; not run by the host]";
@@ -63285,10 +63315,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "9ac9e4cfba742fcb32edc459c7c3f75276ad18d8325bc2271bac04ce2685e00a";
+  return false ? null : "a2f0dad41b940dce36631e6ec2268fad71e0eb1593fad05de6ad2fe8cc3384b0";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "9ac9e4cfba742fcb32edc459c7c3f75276ad18d8325bc2271bac04ce2685e00a";
+  const fingerprint2 = false ? null : "a2f0dad41b940dce36631e6ec2268fad71e0eb1593fad05de6ad2fe8cc3384b0";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -63905,7 +63935,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "9ac9e4cfba742fcb32edc459c7c3f75276ad18d8325bc2271bac04ce2685e00a",
+  sourceFingerprint: false ? null : "a2f0dad41b940dce36631e6ec2268fad71e0eb1593fad05de6ad2fe8cc3384b0",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

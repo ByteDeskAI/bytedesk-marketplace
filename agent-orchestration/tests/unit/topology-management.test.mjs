@@ -2441,6 +2441,41 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
 });
 
+// TM-472: host fetches read the origin URL pinned in host state, so a worker that repoints
+// remote.origin.url (here at a file:// repository it controls) chooses nothing the host reads.
+test('TM-472: record-landing fetches the pinned origin, never a file:// origin a worker repointed it to', async t => {
+  const f = await fixture(t);
+  const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
+  await mkdir(f.opts.home, { recursive: true });
+  const origin = join(f.opts.home, 'origin.git'), evil = join(f.opts.home, 'evil.git'), elsewhere = join(f.opts.home, 'elsewhere');
+  await run('git', ['init', '-q', '--bare', origin]);
+  await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
+  await run('git', ['clone', '-q', '-b', 'main', origin, elsewhere]);
+  await f.git(elsewhere, ['fetch', '-q', f.opts.consumer, revision]);
+  await f.git(elsewhere, [...COMMIT.slice(0, 4), 'merge', '-q', '--no-ff', '-m', 'server merge of TM-1', revision]);
+  await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
+  const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+  await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
+  // An earlier host fetch pinned the operator's origin.
+  const { pinnedFetchUrl } = await import('../../topology/lib/repoid.mjs');
+  const io = { env: f.opts.env, home: f.opts.home };
+  assert.equal(await pinnedFetchUrl(f.opts.consumer, io), origin);
+  // The worker serves a fast-forward of the landing with its own commit on top, and repoints origin at it.
+  await run('git', ['clone', '-q', '--bare', origin, evil]);
+  await f.git(elsewhere, [...COMMIT.slice(0, 4), 'commit', '-q', '--allow-empty', '-m', 'worker payload']);
+  const payload = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+  await f.git(elsewhere, ['push', '-q', evil, 'main']);
+  await f.git(f.opts.consumer, ['remote', 'set-url', 'origin', `file://${evil}`]);
+  assert.equal(await pinnedFetchUrl(f.opts.consumer, io), origin, 'a repointed origin never moves the pin');
+  await f.git(f.opts.consumer, ['checkout', '-q', '-b', 'side']); // main is not checked out: the host fetches main:main
+  f.server.repo = origin;
+  const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
+  assert.equal(recorded.merge.landed, landed);
+  assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local main is the pinned origin\'s main, not the worker\'s');
+  assert.notEqual((await run('git', ['-C', f.opts.consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code, 0, 'nothing was read from the worker\'s repository');
+});
+
 test('TM-247 AC8: manage close records the landing, stops the worker, cleans up and closes, in that order', async t => {
   const { opts, finish, git, calls } = await fixture(t);
   const { closeTask } = await import('../../topology/lib/management.mjs');
