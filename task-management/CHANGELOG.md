@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**
+  `readyForReview` required every `finish.checks` entry to be a string, so a governed task whose
+  worker followed the handoff (`{name, command, exit_code, revision}`, TM-418) could never reach
+  ready-for-review. Checks now go through one reader, `finishChecksRefusal` in
+  `lib/governance-check.mjs`, which accepts structured runs and legacy strings, and a malformed
+  finish is refused with the field named (for example `finish.checks[0].exit_code must be an integer`).
+  An argv `command` must hold only non-empty strings, and a run that carries `revision` must equal
+  `finish.revision`. A failing `exit_code` is still accepted; review judges it.
+
 ### Security
 
 - **Governance gh must be root-owned, and host git ignores caller GIT_* variables (TM-443, EP-028).**
