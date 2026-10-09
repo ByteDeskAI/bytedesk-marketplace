@@ -24762,7 +24762,7 @@ async function bindTaskWorker(options) {
     invariant2(prior?.started && prior.owner === options.owner, "TOPOLOGY_MANAGEMENT_WORKER", "Admit the task and reconcile ownership before binding a worker.");
     const doc = await ownedTask(ctx, options.task, options.owner);
     const adopt = Boolean(options.pane || options.pid);
-    invariant2(!adopt || !doc.dispatched, "TOPOLOGY_MANAGEMENT_WORKER", "Task has a tm dispatch; bind it without --pane/--pid so the registry row is verified.");
+    invariant2(!adopt || !liveDispatch(doc), "TOPOLOGY_MANAGEMENT_WORKER", `Task has a live tm dispatch; bind it without --pane/--pid so the registry row is verified. If that worker has exited, record it with tm collect ${doc.id} first.`);
     const worker = adopt ? await observeAdoptedWorker(ctx, doc, { ...options, record: prior }) : await observeWorker(ctx, doc, options.owner);
     if (prior.worker?.stopped_at) {
       prior.previous_workers = [...prior.previous_workers || [], prior.worker];
@@ -24985,8 +24985,8 @@ async function observeLiveness(ctx, doc, record2, { finished, claimRule = {} }) 
   const workerOwner = worker?.owner ?? record2.owner;
   invariant2(workerOwner === record2.owner || (record2.transfers || []).some((t) => t.from === workerOwner), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
   const rule = workerOwner === record2.owner ? claimRule : { ...claimRule, holders: [...claimRule.holders || [], record2.owner] };
-  const row2 = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
-  invariant2(worker && (worker.adopted ? !doc.dispatched : worker.name === row2.name && worker.run === row2.runId && worker.backend === row2.backend && worker.registered_at === row2.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
+  const row2 = worker?.adopted && !liveDispatch(doc) ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant2(worker && (worker.adopted ? !liveDispatch(doc) : worker.name === row2.name && worker.run === row2.runId && worker.backend === row2.backend && worker.registered_at === row2.registeredAt), "TOPOLOGY_MANAGEMENT_WORKER", "No matching observed task-worker incarnation.");
   if (finished) invariant2(record2.finish && record2.events?.some((event) => event.event === "finish" && event.report?.revision === record2.finish.revision), "TOPOLOGY_MANAGEMENT_WORKER", "Task worker result has not been collected through the finish protocol.");
   if (row2.backend === "topology") {
     invariant2(worker.kind === "topology" && worker.native_identity, "TOPOLOGY_MANAGEMENT_WORKER", "Legacy native ownership must be reconciled through a new verified finish report.");
@@ -25099,7 +25099,7 @@ async function workerReport(options) {
   return withLock(`${ctx.path}.lock`, async () => {
     const prior = await loadRecord(ctx.path);
     invariant2(prior?.started, "TOPOLOGY_MANAGEMENT_PROTOCOL", "Worker must be admitted and send its start report before reporting work.");
-    const dispatchedSession = (await ctx.store.show(task)).dispatched?.session;
+    const dispatchedSession = liveDispatch(await ctx.store.show(task))?.session;
     const holders = prior.worker && !prior.worker.stopped_at && nonempty(dispatchedSession) ? [dispatchedSession] : [];
     invariant2(owner === prior.owner || holders.includes(owner), "TOPOLOGY_MANAGEMENT_PROTOCOL", `Only the admission owner ${prior.owner} or its bound worker may report on ${task}.`);
     const doc = await ownedTask(ctx, task, prior.owner, { holders });
@@ -25111,7 +25111,7 @@ async function workerReport(options) {
       invariant2(!(prior.events || []).some((e) => e.event === "rework" && e.revision === report.revision), "TOPOLOGY_MANAGEMENT_REVISION", `Revision ${report.revision} was reviewed and changes were requested; commit the rework and report the new revision.`);
       finishCheckEvidence(report);
     } else invariant2(nonempty(report?.message), "TOPOLOGY_MANAGEMENT_PROTOCOL", "A during-work report requires a visible reason.");
-    if (kind === "finish" && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === "topology")) prior.worker = await observeWorker(ctx, doc, prior.owner);
+    if (kind === "finish" && liveDispatch(doc) && ctx.store.workers && (!prior.worker || doc.dispatched.backend === "topology")) prior.worker = await observeWorker(ctx, doc, prior.owner);
     const next = await recordEvent(ctx, task, prior, kind, { owner, report, state: kind === "finish" ? "ready-for-review" : "blocked" });
     next.state = kind === "finish" ? "ready-for-review" : "blocked";
     if (kind === "finish") {
@@ -25868,7 +25868,7 @@ async function releaseAssignment(options) {
     return { released: true, agent_id: assignee.agent_id, task: options.task };
   });
 }
-var import_node_os21, import_node_crypto25, import_node_path47, import_promises37, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, hostGh, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
+var import_node_os21, import_node_crypto25, import_node_path47, import_promises37, taskId, nonempty, list, git2, gitText, INTEGRATION_STORE_PATHS, storePath, CLAIMED, CHECK_EVIDENCE_REASON, loadRecord, bindingKeys, liveDispatch, SHELLS, tmMessage, RETRY_REVIEW_VERB, managedSession, MANAGED_NEEDS_GRANT, LEAD_POLICY_PATH, PROTECTED_MANAGEMENT_KEYS, integrationAuthorization, GH_TIMEOUT_MS, hostGh, defaultGh, ghFailure, refuseIntegrate, ASSIGNMENT_OUTCOMES, assignmentLock, assignmentMessageId;
 var init_management = __esm({
   "topology/lib/management.mjs"() {
     import_node_os21 = require("node:os");
@@ -25905,6 +25905,10 @@ var init_management = __esm({
       throw error51;
     });
     bindingKeys = ["serverKey", "serverPid", "sessionId", "sessionCreated", "paneId", "panePid"];
+    liveDispatch = ({ dispatched: d } = {}) => {
+      const c = d?.collected;
+      return d && !(c && c.dispatchedAt === (d.at ?? null) && c.run === (d.run ?? null)) ? d : null;
+    };
     SHELLS = /* @__PURE__ */ new Set(["bash", "zsh", "sh", "dash", "fish", "ksh"]);
     tmMessage = (error51) => (error51?.stderr || error51?.stdout || "").trim() || String(error51?.message || error51);
     RETRY_REVIEW_VERB = "ao-topology manage retry-review --task";
@@ -64311,10 +64315,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "3b3a9a5d8ca7275569935d290e58084b4bc056503be2baa8827dcfc093184ce6";
+  return false ? null : "52cb5c8b4d6e252e019334b14dda30e6043fc681822cb6fe4301c115c65fb6a5";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "3b3a9a5d8ca7275569935d290e58084b4bc056503be2baa8827dcfc093184ce6";
+  const fingerprint2 = false ? null : "52cb5c8b4d6e252e019334b14dda30e6043fc681822cb6fe4301c115c65fb6a5";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -64931,7 +64935,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "3b3a9a5d8ca7275569935d290e58084b4bc056503be2baa8827dcfc093184ce6",
+  sourceFingerprint: false ? null : "52cb5c8b4d6e252e019334b14dda30e6043fc681822cb6fe4301c115c65fb6a5",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
