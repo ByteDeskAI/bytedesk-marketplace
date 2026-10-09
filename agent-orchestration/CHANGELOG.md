@@ -13,6 +13,9 @@
   unset, and the task-management check also drops `TM_NTFY_*`. Those files now import
   `tests/helpers/bare-run.mjs` first, which loads the same preloads and closes any live transport in
   `after()`, so a bare run behaves like the harness run.
+- **`topology-management.test.mjs` exits after its last test (TM-461, EP-028).** Same cause: run
+  without the preloads it held a cached NATS connection open forever. It now imports
+  `tests/helpers/bare-run.mjs`; 132/132 pass and the process exits in about 95 s.
 
 ## [0.16.1] — 2026-10-08
 
