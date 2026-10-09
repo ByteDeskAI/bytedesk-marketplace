@@ -9,7 +9,7 @@ import { incarnationOf, sameIncarnation } from './incarnation.mjs';
 import { stateRoot } from './repoid.mjs';
 import { callerIdentity } from './session-identity.mjs';
 import { childrenFile } from './lineage.mjs';
-import { invariant, isInside, newRunId, nowIso, readJson, writeJson } from './util.mjs';
+import { fail, invariant, isInside, newRunId, nowIso, readJson, writeJson } from './util.mjs';
 import { withLock } from './lockfile.mjs';
 import * as tmux from './tmux.mjs';
 
@@ -273,15 +273,25 @@ export async function workflowDetail({ consumer, workflowId, ...options }) {
  * dispatched worker, a minted session, a non-lead agent, and a launched agent that unset AO_AGENT_ID
  * but still runs in its bound pane (the binding names it). As in requireHandoffCaller, the pane's
  * census binding stands in for the env name. `proof` injects pane, census and /proc readers for tests.
- * Same-user limit: a process outside every bound pane with its identity variables removed is,
- * to this check, the operator. */
+ * TM-473: with TMUX_PANE unset (or naming no bound pane) the binding cannot name the caller, so the
+ * caller's /proc ancestry is checked against every census-bound pane_pid and refused on a match.
+ * The real boundary, same user: a process that has LEFT every agent's process tree (`setsid -f`,
+ * a daemon reparented to init) with its identity variables removed is, to this check, the operator.
+ * Only TM-427B's identity proof closes that; meanwhile `console show` is never auto-approved for an
+ * agent (scripts/autonomy-allow.mjs). */
 export async function assertOperatorReader({ consumer, env = process.env, home, proof = {} }) {
   invariant(!env.TM_DISPATCH_WORKER, 'TOPOLOGY_OPERATOR_ONLY', 'A dispatched worker session (TM_DISPATCH_WORKER) cannot read every agent\'s mail in the workflow console. Nothing was read.');
-  const { bindingAgentId, requireLeadCaller } = await import('./delegation.mjs');
+  const { bindingAgentId, callerUnderBoundPane, requireLeadCaller } = await import('./delegation.mjs');
   const lookup = { consumer, env, ...(home ? { home } : {}), ...proof };
   const bound = await bindingAgentId(lookup).catch(() => null);
   const caller = callerIdentity(env);
-  if (!caller && !bound) return { as: 'operator' };
+  if (!caller && !bound) {
+    let under;
+    try { under = await callerUnderBoundPane(lookup); }
+    catch (error) { fail('TOPOLOGY_OPERATOR_ONLY', `Cannot prove this process is outside every agent pane: process ancestry is unreadable (${error.code || error.message}). Nothing was read.`); }
+    invariant(!under, 'TOPOLOGY_OPERATOR_ONLY', 'This process descends from a census-bound agent pane, so it is that agent, not the operator, even with TMUX_PANE and its identity variables unset. Nothing was read.');
+    return { as: 'operator' };
+  }
   const named = env.AO_AGENT_ID || bound || caller?.agentId;
   const lead = await requireLeadCaller({ ...lookup, env: { ...env, AO_AGENT_ID: named } });
   invariant(lead, 'TOPOLOGY_OPERATOR_ONLY',
