@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The worker guard no longer refuses a `tm block` whose reason quotes a refused command (TM-521, EP-029).**
+  `$TM block TM-n "refused: gh pr create --base …"` names its command by an expansion, so the
+  fail-safe searched every word for `gh`/`git push` — including the quoted reason — and the worker
+  could not even report the block. The fail-safe now reads only the command name and the bare
+  words after it; an argument holding whitespace is quoted data. `$GH pr merge 5` and
+  `$GIT push …` are still refused.
+
 - **`tm goal resume` clears `human_required` with a bound human receipt (TM-486, TM-483, EP-028).**
   A goal that hit its no-progress or cycle limit could never leave `human_required`. `tm goal
   resume EP-n --file resume.json` now does, given a `kind: "resume"` receipt signed

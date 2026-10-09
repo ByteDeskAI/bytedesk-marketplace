@@ -512,7 +512,9 @@ function unwrap(words) {
       w.shift();
     }
     if (!w.length || NOT_RUN.has(w[0])) return null;
-    if (/[$`]/.test(w[0])) return { unknown: w.join(" ") };
+    // TM-521: an argument holding whitespace was quoted, so it is data (a `tm block` reason), not a
+    // command word; only the name and the bare words after it can say what the expansion runs.
+    if (/[$`]/.test(w[0])) return { unknown: [w[0], ...w.slice(1).filter((a) => !/\s/.test(a))].join(" ") };
     const name = basename(w[0]);
     if (name in WRAPPERS) {
       w.shift();

@@ -303,6 +303,30 @@ describe("guardCommand — the shell a worker actually writes", () => {
     }
   });
 
+  it("TM-521: a tm block reason that quotes a refused command is data, and the command itself is still refused", () => {
+    const reason = "PR creation refused by dispatch guard: 'gh pr create --base main'. Recommendation: git push origin 6d510be:feature/x";
+    for (const cmd of [
+      `$TM block TM-262 "${reason}"`,
+      `TM=/r/.bytedesk/task-management/bin/tm; $TM block TM-262 "${reason}"`,
+      `.bytedesk/task-management/bin/tm block TM-262 "${reason}"`,
+      `"$TM" block TM-262 '${reason.replaceAll("'", "")}'`,
+    ]) {
+      const v = guardCommand(cmd, AT_HOME);
+      assert.equal(v.allow, true, `allowed: ${cmd} (refused by ${v.rule})`);
+    }
+    for (const [cmd, rule] of [
+      ["gh pr create --base other", "gh-pr-create-base"],
+      ["git push origin 6d510be:feature/x", "git-push-destination"],
+      [`$TM block TM-262 "x"; gh pr create --base other`, "gh-pr-create-base"],
+      ["$GH pr merge 5", "unparsed"],
+      ["$GIT push origin main", "unparsed"],
+    ]) {
+      const v = guardCommand(cmd, AT_HOME);
+      assert.equal(v.allow, false, `still refused: ${cmd}`);
+      assert.equal(v.rule, rule, `${cmd} refused by ${rule}, not ${v.rule}`);
+    }
+  });
+
   it("a push that relies on HEAD is allowed only while HEAD is the worker's own branch", () => {
     const onMain = { branch: OWN, head: "main" };
     for (const cmd of ["git push", "git push origin", "git push origin HEAD", "git push -u origin HEAD"]) {
