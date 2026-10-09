@@ -316,12 +316,19 @@ export function goalComplete(id, input, p = paths()) {
  * It resets the no-progress counter; it grants cycles only as many as the receipt names, and an
  * exhausted cycle budget cannot be resumed without at least one. The receipt is captured as evidence
  * and the escalation kept in `resumptions`, so history is not rewritten. */
-export function goalResume(id, input, p = paths()) {
+// TM-486 review: what one resume may grant, and how many resumes one goal may take. A forged
+// receipt is a file away, so a resume must never be able to buy an unbounded budget.
+export const RESUME_LIMITS = Object.freeze({ maxGrantCycles: 3, maxResumes: 3 });
+export function goalResume(id, input, p = paths(), env = process.env) {
+  // A dispatched worker runs with permissions skipped, so CLI-only is no guard for it: refuse the
+  // agent identities outright. Same-user env trust (TM-427B) still bounds this.
+  if (env.TM_DISPATCH_WORKER || env.AO_AGENT_ID) fail(`goal resume is a human's decision; refused for an agent session (${env.TM_DISPATCH_WORKER ? "TM_DISPATCH_WORKER" : "AO_AGENT_ID"} is set)`);
   return writeGoal(id, "resume", input, p, epic => {
     const goal = structuredClone(epic.goal); scopeMatches(goal, input);
     if (goal.status !== "human_required" || !goal.escalation) fail(`goal is ${goal.status}; only a human_required goal can be resumed`);
     const reason = text(input.reason, "resume reason"), grantCycles = input.grantCycles ?? 0;
-    if (!Number.isInteger(grantCycles) || grantCycles < 0 || grantCycles > DEFAULT_LIMITS.maxCycles) fail(`grantCycles must be an integer between 0 and ${DEFAULT_LIMITS.maxCycles}`);
+    if (!Number.isInteger(grantCycles) || grantCycles < 0 || grantCycles > RESUME_LIMITS.maxGrantCycles) fail(`grantCycles must be an integer between 0 and ${RESUME_LIMITS.maxGrantCycles}`);
+    if ((goal.resumptions || []).length >= RESUME_LIMITS.maxResumes) fail(`this goal has been resumed ${RESUME_LIMITS.maxResumes} times, the most allowed; revise its scope or open a new goal`);
     if (grantCycles < 1 && (goal.repairCycles >= goal.limits.maxCycles || goal.cycles >= goal.limits.maxCycles + 1)) fail("the repair-cycle budget is exhausted; a resume must grant at least one cycle");
     const approval = jsonReceipt(input.approval, "resume", id, p);
     for (const [key, value] of Object.entries({ revision: goal.revision, scopeHash: goal.scopeHash, escalationAt: goal.escalation.at, reason, grantCycles })) if (!same(approval[key], value)) fail(`resume approval ${key} does not match this escalation`);

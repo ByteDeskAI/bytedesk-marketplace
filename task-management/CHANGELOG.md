@@ -9,7 +9,10 @@
   scope, the reason and the cycles it grants. It resets the stall counter, raises `maxCycles` by
   exactly the grant, refuses a zero grant on a spent budget, captures the receipt as evidence and
   keeps the escalation in `goal.resumptions`. It is CLI-only (no `tm_goal_resume` MCP tool), and the
-  autonomy allowlist never approves it.
+  autonomy allowlist never approves it. It refuses outright when `TM_DISPATCH_WORKER` or `AO_AGENT_ID`
+  is set (dispatched workers skip permission prompts), grants at most 3 cycles per resume, and a
+  goal takes at most 3 resumes, so a forged receipt cannot buy an unbounded budget.
+
 ### Fixed
 
 - **`review-ready` accepts the structured check runs the worker handoff asks for (TM-492, EP-028).**
