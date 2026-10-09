@@ -86,8 +86,12 @@ async function pauseOwnedSupervisor(consumer, env) {
     assert.equal(current.runtimeIdentity, record.process_identity, 'the recorded runtime identity must still match');
     assert.ok(owner?.pid === pid && owner.token === record.lock_token && owner.process_identity === record.process_identity,
       'the same supervisor must retain the fixture repository lock');
-    assert.equal(current.command, `${process.execPath} ${cli} supervise --consumer ${consumer}`,
-      'the supervisor process must still name this exact fixture repository');
+    // The fixture's isolated HOME (TM-467: providers load from the user's config) means a supervisor
+    // may be started through that HOME's installed launcher instead of the CLI directly.
+    const launcher = join(env.HOME, '.local', 'share', 'bytedesk', 'agent-orchestration', 'launcher.cjs');
+    assert.ok([`${process.execPath} ${cli} supervise --consumer ${consumer}`,
+      `${process.execPath} ${launcher} ao-topology supervise --consumer ${consumer}`].includes(current.command),
+      `the supervisor process must still name this exact fixture repository: ${current.command}`);
     return current;
   };
   let paused = false;
