@@ -127,7 +127,7 @@ Standing repository services
   goal-loop reconcile --consumer <repo> [--loop <id>]
   mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
   mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
-       [--kind mail|reply] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+       [--kind mail|reply] [--sender <agent>] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   repos list [--json]                           registered repositories and each supervisor's state
@@ -693,7 +693,10 @@ const commands = {
         kind: flags.kind, status: flags.status, workflowId: flags.workflow, runId: flags.run, taskId: flags.task }));
       return out(await receipts.setMailboxDisposition({ ...ctx, agent,
         messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
-        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'] }));
+        reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'],
+        // TM-482 F2: receipts are per sender; --sender picks one when several senders reused the ID.
+        // N2: --sender '' names the receipt whose sender is null (a legacy or anonymous message).
+        from: typeof flags.sender === 'string' ? flags.sender || null : undefined }));
     }
     if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
@@ -709,7 +712,13 @@ const commands = {
     ctx.transport = await selectLiveTransport({ env: process.env });
     try {
     // A human asking to resume means now: --force skips each message's backoff (never a permanent hold).
-    if (sub === 'resume') return out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true }));
+    // TM-482 F1: a failure the resume collected is printed and fails the command, never dropped.
+    if (sub === 'resume') {
+      const errors = [];
+      out(await api.resumeStandingMessages({ ...ctx, force: flags.force === true, errors }));
+      if (errors.length) { process.stderr.write(`${JSON.stringify({ ok: false, errors }, null, 2)}\n`); process.exitCode = 1; }
+      return;
+    }
     if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
     if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
     if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
@@ -975,8 +984,10 @@ const commands = {
     // degraded repo or a failed command. tests/unit/topology-supervision-consistency.test.mjs
     // drives both and compares — which is also why both pass the same activation reason.
     if (sub === 'ensure') {
+      // TM-394: repair a broken checkout first; a still-broken one refuses rather than mint a lead.
+      const checkout = await (await import('./lib/checkout-repair.mjs')).ensureCheckout(ctx);
       const result = await api.ensureLead(options);
-      return out({ ...result, supervision: await activate(ctx, 'role-holder') });
+      return out({ ...result, ...(checkout.action === 'repaired' ? { checkout } : {}), supervision: await activate(ctx, 'role-holder') });
     }
     if (sub === 'assign') {
       const result = await api.assignLead({ ...options, agentRef: positional[1], session: flags.session });

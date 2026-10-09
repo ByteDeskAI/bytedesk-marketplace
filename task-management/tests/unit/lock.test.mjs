@@ -5,7 +5,7 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,10 @@ import { cleanup, tempStore } from "./helpers.mjs";
 import { LOCK_STALE_MS, staleLock, state, withLock, writeState } from "../../lib/store.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// TM-490: the hardcoded "nobody has this" pid (999999) was a live thread of another process on a busy
+// machine, and kill(pid, 0) accepts a thread id, so staleLock rightly called that holder alive. Use
+// the pid of a child that has already exited instead.
+const DEAD_PID = spawnSync(process.execPath, ["-e", ""]).pid;
 const stores = [];
 function store() {
   const p = tempStore();
@@ -58,7 +62,7 @@ describe("withLock", () => {
     const p = store();
     const lock = join(p.base, "state.lock");
     const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
-    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
+    writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, ts: ancient }));
     assert.equal(withLock(p, () => "recovered"), "recovered");
   });
 
@@ -66,7 +70,7 @@ describe("withLock", () => {
     const p = store();
     const lock = join(p.base, "state.lock");
     const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
-    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
+    writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, ts: ancient }));
     // Someone else is mid-break. Breaking is exclusive precisely so that the loser cannot delete
     // the fresh lock the winner is about to create — four processes once got inside the critical
     // section that way, and eight concurrent creates minted one id three times.
@@ -88,7 +92,7 @@ describe("withLock", () => {
     const p = store();
     const lock = join(p.base, "state.lock");
     const ancient = new Date(Date.now() - LOCK_STALE_MS * 2).toISOString();
-    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: ancient }));
+    writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, ts: ancient }));
     const breaker = `${lock}.break`;
     writeFileSync(breaker, "");
     const old = new Date(Date.now() - LOCK_STALE_MS * 2);
@@ -103,7 +107,7 @@ describe("withLock", () => {
     // A store committed before state.lock was ignored hands every clone a lock file. Its pid is a
     // number from somebody else's machine, so it belongs to no process here — which is precisely
     // the case staleLock exists for. The clone has to be able to write.
-    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: new Date().toISOString() }));
+    writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, ts: new Date().toISOString() }));
 
     assert.equal(staleLock(lock), true, "a pid that does not exist here is a dead holder, however fresh the file");
     assert.equal(withLock(p, () => "the clone can write"), "the clone can write");
@@ -137,7 +141,7 @@ describe("withLock", () => {
   it("treats a lock whose holder is gone as dead", () => {
     const p = store();
     const lock = join(p.base, "state.lock");
-    writeFileSync(lock, JSON.stringify({ pid: 999999, ts: new Date().toISOString() }));
+    writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, ts: new Date().toISOString() }));
 
     assert.equal(staleLock(lock), true, "a live timestamp with a dead pid is still dead");
   });

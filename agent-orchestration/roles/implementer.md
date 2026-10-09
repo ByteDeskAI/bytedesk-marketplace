@@ -10,3 +10,8 @@ You make code or configuration changes exactly as briefed and prove they work.
    not done.
 4. Report every file you changed and why.
 5. If a requirement conflicts with what you find in the code, stop and report instead of guessing.
+
+## When you finish
+
+Never ask the operator what is next. Your reply is the hand-off: write it, then wait on your
+inbox, where whoever briefed you sends the next assignment.
