@@ -11,12 +11,12 @@ import { AUTONOMY_LEVELS, loadConfig } from './config.mjs';
 import { findActiveDelegation, managedSessionEvidence, requireLeadCaller } from './delegation.mjs';
 import { agentDirs, findLead } from './agents.mjs';
 import { withLock } from './lockfile.mjs';
-import { canonicalRepoId, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
+import { canonicalRepoId, pinnedFetchUrl, pinnedGithubRepo, repoKey, stateRoot } from './repoid.mjs';
 import { INTEGRATION_BRANCH, currentReviewStatus, finishCheckEvidence, githubBranchTip, githubCompare, githubPullBase, reviewEligibility, reviewerAvailability, requestReview, reviewRangeBase } from './reviewer.mjs';
 import { observeNativeWorkflow } from './workflow-control.mjs';
 import { readStandingMessage, sendStandingMessage } from './standing-mailbox.mjs';
 import { fail, invariant, nowIso, readJson, run, writeJson } from './util.mjs';
-import { GH_PATHS, safeGit, trustedGh } from './safe-git.mjs';
+import { GH_PATHS, safeGh, safeGit, trustedGh } from './safe-git.mjs';
 
 const taskId = value => { invariant(/^TM-[0-9]+$/.test(value), 'TOPOLOGY_MANAGEMENT_TASK', 'Expected a task-store TM id.'); return value; };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
@@ -24,6 +24,23 @@ const list = value => Array.isArray(value) && value.every(nonempty);
 // TM-443: every git here runs through safe-git, so a worker's planted git config never runs as the lead.
 const git = async (cwd, args, allowFailure = false) => safeGit(cwd, args, { allowFailure });
 const gitText = async (cwd, args) => (await git(cwd, args)).stdout.trim();
+/** TM-472: the one way host code fetches. It reads the PINNED origin URL (pinnedFetchUrl), never the
+ * `origin` a worker can repoint in the shared .git/config, and names every refspec, so neither
+ * remote.origin.url nor remote.origin.fetch decides what is read or which refs are written.
+ * An unpinnable origin is a failed fetch (code 128), or a throw unless allowFailure. */
+export async function fetchPinned(root, refspecs, { env = process.env, home = homedir(), allowFailure = false } = {}) {
+  let url;
+  try {
+    url = await pinnedFetchUrl(root, { env, home });
+    // TM-475 review: url.*.insteadOf in ANY scope (the operator's ~/.gitconfig too) would read another
+    // repository; git reports the URL it would actually use, and anything but the pinned one is refused.
+    const used = (await git(root, ['ls-remote', '--get-url', url], true)).stdout.trim();
+    if (used !== url) fail('TOPOLOGY_REPOSITORY_PIN', `git config rewrites the pinned fetch URL ${url} to ${used || 'nothing'} (url.*.insteadOf); refusing to fetch`);
+  } catch (error) { if (allowFailure) return { code: 128, stdout: '', stderr: error.message }; throw error; }
+  return git(root, ['fetch', '--quiet', url, ...refspecs], allowFailure);
+}
+/** The refspec `git fetch origin <branch>` used to apply through the default remote.origin.fetch. */
+export const trackingRefspec = branch => `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
 
 /** Store paths the task store and orchestration write into the main checkout on their own.
  * Integration tolerates them being dirty and refuses any landing that would touch them.
@@ -520,7 +537,7 @@ async function defaultBranch(options, worktree) {
 }
 async function admissionBase(options, worktree, integration, branch) {
   const head = await gitText(worktree, ['rev-parse', 'HEAD']);
-  const target = (await loadConfig(options)).config.management?.target_branch;
+  const target = (await loadGovernedConfig(options)).config.management?.target_branch;
   const anchor = [integration, target].find(nonempty) ?? null;
   if (anchor === null || INTEGRATION_BRANCH.test(anchor)) {
     // Primary: the anchor branch tip on the pinned server. It needs nothing of the task pushed.
@@ -528,7 +545,7 @@ async function admissionBase(options, worktree, integration, branch) {
     try { tip = String(await (options.serverBranchTip || githubBranchTip)(worktree, anchor) ?? ''); } catch { /* unreachable: compare, then local */ }
     if (/^[a-f0-9]{40,64}$/.test(tip)) {
       const local = async () => (await git(worktree, ['cat-file', '-e', `${tip}^{commit}`], true)).code === 0;
-      if (!(await local())) await git(worktree, ['fetch', '--quiet', 'origin', tip], true);
+      if (!(await local())) await fetchPinned(worktree, [tip], { env: options.env, home: options.home, allowFailure: true });
       invariant(await local(), 'TOPOLOGY_MANAGEMENT_BASE', `The server tip ${tip} of ${anchor ?? 'the default branch'} is not in this repository and could not be fetched from origin; fetch it and retry admission.`);
       const found = await git(worktree, ['merge-base', 'HEAD', tip], true);
       invariant(found.code === 0 && found.stdout.trim(), 'TOPOLOGY_MANAGEMENT_BASE', `The task HEAD shares no history with the server tip ${tip} of ${anchor ?? 'the default branch'}.`);
@@ -856,8 +873,9 @@ export async function serverPolicy(gh, repoDir, { env = process.env, home = home
  * ONLY from the repository config committed on the server's default branch. A worker runs as the
  * operator's OS user and can write the global layer (~/.config/agent-orchestration), the plugin
  * defaults and the checkout's own repo file, so a value there is ignored with a warning. A signed
- * operator layer would be a second honoured source; signing is not implemented. */
-export const PROTECTED_MANAGEMENT_KEYS = Object.freeze(['autonomy', 'release', 'cutover', 'required_checks']);
+ * operator layer would be a second honoured source; signing is not implemented.
+ * TM-469: integrate_via and target_branch choose where and how a task lands, so they are protected too. */
+export const PROTECTED_MANAGEMENT_KEYS = Object.freeze(['autonomy', 'release', 'cutover', 'required_checks', 'integrate_via', 'target_branch']);
 
 /** loadConfig, with PROTECTED_MANAGEMENT_KEYS replaced by the server's committed values (absent when the
  * server cannot be read: autonomy falls back to "pr", and release, cutover and required checks are
@@ -950,7 +968,7 @@ export async function integrationEligibility(options) {
     if (!writer.owned || writer.active !== false) refuse('worker', writer.reason || 'worker ownership or absence of an active writer is unproven');
   }
   // TM-430: required checks are never satisfied here; integrate runs them on the host (runRequiredChecks).
-  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy,
+  return { eligible: reasons.length === 0, reasons, refusals, record, doc, policy, review, delegation, delegationError, autonomy: authority.autonomy, config_warnings: loaded.warnings,
     required_checks: { satisfied_by: 'host-run-at-integrate', claimed_check_reasons: claimedReasons } };
 }
 
@@ -1001,7 +1019,7 @@ export async function integrateTask(options) {
   const ctx = await context(options);
   refuseSelfAssertion(options, await managedSession(options, ctx));
   return withLock(join(ctx.root, 'integration.lock'), async () => {
-    if ((await loadConfig(options)).config.management?.integrate_via === 'pull-request') return integrateViaPullRequest(options, ctx);
+    if ((await loadGovernedConfig(options)).config.management?.integrate_via === 'pull-request') return integrateViaPullRequest(options, ctx);
     const gate = await integrationEligibility(options);
     if (gate.delegationError) throw gate.delegationError;
     invariant(gate.eligible, 'TOPOLOGY_MANAGEMENT_INTEGRATION_BLOCKED', gate.reasons.join('; '));
@@ -1043,9 +1061,10 @@ export async function integrateTask(options) {
 /** The one place gh runs. argv only, never a shell; tests inject options.gh. */
 const GH_TIMEOUT_MS = 60_000;
 // PR #226 follow-up: the root-owned gh at a pinned system path (trustedGh), never the first `gh` on PATH.
+// TM-475: through safeGh, so redirecting env is removed and a gh config that redirects it is refused.
 export const hostGh = cwd => {
   const bin = trustedGh();
-  return async args => (bin ? run(bin, args, { cwd, allowFailure: true, timeoutMs: GH_TIMEOUT_MS })
+  return async args => (bin ? safeGh(bin, args, { cwd, timeoutMs: GH_TIMEOUT_MS })
     : { code: 127, stdout: '', stderr: `no root-owned gh at ${GH_PATHS.join(', ')}` });
 };
 const defaultGh = hostGh;
@@ -1074,15 +1093,15 @@ async function ciStatus(gh, repo, number) {
 
 /** After a remote merge, bring the local integration branch to the merge commit, fast-forward only,
  * so the store's governed-completion gate can verify the landing locally. */
-async function syncTarget(root, target, landed) {
+async function syncTarget(root, target, landed, io) {
   // ponytail: the remote is origin; a repository landing through another remote needs a config key.
   const current = (await git(root, ['symbolic-ref', '--short', 'HEAD'], true)).stdout.trim();
   if (current === target) {
-    await git(root, ['fetch', 'origin', target]);
+    await fetchPinned(root, [trackingRefspec(target)], io);
     const foreign = await foreignDirtyPaths(root);
     invariant(!foreign.length, 'TOPOLOGY_MANAGEMENT_DIRTY', `Integration checkout has uncommitted work outside the tool store paths: ${foreign.slice(0, 5).join(', ')}`);
     await git(root, ['merge', '--ff-only', landed]);
-  } else await git(root, ['fetch', 'origin', `${target}:${target}`]);
+  } else await fetchPinned(root, [`refs/heads/${target}:refs/heads/${target}`], io);
   invariant((await git(root, ['merge-base', '--is-ancestor', landed, `refs/heads/${target}`], true)).code === 0, 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} did not reach the local ${target}.`);
 }
 
@@ -1127,7 +1146,7 @@ async function integrateViaPullRequest(options, ctx) {
   // Closing still needs the same caller and plan authority the merge needed.
   if (prior?.state === 'merged' && prior.merge?.pull_request) {
     if (prior.closed) return prior;
-    const policy = (await loadConfig(options)).config.management || {};
+    const policy = (await loadGovernedConfig(options)).config.management || {};
     const { refusals, delegation, autonomy } = await integrationAuthority(options, ctx, policy);
     if (refusals.length) refuseIntegrate(refusals, prior.merge.pull_request.number);
     return closeLandedTask(ctx, options.task, prior, integrationAuthorization(options, ctx, { record: prior, policy, delegation, autonomy, revision: prior.merge.revision }));
@@ -1157,7 +1176,7 @@ async function integrateViaPullRequest(options, ctx) {
     if (pr.baseRefName !== policy.target_branch) refuse('base', `PR #${pr.number} targets ${pr.baseRefName}, not the integration branch ${policy.target_branch}`);
     // TM-247 (AC9): a head that only merged the integration branch into the approved revision lands that revision.
     if (revision && pr.headRefOid !== revision && nonempty(policy.target_branch)) {
-      await git(ctx.store.root, ['fetch', 'origin', policy.target_branch, `refs/pull/${pr.number}/head`], true);
+      await fetchPinned(ctx.store.root, [trackingRefspec(policy.target_branch), `refs/pull/${pr.number}/head`], { ...ctx, allowFailure: true });
       mergeIn = await mergeInOf(ctx.store.root, revision, pr.headRefOid, policy.target_branch, { gh, env: ctx.env, home: ctx.home });
     }
     if (reviewed && pr.headRefOid !== reviewed && !(mergeIn && reviewed === revision)) refuse('head', `${at}, not the reviewed and approved revision ${reviewed}, nor a merge-in of ${policy.target_branch} on top of it`);
@@ -1193,7 +1212,7 @@ async function integrateViaPullRequest(options, ctx) {
     const v = view.value;
     invariant(v?.state === 'MERGED' && v.headRefOid === pr.headRefOid && v.baseRefName === policy.target_branch && nonempty(v.mergeCommit?.oid), 'TOPOLOGY_MANAGEMENT_LANDING', v ? `gh reports PR #${pr.number} as ${v.state} at ${v.headRefOid} into ${v.baseRefName}, not merged at ${pr.headRefOid} into ${policy.target_branch}` : ghFailure('gh pr view', view));
     const landed = v.mergeCommit.oid;
-    await syncTarget(ctx.store.root, policy.target_branch, landed);
+    await syncTarget(ctx.store.root, policy.target_branch, landed, ctx);
     invariant((await git(ctx.store.root, ['merge-base', '--is-ancestor', revision, landed], true)).code === 0, 'TOPOLOGY_MANAGEMENT_LANDING', `Finish revision ${revision} is not an ancestor of the merge commit ${landed}.`);
     const authorization = integrationAuthorization(options, ctx, { record, policy, delegation, autonomy, revision });
     next = await writeLanding(ctx, options.task, record, approved, 'merge', { revision, landed, checks: ci?.checks || [], target_branch: policy.target_branch,
@@ -1218,7 +1237,7 @@ export async function recordLanding(options) {
     const revision = record?.finish?.revision;
     invariant(!record?.merge, 'TOPOLOGY_MANAGEMENT_LANDING', 'Task already has a recorded landing.');
     invariant(record?.state === 'ready-for-review' && nonempty(revision), 'TOPOLOGY_MANAGEMENT_LANDING', 'Task has no finished worker revision ready for review.');
-    const policy = (await loadConfig(options)).config.management || {};
+    const policy = (await loadGovernedConfig(options)).config.management || {};
     invariant(nonempty(policy.target_branch), 'TOPOLOGY_MANAGEMENT_TARGET', 'Configure management.target_branch before recording a landing.');
     // A managed session needs a plan grant (TM-248) covering this caller, repository, task and the
     // record-landing scope, whatever auto_merge says; an operator shell may instead pass --authorized
@@ -1252,8 +1271,8 @@ export async function recordLanding(options) {
     // can verify it locally too.
     const server = await serverCompareStatus(options.gh || defaultGh(ctx.store.root), ctx.store.root, landed, policy.target_branch, ctx);
     invariant(['ahead', 'identical'].includes(server.status), 'TOPOLOGY_MANAGEMENT_TARGET', `${landed} is not on the configured target branch ${policy.target_branch} on the server (${server.status ? `compare says ${server.status}` : server.reason}); a local or origin ref is not evidence of a landing.`);
-    await git(ctx.store.root, ['fetch', 'origin', policy.target_branch], true);
-    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed);
+    await fetchPinned(ctx.store.root, [trackingRefspec(policy.target_branch)], { ...ctx, allowFailure: true });
+    if (!await ancestor(landed, `refs/heads/${policy.target_branch}`)) await syncTarget(ctx.store.root, policy.target_branch, landed, ctx);
     const review = await (options.reviewGate || reviewEligibility)({ ...options, revision, baseRevision: record.base_revision, authorAgentIds: [record.owner] });
     invariant(review.eligible === true && review.reasons.length === 0 && review.status?.review, 'TOPOLOGY_MANAGEMENT_REVIEW', review.reasons.join('; ') || 'An eligible independent review of the finish revision is required.');
     if (lead && !delegation) {

@@ -405,13 +405,14 @@ export function handoff(id, p = paths()) {
       `- Tick each criterion only once verified: .bytedesk/task-management/bin/tm accept ${t.id} <n>`,
       "- Commit your work.",
       `- Push your own branch: git push -u origin ${branch}`,
-      `- Open a PR: gh pr create --title "${t.id}: ${t.title}" --body "<what changed, and how you verified it>"${prBase}`,
+      "- Run every gh and git push command on its own, as one plain command: no &&, ;, |, $(…), redirection or env prefix. The worker guard refuses anything else that mentions them (TM-481). Push with `git push -u origin <your branch>` — not a bare `git push` or `--set-upstream`.",
+      `- Write the PR body (what changed, and how you verified it) to a file such as pr-body.md, then open the PR with --body-file — an inline --body with Markdown backticks, $, < or > is refused: gh pr create --title "${t.id}: ${t.title}" --body-file pr-body.md${prBase}`,
       `- Attach proof, not claims: .bytedesk/task-management/bin/tm evidence ${t.id} <path> (test output)`,
       ...(t.governance
         ? governedFinishSteps(t, p)
         : [
             "- Review your own diff (a review subagent or /code-review) and fix what it finds.",
-            `- Wait for required checks (gh pr checks ${branch} --watch), then merge your own PR: gh pr merge ${branch} --merge. If the only blocker is a required approving review, add --admin; never merge over a failing or pending check.`,
+            `- Wait for required checks (gh pr checks ${branch} --watch), then merge your own PR: gh pr merge ${branch} --merge. Never merge over a failing or pending check, and never with --admin (the worker guard refuses it, TM-481); if a required approving review is the only blocker, tm block with that and leave the merge to a human.`,
             `- Then close: .bytedesk/task-management/bin/tm done ${t.id}`,
           ]),
       `- If the push or the PR fails (no remote, no gh, auth), .bytedesk/task-management/bin/tm block ${t.id} "<the error>" instead of closing.`,
