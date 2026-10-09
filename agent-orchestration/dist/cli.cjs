@@ -21786,6 +21786,7 @@ __export(reviewer_exports, {
   reviewerStanding: () => reviewerStanding,
   reviewersRoot: () => reviewersRoot,
   reviewsRoot: () => reviewsRoot,
+  sealVerdict: () => sealVerdict,
   submitReviewVerdict: () => submitReviewVerdict,
   unsatisfiedChecks: () => unsatisfiedChecks,
   validateFindings: () => validateFindings
@@ -22252,7 +22253,7 @@ async function uncollectedReviewRequests(consumer, record2, env, home) {
   const names2 = (await (0, import_promises34.readdir)(dir).catch(() => [])).filter((name) => name.endsWith(".json"));
   const requests = await Promise.all(names2.map((name) => readJson3((0, import_node_path44.join)(dir, name)).catch(() => null)));
   const open14 = requests.filter((request) => request && request.reviewer_id === record2.agent_id && !request.collected_at && request.state !== "failed" && (!request.collection?.code || PENDING_COLLECTION_CODES.has(request.collection.code)) && sameIncarnation(request.binding, record2.binding));
-  const waiting = await Promise.all(open14.map(async (request) => !await readSubmittedVerdict((0, import_node_path44.join)(dir, `${request.task}-${request.revision}.json`), request)));
+  const waiting = await Promise.all(open14.map(async (request) => !await readSubmittedVerdict((0, import_node_path44.join)(dir, `${request.task}-${request.revision}.json`), request, env, home)));
   return open14.filter((_, i) => waiting[i]);
 }
 async function assertNoReviewInFlight(consumer, record2, env, home) {
@@ -22913,7 +22914,17 @@ async function findReviewRequest(consumer, id, env, home) {
   }
   fail("TOPOLOGY_REVIEWER_NONCE", `No review request ${text} exists for this repository.`, { request: text });
 }
-async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = (0, import_node_os18.homedir)(), transport = null, alive: alive3 = bindingAlive }) {
+async function verdictKey(env, home, create = false) {
+  const path3 = verdictKeyPath(env, home);
+  const existing = await (0, import_promises34.readFile)(path3).catch(() => null);
+  if (existing?.length >= 32 || !create) return existing?.length >= 32 ? existing : null;
+  await (0, import_promises34.mkdir)((0, import_node_path44.dirname)(path3), { recursive: true });
+  await (0, import_promises34.writeFile)(path3, (0, import_node_crypto22.randomBytes)(32), { flag: "wx", mode: 384 }).catch((error51) => {
+    if (error51.code !== "EEXIST") throw error51;
+  });
+  return (0, import_promises34.readFile)(path3);
+}
+async function submitReviewVerdict({ consumer, request: id, verdict, findings = [], env = process.env, home = (0, import_node_os18.homedir)(), transport = null, alive: alive3 = bindingAlive, callerProc = {} }) {
   const { request, path: path3 } = await findReviewRequest(consumer, id, env, home);
   return withLock(path3.replace(/\.json$/, ".lock"), async () => {
     const current = await readJson3(path3);
@@ -22923,11 +22934,18 @@ async function submitReviewVerdict({ consumer, request: id, verdict, findings = 
       "TOPOLOGY_REVIEWER_IDENTITY",
       "Only the designated reviewer, at the incarnation the request was sent to, can submit its verdict."
     );
+    let inPane = false;
+    try {
+      inPane = await callerRunsInPane(record2.binding, callerProc);
+    } catch {
+    }
+    invariant2(inPane, "TOPOLOGY_REVIEWER_IDENTITY", `Only a process running in the reviewer's pane can submit its verdict: pane ${record2.binding?.paneId ?? "?"}'s process ${record2.binding?.panePid ?? "?"} is not an ancestor of this process (or ancestry is unreadable); AO_AGENT_ID alone does not prove identity.`);
     invariant2(current.nonce === request.nonce && !current.collected_at, "TOPOLOGY_REVIEWER_RESPONSE", "This review request was already collected; its verdict cannot change.");
     invariant2(current.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request failed (${current.failure?.reason ?? "no reason recorded"}); the lead must request the review again.`);
     invariant2(VERDICTS.has(verdict), "TOPOLOGY_REVIEWER_VERDICT", `Verdict must be one of ${[...VERDICTS].join(", ")}; got ${JSON.stringify(verdict)}.`);
     const structured = checkVerdict(verdict, findings, await reviewedFiles(current.worktree && await exists(current.worktree) ? current.worktree : consumer, current.base_revision, current.revision), current.checks_unsatisfied ?? []);
     const submitted = { nonce: current.nonce, task: current.task, revision: current.revision, reviewer_id: record2.agent_id, binding: incarnationOf(current.binding), verdict, findings: structured, submitted_at: nowIso() };
+    submitted.seal = (await sealVerdict(submitted, env, home)).seal;
     submitted.mirror = await mirrorVerdict({ consumer, record: record2, submitted, env, transport });
     await writeJson(verdictPath(path3), submitted);
     return { ok: true, nonce: submitted.nonce, task: submitted.task, revision: submitted.revision, verdict, findings: structured.length, mirror: submitted.mirror };
@@ -22947,9 +22965,13 @@ async function mirrorVerdict({ consumer, record: record2, submitted, env, transp
     return null;
   }
 }
-async function readSubmittedVerdict(requestPath, request) {
+async function readSubmittedVerdict(requestPath, request, env, home) {
   const submitted = await readJson3(verdictPath(requestPath)).catch(() => null);
-  return submitted?.nonce === request.nonce ? submitted : null;
+  if (submitted?.nonce !== request.nonce || typeof submitted.seal !== "string") return null;
+  const key = await verdictKey(env, home);
+  const want = key && Buffer.from(verdictSeal(key, submitted), "hex");
+  const got = Buffer.from(submitted.seal, "hex");
+  return want && got.length === want.length && (0, import_node_crypto22.timingSafeEqual)(got, want) ? submitted : null;
 }
 async function collectReview({ consumer, task, revision, env = process.env, home = (0, import_node_os18.homedir)(), pluginRoot = null, deliver = sendStandingMessage, lead = readLeadRegistration, serverCompare = githubCompare, serverPullBase = githubPullBase }) {
   const path3 = (0, import_node_path44.join)(await reviewerInboxRoot(consumer, env, home), "requests", `${segment(task, "TOPOLOGY_REVIEWER_TASK", "task")}-${segment(revision, "TOPOLOGY_REVIEWER_REVISION_REQUIRED", "revision")}.json`);
@@ -22968,7 +22990,7 @@ async function collectReview({ consumer, task, revision, env = process.env, home
     invariant2(request.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `This review request already failed (${request.failure?.reason ?? "no reason recorded"}); request the review again for a fresh nonce.`);
     invariant2((0, import_node_crypto22.createHash)("sha256").update(await (0, import_promises34.readFile)(request.patch_path)).digest("hex") === request.patch_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review patch changed after the request.");
     invariant2(!request.packet_sha256 || await packetDigest(request.packet_path).catch(() => null) === request.packet_sha256, "TOPOLOGY_REVIEWER_RESPONSE", "Review packet changed after the request.");
-    const submitted = await readSubmittedVerdict(path3, request);
+    const submitted = await readSubmittedVerdict(path3, request, env, home);
     invariant2(submitted || sameIncarnation(request.binding, record2.binding), "TOPOLOGY_REVIEWER_IDENTITY", "Reviewer incarnation changed after the request; queue a new independent review.");
     invariant2(submitted, "TOPOLOGY_REVIEWER_NO_VERDICT", `No verdict has been submitted for review request ${request.nonce} yet. The reviewer submits it with its review_submit tool (or: ao-topology review submit ${request.nonce} --verdict <verdict> --findings @file.json).`, { nonce: request.nonce });
     let review;
@@ -23070,7 +23092,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process13, import_node_crypto22, import_promises34, import_node_os18, import_node_path44, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process13, import_node_crypto22, import_promises34, import_node_os18, import_node_path44, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, verdictKeyPath, SEALED_FIELDS, verdictSeal, sealVerdict, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process13 = require("node:child_process");
@@ -23091,6 +23113,7 @@ var init_reviewer = __esm({
     init_prompts();
     init_prompt_lifecycle();
     init_incarnation();
+    init_slots();
     init_providers();
     init_repoid();
     init_tmux();
@@ -23129,6 +23152,10 @@ var init_reviewer = __esm({
     LOG_TAIL_MAX = 4e3;
     B64_PREFIX = "b64:";
     verdictPath = (requestPath) => (0, import_node_path44.join)((0, import_node_path44.dirname)((0, import_node_path44.dirname)(requestPath)), "verdicts", (0, import_node_path44.basename)(requestPath));
+    verdictKeyPath = (env, home) => (0, import_node_path44.join)(reviewersRoot(env, home), "verdict.key");
+    SEALED_FIELDS = ["nonce", "task", "revision", "reviewer_id", "binding", "verdict", "findings", "submitted_at"];
+    verdictSeal = (key, submitted) => (0, import_node_crypto22.createHmac)("sha256", key).update(JSON.stringify(SEALED_FIELDS.map((field) => submitted[field] ?? null))).digest("hex");
+    sealVerdict = async (submitted, env = process.env, home = (0, import_node_os18.homedir)()) => ({ ...submitted, seal: verdictSeal(await verdictKey(env, home, true), submitted) });
     REFUSED_RESPONSE_CODES = /* @__PURE__ */ new Set(["TOPOLOGY_REVIEWER_RESPONSE", "TOPOLOGY_REVIEWER_FINDINGS", "TOPOLOGY_REVIEWER_VERDICT"]);
     reviewQueueCache = /* @__PURE__ */ new Map();
   }
@@ -34670,8 +34697,8 @@ var RunStore = class {
     return (0, import_node_path15.join)(this.runDir(runId), ".active");
   }
   async markActive(runId) {
-    const { writeFile: writeFile12 } = await import("node:fs/promises");
-    await writeFile12(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile13 } = await import("node:fs/promises");
+    await writeFile13(this.activeMarkerPath(runId), "", { mode: 384 }).catch(() => {
     });
   }
   async clearActive(runId) {
@@ -34698,8 +34725,8 @@ var RunStore = class {
   }
   /** Records that a run has been judged terminal, so later sweeps skip it without reading it. */
   async markSwept(runId) {
-    const { writeFile: writeFile12 } = await import("node:fs/promises");
-    await writeFile12((0, import_node_path15.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
+    const { writeFile: writeFile13 } = await import("node:fs/promises");
+    await writeFile13((0, import_node_path15.join)(this.runDir(runId), ".sweep"), "", { mode: 384 }).catch(() => {
     });
   }
   lockPath(lockKey) {
@@ -63284,10 +63311,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "c99fd91cea736cbe21aced47a741ca6672ccb26d6e5e5d189082cbc3cf481d1e";
+  return false ? null : "d3958b0098b02248a15129ecbb949d05f23e0ab0faf36aeee229d81de575f9f3";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "c99fd91cea736cbe21aced47a741ca6672ccb26d6e5e5d189082cbc3cf481d1e";
+  const fingerprint2 = false ? null : "d3958b0098b02248a15129ecbb949d05f23e0ab0faf36aeee229d81de575f9f3";
   let version2 = false ? null : "0.16.0";
   if (!version2) {
     try {
@@ -63904,7 +63931,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "c99fd91cea736cbe21aced47a741ca6672ccb26d6e5e5d189082cbc3cf481d1e",
+  sourceFingerprint: false ? null : "d3958b0098b02248a15129ecbb949d05f23e0ab0faf36aeee229d81de575f9f3",
   version: false ? null : "0.16.0"
 };
 var json4 = (path3) => (0, import_promises61.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
+import { sealVerdict } from '../../topology/lib/reviewer.mjs';
 import { collectReview, currentReviewStatus, ensureReviewer, restartReviewer, reviewerInboxRoot, readReviewerRecord, requestReview, reviewEligibility } from '../../topology/lib/reviewer.mjs';
 import { submitVerdict } from '../helpers/review-submit.mjs';
 import { refreshPrompt, promptRevisions } from '../../topology/lib/prompt-lifecycle.mjs';
@@ -76,7 +77,10 @@ test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarna
   await request('TM-2', { nonce: waiting, collection: { code: 'TOPOLOGY_REVIEWER_NO_VERDICT', reason: 'No verdict has been submitted yet' } });
   // TM-365: a submitted verdict is on disk, bound to this incarnation, so a restart cannot orphan it
   await request('TM-7', { nonce: 'submitted' });
-  await writeJson(join(dir, '..', 'verdicts', 'TM-7-abc.json'), { nonce: 'submitted', task: 'TM-7', revision: 'abc', verdict: 'approve', findings: [] });
+  await writeJson(join(dir, '..', 'verdicts', 'TM-7-abc.json'), await sealVerdict({ nonce: 'submitted', task: 'TM-7', revision: 'abc', verdict: 'approve', findings: [] }, f.env, f.home));
+  // TM-427: an unsealed (hand-written) verdict is not a submitted one, so it does not release TM-8
+  await request('TM-8', { nonce: 'forged' });
+  await writeJson(join(dir, '..', 'verdicts', 'TM-8-abc.json'), { nonce: 'forged', task: 'TM-8', revision: 'abc', verdict: 'approve', findings: [] });
   // outcomes, none of which a restart can orphan
   await request('TM-3', { nonce: 'collected', collected_at: 'x', state: 'collected' });
   await request('TM-4', { nonce: 'withdrawn', collection: { code: 'TOPOLOGY_REVIEWER_RANGE', reason: 'Review request no longer covers the admitted task range.' } });
@@ -86,7 +90,7 @@ test('TM-302 restart is refused TOPOLOGY_AGENT_BUSY only while a current-incarna
   await assert.rejects(restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes }), error => {
     assert.equal(error.code, 'TOPOLOGY_AGENT_BUSY');
     assert.match(error.message, new RegExp(nonce));
-    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting].sort(), 'only current-incarnation requests still waiting for a verdict block');
+    assert.deepEqual(error.details.pending.map(p => p.nonce).sort(), [nonce, waiting, 'forged'].sort(), 'only current-incarnation requests still waiting for a verdict block');
     return true;
   });
   assert.deepEqual(f.calls, [], 'nothing waited, killed or launched');

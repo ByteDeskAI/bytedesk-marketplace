@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { run, writeJson } from '../../topology/lib/util.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 import { composePrompt } from '../../topology/lib/prompts.mjs';
+import { sealVerdict } from '../../topology/lib/reviewer.mjs';
 import { buildReviewerArgv, collectPendingReviews, collectReview, currentReviewStatus, ensureReviewer, independentReviewStatus, latestReview,
   recordReview, requestReview, reviewEligibility, reviewerInboxRoot, reviewsRoot, submitReviewVerdict, validateFindings } from '../../topology/lib/reviewer.mjs';
 import { submitVerdict } from '../helpers/review-submit.mjs';
@@ -259,8 +260,9 @@ test('TM-365 a verdict file that fails the schema at collection fails its reques
   const sent = [];
   const mail = { lead: async () => ({ record: { agent_id: 'the-lead' } }), deliver: async message => { sent.push(message); return { status: 'delivered', envelope: { id: message.id } }; } };
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
-  // Written past submitReviewVerdict, as an older or hand-edited record would be.
-  await writeJson(await verdictFile(f), { nonce: request.nonce, task: 'TM-1', revision: f.revision, reviewer_id: f.record.agent_id, binding, verdict: 'approve', findings: [finding({ severity: 'major' })] });
+  // Sealed but written past submitReviewVerdict's schema check, as an older release's record would be.
+  // (An unsealed, hand-edited record is ignored outright: topology-reviewer.test.mjs, TM-427.)
+  await writeJson(await verdictFile(f), await sealVerdict({ nonce: request.nonce, task: 'TM-1', revision: f.revision, reviewer_id: f.record.agent_id, binding, verdict: 'approve', findings: [finding({ severity: 'major' })] }, f.env, f.home));
   await assert.rejects(collectReview({ ...f.args, ...mail }), { code: 'TOPOLOGY_REVIEWER_FINDINGS' });
   const stored = JSON.parse(await readFile(await requestPath(f), 'utf8'));
   assert.equal(stored.state, 'failed'); assert.equal(stored.failure.code, 'TOPOLOGY_REVIEWER_FINDINGS');
@@ -294,7 +296,7 @@ test('TM-365 the review_submit MCP tool lists one tool and submits through the s
   const f = await fixture(t);
   const request = await requestReview({ ...f.args, wake: async () => ({ rang: true }) });
   const env = { ...f.env, AO_AGENT_ID: f.record.agent_id, AO_CONSUMER: f.consumer };
-  const submit = options => submitReviewVerdict({ ...options, home: f.home, alive: async () => true });
+  const submit = options => submitReviewVerdict({ ...options, home: f.home, alive: async () => true, callerProc: { pid: f.record.binding.panePid } });
   const refused = await handleMessage({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve', findings: [finding({ severity: 'blocker' })] } } }, { env, submit });
   assert.equal(refused.result.isError, true); assert.match(refused.result.content[0].text, /TOPOLOGY_REVIEWER_FINDINGS/);
   const ok = await handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'review_submit', arguments: { request: request.nonce, verdict: 'approve', findings: [] } } }, { env, submit });

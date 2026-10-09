@@ -4,6 +4,15 @@
 
 ### Security
 
+- **A worker can no longer submit the reviewer's verdict for its own task (TM-427, EP-028).**
+  `review submit` and the `review_submit` MCP tool checked only `AO_AGENT_ID` against the reviewer
+  record plus pane liveness, and the request file the worker can read names both. They now also
+  require the calling process to descend from the reviewer pane's recorded pid (the delegation proof,
+  `callerRunsInPane`), failing closed with `TOPOLOGY_REVIEWER_IDENTITY` when ancestry is unreadable.
+  The verdict file is sealed with an HMAC key kept outside the inbox (`reviewers/verdict.key`, 0600);
+  `collectReview` and the restart guard ignore a verdict whose seal does not verify, so a hand-written
+  or edited `verdicts/<task>-<sha>.json` no longer approves anything. Limit: a same-user process that
+  reads the key file can still forge a seal; a key held by another uid is the upgrade path.
 - **record-landing checks the server, host git ignores caller GIT_* variables, and gh must be root-owned (TM-472, TM-443, EP-028).**
   `manage record-landing`, including under an operator's `--authorized`, now requires the landed
   commit on the pinned repository's target branch on the server (`gh api .../compare`). Before, it
