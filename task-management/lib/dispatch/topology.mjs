@@ -226,13 +226,16 @@ export function spawn(
   const parsed = parseLaunch(res.stdout);
   if (!parsed.run) return { ok: false, reason: parsed.reason, detail: { args } };
   const passEnvWarnings = topologyPassEnvWarnings(req);
+  const nativeRunId = parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session);
   return {
     ok: true,
     // The tmux session is the handle: `tmux attach -t <session>` is how a human looks in,
     // and ./collect.mjs reads the worker's liveness from exactly that session.
     run: `topology:${parsed.run.session}`,
-    nativeRunId: parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
-    workflowRunId: parsed.run.workflow_id ?? parsed.run.workflowId ?? parsed.run.run_id ?? parsed.run.runId ?? parsed.run.id ?? (parsed.run.runDir ? basename(parsed.run.runDir) : parsed.run.session),
+    nativeRunId,
+    // TM-417: the producer's canonical workflow id is `topology:<native run id>`; a bare run id
+    // here made every governed finish refuse with "Canonical workflow and native task run IDs differ".
+    workflowRunId: parsed.run.workflow_id ?? parsed.run.workflowId ?? `topology:${nativeRunId}`,
     detail: {
       args,
       promptFile,

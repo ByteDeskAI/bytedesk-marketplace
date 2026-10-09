@@ -9,6 +9,102 @@
   legacy `.orchestration/providers/`) is version-controlled, so a worker's merged PR could replace
   `claude` with any program for every later launch in that repo. `providerDirs` now searches only
   `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
+### Fixed
+
+- **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission
+  now always records the task's own governance id (`tm-<task>`) and no longer adopts a dispatch's
+  workflow id, so the id no longer depends on whether a worker was dispatched first. A finish
+  refused with "Canonical workflow and native task run IDs differ" now names the repair:
+  `ao-topology manage rebind --task <id>`. That verb is for the admitting session only. It checks
+  that the dispatched worktree and branch are the admitted ones, then calls `tm rebind`, which reads
+  the canonical `topology:<native run id>` from the producer's own discovery and never from the
+  caller. It records a `rebind` event.
+- **A workflow-run member can acknowledge its prompt (TM-417).** Launch staged `prompt-state.json`
+  before the pane existed, with no session, repository or pane binding, so `prompt ack` was refused
+  for every run agent and supervision's refresh read the prompt as queued. Launch now stamps those
+  fields once the pane is observed, again after the agents start, and after a failover respawn
+  (`bindStagedPrompt`).
+- **The governed "agent-orchestration: unit" check no longer hangs, and a bare test run no longer
+  reaches the operator's NATS (TM-491, EP-028).** The check ran bare `node --test`, which skips the
+  harness preloads: the transport defaulted to NATS and the managed services were on, so
+  `mcp-contract`, `runtime-diagnostics` and `topology-addressing` dialed the live broker (or ran
+  `services ensure` against the operator's services) and the cached connection kept each process
+  alive after its last test. The check now runs `npm run -s test:unit` with the session identity
+  unset, and the task-management check also drops `TM_NTFY_*`. Those files now import
+  `tests/helpers/bare-run.mjs` first, which loads the same preloads and closes any live transport in
+  `after()`, so a bare run behaves like the harness run.
+- **`topology-management.test.mjs` exits after its last test (TM-461, EP-028).** Same cause: run
+  without the preloads it held a cached NATS connection open forever. It now imports
+  `tests/helpers/bare-run.mjs`; 132/132 pass and the process exits in about 95 s.
+### Added
+
+- **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule
+  is stated in `prompts/common.md`, `prompts/common-reviewer.md`, `prompts/lead.md`, every role
+  pack under `roles/`, and the generated Protocol section (which no `replace` can remove): a worker
+  or other standing agent asks its repository lead with `ao-topology mailbox send --consumer
+  <repo> --to <lead-id>` (the id is `record.agent_id` in `ao-topology lead status`) and waits on
+  its inbox; a lead reads its own board (`tm next`, ready-for-agent, blocked, stale in_progress)
+  and assigns or dispatches the next work, reporting to the operator only results, still-ask
+  blockers and operator-only decisions, and with nothing ready reports the board state once and
+  idles. The supervisor rings an idle, dispatchable standing agent through the safe bell
+  (`wakeForProbe`; never over a draft, an attention screen or active tool input): a worker with
+  the exact `mailbox send --to` command naming its registered lead, a lead with "pick the next
+  ready task with tm next". Run agents (their conductor routes them) and the read-only reviewer
+  are not rung. New module `topology/lib/idle-nudge.mjs`; the tick reports `idle_nudges` only
+  when it rang or newly refused someone, and the same refusal is reported once per idle period.
+  - **The census cannot tell an agent that finished from one that stopped to ask a human**: both
+    read needs-input for one tick and idle and dispatchable two seconds later. The minimum idle
+    time is the guard: `min_idle_ms` (default 10 minutes) for a worker and `lead_min_idle_ms`
+    (default 30 minutes) for a lead, which is often the operator's own session, both counted from
+    the end of the agent's work. An unanswered question therefore gets at most one nudge.
+  - **Repeats are gated on the board alone.** After a ring the agent is rung again only when the
+    board's ready set changes: a hash of the task files whose frontmatter carries the exact label
+    `ready-for-agent` and is not finished, with their status, read from the task store on disk
+    with no task-management import. Mail never reopens the gate, because the nudge's own exchange
+    (the worker asks, the lead answers "nothing ready") is mail; a mail-gated nudge re-armed itself
+    every backoff, and arriving mail already rings its recipient (TM-419). The floor is
+    `backoff_ms` (default 30 minutes), doubling per ring up to `max_backoff_ms` (default 8 hours)
+    and starting over after a quiet spell twice that long. The cheap refusals (no registered lead,
+    no measured safe composer) are decided before anything is read, and the board is read only
+    for an agent rung before, so a ring that can never succeed reads no task files. A store whose
+    task files carry no `status:` line reads as null and is reported once, so a format change is
+    visible. `retry_ms` (default 60 s) spaces retries of a refused ring, and is also how long the
+    tick caches config, the lead registration and the board fingerprint, so an agent idle for a
+    day costs at most one board read per minute; a repeated, unreported refusal writes nothing.
+  - **The memory survives a restart**: it is saved atomically beside the supervisor record
+    (`<state>/supervision/<repo-key>.idle-nudge.json`), and a missing or corrupt file reads as
+    empty. An entry for an agent absent from the census and untried for 7 days is pruned.
+  - `idle_nudge.enabled` defaults to `true`; `false` is the off switch.
+  - **Not yet live:** the census excludes an agent holding undelivered mail only when a caller
+    feeds `undeliveredMessages`, and nothing does yet (`census.mjs`), so that exclusion is proven
+    by fixture only.
+  - The prompt-golden fixtures gain the one generated line.
+- **Broken repository checkouts are detected and repaired without an operator (TM-394).** A new
+  `topology/lib/checkout-repair.mjs` covers four cases. It recognises a `.git` pointer whose
+  `gitdir` and owning repository are both gone, a registered repository with no `.git`, a pointer
+  whose owning repository still exists (an orphaned worktree), and a repository that `git fsck`
+  rejects. The first two are repaired. The checkout's remote comes from `bytedesk-package.yaml` or
+  `package.json` `repository`, and is cloned `--no-checkout` into a scratch directory beside the
+  checkout, never `/tmp`. Bounded tags and recent default-branch commits are compared against the
+  working tree through a scratch index, and the closest is adopted with a mixed reset. The old
+  pointer is kept inside the new `.git`. A snapshot commit of the working tree as found becomes
+  branch `ao-repair/<stamp>`. Local edits are stashed, the branch moves to `origin/<default>`, and
+  the stash is applied by SHA. If the apply conflicts, upstream wins on disk and the stash is
+  kept, never dropped. An ignored file that the advance would overwrite cancels the advance.
+  The repair refuses with an alert, changing nothing, in these cases: no remote is known; the
+  remote is shaped like a git option; or the closest revision has more than the lesser of 50 and
+  10% of its tracked paths differing, or under 90% of them byte-identical. It also refuses when
+  the case needs a human: a pointer target that cannot be stat'ed (anything but ENOENT or
+  ENOTDIR) is `unreadable`, never "gone". An `in-progress` record is written before the stash
+  step. A repair interrupted there is then reported as `TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED`,
+  naming the snapshot branch and the stash, and is never re-run. Each attempt is recorded as
+  `checkout_repair` in `leads/<key>.recovery.json` (preserved by lead recovery and shown by
+  `lead status`) and in its journal, with backoff. `supervise` repairs at start and checks each
+  reconcile, restarting itself after a mid-run repair so it re-keys on the repaired identity.
+  `services ensure` checks every registered repository, reports broken ones by path and restarts
+  a repaired repository's supervisor, whose first reconcile ensures its lead. `lead ensure`
+  repairs first and refuses (`TOPOLOGY_CHECKOUT_BROKEN`) rather than mint a lead for a checkout
+  that is still broken.
 
 ## [0.16.1] — 2026-10-08
 
@@ -388,6 +484,45 @@ EP-028 work (PRs #222–#226), plus #221's NATS autostart delivery (TM-400) and 
   now goes to `ao-topology` as one `--key=value` token.
 
 ### Fixed
+
+- **One invalid NATS message no longer blocks an inbox (TM-482, EP-028).** `acceptMailboxDelivery`
+  NAKed every failure, and JetStream redelivers a NAKed message first, so a blank body, a bad
+  digest, a body over 1 MiB, another recipient's mail or a reused message ID made every later read
+  throw. A message that fails validation (`TOPOLOGY_MAILBOX_*`, `TOPOLOGY_MESSAGE_ID_CONFLICT`) is
+  now written to `<state>/mailbox/v1/<repo>/dead-letter/` with its reason, termed (ACKed where the
+  transport has no term), and paged to the operator through ntfy once per distinct message. Only a
+  local failure still NAKs. The NATS mail and reply deliveries gain `term()`.
+
+- **A failed publish retry no longer ends the repository supervisor (TM-483, EP-028).**
+  `resumeStandingMessages` rethrew from `resumeMailboxPublications`, and on any unreadable
+  publication or standing record in any repository's ledger, and the supervise loop treated that as
+  fatal. Each record is now tried on its own: a failure is reported in the tick's `mail_errors`,
+  recorded on the publication (`lastError`, `nextRetryAt` with the lead-recovery backoff of 10 s,
+  30 s, 2 min, then 10 min), and retried once due; `mailbox resume --force` skips the wait. An
+  unreadable record is reported and skipped by the resume sweep; a scoped reader still fails closed.
+  The supervisor tick also absorbs any remaining resume error instead of exiting.
+
+- **Review fixes for the mailbox robustness change (TM-482, TM-483, EP-028).**
+  - `mailbox resume` prints the failures it collected on stderr and exits 1, instead of reporting
+    success.
+  - Receipts are keyed by sender as well, so another sender reusing a predictable reply ID gets its
+    own receipt and can no longer get the real reply dead-lettered. When several senders used one
+    ID, `mailbox dispose --sender` and the MCP `sender` field pick one. Run wire IDs also carry the
+    run's creation time, so a recreated run never reuses an earlier run's IDs.
+  - Operator pages are limited to one per repository, agent and error code per hour, with a count of
+    the suppressed ones; the dead-letter directory keeps the newest 500 records.
+  - A dead letter records `notifiedAt`, and the page is sent before the message is termed, so a
+    crash in between pages on redelivery.
+  - The publication sweep skips and reports an unreadable (including `EACCES`/`EIO`) file or
+    directory, and a sweep that fails outright no longer discards the standing results.
+  - Each unreadable record the sweep skips is paged once per file, under the same hourly limit.
+  - The unit-test preload scrubs `AO_NTFY_*`/`TM_NTFY_*` topic and token variables.
+  - A receipt lookup with a named sender reads its two possible files directly, and the fallback
+    scan skips a file it cannot parse, so one corrupt receipt no longer blocks `dispose` for every
+    message in the repository.
+  - `mailbox dispose --sender ''` and an MCP `sender: null` name the receipt that has no sender.
+  - A failure while escalating unreadable records is reported in `errors`; the standing results
+    are kept.
 
 - **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
   sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
