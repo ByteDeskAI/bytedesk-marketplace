@@ -40,6 +40,13 @@
   `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR`. On Windows git and ssh
   still come from PATH. Release tests now prove "pushed nothing" from the repositories' refs,
   because a PATH git shim can no longer observe host git.
+- **A host copy must be this plugin before it is replaced (TM-485, EP-028).** `hostCopies` took any
+  directory with a `package.json` and a `dist/` as an ao copy, so a Kimi `mcp.json` naming another
+  package's root got that directory replaced and the original deleted. A copy now has to declare
+  `"name": "@bytedesk/agent-orchestration"`; anything else is never detected, so never touched.
+  A same-version copy of a different build whose recorded build ordinal EQUALS the services' build
+  is now refreshed behind the usual gates, instead of being reported and left; only a strictly
+  newer build is kept.
 - **Agent ids that share a NATS subject are refused at registration (TM-487, EP-028).** The mailbox
   subject token is `orchName(id)`, which turns every character outside `[A-Za-z0-9_-]` into `_` and
   cuts at 64 characters, so `a.b` and `a_b` shared one inbox and, since TM-482, dead-lettered each

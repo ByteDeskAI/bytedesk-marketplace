@@ -64171,11 +64171,12 @@ function keepBuild(copy, fingerprint2, source, ordinalOf) {
   const a = recordedOrdinal(copy, fingerprint2);
   if (a) {
     const b = ordinalOf();
-    return a > b ? "same version, newer build than the services" : a === b ? "same version and build ordinal, different build; not overwritten" : null;
+    return a > b ? "same version, newer build than the services" : null;
   }
   return bundleTime(copy) > bundleTime(source) ? "same version, newer build than the services" : null;
 }
-var looksLikeCopy = (dir) => (0, import_node_fs13.existsSync)((0, import_node_path69.join)(dir, "package.json")) && (0, import_node_fs13.existsSync)((0, import_node_path69.join)(dir, "dist"));
+var PACKAGE = "@bytedesk/agent-orchestration";
+var looksLikeCopy = (dir) => readJsonSync((0, import_node_path69.join)(dir, "package.json"))?.name === PACKAGE && (0, import_node_fs13.existsSync)((0, import_node_path69.join)(dir, "dist"));
 function compareVersions(a, b) {
   const parts = (v) => /^\d+\.\d+\.\d+/.exec(String(v ?? "")) ? String(v).split(/[.-]/).slice(0, 3).map(Number) : [-1, -1, -1];
   const [x, y] = [parts(a), parts(b)];
@@ -64384,10 +64385,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "5bd1444296f02bb5ff89c52ed7b657239a6d49bbfd90adc0a60ae78fd2fbcfa9";
+  return false ? null : "f5bf2c01ea61cfa35ba7a055bb0392cb9d61c1ec5c6b57cdef122f39c2d82cd3";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "5bd1444296f02bb5ff89c52ed7b657239a6d49bbfd90adc0a60ae78fd2fbcfa9";
+  const fingerprint2 = false ? null : "f5bf2c01ea61cfa35ba7a055bb0392cb9d61c1ec5c6b57cdef122f39c2d82cd3";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -65004,7 +65005,7 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "5bd1444296f02bb5ff89c52ed7b657239a6d49bbfd90adc0a60ae78fd2fbcfa9",
+  sourceFingerprint: false ? null : "f5bf2c01ea61cfa35ba7a055bb0392cb9d61c1ec5c6b57cdef122f39c2d82cd3",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
