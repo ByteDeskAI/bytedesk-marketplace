@@ -47,7 +47,7 @@ that, every commit, merge or rebase in the main checkout rsyncs the plugins it t
 as trusted so Codex runs them without asking.
 
 The same hook keeps each machine current. In the background, at most every 10 minutes, it
-fast-forwards the machine's marketplace checkout (the one Claude registered, or the repo the
+fast-forwards the machine's marketplace checkout (the one Claude registered as a local directory, or the repo the
 session starts in) from `origin/main`; the post-merge hook then syncs what the pull changed. Only a
 main checkout on `main` that is behind origin moves; local commits and other branches are left alone.
 A machine that has never pulled this change needs one manual `git pull` to start.
