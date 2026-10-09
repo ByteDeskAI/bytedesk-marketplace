@@ -505,6 +505,38 @@ describe("guardCommand — the shell a worker actually writes", () => {
     assert.equal(guardCommand('echo "unterminated', AT_HOME).allow, true, "unreadable but unguarded");
   });
 
+  it("TM-521: a tm block reason that quotes a refused command is data, and the command itself is still refused", () => {
+    const reason = "PR creation refused by dispatch guard: 'gh pr create --base main'. Recommendation: git push origin 6d510be:feature/x";
+    // The handoff spells tm out, so the reason is read as data (TM-481's U1 exemption).
+    for (const cmd of [
+      `.bytedesk/task-management/bin/tm block TM-262 "${reason}"`,
+      `.bytedesk/task-management/bin/tm comment TM-262 '${reason.replaceAll("'", "")}'`,
+      `tm block TM-262 "${reason}"`,
+    ]) {
+      const v = guardCommand(cmd, WORKER);
+      assert.equal(v.allow, true, `allowed: ${cmd} (refused by ${v.rule})`);
+    }
+    // The commands it quotes stay refused, and so does anything named by an expansion — `$TM` included,
+    // because `$SHELL -c "gh pr merge 5"` has the same shape and runs its quoted argument.
+    for (const cmd of [
+      "gh pr create --base other",
+      "git push origin 6d510be:feature/x",
+      `.bytedesk/task-management/bin/tm block TM-262 "x"; gh pr create --base other`,
+      `$TM block TM-262 "${reason}"`,
+      "$GH pr merge 5",
+      '$SHELL -c "gh pr merge 5"',
+      `"$BASH" -c 'git push origin main'`,
+      '$X -lc "gh pr create --base other"',
+    ]) {
+      const v = guardCommand(cmd, WORKER);
+      assert.equal(v.allow, false, `still refused: ${cmd}`);
+    }
+    // Behind the allowlist, the table refuses an expansion-named command too.
+    for (const cmd of ['$SHELL -c "gh pr merge 5"', `"$BASH" -c 'git push origin main'`, '$X -lc "gh pr create --base other"']) {
+      assert.equal(guardCommand(cmd, AT_HOME).rule, "unparsed", `table refuses: ${cmd}`);
+    }
+  });
+
   it("a push that relies on HEAD is allowed only while HEAD is the worker's own branch", () => {
     const onMain = { branch: OWN, head: "main", allowlist: false };
     for (const cmd of ["git push", "git push origin", "git push origin HEAD", "git push -u origin HEAD"]) {

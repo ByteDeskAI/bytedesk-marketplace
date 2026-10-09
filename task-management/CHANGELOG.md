@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Test: a `tm block` reason that quotes a refused command is pinned as allowed (TM-521, EP-029).**
+  A worker reporting a refusal with `.bytedesk/task-management/bin/tm block TM-n "refused: gh pr
+  create …"` is allowed; the quoted commands themselves, `$TM block …`, and an expansion-named shell
+  running a quoted script (`$SHELL -c "gh pr merge 5"`) stay refused. No guard change: TM-481's
+  allowlist already reads a spelled-out `tm` line as data.
 - **SECURITY: a governed worker can no longer merge its own PR, and an ungoverned one needs green
   required checks (TM-481, EP-028).** The worker guard refuses every `gh pr merge` for a governed task
   (`TM_DISPATCH_GOVERNED`, the dispatch record, or task governance; an unidentifiable task counts as

@@ -30,13 +30,14 @@ export function handler<A>(fn: (args: A) => Promise<unknown>) {
 }
 
 /**
- * Registration signature shared by every tools/*.ts module. `mode` is 'full' or 'read';
- * modules must skip write tools when mode === 'read'.
+ * Registration signature shared by every tools/*.ts module. `mode` is 'full', 'read' or
+ * 'lead'; modules register write tools only when mode === 'full'. `project` is the lead's scope.
  */
 export type RegisterTools = (
   server: McpServer,
   client: TeamCityClient,
   mode: McpMode,
+  project?: string,
 ) => void;
 
 export const LOCATOR_HELP =
