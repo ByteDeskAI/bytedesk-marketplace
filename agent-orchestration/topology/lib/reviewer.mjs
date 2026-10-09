@@ -1706,6 +1706,8 @@ export async function withdrawReview({ consumer, task, revision, reason, env = p
     const request = await readJson(path).catch(error => { if (error.code === 'ENOENT') fail('TOPOLOGY_REVIEWER_NONCE', `No review request exists for ${task} at ${revision}.`, { task, revision }); throw error; });
     invariant(!request.collected_at, 'TOPOLOGY_REVIEWER_RESPONSE', `Review request ${request.nonce} was already collected; a recorded review cannot be withdrawn.`);
     invariant(request.state !== 'failed', 'TOPOLOGY_REVIEWER_REQUEST_FAILED', `Review request ${request.nonce} already failed (${request.failure?.reason ?? 'no reason recorded'}); request the review again.`);
+    // A verdict the reviewer did submit is collected, never discarded: a withdraw must not hide one.
+    invariant(!await readSubmittedVerdict(path, request), 'TOPOLOGY_REVIEWER_RESPONSE', `The reviewer already submitted a verdict for request ${request.nonce}; collect it: ao-topology reviewer collect --task ${task} --revision ${revision}.`);
     const withdrawn = { at: nowIso(), by: lead, reason: reason.trim() };
     const { recordTaskEvent } = await import('./management.mjs');
     await recordTaskEvent({ consumer, task, env, home, ...(store ? { store } : {}) }, 'review-withdrawn', { revision, nonce: request.nonce, reviewer_id: request.reviewer_id, by: lead, reason: withdrawn.reason });

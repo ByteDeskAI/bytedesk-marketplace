@@ -29857,6 +29857,7 @@ async function withdrawReview({ consumer, task, revision, reason, env = process.
     });
     invariant2(!request.collected_at, "TOPOLOGY_REVIEWER_RESPONSE", `Review request ${request.nonce} was already collected; a recorded review cannot be withdrawn.`);
     invariant2(request.state !== "failed", "TOPOLOGY_REVIEWER_REQUEST_FAILED", `Review request ${request.nonce} already failed (${request.failure?.reason ?? "no reason recorded"}); request the review again.`);
+    invariant2(!await readSubmittedVerdict(path3, request), "TOPOLOGY_REVIEWER_RESPONSE", `The reviewer already submitted a verdict for request ${request.nonce}; collect it: ao-topology reviewer collect --task ${task} --revision ${revision}.`);
     const withdrawn = { at: nowIso(), by: lead, reason: reason.trim() };
     const { recordTaskEvent: recordTaskEvent2 } = await Promise.resolve().then(() => (init_management(), management_exports));
     await recordTaskEvent2({ consumer, task, env, home, ...store ? { store } : {} }, "review-withdrawn", { revision, nonce: request.nonce, reviewer_id: request.reviewer_id, by: lead, reason: withdrawn.reason });
@@ -80806,10 +80807,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "c00796f537bd6c1bd9e09dea51b9b8a4ee233fe35b610f352f2009dc8f5ab39b";
+  return false ? null : "0efe73edc4072c090219810813deb47fced623dd8b4af78c85623e790a3ea28c";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "c00796f537bd6c1bd9e09dea51b9b8a4ee233fe35b610f352f2009dc8f5ab39b";
+  const fingerprint2 = false ? null : "0efe73edc4072c090219810813deb47fced623dd8b4af78c85623e790a3ea28c";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -81234,7 +81235,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "c00796f537bd6c1bd9e09dea51b9b8a4ee233fe35b610f352f2009dc8f5ab39b",
+  sourceFingerprint: false ? null : "0efe73edc4072c090219810813deb47fced623dd8b4af78c85623e790a3ea28c",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises62.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -226,3 +226,13 @@ test('TM-525 after a lead withdraw the restart proceeds, the re-request reaches 
   assert.equal(review.request_nonce, again.nonce);
   assert.notEqual(review.request_nonce, old.nonce);
 });
+
+test('TM-525 a request the reviewer already answered cannot be withdrawn; its verdict is still collected', async t => {
+  const f = await fixture(t);
+  const request = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  await submitVerdict(f, request, 'changes_requested', [{ severity: 'major', file: 'CHANGELOG.md', line: 1, claim: 'c', evidence: 'e', fix: 'f' }]);
+  const comments = [];
+  await assert.rejects(withdrawReview({ ...f, task: 'TM-1', revision: f.revision, reason: 'hide it', requireLead: async () => 'lead1', store: { comment: async (...a) => comments.push(a) } }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
+  assert.deepEqual(comments, [], 'no event recorded');
+  assert.equal((await collectReview({ ...f, task: 'TM-1' })).verdict, 'changes_requested');
+});
