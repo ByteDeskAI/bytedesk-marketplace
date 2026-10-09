@@ -34,13 +34,14 @@
   `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
 ### Fixed
 
-- **`manage stop-worker` no longer tells a lead a live worker needs a finish report (TM-426, EP-028).**
-  A worker that is still alive and has not finished is now refused for being alive ("Observed worker
-  pane is still alive…"), not with "has not been collected through the finish protocol", which read
-  as "only a finish can release this worker". A worker observed exited without a finish is still
-  retired, as TM-247 made it, and `start-worker` then launches the next round. A released claim keeps
-  its own, more specific refusal.
-
+- **A lead can finish a task it delegated to an existing terminal (TM-412, EP-028).** A dispatch tm
+  had already collected still counted as the task's writer, so after a duplicate pool worker exited
+  `manage bind --pid` refused the real writer and `manage report` failed with "Only a currently live
+  registered worker can establish a new ownership binding" (agent-browser TM-033). Bind, report and
+  the integration liveness check now share one predicate that ignores a collected dispatch. The
+  documented path: `tm collect`, then `manage bind --task <id> --pid <harness pid>`, then
+  `manage report`. The admission and base revision are kept, the terminal is never closed, and an
+  uncollected dispatch is still refused with the `tm collect` step named.
 - **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission
   now always records the task's own governance id (`tm-<task>`) and no longer adopts a dispatch's
   workflow id, so the id no longer depends on whether a worker was dispatched first. A finish
