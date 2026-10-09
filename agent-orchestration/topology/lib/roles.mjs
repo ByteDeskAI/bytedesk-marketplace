@@ -183,7 +183,7 @@ export async function roleStatus({ role, consumer, home = homedir(), env = proce
     return {
       role, singleton: true, state: state.status,
       registered: state.status !== "none",
-      alive: state.status === "unresponsive" || state.status === "responsive",
+      alive: ["unresponsive", "unproven", "responsive"].includes(state.status),
       responsive: state.status === "responsive",
       holder: state.record?.agent_id ?? null,
       holder_name: state.record?.agent_name ?? null,

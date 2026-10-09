@@ -92,6 +92,30 @@
 
 ### Fixed
 
+- **Lead probes no longer pile up in the lead's pane (TM-478, EP-028).** Every readiness caller
+  minted its own nonce and rang its own `AO_PROBE` pointer, so a lead that was mid-turn received
+  many pointers in one message at its next turn boundary, all of them expired. Now each pane
+  incarnation has at most one pending probe. Later callers extend that probe and wait on it, and
+  every waiter sees the answer, whichever one consumes it. The probe is rung again, under the same
+  nonce, only when the previous ring typed nothing or a backed-off window has passed.
+- **A probe that never reached the lead no longer marks it unresponsive (TM-478).** `wakeForProbe`
+  now reports whether the pointer was submitted. If the ring typed nothing, or the pointer stayed
+  in the composer, `lead status` reports the new status `unproven` (`verdict_source:
+  "undelivered"`), not `unresponsive`. Lead recovery retries `kept-unproven` on its normal backoff.
+  The TM-384 held-mail ring also rings an `unproven` destination lead.
+- **The probe interval backs off while the lead keeps answering (TM-478).** The cached answer's
+  lifetime doubles with each consecutive acknowledgement, up to `AO_RESPONSIVE_TTL_MAX_MS` (default
+  four times `AO_RESPONSIVE_TTL_MS`). A delivered probe that goes unanswered resets the count. The
+  probe sweep no longer deletes the per-agent answer memo, and the ring-outcome memo now lives in
+  `probe-state/`, beside `probes/`, so no reader of `probes/` can mistake it for a probe.
+- **A lead's ack is proof even when nobody is still waiting for it (TM-478).** `lead ack` now
+  records the answer itself and makes held mail that names the lead's repository (`leads_not_ready`)
+  due at once, so the next resume admits it even after the probe has expired. A waiter that
+  consumes an ack records the answer before removing the probe, so another waiter on the same probe
+  can no longer find neither and report the lead unresponsive. One answer advances the backoff once.
+- **The lead probe rings the lead's own tmux server (TM-402).** `wakeLead` checked and typed into
+  `%N` on the default tmux server. It now shares one helper, `ringLeadPane`, with the held-mail
+  ring, and that helper runs inside `withServer(binding.serverKey)`.
 - **A lead can finish a task it delegated to an existing terminal (TM-412, EP-028).** A dispatch tm
   had already collected still counted as the task's writer, so after a duplicate pool worker exited
   `manage bind --pid` refused the real writer and `manage report` failed with "Only a currently live
@@ -148,8 +172,15 @@
 - **`topology-management.test.mjs` exits after its last test (TM-461, EP-028).** Same cause: run
   without the preloads it held a cached NATS connection open forever. It now imports
   `tests/helpers/bare-run.mjs`; 132/132 pass and the process exits in about 95 s.
+
 ### Added
 
+- **`mailbox withdraw <id> [--reason <text>]` (TM-478).** The sending session can take back its own
+  held standing mail. The sender is checked against the session identity, so naming another agent
+  does not work. Withdrawn mail is terminal: `resume` never retries it, and the held-mail ring stops
+  for it, and re-sending its id does not revive it. Mail that has already been admitted cannot be
+  withdrawn. An unknown id and another sender's message both return `TOPOLOGY_SENDER_MISMATCH`, so
+  the verb does not reveal which ids exist.
 - **Agents pull their next assignment; nobody asks the operator "what next?" (TM-408).** The rule
   is stated in `prompts/common.md`, `prompts/common-reviewer.md`, `prompts/lead.md`, every role
   pack under `roles/`, and the generated Protocol section (which no `replace` can remove): a worker

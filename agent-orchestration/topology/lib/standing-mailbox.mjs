@@ -16,12 +16,8 @@ import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { leadState, readLeadRegistration } from './lead.mjs';
-import { composerFormat, ringCapability, wakeForProbe } from './delivery.mjs';
-import { incarnationOf } from './incarnation.mjs';
-import { tmuxFailureTrigger } from './launch.mjs';
-import { adapterFor, loadAdapters, providerDirs } from './providers.mjs';
-import { withServer } from './tmux.mjs';
+import { leadState, readLeadRegistration, ringLeadPane } from './lead.mjs';
+import { loadAdapters } from './providers.mjs';
 import { requestLeadRecovery, retryDelayMs } from './lead-recovery.mjs';
 import { activateRepository, resolveEnrollment } from './repo-enrollment.mjs';
 import { withLock } from './lockfile.mjs';
@@ -124,7 +120,8 @@ async function withRecovery(record, opts, { ring = false } = {}) {
 const pointerText = value => String(value ?? '').replace(/[^A-Za-z0-9._:@\/+=-]/g, '?').slice(0, 128);
 
 function ringDue(record, now) {
-  if (record?.status !== 'held' || record.reason !== 'leads_not_ready' || record.readiness?.destination !== 'unresponsive') return false;
+  // TM-478: an `unproven` lead (its probe never reached it) is exactly the lead this ring exists for.
+  if (record?.status !== 'held' || record.reason !== 'leads_not_ready' || !['unresponsive', 'unproven'].includes(record.readiness?.destination)) return false;
   if ((record.attempts ?? 0) < 2) return false;
   const prior = record.lead_ring;
   return !prior?.at || now >= Date.parse(prior.at) + retryDelayMs(prior.attempt);
@@ -133,16 +130,14 @@ function ringDue(record, now) {
 async function ringDestinationLead(record, opts) {
   const e = record.envelope;
   const registration = await (opts.readLead ?? readLeadRegistration)({ consumer: e.consumer, env: opts.env, home: opts.home });
-  const lead = registration?.record, binding = incarnationOf(lead?.binding);
-  if (!lead?.pane || !binding) return { rang: false, reason: 'the destination lead has no registered pane incarnation' };
-  const adapters = await (opts.loadAdapters ?? loadAdapters)(providerDirs({ consumer: e.consumer, home: opts.home, pluginRoot: opts.pluginRoot, env: opts.env }));
-  const adapter = adapterFor({ cli: lead.provider, model: null, args: [], skills: [] }, adapters);
-  if (ringCapability(adapter) !== 'supported') return { rang: false, agent: lead.agent_id, reason: 'the lead provider has no measured safe composer' };
+  const lead = registration?.record;
+  if (!lead) return { rang: false, reason: 'the destination lead has no registered pane incarnation' };
   const consumer = shellQuote(e.consumer);
   const text = '[ao] Standing mail ' + pointerText(e.id) + ' from ' + pointerText(e.from) + ' is held for you: your readiness is not proven. '
     + 'Answer any pending probe (ao-topology lead probes --consumer ' + consumer + '), then read it with: ao-topology mailbox inbox --consumer ' + consumer + ' --agent ' + shellQuote(lead.agent_id) + '.';
-  const result = await withServer(binding.serverKey, () => (opts.wake ?? wakeForProbe)({ pane: lead.pane, adapter, binding,
-    format: composerFormat(adapter, tmuxFailureTrigger(adapter)), text }));
+  // TM-402: the same helper the lead probe rings through, scoped to the lead's own tmux server.
+  const result = await ringLeadPane(lead, text, { consumer: e.consumer, home: opts.home, pluginRoot: opts.pluginRoot, env: opts.env,
+    loadAdapters: opts.loadAdapters ?? loadAdapters, ...(opts.wake ? { wake: opts.wake } : {}) });
   return result?.rang ? { rang: true, agent: lead.agent_id, pane: lead.pane } : { rang: false, agent: lead.agent_id, pane: lead.pane, reason: result?.reason ?? 'the lead composer cannot safely receive a pointer' };
 }
 
@@ -307,7 +302,8 @@ export async function sendStandingMessage(input, options = {}) {
       record = { version: 1, envelope, status: 'held', reason: 'pending_admission', attempts: 0, created_at: nowIso() };
       await atomicWrite(p.file, record);
     }
-    if (record.status === 'delivered') return { ...record, deduplicated: true };
+    // TM-478: a withdrawn message stays withdrawn; resending its id never revives it.
+    if (record.status === 'delivered' || record.status === 'withdrawn') return { ...record, deduplicated: true };
     if (record.status !== 'publishing') record = await advance(record, opts);
     return publishAdmitted(record, p, opts);
   });
@@ -388,6 +384,14 @@ export async function wakeStandingMessages({ ids = [], ...options }) {
   return woken;
 }
 
+/** TM-478: a lead's ack makes the mail held for its readiness due now. Nothing is delivered here. */
+export async function wakeHeldForRepository({ repoId, ...options }) {
+  const ids = (await records({ ...options, errors: [] }))
+    .filter(r => r.status === 'held' && r.reason === 'leads_not_ready' && [r.envelope.destinationRepoId, r.envelope.sourceRepoId].includes(repoId))
+    .map(r => r.envelope.id);
+  return ids.length ? wakeStandingMessages({ ids, ...options }) : [];
+}
+
 /**
  * TM-356: who this session is, for every mailbox entry that acts as an agent (CLI send and forward,
  * MCP send, receive and dispose). The identity is the launcher's — AO_AGENT_ID and AO_CONSUMER, the
@@ -465,6 +469,33 @@ export async function readStandingOutbox({ consumer, agent, ...options }) {
   return (await records(options)).filter(r => r.envelope.sourceRepoId === identity.id && r.envelope.from === agent);
 }
 
+/**
+ * TM-478. A sender takes back its own HELD mail: one verb, as this session (the caller passes the
+ * sessionIdentity agent and repository, never a claimed name). Only a hold can be withdrawn —
+ * admitted mail already belongs to its recipient. A withdrawn record is terminal: `due` never
+ * retries it and `ringDue` never rings for it, so the TM-384 held-mail ring stops with it.
+ */
+export async function withdrawStandingMessage({ id, agent, consumer, reason = null, ...options }) {
+  invariant(typeof id === 'string' && id, 'TOPOLOGY_MESSAGE_ID_INVALID', 'Pass the message id: mailbox withdraw <id>.');
+  invariant(agent && consumer, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED', 'Withdrawing needs the sending session identity.');
+  const source = await canonicalRepoId(consumer);
+  const p = paths(id, options);
+  return withLock(p.lock, async () => {
+    const current = await read(p.file);
+    // As TM-465 F4 for `mailbox wait`: an unknown id and someone else's message get the same answer,
+    // so withdraw cannot be used to learn which ids exist or who sent them.
+    invariant(current && current.envelope.from === agent && current.envelope.sourceRepoId === source.id, 'TOPOLOGY_SENDER_MISMATCH',
+      `This session (${agent}) sent no standing message ${id}. Nothing was withdrawn.`);
+    if (current.status === 'withdrawn') return current;
+    invariant(current.status === 'held', 'TOPOLOGY_WITHDRAW_NOT_HELD',
+      `Message ${id} is ${current.status}, not held; only held mail can be withdrawn. Nothing was changed.`);
+    const next = { ...current, status: 'withdrawn', reason: 'withdrawn', permanent: true, next_retry_at: null,
+      withdrawn_at: nowIso(), withdrawn_reason: reason === null || reason === undefined ? null : String(reason).slice(0, 500), updated_at: nowIso() };
+    await atomicWrite(p.file, next);
+    return next;
+  });
+}
+
 /** Forward a delivered standing envelope without trusting callers to reconstruct
  * or shorten its ancestry. The original remains immutable and addressable. */
 export async function forwardStandingMessage({ parentId, from, fromProject, ...input }, options = {}) {
@@ -487,7 +518,7 @@ export async function readStandingMessage({ id, ...options }) {
   invariant(typeof id === 'string' && id, 'TOPOLOGY_MESSAGE_ID_INVALID', 'Message ID is required.');
   const record = await read(paths(id, options).file);
   if (record) {
-    invariant(record.version === 1 && record.envelope?.id === id && ['held', 'publishing', 'delivered'].includes(record.status), 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
+    invariant(record.version === 1 && record.envelope?.id === id && ['held', 'publishing', 'delivered', 'withdrawn'].includes(record.status), 'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing mailbox record.');
     if (record.reply) invariant(record.status === 'delivered' && record.reply.agent === record.delivered_to &&
       record.reply.repositoryId === record.envelope.destinationRepoId && typeof record.reply.body === 'string' && record.reply.body.trim(),
       'TOPOLOGY_STANDING_STATE_INVALID', 'Invalid standing reply record.');
