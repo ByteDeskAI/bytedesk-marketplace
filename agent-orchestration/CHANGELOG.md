@@ -6,6 +6,9 @@
   directory with a `package.json` and a `dist/` as an ao copy, so a Kimi `mcp.json` naming another
   package's root got that directory replaced and the original deleted. A copy now has to declare
   `"name": "@bytedesk/agent-orchestration"`; anything else is never detected, so never touched.
+  A same-version copy of a different build whose recorded build ordinal EQUALS the services' build
+  is now refreshed behind the usual gates, instead of being reported and left; only a strictly
+  newer build is kept.
 
 - **Automatic review requests carry the worker's check evidence (TM-418, EP-028).** A finish report
   may list structured runs in `report.checks` (`{name, command, exit_code, revision, log_tail}`).

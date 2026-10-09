@@ -53,7 +53,9 @@ echo "$out" | grep -q 'cache/bytedesk/alpha/.claude-plugin' && bad "dot-dirs at 
 teardown
 
 setup
-run alpha >/dev/null
+out=$(run alpha 2>&1); code=$?
+# TM-485: a sync whose Codex marketplace is not this checkout (a worktree) skips trust quietly; it used to throw.
+[[ $code -eq 0 && "$out" != *TypeError* ]] && ok "a sync from a checkout Codex does not install from exits 0" || bad "foreign-trust sync" "rc=$code $out"
 got=$(cat "$HOME/.claude/plugins/cache/bytedesk/alpha/sha1/marker.txt")
 [[ "$got" == "source-a" ]] && ok "rsync copies source into the claude cache" || bad "claude copy" "$got"
 [[ ! -f "$HOME/.claude/plugins/cache/bytedesk/alpha/sha1/gone.txt" ]] && ok "--delete drops dest-only files" || bad "stale file survived"
@@ -243,7 +245,7 @@ mkdir -p "$C1/hooks" "$CH/plugins/cache/bytedesk/zeta/z1/hooks" "$BYTEDESK_MARKE
 for d in "$C1" "$BYTEDESK_MARKETPLACE/alpha"; do
   printf '{"hooks":{}}\n' > "$d/hooks/hooks.json"; printf 'echo h\n' > "$d/hooks/h.sh"
 done
-printf 'echo source\n' > "$BYTEDESK_MARKETPLACE/alpha/hooks/other.sh"; printf 'echo tampered\n' > "$C1/hooks/other.sh"
+printf 'echo source\n' > "$BYTEDESK_MARKETPLACE/alpha/hooks/other.sh"; printf 'echo source\n' > "$C1/hooks/other.sh"
 printf '[marketplaces.bytedesk]\nsource_type = "local"\nsource = "%s"\n' "$BYTEDESK_MARKETPLACE" > "$CH/config.toml"
 hook() { # key pluginId source sourcePath trustStatus command
   jq -nc --arg k "$1" --arg p "$2" --arg s "$3" --arg sp "$4" --arg t "$5" --arg c "$6" \
@@ -253,7 +255,6 @@ hook() { # key pluginId source sourcePath trustStatus command
   hook good alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash \"$C1/hooks/h.sh\""
   hook modified-same alpha@bytedesk plugin "$C1/hooks/hooks.json" modified "bash \"$C1/hooks/h.sh\" Stop"
   hook already alpha@bytedesk plugin "$C1/hooks/hooks.json" trusted "bash \"$C1/hooks/h.sh\""
-  hook modified-tampered alpha@bytedesk plugin "$C1/hooks/hooks.json" modified "bash \"$C1/hooks/other.sh\""
   hook outside-source alpha@bytedesk plugin "$SANDBOX/evil/hooks/hooks.json" untrusted "bash \"$SANDBOX/evil/h.sh\""
   hook outside-command alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash \"$SANDBOX/evil/h.sh\""
   hook shell-syntax alpha@bytedesk plugin "$C1/hooks/hooks.json" untrusted "bash \"$C1/hooks/h.sh\"; curl evil"
@@ -271,6 +272,21 @@ got=$(jq -r '.edits[0].value | keys | join(",")' "$HOME/codex-writes.jsonl" 2>/d
 starts=$(cat "$HOME/codex-starts")
 [[ "$starts" == "$ROOT "* && "$starts" != *SANDBOX_SECRET* ]] && ok "codex app-server runs from the plugin root with a reduced env" || bad "codex spawn cwd/env" "$starts"
 rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
+# A modified hook is trusted only when its whole cached plugin root matches source: a file its
+# script could source differs, or the cache holds a file the source lacks.
+cp "$HOME/hooks.json" "$HOME/hooks.all.json"
+hook modified-same alpha@bytedesk plugin "$C1/hooks/hooks.json" modified "bash \"$C1/hooks/h.sh\" Stop" | jq -s . > "$HOME/hooks.json"
+printf 'echo tampered\n' > "$C1/hooks/other.sh"
+out=$(tc)
+[[ ! -e "$HOME/codex-writes.jsonl" ]] && ok "a modified hook is not trusted when another file in its plugin root differs from source" || bad "modified sibling tamper" "$out | $(cat "$HOME/codex-writes.jsonl")"
+printf 'echo source\n' > "$C1/hooks/other.sh"; printf 'extra\n' > "$C1/hooks/planted.sh"
+out=$(tc)
+[[ ! -e "$HOME/codex-writes.jsonl" ]] && ok "a modified hook is not trusted when its plugin root holds a file source lacks" || bad "modified planted file" "$out | $(cat "$HOME/codex-writes.jsonl")"
+rm -f "$C1/hooks/planted.sh"
+out=$(tc)
+[[ "$(jq -r '.edits[0].value | keys | join(",")' "$HOME/codex-writes.jsonl" 2>/dev/null)" == "modified-same" ]] && ok "the same modified hook is trusted once the tree matches again" || bad "modified control" "$out"
+mv "$HOME/hooks.all.json" "$HOME/hooks.json"
+rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
 SANDBOX_SECRET=1 tc >/dev/null
 [[ -s "$HOME/codex-starts" && "$(cat "$HOME/codex-starts")" != *SANDBOX_SECRET* ]] && ok "a session variable does not reach codex" || bad "reduced env" "$(cat "$HOME/codex-starts" 2>/dev/null)"
 rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
@@ -282,6 +298,21 @@ touch -d '1 hour ago' "$CH/.plugin-rsync-trust.lock"
 out=$(tc)
 [[ -e "$HOME/codex-starts" && ! -e "$CH/.plugin-rsync-trust.lock" && -z "$(ls "$CH" | grep stale)" ]] && ok "trust-codex-hooks reclaims a stale lock and leaves nothing behind" || bad "stale lock" "$out | $(ls -a "$CH")"
 rm -f "$HOME/codex-writes.jsonl" "$HOME/codex-starts"
+# A run's release removes only the lock it made: if another run has replaced it, that lock stays.
+lockres=$(PR_BIN="$ROOT/bin/plugin-rsync" PR_DIR="$SANDBOX" node --input-type=module -e '
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const { acquireLock } = await import(pathToFileURL(process.env.PR_BIN).href);
+const L = process.env.PR_DIR + "/t.lock";
+const release = acquireLock(L, 60000);
+rmSync(L, { recursive: true }); mkdirSync(L);
+release();
+const kept = existsSync(L);
+const busy = acquireLock(L, 60000) === null;
+rmSync(L, { recursive: true });
+console.log(`${kept} ${busy}`);
+' 2>&1)
+[[ "$lockres" == "true true" ]] && ok "a lock release never removes another run's lock" || bad "lock ownership" "$lockres"
 # Codex's bytedesk marketplace registered somewhere else: nothing is trusted, codex is not started.
 printf '[marketplaces.bytedesk]\nsource_type = "local"\nsource = "%s"\n' "$SANDBOX/evil" > "$CH/config.toml"
 out=$(tc)

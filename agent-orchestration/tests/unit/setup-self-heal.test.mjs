@@ -169,7 +169,7 @@ test("TM-299: same-version builds are ordered by the ordinal recorded at sync; m
   // A newer build whose bundle mtime is older: never overwritten.
   const newerEarlier = await makeCopy(at("newer-older-mtime"), { version: "0.14.0", ordinal: 3000 });
   await builtAt(newerEarlier, 1_000_000_000);
-  // Equal ordinal, different fingerprint: cannot be ordered, so it is kept.
+  // TM-485: equal ordinal, different fingerprint: not newer, so the services' build replaces it.
   const equal = await makeCopy(at("equal"), { version: "0.14.0", ordinal: 2000 });
   // No metadata (an old install): the mtime decides, both ways.
   const bareOld = await makeCopy(at("no-ordinal-old"), { version: "0.14.0" });
@@ -180,26 +180,24 @@ test("TM-299: same-version builds are ordered by the ordinal recorded at sync; m
   const stale = await makeCopy(at("stale-meta"), { version: "0.14.0", ordinal: 9999, metaFingerprint: FP("f") });
   await builtAt(stale, 1_000_000_000);
   const copies = [olderLater, newerEarlier, equal, bareOld, bareNew, stale].map((dir) => ({ host: basename(dir), root: dir, real: dir }));
-  const kept = { newerEarlier: await snapshot(newerEarlier), equal: await snapshot(equal), bareNew: await snapshot(bareNew) };
+  const kept = { newerEarlier: await snapshot(newerEarlier), bareNew: await snapshot(bareNew) };
 
   assert.equal(recordedOrdinal(olderLater, FP("a")), 1000);
   assert.equal(recordedOrdinal(bareOld, FP("a")), null);
   assert.equal(recordedOrdinal(stale, FP("a")), null);
   const pointer = { pluginRoot: source, version: "0.14.0", fingerprint: FP("e") };
   const report = await refreshHostCopies({ pointer, home, env: {}, copies, git });
-  assert.deepEqual(report.refreshed.map((c) => [c.host, c.reason]), [["older-installed-later", "same version, different build"], ["no-ordinal-old", "same version, different build"], ["stale-meta", "same version, different build"]]);
+  assert.deepEqual(report.refreshed.map((c) => [c.host, c.reason]), [["older-installed-later", "same version, different build"], ["equal", "same version, different build"], ["no-ordinal-old", "same version, different build"], ["stale-meta", "same version, different build"]]);
   assert.deepEqual(report.current.map((c) => [c.host, c.reason]), [
     ["newer-older-mtime", "same version, newer build than the services"],
-    ["equal", "same version and build ordinal, different build; not overwritten"],
     ["no-ordinal-new", "same version, newer build than the services"],
   ]);
   assert.equal(asked.filter((a) => a.startsWith("log")).length, 1, "the source's commit time is read once per sync");
   // Every refreshed copy records the build it now holds and where from; the source tree gains nothing.
-  for (const dir of [olderLater, bareOld, stale]) assert.deepEqual(JSON.parse(await readFile(join(dir, BUILD_META), "utf8")), { fingerprint: FP("e"), ordinal: 2000, source });
+  for (const dir of [olderLater, equal, bareOld, stale]) assert.deepEqual(JSON.parse(await readFile(join(dir, BUILD_META), "utf8")), { fingerprint: FP("e"), ordinal: 2000, source });
   await assert.rejects(stat(join(source, BUILD_META)), { code: "ENOENT" });
   assert.equal(await readFile(join(bareOld, "MARKER"), "utf8"), "SOURCE");
   assert.deepEqual(await snapshot(newerEarlier), kept.newerEarlier);
-  assert.deepEqual(await snapshot(equal), kept.equal);
   assert.deepEqual(await snapshot(bareNew), kept.bareNew);
 });
 

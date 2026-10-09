@@ -5,7 +5,8 @@
  * User-scope only. This is a machine tool, not a project one: a repo that enables
  * plugin-rsync@bytedesk in extraKnownMarketplaces is the wrong install.
  */
-import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -227,29 +228,51 @@ export function parseItemized(stdout) {
 
 /**
  * One run at a time: a lock directory, reclaimed when older than `staleMs` (a run killed mid-way).
- * TM-485: the stale lock is renamed aside before removal, so of two runs that both saw it stale only
- * one can take it — a plain rmdir let the slower one delete the lock the faster one had just made.
+ * TM-485: each run writes a random owner token into its lock. A stale lock is renamed aside and
+ * removed only if the moved directory still has the token seen when it was judged stale; if another
+ * run replaced it in between, that lock is put back and this run is busy. Release removes the lock
+ * only while it still holds this run's token. (Not the inode: a new directory can reuse it.)
  * Returns the release function, or null when another run holds the lock.
  */
+const lockOwner = (dir) => {
+  try {
+    return readFileSync(join(dir, "owner"), "utf8");
+  } catch {
+    return null;
+  }
+};
 export function acquireLock(lock, staleMs) {
   mkdirSync(dirname(lock), { recursive: true });
+  let seen = null;
   try {
-    if (Date.now() - statSync(lock).mtimeMs > staleMs) {
-      const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
-      renameSync(lock, aside);
-      rmdirSync(aside);
-    }
+    seen = statSync(lock);
   } catch {}
+  if (seen && Date.now() - seen.mtimeMs > staleMs) {
+    const owner = lockOwner(lock);
+    const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
+    try {
+      renameSync(lock, aside);
+    } catch {
+      return null;
+    }
+    if (lockOwner(aside) !== owner) {
+      try {
+        renameSync(aside, lock);
+      } catch {}
+      return null;
+    }
+    rmSync(aside, { recursive: true, force: true });
+  }
   try {
     mkdirSync(lock);
   } catch (e) {
     if (e.code === "EEXIST") return null;
     throw e;
   }
+  const token = `${process.pid}-${randomUUID()}`;
+  writeFileSync(join(lock, "owner"), token);
   return () => {
-    try {
-      rmdirSync(lock);
-    } catch {}
+    if (lockOwner(lock) === token) rmSync(lock, { recursive: true, force: true });
   };
 }
 
@@ -323,12 +346,28 @@ const sameFile = (a, b) => {
   }
 };
 
+/** Every regular file under `root` (outside node_modules and .git) matches `source`; a symlink fails. */
+function sameTree(root, source) {
+  try {
+    for (const e of readdirSync(root, { recursive: true, withFileTypes: true })) {
+      const f = join(e.parentPath, e.name);
+      const rel = relative(root, f);
+      if (rel.split(sep).some((p) => p === "node_modules" || p === ".git") || e.isDirectory()) continue;
+      if (!e.isFile() || !sameFile(f, join(source, rel))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * TM-485: may plugin-rsync trust this Codex hook? Only an `untrusted` or `modified` hook of a
  * `<plugin>@bytedesk` plugin whose marketplace is this one (`market`), declared in that plugin's
  * Codex cache, whose command is a plain interpreter (or script) plus absolute paths inside that
- * same plugin root, with no shell syntax. A `modified` hook is trusted only when its hooks file and
- * every script its command names are byte-identical to this marketplace's source.
+ * same plugin root, with no shell syntax. A `modified` hook is trusted only when every file of its
+ * cached plugin root is byte-identical to this marketplace's source (a hook script may source any
+ * other file there), and the cache holds no file the source lacks.
  */
 export function trustableHook(h, { codexHome, market }) {
   if (!market || h?.source !== "plugin" || !h.currentHash) return false;
@@ -349,7 +388,7 @@ export function trustableHook(h, { codexHome, market }) {
   if (!paths.includes(tokens[0]) && !["node", "bash", "sh"].includes(tokens[0])) return false;
   if (h.trustStatus === "modified") {
     if (!sources) return false;
-    return [file, ...paths.map(real)].every((f) => sameFile(f, join(sources[name], relative(root, f))));
+    return sameTree(root, sources[name]);
   }
   return true;
 }
@@ -641,7 +680,7 @@ async function main(argv) {
     const r = await trustCodexHooks();
     // A sync from a checkout Codex does not install from (a worktree) has nothing to trust: quiet.
     if (!r.ok && !r.foreign) console.log(`codex hook trust skipped: ${r.err}`);
-    else if (r.trusted.length) console.log(`codex hooks trusted: ${r.trusted.join(", ")}`);
+    else if (r.ok && r.trusted.length) console.log(`codex hooks trusted: ${r.trusted.join(", ")}`);
   }
   if (wanted.length && copies === 0 && failed === 0) return 2;
   return failed ? 1 : 0;

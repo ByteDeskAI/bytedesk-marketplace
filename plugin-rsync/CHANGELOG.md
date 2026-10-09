@@ -9,11 +9,15 @@
   a marketplace named bytedesk; or the `ByteDeskAI/bytedesk-marketplace` GitHub repo); the hook's
   `source` is `plugin`; its `sourcePath` is inside that plugin's Codex cache; and its command is an
   interpreter plus absolute paths inside the same plugin root, with no shell syntax. A `modified`
-  hook is trusted only when its hooks file and scripts are byte-identical to this marketplace's
-  source. `codex` and `grok` are resolved from absolute `PATH` entries and run from the plugin root
+  hook is trusted only when every file of its cached plugin root (outside `node_modules` and `.git`)
+  is byte-identical to this marketplace's source and the cache holds no extra file, since a hook
+  script may source any file there. `codex` and `grok` are resolved from absolute `PATH` entries and run from the plugin root
   with a reduced environment. The trust lock honours `CODEX_HOME` and creates its parent, so a
-  machine without `~/.codex` no longer fails with `ENOENT`. A stale lock is renamed aside before it
-  is removed, so two runs cannot both take it.
+  machine without `~/.codex` no longer fails with `ENOENT`. Each lock carries a random owner token: a
+  stale lock is removed only if the directory renamed aside still has the token seen when it was
+  judged stale, and a release removes only its own lock, so two runs cannot both hold it. A sync from
+  a checkout Codex does not install from (a worktree) no longer crashes with a `TypeError` after the
+  copy.
 - **`plugin-rsync-mcp` no longer runs `fix-grok-installs`** (TM-485). It starts only the trust run,
   from the plugin root with a reduced environment. The session hook still repairs Grok installs.
 - **`fix-grok-installs` touches only bytedesk plugins, and never grants trust (TM-485).** It used to
