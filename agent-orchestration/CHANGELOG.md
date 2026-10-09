@@ -381,6 +381,45 @@ EP-028 work (PRs #222–#226), plus #221's NATS autostart delivery (TM-400) and 
 
 ### Fixed
 
+- **One invalid NATS message no longer blocks an inbox (TM-482, EP-028).** `acceptMailboxDelivery`
+  NAKed every failure, and JetStream redelivers a NAKed message first, so a blank body, a bad
+  digest, a body over 1 MiB, another recipient's mail or a reused message ID made every later read
+  throw. A message that fails validation (`TOPOLOGY_MAILBOX_*`, `TOPOLOGY_MESSAGE_ID_CONFLICT`) is
+  now written to `<state>/mailbox/v1/<repo>/dead-letter/` with its reason, termed (ACKed where the
+  transport has no term), and paged to the operator through ntfy once per distinct message. Only a
+  local failure still NAKs. The NATS mail and reply deliveries gain `term()`.
+
+- **A failed publish retry no longer ends the repository supervisor (TM-483, EP-028).**
+  `resumeStandingMessages` rethrew from `resumeMailboxPublications`, and on any unreadable
+  publication or standing record in any repository's ledger, and the supervise loop treated that as
+  fatal. Each record is now tried on its own: a failure is reported in the tick's `mail_errors`,
+  recorded on the publication (`lastError`, `nextRetryAt` with the lead-recovery backoff of 10 s,
+  30 s, 2 min, then 10 min), and retried once due; `mailbox resume --force` skips the wait. An
+  unreadable record is reported and skipped by the resume sweep; a scoped reader still fails closed.
+  The supervisor tick also absorbs any remaining resume error instead of exiting.
+
+- **Review fixes for the mailbox robustness change (TM-482, TM-483, EP-028).**
+  - `mailbox resume` prints the failures it collected on stderr and exits 1, instead of reporting
+    success.
+  - Receipts are keyed by sender as well, so another sender reusing a predictable reply ID gets its
+    own receipt and can no longer get the real reply dead-lettered. When several senders used one
+    ID, `mailbox dispose --sender` and the MCP `sender` field pick one. Run wire IDs also carry the
+    run's creation time, so a recreated run never reuses an earlier run's IDs.
+  - Operator pages are limited to one per repository, agent and error code per hour, with a count of
+    the suppressed ones; the dead-letter directory keeps the newest 500 records.
+  - A dead letter records `notifiedAt`, and the page is sent before the message is termed, so a
+    crash in between pages on redelivery.
+  - The publication sweep skips and reports an unreadable (including `EACCES`/`EIO`) file or
+    directory, and a sweep that fails outright no longer discards the standing results.
+  - Each unreadable record the sweep skips is paged once per file, under the same hourly limit.
+  - The unit-test preload scrubs `AO_NTFY_*`/`TM_NTFY_*` topic and token variables.
+  - A receipt lookup with a named sender reads its two possible files directly, and the fallback
+    scan skips a file it cannot parse, so one corrupt receipt no longer blocks `dispose` for every
+    message in the repository.
+  - `mailbox dispose --sender ''` and an MCP `sender: null` name the receipt that has no sender.
+  - A failure while escalating unreadable records is reported in `errors`; the standing results
+    are kept.
+
 - **MCP mailbox tools use the SessionStart-minted identity (TM-466, EP-028).** The MCP server never
   sees `CLAUDE_ENV_FILE` exports, so a non-launcher session's `orchestration_mailbox_send` failed
   with `source_identity_required`. The adapter now reads the record SessionStart wrote for its
