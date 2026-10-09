@@ -20,7 +20,7 @@
         "argv": [
           "sh",
           "-c",
-          "cd agent-orchestration && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit"
+          "cd agent-orchestration && env -u AO_TRANSPORT -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit"
         ],
         "timeout_ms": 900000
       },
