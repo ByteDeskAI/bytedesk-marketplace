@@ -8,6 +8,29 @@ import { config } from "./store.mjs";
 import { GH_PATHS, safeGitText, trustedGh } from "./safe-git.mjs";
 
 export const fullRevision = (value) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(String(value || ""));
+const nonempty = (value) => typeof value === "string" && value.trim() !== "";
+/**
+ * TM-492: the one reader of a producer finish report's `checks`. Each entry is either a structured
+ * run, the shape the worker handoff asks for and agent-orchestration's finishCheckEvidence (TM-418)
+ * accepts — {name, command, exit_code, revision?, log_tail?} — or a legacy prose string. Mirrors
+ * agent-orchestration's normalizeChecks without importing it (the plugins stay independent).
+ * Returns null when every entry is valid, otherwise a refusal naming the entry and field.
+ */
+export function finishChecksRefusal(checks) {
+  if (!Array.isArray(checks) || !checks.length) return "finish.checks must be a non-empty array";
+  for (const [index, check] of checks.entries()) {
+    const at = `finish.checks[${index}]`;
+    if (typeof check === "string") { if (!check.trim()) return `${at} is an empty string`; continue; }
+    if (!check || typeof check !== "object" || Array.isArray(check)) return `${at} must be a check run object or a string`;
+    if (!nonempty(check.name)) return `${at}.name must be a non-empty string`;
+    // ponytail: AO also accepts an argv array for command; mirror it so a run AO recorded is never refused here.
+    const command = Array.isArray(check.command) ? check.command.map(String).join(" ") : check.command;
+    if (!nonempty(command)) return `${at}.command must be a non-empty string`;
+    if (!Number.isInteger(check.exit_code)) return `${at}.exit_code must be an integer`;
+    if (check.revision !== undefined && !fullRevision(check.revision)) return `${at}.revision must be a full commit SHA`;
+  }
+  return null;
+}
 // TM-221: mirrors agent-orchestration topology/lib/reviewer.mjs SEVERITIES (TM-215); a conformance test holds them equal.
 export const REVIEW_SEVERITIES = ["blocker", "major", "minor", "nit", "note"];
 const BLOCKING_SEVERITIES = new Set(["blocker", "major"]);
