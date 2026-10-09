@@ -41,3 +41,12 @@ else echo '{"status":"diverged"}'; fi
 `, { mode: 0o755 });
   return dir;
 }
+
+/** TM-472: a local bare origin stands in for GitHub, so the fixture's operator pins it as the fetch URL
+ * (`<state>/repositories/<key>.origin.json`); without that, a repository pinned to o/r refuses it. */
+export async function pinOrigin(consumer, { env, home }, url) {
+  const { canonicalRepoId, repoKey, stateRoot } = await import('../../topology/lib/repoid.mjs');
+  const { writeJson } = await import('../../topology/lib/util.mjs');
+  const { id } = await canonicalRepoId(consumer);
+  await writeJson(join(stateRoot(env, home), 'repositories', `${repoKey(id)}.origin.json`), { repo_id: id, url });
+}

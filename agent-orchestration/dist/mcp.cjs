@@ -6993,7 +6993,7 @@ function driverOverrides(listing) {
   return { overrides: [...out, ...resets, ...helpers], refusal: null };
 }
 function ghRedirectRefusal(bin, { cwd, env = process.env, spawn: spawn13 = import_node_child_process.spawnSync } = {}) {
-  for (const key of ["http_unix_socket", "api_host"]) {
+  for (const key of ["http_unix_socket"]) {
     const r = spawn13(bin, ["config", "get", key], { cwd, env: safeGhEnv(env), encoding: "utf8", timeout: 1e4, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     if (r.error || r.status !== 0) return `gh config get ${key} failed (exit ${r.status}): ${String(r.stderr || r.error?.message || "").trim()}; refusing to trust gh`;
     const value = String(r.stdout).trim();
@@ -7067,7 +7067,7 @@ var init_safe_git = __esm({
     GH_PATHS = Object.freeze(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
     GIT_PATHS = Object.freeze(["/usr/bin/git", "/bin/git", "/usr/local/bin/git"]);
     SSH_PATHS = Object.freeze(["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh"]);
-    SSH = trustedBinary({ paths: SSH_PATHS }) ?? "false";
+    SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
     GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
     NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
     PASSWD_HOME = (() => {
@@ -7115,8 +7115,8 @@ var init_safe_git = __esm({
       push: ["--receive-pack=git-receive-pack"],
       ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
     });
-    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
-    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
+    DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\..+|remote\\..+\\.proxy)$";
+    REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\..+|remote\..+\.proxy)$/;
     UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
     pair = (entry) => {
       const at2 = entry.indexOf("=");
@@ -7124,7 +7124,7 @@ var init_safe_git = __esm({
     };
     GIT_ENV_ALLOWLIST = Object.freeze(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]);
     GH_REDIRECT_ENV = Object.freeze(["GH_HOST", "GH_REPO", "GH_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]);
-    safeGhEnv = (base = process.env) => Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name)));
+    safeGhEnv = (base = process.env) => ({ ...Object.fromEntries(Object.entries(base).filter(([name]) => !GH_REDIRECT_ENV.includes(name))), GH_HOST: "github.com" });
     at = (cwd) => cwd ? ["-C", cwd] : [];
     LIST = (cwd) => [...at(cwd), "config", "--null", "--show-scope", "--get-regexp", DRIVER_KEYS];
     refused = (args, refusal) => `safe-git refused git ${args.join(" ")}: ${refusal}`;
@@ -7362,6 +7362,7 @@ var init_util = __esm({
 var repoid_exports = {};
 __export(repoid_exports, {
   canonicalRepoId: () => canonicalRepoId,
+  githubRepoOfUrl: () => githubRepoOfUrl,
   pinnedFetchUrl: () => pinnedFetchUrl,
   pinnedGithubRepo: () => pinnedGithubRepo,
   repoKey: () => repoKey,
@@ -7418,24 +7419,35 @@ async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = (0, imp
     if (error51.code === "ENOENT") return null;
     throw error51;
   });
-  if (!pinned) {
-    await writeJson(path3, { repo_id: identity.id, nameWithOwner: repo, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
-    await pinnedFetchUrl(repoDir, { env, home }).catch(() => null);
-  } else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
+  if (!pinned) await writeJson(path3, { repo_id: identity.id, nameWithOwner: repo, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
+  else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
     fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path3}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path: path3 });
   return { repo: pinned?.nameWithOwner ?? repo, branch };
 }
+function githubRepoOfUrl(url2) {
+  const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|ssh:\/\/git@github\.com(?::22)?\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(String(url2));
+  return m ? m[1] : null;
+}
 async function pinnedFetchUrl(repoDir, { env = process.env, home = (0, import_node_os5.homedir)() } = {}) {
   const identity = await canonicalRepoId(repoDir);
-  const path3 = (0, import_node_path9.join)(stateRoot2(env, home), "repositories", `${repoKey(identity.id)}.origin.json`);
-  const pinned = await readJson3(path3).catch((error51) => {
+  const dir = (0, import_node_path9.join)(stateRoot2(env, home), "repositories"), key = repoKey(identity.id), path3 = (0, import_node_path9.join)(dir, `${key}.origin.json`);
+  const read3 = async (file2) => readJson3(file2).catch((error51) => {
     if (error51.code === "ENOENT") return null;
     throw error51;
   });
+  const pinned = await read3(path3);
   if (typeof pinned?.url === "string" && pinned.url) return pinned.url;
-  const got = await safeGit(repoDir, ["remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 1e4 });
+  const got = await safeGit(repoDir, ["config", "--get", "remote.origin.url"], { allowFailure: true, timeoutMs: 1e4 });
   const url2 = got.code === 0 ? got.stdout.trim().split("\n")[0] : "";
-  if (!url2 || url2.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to pin host fetches to (exit ${got.code}): ${(got.stderr || url2).trim().split("\n")[0]}`);
+  if (!url2 || url2.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to fetch from (exit ${got.code}): ${(got.stderr || url2).trim().split("\n")[0]}`);
+  const github = (await read3((0, import_node_path9.join)(dir, `${key}.github.json`)))?.nameWithOwner;
+  if (typeof github === "string" && github) {
+    if (githubRepoOfUrl(url2)?.toLowerCase() === github.toLowerCase()) return url2;
+    fail("TOPOLOGY_REPOSITORY_PIN", `origin is ${url2}, which is not the pinned GitHub repository ${github}; refusing to fetch from it. If the change is intended, the operator writes {"url": "<fetch url>"} to ${path3}.`, { origin: url2, pinned: github });
+  }
+  const dirs = await safeGit(repoDir, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { allowFailure: true, timeoutMs: 1e4 });
+  const [gitDir, commonDir] = dirs.stdout.trim().split("\n");
+  if (dirs.code !== 0 || !gitDir || gitDir !== commonDir) fail("TOPOLOGY_REPOSITORY_PIN", `the origin URL is pinned only from the main checkout, never from a linked worktree (${repoDir}); run a host fetch there first`);
   await writeJson(path3, { repo_id: identity.id, url: url2, pinned_at: (/* @__PURE__ */ new Date()).toISOString() });
   return url2;
 }
@@ -32900,6 +32912,8 @@ async function fetchPinned(root, refspecs, { env = process.env, home = (0, impor
   let url2;
   try {
     url2 = await pinnedFetchUrl(root, { env, home });
+    const used = (await git2(root, ["ls-remote", "--get-url", url2], true)).stdout.trim();
+    if (used !== url2) fail("TOPOLOGY_REPOSITORY_PIN", `git config rewrites the pinned fetch URL ${url2} to ${used || "nothing"} (url.*.insteadOf); refusing to fetch`);
   } catch (error51) {
     if (allowFailure) return { code: 128, stdout: "", stderr: error51.message };
     throw error51;
@@ -79663,10 +79677,10 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path68.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "632a90dcd9241c36d13f5c42bbb12450a943e7825918199eeb5a2eda1e38aabf";
+  return false ? null : "07fcff2b16e71c2ebc311f40bcf856b348297f9051060a1f5e7d9424a79faf16";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "632a90dcd9241c36d13f5c42bbb12450a943e7825918199eeb5a2eda1e38aabf";
+  const fingerprint2 = false ? null : "07fcff2b16e71c2ebc311f40bcf856b348297f9051060a1f5e7d9424a79faf16";
   let version2 = false ? null : "0.16.1";
   if (!version2) {
     try {
@@ -80091,7 +80105,7 @@ function tmuxSocketCheck({ env = process.env, platform = process.platform, uid =
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "632a90dcd9241c36d13f5c42bbb12450a943e7825918199eeb5a2eda1e38aabf",
+  sourceFingerprint: false ? null : "07fcff2b16e71c2ebc311f40bcf856b348297f9051060a1f5e7d9424a79faf16",
   version: false ? null : "0.16.1"
 };
 var json4 = (path3) => (0, import_promises60.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);

@@ -9,23 +9,27 @@
   the global layer and the checkout's working copy, which a worker can write. They now join the
   TM-442 protected keys: a local value is ignored with a warning (`config_warnings` on
   `manage eligible`), and with no server answer integrate and record-landing refuse to pick a target.
-- **Host fetches read the pinned origin URL, not `origin` (TM-472, EP-028).** `remote.origin.url` is
-  in the shared `.git/config`, so a worker could point it at a `file://` repository it controls and
-  choose what admission, integrate, record-landing and release fetched, including the commits a
-  `main:main` fetch fast-forwarded the local branch to. Every host fetch now goes through
-  `fetchPinned`: it fetches the URL pinned in host state
-  (`<state>/repositories/<key>.origin.json`, recorded with the GitHub pin or on the first host fetch)
-  with explicit refspecs, so neither `remote.origin.url` nor `remote.origin.fetch` decides what is
-  read. A local origin pinned this way keeps working, so local-only repositories and fixtures are
-  unaffected. To move it, the operator removes that file.
+- **Host fetches never read a repointed origin (TM-472, EP-028).** `remote.origin.url` is in the
+  shared `.git/config`, so a worker could point it at a `file://` repository it controls and choose
+  what admission, integrate, record-landing and release fetched, including the commits a `main:main`
+  fetch fast-forwarded the local branch to. Every host fetch now goes through `fetchPinned`, with
+  explicit refspecs, so neither `remote.origin.url` nor `remote.origin.fetch` decides what is read.
+  The URL is `<state>/repositories/<key>.origin.json` when the operator wrote one; otherwise, for a
+  repository pinned to GitHub, origin is used only when it names that repository on github.com (by
+  https or ssh) and is refused otherwise, and nothing is recorded; a repository with no GitHub pin
+  records origin on first use, only from the main checkout, never a worker's worktree. A URL that
+  `url.*.insteadOf` rewrites in any scope, including `~/.gitconfig`, is refused.
 - **Host git, ssh and gh can no longer be redirected by a worker (TM-475, EP-028).** `safe-git.mjs`
   (byte-identical with task-management's) runs git from a root-owned pinned path (`/usr/bin`, `/bin`,
   `/usr/local/bin`) instead of PATH, pins `core.sshCommand` to the root-owned ssh, takes
-  `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, and pins `core.attributesFile`
-  empty. `hostGh` now runs through `safeGh`: it refuses when `gh config` sets `http_unix_socket` or
-  `api_host`, and runs gh with `GH_HOST`, `GH_REPO`, `GH_CONFIG_DIR`, the proxy variables and
-  `SSL_CERT_FILE`/`SSL_CERT_DIR` removed. Release tests now prove "pushed nothing" from the
-  repositories' refs, because a PATH git shim can no longer observe host git.
+  `GIT_CONFIG_GLOBAL` from the passwd entry's home instead of `$HOME`, pins `core.attributesFile`
+  empty, and refuses every call when a repository scope sets any `http.*` key (a proxy, a CA,
+  `sslVerify=false`, or a per-URL `http.<url>.*` form) or `remote.<name>.proxy`. `hostGh` now runs
+  through `safeGh`: it refuses when `gh config` sets `http_unix_socket`, sets `GH_HOST=github.com`
+  (with none, gh takes the only host in `hosts.yml` as its default), and removes `GH_REPO`,
+  `GH_CONFIG_DIR`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR`. On Windows git and ssh
+  still come from PATH. Release tests now prove "pushed nothing" from the repositories' refs,
+  because a PATH git shim can no longer observe host git.
 
 ## [0.16.1] — 2026-10-08
 

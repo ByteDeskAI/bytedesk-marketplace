@@ -101,30 +101,48 @@ export async function pinnedGithubRepo(repoDir, gh, { env = process.env, home = 
   const path = join(stateRoot(env, home), "repositories", `${repoKey(identity.id)}.github.json`);
   const pinned = await readJson(path).catch(error => { if (error.code === "ENOENT") return null; throw error; });
   // ponytail: two first resolutions racing both write; the later rename wins. Add an O_EXCL create if that ever matters.
-  if (!pinned) {
-    await writeJson(path, { repo_id: identity.id, nameWithOwner: repo, pinned_at: new Date().toISOString() });
-    // TM-472: pin the fetch URL at the same moment when there is one; else the first host fetch pins it.
-    await pinnedFetchUrl(repoDir, { env, home }).catch(() => null);
-  }
+  if (!pinned) await writeJson(path, { repo_id: identity.id, nameWithOwner: repo, pinned_at: new Date().toISOString() });
   else if (String(pinned.nameWithOwner).toLowerCase() !== repo.toLowerCase())
     fail("TOPOLOGY_REPOSITORY_PIN", `gh now resolves this repository to ${repo}, but it is pinned to ${pinned.nameWithOwner} (${path}); refusing. If the move is intended, the operator removes that file.`, { pinned: pinned.nameWithOwner, resolved: repo, path });
   return { repo: pinned?.nameWithOwner ?? repo, branch };
 }
 
-/** TM-472: the URL every host fetch reads, pinned in host state the first time a host fetch needs it.
- * `remote.origin.url` lives in the shared .git/config, which a worker can write, so after the pin a
- * repointed origin (another GitHub repository, a file:// path the worker controls) is never fetched:
- * host fetches name this URL, not `origin`. A local path pinned here keeps working, which is what
- * local-only fixtures and repositories use. Same trust-on-first-use limit as pinnedGithubRepo: the
- * operator removes the file to move it. */
+/** The `owner/name` a GitHub remote URL names (https, ssh:// or scp-style git@github.com:), else null. */
+export function githubRepoOfUrl(url) {
+  const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|ssh:\/\/git@github\.com(?::22)?\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(String(url));
+  return m ? m[1] : null;
+}
+
+/** TM-472: the URL every host fetch reads. `remote.origin.url` lives in the shared .git/config, which a
+ * worker can write, so it is never trusted as such:
+ *  - `<key>.origin.json` in host state, when present, is the URL: the operator's explicit pin, and the
+ *    record of a local-only repository's first fetch;
+ *  - else, when the repository has a GitHub pin (`<key>.github.json`), origin is used only if it names
+ *    exactly that repository on github.com (any protocol, so the operator's ssh or https auth keeps
+ *    working); a repointed origin (a file:// path, another repository, another host) is refused, and
+ *    nothing is recorded, so an upgrade never pins whatever origin says at that moment;
+ *  - else (no GitHub pin) origin is recorded on first use, and only from the main checkout: a worker's
+ *    linked worktree never chooses it.
+ * Same-uid limit as pinnedGithubRepo: host state is a file that user can edit; the operator writes or
+ * removes `<key>.origin.json` to move it. Rewriting by url.*.insteadOf is checked by fetchPinned. */
 export async function pinnedFetchUrl(repoDir, { env = process.env, home = homedir() } = {}) {
   const identity = await canonicalRepoId(repoDir);
-  const path = join(stateRoot(env, home), "repositories", `${repoKey(identity.id)}.origin.json`);
-  const pinned = await readJson(path).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  const dir = join(stateRoot(env, home), "repositories"), key = repoKey(identity.id), path = join(dir, `${key}.origin.json`);
+  const read = async file => readJson(file).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  const pinned = await read(path);
   if (typeof pinned?.url === "string" && pinned.url) return pinned.url;
-  const got = await safeGit(repoDir, ["remote", "get-url", "origin"], { allowFailure: true, timeoutMs: 10_000 });
+  // The raw value: `remote get-url` would already apply url.*.insteadOf, which fetchPinned must see to refuse.
+  const got = await safeGit(repoDir, ["config", "--get", "remote.origin.url"], { allowFailure: true, timeoutMs: 10_000 });
   const url = got.code === 0 ? got.stdout.trim().split("\n")[0] : "";
-  if (!url || url.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to pin host fetches to (exit ${got.code}): ${(got.stderr || url).trim().split("\n")[0]}`);
+  if (!url || url.startsWith("-")) fail("TOPOLOGY_REPOSITORY_PIN", `no origin URL to fetch from (exit ${got.code}): ${(got.stderr || url).trim().split("\n")[0]}`);
+  const github = (await read(join(dir, `${key}.github.json`)))?.nameWithOwner;
+  if (typeof github === "string" && github) {
+    if (githubRepoOfUrl(url)?.toLowerCase() === github.toLowerCase()) return url;
+    fail("TOPOLOGY_REPOSITORY_PIN", `origin is ${url}, which is not the pinned GitHub repository ${github}; refusing to fetch from it. If the change is intended, the operator writes {"url": "<fetch url>"} to ${path}.`, { origin: url, pinned: github });
+  }
+  const dirs = await safeGit(repoDir, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { allowFailure: true, timeoutMs: 10_000 });
+  const [gitDir, commonDir] = dirs.stdout.trim().split("\n");
+  if (dirs.code !== 0 || !gitDir || gitDir !== commonDir) fail("TOPOLOGY_REPOSITORY_PIN", `the origin URL is pinned only from the main checkout, never from a linked worktree (${repoDir}); run a host fetch there first`);
   await writeJson(path, { repo_id: identity.id, url, pinned_at: new Date().toISOString() });
   return url;
 }

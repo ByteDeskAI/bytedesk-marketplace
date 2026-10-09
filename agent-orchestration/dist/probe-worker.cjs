@@ -25840,7 +25840,7 @@ function trustedBinary({ paths, stat: stat2 = import_node_fs2.statSync, realpath
   }
   return null;
 }
-var SSH = trustedBinary({ paths: SSH_PATHS }) ?? "false";
+var SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
 var GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
 var NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
 var PASSWD_HOME = (() => {
@@ -25888,8 +25888,8 @@ var SUBCOMMAND_FLAGS = Object.freeze({
   push: ["--receive-pack=git-receive-pack"],
   ...Object.fromEntries(DIFF_FAMILY.map((name) => [name, ["--no-ext-diff", "--no-textconv"]]))
 });
-var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+)$";
-var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+)$/;
+var DRIVER_KEYS = "^(filter\\..+\\.(clean|smudge|process)|merge\\..+\\.driver|credential\\..*helper|url\\..+\\.(insteadof|pushinsteadof)|remote\\..+\\.vcs|lfs\\.standalonetransferagent|lfs\\.customtransfer\\..+|http\\..+|remote\\..+\\.proxy)$";
+var REFUSED_KEYS = /^(url\..+\.(insteadof|pushinsteadof)|remote\..+\.vcs|lfs\.standalonetransferagent|lfs\.customtransfer\..+|http\..+|remote\..+\.proxy)$/;
 var UNTRUSTED_SCOPES = /* @__PURE__ */ new Set(["local", "worktree", "command", "unknown"]);
 var pair = (entry) => {
   const at2 = entry.indexOf("=");

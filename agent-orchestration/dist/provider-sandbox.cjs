@@ -106,7 +106,7 @@ function trustedBinary({ paths, stat: stat2 = import_node_fs.statSync, realpath:
   }
   return null;
 }
-var SSH = trustedBinary({ paths: SSH_PATHS }) ?? "false";
+var SSH = process.platform === "win32" ? "ssh" : trustedBinary({ paths: SSH_PATHS }) ?? "false";
 var GIT = process.platform === "win32" ? "git.exe" : trustedBinary({ paths: GIT_PATHS });
 var NO_GIT = `no root-owned git at ${GIT_PATHS.join(", ")}`;
 var PASSWD_HOME = (() => {

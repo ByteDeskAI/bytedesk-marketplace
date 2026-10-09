@@ -15,7 +15,7 @@ import { page, ntfyTarget } from '../../topology/lib/ntfy.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
-import { COMPARE, serverCompare } from '../helpers/fake-server.mjs';
+import { COMPARE, pinOrigin, serverCompare } from '../helpers/fake-server.mjs';
 
 const operatorEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !agentMarkers({ [k]: '1' }).length));
 const OPERATOR = async () => ['zsh'];
@@ -67,6 +67,7 @@ export async function releaseFixture(t, { management = {}, global = null, policy
   const server = { management: { ...committed.management, ...policy } };
   const options = { consumer, home: join(root, 'home'), env: { ...operatorEnv(), XDG_CONFIG_HOME: config, AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') },
     ancestors: OPERATOR, store, epic: 'EP-1', authorized: true, gh: serverGh(() => server, origin) };
+  await pinOrigin(consumer, options, origin); // TM-472: the local bare origin stands in for GitHub o/r
   return { root, consumer, origin, logs, shims, git, tasks, options, server };
 }
 
@@ -146,9 +147,25 @@ test('TM-442 review MEDIUM: "synced with origin" is checked on the server, so a 
   await fx.git(['remote', 'set-url', 'origin', `file://${fake}`]);
   const gate = await releaseReadiness(fx.options, 'release');
   const sync = gate.refusals.filter(r => r.condition === 'sync');
-  assert.ok(sync.some(r => /not the tip of develop on the server \(compare says (ahead|diverged)\)/.test(r.reason)), JSON.stringify(gate.refusals));
+  // TM-472: the fetch reads the pinned origin, so the worker's develop never becomes origin/develop;
+  // the server compare would refuse it too (TM-442).
+  const pinnedTip = (await run('git', ['-C', fx.origin, 'rev-parse', 'develop'])).stdout.trim();
+  assert.ok(sync.some(r => r.reason.includes(`origin/develop is at ${pinnedTip}`) || /not the tip of develop on the server/.test(r.reason)), JSON.stringify(gate.refusals));
   await refusedFor(cutRelease(fx.options), 'TOPOLOGY_RELEASE_REFUSED', 'sync');
   await nothingRan(fx);
+});
+
+test('TM-472 review L1: release readiness fetches the pinned origin, so a worker repointing origin cannot make a synced checkout look unsynced', async t => {
+  const fx = await releaseFixture(t);
+  // develop is synced with the real origin. The worker repoints origin at a repository whose develop has moved on.
+  const fake = join(fx.root, 'fake.git'), clone = join(fx.root, 'fake-clone');
+  await run('git', ['clone', '-q', '-b', 'develop', fx.origin, clone]);
+  await run('git', ['-C', clone, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'worker commit']);
+  await run('git', ['clone', '-q', '--bare', clone, fake]);
+  await fx.git(['remote', 'set-url', 'origin', `file://${fake}`]);
+  const gate = await releaseReadiness(fx.options, 'release');
+  assert.deepEqual(gate.refusals.filter(r => r.condition === 'sync'), [], JSON.stringify(gate.refusals));
+  assert.equal((await fx.git(['rev-parse', 'refs/remotes/origin/develop'])).stdout.trim(), (await fx.git(['rev-parse', 'HEAD'])).stdout.trim(), 'origin/develop is the pinned origin\'s develop');
 });
 
 test('TM-250 refusal dirty: uncommitted work, including an edited AO config, runs nothing', async t => {

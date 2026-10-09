@@ -18,7 +18,7 @@ import { topologyRunLocation } from '../../topology/lib/discovery.mjs';
 import { listServerPanes } from '../../topology/lib/tmux.mjs';
 import { isolatedTmux } from '../helpers/isolated-tmux.mjs';
 import { plantGitVectors } from '../helpers/plant-git-vectors.mjs';
-import { COMPARE, fakeGh, ghShim, serverCompare } from '../helpers/fake-server.mjs';
+import { COMPARE, fakeGh, ghShim, pinOrigin, serverCompare } from '../helpers/fake-server.mjs';
 
 const NO_SERVER_GH = async () => ({ code: 1, stdout: '', stderr: 'no server in the fixture' });
 // TM-442: the protected management keys (autonomy, release, cutover, required_checks) are honoured only
@@ -1298,6 +1298,7 @@ async function prTask(t, { grant = {}, review, pr: prPatch = {}, checks, require
   const origin = join(f.opts.consumer, '..', 'origin.git');
   await run('git', ['clone', '-q', '--bare', f.opts.consumer, origin]);
   await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await pinOrigin(f.opts.consumer, f.opts, origin); // TM-472: the local bare origin stands in for o/r
   await f.git(f.opts.consumer, ['push', '-q', 'origin', 'tm/TM-1']);
   await registerAgent(f.opts.consumer, 'lead-1');
   const granted = grant === null ? null : await planGrant(f.opts, grant);
@@ -2108,6 +2109,7 @@ async function publishLanded(t, { status = 'SUCCESS', origin = { repo: '/elsewhe
   Object.assign(fx.server.management, { autonomy: 'publish', release: { branch: 'main', argv: ['scripts/release.sh', 'start'], verify_argv: ['scripts/release.sh', 'verify'], teamcity: { build_type: 'Rel' } } });
   await run('git', ['init', '-q', '--bare', join(root, 'origin.git')]);
   await git(opts.consumer, ['remote', 'add', 'origin', join(root, 'origin.git')]);
+  await pinOrigin(opts.consumer, opts, join(root, 'origin.git')); // TM-472: the local bare origin stands in for o/r
   await admitTask(opts); await finish(); await integrateTask(opts);
   await git(opts.consumer, ['push', '-q', 'origin', 'main']);
   if (origin) doc.origin = origin;
@@ -2426,6 +2428,7 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   await mkdir(f.opts.home, { recursive: true });
   await run('git', ['init', '-q', '--bare', origin]);
   await f.git(f.opts.consumer, ['remote', 'add', 'origin', origin]);
+  await pinOrigin(f.opts.consumer, f.opts, origin); // TM-472: the local bare origin stands in for o/r
   await f.git(f.opts.consumer, ['push', '-q', 'origin', 'main']);
   // Somebody else merges the task on the server; the local main never hears of it.
   const elsewhere = join(f.opts.home, 'elsewhere');
@@ -2441,9 +2444,9 @@ test('TM-247 AC10: record-landing resolves the target against origin after a fet
   assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local target was brought forward');
 });
 
-// TM-472: host fetches read the origin URL pinned in host state, so a worker that repoints
-// remote.origin.url (here at a file:// repository it controls) chooses nothing the host reads.
-test('TM-472: record-landing fetches the pinned origin, never a file:// origin a worker repointed it to', async t => {
+// TM-472: host fetches never read a remote.origin.url a worker repointed. The fixture's repository is
+// pinned to GitHub o/r (admission resolved it), and a local bare origin stands in for the server.
+async function repointedLanding(t, { operatorPin }) {
   const f = await fixture(t);
   const admitted = await admitTask(f.opts); const revision = (await f.finish()).finish.revision;
   await mkdir(f.opts.home, { recursive: true });
@@ -2457,23 +2460,64 @@ test('TM-472: record-landing fetches the pinned origin, never a file:// origin a
   await f.git(elsewhere, ['push', '-q', 'origin', 'main']);
   const landed = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
   await f.git(f.opts.consumer, ['fetch', '-q', origin, landed]); // the commit exists locally; refs/heads/main does not have it
-  // An earlier host fetch pinned the operator's origin.
-  const { pinnedFetchUrl } = await import('../../topology/lib/repoid.mjs');
-  const io = { env: f.opts.env, home: f.opts.home };
-  assert.equal(await pinnedFetchUrl(f.opts.consumer, io), origin);
+  if (operatorPin) await pinOrigin(f.opts.consumer, f.opts, origin);
   // The worker serves a fast-forward of the landing with its own commit on top, and repoints origin at it.
   await run('git', ['clone', '-q', '--bare', origin, evil]);
   await f.git(elsewhere, [...COMMIT.slice(0, 4), 'commit', '-q', '--allow-empty', '-m', 'worker payload']);
   const payload = (await f.git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
   await f.git(elsewhere, ['push', '-q', evil, 'main']);
   await f.git(f.opts.consumer, ['remote', 'set-url', 'origin', `file://${evil}`]);
-  assert.equal(await pinnedFetchUrl(f.opts.consumer, io), origin, 'a repointed origin never moves the pin');
   await f.git(f.opts.consumer, ['checkout', '-q', '-b', 'side']); // main is not checked out: the host fetches main:main
   f.server.repo = origin;
-  const recorded = await recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
-  assert.equal(recorded.merge.landed, landed);
+  const before = (await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim();
+  const land = () => recordLanding({ ...f.opts, actor: 'operator', reason: 'merged on the server', landed, reviewGate: fullReview(admitted.record, revision) });
+  const readPayload = async () => (await run('git', ['-C', f.opts.consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code === 0;
+  return { f, landed, before, land, readPayload };
+}
+
+test('TM-472: with an operator pin, record-landing fetches the pinned origin, never a file:// origin a worker repointed it to', async t => {
+  const { f, landed, land, readPayload } = await repointedLanding(t, { operatorPin: true });
+  assert.equal((await land()).merge.landed, landed);
   assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), landed, 'the local main is the pinned origin\'s main, not the worker\'s');
-  assert.notEqual((await run('git', ['-C', f.opts.consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code, 0, 'nothing was read from the worker\'s repository');
+  assert.equal(await readPayload(), false, 'nothing was read from the worker\'s repository');
+});
+
+test('TM-472 review M1: with only the GitHub pin, the first host fetch after a repoint refuses and pins nothing', async t => {
+  const { f, before, land, readPayload } = await repointedLanding(t, { operatorPin: false });
+  await assert.rejects(land(), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /file:\/\/.*not the pinned GitHub repository o\/r/ });
+  assert.equal((await f.git(f.opts.consumer, ['rev-parse', 'main'])).stdout.trim(), before, 'main did not move');
+  assert.equal(await readPayload(), false, 'nothing was read from the worker\'s repository');
+  const { canonicalRepoId: id } = await import('../../topology/lib/repoid.mjs');
+  const pin = join(f.opts.env.AGENT_ORCHESTRATION_STATE_HOME, 'repositories', `${repoKey((await id(f.opts.consumer)).id)}.origin.json`);
+  await assert.rejects(readFile(pin), { code: 'ENOENT' }, 'the refused origin was not recorded as the pin');
+  assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing was recorded');
+});
+
+test('TM-472 review M1: pinnedFetchUrl accepts only the pinned GitHub repository, and pins a local origin only from the main checkout', async t => {
+  const { githubRepoOfUrl, pinnedFetchUrl } = await import('../../topology/lib/repoid.mjs');
+  const { opts, git } = await fixture(t);
+  const io = { env: opts.env, home: opts.home };
+  // No GitHub pin yet (no admission ran): a linked worktree never records the origin; the main checkout does.
+  const local = join(opts.home, 'local.git'); await mkdir(opts.home, { recursive: true });
+  await run('git', ['init', '-q', '--bare', local]);
+  await git(opts.consumer, ['remote', 'add', 'origin', local]);
+  const wt = join(opts.home, 'wt'); await git(opts.consumer, ['worktree', 'add', '-q', '--detach', wt]);
+  await assert.rejects(pinnedFetchUrl(wt, io), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /only from the main checkout/ });
+  assert.equal(await pinnedFetchUrl(opts.consumer, io), local);
+  await git(opts.consumer, ['remote', 'set-url', 'origin', 'file:///elsewhere.git']);
+  assert.equal(await pinnedFetchUrl(wt, io), local, 'once recorded, the pin is read from anywhere and a repoint does not move it');
+  // A GitHub-pinned repository: origin must name that repository on github.com, by any protocol.
+  const g = await fixture(t);
+  await pinnedGithubRepo(g.opts.consumer, g.opts.gh, { env: g.opts.env, home: g.opts.home });
+  const gio = { env: g.opts.env, home: g.opts.home };
+  await g.git(g.opts.consumer, ['remote', 'add', 'origin', 'git@github.com:o/r.git']);
+  assert.equal(await pinnedFetchUrl(g.opts.consumer, gio), 'git@github.com:o/r.git');
+  await g.git(g.opts.consumer, ['remote', 'set-url', 'origin', 'https://github.com/attacker/r.git']);
+  await assert.rejects(pinnedFetchUrl(g.opts.consumer, gio), { code: 'TOPOLOGY_REPOSITORY_PIN', message: /attacker\/r.*not the pinned GitHub repository o\/r/ });
+  for (const url of ['https://github.com/o/r.git', 'https://github.com/o/r', 'https://x-access-token:t@github.com/o/r.git', 'git@github.com:o/r.git', 'ssh://git@github.com/o/r.git', 'ssh://git@github.com:22/o/r'])
+    assert.equal(githubRepoOfUrl(url), 'o/r', url);
+  for (const url of ['file:///tmp/o/r.git', '/tmp/o/r.git', 'https://github.com.evil.example/o/r.git', 'https://evil.example/github.com/o/r.git', 'git@evil.example:o/r.git'])
+    assert.equal(githubRepoOfUrl(url), null, url);
 });
 
 test('TM-247 AC8: manage close records the landing, stops the worker, cleans up and closes, in that order', async t => {
@@ -2583,4 +2627,38 @@ test('TM-472 record-landing refuses a landing that is only on a worker-forged or
   await assert.rejects(recordLanding({ ...f.opts, authorized: true, actor: 'operator', reason: 'PR merged', landed: fake, reviewGate: fullReview(admitted.record, revision) }),
     { code: 'TOPOLOGY_MANAGEMENT_TARGET', message: /not on the configured target branch main on the server \(compare says diverged\)/ });
   assert.equal((await managementStatus(f.opts)).management.merge, undefined, 'nothing recorded');
+});
+
+// TM-475 review M2: url.*.insteadOf in the operator's own ~/.gitconfig (the scope safe-git honours) would
+// still send a pinned fetch elsewhere. fetchPinned asks git which URL it would use and refuses a rewrite.
+// The global file is the passwd home's, so the child process stands a fake home in for os.userInfo().
+test('TM-475 review M2: fetchPinned refuses a pinned URL that url.*.insteadOf in the global config rewrites', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-insteadof-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const consumer = join(root, 'repo'), origin = join(root, 'origin.git'), evil = join(root, 'evil.git'), fakeHome = join(root, 'passwd-home');
+  const id = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+  await run('git', ['init', '-q', '-b', 'main', consumer]);
+  await run('git', ['-C', consumer, ...id, 'commit', '-q', '--allow-empty', '-m', 'base']);
+  await run('git', ['clone', '-q', '--bare', consumer, origin]);
+  await run('git', ['clone', '-q', '--bare', consumer, evil]);
+  const work = join(root, 'evil-work');
+  await run('git', ['clone', '-q', evil, work]);
+  await run('git', ['-C', work, ...id, 'commit', '-q', '--allow-empty', '-m', 'worker payload']);
+  await run('git', ['-C', work, 'push', '-q', 'origin', 'main']);
+  const payload = (await run('git', ['-C', work, 'rev-parse', 'HEAD'])).stdout.trim();
+  await run('git', ['-C', consumer, 'remote', 'add', 'origin', origin]);
+  await mkdir(fakeHome);
+  await writeFile(join(fakeHome, '.gitconfig'), `[url "${evil}"]\n\tinsteadOf = ${origin}\n`);
+  const env = { ...operatorEnv(), AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state') };
+  const management = new URL('../../topology/lib/management.mjs', import.meta.url).href;
+  const script = `
+    import os from 'node:os'; import { syncBuiltinESMExports } from 'node:module';
+    const real = os.userInfo; os.userInfo = (...a) => ({ ...real(...a), homedir: ${JSON.stringify(fakeHome)} }); syncBuiltinESMExports();
+    const { fetchPinned } = await import(${JSON.stringify(management)});
+    const r = await fetchPinned(${JSON.stringify(consumer)}, ['+refs/heads/main:refs/remotes/origin/main'], { env: ${JSON.stringify(env)}, home: ${JSON.stringify(join(root, 'home'))}, allowFailure: true });
+    process.stdout.write(JSON.stringify({ code: r.code, stderr: r.stderr }));`;
+  const child = await run(process.execPath, ['--input-type=module', '-e', script], { env });
+  const result = JSON.parse(child.stdout);
+  assert.notEqual(result.code, 0, `the rewritten fetch ran: ${child.stdout}`);
+  assert.match(result.stderr, /rewrites the pinned fetch URL .*insteadOf/);
+  assert.notEqual((await run('git', ['-C', consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code, 0, 'nothing was read from the rewritten URL');
 });

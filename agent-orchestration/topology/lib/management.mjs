@@ -30,8 +30,13 @@ const gitText = async (cwd, args) => (await git(cwd, args)).stdout.trim();
  * An unpinnable origin is a failed fetch (code 128), or a throw unless allowFailure. */
 export async function fetchPinned(root, refspecs, { env = process.env, home = homedir(), allowFailure = false } = {}) {
   let url;
-  try { url = await pinnedFetchUrl(root, { env, home }); }
-  catch (error) { if (allowFailure) return { code: 128, stdout: '', stderr: error.message }; throw error; }
+  try {
+    url = await pinnedFetchUrl(root, { env, home });
+    // TM-475 review: url.*.insteadOf in ANY scope (the operator's ~/.gitconfig too) would read another
+    // repository; git reports the URL it would actually use, and anything but the pinned one is refused.
+    const used = (await git(root, ['ls-remote', '--get-url', url], true)).stdout.trim();
+    if (used !== url) fail('TOPOLOGY_REPOSITORY_PIN', `git config rewrites the pinned fetch URL ${url} to ${used || 'nothing'} (url.*.insteadOf); refusing to fetch`);
+  } catch (error) { if (allowFailure) return { code: 128, stdout: '', stderr: error.message }; throw error; }
   return git(root, ['fetch', '--quiet', url, ...refspecs], allowFailure);
 }
 /** The refspec `git fetch origin <branch>` used to apply through the default remote.origin.fetch. */
