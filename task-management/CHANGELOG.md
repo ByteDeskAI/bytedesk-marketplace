@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+### Security
+
+- **`tm ticket` no longer runs a launcher found in another repo (TM-446, EP-028).** Filing a
+  ticket, reporting progress to its origin, the event bridge and the pool's collect path all ran
+  `<repo>/.bytedesk/task-management/bin/tm` with the caller's environment, and `<repo>` came from a
+  task's `origin` field or a path argument — both writable by a worker. They now always run this
+  plugin's own `bin/tm` with `TM_ROOT` set to the other store. The other repo must also be
+  registered with agent-orchestration or be a sibling of this one; anything else is refused and
+  logged as `ticket_refused`.
+- **A woken pool and a cross-repo `tm` child no longer inherit agent-orchestration identity
+  (TM-447, EP-028).** `tm ticket` ran the target's `pool ensure` with the filer's environment, so
+  the target's pool claimed and mailed as the filing worker. `runTm` children and the detached pool
+  now drop every `AO_*` variable except machine configuration (`AO_HOME`, `AO_TRANSPORT`,
+  `AO_NATS_*`, `AO_NTFY_*`, `AO_SERVICES_*`, `AO_TOPOLOGY_BIN`, `AO_TMUX_COMMAND`, `AO_*_MS`).
+- **`dispatch.passEnv` is honoured only from user config, never for a reserved name, and cannot
+  override the worker's identity (TM-448, EP-028).** Names now come from
+  `$XDG_CONFIG_HOME/task-management/config.json` (`dispatch.passEnv`) and agent-orchestration's
+  global `workers.passEnv`. The git-tracked `.bytedesk/task-management/config.json` and
+  `.bytedesk/agent-orchestration/config.json` are ignored with a warning (`passEnvWarnings` on the
+  dispatch result and the `dispatched` event, and `WARNING:` on stderr). `TM_*`, `AO_*`,
+  `CLAUDE_*`, `LD_*`, `DYLD_*`, `GIT_*`, `PATH`, `HOME` and `NODE_OPTIONS` are refused. On tmux, the
+  pane re-applies `TM_ROOT`, `TM_ACTOR`, `TM_SESSION_ID` and the worker markers with `env` after
+  sourcing the secrets file, so a sourced value can no longer override them. Move any
+  `dispatch.passEnv` from repository config to your user config.
+  - `SSH_AUTH_SOCK` is refused (see the follow-up below), so a worker cannot use your SSH agent.
+    The supported way for a worker to push is an HTTPS `origin` remote with `gh auth setup-git`.
+  - Pools and cross-repo `tm` children no longer receive the `AO_*TTL*_MS` and `AO_*GRACE*_MS`
+    tunables; set them where agent-orchestration itself runs if you need them.
+
+- **Review follow-ups to TM-446/447/448/460 (EP-028).**
+  - A dispatched worker's own claim (`TM_DISPATCH_WORKER`) is marked `worker` and keeps the
+    earlier `since`; a kept `since` keeps the `worker` flag of whoever took it. Both are
+    information only — collect holds a task for its lead solely on agent-orchestration's proof.
+  - `TMUX_PANE` is dropped for the pool, `runTm` children and collect's lead check, because
+    `ao-topology manage` treats the pane as an identity. `TMUX` is dropped for `runTm` children.
+    Proof-window tunables (`AO_*TTL*_MS`, `AO_*GRACE*_MS`) are dropped too, so a caller cannot
+    widen what counts as a responsive lead.
+  - A ticket's path target and origin are resolved to their real path once, and that path is the
+    one written to.
+  - Mail to a lead carries only the sender identity (`AO_AGENT_ID`, `AO_CONSUMER`,
+    `AO_SESSION_*`) of the caller's agent-orchestration environment.
+  - `passEnv` also refuses `BASH_ENV`, `ENV`, `ZDOTDIR`, `NODE_PATH`, `PYTHONPATH`,
+    `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `XDG_CONFIG_HOME`, `TMUX`, `TMUX_PANE` and
+    `SSH_AUTH_SOCK`.
+
+### Changed
+
+- **Cross-repo ticket and pool-wait fixes from the EP-028 review (TM-450, EP-028).**
+  - A ticket's `done` and `merged` are keyed by kind alone, so a manual `tm ticket event <id> done …`
+    after the event bridge's `done` is a duplicate rather than a second report.
+  - A progress report that reached nobody (no comment landed and no mail went) gives its dedup key
+    back, so a retry sends instead of reporting "already reported".
+  - `fileTicket` refuses a title holding a stray `--flag`, so MCP `tm_ticket` refuses it as the CLI
+    does. Both use one helper, `strayFlag`.
+  - `tm pool wait --until done <id>` returns at once with exit 3 and `ended` when the task parks or
+    blocks, instead of waiting until the timeout. `--until idle` now counts a paused pool with no
+    workers as idle, using the same predicate (`poolIdle`) as the pool's own idle exit.
+- **The topology backend says which `passEnv` names it does not pass (TM-449, EP-028).** An
+  earlier entry and the dispatch skill said topology passes tm's `dispatch.passEnv`. It does not:
+  `ao-topology` passes only agent-orchestration's own global `workers.passEnv`, and the spec's
+  agent env is written into the launcher, so a value cannot travel there. A topology dispatch now
+  reports each tm-only name in `passEnvWarnings` (result, `dispatched` event, stderr), naming the
+  fix: add it to agent-orchestration's global `workers.passEnv`, or dispatch with `--backend tmux`.
+- **A crashed governed worker whose lead is gone is parked or retried again (TM-460, EP-028).**
+  Because a governed dispatch claims under its admission owner, collect treated every governed
+  task as "held by the lead" and left a dead worker's task in progress until the claim expired.
+  The owner's claim now counts only when `ao-topology lead status --cached` shows that owner's
+  lead responsive. A re-claim is not evidence: the worker carries the lead's `TM_SESSION_ID`, so it
+  can produce one. Without agent-orchestration, nothing proves the lead alive, so the task is
+  parked or retried.
 - **enhance-mine redacts bearer tokens, URL credentials, `-p` passwords and `NAME=value` secrets
   (TM-435, EP-028).** `Authorization: Bearer|Basic|token <value>` now loses the value, not just the
   scheme word, and so does a standalone `Bearer <token>`. `scheme://user:pass@host` (including an

@@ -38,7 +38,22 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { detectHostCaps } from "../hostcaps.mjs";
 import { config } from "../store.mjs";
-import { GUARD_HOOK, PROMPT_FILE, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
+import { GUARD_HOOK, PROMPT_FILE, passEnvNames, workerBranch, workerEnv, workerIdentityEnv } from "./tmux.mjs";
+
+/**
+ * TM-449: what this dispatch's passEnv config will NOT reach the worker, as warnings. ao-topology
+ * passes only the names in agent-orchestration's own global `workers.passEnv`; it has no channel
+ * for tm's `dispatch.passEnv`, and the spec's agent env is written into the launcher script, so a
+ * value must never travel there. A tm-only name is reported here rather than silently dropped.
+ */
+export function topologyPassEnvWarnings(req) {
+  const plan = passEnvNames(req);
+  const tmOnly = plan.names.filter((n) => !plan.viaAo.includes(n));
+  return [
+    ...plan.warnings,
+    ...(tmOnly.length ? [`passEnv ${tmOnly.join(", ")} not passed by the topology backend: ao-topology passes only agent-orchestration's global workers.passEnv; name it there, or dispatch with --backend tmux`] : []),
+  ];
+}
 
 export const name = "topology";
 
@@ -269,6 +284,7 @@ export function spawn(
 
   const parsed = parseLaunch(res.stdout);
   if (!parsed.run) return { ok: false, reason: parsed.reason, detail: { args } };
+  const passEnvWarnings = topologyPassEnvWarnings(req);
   return {
     ok: true,
     // The tmux session is the handle: `tmux attach -t <session>` is how a human looks in,
@@ -283,6 +299,7 @@ export function spawn(
       agent: ref,
       runDir: parsed.run.runDir ?? null,
       warnings: parsed.run.warnings ?? [],
+      ...(passEnvWarnings.length ? { passEnvWarnings } : {}),
     },
   };
 }
