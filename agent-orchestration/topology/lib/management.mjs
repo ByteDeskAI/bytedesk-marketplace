@@ -216,6 +216,14 @@ async function processStart(pid) {
 function processGone(pid) {
   try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
 }
+/** TM-412: tm collect records an ended dispatch's result in place (`dispatched.collected`) instead of
+ * deleting it. A collected dispatch is history: its worker is not a writer, and it never stands in for,
+ * or blocks adopting, the writer actually working. Same stamp test as tm's priorCollection (TM-360's
+ * guard), restated because the plugins never import each other. */
+const liveDispatch = ({ dispatched: d } = {}) => {
+  const c = d?.collected;
+  return d && !(c && c.dispatchedAt === (d.at ?? null) && c.run === (d.run ?? null)) ? d : null;
+};
 async function registeredWorker(ctx, doc, owner, claimRule = {}) {
   ownClaim(await ctx.store.claim(doc.id), owner, doc.id, claimRule);
   invariant(doc.dispatched?.run && doc.dispatched.session === owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task dispatch must name the claim owner and worker run.');
@@ -344,7 +352,7 @@ export async function bindTaskWorker(options) {
     invariant(prior?.started && prior.owner === options.owner, 'TOPOLOGY_MANAGEMENT_WORKER', 'Admit the task and reconcile ownership before binding a worker.');
     const doc = await ownedTask(ctx, options.task, options.owner);
     const adopt = Boolean(options.pane || options.pid);
-    invariant(!adopt || !doc.dispatched, 'TOPOLOGY_MANAGEMENT_WORKER', 'Task has a tm dispatch; bind it without --pane/--pid so the registry row is verified.');
+    invariant(!adopt || !liveDispatch(doc), 'TOPOLOGY_MANAGEMENT_WORKER', `Task has a live tm dispatch; bind it without --pane/--pid so the registry row is verified. If that worker has exited, record it with tm collect ${doc.id} first.`);
     const worker = adopt ? await observeAdoptedWorker(ctx, doc, { ...options, record: prior }) : await observeWorker(ctx, doc, options.owner);
     // A stopped worker is history: the next round's worker replaces it (TM-218 review round 1).
     if (prior.worker?.stopped_at) { prior.previous_workers = [...(prior.previous_workers || []), prior.worker]; delete prior.worker; }
@@ -588,8 +596,8 @@ async function observeLiveness(ctx, doc, record, { finished, claimRule = {} }) {
   invariant(workerOwner === record.owner || (record.transfers || []).some(t => t.from === workerOwner), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
   const rule = workerOwner === record.owner ? claimRule : { ...claimRule, holders: [...(claimRule.holders || []), record.owner] };
   // An adopted worker (TM-218) has no tm dispatch; its binding in this record is the registry.
-  const row = worker?.adopted && !doc.dispatched ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
-  invariant(worker && (worker.adopted ? !doc.dispatched : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
+  const row = worker?.adopted && !liveDispatch(doc) ? { backend: worker.backend, pid: worker.pid ?? null } : await registeredWorker(ctx, doc, workerOwner, rule);
+  invariant(worker && (worker.adopted ? !liveDispatch(doc) : worker.name === row.name && worker.run === row.runId && worker.backend === row.backend && worker.registered_at === row.registeredAt), 'TOPOLOGY_MANAGEMENT_WORKER', 'No matching observed task-worker incarnation.');
   if (finished) invariant(record.finish && record.events?.some(event => event.event === 'finish' && event.report?.revision === record.finish.revision), 'TOPOLOGY_MANAGEMENT_WORKER', 'Task worker result has not been collected through the finish protocol.');
   if (row.backend === 'topology') {
     invariant(worker.kind === 'topology' && worker.native_identity, 'TOPOLOGY_MANAGEMENT_WORKER', 'Legacy native ownership must be reconciled through a new verified finish report.');
@@ -716,7 +724,7 @@ export async function workerReport(options) {
     invariant(prior?.started, 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'Worker must be admitted and send its start report before reporting work.');
     // TM-247 (AC13): one identity. The admission owner may report, and so may the bound worker's own
     // dispatch session; the claim may sit with either (a claim minted by an older tm dispatch).
-    const dispatchedSession = (await ctx.store.show(task)).dispatched?.session;
+    const dispatchedSession = liveDispatch(await ctx.store.show(task))?.session;
     const holders = prior.worker && !prior.worker.stopped_at && nonempty(dispatchedSession) ? [dispatchedSession] : [];
     invariant(owner === prior.owner || holders.includes(owner), 'TOPOLOGY_MANAGEMENT_PROTOCOL', `Only the admission owner ${prior.owner} or its bound worker may report on ${task}.`);
     const doc = await ownedTask(ctx, task, prior.owner, { holders });
@@ -731,7 +739,7 @@ export async function workerReport(options) {
     } else invariant(nonempty(report?.message), 'TOPOLOGY_MANAGEMENT_PROTOCOL', 'A during-work report requires a visible reason.');
     // The same native workflow can undergo a producer-controlled fallback. A new finish
     // records its newly verified member set; a change after this point blocks integration.
-    if (kind === 'finish' && doc.dispatched && ctx.store.workers && (!prior.worker || doc.dispatched.backend === 'topology')) prior.worker = await observeWorker(ctx, doc, prior.owner);
+    if (kind === 'finish' && liveDispatch(doc) && ctx.store.workers && (!prior.worker || doc.dispatched.backend === 'topology')) prior.worker = await observeWorker(ctx, doc, prior.owner);
     const next = await recordEvent(ctx, task, prior, kind, { owner, report, state: kind === 'finish' ? 'ready-for-review' : 'blocked' });
     next.state = kind === 'finish' ? 'ready-for-review' : 'blocked';
     if (kind === 'finish') { next.finish = report; next.collected = false; }

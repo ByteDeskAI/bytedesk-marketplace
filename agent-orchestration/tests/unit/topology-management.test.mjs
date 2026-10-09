@@ -1037,7 +1037,43 @@ test('bind adopts a live worker only after verifying it and fails closed on unkn
   await s.tmux(['respawn-pane', '-k', '-t', pane, '-c', doc.worktree, 'sleep', '120']);
   await assert.rejects(bindTaskWorker({ ...actual, pane }), /incarnation changed/, 'a reused pane is a successor, not the worker');
   doc.dispatched = { backend: 'tmux', run: 'tmux:x', session: 'author' };
-  await assert.rejects(bindTaskWorker({ ...actual, pane }), /has a tm dispatch/);
+  await assert.rejects(bindTaskWorker({ ...actual, pane }), /has a live tm dispatch/);
+});
+
+// TM-412 (agent-browser TM-033): the lead delegated an admitted task to its own long-lived Codex terminal
+// while a duplicate pool dispatch had exited. The ended dispatch must neither block nor stand in for the
+// real writer: once tm collect records it, the lead adopts the terminal's process and reports the finish.
+test('TM-412: an existing terminal is adopted by pid after a dead dispatch is collected, keeping the admission', async t => {
+  const { opts, doc, finish, git } = await fixture(t);
+  const { spawn } = await import('node:child_process');
+  const { assignmentResult } = await import('../../topology/lib/management.mjs');
+  const actual = { ...opts, workerState: undefined };
+  const { record: admitted } = await admitTask(actual);
+  doc.dispatched = { backend: 'tmux', run: 'tmux:tm-TM-1', session: 'author', at: 'then' };
+  opts.store.workers = async () => [{ name: 'agent:TM-1', backend: 'tmux', runId: doc.dispatched.run, session: 'author', registeredAt: 'then', status: 'dead', pid: null }];
+  const codex = spawn('sleep', ['120'], { cwd: doc.worktree, stdio: 'ignore' });
+  const exited = new Promise(done => codex.once('exit', done));
+  t.after(() => codex.kill());
+  await new Promise(done => codex.once('spawn', done));
+  // The exact refusal TM-033 hit, and the bind refusal naming the recovery step.
+  await assert.rejects(finish(), /currently live registered worker/);
+  await assert.rejects(bindTaskWorker({ ...actual, pid: codex.pid }), /tm collect TM-1/);
+  doc.dispatched.collected = { dispatchedAt: 'earlier', run: doc.dispatched.run, outcome: 'failed', at: 'now' };
+  await assert.rejects(bindTaskWorker({ ...actual, pid: codex.pid }), /tm collect TM-1/, 'a stamp from an earlier dispatch is not this one');
+  doc.dispatched.collected = { dispatchedAt: 'then', run: doc.dispatched.run, outcome: 'failed', at: 'now' };
+  const bound = await bindTaskWorker({ ...actual, pid: codex.pid });
+  assert.equal(bound.worker.adopted, true); assert.equal(bound.worker.pid, codex.pid);
+  // AC2: tm's duplicate-dispatch guard (TM-360) reads this verb and now sees the terminal as the writer.
+  assert.deepEqual((await assignmentResult(actual)).worker, { kind: 'process', backend: 'process', run: `process:${codex.pid}` });
+  const revision = (await git(doc.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const finished = await workerReport({ ...actual, kind: 'finish', report: { artifacts: ['code.txt'], checks: ['content'], risks: [], evidence: 'fixture result', revision } });
+  assert.equal(finished.state, 'ready-for-review');
+  assert.equal(finished.base_revision, admitted.base_revision, 'the admission base is unchanged');
+  assert.equal(finished.worker.pid, codex.pid, 'the finish keeps the adopted writer, not the dead dispatch');
+  assert.ok((await integrationEligibility(actual)).reasons.some(r => r.includes('still alive')), 'a live terminal still blocks integration');
+  codex.kill(); await exited;
+  const gate = await integrationEligibility(actual);
+  assert.ok(!gate.reasons.some(r => /alive|incarnation|dispatch|unproven/.test(r)), gate.reasons.join('; '));
 });
 
 test('a stopped worker is history: start-worker starts the next round and the old binding is kept', async t => {

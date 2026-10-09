@@ -72,6 +72,14 @@
   `--providers-dir`, `~/.config/agent-orchestration/providers/` and the plugin's `providers/`.
 ### Fixed
 
+- **A lead can finish a task it delegated to an existing terminal (TM-412, EP-028).** A dispatch tm
+  had already collected still counted as the task's writer, so after a duplicate pool worker exited
+  `manage bind --pid` refused the real writer and `manage report` failed with "Only a currently live
+  registered worker can establish a new ownership binding" (agent-browser TM-033). Bind, report and
+  the integration liveness check now share one predicate that ignores a collected dispatch. The
+  documented path: `tm collect`, then `manage bind --task <id> --pid <harness pid>`, then
+  `manage report`. The admission and base revision are kept, the terminal is never closed, and an
+  uncollected dispatch is still refused with the `tm collect` step named.
 - **A pool-dispatched topology worker can file its governed finish (TM-417, EP-028).** Admission
   now always records the task's own governance id (`tm-<task>`) and no longer adopts a dispatch's
   workflow id, so the id no longer depends on whether a worker was dispatched first. A finish
