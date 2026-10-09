@@ -75,6 +75,8 @@ export function workerEnv(req) {
     TM_DISPATCH_INTEGRATION_BRANCH: req.integrationBranch,
     // TM-481: a governed worker is refused every merge; the guard also reads the task and the record.
     TM_DISPATCH_GOVERNED: req.governed ? "1" : undefined,
+    // TM-481: the only repository this worker's merge may resolve to (`owner/repo`).
+    TM_DISPATCH_REPO: req.repo,
   }).filter(([, v]) => v);
 }
 

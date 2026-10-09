@@ -91,7 +91,7 @@ const TM_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", 
  * TM_ROOT stays — that is which store to serve, not who is asking — and TMUX is blanked so no
  * inherited server can be addressed.
  */
-const IDENTITY_ENV = ["TM_ACTOR", "TM_ACTOR_INFER", "CLAUDE_AGENT_NAME", "CLAUDE_CODE_CHILD_SESSION", "TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", ...SESSION_ENV];
+const IDENTITY_ENV = ["TM_ACTOR", "TM_ACTOR_INFER", "CLAUDE_AGENT_NAME", "CLAUDE_CODE_CHILD_SESSION", "TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_DISPATCH_GOVERNED", "TM_DISPATCH_REPO", ...SESSION_ENV];
 
 function poolEnv(env, p) {
   const next = { ...env, TM_ROOT: p.root, TMUX: "" };

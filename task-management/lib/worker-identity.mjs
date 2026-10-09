@@ -18,10 +18,16 @@
  * For agent-orchestration (no import crosses the plugins): copy WORKER_RULE and `workerRecordFor`.
  * They are pure — the rule needs only the caller's ancestor pids and the recorded anchors.
  *
- * ponytail: a same-UID process can still delete the registry file or kill and re-parent itself. That
- * needs a deliberate attack on a file outside its worktree; the upgrade is a registry owned by another
- * uid. Anchors are recorded for the backends that report the pane pids they started (tmux, topology);
- * the others fall back to the env marker alone.
+ * BEST EFFORT, NOT A BOUNDARY. A same-UID worker can leave its own ancestry — `setsid -f`, a double
+ * fork, `tmux new -d`, `systemd-run --user` — and delete or edit the registry. Two things narrow that:
+ *   - a record is only ever trusted to make a caller MORE restricted (the guard takes task, branch and
+ *     root from the harness env, and refuses when a record disagrees), and
+ *   - dispatch also writes the anchors onto the task (`dispatched.anchors`); when a caller passes that
+ *     task and an anchor is still alive but its registry record is gone, the caller is treated as a
+ *     worker (fail closed — the record was removed, not expired).
+ * The real boundary is server-side: a worker token that cannot merge, deploy or delete. Anchors are
+ * recorded for the backends that report the pane pids they started (tmux, topology); the others fall
+ * back to the env marker alone.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -125,20 +131,55 @@ export function readRecords(dirs = registryDirs(), start = startTime) {
   return out;
 }
 
+/** The anchors dispatch wrote onto a task that are still the same live process. */
+function liveTaskAnchors(task, start) {
+  const anchors = Array.isArray(task?.dispatched?.anchors) ? task.dispatched.anchors : [];
+  return anchors.filter((a) => Number.isInteger(a?.pid) && a.start != null && String(start(a.pid)) === String(a.start));
+}
+
 /**
- * `{ worker, via, record }` — via is "ancestry" when a recorded anchor is an ancestor (the record
- * then names the task, branch and governance), "env" when only the marker says so, null otherwise.
- * Ancestry is checked first so a worker that kept its marker still gets its record.
+ * `{ worker, via, record }`. via:
+ *   "ancestry"        a registry anchor is an ancestor (record is that registry entry)
+ *   "env"             the TM_DISPATCH_WORKER marker is set
+ *   "task-anchor"     an anchor recorded on `task` is an ancestor
+ *   "missing-record"  `task` names a live anchor whose registry record is gone — fail closed (M1)
+ * A record is evidence that the caller IS a worker. It is never a source of permissions: callers
+ * must not take task, branch or store root from it in preference to the harness env.
  */
-export function isWorkerCaller({ env = process.env, pids = null, dirs = registryDirs(env), start = startTime } = {}) {
-  const record = workerRecordFor(pids ?? ancestorPids(), readRecords(dirs, start), start);
+export function isWorkerCaller({ env = process.env, pids = null, dirs = registryDirs(env), start = startTime, task = null } = {}) {
+  const lineage = pids ?? ancestorPids();
+  const records = readRecords(dirs, start);
+  const record = workerRecordFor(lineage, records, start);
   if (record) return { worker: true, via: "ancestry", record };
   if (env.TM_DISPATCH_WORKER) return { worker: true, via: "env", record: null };
+  const anchors = liveTaskAnchors(task, start);
+  if (workerRecordFor(lineage, anchors, start)) return { worker: true, via: "task-anchor", record: null };
+  if (anchors.some((a) => !records.some((r) => r.pid === a.pid && String(r.start) === String(a.start)))) {
+    return { worker: true, via: "missing-record", record: null };
+  }
   return { worker: false, via: null, record: null };
 }
 
-/** The task a worker caller may act on: its record's, else its env pin. */
-export const workerTask = (who, env = process.env) => who.record?.task ?? env.TM_DISPATCH_TASK ?? null;
+/**
+ * Every task id a worker caller is pinned to — its record's and its env's. A worker may act only on a
+ * task when this list is non-empty and every entry names it: either source can only narrow.
+ */
+export const workerTasks = (who, env = process.env) => [who.record?.task, env.TM_DISPATCH_TASK].filter(Boolean);
+
+/** `owner/repo` from a GitHub remote URL (https, ssh or scp form), or null. */
+export function parseRepoSlug(url) {
+  const m = /github\.com[:/]+([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(String(url || "").trim());
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/** TM-481: the repository a worker of this checkout may merge in — the main checkout's origin. */
+export function repoSlug(root) {
+  try {
+    return parseRepoSlug(execFileSync("git", ["-C", root, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }));
+  } catch {
+    return null;
+  }
+}
 
 /** Pids out of backend output (a `-P -F '#{pane_pid}'` line, an AO binding), dropping anything else. */
 export const pidsOf = (values) => [...new Set(values.map(Number).filter((n) => Number.isInteger(n) && n > 1))];

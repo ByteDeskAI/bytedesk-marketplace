@@ -10,13 +10,31 @@
   `GH_REPO`/`GH_HOST` set anywhere in the command, `gh repo set-default`, `gh alias set|import`, and
   `gh api graphql` with `mergePullRequest`/`enablePullRequestAutoMerge` or an unreadable query. The
   own branch is the pinned one only; HEAD no longer stands in. The handoff no longer suggests `--admin`.
+- **SECURITY review fixes on the worker guard (TM-481, EP-028).**
+  - *C1:* the guard takes task, branch, store root and repository from the harness env set at spawn,
+    never from the registry record (a same-UID file); a record that disagrees with the env is refused.
+    The guard **no longer releases** when the pinned task reads `done` or `deleted`: that file is
+    worker-writable, so a forged `done` released it. A worker session now stays guarded for its life.
+  - *H1:* refused — any command whose name is an expansion (`$G …`, `$(printf …) …`), `xargs <command>`,
+    `gh`/`git push` handed to another program (`setsid`, `find -exec`, `watch`, `flock`), interpreter
+    inline code (`python -c`, `node -e`, `perl -e`, awk programs, stdin scripts) that mentions gh or
+    git push or spawns a process, and `gh api` with `$`, `%` or a backtick in its endpoint or fields.
+  - *H2:* `gh pr merge` is allowed only as the whole command line. The hook checks that
+    `gh repo view` in the cwd resolves the repository pinned at dispatch (`TM_DISPATCH_REPO`, from
+    origin) and asks `gh pr checks -R <that repo>`. Refused: `gh extension` and any gh command the
+    guard does not know (aliases included), `gh config set`, `git remote set-url|add|rename`, and
+    `git config` writes to `remote.*.url` or `gh-resolved`.
 - **SECURITY: worker refusals decide by recorded dispatch ancestry, not `TM_DISPATCH_WORKER` (TM-470,
   EP-028).** Dispatch records the worker's pane pid (tmux `-P -F '#{pane_pid}'`, or ao-topology's
   binding) with its start time in a registry under the passwd home. One predicate,
   `isWorkerCaller` in `lib/worker-identity.mjs`, now backs the pre-bash guard, `governTask`,
   `readyForReview` and `governedCompletion`; `env -u TM_DISPATCH_WORKER` from inside the worker's
   process tree is still a worker. `WORKER_RULE` and `workerRecordFor` are exported for
-  agent-orchestration to copy.
+  agent-orchestration to copy. **This is best effort, not a boundary:** deleting the registry,
+  `setsid -f`, a double fork, `tmux new -d` or `systemd-run --user` all leave the recorded ancestry.
+  To narrow that, dispatch also writes the anchors onto the task (`dispatched.anchors`), and a task
+  whose anchor is still alive but whose registry record is gone makes the caller a worker (fail
+  closed). The real fix is a server-side token, tracked separately.
 
 - **`test-mcp.sh` checks the exact advertised tool names (TM-390, EP-028).** It compared a count
   that went stale every time a tool was added. It now compares the sorted name set and prints which

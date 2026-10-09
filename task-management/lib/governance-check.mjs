@@ -143,7 +143,7 @@ function reviewedHead(worktree, revision, target) {
 export function governedCompletion(task, p) {
   if (!task?.governance) return { allow: true };
   const refuse = (reason) => ({ allow: false, code: "TM_GOVERNED_COMPLETION_REQUIRED", reason: `${task.id}: ${reason}` });
-  if (isWorkerCaller().worker) return refuse("workers finish at ready-for-review; only reviewed and authorized integration can close this task");
+  if (isWorkerCaller({ task }).worker) return refuse("workers finish at ready-for-review; only reviewed and authorized integration can close this task");
   try {
     const { record } = readManagementRecord(task, p), g = task.governance;
     if (g.version !== 1 || g.runtime !== "topology" || !g.workflowRunId || !g.leadId ||

@@ -91,6 +91,56 @@ const isPrMerge = (args) => {
   return sub === "pr" && verb === "merge";
 };
 
+/**
+ * TM-481 H2: gh's own top-level commands (gh 2.100 `gh help`). Anything else — an extension, a user
+ * alias such as the default `co`, `copilot`, `skill` — runs code this table cannot see.
+ */
+const GH_KNOWN = new Set([
+  "auth", "browse", "codespace", "discussion", "gist", "issue", "org", "pr", "project", "release", "repo", "cache", "run",
+  "workflow", "agent-task", "alias", "api", "attestation", "completion", "config", "gpg-key", "label", "licenses", "preview",
+  "ruleset", "search", "secret", "ssh-key", "status", "variable", "help", "version",
+  "accessibility", "actions", "environment", "exit-codes", "formatting", "mintty", "reference", "telemetry",
+]);
+
+/** TM-481 H1: a `gh api` endpoint or body field whose text is an expansion or percent-encoded. */
+function ghApiTainted(args) {
+  const values = [positionals(args, GH_API_VALUED)[0] ?? ""];
+  args.forEach((a, i) => {
+    if (["-f", "-F", "--field", "--raw-field"].includes(a)) values.push(String(args[i + 1] ?? ""));
+    else if (/^--(field|raw-field)=/.test(a)) values.push(a.slice(a.indexOf("=") + 1));
+    else if (/^-[fF]./.test(a)) values.push(a.slice(2));
+  });
+  return values.some((v) => /[$%`]/.test(v));
+}
+
+const XARGS_VALUED = ["-I", "-i", "-n", "-P", "-L", "-l", "-d", "-s", "-E", "-e", "-a", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--replace"];
+
+/** TM-481 H1: interpreters whose inline code (`-c`, `-e`, `--eval`, …) or stdin script is inspected. */
+const INTERPRETERS = ["python", "python2", "python3", "node", "nodejs", "perl", "ruby", "bun", "deno", "php", "lua", "tclsh", "Rscript", "osascript", "awk", "gawk", "mawk", "nawk"];
+const CODE_FLAGS = ["-c", "-e", "-E", "--eval", "-p", "--print", "-r", "--exec"];
+/** Code that runs gh, pushes, or spawns a process at all — a spawn can build any command name. */
+const RUNS_GUARDED = /\bgh\b|\bgit\b[\s\S]*\bpush\b|child_process|subprocess|\bos\.(system|exec|spawn|popen)|popen|\bsystem\s*\(|\bexec\w*\s*\(|\bspawn\w*\s*\(|\bBun\.\$|Deno\.(run|Command)|\bqx\b/;
+/** In these, a backtick runs a shell command (in JS it is only a template string). */
+const BACKTICK_RUNS = new Set(["perl", "ruby", "php"]);
+
+/** The inline code an interpreter call runs: flagged code, awk's program, `deno eval`, or a stdin script. */
+function interpreterCode(tool, args, bodies = []) {
+  const code = [];
+  args.forEach((a, i) => {
+    if (CODE_FLAGS.includes(a) || /^-[A-Za-z]*[ceEp]$/.test(a)) code.push(String(args[i + 1] ?? ""));
+    else if (/^--(eval|print|exec)=/.test(a)) code.push(a.slice(a.indexOf("=") + 1));
+    else if (/^-[ceE]./.test(a)) code.push(a.slice(2));
+  });
+  const pos = positionals(args, ["-f", "-F", "-v", "-I", "-m", "-W", "--import", "--require", "-r", ...CODE_FLAGS]);
+  if (tool === "deno" && pos[0] === "eval") code.push(pos.slice(1).join(" "));
+  if (/awk$/.test(tool) && pos[0] !== undefined && !hasShort(args, "f")) code.push(pos[0]); // awk's program text
+  if (!code.length && (pos.length === 0 || pos[0] === "-")) code.push(...bodies); // a script on stdin
+  return code;
+}
+
+/** Commands that may take the word `gh` as an argument without running it. */
+const READS_GH = new Set(["echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "which", "type", "whereis", "man", "info", "cat", "less", "head", "tail", "ls", "test", "[", "tm", "apropos", "hash"]);
+
 /** TM-481: a GraphQL call that names a merge mutation, or whose query this guard cannot read. */
 const graphqlMayMerge = (args) =>
   args.some((a) => /mergePullRequest|enablePullRequestAutoMerge/i.test(a) || /^--input(=|$)/.test(a) || a.includes("=@") || /\$\(|`|\$\{/.test(a));
@@ -214,6 +264,38 @@ export const RULES = [
     reason: "the stash stack is shared by the main checkout and every worktree, so dropping, clearing or popping an entry can destroy another session's work. Set work aside with a temporary WIP commit on your own branch instead (`git commit -m WIP`), and undo it later with `git reset --soft HEAD~1`.",
   },
 
+  {
+    // TM-481 H2: gh resolves which repository a bare `gh pr …` means from the git remotes and their
+    // `gh-resolved` config. Repointing a remote, adding one, or writing gh-resolved retargets it.
+    id: "git-remote-retarget",
+    tools: ["git"],
+    when: (a) =>
+      (a[0] === "remote" && ["set-url", "add", "rename", "set-head"].includes(a[1])) ||
+      (a[0] === "config" && !hasLong(a, "--get", "--get-all", "--get-regexp", "--list") && !hasShort(a, "l") && !["get", "list"].includes(a[1]) &&
+        a.some((w) => /^remote\.[^=]+\.(url|pushurl|gh-resolved)(=|$)/i.test(w) || /gh-resolved/i.test(w))),
+    reason: `repointing a git remote or writing its gh-resolved setting changes which repository gh merges in, ${HUMAN}.`,
+  },
+
+  // Indirection: commands that run another command where this table cannot see its name (H1).
+  {
+    id: "xargs-command",
+    tools: ["xargs"],
+    when: (a) => positionals(a, XARGS_VALUED).length > 0,
+    reason: `\`xargs <command>\` runs a command built from its input, which this guard cannot read, so it is refused. Run the command directly.`,
+  },
+  {
+    id: "interpreter-runs-gh",
+    tools: INTERPRETERS,
+    when: (a, ctx, cmd) => interpreterCode(cmd.tool, a, cmd.bodies).some((code) => RUNS_GUARDED.test(code) || (BACKTICK_RUNS.has(cmd.tool) && code.includes("`"))),
+    reason: `inline interpreter code that mentions gh, git push or spawns a process can run a guarded command where this guard cannot read it, so it is refused. Run the command directly in the shell.`,
+  },
+  {
+    id: "indirect-gh",
+    tools: [],
+    when: () => false, // matched in check(): any non-reading command passed `gh` as an argument
+    reason: `this command runs \`gh\` (or \`git push\`) through another program, where the guard cannot read what it does, so it is refused. Run gh directly.`,
+  },
+
   // External: merges, releases, repository settings.
   {
     // TM-481: a GOVERNED worker never merges — not even its own PR. It finishes at ready-for-review;
@@ -237,12 +319,14 @@ export const RULES = [
       if (!isPrMerge(a)) return false;
       const [, , target, ...rest] = positionals(a, [...GH_VALUED, ...MERGE_VALUED]);
       const own = ownBranch(ctx);
-      if (!own || target !== own || rest.length > 0 || ctx.ghOverride || hasRepoOption(a) || hasLong(a, "--delete-branch", "--admin") || hasShort(a, "d")) return true;
+      // H2: only as the ONE simple command on the line, named `gh` with no prefix — no cd, source,
+      // export/declare, GH_* or wrapper before it, nothing piped or chained around it.
+      if (!ctx.standalone || !own || target !== own || rest.length > 0 || ctx.ghOverride || hasRepoOption(a) || hasLong(a, "--delete-branch", "--admin") || hasShort(a, "d")) return true;
       return typeof ctx.requiredChecksPass !== "function" || ctx.requiredChecksPass(own) !== true;
     },
     reason: (ctx) =>
       ownBranch(ctx)
-        ? `a dispatch worker merges only its own PR, named by its branch, in this repository, keeping the branch, without --admin, and only once every required check has passed: \`gh pr merge ${ownBranch(ctx)} --merge\`. No PR number, no -R/--repo/GH_REPO, no --delete-branch, no --admin. Check with \`gh pr checks ${ownBranch(ctx)} --required\`.`
+        ? `a dispatch worker merges only its own PR, named by its branch, in its pinned repository, keeping the branch, without --admin, and only once every required check has passed — as a command on its own line: \`gh pr merge ${ownBranch(ctx)} --merge\`. No PR number, no -R/--repo/GH_REPO, no cd/source/export before it, no --delete-branch, no --admin. Check with \`gh pr checks ${ownBranch(ctx)} --required\`.`
         : "no own branch is pinned for this worker (TM_DISPATCH_BRANCH is unset and no dispatch record names one), so no merge can be confirmed to be its own PR.",
   },
   {
@@ -262,6 +346,29 @@ export const RULES = [
     tools: ["gh"],
     when: gh(([a, b]) => a === "alias" && ["set", "import"].includes(b)),
     reason: `a gh alias can rename a guarded command such as \`pr merge\`, ${HUMAN}.`,
+  },
+  {
+    // TM-481 H2: `gh config set` writes gh's own config (aliases, hosts, protocol).
+    id: "gh-config-write",
+    tools: ["gh"],
+    when: gh(([a, b]) => a === "config" && ["set", "clear-cache"].includes(b)),
+    reason: `changing gh's configuration can repoint or rename later gh commands, ${HUMAN}.`,
+  },
+  {
+    // TM-481 H2: an extension, an alias from config.yml, or a subcommand from a newer gh can run
+    // anything under a name this table does not know — so only gh's own known commands run.
+    id: "gh-unknown-command",
+    tools: ["gh"],
+    when: gh(([a]) => a !== undefined && !GH_KNOWN.has(a)),
+    reason: `this gh command is not one the worker guard recognises (an extension, an alias or an unknown subcommand), so it is refused rather than guessed at — ${HUMAN}.`,
+  },
+  {
+    // TM-481 H1: a `gh api` endpoint or field built from an expansion (`$E`, `$(…)`) or percent-encoded
+    // (`merg%65`) cannot be read here, so it is refused.
+    id: "gh-api-unreadable",
+    tools: ["gh"],
+    when: (a) => a[0] === "api" && ghApiTainted(a.slice(1)),
+    reason: `a \`gh api\` endpoint or field containing \`$\`, \`%\` or a backtick cannot be checked against the merge, ref, release and secret endpoints, so it is refused. Spell the endpoint and values out literally.`,
   },
   {
     // TM-481: the GraphQL merge mutations. A query read from a file or stdin, or built by a shell
@@ -538,7 +645,7 @@ const WRAPPERS = {
   stdbuf: [],
   chronic: [],
   timeout: ["-s", "-k", "--signal", "--kill-after"],
-  xargs: ["-I", "-n", "-P", "-L", "-d", "-s", "-E", "-a"],
+  // TM-481 H1: xargs is NOT a wrapper — the command it runs is built from input it reads. See xargs-command.
   npx: ["-p", "--package"],
   bunx: [],
   pnpx: [],
@@ -563,6 +670,7 @@ function unwrap(words) {
     if (!w.length || NOT_RUN.has(w[0])) return null;
     if (/[$`]/.test(w[0])) return { unknown: w.join(" ") };
     const name = basename(w[0]);
+    if (name === "command" && (w[1] === "-v" || w[1] === "-V")) return null; // a lookup, nothing runs
     if (name in WRAPPERS) {
       w.shift();
       while (w.length && w[0].startsWith("-") && w[0] !== "--") {
@@ -619,6 +727,8 @@ function check(src, ctx, depth) {
   if (/\bGH_(REPO|HOST)\s*=/.test(src)) ctx = { ...ctx, ghOverride: true };
   const commands = [];
   const { ok } = read(src, 0, commands, null);
+  // TM-481 H2: a merge must be the whole line — one simple command whose first word IS gh.
+  const standalone = depth === 0 && ok && commands.length === 1 && basename(commands[0].words[0] ?? "") === "gh";
   for (const { words, bodies } of commands) {
     const cmd = unwrap(words);
     if (!cmd) continue;
@@ -630,14 +740,22 @@ function check(src, ctx, depth) {
       }
       continue;
     }
-    if (cmd.unknown !== undefined) {
-      if (FAIL_SAFE.test(cmd.unknown)) return UNREADABLE(`\`${cmd.unknown}\` runs a command named by an expansion, which`);
-      continue;
-    }
-    const here = { ...(cmd.elsewhere ? { ...ctx, head: null } : ctx), ghOverride: Boolean(cmd.ghOverride || ctx.ghOverride) };
+    // TM-481 H1: a command NAMED by an expansion (`$G`, `$(printf …)`) could be anything. Fail closed.
+    if (cmd.unknown !== undefined) return block("unparsed", `\`${cmd.unknown}\` runs a command named by an expansion, which this guard cannot read, so it is refused. Spell the command name out.`);
+    const here = { ...(cmd.elsewhere ? { ...ctx, head: null } : ctx), ghOverride: Boolean(cmd.ghOverride || ctx.ghOverride), standalone };
+    const full = { ...cmd, bodies };
     for (const rule of RULES) {
-      if (rule.tools.includes(cmd.tool) && rule.when(cmd.args, here)) {
+      if (rule.tools.includes(cmd.tool) && rule.when(cmd.args, here, full)) {
         return block(rule.id, typeof rule.reason === "function" ? rule.reason(here) : rule.reason);
+      }
+    }
+    // TM-481 H1: another program handed `gh` (or `git … push`) as an argument runs it out of sight:
+    // `setsid gh …`, `find -exec gh …`, `watch git push …`.
+    if (!["gh", "git"].includes(cmd.tool) && !READS_GH.has(cmd.tool)) {
+      const names = cmd.args.map((a) => basename(a));
+      if (names.includes("gh") || (names.includes("git") && cmd.args.includes("push"))) {
+        const rule = RULES.find((r) => r.id === "indirect-gh");
+        return block(rule.id, rule.reason);
       }
     }
   }

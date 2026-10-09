@@ -7,17 +7,17 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo } from "./helpers.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
-import { create, seedGitContract } from "../../lib/store.mjs";
+import { create, read, seedGitContract, update } from "../../lib/store.mjs";
 import { dispatch } from "../../lib/dispatch/index.mjs";
 import * as tmux from "../../lib/dispatch/tmux.mjs";
-import { WORKER_RULE, isWorkerCaller, recordWorker, startTime, workerRecordFor } from "../../lib/worker-identity.mjs";
+import { WORKER_RULE, isWorkerCaller, parseRepoSlug, recordWorker, repoSlug, startTime, workerRecordFor } from "../../lib/worker-identity.mjs";
 
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LIB = join(PLUGIN_ROOT, "lib");
@@ -150,9 +150,92 @@ describe("worker-identity — env -u TM_DISPATCH_WORKER from inside the worker's
     const env = cleanEnv({ TM_WORKER_REGISTRY: registry });
     const inside = await underAnchor(["sh", HOOK, "pre-bash"], { registry, record: { task: "TM-001", branch: "tm/x", integrationBranch: "main" }, env, input });
     assert.equal(inside.code, 2, `refused inside the tree (stderr: ${inside.stderr})`);
-    assert.match(inside.stderr, /TM-001.*force/s, "the task comes from the record, not the env");
+    assert.match(inside.stderr, /force/);
+    assert.doesNotMatch(inside.stderr, /TM-001/, "the task is never taken from the record (TM-481 C1)");
     const outside = spawnSync("sh", [HOOK, "pre-bash"], { input, env, encoding: "utf8" });
     assert.equal(outside.status, 0, outside.stderr);
+  });
+});
+
+describe("TM-481 C1 — a forged registry record never relaxes the guard", () => {
+  /** A worker pinned at spawn (harness env) to an OPEN task, and a record rewritten to point elsewhere. */
+  function forged() {
+    const real = store();
+    const fake = store();
+    const task = create("task", { title: "open work" }, "body", real);
+    const twin = create("task", { title: "forged twin" }, "body", fake);
+    assert.equal(twin.id, task.id, "precondition: the fake store mints the same id");
+    update(twin.id, { status: "done" }, fake);
+    return { real, fake, task };
+  }
+  const hookIn = (registry, record, env, command, cwd) =>
+    underAnchor(["sh", HOOK, "pre-bash"], { registry, record, env, input: JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd }) });
+
+  it("a record whose root points at a store where the task is `done` does not release it", async () => {
+    const { real, fake, task } = forged();
+    const registry = scratch();
+    const env = cleanEnv({ TM_WORKER_REGISTRY: registry, TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: "tm/x", TM_DISPATCH_INTEGRATION_BRANCH: "main", TM_ROOT: real.root });
+    const record = { task: task.id, branch: "main", integrationBranch: "main", root: fake.root };
+    for (const command of ["gh pr merge 12 --admin", "git push --force origin main"]) {
+      const r = await hookIn(registry, record, env, command, real.root);
+      console.log(`# forged record, ${command}: exit ${r.code}`);
+      assert.equal(r.code, 2, `${command} stays refused (stderr: ${r.stderr})`);
+    }
+  });
+
+  it("a record that disagrees with the spawn-time env is itself refused", async () => {
+    const { real, task } = forged();
+    const registry = scratch();
+    const env = cleanEnv({ TM_WORKER_REGISTRY: registry, TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: "tm/x", TM_ROOT: real.root });
+    const r = await hookIn(registry, { task: task.id, branch: "tm/evil", root: real.root }, env, "git status", real.root);
+    assert.equal(r.code, 2, r.stderr);
+    assert.match(r.stderr, /disagrees/);
+  });
+
+  it("a record cannot supply a branch the env lacks", async () => {
+    const registry = scratch();
+    const repo = tempRepo();
+    trash.push(repo);
+    const r = await hookIn(registry, { task: "TM-001", branch: "tm/evil" }, cleanEnv({ TM_WORKER_REGISTRY: registry }), "git push origin tm/evil", repo);
+    assert.equal(r.code, 2, `no branch was pinned at spawn, so no push is the worker's (stderr: ${r.stderr})`);
+  });
+});
+
+describe("TM-470 M1 — a dispatched task whose registry record is gone fails closed", () => {
+  const self = () => ({ pid: process.pid, start: startTime(process.pid) });
+  it("a live anchor on the task with no registry record makes the caller a worker", () => {
+    const dir = scratch();
+    const task = { id: "TM-1", dispatched: { anchors: [self()] } };
+    const who = isWorkerCaller({ env: {}, pids: [987654321], dirs: [dir], task });
+    assert.equal(who.worker, true);
+    assert.equal(who.via, "missing-record");
+    recordWorker([process.pid], { task: "TM-1" }, { dir });
+    assert.equal(isWorkerCaller({ env: {}, pids: [987654321], dirs: [dir], task }).worker, false, "record present, caller outside the tree");
+    assert.equal(isWorkerCaller({ env: {}, pids: [process.pid], dirs: [scratch()], task }).via, "task-anchor");
+    const dead = spawnSync("true").pid;
+    assert.equal(isWorkerCaller({ env: {}, pids: [987654321], dirs: [scratch()], task: { dispatched: { anchors: [{ pid: dead, start: "1" }] } } }).worker, false, "a dead anchor is just history");
+  });
+
+  it("governedCompletion refuses on that task, from OUTSIDE the worker's tree, when its record was deleted", async () => {
+    const { governedCompletion } = await import("../../lib/governance-check.mjs");
+    const saved = { reg: process.env.TM_WORKER_REGISTRY, w: process.env.TM_DISPATCH_WORKER };
+    process.env.TM_WORKER_REGISTRY = scratch();
+    delete process.env.TM_DISPATCH_WORKER;
+    // The worker's pane: a live process that is not this test's ancestor, with no registry record.
+    const pane = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      const anchor = { pid: pane.pid, start: startTime(pane.pid) };
+      assert.ok(anchor.start, "the stand-in pane is alive");
+      const gate = governedCompletion({ id: "TM-001", governance: { version: 1 }, dispatched: { anchors: [anchor] } }, store());
+      assert.equal(gate.allow, false);
+      assert.match(gate.reason, /workers finish at ready-for-review/);
+    } finally {
+      pane.kill();
+      if (saved.reg === undefined) delete process.env.TM_WORKER_REGISTRY;
+      else process.env.TM_WORKER_REGISTRY = saved.reg;
+      if (saved.w !== undefined) process.env.TM_DISPATCH_WORKER = saved.w;
+    }
   });
 });
 
@@ -172,9 +255,25 @@ describe("worker-identity — dispatch records the anchor", () => {
     try {
       const p = store();
       const t = create("task", { title: "anchor me" }, "body", p);
-      const backend = { name: "fake", available: () => true, spawn: () => ({ ok: true, run: "fake:1", anchors: [process.pid] }) };
+      const seen = [];
+      const backend = { name: "fake", available: () => true, spawn: (req) => (seen.push(req), { ok: true, run: "fake:1", anchors: [process.pid] }) };
       const res = await dispatch(t.id, { backend, session: "s-anchor", actor: "@bot", p, caps: {} });
       assert.equal(res.ok, true, res.reason);
+      // TM-481: governance and the pinned repository reach the backend (and so the worker's env).
+      // This fixture has no origin, so no repository is pinned — and a worker with none cannot merge.
+      assert.equal(seen[0].governed, false);
+      assert.ok("repo" in seen[0], "the pinned repository is passed to the backend");
+      assert.equal(seen[0].repo, null);
+      assert.equal(Object.fromEntries(tmux.workerEnv({ ...seen[0], repo: "acme/widgets", governed: true })).TM_DISPATCH_REPO, "acme/widgets");
+      assert.equal(Object.fromEntries(tmux.workerEnv({ ...seen[0], governed: true })).TM_DISPATCH_GOVERNED, "1");
+      const remote = tempRepo();
+      trash.push(remote);
+      execFileSync("git", ["-C", remote, "remote", "add", "origin", "git@github.com:acme/widgets.git"]);
+      assert.equal(repoSlug(remote), "acme/widgets");
+      for (const url of ["https://github.com/acme/widgets", "https://github.com/acme/widgets.git", "ssh://git@github.com/acme/widgets.git"]) assert.equal(parseRepoSlug(url), "acme/widgets", url);
+      assert.equal(parseRepoSlug("https://gitlab.com/acme/widgets"), null);
+      // TM-470 M1: the anchor is on the task too, so a deleted registry record fails closed.
+      assert.deepEqual(read(t.id, p).dispatched.anchors, [{ pid: process.pid, start: startTime(process.pid) }]);
       const file = join(registry, `${process.pid}.json`);
       assert.ok(existsSync(file), "the anchor record exists");
       const rec = JSON.parse(readFileSync(file, "utf8"));
