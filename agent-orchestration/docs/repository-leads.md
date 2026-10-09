@@ -355,9 +355,9 @@ agent-orchestration and task-management, the agent-orchestration bundle check, a
     "target_branch": "main",
     "required_checks": [
       { "name": "agent-orchestration: npm ci", "argv": ["npm", "--prefix", "agent-orchestration", "ci", "--no-audit", "--no-fund"], "timeout_ms": 300000 },
-      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX node --test --test-concurrency=1 tests/unit/*.test.mjs"], "timeout_ms": 900000 },
+      { "name": "agent-orchestration: unit", "argv": ["sh", "-c", "cd agent-orchestration && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID npm run -s test:unit"], "timeout_ms": 900000 },
       { "name": "agent-orchestration: build:check", "argv": ["npm", "--prefix", "agent-orchestration", "run", "-s", "build:check"], "timeout_ms": 300000 },
-      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
+      { "name": "task-management: unit", "argv": ["sh", "-c", "cd task-management && env -u TMUX -u TMUX_PANE -u AO_SESSION_AGENT_ID -u AO_SESSION_CONSUMER -u AO_AGENT_ID -u TM_NTFY_TOPIC -u TM_NTFY_TOKEN node --test tests/unit/*.test.mjs"], "timeout_ms": 600000 },
       { "name": "agent-orchestration: plugin validate", "argv": ["claude", "plugin", "validate", "./agent-orchestration"], "timeout_ms": 120000 },
       { "name": "task-management: plugin validate", "argv": ["claude", "plugin", "validate", "./task-management"], "timeout_ms": 120000 }
     ]
