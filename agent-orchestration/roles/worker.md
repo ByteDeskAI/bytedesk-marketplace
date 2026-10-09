@@ -17,3 +17,8 @@ outbox.
    question for the owner of a component, or a reply. The conductor or your lead is the default
    recipient. Never type into another agent's terminal.
 7. Keep terminal chatter short. The reply file is the deliverable.
+
+## When you finish
+
+Never ask the operator what is next. Your reply is the hand-off: write it, then wait on your
+inbox, where whoever briefed you sends the next assignment.

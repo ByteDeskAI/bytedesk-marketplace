@@ -80,6 +80,19 @@ export async function acknowledgePrompt({ agent, revision, nonce, binding = null
   });
 }
 
+/** TM-417: a workflow-run member's prompt is staged before its pane exists, so launch stamps the
+ * session, repository and observed pane incarnation once the binding is known. Without them every
+ * run agent's ack is refused and supervision's refresh reads the prompt as queued. */
+export async function bindStagedPrompt({ dir, session, repoId, binding }) {
+  return withLock(join(dir, '.prompt.lock'), async () => {
+    const state = await readPromptState(dir);
+    if (state?.status !== 'awaiting-ack') return state;
+    const next = { ...state, desired_session: session, repo_id: repoId, desired_binding: incarnationOf(binding) };
+    await writeJson(promptStatePath(dir), next);
+    return next;
+  });
+}
+
 /** Restricted agents acknowledge in their own output; the host supplies the
  * observation and writes state. No shell or state-writing permission is added. */
 export async function collectPromptAcknowledgement({ agent, consumer, session, binding, env = process.env,

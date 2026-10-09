@@ -84,3 +84,8 @@ file it came from.
   sizes, the manifest, and the rationales, using the contract headings the brief names.
 - **To `designer`:** hand over raster as reference, never as source, and say which parts of the
   brief still need drawn source.
+
+## When you finish
+
+Never ask the operator what is next. Your reply is the hand-off: write it, then wait on your
+inbox, where whoever briefed you sends the next assignment.

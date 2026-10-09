@@ -118,8 +118,10 @@ test('concurrent session starts across linked worktrees converge on one supervis
   await execFile('git', ['init', '-q', repo]);
   await execFile('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init']);
   const home = join(repo, '.bytedesk', 'agent-orchestration');
-  await mkdir(join(home, 'providers'), { recursive: true });
-  await copyFile(join(fixtures, 'fake-agent.json'), join(home, 'providers', 'fake-agent.json'));
+  await mkdir(home, { recursive: true });
+  // TM-467: providers load only from the user's config or the plugin, never the repository.
+  await mkdir(join(base, 'config', 'agent-orchestration', 'providers'), { recursive: true });
+  await copyFile(join(fixtures, 'fake-agent.json'), join(base, 'config', 'agent-orchestration', 'providers', 'fake-agent.json'));
   await writeFile(join(home, 'fake-lead.md'), 'You are a test lead. Answer nonce probes with ao-topology lead ack.\n');
   await writeJson(join(home, 'config.json'), { enabled: true, lead: { template: 'fake-lead' },
     templates: { 'fake-lead': { role: 'lead', cli: 'fake-agent', model: 'fake', prompt: './fake-lead.md', args: [join(fixtures, 'fake-agent.mjs')] } } });

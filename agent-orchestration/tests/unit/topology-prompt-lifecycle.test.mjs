@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { refreshPrompt, acknowledgePrompt, promotePromptForIncarnation, collectPromptAcknowledgement } from '../../topology/lib/prompt-lifecycle.mjs';
+import { refreshPrompt, acknowledgePrompt, bindStagedPrompt, promotePromptForIncarnation, collectPromptAcknowledgement } from '../../topology/lib/prompt-lifecycle.mjs';
 
 test('last-valid prompt survives malformed config and live changes require restart and agent acknowledgment', async t => {
   const root = await mkdtemp(join(tmpdir(), 'ao-prompt-live-')); t.after(() => rm(root,{recursive:true,force:true}));
@@ -108,4 +108,22 @@ test('prompt ack binding is proven by process ancestry: a child shell of the pan
   assert.equal(result.child?.paneId, '%1', 'a child shell of the registered pane process is accepted');
   assert.equal(result.unrelated, null, 'a pane whose process is not an ancestor is refused');
   assert.equal(result.replaced, null, 'a different incarnation of the pane is refused');
+});
+
+test('TM-417: a workflow-run member acks its launch-staged prompt once launch binds it, and supervision keeps it awaiting', async t => {
+  const root=await mkdtemp(join(tmpdir(),'ao-prompt-run-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const consumer=join(root,'repo'),home=join(root,'home'),dir=join(root,'agent');await mkdir(consumer,{recursive:true});
+  const agent={id:'worker',role:'orchestrator',full_name:'Run Worker',_dir:dir,instructions:'work'};
+  const binding={serverKey:'s',serverPid:1,sessionId:'$1',sessionCreated:2,paneId:'%1',panePid:3};
+  const session='tm-016-run',env={AO_AGENT_ID:agent.id,AO_SESSION:session,AO_CONSUMER:consumer},cfg={XDG_CONFIG_HOME:join(home,'config')};
+  // What launch writes before the pane exists: no session, repository or binding.
+  const composed=await refreshPrompt({agent,consumer,session,home,binding,env:cfg});
+  const { desired_revision, sources, nonce } = composed;
+  await writeFile(join(dir,'prompt-state.json'),JSON.stringify({desired_revision,sources,status:'awaiting-ack',nonce,replacement:'cold-start'}));
+  await assert.rejects(acknowledgePrompt({agent,consumer,session,revision:desired_revision,nonce,binding,env}),e=>e.details.reason==='session-mismatch');
+  const { canonicalRepoId } = await import('../../topology/lib/repoid.mjs');
+  await bindStagedPrompt({dir,session,repoId:(await canonicalRepoId(consumer)).id,binding});
+  const supervised=await refreshPrompt({agent,consumer,session,home,binding,live:true,env:cfg});
+  assert.equal(supervised.status,'awaiting-ack');assert.equal(supervised.nonce,nonce);
+  assert.equal((await acknowledgePrompt({agent,consumer,session,revision:desired_revision,nonce,binding,env})).status,'current');
 });

@@ -376,8 +376,9 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 | Key | Default | Effect |
 |---|---|---|
 | `dispatch.backends` | `["topology","tmux","orchestration","manual"]` | fallback order `tm dispatch` walks |
-| `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
-| `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly |
+| `dispatch.topologyAgent` | — | ignored since TM-467: a topology worker is always an inline agent, so the repository's agent library cannot choose its cli, args, env or mcp servers |
+| `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly. Read from user config only (TM-467) |
+| `dispatch.tmuxCommand` | `["claude","-p","--dangerously-skip-permissions"]` | the tmux worker's argv. Read from user config only (TM-467) |
 | `dispatch.governed` | unset: required when a reviewer stands, else off | `true` requires persistent-lead admission, independent exact-revision review and a separate integration decision; explicit `false` opts out with a warning and a task record (TM-240) |
 | `dispatch.integrationBranch` | `HEAD` | base for new worktrees, ancestry source for duplicate checks, and — resolved to a concrete branch name, never left as `HEAD` — the required `--base` on a worker's `gh pr create` (TM-235) |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |
