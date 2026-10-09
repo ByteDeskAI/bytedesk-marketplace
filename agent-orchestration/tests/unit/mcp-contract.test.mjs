@@ -192,7 +192,8 @@ test("TM-352: orchestration_mailbox_wait returns a standing reply and refuses an
     const { agentsRoot } = await import("../../topology/lib/agents.mjs");
     const home = join(fx.root, "home");
     const env = { AGENT_ORCHESTRATION_STATE_HOME: fx.stateRoot };
-    await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "lead", full_name: "lead0001" });
+    // TM-462B: role worker, because acting as the repository's lead now needs the lead's proven pane.
+    await writeJson(join(agentsRoot(repo), "lead0001", "agent.json"), { id: "lead0001", role: "worker", full_name: "lead0001" });
     const unknown = await fx.client.callTool({ name: "orchestration_mailbox_wait", arguments: { consumerCwd: repo, id: "no-such-id", timeoutMs: 100 } });
     assert.equal(unknown.isError, true, JSON.stringify(unknown.structuredContent));
     assert.equal(unknown.structuredContent.data.code, "TOPOLOGY_SENDER_MISMATCH");
