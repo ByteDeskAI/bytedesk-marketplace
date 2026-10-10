@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-10-09
+
 ### Fixed
 
 - **Lead probes and held-mail rings reach the lead again (TM-529, EP-029).** Since TM-467,
