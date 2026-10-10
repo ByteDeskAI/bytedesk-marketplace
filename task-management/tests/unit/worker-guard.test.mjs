@@ -16,14 +16,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, tempRepo } from "./helpers.mjs";
-import { RULES, guardCommand } from "../../lib/worker-guard.mjs";
+import { ALLOWED_FORMS, MENTIONS_GUARDED, RULES, guardCommand } from "../../lib/worker-guard.mjs";
 import { ensureDirs, paths } from "../../lib/paths.mjs";
 import { create, seedGitContract, update } from "../../lib/store.mjs";
 
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HOOK = join(PLUGIN_ROOT, "hooks", "tm-hook.sh");
 const OWN = "tm/TM-001-fix-the-thing";
-const AT_HOME = { branch: OWN, head: OWN, integrationBranch: "main" };
+// Required checks green: every merge sample below is then refused by its own bypass, never by red checks.
+const AT_HOME = { branch: OWN, head: OWN, integrationBranch: "main", requiredChecksPass: () => true, allowlist: false };
+// The table rows above are defense in depth; a worker hits the allowlist first (TM-481). WORKER is what the hook runs.
+const WORKER = { ...AT_HOME, allowlist: true };
 
 const trash = [];
 after(() => cleanup(...trash));
@@ -61,7 +64,62 @@ const BLOCKED = {
   "git-rebase-protected": ["git rebase origin/main main", "git rebase --onto origin/main HEAD~3 master"],
   "git-update-ref-delete": ["git update-ref -d refs/heads/main"],
   "git-stash-destroy": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git stash pop", "git stash pop --index stash@{0}"],
-  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main", "gh pr merge --merge", `git checkout tm/TM-2-y && gh pr merge`, `gh pr merge -R evil/repo ${OWN}`, `gh pr merge --repo=evil/repo ${OWN}`, `gh -R evil/r pr merge ${OWN}`, `GH_REPO=evil/repo gh pr merge ${OWN}`, `env GH_HOST=x gh pr merge ${OWN}`, `gh pr merge ${OWN} -d`, `gh pr merge ${OWN} --delete-branch`],
+  // TM-481 H2: retargeting the repository gh resolves.
+  "git-remote-retarget": [
+    "git remote set-url origin git@github.com:evil/repo.git",
+    "git remote add upstream https://github.com/evil/repo",
+    "git remote rename origin old",
+    "git config remote.origin.gh-resolved base",
+    "git config --replace-all remote.upstream.url https://github.com/evil/repo",
+    "git config set remote.origin.url x",
+  ],
+  // TM-481 H1: commands run where the guard cannot read their name.
+  "xargs-command": ["echo 12 | xargs gh pr merge", "printf 'pr\\nmerge' | xargs gh", "ls | xargs -I{} rm {}"],
+  "interpreter-runs-gh": [
+    `python3 -c "import os; os.system('gh pr merge 12')"`,
+    `python3 -c "import subprocess; subprocess.run(['g'+'h','pr','merge'])"`,
+    `node -e "require('child_process').execSync('gh pr merge 12')"`,
+    `node --eval="require('child_process')"`,
+    `perl -e 'system("gh pr merge 12")'`,
+    "ruby -e '`gh pr merge 12`'",
+    `awk 'BEGIN { system("gh pr merge 12") }'`,
+    "python3 - <<'EOF'\nimport subprocess\nEOF",
+    "deno eval 'Deno.Command'",
+  ],
+  "indirect-gh": [`setsid gh pr merge ${OWN} --admin`, "find . -maxdepth 0 -exec gh pr merge 12 ;", "watch git push --force", "flock /tmp/l gh pr merge 12"],
+  "gh-pr-merge": ["gh pr merge 12 --squash", "gh -R o/r pr merge 12 --admin", "gh pr merge tm/TM-999-someone-else --merge", "gh pr merge main", "gh pr merge --merge", `git checkout tm/TM-2-y && gh pr merge`, `gh pr merge -R evil/repo ${OWN}`, `gh pr merge --repo=evil/repo ${OWN}`, `gh -R evil/r pr merge ${OWN}`, `GH_REPO=evil/repo gh pr merge ${OWN}`, `env GH_HOST=x gh pr merge ${OWN}`, `gh pr merge ${OWN} -d`, `gh pr merge ${OWN} --delete-branch`,
+    // TM-481: every -R/--repo spelling, --admin, and GH_REPO set anywhere in the line.
+    `gh pr merge ${OWN} -Revil/repo`, `gh pr merge -Revil/repo ${OWN}`, `gh -Revil/repo pr merge ${OWN}`, `gh pr merge ${OWN} --repo evil/repo`, `gh pr merge ${OWN} --merge --admin`, `gh pr merge ${OWN} --admin`,
+    `export GH_REPO=evil/repo; gh pr merge ${OWN} --merge`, `export GH_REPO=evil/repo && bash -c 'gh pr merge ${OWN} --merge'`,
+    // TM-481 H2: a merge is allowed only as the whole line — nothing before, after or around it.
+    `declare -x GH_RE""PO=evil/repo; gh pr merge ${OWN} --merge`, `source ./envfile; gh pr merge ${OWN} --merge`, `. ./envfile && gh pr merge ${OWN} --merge`,
+    `cd ../other && gh pr merge ${OWN} --merge`, `true; gh pr merge ${OWN} --merge`, `gh pr merge ${OWN} --merge | cat`, `bash -c 'gh pr merge ${OWN} --merge'`],
+  // TM-481: governed (table runs these with governed: true) — its OWN PR, the exact finish-line form.
+  "gh-pr-merge-governed": [`gh pr merge ${OWN} --merge`, `gh pr merge ${OWN} --squash`, `gh -R o/r pr merge 12 --admin`],
+  "gh-repo-set-default": ["gh repo set-default evil/repo", "gh repo set-default", "gh repo set-default evil/repo --view"],
+  "gh-alias-set": ["gh alias set m 'pr merge'", "gh alias import aliases.yml"],
+  "gh-api-graphql-merge": [
+    `gh api graphql -f query='mutation { mergePullRequest(input:{pullRequestId:"PR_x"}) { clientMutationId } }'`,
+    `gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}){clientMutationId}}'`,
+    "gh api graphql -F query=@merge.graphql",
+    "gh api graphql --input body.json",
+    // N1: every spelling of the GraphQL endpoint (defense in depth behind the allowlist).
+    `gh api /graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'`,
+    `gh api graphql/ -f query='mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'`,
+    `gh api https://api.github.com/graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"x"}){clientMutationId}}'`,
+  ],
+  // TM-481 H1: endpoints and fields the guard cannot read.
+  "gh-api-unreadable": [
+    `gh api graphql -f query="$(cat merge.graphql)"`,
+    `gh api graphql -f query="$Q"`,
+    `gh api -X PUT "$E"`,
+    "gh api -X PUT repos/o/r/pulls/12/$(echo merge)",
+    "gh api -X PUT repos/o/r/pulls/12/merg%65",
+    "gh api repos/o/r/pulls/12/merg%65 -XPUT",
+    "gh api repos/o/r/issues -f body=`cat x`",
+  ],
+  "gh-config-write": ["gh config set git_protocol ssh", "gh config clear-cache"],
+  "gh-unknown-command": ["gh extension install evil/gh-merge", "gh ext install x/y", "gh co 12", "gh m 12", "gh copilot suggest x"],
   "gh-pr-create-base": ["gh pr create --title x --body y", "gh pr create --base develop --title x", "gh -R o/r pr create --base wrong --fill", "gh pr new --title x", "gh pr new --base develop --title x"],
   "gh-pr-retarget": [
     "gh pr edit 12 --base develop",
@@ -78,6 +136,11 @@ const BLOCKED = {
   "gh-variable": ["gh variable set NAME --body x", "gh variable delete NAME"],
   "gh-api-mutation": [
     "gh api -X PUT repos/o/r/pulls/1/merge",
+    // TM-481: the REST merge in every method spelling, and with a query string.
+    "gh api -XPUT repos/o/r/pulls/12/merge -f merge_method=squash",
+    "gh api --method=PUT /repos/o/r/pulls/12/merge",
+    "gh api repos/o/r/pulls/12/merge -X PUT",
+    "gh api -X PUT 'repos/o/r/pulls/12/merge?x=1'",
     "gh api --method DELETE repos/o/r/git/refs/heads/main",
     "gh api repos/o/r/releases -f tag_name=v1",
   ],
@@ -116,7 +179,7 @@ describe("guardCommand — the table", () => {
     let n = 0;
     for (const [id, samples] of Object.entries(BLOCKED)) {
       for (const cmd of samples) {
-        const v = guardCommand(cmd, AT_HOME);
+        const v = guardCommand(cmd, id === "gh-pr-merge-governed" ? { ...AT_HOME, governed: true } : AT_HOME);
         assert.equal(v.allow, false, `blocked: ${cmd}`);
         assert.equal(v.rule, id, `${cmd} is blocked by ${id}, not ${v.rule}`);
         assert.ok(typeof v.reason === "string" && v.reason.length > 10, `a reason a worker can act on: ${cmd}`);
@@ -129,7 +192,6 @@ describe("guardCommand — the table", () => {
   it("allows the finish line and ordinary work", () => {
     const allowed = [
       `gh pr merge ${OWN} --merge`,
-      `gh pr merge ${OWN} --squash --admin`,
       `gh pr merge ${OWN} --merge --subject "TM-001: done"`,
       "git push",
       "git push origin",
@@ -149,6 +211,11 @@ describe("guardCommand — the table", () => {
       "gh pr list",
       "gh pr checks 12",
       "gh release list",
+      "gh repo view",
+      "gh repo set-default --view",
+      "gh alias list",
+      "gh api graphql -f query='query { viewer { login } }'",
+      "gh api graphql -f query='mutation { addComment(input:{subjectId:\"X\", body:\"hi\"}) { clientMutationId } }'",
       "gh api repos/o/r/pulls/1",
       "git commit -m 'TM-001: fix'",
       "git add -A",
@@ -189,6 +256,139 @@ describe("guardCommand — the table", () => {
   });
 });
 
+describe("guardCommand — TM-481: the worker allowlist (fail closed)", () => {
+  /** Every probe from the security reviews, N1–N4 included. Each must be refused for a worker. */
+  const PROBES = [
+    // N1: GraphQL endpoint spellings
+    `gh api /graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'`,
+    `gh api graphql/ -f query='mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'`,
+    `gh api https://api.github.com/graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'`,
+    `curl -X POST https://api.github.com/graphql -d @q.json`,
+    // N2: launchers with a quoted command string
+    `setsid -f sh -c "gh pr merge ${OWN} --admin"`, `script -qc "gh pr merge 12" /dev/null`, `watch -n1 "gh pr merge 12"`,
+    `flock /tmp/l -c "gh pr merge 12"`, `find . -exec sh -c "gh pr merge 12" ;`, `tmux new -d "gh pr merge 12"`,
+    `parallel ::: "gh pr merge 12"`, `ssh host "gh pr merge 12"`, `nohup gh pr merge ${OWN} --merge`, `env gh pr merge ${OWN} --merge`,
+    // N3: process substitution and stdin scripts
+    "bash <(echo gh pr merge 12)", "source <(echo gh pr merge 12)", '. /dev/stdin <<< "gh pr merge 12"',
+    // N4: a contents write straight to the integration branch
+    "gh api -X PUT repos/o/r/contents/README.md -f branch=main -f message=x -f content=eA==",
+    // U1: what the text-only exemption must NOT reach — a runner, an env prefix, a chain, a helper option.
+    `find . -name x -exec gh pr merge 12 ;`, "find . -name gh", "echo 12 | xargs grep gh", "GH_REPO=x grep gh README.md", "grep gh README.md; gh pr merge 12",
+    "grep gh README.md && gh pr merge 12", "rg --pre gh pr", "rg --pre=gh x", "git diff --ext-diff gh", "git -c diff.external=gh diff", "git log | gh pr merge 12",
+    `git commit -m "x" && git push --force`, `watch grep gh x`, `cat $(gh pr merge 12)`, "tm comment TM-9 `gh pr merge 12`",
+    // U1 items 2–4: the inline body, bare push, --set-upstream, --delete-branch
+    'gh pr create --base main --title x --body "Adds `foo` -> bar"', "git push", `git push --set-upstream origin ${OWN}`, `gh pr merge ${OWN} --merge --delete-branch`, `gh pr merge ${OWN} --squash -d`,
+    // H1/H2 and earlier rounds
+    `G=gh; $G pr merge ${OWN} --admin`, `$(printf '\\x67h') pr merge ${OWN} --admin`, "echo 12 | xargs gh pr merge",
+    `python3 -c "import os; os.system('gh pr merge 12')"`, `node -e "require('child_process').execSync('gh pr merge 12')"`,
+    `gh api -X PUT "$E"`, "gh api -X PUT repos/o/r/pulls/12/$(echo merge)", `gh api graphql -f query="$Q"`, "gh api -X PUT repos/o/r/pulls/12/merg%65",
+    `declare -x GH_RE""PO=evil/repo; gh pr merge ${OWN} --merge`, `source ./envfile; gh pr merge ${OWN} --merge`, `cd ../other && gh pr merge ${OWN} --merge`,
+    `GH_REPO=evil/repo gh pr merge ${OWN} --merge`, "git remote set-url origin git@github.com:evil/repo.git", "git config remote.origin.gh-resolved base",
+    "gh extension install evil/gh-merge", "gh m 12", "gh alias set m 'pr merge'", "gh repo set-default evil/repo", `g""h pr merge ${OWN} --admin`, `g\\h pr merge 12`,
+    `gh pr merge ${OWN} --merge --admin`, `gh pr merge ${OWN} -Revil/repo --merge`, `gh pr merge ${OWN} --repo evil/repo --merge`, "gh pr merge 12 --merge",
+    `gh pr create --base main -R evil/repo --fill`, "git push --force origin main", `git push origin +${OWN}`, "git push origin main", "git push",
+    `git add -A && git commit -m x && git push -u origin ${OWN}`, `git push -u origin ${OWN}\n`, `git push -u origin ${OWN} --force`,
+  ];
+
+  it("refuses every probe, and every guarded sample of the table, for a worker", () => {
+    // The governed row's samples are the exact finish-line form, refused only for a governed task (tested below).
+    const fromTable = Object.entries(BLOCKED).filter(([id]) => id !== "gh-pr-merge-governed").flatMap(([, s]) => s).filter((c) => MENTIONS_GUARDED.test(c) || MENTIONS_GUARDED.test(c.replace(/['"\\]/g, "")));
+    const refused = [...new Set([...PROBES, ...fromTable])];
+    for (const cmd of refused) {
+      const v = guardCommand(cmd, WORKER);
+      assert.equal(v.allow, false, `refused for a worker: ${JSON.stringify(cmd)}`);
+      assert.ok(v.reason.length > 20, cmd);
+    }
+    console.log(`# worker allowlist: ${refused.length} refused (${PROBES.length} review probes + ${refused.length - PROBES.length} table samples)`);
+    const named = guardCommand(PROBES[4], WORKER);
+    assert.equal(named.rule, "worker-allowlist");
+    for (const form of ["gh pr create", "gh pr view", "git push"]) assert.ok(named.reason.includes(form), `the refusal names the allowed form ${form}`);
+  });
+
+  it("allows exactly the listed simple forms (and commands that never mention gh or a push)", () => {
+    const allowed = [
+      `gh pr create --title "TM-001: fix (the thing)" --body "done" --base main`, "gh pr create --fill --base main",
+      "gh pr view 12", "gh pr view --json state", "gh pr status", `gh pr checks ${OWN} --required`, "gh pr diff 12", "gh pr list --state open",
+      "gh run view 123 --log", "gh run list", "gh run watch 123", "gh issue view 5", "gh issue list",
+      `gh pr merge ${OWN} --merge`, `gh pr merge ${OWN} --squash`, `gh pr merge ${OWN} --rebase`, `gh pr merge ${OWN} --merge --auto`,
+      `git push -u origin ${OWN}`, `git push origin ${OWN}`, `git push origin HEAD:${OWN}`,
+      "npm test", "git commit -m 'TM-001: fix'", "git status --short", "node --test tests/unit/", "ls -la",
+      // U1: one plain text-only command may mention gh, a push or GraphQL.
+      `git commit -m "retry the push"`, `grep -rn "gh pr" docs/`, "rg graphql lib/", `tm comment TM-9 "opened the PR with gh"`,
+      ".bytedesk/task-management/bin/tm comment TM-9 'pushed with git push'", "git log --grep 'git push' -5", "git diff HEAD~1 -- lib/gh.mjs",
+      "git show HEAD:docs/graphql.md", "cat docs/gh-notes.md", "head -20 api.github.com.txt", "tail -5 gh.log", "wc -l gh.log", "less docs/gh.md",
+      // U1 item 2: the body goes in a file
+      "gh pr create --base main --title 'TM-001: fix' --body-file pr-body.md", "gh pr create --base main --title 'TM-001: fix' --body 'plain words'",
+    ];
+    for (const cmd of allowed) {
+      const v = guardCommand(cmd, WORKER);
+      assert.equal(v.allow, true, `allowed: ${cmd} — refused by ${v.rule}: ${v.reason}`);
+    }
+    console.log(`# worker allowlist: ${allowed.length} allowed`);
+  });
+
+  it("U1: each refusal names the allowed alternative", () => {
+    const why = (cmd) => guardCommand(cmd, WORKER).reason;
+    assert.match(why('gh pr create --base main --title x --body "Adds `foo` -> bar"'), /use --body-file/);
+    assert.match(why("git push"), new RegExp(`git push -u origin ${OWN}`));
+    assert.match(why(`git push --set-upstream origin ${OWN}`), new RegExp(`git push -u origin ${OWN}`));
+    for (const cmd of [`gh pr merge ${OWN} --merge --delete-branch`, `gh pr merge ${OWN} --merge`]) {
+      const v = guardCommand(cmd, { ...WORKER, requiredChecksPass: () => true });
+      if (cmd.includes("--delete-branch")) assert.equal(v.rule, "worker-allowlist", "one message for --delete-branch, from the allowlist");
+      else assert.equal(v.allow, true);
+    }
+    const generic = why("watch grep gh x");
+    for (const named of ["bare `git push`", "--set-upstream", "--body-file", "--delete-branch"]) assert.ok(generic.includes(named), `the message names ${named}`);
+    assert.equal(ALLOWED_FORMS.length, 7);
+  });
+
+  it("an allowed merge form still goes through the own-branch, checks and governance rules behind it", () => {
+    assert.equal(guardCommand(`gh pr merge ${OWN} --merge`, { ...WORKER, requiredChecksPass: () => false }).allow, false, "red checks");
+    assert.equal(guardCommand(`gh pr merge ${OWN} --merge`, { ...WORKER, governed: true }).rule, "gh-pr-merge-governed");
+    assert.equal(guardCommand(`gh pr merge ${OWN} --merge --delete-branch`, { ...WORKER, allowlist: false }).rule, "gh-pr-merge", "--delete-branch is still refused by the table behind");
+    assert.equal(guardCommand("gh pr merge tm/TM-9-other --merge", WORKER).rule, "gh-pr-merge", "someone else's branch");
+  });
+});
+
+describe("guardCommand — TM-481: who may merge, and when", () => {
+  const MERGE = `gh pr merge ${OWN} --merge`;
+  it("an ungoverned worker merges its own PR only when every required check has passed", () => {
+    const asked = [];
+    const green = guardCommand(MERGE, { ...AT_HOME, requiredChecksPass: (b) => (asked.push(b), true) });
+    assert.equal(green.allow, true, green.reason);
+    assert.deepEqual(asked, [OWN], "the checks asked about are the own branch's");
+    const red = guardCommand(MERGE, { ...AT_HOME, requiredChecksPass: () => false });
+    assert.equal(red.allow, false);
+    assert.equal(red.rule, "gh-pr-merge");
+    assert.match(red.reason, /required check/);
+    const unknown = guardCommand(MERGE, { branch: OWN, head: OWN, integrationBranch: "main" });
+    assert.equal(unknown.allow, false, "no way to ask about checks is no merge");
+  });
+
+  it("--admin is never a worker's, even with every check green", () => {
+    for (const cmd of [`${MERGE} --admin`, `gh pr merge --admin ${OWN}`, `gh pr merge ${OWN} --admin=true`]) {
+      const v = guardCommand(cmd, AT_HOME);
+      assert.equal(v.allow, false, cmd);
+      assert.equal(v.rule, "gh-pr-merge", cmd);
+    }
+  });
+
+  it("a governed worker is refused every merge, its own PR with green checks included", () => {
+    for (const cmd of [MERGE, `gh pr merge ${OWN} --squash`, `gh pr merge ${OWN} --auto --merge`]) {
+      const v = guardCommand(cmd, { ...AT_HOME, governed: true });
+      assert.equal(v.allow, false, cmd);
+      assert.equal(v.rule, "gh-pr-merge-governed", cmd);
+      assert.match(v.reason, /lead's landing path/);
+    }
+    assert.equal(guardCommand("gh pr view 12", { ...AT_HOME, governed: true }).allow, true, "governance blocks merging, not reading");
+  });
+
+  it("no pinned branch is no merge, whatever HEAD says", () => {
+    const v = guardCommand(MERGE, { branch: null, head: OWN, integrationBranch: "main", requiredChecksPass: () => true });
+    assert.equal(v.allow, false);
+  });
+});
+
 describe("guardCommand — TM-235: a PR must target the configured integration branch", () => {
   it("blocks a PR with no --base", () => {
     const v = guardCommand("gh pr create --title x --body y", AT_HOME);
@@ -210,7 +410,7 @@ describe("guardCommand — TM-235: a PR must target the configured integration b
   });
 
   it("fails safe when no integration branch is known for this worker", () => {
-    const v = guardCommand("gh pr create --base main --title x", { branch: OWN, head: OWN });
+    const v = guardCommand("gh pr create --base main --title x", { branch: OWN, head: OWN, allowlist: false });
     assert.equal(v.allow, false);
     assert.equal(v.rule, "gh-pr-create-base");
     assert.match(v.reason, /TM_DISPATCH_INTEGRATION_BRANCH/);
@@ -260,7 +460,7 @@ describe("guardCommand — the shell a worker actually writes", () => {
     const wrapped = [
       ["npm test && git push --force", "git-push-force"],
       ["echo ok; gh pr merge 3", "gh-pr-merge"],
-      ["git log --oneline | head -1 | xargs git tag -d", "git-tag-delete"],
+      ["git log --oneline | head -1 | xargs git tag -d", "xargs-command"],
       ["false || git branch -D old", "git-branch-delete"],
       ["(cd sub && git reset --hard)", "git-reset-hard"],
       ["{ git push -f; }", "git-push-force"],
@@ -292,19 +492,53 @@ describe("guardCommand — the shell a worker actually writes", () => {
     }
   });
 
-  it("fails safe on what it cannot read, but only when it mentions git push, gh or a guarded tool", () => {
-    for (const cmd of ["$GIT push --force", 'git push -f "unterminated', "$(echo gh) pr merge 1", "`which wrangler` deploy"]) {
+  it("fails safe on what it cannot read: an unterminated guarded command, and ANY command named by an expansion", () => {
+    for (const cmd of [
+      "$GIT push --force", 'git push -f "unterminated', "$(echo gh) pr merge 1", "`which wrangler` deploy",
+      // TM-481 H1: the command name hidden in an expansion — refused whatever the rest says.
+      `G=gh; $G pr merge ${OWN} --admin`, `$(printf '\\x67h') pr merge ${OWN} --admin`, '"$G" pr merge 12', "$CMD --version", '"$(git rev-parse --show-toplevel)/scripts/test.sh"',
+    ]) {
       const v = guardCommand(cmd, AT_HOME);
       assert.equal(v.allow, false, `fail safe: ${cmd}`);
       assert.equal(v.rule, "unparsed", `${cmd} refused as unparsed, not ${v.rule}`);
     }
-    for (const cmd of ['echo "unterminated', "$CMD --version", '"$(git rev-parse --show-toplevel)/scripts/test.sh"']) {
-      assert.equal(guardCommand(cmd, AT_HOME).allow, true, `unreadable but unguarded: ${cmd}`);
+    assert.equal(guardCommand('echo "unterminated', AT_HOME).allow, true, "unreadable but unguarded");
+  });
+
+  it("TM-521: a tm block reason that quotes a refused command is data, and the command itself is still refused", () => {
+    const reason = "PR creation refused by dispatch guard: 'gh pr create --base main'. Recommendation: git push origin 6d510be:feature/x";
+    // The handoff spells tm out, so the reason is read as data (TM-481's U1 exemption).
+    for (const cmd of [
+      `.bytedesk/task-management/bin/tm block TM-262 "${reason}"`,
+      `.bytedesk/task-management/bin/tm comment TM-262 '${reason.replaceAll("'", "")}'`,
+      `tm block TM-262 "${reason}"`,
+    ]) {
+      const v = guardCommand(cmd, WORKER);
+      assert.equal(v.allow, true, `allowed: ${cmd} (refused by ${v.rule})`);
+    }
+    // The commands it quotes stay refused, and so does anything named by an expansion — `$TM` included,
+    // because `$SHELL -c "gh pr merge 5"` has the same shape and runs its quoted argument.
+    for (const cmd of [
+      "gh pr create --base other",
+      "git push origin 6d510be:feature/x",
+      `.bytedesk/task-management/bin/tm block TM-262 "x"; gh pr create --base other`,
+      `$TM block TM-262 "${reason}"`,
+      "$GH pr merge 5",
+      '$SHELL -c "gh pr merge 5"',
+      `"$BASH" -c 'git push origin main'`,
+      '$X -lc "gh pr create --base other"',
+    ]) {
+      const v = guardCommand(cmd, WORKER);
+      assert.equal(v.allow, false, `still refused: ${cmd}`);
+    }
+    // Behind the allowlist, the table refuses an expansion-named command too.
+    for (const cmd of ['$SHELL -c "gh pr merge 5"', `"$BASH" -c 'git push origin main'`, '$X -lc "gh pr create --base other"']) {
+      assert.equal(guardCommand(cmd, AT_HOME).rule, "unparsed", `table refuses: ${cmd}`);
     }
   });
 
   it("a push that relies on HEAD is allowed only while HEAD is the worker's own branch", () => {
-    const onMain = { branch: OWN, head: "main" };
+    const onMain = { branch: OWN, head: "main", allowlist: false };
     for (const cmd of ["git push", "git push origin", "git push origin HEAD", "git push -u origin HEAD"]) {
       const v = guardCommand(cmd, onMain);
       assert.equal(v.allow, false, `blocked with HEAD on main: ${cmd}`);
@@ -339,7 +573,7 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     const env = { ...process.env };
     // Every worker marker AND the store: run from inside a dispatched worker's shell, an inherited
     // TM_ROOT names a real store where the sample task may be done, and the hook releases (TM-235).
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_ROOT"]) delete env[k];
+    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_DISPATCH_GOVERNED", "TM_DISPATCH_REPO", "TM_ROOT", "TM_WORKER_REGISTRY"]) delete env[k];
     return { ...env, ...extra };
   }
 
@@ -355,7 +589,8 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     chmodSync(join(bin, "node"), 0o755);
     const ran = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []);
     const run = (event, extra = {}) =>
-      spawnSync("sh", [HOOK, event], { input: payload("git push --force"), env: envWith({ PATH: `${bin}:${process.env.PATH}`, ...extra }), encoding: "utf8" });
+      // HOME: an empty one, so no dispatch record on this machine makes the fast path start Node (TM-470).
+      spawnSync("sh", [HOOK, event], { input: payload("git push --force"), env: envWith({ PATH: `${bin}:${process.env.PATH}`, HOME: dir, ...extra }), encoding: "utf8" });
     return { marker, ran, run };
   }
 
@@ -397,25 +632,69 @@ describe("tm-hook.sh pre-bash — the glue", () => {
     }
     assert.match(hook(`git push --force origin ${OWN}`).stderr, /force/i);
 
-    for (const cmd of [`git push -u origin ${OWN}`, "git push origin HEAD", "gh pr create --fill --base main", "git commit -m x", "npm test"]) {
+    for (const cmd of [`git push -u origin ${OWN}`, `git push origin HEAD:${OWN}`, "gh pr view 12", "gh pr create --fill --base main", "git commit -m x", "npm test"]) {
       const r = hook(cmd);
       assert.equal(r.status, 0, `${cmd}: ${r.stderr}`);
       assert.equal(r.stderr, "");
     }
   });
 
-  it("in a worker without TM_DISPATCH_BRANCH, the own branch is read from the payload's cwd", () => {
+  it("TM-481: in a worker without TM_DISPATCH_BRANCH, HEAD is not an own branch — no push, no merge", () => {
     const own = tempRepo();
-    const onMain = tempRepo();
-    trash.push(own, onMain);
+    trash.push(own);
     execFileSync("git", ["-C", own, "checkout", "-q", "-b", OWN]);
-    execFileSync("git", ["-C", onMain, "branch", "-M", "main"]);
     const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: "TM-001" });
-    const hook = (cwd) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push origin HEAD", cwd), env, encoding: "utf8" });
-    assert.equal(hook(own).status, 0, "HEAD is the worker's branch");
-    const r = hook(onMain);
-    assert.equal(r.status, 2, "HEAD on main is no own branch at all");
-    assert.match(r.stderr, /branch/);
+    const hook = (cmd) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload(cmd, own), env, encoding: "utf8" });
+    for (const cmd of ["git push origin HEAD", `gh pr merge ${OWN} --merge`]) {
+      const r = hook(cmd);
+      assert.equal(r.status, 2, `${cmd}: a checked-out branch is what the worker chose, not what it was pinned to`);
+      assert.match(r.stderr, /branch|governed/);
+    }
+  });
+
+  it("TM-481 H2: an own-PR merge needs gh to resolve the PINNED repo here, and asks its checks with -R", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    seedGitContract(p);
+    const task = create("task", { title: "ungoverned work" }, "body", p);
+    update(task.id, { status: "in_progress" }, p);
+    // A fake gh: `repo view` answers $FAKE_VIEW, `pr checks` answers all-green; every call is logged.
+    const dir = mkdtempSync(join(tmpdir(), "tm-guard-fakegh-"));
+    trash.push(dir);
+    const log = join(dir, "gh.log");
+    writeFileSync(join(dir, "gh"), `#!/bin/sh\necho "$*" >> '${log}'\nif [ "$1" = repo ]; then echo "$FAKE_VIEW"; else echo '[{"bucket":"pass"}]'; fi\n`);
+    chmodSync(join(dir, "gh"), 0o755);
+    const base = { TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: OWN, TM_DISPATCH_INTEGRATION_BRANCH: "main", TM_ROOT: root, PATH: `${dir}:${process.env.PATH}` };
+    const merge = (extra) => spawnSync("sh", [HOOK, "pre-bash"], { input: payload(`gh pr merge ${OWN} --merge`, root), env: envWith({ ...base, ...extra }), encoding: "utf8" });
+
+    const ok = merge({ TM_DISPATCH_REPO: "o/r", FAKE_VIEW: "o/r" });
+    const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
+    console.log(`# gh calls for an allowed merge: ${JSON.stringify(calls)}`);
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.ok(calls.includes(`pr checks ${OWN} -R o/r --required --json bucket`), "the checks are asked of the pinned repo");
+
+    const elsewhere = merge({ TM_DISPATCH_REPO: "o/r", FAKE_VIEW: "evil/repo" });
+    assert.equal(elsewhere.status, 2, "gh resolves another repository from here (cd, set-url, gh-resolved): refused");
+    const unpinned = merge({ FAKE_VIEW: "o/r" });
+    assert.equal(unpinned.status, 2, "no pinned repository: no merge");
+  });
+
+  it("TM-481: a worker whose store task is governed is refused its own-PR merge by the hook", () => {
+    const root = tempRepo();
+    trash.push(root);
+    const p = paths(root);
+    ensureDirs(p);
+    seedGitContract(p);
+    const task = create("task", { title: "governed work" }, "body", p);
+    update(task.id, { status: "in_progress", governance: { version: 1, runtime: "topology", workflowRunId: "w", leadId: "lead", recordPath: "/x" } }, p);
+    const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: OWN, TM_ROOT: root });
+    const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload(`gh pr merge ${OWN} --merge`, root), env, encoding: "utf8" });
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /governed/);
+    const marked = spawnSync("sh", [HOOK, "pre-bash"], { input: payload(`gh pr merge ${OWN} --merge`, root), env: { ...env, TM_DISPATCH_GOVERNED: "1" }, encoding: "utf8" });
+    assert.match(marked.stderr, /governed/, "the spawn-time marker alone is enough");
   });
 
   it("in a worker, an unreadable payload is refused rather than waved through", () => {
@@ -425,7 +704,7 @@ describe("tm-hook.sh pre-bash — the glue", () => {
   });
 });
 
-describe("tm-hook.sh pre-bash — the guard releases when the task does", () => {
+describe("tm-hook.sh pre-bash — TM-481 C1: the guard never releases on store state", () => {
   const payload = (command, cwd) =>
     JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd });
 
@@ -433,7 +712,7 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
     const env = { ...process.env };
     // Every worker marker AND the store: run from inside a dispatched worker's shell, an inherited
     // TM_ROOT names a real store where the sample task may be done, and the hook releases (TM-235).
-    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_ROOT"]) delete env[k];
+    for (const k of ["TM_DISPATCH_WORKER", "TM_DISPATCH_TASK", "TM_DISPATCH_BRANCH", "TM_DISPATCH_INTEGRATION_BRANCH", "TM_DISPATCH_GOVERNED", "TM_DISPATCH_REPO", "TM_ROOT", "TM_WORKER_REGISTRY"]) delete env[k];
     return { ...env, ...extra };
   }
 
@@ -453,15 +732,18 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
     return { task, root, run };
   }
 
-  it("a done task releases it — the branch is gone and the session still works", () => {
+  // TM-481 C1: the task file is in a store the worker can write, so `status: done` there must never
+  // stand the guard down. These used to assert a release; the release was the hole.
+  it("a done task does NOT release it — a worker can write `done` into its own task file", () => {
     const w = worker("done");
-    const r = w.run();
-    assert.equal(r.status, 0, `a finished worker is not still guarded (stderr: ${r.stderr})`);
-    assert.equal(r.stderr.trim(), "", "and it says nothing on the way out");
+    for (const cmd of ["git push --force origin main", "gh pr merge 12 --admin"]) {
+      const r = w.run(cmd);
+      assert.equal(r.status, 2, `${cmd} is still refused (stderr: ${r.stderr})`);
+    }
   });
 
-  it("a deleted task releases it too", () => {
-    assert.equal(worker("deleted").run().status, 0);
+  it("a deleted task does NOT release it either", () => {
+    assert.equal(worker("deleted").run().status, 2);
   });
 
   it("an open task does NOT release it", () => {
@@ -493,7 +775,7 @@ describe("tm-hook.sh pre-bash — the guard releases when the task does", () => 
 
     const env = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: branch });
     const r = spawnSync("sh", [HOOK, "pre-bash"], { input: payload("git push --force origin main", root), env, encoding: "utf8" });
-    assert.equal(r.status, 0, `a finished worker releases on its branch alone (stderr: ${r.stderr})`);
+    assert.equal(r.status, 2, `a done task identified by its branch still does not release it (TM-481 C1; stderr: ${r.stderr})`);
 
     // A branch that is not the one the task recorded identifies nothing.
     const wrong = envWith({ TM_DISPATCH_WORKER: "1", TM_DISPATCH_TASK: task.id, TM_DISPATCH_BRANCH: "tm/some-other-branch" });

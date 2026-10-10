@@ -31,7 +31,7 @@ import { withLock } from "./lockfile.mjs";
 import { PRESENCE_BINDING_FIELDS } from "./presence.mjs";
 import { canonicalRepoId, repoKey, stateRoot } from "./repoid.mjs";
 import { listServerPanes } from "./tmux.mjs";
-import { invariant, nowIso, readJson, writeJson } from "./util.mjs";
+import { fail, invariant, nowIso, readJson, writeJson } from "./util.mjs";
 
 export const SLOT_RECORD_VERSION = 1;
 /** Three names, because they are names and not code. Any valid name works; these are the observed ones. */
@@ -184,6 +184,19 @@ export async function callerRunsInPane(binding, { pid = process.pid, readStat = 
     pid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
   }
   return false;
+}
+
+/**
+ * The one identity proof (TM-427, rule 3): `binding.panePid` must be this process or an ancestor,
+ * else throw `code`. Unreadable ancestry fails closed — never fall back to AO_AGENT_ID or TMUX_PANE.
+ * The caller must already have seen the binding live in a pane listing (see callerRunsInPane).
+ */
+export async function requireCallerInPane(binding, { code, what = "the bound agent", callerProc = {} } = {}) {
+  let inPane;
+  try { inPane = await callerRunsInPane(binding, callerProc); }
+  catch (error) { fail(code, `Cannot prove the caller runs in ${what}'s pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting AO_AGENT_ID or TMUX_PANE.`); }
+  invariant(inPane, code, `Cannot prove the caller runs in ${what}'s pane: pane ${binding?.paneId ?? "?"}'s process ${binding?.panePid ?? "?"} is not an ancestor of this process; AO_AGENT_ID alone does not prove identity.`);
+  return binding;
 }
 
 /** Write only when the bytes would actually differ: a polling agent must cost a read, not a write. */

@@ -317,7 +317,7 @@ test("a probe outlives its own wait, so a lead can still answer at its next turn
   assert.ok(waited >= 300, `the wait must actually elapse; it returned after ${waited}ms`);
 
   // The value, not the bit: WHICH files are left, and what expiry the survivor carries.
-  const left = (await list(dir)).filter(n => n.endsWith(".json") && !n.endsWith(".answered.json"));
+  const left = (await list(dir)).filter(n => n.endsWith(".json") && !n.endsWith(".answered.json") && !n.endsWith(".last-probe.json"));
   assert.equal(left.length, 1, `the probe must survive the wait for a late ack to be possible; found ${JSON.stringify(left)}`);
   const probe = JSON.parse(await readFile(path(dir, left[0]), "utf8"));
   assert.ok(Number(probe.expires_at) > Date.now(), "and it must still be inside its own expiry, or `leadNonceAck` refuses the answer");

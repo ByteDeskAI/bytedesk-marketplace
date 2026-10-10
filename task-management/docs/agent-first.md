@@ -209,7 +209,7 @@ Ordinary overrides do not bypass these completion gates.
 
 For an ungoverned task, the handoff ends with the legacy completion contract, in order: tick
 each criterion (`tm accept`), **commit**, **`git push -u origin <the task's tm/ branch>`**,
-**`gh pr create --title "<TM-id>: <title>" --body "<what changed, and how it was verified>" --base <dispatch.integrationBranch>`**,
+**`gh pr create --title "<TM-id>: <title>" --body-file <file: what changed, and how it was verified> --base <dispatch.integrationBranch>`**,
 attach proof (`tm evidence`), then `tm done`. If the push or the PR fails — no remote, no
 `gh`, no auth — `tm block <id> "<the error>"` instead of closing. Never leave the task
 `in_progress`, and **never merge any PR but its own**, named by its branch (the guard refuses
@@ -235,7 +235,13 @@ variables, `gh api` writes; deploy and secret tools, package publishing, chat we
 a `gh pr create` (or its alias `gh pr new`) whose `--base` is missing or does not match
 `TM_DISPATCH_INTEGRATION_BRANCH`; and retargeting that base afterwards — `gh pr edit --base
 <other>`, or a `gh api` write to `repos/*/pulls` carrying a `base` field or an unreadable
-`--input` body. It **allows** pushing the worker's own branch and a `gh pr create` based against
+`--input` body. TM-481: a governed worker is refused every `gh pr merge`; an ungoverned one may
+merge its own PR, named by its pinned branch, only when `gh pr checks --required` is all green, and
+never with `--admin`, any `-R`/`--repo` spelling, or `GH_REPO`/`GH_HOST` anywhere in the line;
+`gh repo set-default`, `gh alias set` and GraphQL `mergePullRequest`/`enablePullRequestAutoMerge`
+are refused. TM-470: a worker is decided by `isWorkerCaller` (`lib/worker-identity.mjs`) — its pane
+pid, recorded at dispatch, in the caller's process ancestry — so `env -u TM_DISPATCH_WORKER` does
+not escape it. It **allows** pushing the worker's own branch and a `gh pr create` based against
 the configured integration branch. One table, `lib/worker-guard.mjs`; it stops accidents, not an
 adversary.
 Topology defaults to Claude then Codex, using configured CLI models. A candidate that cannot
@@ -376,8 +382,9 @@ for the catalogued keys (`lib/settings.mjs`). Arrays/objects (`dispatch.backends
 | Key | Default | Effect |
 |---|---|---|
 | `dispatch.backends` | `["topology","tmux","orchestration","manual"]` | fallback order `tm dispatch` walks |
-| `dispatch.topologyAgent` | first non-lead in the roster | which stored agent a topology dispatch borrows its identity from |
-| `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly |
+| `dispatch.topologyAgent` | — | ignored since TM-467: a topology worker is always an inline agent, so the repository's agent library cannot choose its cli, args, env or mcp servers |
+| `dispatch.topologyCandidates` | `"claude,codex"` | candidate order; unsupported guarded fallbacks hold visibly. Read from user config only (TM-467) |
+| `dispatch.tmuxCommand` | `["claude","-p","--dangerously-skip-permissions"]` | the tmux worker's argv. Read from user config only (TM-467) |
 | `dispatch.governed` | unset: required when a reviewer stands, else off | `true` requires persistent-lead admission, independent exact-revision review and a separate integration decision; explicit `false` opts out with a warning and a task record (TM-240) |
 | `dispatch.integrationBranch` | `HEAD` | base for new worktrees, ancestry source for duplicate checks, and — resolved to a concrete branch name, never left as `HEAD` — the required `--base` on a worker's `gh pr create` (TM-235) |
 | `dispatch.heartbeatSeconds` | `60` | claim re-stamp while the worker is alive; `0` disables |

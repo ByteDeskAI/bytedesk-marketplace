@@ -47,6 +47,7 @@ import {
   RESOLVED,
 } from "../lib/store.mjs";
 import { clearOverride, enforcementOff, gateDone, gateStart, gateStop, gateTaskCreate, setOverride } from "../lib/enforce.mjs";
+import { fingerprint, uncommittedEntities } from "../lib/store-git.mjs";
 import { board, briefFor, handoff, renderHistory, renderLog, sessionContext, sprintReport, standup, taskLine } from "../lib/render.mjs";
 import { FIELD_NAMES, describeQuery, matchesQuery, parseQuery } from "../lib/query.mjs";
 import { launcherStatus, pluginBin, writeLaunchers } from "../lib/launcher.mjs";
@@ -1991,7 +1992,7 @@ const VERBS = {
         "  cap list [--status open] | accept <CAP-id> | ship <CAP-id> [--evidence <ref>] | drop <CAP-id>",
         "  enhance-mine [--apply] [--days 14] [--top 15] [--min-count 2] [--test-log <f>]...   mine transcripts + board for issues (dry-run by default)",
         "  goal import <doc.md>          a goal doc becomes a task; its success criteria become the gate",
-        "  goal open|finding|assess|revise|complete EP-id --file input.json --json",
+        "  goal open|finding|assess|revise|complete|resume EP-id --file input.json --json",
         "  goal show EP-id --json        original scope, criteria, findings, deployed proof and budgets",
         "  start <id> | done <id> | park <id> [why] | block <id> [why] | unblock <id>",
         "  claim note <id> --worker <name> [--ttl 60m]   a live worker subagent of this session owns it; Stop honours it",
@@ -2333,6 +2334,27 @@ function hook(event) {
       if (stranded) {
         note = `${note ? `${note}\n` : ""}task-management: found a pre-v0.2 store at ${stranded}. Stores are now shared across worktrees — move it with \`.bytedesk/task-management/bin/tm migrate\`.`;
       }
+      /**
+       * ERRORS ONLY, deliberately. `tm doctor` reports warnings too, and a
+       * healthy store routinely carries several — evidence drift, an unticked
+       * criterion on a done task, an unreviewed revision. Surfacing those at
+       * every session start would reprint the same list forever, and a notice
+       * that repeats is a notice that gets ignored. An error is different: the
+       * store is inconsistent and `doctor` already exits non-zero for it.
+       */
+      try {
+        const errs = diagnose(P).filter((f) => f.level === "error");
+        if (errs.length) {
+          const names = [...new Set(errs.map((f) => f.kind || f.code).filter(Boolean))].slice(0, 4);
+          const prefix = note ? `${note}\n` : "";
+          note =
+            `${prefix}task-management: \`tm doctor\` reports ${errs.length} error(s)` +
+            `${names.length ? ` (${names.join(", ")})` : ""} — run ` +
+            "`.bytedesk/task-management/bin/tm doctor`; some are repairable with --fix.";
+        }
+      } catch {
+        /* a diagnosis that throws must not stop a session starting */
+      }
       if (rotateEvents(P)) logEvent("events_rotated", {}, P);
       // One line of pool state (TM-178): the pool is on by default, so every session says so and names the switch.
       let poolState = "";
@@ -2587,7 +2609,11 @@ function hook(event) {
         // top-level decision/reason on stdout. (See security-guidance hook notes.)
         process.stderr.write(`${gate.reason}\n`);
         out(JSON.stringify({ decision: "block", reason: gate.reason }));
+        // One refusal per stop. The gate already asked for something; a second
+        // notice on the same stop reads as the tool nagging twice.
+        break;
       }
+      warnUncommittedStore(P);
       break;
     }
 
@@ -2595,6 +2621,56 @@ function hook(event) {
       break;
   }
   process.exit(0);
+}
+
+/**
+ * Stop -> say so if an entity file is not on the remote.
+ *
+ * WARNS, never blocks: an uncommitted record is a thing to fix before the branch
+ * merges, not a reason to refuse a stop, and the Stop gate above is already the
+ * one thing allowed to refuse. lib/store-git.mjs explains why this compares
+ * against the remote and fetches only once something looks wrong.
+ *
+ * Reports on CHANGE, not on state. Stop fires at the end of every turn, so
+ * warning whenever the store is dirty reprints the identical list for as long as
+ * the work is open - and a notice that repeats is a notice that gets ignored. The
+ * fingerprint of the reported set is remembered, so a record JOINING the set
+ * warns and an already-reported set stays quiet.
+ */
+function warnUncommittedStore(P) {
+  let res;
+  try {
+    res = uncommittedEntities(P);
+  } catch {
+    return; // a hook bug must never brick the session
+  }
+  const files = res.files || [];
+  const s = state(P);
+
+  if (files.length === 0) {
+    if (s.lastStoreWarn) writeState({ lastStoreWarn: null }, P);
+    return;
+  }
+
+  const fp = fingerprint(files);
+  if (s.lastStoreWarn === fp) return;
+  writeState({ lastStoreWarn: fp }, P);
+  logEvent("store_uncommitted_warned", { count: files.length, fingerprint: fp }, P);
+
+  const shown = files.slice(0, 10);
+  const more = files.length - shown.length;
+  const how = res.reason
+    ? `could not compare against a remote (${res.reason})`
+    : `not on ${res.upstream}${res.fetched ? " (checked after a fetch)" : res.fetchError ? ` (fetch failed, so ${res.upstream} may be stale: ${res.fetchError})` : ""}`;
+
+  process.stderr.write(
+    `task-management: ${files.length} store record(s) ${how}.\n` +
+      shown.map((f) => `  ${f}\n`).join("") +
+      (more > 0 ? `  ... and ${more} more\n` : "") +
+      "The store is the system of record and is git-tracked, so until these are " +
+      "committed they exist only in this working tree. Commit them on a branch " +
+      "with the work they describe.\n",
+  );
 }
 
 /** ExitPlanMode → copy the plan into the repo, open an epic, remember the link. */

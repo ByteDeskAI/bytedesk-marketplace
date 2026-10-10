@@ -134,7 +134,7 @@ test('TM-443 follow-up: a caller-supplied GIT_CONFIG_GLOBAL, GIT_DIR, GIT_SSH_CO
   assert.equal(await exists(pwned), false, 'a filter from a caller-supplied GIT_CONFIG_GLOBAL ran');
   const pinned = safeGitEnv(env);
   for (const name of ['GIT_DIR', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH', 'GIT_ASKPASS']) assert.equal(pinned[name], undefined, name);
-  assert.equal(pinned.GIT_CONFIG_GLOBAL, join((await import('node:os')).homedir(), '.gitconfig'));
+  assert.equal(pinned.GIT_CONFIG_GLOBAL, join((await import('node:os')).userInfo().homedir, '.gitconfig'));
   assert.equal(pinned.GIT_AUTHOR_NAME, 'Kept', 'commit identity passes through');
 });
 
@@ -195,4 +195,209 @@ test('TM-443 grep: no raw git spawn outside safe-git in the governance paths', a
   assert.ok(hits.some(hit => hit.rel.endsWith('reviewer.mjs')), 'the pattern no longer matches the known reviewer.mjs calls');
   const violations = hits.filter(hit => !ALLOWED.has(hit.rel));
   assert.deepEqual(violations, [], `route these through safe-git: ${violations.map(v => `${v.rel}:${v.line} ${v.call}`).join('; ')}`);
+});
+
+// ── TM-475: pinned git and ssh, the passwd home, no XDG attributes, and a gh that cannot be redirected ──
+const PLANT = (marker, tail = 'exit 1') => `#!/bin/sh\ntouch '${marker}'\n${tail}\n`;
+
+test('TM-475 host git is the root-owned binary at a pinned path; a git planted first on PATH never runs', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const bin = join(dir, 'home-bin'), marker = join(dir, 'PLANTED-GIT');
+  execFileSync('mkdir', ['-p', bin]);
+  await writeFile(join(bin, 'git'), PLANT(marker), { mode: 0o755 });
+  if (!await exists('/usr/bin/git') && !await exists('/usr/local/bin/git')) return t.skip('no git at a pinned system path on this machine');
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  assert.equal(safeGitSync(repo, ['status', '--porcelain'], { env }).status, 0);
+  assert.equal((await safeGit(repo, ['rev-parse', 'HEAD'], { env })).code, 0);
+  assert.equal(await exists(marker), false, 'the planted ~/bin git ran');
+});
+
+test('TM-475 core.sshCommand is the pinned ssh: an ssh planted first on PATH never runs for an ssh remote', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const bin = join(dir, 'home-bin'), marker = join(dir, 'PLANTED-SSH');
+  execFileSync('mkdir', ['-p', bin]);
+  await writeFile(join(bin, 'ssh'), PLANT(marker), { mode: 0o755 });
+  // Port 1 on loopback refuses at once, so the real ssh fails fast and nothing leaves the machine.
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  const fetched = await safeGit(repo, ['fetch', 'ssh://git@127.0.0.1:1/o/r.git', 'main'], { allowFailure: true, env, timeoutMs: 20_000 });
+  assert.notEqual(fetched.code, 0);
+  assert.equal(await exists(marker), false, 'the planted ~/bin ssh ran');
+  const { SSH_PATHS, trustedBinary } = await import('../../topology/lib/safe-git.mjs');
+  assert.ok(SAFE_GIT_CONFIG.includes(`core.sshCommand=${trustedBinary({ paths: SSH_PATHS }) ?? 'false'}`), SAFE_GIT_CONFIG.join(' '));
+});
+
+test('TM-475 GIT_CONFIG_GLOBAL is the passwd entry home, not $HOME', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const { safeGitEnv } = await import('../../topology/lib/safe-git.mjs');
+  const { userInfo } = await import('node:os');
+  const fake = join(dir, 'fake-home');
+  execFileSync('mkdir', ['-p', fake]);
+  await writeFile(join(fake, '.gitconfig'), '[tm475]\n\tmarker = from-fake-home\n');
+  const saved = process.env.HOME; process.env.HOME = fake; t.after(() => { process.env.HOME = saved; });
+  assert.equal(safeGitEnv({ HOME: fake }).GIT_CONFIG_GLOBAL, join(userInfo().homedir, '.gitconfig'));
+  const read = safeGitSync(repo, ['config', '--global', '--get', 'tm475.marker'], { env: { ...process.env, HOME: fake } });
+  assert.notEqual(read.stdout.trim(), 'from-fake-home', 'a worker-derived $HOME chose the global config');
+});
+
+test('TM-475 core.attributesFile is pinned empty: $XDG_CONFIG_HOME/git/attributes is never read', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const xdg = join(dir, 'xdg');
+  execFileSync('mkdir', ['-p', join(xdg, 'git')]);
+  await writeFile(join(xdg, 'git', 'attributes'), '* tm475=set\n');
+  const env = { ...process.env, XDG_CONFIG_HOME: xdg };
+  assert.match(execFileSync('git', ['-C', repo, 'check-attr', 'tm475', '--', 'a.txt'], { encoding: 'utf8', env }), /tm475: set/, 'control: plain git reads it');
+  assert.match(safeGitSync(repo, ['check-attr', 'tm475', '--', 'a.txt'], { env }).stdout, /tm475: unspecified/);
+});
+
+test('TM-475 host gh refuses when its config sets http_unix_socket, before any request', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { trustedGh, ghRedirectRefusal } = await import('../../topology/lib/safe-git.mjs');
+  const { hostGh } = await import('../../topology/lib/management.mjs');
+  // The rule, on an injected gh: the key set refuses; empty passes; an unreadable key refuses.
+  const answers = values => (_bin, args) => ({ status: 0, stdout: `${values[args[2]] ?? ''}\n`, stderr: '' });
+  assert.match(ghRedirectRefusal('gh', { spawn: answers({ http_unix_socket: '/tmp/w.sock' }) }), /http_unix_socket/);
+  assert.equal(ghRedirectRefusal('gh', { spawn: answers({}) }), null);
+  assert.match(ghRedirectRefusal('gh', { spawn: () => ({ status: 1, stdout: '', stderr: 'boom' }) }), /failed/);
+  if (!trustedGh()) return t.skip('no root-owned gh at a pinned path on this machine');
+  // The real gh, configured (same-uid writable) to answer through a worker's socket: hostGh refuses.
+  const xdg = join(dir, 'xdg');
+  execFileSync('mkdir', ['-p', join(xdg, 'gh')]);
+  await writeFile(join(xdg, 'gh', 'config.yml'), `http_unix_socket: ${join(dir, 'worker.sock')}\n`);
+  const saved = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, GH_CONFIG_DIR: process.env.GH_CONFIG_DIR };
+  process.env.XDG_CONFIG_HOME = xdg; delete process.env.GH_CONFIG_DIR;
+  t.after(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  const answer = await hostGh(dir)(['api', 'repos/o/r/compare/0000000000000000000000000000000000000000...main']);
+  assert.notEqual(answer.code, 0);
+  assert.match(answer.stderr, /gh config sets http_unix_socket/);
+});
+
+test('TM-475 safeGh and safeGhSync run gh with GH_HOST pinned to github.com and GH_REPO, GH_CONFIG_DIR, proxies and CA overrides removed', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { safeGh, safeGhSync, GH_REDIRECT_ENV } = await import('../../topology/lib/safe-git.mjs');
+  const fake = join(dir, 'gh');
+  await writeFile(fake, '#!/bin/sh\n[ "$1" = config ] && exit 0\nenv\n', { mode: 0o755 });
+  const env = { PATH: process.env.PATH, KEEP: 'kept', ...Object.fromEntries(GH_REDIRECT_ENV.map(name => [name, `planted-${name}`])) };
+  for (const out of [(await safeGh(fake, ['api', 'x'], { env })).stdout, safeGhSync(fake, ['api', 'x'], { env }).stdout]) {
+    const names = out.split('\n').map(line => line.split('=')[0]); // names only: never echo an environment into test output
+    assert.ok(names.includes('KEEP'), 'the fake printed its environment, so absence below is meaningful');
+    assert.deepEqual(GH_REDIRECT_ENV.filter(name => name !== 'GH_HOST' && names.includes(name)), []);
+    assert.match(out, /^GH_HOST=github\.com$/m, 'GH_HOST is pinned, not removed');
+  }
+  assert.ok(['GH_HOST', 'GH_REPO', 'GH_CONFIG_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR'].every(n => GH_REDIRECT_ENV.includes(n)));
+});
+
+// TM-475 review H1: with GH_HOST unset, gh takes the only host in its (same-uid writable) hosts.yml as the
+// default, so `gh api repos/...` went to https://evil.invalid/api/v3/. GH_HOST is pinned to github.com.
+test('TM-475 review H1: a hosts.yml naming only another host never moves host gh off github.com', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const { safeGh, safeGhSync } = await import('../../topology/lib/safe-git.mjs');
+  const config = join(dir, 'xdg', 'gh');
+  execFileSync('mkdir', ['-p', config]);
+  await writeFile(join(config, 'hosts.yml'), 'evil.invalid:\n    oauth_token: planted\n    user: worker\n');
+  // The shim records what gh would act on: its argv and the host and config it was given.
+  const log = join(dir, 'gh.log'), shim = join(dir, 'gh');
+  await writeFile(shim, `#!/bin/sh\n[ "$1" = config ] && exit 0\nprintf 'argv=%s\\nGH_HOST=%s\\nXDG=%s\\n' "$*" "$GH_HOST" "$XDG_CONFIG_HOME" >> '${log}'\n`, { mode: 0o755 });
+  const env = { PATH: process.env.PATH, XDG_CONFIG_HOME: join(dir, 'xdg'), GH_HOST: 'evil.invalid' };
+  await safeGh(shim, ['api', 'repos/o/r/compare/a...b'], { env });
+  safeGhSync(shim, ['api', 'repos/o/r/compare/a...b'], { env });
+  const lines = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.deepEqual(lines.filter(l => l.startsWith('argv=')), ['argv=api repos/o/r/compare/a...b', 'argv=api repos/o/r/compare/a...b'], 'argv passes through unchanged');
+  assert.deepEqual(lines.filter(l => l.startsWith('GH_HOST=')), ['GH_HOST=github.com', 'GH_HOST=github.com'], 'gh targets github.com whatever hosts.yml or the caller says');
+  assert.ok(lines.includes(`XDG=${join(dir, 'xdg')}`), 'the hosts.yml naming evil.invalid was in reach, so the pin is what kept gh on github.com');
+});
+
+// TM-475 review M2: a repository-scope http.* (a proxy, sslVerify=false, a per-URL http.<url>.* form that
+// outranks any generic override) or remote.<name>.proxy would let a worker intercept a host fetch.
+test('TM-475 review M2: repository-scope transfer-redirecting http keys, remote proxies and URL-named remotes refuse every host git call', async t => {
+  const { repo } = await repoWithOrigin(t);
+  assert.equal(safeGitSync(repo, ['status']).status, 0, 'control: a clean repository runs');
+  const escape = text => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const refused = [
+    ['http.proxy', 'http://127.0.0.1:9'], ['http.sslVerify', 'false'], ['http.https://github.com/.sslVerify', 'false'],
+    ['http.https://github.com/.proxy', 'http://127.0.0.1:9'], ['http.sslCAInfo', '/tmp/evil.pem'], ['http.sslCAPath', '/tmp/evil-ca'],
+    ['http.sslCert', '/tmp/c.pem'], ['http.sslKey', '/tmp/k.pem'], ['http.curloptResolve', 'github.com:443:127.0.0.1'],
+    ['http.https://github.com/.extraHeader', 'X-Evil: 1'], ['http.cookieFile', '/tmp/cookies'], ['remote.origin.proxy', 'http://127.0.0.1:9'],
+    // A remote named like a URL captures `git fetch <that url>` (review round 2, item 3).
+    ['remote.https://github.com/O/R.url', 'file:///evil'], ['remote.git@github.com:O/R.pushurl', 'file:///evil'],
+  ];
+  for (const [key, value] of refused) {
+    raw(repo, 'config', key, value);
+    const r = safeGitSync(repo, ['rev-parse', 'HEAD']);
+    assert.equal(r.status, 128, `${key} was not refused`);
+    assert.match(r.stderr, new RegExp(`safe-git refused .*${escape(key)}`, 'i'), r.stderr);
+    raw(repo, 'config', '--unset-all', key);
+  }
+});
+
+test('TM-475 review M2: harmless repository-scope http keys (postBuffer, version) never block host git', async t => {
+  const { repo } = await repoWithOrigin(t);
+  for (const [key, value] of [['http.postBuffer', '524288000'], ['http.version', 'HTTP/1.1'], ['http.https://github.com/.lowSpeedLimit', '1000'], ['remote.origin.url', join(repo, '..', 'origin.git')]]) {
+    raw(repo, 'config', key, value);
+    const r = safeGitSync(repo, ['status']);
+    assert.equal(r.status, 0, `${key} was refused: ${r.stderr}`);
+  }
+  assert.equal(safeGitSync(repo, ['config', '--get', 'remote.origin.url']).stdout.trim(), join(repo, '..', 'origin.git'), 'an ordinary remote URL is not overridden');
+});
+
+// PR #241 CI: actions/checkout writes http.https://github.com/.extraheader into the checkout's local
+// config. safe-git listed drivers in the PROCESS cwd even when the call named its repository with -C or
+// --git-dir (checkout-repair passes cwd=null), so the CI checkout's header refused checkout-repair's
+// clone, and a driver planted in the -C repository was never listed. The listing now reads the
+// repository the call reads.
+test('PR #241 CI: the driver listing reads the repository named by -C / --git-dir, not the process cwd', async t => {
+  const { dir, repo } = await repoWithOrigin(t);
+  const ci = join(dir, 'ci-checkout');
+  execFileSync('git', ['init', '-q', ci]);
+  execFileSync('git', ['-C', ci, 'config', 'http.https://github.com/.extraheader', 'AUTHORIZATION: basic x']);
+  const saved = process.cwd(); process.chdir(ci); t.after(() => process.chdir(saved));
+  // An unrelated cwd repository's config does not refuse a call aimed elsewhere.
+  assert.equal(safeGitSync(null, ['-C', repo, 'status', '--porcelain']).status, 0, 'a -C call was refused by the cwd repository');
+  assert.equal(safeGitSync(null, [`--git-dir=${join(repo, '.git')}`, 'rev-parse', 'HEAD']).status, 0, 'a --git-dir call was refused by the cwd repository');
+  const cloned = await safeGit(null, ['clone', '--no-checkout', '--quiet', '--', join(dir, 'origin.git'), join(dir, 'clone')], { allowFailure: true });
+  assert.equal(cloned.code, 0, cloned.stderr);
+  // And the repository the call names is the one whose config is checked.
+  raw(repo, 'config', 'http.proxy', 'http://127.0.0.1:9');
+  assert.equal(safeGitSync(null, ['-C', repo, 'status']).status, 128, 'a refused key in the -C repository was not seen');
+  assert.equal(safeGitSync(null, [`--git-dir=${join(repo, '.git')}`, 'rev-parse', 'HEAD']).status, 128, 'a refused key in the --git-dir repository was not seen');
+  // A call with no location still checks the cwd repository, which it reads.
+  assert.equal(safeGitSync(null, ['status']).status, 128, 'the cwd repository was not checked for a call that reads it');
+});
+
+// Review of 97fba771, M1: a clone with no location still lists the GLOBAL scope, because
+// SAFE_GIT_CONFIG empties credential.helper and only listed global helpers are re-added; without it a
+// private https clone ran with no helper at all. The global file is the passwd home's, so a child
+// process stands a fake home in for os.userInfo() and runs the exact listing safe-git runs.
+test('97fba771 review M1: a clone with no location still carries the global credential.helper', async t => {
+  const { dir } = await repoWithOrigin(t);
+  const fakeHome = join(dir, 'passwd-home');
+  execFileSync('mkdir', ['-p', fakeHome]);
+  await writeFile(join(fakeHome, '.gitconfig'), '[credential]\n\thelper = !tm475-operator-helper\n');
+  const lib = new URL('../../topology/lib/safe-git.mjs', import.meta.url).href;
+  const script = `
+    import os from 'node:os'; import { syncBuiltinESMExports } from 'node:module'; import { spawnSync } from 'node:child_process';
+    const real = os.userInfo; os.userInfo = (...a) => ({ ...real(...a), homedir: ${JSON.stringify(fakeHome)} }); syncBuiltinESMExports();
+    const sg = await import(${JSON.stringify(lib)});
+    const { list } = sg.listArgs(null, ['clone', '--no-checkout', '--', 'https://github.com/o/private.git', '/tmp/x']);
+    const listing = spawnSync('git', list, { encoding: 'utf8', env: sg.safeGitEnv(process.env) });
+    process.stdout.write(JSON.stringify({ list, overrides: sg.driverOverrides(listing.stdout).overrides }));`;
+  const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', cwd: dir }));
+  assert.ok(Array.isArray(out.list) && out.list.includes('--global'), `the clone listing is ${JSON.stringify(out.list)}`);
+  assert.deepEqual(out.overrides.filter(([key]) => key.startsWith('credential.')), [['credential.helper', '!tm475-operator-helper']]);
+});
+
+// Review of 97fba771, L1/L2: a leading option the scan does not understand could make the listing read
+// another repository than git uses (--namespace and --config-env take a separate value; --bare makes git
+// take the original cwd as its git directory despite -C). Only -C, -c, --git-dir and --work-tree pass.
+test('97fba771 review L1/L2: an unrecognised leading option, and --bare, are refused', async t => {
+  const { repo } = await repoWithOrigin(t);
+  for (const args of [['--namespace', 'ns', '-C', repo, 'status'], ['--config-env', 'core.pager=PAGER', '-C', repo, 'status'], ['--bare', '-C', repo, 'status'], ['--no-pager', '-C', repo, 'status']]) {
+    const sync = safeGitSync(null, args), async_ = await safeGit(null, args, { allowFailure: true });
+    for (const r of [{ code: sync.status, stderr: sync.stderr }, async_]) {
+      assert.equal(r.code, 128, `${args[0]} was not refused`);
+      assert.match(r.stderr, new RegExp(`does not accept the leading option ${args[0]}`));
+    }
+  }
+  // The forms callers use still run.
+  for (const args of [['-C', repo, 'status'], ['-c', 'user.name=T', '-C', repo, 'status'], [`--git-dir=${join(repo, '.git')}`, 'rev-parse', 'HEAD'], ['--git-dir', join(repo, '.git'), '--work-tree', repo, 'status']])
+    assert.equal(safeGitSync(null, args).status, 0, args.join(' '));
 });

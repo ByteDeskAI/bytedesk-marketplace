@@ -344,7 +344,7 @@ export async function checkResubmitSafe({ pane, adapter, format, binding, tmux =
  * pane.log offsets, journal entries under a run dir) and a probe has no run. What it borrows is the
  * decision — `decideBell` — which is the part that must not diverge.
  */
-export async function wakeForProbe({ pane, adapter, format, binding, text, tmux = defaultTmux, submitKeys = null, log = () => {} }) {
+export async function wakeForProbe({ pane, adapter, format, binding, text, tmux = defaultTmux, submitKeys = null, settleMs = PROBE_SUBMIT_SETTLE_MS, log = () => {} }) {
   if (!pane) return { rang: false, reason: "the record names no pane" };
   const verdict = await checkBellSafe({ pane, adapter, format, binding, tmux });
   if (!verdict.safe) {
@@ -352,9 +352,17 @@ export async function wakeForProbe({ pane, adapter, format, binding, text, tmux 
     return { rang: false, reason: verdict.reason, attention: verdict.attention === true };
   }
   await tmux.sendText(pane, text, submitKeys ?? adapter?.submit_keys ?? ["Enter"]);
-  log("probe wake rung");
-  return { rang: true };
+  // TM-478. Typed is not submitted. One more look: a composer still occupied after the submit key
+  // means the pointer is sitting in the box, unread — so the probe never reached the agent and its
+  // expiry is no evidence about it. Only that one reason says "unsubmitted"; a look that fails for
+  // anything else leaves submission unknown rather than guessed.
+  if (settleMs > 0) await sleep(settleMs);
+  const after = await checkBellSafe({ pane, adapter, format, binding, tmux });
+  const submitted = after.safe ? true : after.reason === "the composer is not empty" ? false : null;
+  log(submitted === false ? "probe wake typed but the pointer is still in the composer" : "probe wake rung");
+  return { rang: true, submitted };
 }
+const PROBE_SUBMIT_SETTLE_MS = Number(process.env.AO_PROBE_SUBMIT_SETTLE_MS ?? 750);
 
 /**
  * TM-151/TM-157. IS THE COMPOSER EMPTY, when the plain text says it is not?

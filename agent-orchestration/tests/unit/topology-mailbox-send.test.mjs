@@ -51,7 +51,8 @@ async function world(t) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('AO_')));
   Object.assign(env, { TMUX: '', TMUX_TMPDIR: join(root, 'tmux'), HOME: join(root, 'home'),
     AGENT_ORCHESTRATION_STATE_HOME: join(root, 'state'), AGENT_ORCHESTRATION_SERVICES: '0', AO_TRANSPORT: 'file' });
-  const alpha = await repo(root, 'alpha', [['lead-a', 'lead'], ['work-a', 'worker']]);
+  // TM-462B: acting as lead-a needs its proven pane, so tests about receiving mail use peer-a.
+  const alpha = await repo(root, 'alpha', [['lead-a', 'lead'], ['work-a', 'worker'], ['peer-a', 'worker']]);
   const beta = await repo(root, 'beta', [['lead-b', 'lead']]);
   const gamma = await repo(root, 'gamma', [['lead-g', 'lead']]);
   await register(env, alpha, 'lead-a');
@@ -190,25 +191,29 @@ test('TM-356: MCP mailbox send, receive and dispose act only as the session iden
     return createTopologyApi({ stateRoot: w.env.AGENT_ORCHESTRATION_STATE_HOME, pluginRoot: null, resolveConsumer: async (cwd) => ({ requestedCwd: cwd }) });
   };
   const worker = apiAs('work-a', w.alpha);
-  const lead = apiAs('lead-a', w.alpha);
+  const lead = apiAs('peer-a', w.alpha); // the recipient; the real lead needs its pane (below)
+  const forgedLead = apiAs('lead-a', w.alpha);
   const anonymous = apiAs(null);
-  const mail = { consumerCwd: w.alpha, to: 'lead-a', body: 'via mcp' };
-  await assert.rejects(worker.mailboxSend({ ...mail, id: 'm-spoof', from: 'lead-a' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  const mail = { consumerCwd: w.alpha, to: 'peer-a', body: 'via mcp' };
+  // TM-462B: naming the repository lead in the env, with no pane, is a claim and is refused.
+  await assert.rejects(forgedLead.mailboxSend({ ...mail, id: 'm-forged-lead' }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  await assert.rejects(forgedLead.mailboxReceive({ consumerCwd: w.alpha }), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  await assert.rejects(worker.mailboxSend({ ...mail, id: 'm-spoof', from: 'peer-a' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
   await assert.rejects(worker.mailboxSend({ ...mail, id: 'm-elsewhere', consumerCwd: w.beta }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
   await assert.rejects(anonymous.mailboxSend({ ...mail, id: 'm-anon', from: 'work-a' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
   assert.deepEqual(await standingRecords(w.env), [], 'no refused tool call left a record');
   const sent = await worker.mailboxSend({ ...mail, id: 'm-1' });
   assert.deepEqual([sent.status, sent.envelope.from], ['delivered', 'work-a']);
   // Receive and dispose: only the session's own inbox.
-  await assert.rejects(worker.mailboxReceive({ consumerCwd: w.alpha, agent: 'lead-a' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
-  await assert.rejects(anonymous.mailboxReceive({ consumerCwd: w.alpha, agent: 'lead-a' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
+  await assert.rejects(worker.mailboxReceive({ consumerCwd: w.alpha, agent: 'peer-a' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(anonymous.mailboxReceive({ consumerCwd: w.alpha, agent: 'peer-a' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
   const received = await lead.mailboxReceive({ consumerCwd: w.alpha });
   assert.deepEqual(received.map((record) => record.envelope.id), ['m-1']);
-  await assert.rejects(worker.mailboxDispose({ consumerCwd: w.alpha, agent: 'lead-a', messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
-  await assert.rejects(anonymous.mailboxDispose({ consumerCwd: w.alpha, agent: 'lead-a', messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
+  await assert.rejects(worker.mailboxDispose({ consumerCwd: w.alpha, agent: 'peer-a', messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  await assert.rejects(anonymous.mailboxDispose({ consumerCwd: w.alpha, agent: 'peer-a', messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED' });
   await assert.rejects(worker.mailboxDispose({ consumerCwd: w.alpha, messageId: 'm-1', kind: 'mail', disposition: 'handled' }), { code: 'TOPOLOGY_MAILBOX_RECEIPT_MISSING' }, 'the worker disposes only its own receipts, and it holds none for m-1');
   const handled = await lead.mailboxDispose({ consumerCwd: w.alpha, messageId: 'm-1', kind: 'mail', disposition: 'handled' });
-  assert.deepEqual([handled.agent, handled.status], ['lead-a', 'handled']);
+  assert.deepEqual([handled.agent, handled.status], ['peer-a', 'handled']);
 });
 
 test('TM-372: --to @all-leads fans out to every registered lead, never back to the sender', async (t) => {
@@ -221,10 +226,12 @@ test('TM-372: --to @all-leads fans out to every registered lead, never back to t
   assert.equal(byLead['lead-b'].envelope.consumer, w.beta, 'each lead is addressed in its own repository');
   assert.equal(byLead['lead-b'].reason, 'destination_not_enrolled', 'and admitted on its own: beta opted out');
   assert.deepEqual((await readStandingInbox({ consumer: w.alpha, agent: 'lead-a', env: w.env })).map((record) => record.envelope.body), ['to every lead']);
-  // The loop guard: a lead broadcasting does not mail itself. Through the run-less `send` entry.
+  // TM-462B: a lead broadcasting must be in its proven pane; an env-only lead claim writes nothing.
+  // (The loop guard, that a lead does not mail itself, is asserted on the resolver in the next test.)
+  const sentBefore = (await standingRecords(w.env)).length;
   const fromLead = await ao(['send', '--to', '@all-leads', '--body', 'from a lead'], w.as('lead-a', w.alpha));
-  assert.equal(fromLead.code, 0, fromLead.stderr);
-  assert.deepEqual(fromLead.json.sent.map((record) => record.envelope.to), ['lead-b']);
+  assert.deepEqual([fromLead.code, fromLead.json?.code], [1, 'TOPOLOGY_DELEGATION_ACTOR'], fromLead.stdout);
+  assert.equal((await standingRecords(w.env)).length, sentBefore);
   // The cap refuses, never truncates, and writes nothing.
   const before = (await standingRecords(w.env)).length;
   const wide = await ao(['mailbox', 'send', '--to', '@all-leads', '--max-recipients', '1', '--body', 'x'], w.as('work-a', w.alpha));
@@ -280,8 +287,13 @@ test('TM-462: run send checks a named --from/--from-project with the same sessio
   const run = await runIn(w);
   const me = w.as('work-a', w.alpha);
   for (const [args, env, code] of [
-    [['--from', 'ao-supervisor', '--from-project', w.beta], me, 'TOPOLOGY_SENDER_MISMATCH'],
-    [['--from', 'ao-supervisor'], me, 'TOPOLOGY_SENDER_MISMATCH'],
+    // TM-462B: a host sender is refused by name, from any process, before any other check.
+    [['--from', 'ao-supervisor', '--from-project', w.beta], me, 'TOPOLOGY_SENDER_RESERVED'],
+    [['--from', 'ao-supervisor'], me, 'TOPOLOGY_SENDER_RESERVED'],
+    [[], w.as('ao-supervisor', w.alpha), 'TOPOLOGY_SENDER_RESERVED'],
+    [[], w.as('tm-dispatch', w.alpha), 'TOPOLOGY_SENDER_RESERVED'],
+    // TM-462B: unnamed, the env is not trusted either: an env-only lead claim needs the lead's pane.
+    [[], w.as('lead-a', w.alpha), 'TOPOLOGY_DELEGATION_ACTOR'],
     [['--from-project', w.beta], me, 'TOPOLOGY_SENDER_MISMATCH'],
     [['--from', 'ao-supervisor', '--from-project', w.beta], w.env, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED'],
   ]) {
@@ -315,10 +327,17 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
   ];
   // Readers return bodies; actors send or act as an agent. Each call must carry its binding.
   const READERS = ['listMailboxReceipts', 'listMailboxPublications', 'readStandingInbox', 'readStandingOutbox', 'waitForStandingReply', 'readStandingMessage'];
-  // System readers of one record by id, none of which returns the body to a caller-named agent:
-  // wait checks the sender itself after the read; the run bridge and the outage notice are internal.
+  // System readers of one record by id. Each is listed for its own reason (TM-474 corrected this):
+  // - waitForStandingReply checks the sender itself after the read;
+  // - obligations DOES carry a reply body, but only when the standing envelope's sender is one of the
+  //   caller's `viewers` (run `wait`); anyone else gets "answered" with the body withheld;
+  // - recordReply (the run bridge) and natsOutageTick (the outage notice) return no body;
+  // - reconcileGoalLoop reads its own obligation's reply and accepts it only from the loop's lead;
+  // - assignmentResult reads the idle-dispatch assignee's reply to the system's own assignment and
+  //   returns its parsed assignment fields (tm's duplicate-dispatch guard), never another agent's mail.
   const INTERNAL_READERS = new Set(['topology/lib/standing-mailbox.mjs#waitForStandingReply', 'topology/lib/mailbox.mjs#obligations',
-    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick']);
+    'topology/lib/mailbox.mjs#recordReply', 'topology/lib/nats-outage.mjs#natsOutageTick',
+    'topology/lib/goal-loop.mjs#reconcileGoalLoop', 'topology/lib/management.mjs#assignmentResult']);
   const ACTORS = ['sendStandingMessage', 'forwardStandingMessage', 'recordStandingReply', 'setMailboxDisposition'];
   // allAgents: true is allowed only here: the operator console (gated by assertOperatorReader) and
   // the publication resume loop (returns no body).
@@ -329,15 +348,18 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     'topology/lib/supervision.mjs', 'topology/lib/lead-recovery.mjs', 'topology/lib/roles.mjs', 'topology/cli.mjs#observer']);
   const ENTRY = new Set(['topology/cli.mjs', 'src/topology-api.mjs']);
   const enclosing = (src, at) => [...src.slice(0, at).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?(?:function\s+([\w$]+)|['"]?([\w$-]+)['"]?\s*\(\{[^)\n]*\}\)\s*\{|([\w$]+)\s*\(input\)\s*\{)/g)].map((m) => m[1] || m[2] || m[3]).at(-1);
-  const seen = { reader: 0, actor: 0 };
+  const seen = { reader: 0, actor: 0, wrapped: 0 };
   const problems = [];
   for (const rel of files) {
     const src = await readFile(join(root, rel), 'utf8');
-    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\(`, 'g'))) {
+    // TM-474: also the `(options.readMessage ?? readStandingMessage)(` shape, where the name is
+    // closed by a paren before the call opens.
+    for (const match of src.matchAll(new RegExp(`\\b(${[...READERS, ...ACTORS].join('|')})\\)?\\(`, 'g'))) {
       const at = match.index, name = match[1];
+      if (match[0].endsWith(')(')) seen.wrapped += 1;
       const line = src.slice(src.lastIndexOf('\n', at) + 1, src.indexOf('\n', at));
       if (/^\s*(\/\/|\*)/.test(line) || /export async function/.test(line) || /import\(|import \{/.test(line) && !/\)\(/.test(line)) continue;
-      const args = callArgs(src, at + name.length);
+      const args = callArgs(src, at + match[0].length - 1);
       const fn = enclosing(src, at);
       const where = `${rel}:${src.slice(0, at).split('\n').length} ${name} in ${fn}`;
       // Before the call, in its enclosing function: where the bound value came from.
@@ -360,7 +382,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
     }
   }
   // Coverage, so an empty scan cannot pass: the known entry and library call sites were seen.
-  assert.ok(seen.reader >= 14 && seen.actor >= 6, `the audit saw the call sites (${JSON.stringify(seen)})`);
+  assert.ok(seen.reader >= 20 && seen.actor >= 6 && seen.wrapped >= 3, `the audit saw the call sites (${JSON.stringify(seen)})`);
   assert.deepEqual(problems, []);
   // me() is sessionIdentity(), and the CLI's send verb names its sender through sessionIdentity().
   const [api, cli] = await Promise.all([readFile(join(root, 'src/topology-api.mjs'), 'utf8'), readFile(join(root, 'topology/cli.mjs'), 'utf8')]);
@@ -369,7 +391,7 @@ test('TM-462/F1: every call that reads or sends standing mail is bound, call sit
   // Every MCP mailbox/run-mail tool lands on an adapter method that calls me().
   const mcp = await readFile(join(root, 'src/mcp.mjs'), 'utf8');
   for (const [, tool, method] of mcp.matchAll(/register\(server, topology, '(orchestration_(?:mailbox|run_mail)_\w+)'[\s\S]*?topology\.(\w+)\);/g)) {
-    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory
+    if (tool === 'orchestration_run_mail_wait') continue; // run replies come from the run directory; standing reply bodies reach only their sender (TM-474)
     const start = api.indexOf(`    async ${method}(input) {`);
     assert.match(api.slice(start, api.indexOf('\n    },\n', start)), /\bme\(/, `${tool} resolves its actor through me()`);
   }
@@ -399,8 +421,12 @@ test('TM-464 F1: receipt and publication readers fail closed without a bound age
   const minted = await show({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha });
   assert.deepEqual([minted.code, minted.json?.code], [1, 'TOPOLOGY_OPERATOR_ONLY'], minted.stdout);
   // A bare operator shell (no identity, no bound pane) passes the gate and reaches the lookup.
+  // TM-473: the CLI child also reads the passwd home's census, which no env can redirect. When this
+  // suite itself runs inside a live census-bound agent pane, the child is that agent and is refused.
+  const { callerUnderBoundPane } = await import('../../topology/lib/delegation.mjs');
+  const insideAgent = await callerUnderBoundPane({ consumer: w.alpha, env: {}, home: w.env.HOME, readCensusFn: async () => null });
   const bare = await show({});
-  assert.deepEqual([bare.code, bare.json?.code], [1, 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
+  assert.deepEqual([bare.code, bare.json?.code], [1, insideAgent ? 'TOPOLOGY_OPERATOR_ONLY' : 'TOPOLOGY_WORKFLOW_NOT_FOUND'], bare.stdout);
   // The MCP list tool cannot smuggle allAgents through its input.
   const mcp = await mcpAs(w, { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha });
   const listed = await mcp.mailboxList({ consumerCwd: w.alpha, allAgents: true });
@@ -410,23 +436,26 @@ test('TM-464 F1: receipt and publication readers fail closed without a bound age
 test('TM-464: CLI mailbox inbox, outbox, receipts, dispose and reply act only as the session identity', async (t) => {
   const w = await world(t);
   const worker = w.as('work-a', w.alpha);
-  const sent = await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'lead-a', '--id', 'cli-1', '--body', 'for the lead only'], worker);
+  const sent = await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'peer-a', '--id', 'cli-1', '--body', 'for the lead only'], worker);
   assert.equal(sent.json?.status, 'delivered', sent.stdout);
   for (const [args, env, code] of [
-    [['mailbox', 'inbox', '--agent', 'lead-a'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
-    [['mailbox', 'outbox', '--agent', 'lead-a'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
-    [['mailbox', 'receipts', '--consumer', w.alpha, '--agent', 'lead-a'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
-    [['mailbox', 'dispose', '--consumer', w.alpha, '--agent', 'lead-a', '--message', 'cli-1', '--disposition', 'handled'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
-    [['mailbox', 'reply', '--agent', 'lead-a', '--message', 'cli-1', '--body', 'forged'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
-    [['mailbox', 'inbox', '--consumer', w.beta], w.as('lead-a', w.alpha), 'TOPOLOGY_SENDER_MISMATCH'],
-    [['mailbox', 'inbox', '--agent', 'lead-a'], w.env, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED'],
+    [['mailbox', 'inbox', '--agent', 'peer-a'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'outbox', '--agent', 'peer-a'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'receipts', '--consumer', w.alpha, '--agent', 'peer-a'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'dispose', '--consumer', w.alpha, '--agent', 'peer-a', '--message', 'cli-1', '--disposition', 'handled'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'reply', '--agent', 'peer-a', '--message', 'cli-1', '--body', 'forged'], worker, 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'inbox', '--consumer', w.beta], w.as('peer-a', w.alpha), 'TOPOLOGY_SENDER_MISMATCH'],
+    [['mailbox', 'inbox', '--agent', 'peer-a'], w.env, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED'],
+    // TM-462B: CLI dispose and inbox go through sessionIdentity, so an env-only lead claim is refused.
+    [['mailbox', 'dispose', '--consumer', w.alpha, '--message', 'cli-1', '--disposition', 'handled'], w.as('lead-a', w.alpha), 'TOPOLOGY_DELEGATION_ACTOR'],
+    [['mailbox', 'inbox'], w.as('lead-a', w.alpha), 'TOPOLOGY_DELEGATION_ACTOR'],
   ]) {
     const refused = await ao(args, env);
     assert.deepEqual([refused.code, refused.json?.code], [1, code], `${args.join(' ')}: ${refused.stdout}`);
     assert.doesNotMatch(refused.stdout, /for the lead only/);
   }
   // The session's own mailbox needs neither flag: its repository is the identity's, not the cwd.
-  const own = await ao(['mailbox', 'inbox'], w.as('lead-a', w.alpha));
+  const own = await ao(['mailbox', 'inbox'], w.as('peer-a', w.alpha));
   assert.equal(own.code, 0, own.stdout);
   assert.deepEqual(own.json.map((record) => record.envelope.id), ['cli-1']);
 });
@@ -443,8 +472,8 @@ test('TM-464: run-mail subject and task values can never become CLI flags', asyn
 test('TM-465: mailbox wait returns a reply only to the message sender, via CLI and MCP', async (t) => {
   const w = await world(t);
   const worker = w.as('work-a', w.alpha);
-  const lead = w.as('lead-a', w.alpha);
-  assert.equal((await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'lead-a', '--id', 'w-1', '--body', 'question'], worker)).json?.status, 'delivered');
+  const lead = w.as('peer-a', w.alpha); // the recipient (TM-462B: the real lead needs its pane)
+  assert.equal((await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'peer-a', '--id', 'w-1', '--body', 'question'], worker)).json?.status, 'delivered');
   const replied = await ao(['mailbox', 'reply', '--message', 'w-1', '--body', 'secret answer'], lead);
   assert.equal(replied.code, 0, replied.stdout);
   for (const [env, code] of [[lead, 'TOPOLOGY_SENDER_MISMATCH'], [w.as('work-a', w.beta), 'TOPOLOGY_SENDER_MISMATCH'], [w.env, 'TOPOLOGY_SOURCE_IDENTITY_REQUIRED']]) {
@@ -454,7 +483,7 @@ test('TM-465: mailbox wait returns a reply only to the message sender, via CLI a
   }
   const answered = await ao(['mailbox', 'wait', 'w-1', '--timeout', '1s'], worker);
   assert.deepEqual([answered.code, answered.json?.reply?.body], [0, 'secret answer'], answered.stdout);
-  const mcpLead = await mcpAs(w, { AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha });
+  const mcpLead = await mcpAs(w, { AO_AGENT_ID: 'peer-a', AO_CONSUMER: w.alpha });
   const error = await mcpLead.mailboxWait({ consumerCwd: w.alpha, id: 'w-1', timeoutMs: 500 }).then(() => null, (e) => e);
   assert.equal(error?.code, 'TOPOLOGY_SENDER_MISMATCH');
   assert.doesNotMatch(JSON.stringify({ message: error.message, details: error.details }), /secret answer/);
@@ -464,13 +493,13 @@ test('TM-465: mailbox wait returns a reply only to the message sender, via CLI a
 
 test('TM-465 F4: mailbox wait gives one answer for an unknown id and another sender\'s id', async (t) => {
   const w = await world(t);
-  assert.equal((await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'lead-a', '--id', 'exists', '--body', 'q'], w.as('work-a', w.alpha))).json?.status, 'delivered');
-  const lead = w.as('lead-a', w.alpha);
+  assert.equal((await ao(['mailbox', 'send', '--consumer', w.alpha, '--to', 'peer-a', '--id', 'exists', '--body', 'q'], w.as('work-a', w.alpha))).json?.status, 'delivered');
+  const lead = w.as('peer-a', w.alpha);
   const [real, absent] = await Promise.all(['exists', 'never-sent'].map((id) => ao(['mailbox', 'wait', id, '--timeout', '1s'], lead)));
   assert.deepEqual([real.code, real.json?.code], [absent.code, absent.json?.code], `${real.stdout} vs ${absent.stdout}`);
   assert.deepEqual([real.code, real.json?.code], [1, 'TOPOLOGY_SENDER_MISMATCH']);
   assert.equal(real.json.message.replace('exists', 'ID'), absent.json.message.replace('never-sent', 'ID'), 'the messages differ only by the id asked about');
-  const mcpLead = await mcpAs(w, { AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha });
+  const mcpLead = await mcpAs(w, { AO_AGENT_ID: 'peer-a', AO_CONSUMER: w.alpha });
   const codes = await Promise.all(['exists', 'never-sent'].map((id) => mcpLead.mailboxWait({ consumerCwd: w.alpha, id, timeoutMs: 200 }).then(() => 'ok', (e) => e.code)));
   assert.deepEqual(codes, ['TOPOLOGY_SENDER_MISMATCH', 'TOPOLOGY_SENDER_MISMATCH']);
 });
@@ -534,13 +563,49 @@ test('TM-463 F2: handoff self and lead are proven by pane binding and process an
   await assert.rejects(check({ AO_AGENT_ID: 'other', AO_CONSUMER: w.alpha, ...inPane }, proof('other')), { code: 'TOPOLOGY_HANDOFF_UNAUTHORIZED' });
 });
 
+test('TM-462B: sessionIdentity accepts the lead only from its proven pane, names it from its census binding, and refuses host senders', async (t) => {
+  const w = await world(t);
+  const { sessionIdentity } = await import('../../topology/lib/standing-mailbox.mjs');
+  const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+  const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
+  const proof = (boundTo, leaf = 5151) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf) });
+  const inPane = { TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: PANE.paneId };
+  const who = (env, p) => sessionIdentity({ env, home: w.env.HOME, ...p });
+  // The proven lead, by env name or (no AO_AGENT_ID) by its census binding, even over a minted id.
+  assert.equal((await who({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a'))).agent, 'lead-a');
+  assert.equal((await who({ AO_SESSION_AGENT_ID: 'abcdef12', AO_SESSION_CONSUMER: w.alpha, ...inPane }, proof('lead-a'))).agent, 'lead-a');
+  // Mutation checks: the lead's pane but not a descendant of it, and the env claim with no pane.
+  await assert.rejects(who({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha, ...inPane }, proof('lead-a', 6161)), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  await assert.rejects(who({ AO_AGENT_ID: 'lead-a', AO_CONSUMER: w.alpha }, proof('lead-a')), { code: 'TOPOLOGY_DELEGATION_ACTOR' });
+  // TM-427 review: any agent with a recorded pane (census row or reviewer record) is proven the same
+  // way. A forged reviewer or observer id from a process outside that pane is refused.
+  assert.equal((await who({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha, ...inPane }, proof('work-a'))).agent, 'work-a');
+  for (const forged of ['rev-a', 'obs-a']) {
+    await assert.rejects(who({ AO_AGENT_ID: forged, AO_CONSUMER: w.alpha, ...inPane }, proof(forged, 6161)), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+    await assert.rejects(who({ AO_AGENT_ID: forged, AO_CONSUMER: w.alpha }, proof(forged, 6161)), { code: 'TOPOLOGY_SENDER_MISMATCH' });
+  }
+  const reviewerOnly = (leaf) => ({ ...proof(null, leaf), readReviewerFn: async () => ({ agent_id: 'rev-a', binding: { ...PANE } }) });
+  await assert.rejects(who({ AO_AGENT_ID: 'rev-a', AO_CONSUMER: w.alpha }, reviewerOnly(6161)), { code: 'TOPOLOGY_SENDER_MISMATCH' }, 'the reviewer record alone binds the id');
+  assert.equal((await who({ AO_AGENT_ID: 'rev-a', AO_CONSUMER: w.alpha }, reviewerOnly(5151))).agent, 'rev-a');
+  const unreadable = { ...proof('rev-a'), callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } };
+  await assert.rejects(who({ AO_AGENT_ID: 'rev-a', AO_CONSUMER: w.alpha }, unreadable), { code: 'TOPOLOGY_SENDER_MISMATCH' }, 'unreadable ancestry fails closed');
+  // Only an agent the repository has no pane for falls back to its env claim; a host sender is
+  // refused even from a proven pane.
+  assert.equal((await who({ AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha }, proof(null))).agent, 'work-a');
+  for (const reserved of ['ao-supervisor', 'ao-management', 'tm-dispatch']) {
+    await assert.rejects(who({ AO_AGENT_ID: reserved, AO_CONSUMER: w.alpha, ...inPane }, proof(reserved)), { code: 'TOPOLOGY_SENDER_RESERVED' });
+    await assert.rejects(sessionIdentity({ env: { AO_AGENT_ID: 'work-a', AO_CONSUMER: w.alpha }, agent: reserved, home: w.env.HOME }), { code: 'TOPOLOGY_SENDER_RESERVED' });
+  }
+});
+
 test('TM-464 F1: the console gate admits only a bare operator shell or the proven lead', async (t) => {
   const w = await world(t);
   const { assertOperatorReader } = await import('../../topology/lib/workflow-control.mjs');
   const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
   const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
   const proof = (boundTo, leaf = 5151) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
-    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf) });
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), passwdHome: w.env.HOME });
   const inPane = { TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: PANE.paneId };
   const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
   const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
@@ -561,4 +626,34 @@ test('TM-464 F1: the console gate admits only a bare operator shell or the prove
   // Allowed: a bare operator shell, outside tmux or in a pane the census binds to nobody.
   assert.deepEqual(await gate({}, proof(null)), { as: 'operator' });
   assert.deepEqual(await gate({ ...inPane }, proof(null)), { as: 'operator' });
+});
+
+test('TM-473: with TMUX_PANE unset, a process under any census-bound pane is refused by ancestry', async (t) => {
+  const w = await world(t);
+  const { assertOperatorReader } = await import('../../topology/lib/workflow-control.mjs');
+  const PANE = { serverKey: '/tmp/ao-fake/default', serverPid: 4242, sessionId: '$1', sessionCreated: 1700000000, paneId: '%7', panePid: 5151 };
+  const tree = (leaf) => ({ pid: 903, readStat: async (p) => `${p} (x) S ${{ 903: 902, 902: leaf, [leaf]: 4242, 4242: 1 }[p]} 1 1 0 -1` });
+  const proof = (boundTo, leaf = 5151, extra = {}) => ({ listPanesFn: async () => [{ ...PANE, alive: true }],
+    readCensusFn: async () => ({ agents: boundTo ? [{ agentId: boundTo, binding: { ...PANE } }] : [] }), callerProc: tree(leaf), passwdHome: w.env.HOME, ...extra });
+  const gate = (env, p) => assertOperatorReader({ consumer: w.alpha, env, home: w.env.HOME, proof: p });
+  const refused = { code: 'TOPOLOGY_OPERATOR_ONLY' };
+  // The rv-225 reproduction: a worker with TM_DISPATCH_WORKER, AO_* and TMUX_PANE all unset, still in its pane's tree.
+  await assert.rejects(gate({}, proof('work-a')), refused);
+  // A forged TMUX_PANE naming no live pane does not help either.
+  await assert.rejects(gate({ TMUX: `${PANE.serverKey},${PANE.serverPid},0`, TMUX_PANE: '%999' }, proof('work-a')), refused);
+  // Another repository's census on disk counts too.
+  const censusDir = join(w.env.HOME, '.local', 'state', 'bytedesk', 'agent-orchestration', 'census');
+  await mkdir(censusDir, { recursive: true });
+  await writeFile(join(censusDir, 'other-repo.json'), JSON.stringify({ agents: [{ agentId: 'elsewhere', binding: { ...PANE } }] }));
+  await assert.rejects(gate({}, proof(null)), refused);
+  // TM-473 review: pointing the state home at a forged empty directory does not hide the default
+  // census under the passwd home.
+  const forged = join(w.env.HOME, 'forged-empty-state');
+  await mkdir(forged, { recursive: true });
+  await assert.rejects(gate({ AGENT_ORCHESTRATION_STATE_HOME: forged }, proof(null)), refused);
+  await assert.rejects(gate({ XDG_STATE_HOME: forged }, proof(null)), refused);
+  // Unreadable ancestry fails closed.
+  await assert.rejects(gate({}, proof(null, 5151, { callerProc: { pid: 903, readStat: async () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } } })), refused);
+  // A process outside every bound pane's tree is still the operator.
+  assert.deepEqual(await gate({}, proof('work-a', 6161)), { as: 'operator' });
 });

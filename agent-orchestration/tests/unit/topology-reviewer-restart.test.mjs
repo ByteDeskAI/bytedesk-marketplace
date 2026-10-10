@@ -6,12 +6,12 @@ import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, writeJson } from '../../topology/lib/util.mjs';
-import { collectReview, currentReviewStatus, ensureReviewer, restartReviewer, reviewerInboxRoot, readReviewerRecord, requestReview, reviewEligibility } from '../../topology/lib/reviewer.mjs';
+import { collectReview, currentReviewStatus, ensureReviewer, restartReviewer, reviewerInboxRoot, readReviewerRecord, requestReview, reviewEligibility, withdrawReview } from '../../topology/lib/reviewer.mjs';
 import { submitVerdict } from '../helpers/review-submit.mjs';
 import { refreshPrompt, promptRevisions } from '../../topology/lib/prompt-lifecycle.mjs';
 import { loadConfig } from '../../topology/lib/config.mjs';
 
-const incarnation = n => ({ serverKey: '/test/socket', serverPid: 10, sessionId: `$${n}`, sessionCreated: n, paneId: `%${n}`, panePid: 20 + n });
+const incarnation = n => ({ serverKey: '/test/socket', serverPid: 10, sessionId: `$${n}`, sessionCreated: n, paneId: `%${n}`, panePid: n <= 2 ? process.pid : 20 + n }); // TM-427: incarnations 1 and 2 (the live pane before and after a TM-525 restart) pass the real ancestry proof; 9 is the foreign one
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ao-reviewer-restart-'));
@@ -161,4 +161,78 @@ test('TM-365 without a submitted verdict, a request sent to a replaced incarnati
   const { reviewerPaths } = await import('../../topology/lib/reviewer.mjs');
   await writeJson((await reviewerPaths(f.consumer, f.env, f.home)).recordPath, { ...record, binding: incarnation(9) });
   await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_IDENTITY' });
+});
+
+// TM-525: a reviewer that cannot submit (pre-TM-365 argv, no review_submit) holds its pending request
+// forever, and the request holds off its restart. The lead withdraws it, restarts, and requests again.
+const managementRecord = async f => {
+  const { canonicalRepoId, repoKey } = await import('../../topology/lib/repoid.mjs');
+  return JSON.parse(await readFile(join(f.env.AGENT_ORCHESTRATION_STATE_HOME, 'management', repoKey((await canonicalRepoId(f.consumer)).id), 'TM-1.json'), 'utf8'));
+};
+
+test('TM-525 a worker or the reviewer cannot withdraw a review request; nothing changes', async t => {
+  const f = await fixture(t);
+  const request = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  const comments = [];
+  const store = { comment: async (...args) => comments.push(args) };
+  // The real requireLeadCaller: no TMUX_PANE, so nothing is read from tmux; neither id is the lead.
+  for (const who of ['author', f.agent.id]) {
+    const env = { ...f.env, AO_AGENT_ID: who, TMUX: '', TMUX_PANE: '' };
+    await assert.rejects(withdrawReview({ ...f, env, task: 'TM-1', revision: f.revision, reason: 'mine', store }), { code: 'TOPOLOGY_REVIEWER_WITHDRAW' }, who);
+  }
+  const dir = join(await reviewerInboxRoot(f.consumer, f.env, f.home), 'requests');
+  const after = JSON.parse(await readFile(join(dir, `TM-1-${f.revision}.json`), 'utf8'));
+  assert.equal(after.state, 'published');
+  assert.equal(after.nonce, request.nonce);
+  assert.deepEqual(comments, [], 'no event recorded');
+  // A reason is required even from the lead.
+  await assert.rejects(withdrawReview({ ...f, task: 'TM-1', revision: f.revision, reason: ' ', requireLead: async () => 'lead1', store }), { code: 'TOPOLOGY_REVIEWER_WITHDRAW' });
+});
+
+test('TM-525 after a lead withdraw the restart proceeds, the re-request reaches the new incarnation, and the old one can never be collected', async t => {
+  const f = await fixture(t);
+  const old = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  await assert.rejects(restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes }), { code: 'TOPOLOGY_AGENT_BUSY' }, 'the pending request holds the restart off');
+  const comments = [];
+  const store = { comment: async (task, text) => comments.push({ task, entry: JSON.parse(text) }) };
+  const result = await withdrawReview({ ...f, task: 'TM-1', revision: f.revision, reason: 'wren has no review_submit', requireLead: async () => 'lead1', store });
+  assert.equal(result.withdrawn, true);
+  assert.equal(result.nonce, old.nonce);
+  // Recorded in the task's management events (and its task-store comment).
+  const event = (await managementRecord(f)).events.at(-1);
+  assert.equal(event.event, 'review-withdrawn');
+  assert.equal(event.nonce, old.nonce);
+  assert.equal(event.by, 'lead1');
+  assert.equal(event.reason, 'wren has no review_submit');
+  assert.equal(comments.length, 1);
+  assert.equal(comments[0].entry.event, 'review-withdrawn');
+  // Withdrawing twice is refused, not silently re-recorded.
+  await assert.rejects(withdrawReview({ ...f, task: 'TM-1', revision: f.revision, reason: 'again', requireLead: async () => 'lead1', store }), { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' });
+  // The withdrawn request can neither take a verdict nor be collected as one.
+  await assert.rejects(submitVerdict(f, old, 'approve', []), { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' });
+  await assert.rejects(collectReview({ ...f, task: 'TM-1' }), { code: 'TOPOLOGY_REVIEWER_REQUEST_FAILED' });
+  // The restart now proceeds.
+  const restarted = await restartReviewer({ ...f, agentId: f.agent.id, mode: 'handoff', probes: f.probes });
+  assert.equal(restarted.new_session.incarnation.paneId, '%2');
+  // A re-request of the same revision is a fresh request bound to the new incarnation.
+  const again = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  assert.equal(again.revision, old.revision);
+  assert.notEqual(again.nonce, old.nonce);
+  assert.equal(again.binding.paneId, '%2');
+  assert.equal(again.state, 'published');
+  // The new incarnation answers it, and that verdict is the one collected.
+  await submitVerdict(f, again, 'approve', []);
+  const review = await collectReview({ ...f, task: 'TM-1' });
+  assert.equal(review.request_nonce, again.nonce);
+  assert.notEqual(review.request_nonce, old.nonce);
+});
+
+test('TM-525 a request the reviewer already answered cannot be withdrawn; its verdict is still collected', async t => {
+  const f = await fixture(t);
+  const request = await requestReview({ ...f, task: 'TM-1', authorAgentIds: ['author'], wake: async () => ({ rang: true }) });
+  await submitVerdict(f, request, 'changes_requested', [{ severity: 'major', file: 'CHANGELOG.md', line: 1, claim: 'c', evidence: 'e', fix: 'f' }]);
+  const comments = [];
+  await assert.rejects(withdrawReview({ ...f, task: 'TM-1', revision: f.revision, reason: 'hide it', requireLead: async () => 'lead1', store: { comment: async (...a) => comments.push(a) } }), { code: 'TOPOLOGY_REVIEWER_RESPONSE' });
+  assert.deepEqual(comments, [], 'no event recorded');
+  assert.equal((await collectReview({ ...f, task: 'TM-1' })).verdict, 'changes_requested');
 });

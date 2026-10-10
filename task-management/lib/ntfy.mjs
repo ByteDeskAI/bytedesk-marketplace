@@ -50,6 +50,7 @@ export const CATALOG = {
     worker_reaped: { group: "recommended", label: "A dead worker's task was parked and its claim released", priority: "default", tags: "ghost" },
     pool_paused: { group: "recommended", label: "The dispatch pool paused after repeated or quota failures", priority: "high", tags: "warning" },
     worker_overrun: { group: "recommended", label: "A dispatched worker is still running past its runtime limit", priority: "default", tags: "hourglass" },
+    store_uncommitted_warned: { group: "recommended", label: "A store record exists only on this machine — not committed or not pushed", priority: "default", tags: "floppy_disk" },
 
     // writes — the whole stream, so you can see what is available
     create: { group: "writes", label: "A task, epic or ADR is created", priority: "low", tags: "new" },

@@ -24,6 +24,7 @@ import { stateRoot } from "./lib/repoid.mjs";
 import { dispatchedWorker } from "./lib/delegation.mjs";
 import { preserveWorktreeWorkflows, reconcileWorkflows } from './lib/discovery.mjs';
 import { assertNativeRepository, assertRunOwnership, controlWorkflow, stopNativeRun, workflowDetail } from './lib/workflow-control.mjs';
+import { callerIdentity } from "./lib/session-identity.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI_BIN = process.env.AO_TOPOLOGY_BIN || join(PLUGIN_ROOT, "bin", "ao-topology");
@@ -128,6 +129,7 @@ Standing repository services
   mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
   mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
        [--kind mail|reply] [--sender <agent>] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
+  mailbox withdraw <id> [--reason <text>]   take back held standing mail this session sent; stops its retries and lead ring
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   repos list [--json]                           registered repositories and each supervisor's state
@@ -145,6 +147,9 @@ Standing repository services
                                                 Without --cached, status with no stored proof rings the
                                                 lead and waits up to --ack-timeout (default 30s).
   reviewer status|ensure|request|collect|eligible [--task TM-id --revision <sha> --author <id>]
+  reviewer withdraw --task <id> --revision <sha> --reason <text>
+                                               lead only: withdraw an uncollected request a reviewer
+                                               cannot answer, so it can be restarted (TM-525)
   reviewer request ... [--checks @checks.json]   check evidence [{name,command,exit_code,revision,log_tail}] for the review packet
   reviewer ensure [--provider claude|codex]   reuse the registered or a library reviewer on that provider;
                                                never starts a second live reviewer (TM-364)
@@ -168,9 +173,6 @@ Standing repository services
   mailbox send ... --dry-run          resolve, route and print the would-be envelope; writes and publishes nothing
   mailbox send|send --to-repo <path|slug> (or --to lead@<path|slug>)   address that repository's registered lead
   mailbox send|send --to @all-leads [--max-recipients <n>]           every registered repository's lead but the sender (limit 24)
-  review submit <request-nonce> --verdict approve|changes_requested|blocked [--findings @file.json]
-                                               the reviewer's verdict as a durable record (TM-365);
-                                               the restricted reviewer uses its review_submit tool
   review listen|probe|publish|await [--agent <id> --nonce <nonce> --response <b64:...|json> --timeout 8s]
   manage status|admit|report|eligible|integrate|cleanup --task <TM-id> [--file <protocol.json>]
   manage close --task <TM-id> [--landed <sha> --reason <text>]   record the landing if none, stop the
@@ -197,7 +199,9 @@ Standing repository services
                                                on the SERVER default branch names it (integrate scope).
   manage assign|assignment|release --task <TM-id> [--agent <id>] [--prompt-file <path>]
   manage start-worker --task <TM-id> [--backend tmux|topology]    launch via tm dispatch and bind
-  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker
+  manage bind --task <TM-id> [--pane <id> [--server <socket>] | --pid <pid>]   verify/adopt a worker;
+                                        --pid adopts the harness in an existing terminal once any
+                                        exited dispatch is collected (tm collect), never closing it (TM-412)
   manage stop-worker --task <TM-id>     close the bound worker only when owned, idle and collected;
                                         retire one observed dead without a finish (TM-247)
   manage rework --task <TM-id>          after a changes_requested review of the finish revision and a
@@ -260,6 +264,13 @@ function externalSummary(verb, r) {
   if (!r.landed) return `${r.task} not landed: ${r.reason} (${level})`;
   if (r.published) return `${r.task} merged and published at ${r.release.revision ?? ''}${r.origin ? `; origin ${r.origin.notified ? 'notified' : `NOT notified: ${r.origin.reason}`}` : ''} (${level})`;
   return `${r.task} merged${r.waiting ? `; publish waits for ${r.waiting.join(', ')}` : ''} (${level})`;
+}
+
+/** TM-474: the names this caller may read standing reply bodies as under `wait`: exactly the two names
+ * `send` gives a sender, its launcher id (or "operator") and its session identity (send --from). Same
+ * env trust as `send` (TM-427B); a reply body reaches only the sender it answers. */
+function runMailViewers(env) {
+  return new Set([env.AO_AGENT_ID || "operator", callerIdentity(env)?.agentId].filter(Boolean));
 }
 
 function list(value) {
@@ -699,6 +710,12 @@ const commands = {
         from: typeof flags.sender === 'string' ? flags.sender || null : undefined }));
     }
     if (sub === 'outbox') { const { agent } = await self(); return out(await api.readStandingOutbox({ ...ctx, agent })); }
+    // TM-478: the sender is this session (sessionIdentity), never a claimed --agent.
+    if (sub === 'withdraw') {
+      const me = await self();
+      const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
+      return out(await api.withdrawStandingMessage({ ...ctx, id, agent: me.agent, consumer: me.consumer, reason: typeof flags.reason === 'string' ? flags.reason : null }));
+    }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
     if (sub === 'wait') {
       const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
@@ -721,7 +738,7 @@ const commands = {
     }
     if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
     if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
-    if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose.');
+    if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose|withdraw.');
     // TM-356: the sender is this session's identity. --from and --from-project may only repeat it.
     const me = await api.sessionIdentity({ env: process.env, agent: flags.from, consumer: flags['from-project'] });
     const input = { consumer: ctx.consumer, fromProject: me.consumer,
@@ -769,25 +786,14 @@ const commands = {
   },
   async review({ flags, positional }) {
     const sub = positional[0];
+    // TM-427: there is no shell verdict channel. A verdict comes only from the reviewer's review_submit
+    // MCP tool, whose server runs inside the reviewer pane; refused before any transport is opened.
+    invariant(sub !== 'submit', 'TOPOLOGY_REVIEWER_IDENTITY', 'review submit is removed: the reviewer submits its verdict only through its review_submit MCP tool.');
     const ctx = context(flags);
     const { publishReviewerVerdict, listenForReviewer, readReviewerRecord, reviewerProbeReady, awaitReviewerVerdict } = await import('./lib/reviewer.mjs');
     const { selectLiveTransport, closeLiveTransports } = await import('./lib/orch-transport.mjs');
     const transport = await selectLiveTransport({ env: process.env });
     try {
-      if (sub === 'submit') {
-        // TM-365: the reviewer's verdict as a durable record, never a pane line. The restricted
-        // reviewer calls the same function through its review_submit MCP tool.
-        const { submitReviewVerdict } = await import('./lib/reviewer.mjs');
-        const request = positional[1] ?? (flags.nonce && flags.nonce !== true ? String(flags.nonce) : null);
-        invariant(request, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review submit <request-nonce> --verdict approve|changes_requested|blocked --findings @file.json.');
-        const verdict = flags.verdict === 'changes' ? 'changes_requested' : flags.verdict;
-        let findings = [];
-        if (flags.findings && flags.findings !== true) {
-          const text = String(flags.findings);
-          findings = text.startsWith('@') ? await readJson(absolutize(text.slice(1))) : JSON.parse(text);
-        }
-        return out(await submitReviewVerdict({ consumer: flags.consumer || !process.env.AO_CONSUMER ? ctx.consumer : process.env.AO_CONSUMER, request, verdict, findings, env: process.env, home: ctx.home, transport }));
-      }
       if (sub === 'publish') {
         const nonce = flags.nonce && flags.nonce !== true ? String(flags.nonce) : positional[1];
         invariant(nonce, 'TOPOLOGY_REVIEWER_NONCE', 'Pass review publish --nonce <nonce> --response <b64:...|json>.');
@@ -847,7 +853,7 @@ const commands = {
         const received = await waiting.received;
         return out({ ok: true, subject: received.subject, body: received.body, via: received.via, transport: transport.kind });
       }
-      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review submit|publish|listen|probe|await.');
+      fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use review publish|listen|probe|await.');
     } finally { await closeLiveTransports(); }
   },
   async enrollment({ flags, positional }) {
@@ -879,9 +885,10 @@ const commands = {
       return out(await api.requestReview({ ...options, checkEvidence }));
     }
     if (sub === 'collect') return out(await api.collectReview(options));
+    if (sub === 'withdraw') return out(await api.withdrawReview({ ...options, reason: typeof flags.reason === 'string' ? flags.reason : '' }));
     if (sub === 'eligible') return out(await api.reviewEligibility(options));
     if (sub === 'ack') return out(await api.reviewerNonceAck({ ...options, nonce: positional[1] }));
-    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use reviewer status|ensure|request|collect|eligible|ack.');
+    fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use reviewer status|ensure|request|collect|withdraw|eligible|ack.');
   },
   async manage({ flags, positional }) {
     const ctx = context(flags), api = await import('./lib/management.mjs');
@@ -1148,6 +1155,14 @@ const commands = {
     out("Search paths:");
     for (const [label, dirs] of Object.entries(report.dirs)) {
       out(`  ${label}: ${dirs.filter((dir) => dir.exists).map((dir) => dir.dir).join(", ") || "(none exist yet)"}`);
+    }
+    if (report.role_mcp?.length) {
+      out("Role MCP:");
+      for (const r of report.role_mcp) {
+        if (r.error) { out(`  ? ${r.error}`); continue; }
+        const expected = Array.isArray(r.expected) ? `expected ${r.expected.join(", ")}; running ${r.present.join(", ") || "none"}` : r.note;
+        out(`  ${r.ok ? "✓" : "✗"} ${r.role} ${r.agent_id ?? ""} pid ${r.pid} — ${r.live === false ? r.note : expected}`);
+      }
     }
     if (report.problems.length === 0) return out("OK — ready to launch.");
     out("Problems:");
@@ -1692,17 +1707,19 @@ const commands = {
     const run = await loadRun(runDir);
     // TM-462: a sender that is NAMED is checked by the same sessionIdentity() as `mailbox send`, so
     // `--from ao-supervisor --from-project /other` is refused rather than delivered as standing mail.
-    // Unnamed, the launcher defaults stand (part B, the env-trust itself, is TM-427's).
+    // TM-462B: unnamed, the sender is STILL this session's proven identity, never the raw env
+    // (AO_AGENT_ID || 'operator', AO_CONSUMER). Only a session with no identity at all sends as operator.
     const claimed = flags.from !== undefined || flags["from-project"] !== undefined;
-    const sender = claimed ? await (await import("./lib/standing-mailbox.mjs")).sessionIdentity({ env: process.env,
+    const { callerIdentity } = await import("./lib/session-identity.mjs");
+    const sender = claimed || callerIdentity(process.env) ? await (await import("./lib/standing-mailbox.mjs")).sessionIdentity({ env: process.env,
       agent: flags.from === undefined ? null : String(flags.from),
       consumer: flags["from-project"] === undefined ? null : absolutize(String(flags["from-project"])) }) : null;
-    const from = sender?.agent ?? (process.env.AO_AGENT_ID || "operator");
+    const from = sender?.agent ?? "operator";
     const stage = flags.stage && flags.stage !== true ? String(flags.stage) : "message";
     invariant(/^[a-z][a-z0-9-]{0,39}$/.test(stage), "TOPOLOGY_STAGE_INVALID", "--stage must be a lowercase slug.");
     const body = await bodyFrom(flags);
     const ctx = context(flags);
-    const fromProject = sender ? sender.consumer : process.env.AO_CONSUMER || null;
+    const fromProject = sender ? sender.consumer : null;
     const task = flags.task && flags.task !== true ? String(flags.task) : null;
     // The receiving repo is the one the RUN belongs to, recorded in run.json at launch — never the
     // caller's cwd. An agent sends from its own agent directory (its cwd is what scopes its memory),
@@ -1848,6 +1865,7 @@ const commands = {
       timeoutMs,
       pollMs,
       transport,
+      viewers: runMailViewers(process.env),
       onTick: flags.quiet ? undefined : (pending, elapsed) => process.stderr.write(`waiting ${Math.round(elapsed / 1000)}s — pending: ${pending.map((item) => `${item.agent}:${item.id}`).join(", ")}\n`),
     });
     } finally { await closeLiveTransports(); }
@@ -1862,7 +1880,7 @@ const commands = {
     }
     out(`All replies received in ${Math.round(result.elapsed_ms / 1000)}s.`);
     for (const reply of result.replies) {
-      out(`\n===== ${reply.agent} · ${reply.id} · ${reply.path} =====\n${reply.body.trim()}`);
+      out(`\n===== ${reply.agent} · ${reply.id} · ${reply.path} =====\n${reply.body === null ? `(${reply.body_withheld})` : reply.body.trim()}`);
     }
   },
 

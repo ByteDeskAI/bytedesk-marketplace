@@ -518,6 +518,22 @@ describe("the handoff's completion contract", () => {
     assert.match(out, /Do the task in your own session/);
     assert.match(out, /Never end your turn while a background agent or command you started is still running/);
     assert.match(out, new RegExp(`Never ask a question and wait for an answer; nobody will reply\\. Block instead: \\S+tm block ${t.id} "<the question>"`));
+    assert.match(out, /no run_in_background, no Monitor/, "TM-426: a headless worker must not background its checks");
+  });
+
+  it("carries the lead's latest LEAD BRIEF comment, not earlier rounds or other comments (TM-426)", () => {
+    const p = store();
+    const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
+    assert.doesNotMatch(handoff(t.id, p), /## Lead brief/, "no brief, no section");
+    mutate(t.id, () => ({ comments: [
+      { author: "main", ts: "2026-10-09T01:00:00Z", text: "LEAD BRIEF round 1: old ask" },
+      { author: "main", ts: "2026-10-09T02:00:00Z", text: "LEAD BRIEF round 2: drop the logs" },
+      { author: "worker:tmux", ts: "2026-10-09T03:00:00Z", text: "worker exited; mentions LEAD BRIEF mid-line" },
+    ] }), p);
+    const out = handoff(t.id, p);
+    assert.match(out, /## Lead brief \(2026-10-09T02:00:00Z\)[^\n]*\nLEAD BRIEF round 2: drop the logs/);
+    assert.doesNotMatch(out, /round 1|mid-line/);
+    assert.ok(out.indexOf("## Lead brief") < out.indexOf("## When you finish"), "the brief precedes the finish steps");
   });
 
   it("tells a ready-for-agent worker exactly how to finish", () => {
@@ -593,7 +609,7 @@ describe("the handoff's completion contract", () => {
     writeConfig({ dispatch: { integrationBranch: "develop" } }, p);
     const t = create("task", { title: "agent work", labels: ["ready-for-agent"] }, "", p);
     const out = handoff(t.id, p);
-    assert.match(out, /gh pr create --title "[^"]+" --body "[^"]+" --base develop/, "the PR base, stated literally");
+    assert.match(out, /gh pr create --title "[^"]+" --body-file \S+ --base develop/, "the PR base, stated literally");
   });
 
   it("says nothing about it for a task a human is picking up", () => {

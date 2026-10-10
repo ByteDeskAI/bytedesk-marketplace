@@ -39,9 +39,15 @@ printf 'TOKEN=main\n' > "$TM_ROOT/.env"
 git init -q --bare "$REMOTE/origin.git"
 git -C "$TM_ROOT" remote add origin "$REMOTE/origin.git"
 git -C "$TM_ROOT" push -q origin HEAD
+# TM-507: graft's wiring stamp in the main checkout, and a newer graft in the npx cache.
+mkdir -p "$TM_ROOT/graft/.cache"
+printf '{"version":"0.20.0","hosts":["claude","grok"],"opts":{"global":false,"mcp":true}}\n' > "$TM_ROOT/graft/.cache/wiring-stamp.json"
+FAKEHOME="$REMOTE/home"
+mkdir -p "$FAKEHOME/.npm/_npx/abc/node_modules/@nanonets/graft"
+printf '{"version":"0.21.1"}\n' > "$FAKEHOME/.npm/_npx/abc/node_modules/@nanonets/graft/package.json"
 
 # ── create ───────────────────────────────────────────────────────────────────
-OUT="$(run <<'JS'
+OUT="$(HOME="$FAKEHOME" run <<'JS'
 const lib = (m) => import(`${process.env.PLUGIN_ROOT}/lib/${m}.mjs`);
 const { paths } = await lib("paths");
 const { create } = await lib("store");
@@ -57,6 +63,11 @@ WT="$TM_ROOT/.bytedesk/worktrees/TM-001-ship-the-thing"
 [[ -d "$WT" ]] && ok "the worktree directory exists" || no "the worktree directory exists" "$OUT"
 [[ "$(git -C "$WT" rev-parse --abbrev-ref HEAD)" == "tm/TM-001-ship-the-thing" ]] &&
   ok "the worktree is on its own branch" || no "the worktree is on its own branch"
+STAMP="$(cat "$WT/graft/.cache/wiring-stamp.json" 2>&1)"
+has "$STAMP" '"version": "0.21.1"' "the graft stamp is seeded at the newest installed graft, so its refresh is a no-op"
+has "$STAMP" '"global": false' "the seeded stamp keeps the main checkout's graft choices"
+[[ -z "$(git -C "$WT" status --porcelain)" ]] && ok "the seeded stamp leaves the worktree clean" ||
+  no "the seeded stamp leaves the worktree clean" "$(git -C "$WT" status --porcelain)"
 
 # ── the space saving, proven ─────────────────────────────────────────────────
 [[ -L "$WT/node_modules" ]] && ok "node_modules is a symlink, not a copy" || no "node_modules is a symlink, not a copy"

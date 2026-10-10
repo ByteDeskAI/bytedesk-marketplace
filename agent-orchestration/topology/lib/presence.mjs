@@ -13,7 +13,7 @@ import { slotsDir } from "./slots.mjs";
 import { censusPath, withStaleness } from "./census.mjs";
 import { queueDepth } from "./mailbox.mjs";
 import { roleVisual } from "./identity.mjs";
-import { sessionIdentity } from "./session-names.mjs";
+import { nodeName, sessionIdentity } from "./session-names.mjs";
 import { invariant } from "./util.mjs";
 import { safeGit } from "./safe-git.mjs";
 import { durableTopologyRoot } from './discovery.mjs';
@@ -396,6 +396,10 @@ export async function createPresenceProducer({consumer,env=process.env,home=home
         body: snapshot,
         persist: activeTransport.kind === 'file' ? () => durableReplace(path, text) : undefined,
       });
+      // TM-484: the same snapshot under this node's own key. Two nodes with one checkout path share
+      // repositoryKey and overwrite each other there; a persona's liveness is judged from this one.
+      // Best effort: a holder whose node copy is missing is unknown, and an unknown holder is kept.
+      await activeTransport.putPresence({ repo: repositoryKey, node: await nodeName({ env, home }), body: snapshot }).catch(() => {});
       return snapshot;
     });
   };

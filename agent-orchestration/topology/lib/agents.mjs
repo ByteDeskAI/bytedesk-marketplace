@@ -13,6 +13,7 @@ import { PROMPT_MODES } from "./config.mjs";
 import { refreshPrompt } from "./prompt-lifecycle.mjs";
 import { consumerResourceDirs, exists, fail, invariant, nowIso, writeJson } from "./util.mjs";
 import { addressOf, agentDirName, displayName, mintId, mintName, titleForRole } from "./identity.mjs";
+import { orchName, subjectTakenBy } from "./orch-transport.mjs";
 import { safeGitText } from "./safe-git.mjs";
 
 function libraryConsumer(consumer) {
@@ -130,6 +131,11 @@ export async function createAgent(consumer, spec = {}, dirs = null, context = {}
   const taken = new Set(existing.map((a) => a.full_name).filter(Boolean));
   const id = spec.id || mintId();
   invariant(!existing.some((a) => a.id === id), "TOPOLOGY_AGENT_EXISTS", `Agent id ${id} already exists.`);
+  // TM-487: NATS subjects carry orchName(id), which is not injective (`a.b` and `a_b` both become
+  // `a_b`), so two such agents would share one inbox and dead-letter each other's mail. Refused here,
+  // at the one place agents are registered, rather than re-encoding subjects existing inboxes use.
+  const clash = subjectTakenBy(id, existing.map((a) => a.id));
+  invariant(!clash, "TOPOLOGY_AGENT_SUBJECT_TAKEN", `Agent id ${id} maps to the mailbox subject token "${orchName(id)}", which agent ${clash} already uses; pick an id that differs after non [A-Za-z0-9_-] characters become "_" (and past the first 64 characters).`);
   invariant(
     !spec.full_name || !taken.has(spec.full_name),
     "TOPOLOGY_AGENT_NAME_TAKEN",

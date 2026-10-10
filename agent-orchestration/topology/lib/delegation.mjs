@@ -21,7 +21,7 @@ import { readCensus } from './census.mjs';
 import { ancestorPids } from './heartbeat.mjs';
 import { withLock } from './lockfile.mjs';
 import { canonicalRepoId, repoKey, stateRoot } from './repoid.mjs';
-import { callerRunsInPane, resolveBinding, sameBinding } from './slots.mjs';
+import { callerRunsInPane, requireCallerInPane, resolveBinding, sameBinding } from './slots.mjs';
 import { listServerPanes } from './tmux.mjs';
 import { fail, invariant, nowIso, parseDuration, readJson, writeJson } from './util.mjs';
 
@@ -247,11 +247,7 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
   invariant(!recorded || recorded.binding.panePid === here.panePid, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} now runs pane_pid ${here.panePid}, not the ${recorded?.binding?.panePid} the census recorded for ${grantee}; a different incarnation holds that pane.`);
   const bound = agents.find(a => sameBinding(here, a.binding));
   invariant(bound?.agentId === grantee, 'TOPOLOGY_DELEGATION_ACTOR', `Pane ${here.paneId} is bound to ${bound ? `agent ${bound.agentId}` : 'no agent in this repository\'s census'}, not to the grantee ${grantee}; AO_AGENT_ID alone does not prove identity.`);
-  let inPane;
-  try { inPane = await callerRunsInPane(here, callerProc); }
-  catch (error) { fail('TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting TMUX_PANE.`); }
-  invariant(inPane, 'TOPOLOGY_DELEGATION_ACTOR', `Cannot prove the caller runs in the grantee's pane: pane ${here.paneId}'s process ${here.panePid} is not an ancestor of this process; TMUX_PANE alone does not prove identity.`);
-  return here;
+  return requireCallerInPane(here, { code: 'TOPOLOGY_DELEGATION_ACTOR', what: 'the grantee', callerProc });
 }
 
 /** TM-263 (ADR-0027): the caller proven to BE this repository's own lead (findLead over the
@@ -259,12 +255,34 @@ export async function requireGranteeCaller({ consumer, grantee, env = process.en
  * another agent, or no lead). A caller naming the lead must pass requireGranteeCaller's proof,
  * unchanged: its live pane is census-bound to the lead and the lead's pane process is its ancestor;
  * otherwise TOPOLOGY_DELEGATION_ACTOR. A dispatched worker is refused by name even in the lead's pane. */
-export async function requireLeadCaller({ consumer, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
+export async function requireLeadCaller({ consumer, agentId = undefined, env = process.env, home = homedir(), listPanesFn = listServerPanes, readCensusFn = readCensus, callerProc = {} }) {
   const lead = await findLead(agentDirs({ consumer })).catch(() => null);
-  if (!lead?.id || env.AO_AGENT_ID !== lead.id) return null;
+  // TM-462B: `agentId` is the id the caller CLAIMS (a census binding, a session identity); it is
+  // proven below exactly as AO_AGENT_ID is, so a caller cannot dodge the proof by naming itself elsewhere.
+  if (!lead?.id || (agentId === undefined ? env.AO_AGENT_ID : agentId) !== lead.id) return null;
   invariant(!env.TM_DISPATCH_WORKER, 'TOPOLOGY_DELEGATION_ACTOR', `A dispatched worker session (TM_DISPATCH_WORKER) is never the repository lead ${lead.id}.`);
   await requireGranteeCaller({ consumer, grantee: lead.id, env, home, listPanesFn, readCensusFn, callerProc });
   return lead.id;
+}
+
+/** TM-427 review: an agent this repository records a pane for (a census row, or the reviewer record)
+ * is proven like the lead: the caller must descend from one of those panes. Returns the agent id
+ * when proven, null when no binding is recorded (only then may a caller fall back to its env
+ * claim), and throws `code` otherwise. Unreadable ancestry fails closed. */
+export async function requireBoundAgentCaller({ consumer, agentId, env = process.env, home = homedir(), readCensusFn = readCensus, readReviewerFn = null, callerProc = {}, code = 'TOPOLOGY_SENDER_MISMATCH' }) {
+  const census = await readCensusFn({ consumer, env, home }).catch(() => null);
+  const bindings = (census?.agents || []).filter(a => a.agentId === agentId && a.binding?.panePid).map(a => a.binding);
+  const readReviewer = readReviewerFn ?? (await import('./reviewer.mjs')).readReviewerRecord;
+  const reviewer = await readReviewer(consumer, env, home).catch(() => null);
+  if (reviewer?.agent_id === agentId && reviewer.binding?.panePid) bindings.push(reviewer.binding);
+  if (!bindings.length) return null;
+  for (const binding of bindings) {
+    let inPane;
+    try { inPane = await callerRunsInPane(binding, callerProc); }
+    catch (error) { fail(code, `Cannot prove the caller runs in ${agentId}'s pane: process ancestry is unreadable (${error.code || error.message}); refusing rather than trusting AO_AGENT_ID. Nothing was done.`); }
+    if (inPane) return agentId;
+  }
+  fail(code, `${agentId} has a recorded pane, and this process does not descend from it; AO_AGENT_ID alone does not prove identity. Nothing was done.`);
 }
 
 /** TM-243: the agent this repository's census binds to the caller's live pane, or null. Lets a
@@ -276,6 +294,24 @@ export async function bindingAgentId({ consumer, env = process.env, home = homed
   if (!here) return null;
   const census = await readCensusFn({ consumer, env, home }).catch(() => null);
   return (census?.agents || []).find(a => sameBinding(here, a.binding))?.agentId || null;
+}
+
+/** TM-473: whether the caller descends from ANY agent pane a census binds: this repository's census
+ * (readCensusFn), every other census under the env's state home, and the default one under the
+ * passwd home (which the env cannot redirect). A process with TMUX_PANE unset (or
+ * naming no bound pane) is invisible to bindingAgentId, but its /proc ancestry still runs through
+ * the agent's pane process. Throws when ancestry is unreadable; callers fail closed.
+ * Does NOT catch a process that left the tree (`setsid -f`, a daemon reparented to init): only
+ * TM-427B's identity proof closes that. */
+export async function callerUnderBoundPane({ consumer, env = process.env, home = homedir(), readCensusFn = readCensus, callerProc = {}, passwdHome = userInfo().homedir }) {
+  const docs = [await readCensusFn({ consumer, env, home }).catch(() => null)];
+  // TM-473 review: the env names the state home, so a caller could point it at an empty directory.
+  // The default census under the passwd home is scanned too, whatever the env says; any match refuses.
+  const dirs = new Set([join(stateRoot(env, home), 'census'), join(stateRoot({}, passwdHome), 'census')]);
+  for (const dir of dirs) for (const file of (await readdir(dir).catch(() => [])).filter(f => f.endsWith('.json'))) docs.push(await readJson(join(dir, file)).catch(() => null));
+  const pids = new Set(docs.flatMap(doc => doc?.agents || []).map(a => a.binding?.panePid));
+  for (const panePid of pids) if (await callerRunsInPane({ panePid }, callerProc)) return true;
+  return false;
 }
 
 /** Read-only lookup `manage integrate` / `manage record-landing` use in place of an explicit

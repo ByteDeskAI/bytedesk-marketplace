@@ -258,6 +258,16 @@ run as the session that admitted the task (`TM_SESSION_ID`):
    the caller's own tmux server. The caller itself, a pane or process another task already binds, and
    a respawned pane are refused. An in-process subagent runs in the lead's own process, so it cannot
    be adopted; finish it and start the next worker with `start-worker`.
+
+   **Delegating to an existing terminal (TM-412).** The pane rules above refuse an operator's
+   long-lived terminal, so adopt the harness process inside it instead: `manage bind --task TM-id
+   --pid <pid of the Codex or Claude process>`, run from the lead's own session. A process binding is
+   never closed by `stop-worker` or `cleanup`; integration waits until that process has exited. If an
+   earlier dispatch of the task (a duplicate pool worker, say) has exited, bind refuses until
+   `tm collect TM-id` records it as ended; a dispatch tm has collected is history and never stands in
+   for the adopted writer. The lead then submits the finish with `manage report`; the admission, its
+   base revision and the worktree are unchanged. Once bound, `manage assignment` reports the writer,
+   so tm's duplicate-dispatch guard does not send a second writer into the worktree.
 3. **Stop.** Run `manage stop-worker --task TM-id`. It closes the bound pane only when this session
    owns the binding, the worker's finish report is recorded, and the pane is idle: its process is a
    shell with no children, so the harness has exited. Idle detection reads `/proc`, so it works on
@@ -309,13 +319,19 @@ from there. When the independent review of the finish revision returns `changes_
    review on the exact revision, so the earlier verdict never applies to it.
 
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
-review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool (or, from a
-shell, `ao-topology review submit <request-nonce> --verdict approve|changes_requested|blocked
---findings @file.json`). The submission is checked at once, written to
+review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool, the only channel:
+the shell `ao-topology review submit` was removed in TM-427, and the tool proves the caller descends
+from the reviewer's live pane. The submission is checked at once, written to
 `<state>/reviewers/inboxes/<repo>/verdicts/<task>-<revision>.json` and mirrored to the NATS
 `ORCH_REVIEWS` object store when NATS is live. `reviewer collect` reads that record; nothing reads
 a verdict off the reviewer pane (TM-365). A verdict submitted before a reviewer restart is still
 collected.
+
+**Same-user residual (TM-427).** Identity is proved by pane ancestry, which stops a process that
+only claims to be the reviewer or the lead. It does not stop a same-user process that writes the
+agent-orchestration state directly: the verdict file under `verdicts/`, review and reviewer records,
+or keystrokes into the reviewer pane. Until workers are kept out of the state root (TM-508), treat
+that as an open risk.
 Findings, a changed revision, wrong identity, or an unavailable reviewer block integration.
 Restricted reviewer providers must offer an enforced read-only launch; unsupported configurations
 fail closed instead of substituting another provider. Review role alone grants no merge authority.
@@ -333,7 +349,10 @@ publication and spending retain separate authorization.
 ### Integration policy for a repository
 
 `manage eligible` and `manage integrate` refuse every task until the repository sets two keys in
-`<repo>/.bytedesk/agent-orchestration/config.json`. That file merges over the global layer.
+`<repo>/.bytedesk/agent-orchestration/config.json`. These keys, and `management.integrate_via`, are
+honoured only as that file is committed on the server's default branch (TM-442, TM-469): a value in
+the global layer or in the checkout's working copy is ignored with a warning, because a worker can
+write both.
 
 - `management.target_branch` is the branch the main checkout must have checked out. Integration
   fast-forwards only that branch.

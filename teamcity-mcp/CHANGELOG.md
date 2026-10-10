@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0] — 2026-10-09
+
+### Added
+- `lead` mode (`TEAMCITY_MCP_MODE=lead` + `TEAMCITY_MCP_PROJECT`): read-only tools plus a
+  `trigger_build` that refuses build configurations outside the project and deploy
+  configurations, so a repository lead can trigger and read its own builds (TM-522, EP-029).
+- The launcher loads a per-repository profile, `~/.config/teamcity-mcp/repos/<repo>.env`, in
+  place of the user-level env file when the session runs inside that repository.
+
 ## [0.2.0] — 2026-08-31
 
 ### Added

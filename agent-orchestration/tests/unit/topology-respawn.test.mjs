@@ -11,7 +11,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { claimAgent, fallbackHandoff, readTail, sessionPanes, transcriptTurns, passHandoff } from "../../topology/lib/respawn.mjs";
+import { claimAgent, fallbackHandoff, findTranscript, handoffPath, prepareClaim, readHandoff, readTail, sessionPanes, transcriptTurns, passHandoff } from "../../topology/lib/respawn.mjs";
 import { openRoleSession } from "../../topology/lib/launch.mjs";
 import { sanitizeCwd } from "../../topology/lib/providers.mjs";
 import { ulid } from "../../topology/lib/session-names.mjs";
@@ -73,7 +73,7 @@ test("re-spawn waits out the turn, collects the agent's handoff for the caller, 
   const opened = await iso.within(() => openRoleSession({
     agentsDir, agentId: "a1a1a1a1", adapter: FAKE, argv: [process.execPath, AGENT], role: "worker",
     env: { FAKE_TURN_LOG: log, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"), AO_NODE_NAME: "agents1" },
-    session: "agents1--app--worker--ada", respawnBounds: FAST,
+    session: "agents1--app--worker--ada", respawnBounds: FAST, respawn: true,
   }));
   assert.ok(opened.respawn, "the live agent was re-spawned, not refused");
 
@@ -133,21 +133,32 @@ test("an agent that never answers gets a labelled transcript fallback, and its s
     JSON.stringify({ type: "some-future-type", x: 1 }),
     JSON.stringify({ type: "assistant", message: { stop_reason: "end_turn", content: [{ type: "text", text: "Parser split into two modules" }] } }),
   ];
+  const id = ulid();
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  // The live conversation is the one that received this agent's handoff request (it names the path).
+  const requested = handoffPath("b2b2b2b2", id, { env, home });
+  lines.push(JSON.stringify({ type: "user", message: { content: `[ao] Handoff requested ... to ${requested}.tmp, then rename it to ${requested}.` } }));
   await writeFile(join(transcripts, "11111111-old.jsonl"), `${JSON.stringify({ type: "user", message: { content: "an older conversation" } })}\n`);
   await new Promise((resolve) => setTimeout(resolve, 20));
   await writeFile(join(transcripts, "22222222-live.jsonl"), `${lines.join("\n")}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // TM-484: another agent's conversation in the same cwd, and newer. It must not be taken.
+  await writeFile(join(transcripts, "33333333-other-agent.jsonl"), `${JSON.stringify({ type: "user", message: { content: "ANOTHER-AGENT-WORK" } })}\n`);
 
-  const id = ulid();
   const old = await holder(iso, "silent-holder", { agentId: "b2b2b2b2", id, log, cwd, env: { FAKE_TURN_HANDOFF: "0" } });
   // claude's adapter id (so the transcript is looked up) with an exit command the fake honours.
   const adapter = { id: "claude", submit_keys: ["Enter"], exit_command: "/exit" };
-  const claim = await iso.within(() => claimAgent({ agentId: "b2b2b2b2", adapter, home, env: { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") },
+  const claim = await iso.within(() => claimAgent({ agentId: "b2b2b2b2", adapter, home, env,
     bounds: { ...FAST, handoffTimeoutMs: 1_500 }, deps }));
   await claim.release();
 
   assert.equal(claim.respawn.handoff.source, "transcript-fallback");
-  assert.equal(claim.respawn.handoff.transcript, join(transcripts, "22222222-live.jsonl"), "the newest transcript is the live one");
+  assert.equal(claim.respawn.handoff.transcript, join(transcripts, "22222222-live.jsonl"), "the transcript that received the request, not the newest in the cwd");
+  // The fallback has its own file; the requested path stays free for a late answer from the agent.
+  assert.equal(claim.respawn.handoff.requested, requested);
+  assert.notEqual(claim.respawn.handoff.path, requested);
   const text = await readFile(claim.respawn.handoff.path, "utf8");
+  assert.doesNotMatch(text, /ANOTHER-AGENT-WORK/);
   assert.match(text, /^# Handoff — TRANSCRIPT-DERIVED FALLBACK/);
   assert.match(text, /NOT its own account/);
   assert.match(text, /Refactoring parser\.mjs now \(tool: Edit\)/);
@@ -175,6 +186,32 @@ test("--no-respawn keeps TOPOLOGY_AGENT_ALREADY_LIVE; a turn that never ends ref
   assert.deepEqual((await events(log)).filter((entry) => entry.pid === old.pid && entry.event === "received"), [], "nothing was typed into it");
   // Both refusals released the lock: a third claim gets past it (and is refused for the same reason).
   await assert.rejects(iso.within(() => claimAgent({ agentId: "c3c3c3c3", adapter: FAKE, respawn: false, env, deps })), { code: "TOPOLOGY_AGENT_ALREADY_LIVE" });
+});
+
+test("TM-484: an open that does not ask to respawn refuses a live agent, and nobody replaces its own session", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await scratch(t);
+  const { iso, kills, deps } = setup(t, root);
+  const log = join(root, "agent.log");
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  const old = await holder(iso, "self-holder", { agentId: "b8b8b8b8", id: ulid(), log, cwd: root });
+
+  // Lead ensure, reviewer ensure and every other automated open pass no respawn: refused, untouched.
+  await assert.rejects(iso.within(() => openRoleSession({ agentsDir: join(root, "agents"), agentId: "b8b8b8b8", adapter: FAKE, argv: [process.execPath, AGENT], role: "lead",
+    env: { FAKE_TURN_LOG: log, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"), AO_NODE_NAME: "agents1" }, session: "agents1--app--lead--bo", respawnBounds: FAST })),
+  { code: "TOPOLOGY_AGENT_ALREADY_LIVE" });
+
+  // Asked to respawn, but from inside the live session itself: refused before anything is typed. The
+  // real caller lookup runs: TMUX names this test's server and TMUX_PANE the holder's own pane.
+  // The caller is read from the `env` passed in, not process.env (TM-484 review).
+  const socket = (await iso.tmux(["display-message", "-p", "-t", old.pane, "#{socket_path}"])).stdout.trim();
+  const inside = { ...env, TMUX: `${socket},1,0`, TMUX_PANE: old.pane };
+  await assert.rejects(iso.within(() => claimAgent({ agentId: "b8b8b8b8", adapter: FAKE, env: inside, deps, bounds: FAST })), { code: "TOPOLOGY_RESPAWN_SELF" });
+  // The same pane id on a DIFFERENT server (an operator shell's stale TMUX) is not the caller.
+  await assert.rejects(iso.within(() => claimAgent({ agentId: "b8b8b8b8", adapter: FAKE, respawn: false, env: { ...inside, TMUX: `${join(root, "elsewhere.sock")},1,0` }, deps })), { code: "TOPOLOGY_AGENT_ALREADY_LIVE" });
+
+  assert.deepEqual(kills, [], "nothing was killed");
+  assert.equal(await iso.within(() => tmux.hasSession("self-holder")), true, "the live session is untouched");
+  assert.deepEqual((await events(log)).filter((entry) => entry.pid === old.pid && entry.event === "received"), [], "nothing was typed into it");
 });
 
 test("two concurrent re-spawns of one agent replace it exactly once; the loser joins the winner's result", { skip: haveTmux ? false : "no tmux" }, async (t) => {
@@ -307,4 +344,83 @@ test("launch of a live library agent re-spawns it under the SAME name and return
 
   // --no-respawn keeps the old answer for scripts.
   await assert.rejects(launch("run-three", "--no-respawn"), (error) => /TOPOLOGY_AGENT_ALREADY_LIVE/.test(`${error.stdout}${error.stderr}`));
+});
+
+test("TM-484: a multi-agent launch refused for one agent ends no other agent's session", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await scratch(t);
+  const consumer = join(root, "app");
+  await mkdir(consumer);
+  await exec("git", ["-C", consumer, "init", "-q"]);
+  await optOutOfEnrollment(consumer);
+  const log = join(root, "agent.log");
+  const iso = isolatedTmux(t, { extraEnv: { AO_TMUX_COMMAND: "tmux", AO_TRANSPORT: "file", AGENT_ORCHESTRATION_SERVICES: "0", AGENT_ORCHESTRATION_STATE_HOME: join(root, "state"),
+    XDG_CONFIG_HOME: join(root, ".cfg"), AO_NODE_NAME: "agents1", FAKE_TURN_LOG: log, FAKE_TURN_HANDOFF: "1" } });
+  assert.equal(iso.env.TMUX, "", "never inherit an operator tmux server");
+  const cli = join(HERE, "../../topology/cli.mjs");
+  const ao = async (...args) => {
+    const done = await exec(process.execPath, [cli, ...args, "--consumer", consumer, "--json"], { env: iso.env, timeout: 180_000 }).catch((error) => {
+      error.message = `${args.slice(0, 2).join(" ")} failed: ${error.stdout}${error.stderr}`;
+      throw error;
+    });
+    return JSON.parse(done.stdout);
+  };
+  // The idle agent is the one claimed FIRST, so a launch that committed claims one at a time would have
+  // ended its session before reaching the busy one.
+  const [idle, busy] = [(await ao("agent", "new", "--role", "worker", "--cli", "fake-agent")).id, (await ao("agent", "new", "--role", "worker", "--cli", "fake-agent")).id].sort();
+  const idleHolder = await holder(iso, "idle-holder", { agentId: idle, id: ulid(), log, cwd: root });
+  await holder(iso, "busy-holder", { agentId: busy, id: ulid(), log, cwd: root, env: { FAKE_TURN_START_BUSY_MS: "600000" } });
+  const specPath = join(root, "pair.json");
+  await writeFile(specPath, JSON.stringify({ version: 1, name: "pair", agents: [
+    { agent: idle, role: "orchestrator", cli: "fake-agent", args: [AGENT] }, { agent: busy, role: "worker", cli: "fake-agent", args: [AGENT] }] }));
+
+  await assert.rejects(ao("launch", "--spec", specPath, "--providers-dir", join(HERE, "../fixtures"), "--run-id", "pair-one", "--turn-timeout", "2s", "--handoff-timeout", "2s"),
+    (error) => /TOPOLOGY_AGENT_BUSY/.test(error.message));
+  assert.equal(await iso.within(() => tmux.hasSession("idle-holder")), true, "the idle agent's session was not ended");
+  assert.equal(await iso.within(() => tmux.hasSession("busy-holder")), true, "the busy agent's session was not ended");
+  assert.deepEqual((await events(log)).filter((entry) => entry.pid === idleHolder.pid && entry.event === "received"), [], "no handoff request reached the idle agent");
+});
+
+test("TM-484: findTranscript with a marker never returns another conversation in a shared cwd", async (t) => {
+  const root = await scratch(t);
+  const home = join(root, "home");
+  const cwd = join(root, "shared");
+  const dir = join(home, ".claude", "projects", sanitizeCwd(cwd));
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "a.jsonl"), `${JSON.stringify({ type: "user", message: { content: "handoff to /h/agent-a/1.md" } })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await writeFile(join(dir, "b.jsonl"), `${JSON.stringify({ type: "user", message: { content: "agent b, newest" } })}\n`);
+  assert.equal(await findTranscript({ adapterId: "claude", cwd, home }), join(dir, "b.jsonl"), "no marker: the newest (an agent's own cwd)");
+  assert.equal(await findTranscript({ adapterId: "claude", cwd, home, marker: "/h/agent-a/1.md" }), join(dir, "a.jsonl"));
+  assert.equal(await findTranscript({ adapterId: "claude", cwd, home, marker: "/h/agent-c/1.md" }), null, "no match is null, never a guess");
+});
+
+test("TM-484: readHandoff prefers the agent's late handoff over the fallback", async (t) => {
+  const root = await scratch(t);
+  const record = { handoff: { path: join(root, "1.fallback.md"), requested: join(root, "1.md"), source: "pane-capture-fallback" } };
+  await writeFile(record.handoff.path, "FALLBACK");
+  assert.equal(await readHandoff(record), "FALLBACK");
+  await writeFile(record.handoff.requested, "AGENT");
+  assert.equal(await readHandoff(record), "AGENT");
+});
+
+test("TM-484: an agent that goes busy between prepare and commit is refused at settle, before any session ends", { skip: haveTmux ? false : "no tmux" }, async (t) => {
+  const root = await scratch(t);
+  const { iso, kills, deps } = setup(t, root);
+  const log = join(root, "agent.log");
+  const env = { ...process.env, AGENT_ORCHESTRATION_STATE_HOME: join(root, "state") };
+  const first = await holder(iso, "first-holder", { agentId: "e5e5e5e5", id: ulid(), log: join(root, "first.log"), cwd: root, env: { FAKE_TURN_HANDOFF: "1" } });
+  const second = await holder(iso, "second-holder", { agentId: "f6f6f6f6", id: ulid(), log, cwd: root, env: { FAKE_TURN_HANDOFF: "1", FAKE_TURN_BUSY_MS: "600000" } });
+  const bounds = { ...FAST, turnTimeoutMs: 1_500 };
+  const claims = [];
+  try {
+    for (const agentId of ["e5e5e5e5", "f6f6f6f6"]) claims.push(await iso.within(() => prepareClaim({ agentId, adapter: FAKE, env, deps, bounds })));
+    // Both prepared idle; now the second starts a long turn.
+    await iso.within(() => tmux.sendText(second.pane, "start a long turn", ["Enter"]));
+    await until(async () => (await events(log)).some((entry) => entry.pid === second.pid && entry.event === "received"), 10_000, "the second agent's new turn");
+    // launch's order: settle every claim, then end them.
+    await assert.rejects(iso.within(async () => { for (const claim of claims) await claim.settle(); }), { code: "TOPOLOGY_AGENT_BUSY" });
+  } finally { for (const claim of claims) await claim.release(); }
+  assert.deepEqual(kills, [], "no session was ended");
+  assert.equal(await iso.within(() => tmux.hasSession("first-holder")), true, "the first agent's session survives the second's refusal");
+  void first;
 });
