@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.2] — 2026-10-10
+
 ### Fixed
 
 - **Lead probes stop flooding a lead that has already answered (TM-532, EP-029).** The cached-proof
