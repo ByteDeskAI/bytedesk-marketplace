@@ -1,8 +1,13 @@
 // Provider adapters describe how to run one agent CLI inside a tmux pane. Adding a CLI is one JSON
 // file; an unknown `cli` id falls back to the generic adapter with the id used as the command.
 import { readdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { exists, invariant, readJson, render, run } from "./util.mjs";
+
+// Source runs from topology/lib/; the bundle runs from dist/. Both sit one level under the plugin.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PLUGIN_ROOT = basename(HERE) === "lib" ? dirname(dirname(HERE)) : dirname(HERE);
 
 export const GENERIC_ADAPTER = {
   id: "generic",
@@ -90,13 +95,17 @@ export const ATTENTION_STATES = ["attention", "quota-blocked"];
  * `args`, `auto_approve_args`), and `<repo>/.bytedesk/agent-orchestration/providers/` is
  * version-controlled: a worker whose PR merged could rename `claude` to any program for every
  * later agent launched in that repo. `consumer` is accepted and ignored so callers need not change.
+ *
+ * TM-529: with no `pluginRoot` the bundled plugin's own providers/ is still searched. Callers that
+ * omitted it (the lead ring, the reviewer) loaded no adapter at all and refused every ring.
  */
 export function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
+  pluginRoot ??= PLUGIN_ROOT;
   const dirs = [...extra];
   // The user's config dir resolves like config.mjs's global layer: $XDG_CONFIG_HOME, else ~/.config.
   const config = env.XDG_CONFIG_HOME || (home && join(home, ".config"));
   if (config) dirs.push(join(config, "agent-orchestration", "providers"));
-  if (pluginRoot) dirs.push(join(pluginRoot, "providers"));
+  dirs.push(join(pluginRoot, "providers"));
   return dirs;
 }
 

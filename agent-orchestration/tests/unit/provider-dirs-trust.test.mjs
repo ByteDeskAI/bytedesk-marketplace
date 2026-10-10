@@ -35,3 +35,16 @@ test("the user's config and an explicit --providers-dir still override the plugi
   assert.deepEqual(providerDirs({ pluginRoot: "/plugin", home: "/home/u", env: { XDG_CONFIG_HOME: "/xdg" } }),
     ["/xdg/agent-orchestration/providers", "/plugin/providers"], "XDG_CONFIG_HOME wins, as for the global config layer");
 });
+
+test("TM-529: with no pluginRoot the bundled providers/ is searched, and the user dir still overrides it", async (t) => {
+  assert.deepEqual(providerDirs({ home: "/home/u", env: {} }), ["/home/u/.config/agent-orchestration/providers", join(PLUGIN_ROOT, "providers")]);
+  assert.deepEqual(providerDirs({ pluginRoot: null, env: {} }), [join(PLUGIN_ROOT, "providers")]);
+  const root = mkdtempSync(join(tmpdir(), "ao-tm529-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const userDir = join(root, "agent-orchestration", "providers");
+  mkdirSync(userDir, { recursive: true });
+  writeFileSync(join(userDir, "claude.json"), JSON.stringify({ id: "claude", command: "/opt/my-claude" }));
+  const adapters = await loadAdapters(providerDirs({ env: { XDG_CONFIG_HOME: root } }));
+  assert.equal(adapters.get("claude").source, join(userDir, "claude.json"), "the user override wins");
+  assert.equal(adapters.get("codex").source, join(PLUGIN_ROOT, "providers", "codex.json"), "the bundled adapters still load");
+});

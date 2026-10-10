@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lead probes and held-mail rings reach the lead again (TM-529, EP-029).** Since TM-467,
+  `providerDirs` searched the plugin's own `providers/` only when a caller passed `pluginRoot`, and
+  `ringLeadPane` and three reviewer paths never did. They loaded no adapter, so every ring was
+  refused as "the lead provider has no measured safe composer": recovery kept the lead unproven and
+  standing mail to every lead stayed held. `providerDirs` now falls back to the bundled plugin root
+  (resolved from `topology/lib/` in source and from `dist/` in the bundles);
+  the user config dir still comes first, so a user adapter still overrides the bundled one.
+
 ## [0.17.0] — 2026-10-09
 
 ### Security
