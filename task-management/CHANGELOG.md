@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- **Stop says so when a store record exists only on this machine.** The store is the system of
+  record and is git-tracked, so a record only one working tree has is a record one laptop can lose.
+  The Stop hook now names them. It WARNS and never blocks — the Stop gate is the one thing allowed
+  to refuse a stop — and it reports on change rather than state, so a record joining the set warns
+  once and an already-reported set stays quiet.
+
+  It compares against `origin/<branch>`, not local `HEAD`, and fetches that one branch only when
+  something still looks uncommitted, so the ordinary case costs no network call. That is not an
+  optimisation, it is the correctness condition: a hook of this exact shape, written outside the
+  plugin on 2026-10-08, reported 18 records as uncommitted that were all already on the remote
+  byte-identical — nine of them committed an hour earlier by the same session. The clone was five
+  commits behind, so `git status` was right and the conclusion drawn from it was not. "Committed,
+  remote-tracking ref behind" and "never committed" are indistinguishable from `git status` alone.
+
+  Two faults found by its own tests rather than by review, both of which made it silently report a
+  clean store: `git status --porcelain` **collapses an untracked directory** to one entry, so the
+  first evidence log in a store arrived as `evidence/`, matched no file extension and was dropped;
+  and deriving the store's path inside the repo with `path.relative()` breaks when `os.tmpdir()`
+  yields Windows' 8.3 short form while git yields the long one, which made `git status` fail with
+  "is outside repository", a failure that was swallowed. Paths now come from
+  `git rev-parse --show-toplevel/--show-prefix`.
+
+  A record **committed here but never pushed** counts too, which `git status` is silent about. That
+  gap was found by the end-to-end hook test, not by reading the code.
+
+  Finished in TM-530 (supersedes PR #228): every git call, the fetch included, goes through
+  safe-git, so a `core.fsmonitor` or filter driver planted in the shared `.git/config` never runs at
+  Stop; a refused or failed fetch is named in the warning ("may be stale") rather than thrown. The
+  warning now reads the store the hook payload names, the same one the Stop gate reads; it used to
+  read the process's own store. Tests run the real hook: once per fingerprint, again when the set
+  changes or after the store was clean, and never on a stop the gate refused.
+
+- **SessionStart surfaces `tm doctor` errors, and only errors.** A healthy store routinely carries
+  warnings — evidence drift, an unticked criterion on a done task, an unreviewed revision — and
+  reprinting those every session is how a notice becomes one people stop reading. An error means
+  the store is inconsistent, which `doctor` already exits non-zero for.
+
 - **Test: a `tm block` reason that quotes a refused command is pinned as allowed (TM-521, EP-029).**
   A worker reporting a refusal with `.bytedesk/task-management/bin/tm block TM-n "refused: gh pr
   create …"` is allowed; the quoted commands themselves, `$TM block …`, and an expansion-named shell
