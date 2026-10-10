@@ -20655,10 +20655,11 @@ var init_ntfy = __esm({
 
 // topology/lib/providers.mjs
 function providerDirs({ pluginRoot, home, env = process.env, extra = [] }) {
+  pluginRoot ??= PLUGIN_ROOT2;
   const dirs = [...extra];
   const config2 = env.XDG_CONFIG_HOME || home && (0, import_node_path38.join)(home, ".config");
   if (config2) dirs.push((0, import_node_path38.join)(config2, "agent-orchestration", "providers"));
-  if (pluginRoot) dirs.push((0, import_node_path38.join)(pluginRoot, "providers"));
+  dirs.push((0, import_node_path38.join)(pluginRoot, "providers"));
   return dirs;
 }
 function normalizeAdapter(raw, source) {
@@ -20837,12 +20838,15 @@ async function commandExists(command) {
   const located = await run(which, [command], { allowFailure: true, timeoutMs: 5e3 }).catch(() => ({ code: 1 }));
   return located.code === 0;
 }
-var import_promises30, import_node_path38, GENERIC_ADAPTER, MEMORY_SCOPES, ATTENTION_STATES;
+var import_promises30, import_node_path38, import_node_url5, HERE, PLUGIN_ROOT2, GENERIC_ADAPTER, MEMORY_SCOPES, ATTENTION_STATES;
 var init_providers = __esm({
   "topology/lib/providers.mjs"() {
     import_promises30 = require("node:fs/promises");
     import_node_path38 = require("node:path");
+    import_node_url5 = require("node:url");
     init_util();
+    HERE = (0, import_node_path38.dirname)((0, import_node_url5.fileURLToPath)(__aoImportMetaUrl));
+    PLUGIN_ROOT2 = (0, import_node_path38.basename)(HERE) === "lib" ? (0, import_node_path38.dirname)((0, import_node_path38.dirname)(HERE)) : (0, import_node_path38.dirname)(HERE);
     GENERIC_ADAPTER = {
       id: "generic",
       display: "Generic CLI",
@@ -26345,7 +26349,7 @@ async function escalateFailedReview({ consumer, request, env = process.env, home
     provenance: { source: "ao-topology review" }
   }, { env, home }).then((sent) => ({ status: sent?.status ?? "sent", to: leadId, message_id: sent?.envelope?.id ?? null })).catch((error51) => ({ status: "failed", to: leadId, reason: error51?.code ?? String(error51) }));
 }
-var import_node_child_process13, import_node_crypto25, import_promises38, import_node_os21, import_node_path48, import_node_url5, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
+var import_node_child_process13, import_node_crypto25, import_promises38, import_node_os21, import_node_path48, import_node_url6, REGISTRY_KIND, DEFAULT_REVIEWER_PROVIDERS, DEFAULT_TEMPLATE, VERDICTS, SEVERITIES, BLOCKING_SEVERITIES, REVIEW_PATCH_MAX_BYTES, FINDING_TEXT_FIELDS, MAX_REVIEW_WAKES, RESTART_MARK_STALE_MS, restartMarked, REVIEW_CAPTURE_LINES, REVIEW_SUBMIT_SERVER, REVIEW_SUBMIT_TOOL, HERE2, REVIEW_MCP_SCRIPT, REVIEW_MCP_ENV_KEYS, defaultProbes, PROBE_TIMEOUT_MS, PROBE_POLL_MS, reviewerListeners, RESPONSIVE_TTL_MS, reviewerAckMemo, PENDING_COLLECTION_CODES, COMMIT_SHA, INTEGRATION_BRANCH, isAncestor, ZERO_BLOB, GITLINK_MODE, BINARY_PEEK_BYTES, REVIEW_CHECKLIST_PATH, LOG_TAIL_MAX, B64_PREFIX, verdictPath, REFUSED_RESPONSE_CODES, reviewQueueCache;
 var init_reviewer = __esm({
   "topology/lib/reviewer.mjs"() {
     import_node_child_process13 = require("node:child_process");
@@ -26353,7 +26357,7 @@ var init_reviewer = __esm({
     import_promises38 = require("node:fs/promises");
     import_node_os21 = require("node:os");
     import_node_path48 = require("node:path");
-    import_node_url5 = require("node:url");
+    import_node_url6 = require("node:url");
     init_agents();
     init_lead();
     init_standing_mailbox();
@@ -26385,8 +26389,8 @@ var init_reviewer = __esm({
     REVIEW_CAPTURE_LINES = 5e3;
     REVIEW_SUBMIT_SERVER = "ao-review";
     REVIEW_SUBMIT_TOOL = `mcp__${REVIEW_SUBMIT_SERVER}__review_submit`;
-    HERE = (0, import_node_path48.dirname)((0, import_node_url5.fileURLToPath)(__aoImportMetaUrl));
-    REVIEW_MCP_SCRIPT = (0, import_node_path48.basename)(HERE) === "lib" ? (0, import_node_path48.join)((0, import_node_path48.dirname)(HERE), "review-mcp.mjs") : (0, import_node_path48.join)((0, import_node_path48.dirname)(HERE), "topology", "review-mcp.mjs");
+    HERE2 = (0, import_node_path48.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl));
+    REVIEW_MCP_SCRIPT = (0, import_node_path48.basename)(HERE2) === "lib" ? (0, import_node_path48.join)((0, import_node_path48.dirname)(HERE2), "review-mcp.mjs") : (0, import_node_path48.join)((0, import_node_path48.dirname)(HERE2), "topology", "review-mcp.mjs");
     REVIEW_MCP_ENV_KEYS = ["AGENT_ORCHESTRATION_STATE_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "AO_TRANSPORT"];
     defaultProbes = () => ({ alive: (_session, record2) => bindingAlive(record2), open: defaultOpen });
     PROBE_TIMEOUT_MS = Number(process.env.AO_PROBE_TIMEOUT_MS ?? 2e4);
@@ -27480,7 +27484,7 @@ Begin when you have replied READY: the mission is the inputs above plus the work
 `;
 }
 async function passEnvFor(consumer, { env = process.env, home = (0, import_node_os24.homedir)() } = {}) {
-  const pluginRoot = (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl))));
+  const pluginRoot = (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl))));
   const loaded = await loadConfig({ consumer, env, home, pluginRoot }).catch(() => null);
   const layer = (scope) => loaded?.layers?.find((l) => l.scope === scope && l.ok && l.present)?.raw?.workers?.passEnv;
   const valid = (raw) => Array.isArray(raw) ? [...new Set(raw.filter((name) => typeof name === "string" && ENV_NAME.test(name)))] : [];
@@ -28067,7 +28071,7 @@ async function launchRunNative({
   if (!dryRun && spec.agents.some((agent) => !agent.workflow && agent.candidates.some((candidate) => adapters.get(candidate.cli)?.requires_repository_readiness === true))) {
     const { leadState: leadState2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
     const { reviewerAvailability: reviewerAvailability2 } = await Promise.resolve().then(() => (init_reviewer(), reviewer_exports));
-    const options = { consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl)))) };
+    const options = { consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)))) };
     const lead = await leadState2(options), reviewer = await reviewerAvailability2(options);
     invariant2(lead.status === "responsive" && reviewer.available, "TOPOLOGY_STARTUP_NOT_READY", "Governed workflow launch requires a responsive repository lead and independent reviewer. Create or assign the lead first; no workflow panes were created.");
   }
@@ -28169,7 +28173,7 @@ async function launchClaimed({ spec, adapters, skillSearchDirs, roleSearchDirs, 
     await (0, import_promises41.mkdir)((0, import_node_path51.join)(item.dir, "inbox"), { recursive: true });
     await (0, import_promises41.mkdir)((0, import_node_path51.join)(item.dir, "outbox"), { recursive: true });
     if (item.participant) continue;
-    const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl)))) });
+    const loaded = await loadConfig({ consumer: spec.consumer || spec.cwd, pluginRoot: (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)))) });
     const promptAgent = { ...Object.fromEntries(["id", "role", "full_name", "title", "template", "coordinates_only", "instructions_file", "instructions_mode", "_agent_dir", "_prompt_vars"].map((key) => [key, item.agent[key]])), instructions: item.agent._inline_instructions ?? item.agent.instructions ?? "", _dir: item.dir };
     if (item.agent._instruction_source) {
       promptAgent.instructions_file = (0, import_node_path51.join)(item.dir, "instructions-source.md");
@@ -28447,7 +28451,7 @@ async function openRoleSession({
   if (env.AO_CONSUMER && roleSessionNeedsGovernance({ role, coordinatesOnly: coordinatesOnly2 })) {
     const { leadState: leadState2 } = await Promise.resolve().then(() => (init_lead(), lead_exports));
     const { reviewerAvailability: reviewerAvailability2 } = await Promise.resolve().then(() => (init_reviewer(), reviewer_exports));
-    const options = { consumer: env.AO_CONSUMER, pluginRoot: (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url6.fileURLToPath)(__aoImportMetaUrl)))), env: { ...process.env, ...env } };
+    const options = { consumer: env.AO_CONSUMER, pluginRoot: (0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_path51.dirname)((0, import_node_url7.fileURLToPath)(__aoImportMetaUrl)))), env: { ...process.env, ...env } };
     const lead = await leadState2(options), reviewer = await reviewerAvailability2(options);
     invariant2(lead.status === "responsive" && reviewer.available, "TOPOLOGY_STARTUP_NOT_READY", "A responsive repository lead and independent reviewer are required before starting governed work. Use lead ensure or lead assign; the existing session is preserved.");
   }
@@ -28687,14 +28691,14 @@ async function failoverAgentNative({ runDir, agentId, adapters, toLabel, inciden
     ...quota ? { incident: quota.incident.incident_id, approved_by: quota.approval.approved_by, announced: announced?.status ?? null } : {}
   };
 }
-var import_node_crypto28, import_promises41, import_node_os24, import_node_path51, import_node_url6, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ENV_NAME, RESERVED_ENV, passEnvFile, ROLE_SESSION_NAME;
+var import_node_crypto28, import_promises41, import_node_os24, import_node_path51, import_node_url7, POINTER_TEMPLATE, BEGIN_CLAUSE, squash, ENV_NAME, RESERVED_ENV, passEnvFile, ROLE_SESSION_NAME;
 var init_launch = __esm({
   "topology/lib/launch.mjs"() {
     import_node_crypto28 = require("node:crypto");
     import_promises41 = require("node:fs/promises");
     import_node_os24 = require("node:os");
     import_node_path51 = require("node:path");
-    import_node_url6 = require("node:url");
+    import_node_url7 = require("node:url");
     init_prompts();
     init_config();
     init_mailbox();
@@ -31419,8 +31423,8 @@ __export(supervision_exports, {
   supervisionStatus: () => supervisionStatus
 });
 async function sourceIdentity() {
-  const implementation = (0, import_node_url7.fileURLToPath)(__aoImportMetaUrl);
-  const source_entrypoint = (0, import_node_url7.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
+  const implementation = (0, import_node_url8.fileURLToPath)(__aoImportMetaUrl);
+  const source_entrypoint = (0, import_node_url8.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
   const [entrypointBytes, implementationBytes] = await Promise.all([(0, import_promises50.readFile)(source_entrypoint), (0, import_promises50.readFile)(implementation)]);
   return { source_entrypoint, source_fingerprint: (0, import_node_crypto34.createHash)("sha256").update(entrypointBytes).update(implementationBytes).digest("hex") };
 }
@@ -31805,7 +31809,7 @@ async function startRepositorySupervision(options) {
       if (error51.code === "ENOENT") return null;
       throw error51;
     });
-    const cli = (0, import_node_url7.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
+    const cli = (0, import_node_url8.fileURLToPath)(new URL("../cli.mjs", __aoImportMetaUrl));
     await (0, import_promises50.mkdir)(root, { recursive: true });
     const log = await (0, import_promises50.open)(logPath, "a");
     const restarts = prior ? (prior.restarts ?? 0) + 1 : 0;
@@ -31841,13 +31845,13 @@ async function startRepositorySupervision(options) {
     }
   });
 }
-var import_node_path59, import_node_crypto34, import_node_child_process15, import_node_url7, import_node_os32, import_promises50, import_promises51, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
+var import_node_path59, import_node_crypto34, import_node_child_process15, import_node_url8, import_node_os32, import_promises50, import_promises51, SLEEP_LADDER_MS, DEFAULT_RECONCILE_MIN_MS, DEFAULT_START_TIMEOUT_MS, SUPERVISE_EXIT;
 var init_supervision = __esm({
   "topology/lib/supervision.mjs"() {
     import_node_path59 = require("node:path");
     import_node_crypto34 = require("node:crypto");
     import_node_child_process15 = require("node:child_process");
-    import_node_url7 = require("node:url");
+    import_node_url8 = require("node:url");
     import_node_os32 = require("node:os");
     import_promises50 = require("node:fs/promises");
     import_promises51 = require("node:timers/promises");
@@ -64582,11 +64586,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "b0ad25a5037e6d384c48986167b6d9df1854d281d70e2956bfe12f7344468550";
+  return false ? null : "a7dfbb440a3794ff5521e70e29b5a0a338d6ceac68bff255ab9cb6803b6a5f97";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "b0ad25a5037e6d384c48986167b6d9df1854d281d70e2956bfe12f7344468550";
-  let version2 = false ? null : "0.17.0";
+  const fingerprint2 = false ? null : "a7dfbb440a3794ff5521e70e29b5a0a338d6ceac68bff255ab9cb6803b6a5f97";
+  let version2 = false ? null : "0.17.1";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs14.readFileSync)((0, import_node_path70.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -65202,8 +65206,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "b0ad25a5037e6d384c48986167b6d9df1854d281d70e2956bfe12f7344468550",
-  version: false ? null : "0.17.0"
+  sourceFingerprint: false ? null : "a7dfbb440a3794ff5521e70e29b5a0a338d6ceac68bff255ab9cb6803b6a5f97",
+  version: false ? null : "0.17.1"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises63.readFile)(path3).then((bytes) => (0, import_node_crypto41.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);

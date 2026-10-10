@@ -214,3 +214,15 @@ test('the lead ring addresses the binding\'s tmux server (TM-402), for the probe
   const unbound = await ringLeadPane({ ...lead, binding: null }, 'x', { wake: async () => assert.fail('never rung without an incarnation') });
   assert.equal(unbound.rang, false);
 });
+
+test('TM-529: ringLeadPane with no pluginRoot loads the bundled claude adapter and rings', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ao-tm529-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lead = { agent_id: 'lead0001', pane: BINDING.paneId, provider: 'claude', consumer: root, binding: { ...BINDING } };
+  let rungWith = null;
+  // Empty user config dir, no pluginRoot: exactly what the probe caller passes.
+  const result = await ringLeadPane(lead, 'AO_PROBE x', { home: root, env: { XDG_CONFIG_HOME: join(root, 'cfg') },
+    wake: async ({ adapter }) => { rungWith = adapter.id; return { rang: true }; } });
+  assert.deepEqual(result, { rang: true }, JSON.stringify(result));
+  assert.equal(rungWith, 'claude');
+});
