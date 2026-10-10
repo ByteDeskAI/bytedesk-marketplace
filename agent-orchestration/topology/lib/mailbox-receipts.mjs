@@ -310,7 +310,13 @@ export async function setMailboxDisposition({ consumer, agent, messageId, kind =
   const env = options.env ?? process.env;
   invariant(!env.AO_AGENT_ID || env.AO_AGENT_ID === agent, 'TOPOLOGY_AGENT_UNAUTHORIZED', 'An agent may only dispose its own obligations.');
   if (env.AO_CONSUMER) invariant((await identityOf(env.AO_CONSUMER)).id === identity.id, 'TOPOLOGY_AGENT_UNAUTHORIZED', 'Caller repository differs from the mailbox.');
-  const located = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId, from }, options);
+  let located = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId, from }, options);
+  // TM-532: standing mail already delivered to this agent but not yet pulled into a receipt is still
+  // its obligation; accept it here rather than refuse, so a duplicate delivery cannot fail dispose.
+  if (!located.length && kind === 'mail') {
+    const { acceptDeliveredStanding } = await import('./standing-mailbox.mjs');
+    if (await acceptDeliveredStanding({ consumer, agent, messageId, from, ...options })) located = await receiptsFor({ repositoryId: identity.id, agent, kind, messageId, from }, options);
+  }
   invariant(located.length <= 1, 'TOPOLOGY_MAILBOX_AMBIGUOUS', `${located.length} senders used message ID ${messageId}; name the sender (from) to pick one.`);
   invariant(located.length === 1, 'TOPOLOGY_MAILBOX_RECEIPT_MISSING', 'No accepted obligation exists for this message.');
   const { path } = located[0];

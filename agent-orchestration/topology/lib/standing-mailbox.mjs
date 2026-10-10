@@ -483,6 +483,21 @@ export async function readStandingInbox({ consumer, agent, transport = null, env
   }
   return received;
 }
+/**
+ * TM-532. The receipt for standing mail delivered to `agent`, accepted now if the inbox has not yet
+ * pulled it. A held message that is released reaches its recipient twice — the pointer that named it
+ * and the broker delivery — and a `dispose` between the two found no receipt and failed with
+ * TOPOLOGY_MAILBOX_RECEIPT_MISSING. Accepting the same envelope here makes the later delivery a
+ * deduplicated no-op that keeps the disposition. Returns null when no delivered message matches.
+ */
+export async function acceptDeliveredStanding({ consumer, agent, messageId, from, ...options }) {
+  const record = await read(paths(messageId, options).file);
+  if (!record || !standingInboxShows(record, { repoId: (await canonicalRepoId(consumer)).id, agent })) return null;
+  if (from !== undefined && (record.envelope.from ?? null) !== from) return null;
+  return acceptMailboxDelivery({ consumer, agent, ...options,
+    delivery: { body: JSON.stringify(standingEnvelope(record)), ack: async () => {} } });
+}
+
 export async function readStandingOutbox({ consumer, agent, ...options }) {
   invariant(agent, 'TOPOLOGY_AGENT_REQUIRED', 'Outbox requires an agent.');
   const identity = await canonicalRepoId(consumer);

@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lead probes stop flooding a lead that has already answered (TM-532, EP-029).** The cached-proof
+  check ran outside the probe lock, so a caller queued behind a waiter that had just recorded the
+  lead's answer still minted and rang a new probe. The check now runs again under the lock. Every
+  probe now records `requested_by` and `reason`, and so does the last ring outcome. Callers that name
+  nothing are recorded by pid and command line, so a lead that is rung often can trace who asked.
+- **A probe is not judged until the lead has had one poll interval to see it (TM-532).** A probe
+  minted seconds after the lead's inbox poll used to mark the lead `unresponsive`. Silence now counts
+  only after the probe has been pending for `AO_LEAD_POLL_INTERVAL_MS` (default 60s). Until then the
+  lead is `unproven`, and its answer streak is kept.
+- **`lead status` reports the current reason, with no resolved alerts (TM-532).** A neutral recovery
+  pass now records the current observation's error instead of carrying an earlier failure forward.
+  A lead that is responsive now shows no recovery error. A checkout-repair refusal is cleared when
+  the checkout is next found healthy; the journal keeps the history.
+- **Duplicate held-mail delivery no longer breaks `dispose` (TM-532).** Disposing standing mail
+  delivered to the caller but not yet pulled into a receipt used to fail with
+  `TOPOLOGY_MAILBOX_RECEIPT_MISSING`. It now accepts that receipt first. The later delivery is a
+  deduplicated no-op that keeps the disposition.
+- **`mailbox withdraw --id <id>` works (TM-532).** Every mailbox verb that names a message
+  (`withdraw`, `wait`, `reply`, `dispose`) accepts the id positionally, as `--id` (the form `send`
+  takes), or as `--message`.
+
 ## [0.17.1] — 2026-10-09
 
 ### Fixed

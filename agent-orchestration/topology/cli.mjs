@@ -129,7 +129,7 @@ Standing repository services
   mailbox receipts --consumer <repo> [--workflow <id>] [--status <state>]   this session's own receipts
   mailbox dispose --consumer <repo> --message <id> --disposition handled|deferred|rejected   as this session
        [--kind mail|reply] [--sender <agent>] [--reason <text>] [--retry-at <ISO>] [--result-ref <ref>]
-  mailbox withdraw <id> [--reason <text>]   take back held standing mail this session sent; stops its retries and lead ring
+  mailbox withdraw <id>|--id <id> [--reason <text>]   take back held standing mail this session sent; stops its retries and lead ring
   mailbox wait <id> [--timeout 20m] [--poll 2s]  block until a standing message this session sent has a reply (exit 2 on timeout)
   supervise [--once --server <socket>]          reconcile presence, prompts and held mail
   repos list [--json]                           registered repositories and each supervisor's state
@@ -694,6 +694,10 @@ const commands = {
       if (repo && flags.consumer === undefined) ctx.consumer = me.consumer;
       return me;
     };
+    // TM-532: one message-id form for every verb that names a message: positional, --id (as `send`
+    // takes it) or --message. `withdraw --id <id>` used to fail with TOPOLOGY_MESSAGE_ID_INVALID.
+    const flagText = (value) => value !== undefined && value !== true ? String(value) : null;
+    const messageIdArg = () => positional[1] ?? flagText(flags.id) ?? flagText(flags.message);
     // Inspection and disposition operate on retained receipts, never pull from NATS.
     // They must remain available while the transport is unavailable.
     if (sub === 'receipts' || sub === 'dispose') {
@@ -703,7 +707,7 @@ const commands = {
       if (sub === 'receipts') return out(await receipts.listMailboxReceipts({ ...ctx, agent,
         kind: flags.kind, status: flags.status, workflowId: flags.workflow, runId: flags.run, taskId: flags.task }));
       return out(await receipts.setMailboxDisposition({ ...ctx, agent,
-        messageId: flags.message, kind: flags.kind || 'mail', disposition: flags.disposition,
+        messageId: messageIdArg(), kind: flags.kind || 'mail', disposition: flags.disposition,
         reason: flags.reason, retryAt: flags['retry-at'], resultRef: flags['result-ref'],
         // TM-482 F2: receipts are per sender; --sender picks one when several senders reused the ID.
         // N2: --sender '' names the receipt whose sender is null (a legacy or anonymous message).
@@ -713,12 +717,12 @@ const commands = {
     // TM-478: the sender is this session (sessionIdentity), never a claimed --agent.
     if (sub === 'withdraw') {
       const me = await self();
-      const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
+      const id = messageIdArg();
       return out(await api.withdrawStandingMessage({ ...ctx, id, agent: me.agent, consumer: me.consumer, reason: typeof flags.reason === 'string' ? flags.reason : null }));
     }
     // TM-352: block on a standing message's reply. Unknown id: error (exit 1). Timeout: exit 2.
     if (sub === 'wait') {
-      const id = positional[1] ?? (flags.message && flags.message !== true ? String(flags.message) : null);
+      const id = messageIdArg();
       invariant(id, 'TOPOLOGY_MESSAGE_ID_INVALID', 'Pass the message id: mailbox wait <id> [--timeout 20m].');
       const caller = await self({ repo: false });
       const result = await api.waitForStandingReply({ ...ctx, caller, id, timeoutMs: parseDuration(flags.timeout, 20 * 60_000), pollMs: parseDuration(flags.poll, 2000) });
@@ -736,7 +740,7 @@ const commands = {
       if (errors.length) { process.stderr.write(`${JSON.stringify({ ok: false, errors }, null, 2)}\n`); process.exitCode = 1; }
       return;
     }
-    if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: flags.message, agentId: agent, body: await bodyFrom(flags) })); }
+    if (sub === 'reply') { const { agent } = await self(); return out(await api.recordStandingReply({ ...ctx, messageId: messageIdArg(), agentId: agent, body: await bodyFrom(flags) })); }
     if (sub === 'inbox') { const { agent } = await self(); return out(await api.readStandingInbox({ ...ctx, agent })); }
     if (sub !== 'send' && sub !== 'forward') fail('TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use mailbox send|forward|inbox|outbox|resume|reply|receipts|dispose|withdraw.');
     // TM-356: the sender is this session's identity. --from and --from-project may only repeat it.
@@ -982,8 +986,12 @@ const commands = {
     const options = { ...ctx, ...(flags['ack-timeout'] ? { ackTimeoutMs: Number(flags['ack-timeout']) } : {}) };
     // TM-209: --cached is the non-blocking read. ackTimeoutMs 0 alone would still consume a late ack
     // and write the memo; readOnly makes it a pure read, so nothing under probes/ changes.
-    if (sub === 'status' && flags.cached === true) return out({ ...await api.leadState({ ...options, ackTimeoutMs: 0, readOnly: true }), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
-    if (sub === 'status') return out({ ...await api.leadState(options), recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus(ctx) });
+    // TM-532: the recovery block is read against the state just observed, so a lead responsive now
+    // reports no error left over from an earlier recovery pass.
+    if (sub === 'status') {
+      const state = await api.leadState({ ...options, requestedBy: 'ao-topology lead status', reason: 'lead status', ...(flags.cached === true ? { ackTimeoutMs: 0, readOnly: true } : {}) });
+      return out({ ...state, recovery: await (await import('./lib/lead-recovery.mjs')).leadRecoveryStatus({ ...ctx, current: state }) });
+    }
     if (sub === 'probes') return out(await api.pendingLeadProbes(options));
     // `activate`, NOT startRepositorySupervision: `role assign|ensure lead` is the same
     // operation through the other surface and degrades, so these must too. Two surfaces onto one
