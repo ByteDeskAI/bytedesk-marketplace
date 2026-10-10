@@ -190,7 +190,14 @@ test('the probe interval backs off while the lead keeps answering, and resets wh
   assert.equal(await responsiveForTest(f.record, 200, answering), true);
   assert.equal(rings, 2, 'after two answers the same age is still proof: no ring, no model turn spent');
   await age(base * 2 + 1000);
-  assert.equal(await responsiveForTest(f.record, 30, { ...answering, wake: async () => { rings += 1; return { rang: true, submitted: true }; } }), false);
+  const silent = { ...answering, wake: async () => { rings += 1; return { rang: true, submitted: true }; } };
+  assert.equal(await responsiveForTest(f.record, 30, silent), false);
+  // TM-532: a probe minted moments ago is not yet evidence; once it has been pending a full poll
+  // interval, the same silence is, and it ends the run.
+  assert.equal((await readJson(memoPath)).streak, 2, 'a probe under one poll interval old leaves the run alone');
+  const [pending] = (await readdir(f.dir)).filter((name) => name.endsWith('.json') && !name.includes('.ack.') && !name.startsWith('lead0001.'));
+  await writeJson(join(f.dir, pending), { ...await readJson(join(f.dir, pending)), created_at: new Date(Date.now() - 10 * 60_000).toISOString() });
+  assert.equal(await responsiveForTest(f.record, 30, silent), false);
   await rm(join(f.registryDir, 'probe-state', 'lead0001.last-probe.json'));
   assert.equal(await responsiveForTest(f.record, 200, answering), true);
   assert.equal((await readJson(memoPath)).streak, 1, 'a delivered, unanswered probe ends the run');

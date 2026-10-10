@@ -99,8 +99,9 @@ export function createTopologyApi(service) {
       const { leadRecoveryStatus } = await import('../topology/lib/lead-recovery.mjs');
       // `cached` answers from proof already on disk and mints no probe; otherwise the probe is bounded.
       const state = await leadState({ consumer: options.consumer, env: options.env, pluginRoot: options.pluginRoot,
+        requestedBy: 'MCP orchestration_lead_status', reason: 'lead status',
         ...(input.cached ? { readOnly: true, ackTimeoutMs: 0 } : { ackTimeoutMs: input.ackTimeoutMs ?? 30_000 }) });
-      return { ...state, recovery: await leadRecoveryStatus({ consumer: options.consumer, env: options.env }) };
+      return { ...state, recovery: await leadRecoveryStatus({ consumer: options.consumer, env: options.env, current: state }) };
     },
     async sessionHandoff(input) {
       const options = await context(input);

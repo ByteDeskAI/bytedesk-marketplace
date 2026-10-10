@@ -38,7 +38,7 @@ import { lstat, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { leadRegistryDir } from "./lead.mjs";
-import { readCheckoutRepair, recordCheckoutRepair, recoverLead, retryDelayMs } from "./lead-recovery.mjs";
+import { clearCheckoutRepair, readCheckoutRepair, recordCheckoutRepair, recoverLead, retryDelayMs } from "./lead-recovery.mjs";
 import { withLock } from "./lockfile.mjs";
 import { repoKey } from "./repoid.mjs";
 import { readServiceRepos } from "./services-client.mjs";
@@ -320,7 +320,11 @@ export async function repairCheckout({ dir, registered = false, fsck = false, en
         return { ...prior, action: "interrupted", status: found.status, alert: { code: "TOPOLOGY_CHECKOUT_REPAIR_INTERRUPTED", path,
           message: `a checkout repair of ${path} was interrupted after ${prior.at}. Local edits are kept on branch ${prior.backup_branch} (${prior.snapshot})${prior.stash?.sha ? ` and in stash ${prior.stash.sha}` : ` and possibly in a stash named "${prior.stash?.message}"`}. Restore them by hand, then clear checkout_repair from the lead recovery record.` } };
       }
-      if (found.status === "healthy") return { action: "healthy", path };
+      if (found.status === "healthy") {
+        // TM-532: the refusal on record is resolved; its alert must not outlive it.
+        if (prior?.action === "refused") await clearCheckoutRepair({ consumer: path, env, home });
+        return { action: "healthy", path };
+      }
       const at = now();
       if (prior?.action === "refused" && prior.next_retry_at && at < Date.parse(prior.next_retry_at)) return { ...prior, action: "backoff", status: found.status };
       const stamp = new Date(at).toISOString().replace(/[:.]/g, "-");

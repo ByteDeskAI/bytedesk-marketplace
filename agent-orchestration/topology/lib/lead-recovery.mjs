@@ -79,10 +79,12 @@ function view(record) {
 }
 
 /** What `lead status` and `doctor` show: the last recovery decision and anything waiting on it. */
-export async function leadRecoveryStatus({ consumer, env = process.env, home = homedir() }) {
+export async function leadRecoveryStatus({ consumer, env = process.env, home = homedir(), current = null }) {
   const p = await recoveryPaths({ consumer, env, home });
   const record = await readJson(p.state).catch(() => null);
-  return { repo_id: p.identity.id, ...view(record ?? {}), pending_requests: (await readRequests(p.requests)).length,
+  // TM-532: a lead that is responsive NOW has no recovery error, whatever the last pass recorded.
+  const resolved = current?.status === "responsive" ? { last_error: null } : {};
+  return { repo_id: p.identity.id, ...view(record ?? {}), ...resolved, pending_requests: (await readRequests(p.requests)).length,
     ...(record?.checkout_repair ? { checkout_repair: record.checkout_repair } : {}),
     updated_at: record?.updated_at ?? null, state_path: p.state };
 }
@@ -99,6 +101,18 @@ export async function recordCheckoutRepair({ consumer, entry, env = process.env,
   await mkdir(dirname(p.journal), { recursive: true });
   await appendFile(p.journal, `${JSON.stringify({ at: nowIso(), event: `checkout.${entry.action}`, ...entry })}\n`);
   return p.state;
+}
+
+/** TM-532: a checkout found healthy again drops the refusal or repair it was recorded with, so its
+ * alert does not outlive the condition. The journal keeps the history. */
+export async function clearCheckoutRepair({ consumer, env = process.env, home = homedir() }) {
+  const p = await recoveryPaths({ consumer, env, home });
+  const prior = await readJson(p.state).catch(() => null);
+  if (!prior?.checkout_repair) return false;
+  const { checkout_repair: resolved, ...rest } = prior;
+  await writeJson(p.state, { ...rest, updated_at: nowIso() });
+  await appendFile(p.journal, `${JSON.stringify({ at: nowIso(), event: "checkout.resolved", path: resolved.path ?? consumer, was: resolved.action ?? null, status: resolved.status ?? null })}\n`).catch(() => {});
+  return true;
 }
 
 export async function readCheckoutRepair({ consumer, env = process.env, home = homedir() }) {
@@ -151,9 +165,12 @@ export async function recoverLead({ consumer, env = process.env, home = homedir(
     next_retry_at: new Date(at + retryDelayMs(attempts + 1)).toISOString(), verify: prior.verify === true, ...extra });
   // Not a failure and not a success: a lead that is alive and nobody asked to prove. Nothing to
   // retry, so nothing is backed off; the record is rewritten only when the answer changes.
-  const neutral = async (action, extra = {}) => {
-    if (prior.action === action && !extra.reverified_alive) return view(prior);
-    return save({ action, attempts, last_error: prior.last_error ?? null, next_retry_at: null, verify: prior.verify === true, ...extra });
+  // TM-532: the error a neutral record carries is the CURRENT observation's, never a failure from an
+  // earlier pass. Carrying prior.last_error forward is how `lead status` kept printing "no measured
+  // safe composer" long after ringing was fixed.
+  const neutral = async (action, lastError = null, extra = {}) => {
+    if (prior.action === action && (prior.last_error ?? null) === lastError && !extra.reverified_alive) return view(prior);
+    return save({ action, attempts, last_error: lastError, next_retry_at: null, verify: prior.verify === true, ...extra });
   };
   const success = async () => {
     const ids = [...new Set(pending.map((request) => request.message_id).filter(Boolean))];
@@ -179,17 +196,20 @@ export async function recoverLead({ consumer, env = process.env, home = homedir(
   let result;
   try {
     // The only place a probe can ring, and it runs with no lock held.
-    const observed = await leadState({ ...base, ...(active ? { ackTimeoutMs } : { ackTimeoutMs: 0 }) });
+    // TM-532: every probe names who asked and why, so a lead rung often can trace the caller.
+    const reason = !active ? "recovery screen (cached proof only)" : prior.verify === true && !pending.length ? "verify a lead recovery just launched"
+      : `held mail asked for proof: ${[...new Set(pending.map((request) => `${request.reason ?? "unspecified"}${request.message_id ? ` (${request.message_id})` : ""}`))].join(", ").slice(0, 300)}`;
+    const observed = await leadState({ ...base, requestedBy: `lead recovery, supervisor pid ${process.pid}`, reason, ...(active ? { ackTimeoutMs } : { ackTimeoutMs: 0 }) });
     if (observed.status === "responsive") return success();
     if (observed.status === "unresponsive") {
       return active ? failure("kept-unresponsive", "TOPOLOGY_LEAD_UNRESPONSIVE: the lead is alive but did not acknowledge a probe; it is left running and untouched")
-        : neutral("kept-unresponsive");
+        : neutral("kept-unresponsive", "TOPOLOGY_LEAD_UNRESPONSIVE: the lead is alive but did not acknowledge its last probe");
     }
     // TM-478: the probe never reached the lead, so nothing is known about it. Retried on the same
     // backoff, but never reported as an unresponsive lead.
     if (observed.status === "unproven") {
       return active ? failure("kept-unproven", `TOPOLOGY_LEAD_UNPROVEN: the lead is alive but the probe did not reach it (${observed.reason ?? "not delivered"}); it is left running and untouched`)
-        : neutral("kept-unproven");
+        : neutral("kept-unproven", `TOPOLOGY_LEAD_UNPROVEN: ${observed.reason ?? "the last probe did not reach the lead"}`);
     }
     if (observed.status === "registered" && (!observed.record.managed || observed.record.externally_owned)) return heldExternal(observed.record);
     // Missing, or dead and managed. ensureLead re-reads the record and re-observes the incarnation
@@ -206,5 +226,5 @@ export async function recoverLead({ consumer, env = process.env, home = homedir(
   if (result.action === "dead-external") return heldExternal(result.record);
   // The in-lock re-observation found the lead alive after all: somebody restarted it, or the first
   // look was wrong. Either way nothing was opened.
-  return neutral(result.action, { reverified_alive: true });
+  return neutral(result.action, null, { reverified_alive: true });
 }

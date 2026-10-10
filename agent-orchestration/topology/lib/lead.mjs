@@ -35,7 +35,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { agentDirs, createAgent, findLead, requireAgent } from "./agents.mjs";
 import { findTemplate, loadConfig } from "./config.mjs";
 import { displayName } from "./identity.mjs";
@@ -114,7 +114,7 @@ async function defaultPane(record) {
  * pointer naming the ack command, and wait for the ack file. A send failure or a timeout both mean
  * "unresponsive" — they never mean "dead", so nothing here kills anything.
  */
-async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false, readOnly = false, onProof = () => {}, onMiss = () => {} }) {
+async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () => {}, alive = defaultAlive, wake = wakeLead, assignment = false, readOnly = false, onProof = () => {}, onMiss = () => {}, requestedBy = null, reason = null }) {
   const binding = incarnationOf(record?.binding);
   const current = async () => sameIncarnation(binding, record?.binding) && await alive(record) && sameIncarnation(binding, record?.binding);
   if (!record?.pane || !binding || !await current()) return false;
@@ -162,18 +162,26 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
   // nonce, only if the last ring typed nothing or a backed-off window has passed since it did — so
   // a pointer lost from the pane is eventually replaced, and one still queued is never stacked on.
   const probeLock = join(dir, `${record.agent_id}.probe.lock`);
-  const nonce = await withLock(probeLock, async () => {
+  // TM-532: who asked, and why. Probe records used to carry neither, so a lead rung every few minutes
+  // could not trace the caller. The pid and command line name a caller that passed nothing.
+  const requester = { requested_by: requestedBy ?? defaultRequester(), reason: reason ?? "unspecified" };
+  const minted = await withLock(probeLock, async () => {
+    // TM-532: the cached-proof check above runs outside this lock, so callers that queued behind a
+    // waiter which has since recorded an answer would each mint (and ring) a fresh probe. Ask again
+    // here: no probe is minted or rung while a proof within its lifetime exists.
+    const fresh = await recentAck(dir, record);
+    if (fresh) return { proof: { source: "cached", age_ms: fresh.age_ms } };
     const pending = await pendingProbe(dir, record, binding, purpose);
     const nonce = pending?.probe.nonce ?? randomUUID();
     // TM-187: the probe outlives the wait by LATE_ACK_GRACE_MS. These two numbers were the same, which
     // is what made the line below ("the probe now OUTLIVES this wait") a claim the code denied.
     const window = { expires_at: Date.now() + ackTimeoutMs + LATE_ACK_GRACE_MS, waited_until: Date.now() + ackTimeoutMs };
-    await writeJson(join(dir, `${nonce}.json`), pending ? { ...pending.probe, ...window }
-      : { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding, purpose, ...window, created_at: nowIso() });
+    await writeJson(join(dir, `${nonce}.json`), pending ? { ...pending.probe, ...window, extended_by: requester }
+      : { nonce, repo_id: record.repo_id, agent_id: record.agent_id, session: record.session, binding, purpose, ...window, ...requester, created_at: nowIso() });
     const rings = pending?.last.rang === true ? Number(pending.last.rings) || 1 : 0;
     if (rings && Date.now() - Number(pending.last.at) < (ackTimeoutMs + LATE_ACK_GRACE_MS) * 2 ** (rings - 1)) {
       log(`lead probe ${nonce} is still pending in the pane; extended, not rung again`);
-      return nonce;
+      return { nonce };
     }
     // TM-157. The probe file used to be the whole mechanism, under a comment claiming this function
     // "rings the pane with a pointer naming the ack command". It did not — and a pollable file is no
@@ -182,9 +190,11 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
     // a busy, moved, dead or modal pane gets nothing typed into it and answers when it next looks.
     const outcome = wake ? await wake(record, nonce, { log }).catch((error) => ({ rang: false, reason: error?.code ?? "ERROR" })) : null;
     // What the ring did is what tells an unanswered probe apart from an unanswerable one.
-    await writeJson(lastProbePath(dir, record), { nonce, binding, rang: outcome?.rang ?? null, submitted: outcome?.submitted ?? null, reason: outcome?.reason ?? null, at: Date.now(), rings: outcome?.rang === true ? rings + 1 : rings });
-    return nonce;
+    await writeJson(lastProbePath(dir, record), { nonce, binding, rang: outcome?.rang ?? null, submitted: outcome?.submitted ?? null, reason: outcome?.reason ?? null, at: Date.now(), rings: outcome?.rang === true ? rings + 1 : rings, requested_by: requester.requested_by, request_reason: requester.reason });
+    return { nonce };
   });
+  if (minted.proof) { log(`lead answered ${minted.proof.age_ms}ms ago; proof reused, no probe minted`); onProof(minted.proof); return true; }
+  const { nonce } = minted;
   const probePath = join(dir, `${nonce}.json`);
   const ackPath = join(dir, `${nonce}.ack.json`);
   // Pollable files never interrupt a composer or active tool input. The enrolled agent reads
@@ -221,8 +231,9 @@ async function defaultResponsive(record, ackTimeoutMs, { registryDir, log = () =
     // TM-478: another waiter on the same probe may have consumed the ack and recorded it.
     const shared = await recentAck(dir, record);
     if (shared && await current()) { log(`lead probe ${nonce} was answered and recorded by another waiter`); onProof({ source: "probe", age_ms: shared.age_ms }); return true; }
+    const probe = await readJson(probePath).catch(() => null);
     await sweepExpired(dir, log);
-    const miss = await probeMiss(dir, record, binding);
+    const miss = await probeMiss(dir, record, binding, probe);
     // A pointer that reached the agent and went unanswered ends the run of answers the backoff
     // rewards; one that never reached it says nothing about the agent, so it leaves the run alone.
     if (!miss.undelivered) await rm(ackMemoPath(dir, record), { force: true });
@@ -255,7 +266,13 @@ async function pendingProbe(dir, record, binding, purpose) {
  * `unresponsive`. Unknown — no ring recorded, or an injected wake that reports nothing — stays the
  * old reading.
  */
-async function probeMiss(dir, record, binding) {
+async function probeMiss(dir, record, binding, probe = null) {
+  // TM-532: a lead reads pending probes at its safe boundaries. A probe minted seconds after one of
+  // them cannot have been seen yet, so its silence is not evidence until a full poll interval passes.
+  const pendingMs = Date.now() - Date.parse(probe?.created_at);
+  if (pendingMs >= 0 && pendingMs < LEAD_POLL_INTERVAL_MS) {
+    return { undelivered: true, reason: `the probe has been pending ${Math.round(pendingMs / 1000)}s, under one lead poll interval (${Math.round(LEAD_POLL_INTERVAL_MS / 1000)}s)` };
+  }
   const last = await readJson(lastProbePath(dir, record)).catch(() => null);
   // A ring older than a proof lifetime says nothing about the lead now.
   if (!last || !sameIncarnation(last.binding, binding) || !(Date.now() - Number(last.at) < RESPONSIVE_TTL_MS)) return { undelivered: false };
@@ -316,6 +333,15 @@ async function sweepExpired(dir, log = () => {}) {
     if (probe) log(`swept probe ${probe.nonce ?? name}: nobody can answer it any more`);
     await Promise.all([rm(join(dir, name), { force: true }), rm(join(dir, `${name.slice(0, -".json".length)}.ack.json`), { force: true })]);
   }
+}
+
+/** TM-532: how long a lead may take to see a probe at its next safe boundary before silence counts. */
+const LEAD_POLL_INTERVAL_MS = Number(process.env.AO_LEAD_POLL_INTERVAL_MS ?? 60_000);
+
+/** The caller a probe names when it was not told one: enough to find the process that rang. */
+function defaultRequester() {
+  const command = process.argv.slice(1).map((arg) => basename(String(arg))).join(" ").slice(0, 200);
+  return `${process.env.AO_AGENT_ID ? `agent ${process.env.AO_AGENT_ID} ` : ""}pid ${process.pid}: ${command}`.trim() || `pid ${process.pid}`;
 }
 
 /** How long an acknowledgement stands as proof. Not liveness — `alive` answers that every time. */
@@ -379,7 +405,7 @@ function resolveProbes(probes, { registryDir, log }) {
   const alive = probes?.alive ?? defaultAlive;
   return {
     alive,
-    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true, readOnly: options.readOnly === true, onProof: options.onProof, onMiss: options.onMiss })),
+    responsive: probes?.responsive ?? ((record, ackTimeoutMs, options = {}) => defaultResponsive(record, ackTimeoutMs, { registryDir, log, alive, assignment: options.assignment === true, readOnly: options.readOnly === true, onProof: options.onProof, onMiss: options.onMiss, requestedBy: options.requestedBy ?? null, reason: options.reason ?? null })),
     open: probes?.open ?? ((args) => openRoleSession(args)),
     pane: probes?.pane ?? defaultPane,
     kill: probes?.kill ?? (async (record) => {
@@ -405,7 +431,7 @@ function resolveProbes(probes, { registryDir, log }) {
  * store problem that ensureLead must fail loudly on — not a fifth state callers would have to
  * guess at.
  */
-export async function leadState({ consumer, home = homedir(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {}, readOnly = false }) {
+export async function leadState({ consumer, home = homedir(), env = process.env, pluginRoot = null, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, log = () => {}, readOnly = false, requestedBy = null, reason = null }) {
   const identity = await canonicalRepoId(consumer);
   const registration = await readLeadRegistration({ consumer, env, home });
   const libraryLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
@@ -416,7 +442,7 @@ export async function leadState({ consumer, home = homedir(), env = process.env,
   if (!(await p.alive(record))) {
     status = "registered";
   } else {
-    const answered = await p.responsive(record, ackTimeoutMs, { readOnly, onProof: (found) => { proof = found; }, onMiss: (found) => { miss = found; } });
+    const answered = await p.responsive(record, ackTimeoutMs, { readOnly, requestedBy, reason: reason ?? "lead state", onProof: (found) => { proof = found; }, onMiss: (found) => { miss = found; } });
     status = answered ? "responsive" : miss?.undelivered ? "unproven" : "unresponsive";
   }
   // TM-209: say where the verdict came from and how old its proof is. An injected probe reports
@@ -526,7 +552,7 @@ async function openLeadSession({ agent, consumer, pluginRoot, home, env, log, op
  * externally owned: reported, never recreated), "created" (no record: library lead found or minted
  * from config, session opened, record written).
  */
-export async function ensureLead({ consumer, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, restartRequiresBinding = false }) {
+export async function ensureLead({ consumer, home = homedir(), pluginRoot = null, env = process.env, log = () => {}, ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS, probes = null, restartRequiresBinding = false, requestedBy = null, reason = null }) {
   invariant(consumer && typeof consumer === "string", "TOPOLOGY_LEAD_CONSUMER_REQUIRED", "ensureLead needs the consumer repository path.");
   const identity = await canonicalRepoId(consumer);
   if (env?.AO_LEAD_ID && env?.AO_CONSUMER && (await canonicalRepoId(env.AO_CONSUMER)).id === identity.id) return { action: "self", lead_id: env.AO_LEAD_ID };
@@ -598,7 +624,7 @@ export async function ensureLead({ consumer, home = homedir(), pluginRoot = null
   });
   if (!decided.probe) return decided;
   const record = decided.probe;
-  if (await p.responsive(record, ackTimeoutMs)) return { action: "reused", record };
+  if (await p.responsive(record, ackTimeoutMs, { requestedBy, reason: reason ?? "lead ensure" })) return { action: "reused", record };
   // Alive but unanswered. The agent may be mid-task; doing nothing is the correct action, and doing
   // anything else — killing, respawning, opening a second session — is how one repo ends up with two
   // leads.
@@ -646,7 +672,7 @@ export async function assignLead({ consumer, agentRef, session: existingSession 
     );
     const otherLead = await findLead(agentDirs({ pluginRoot, consumer, home }));
     invariant(!otherLead || otherLead.id === agent.id, "TOPOLOGY_MULTIPLE_LEADS", "Another library lead exists; reconcile it before promotion.");
-    invariant(sameIncarnation(candidate.binding, binding) && await p.responsive(candidate, ackTimeoutMs, { assignment: true }) && sameIncarnation(candidate.binding, binding) && await p.alive(candidate) && sameIncarnation(candidate.binding, binding), "TOPOLOGY_LEAD_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged nonce handshake at the unchanged live incarnation; the existing session was preserved.");
+    invariant(sameIncarnation(candidate.binding, binding) && await p.responsive(candidate, ackTimeoutMs, { assignment: true, reason: "lead assign handshake" }) && sameIncarnation(candidate.binding, binding) && await p.alive(candidate) && sameIncarnation(candidate.binding, binding), "TOPOLOGY_LEAD_HANDSHAKE_REQUIRED", "Assignment requires an acknowledged nonce handshake at the unchanged live incarnation; the existing session was preserved.");
     const now = nowIso();
     const record = {
       version: RECORD_VERSION,
