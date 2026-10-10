@@ -159,7 +159,9 @@ async function world(t, { enrolled = ['source', 'destination'] } = {}) {
   const env = { ...process.env, TMUX: '', TMUX_PANE: '', TMUX_TMPDIR: tmuxDir,
     AGENT_ORCHESTRATION_STATE_HOME: join(base, 'state'), XDG_CONFIG_HOME: join(base, 'config'),
     // Reconcile on every tick, and give a probe four seconds rather than a model turn's thirty.
-    AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000' };
+    AO_RECONCILE_MIN_MS: '0', AO_LEAD_ACK_TIMEOUT_MS: '4000',
+    // TM-532: a probe younger than one poll interval reads unproven; keep the interval inside the ack window
+    AO_LEAD_POLL_INTERVAL_MS: '1000' };
   for (const key of ['AO_LEAD_ID', 'AO_AGENT_ID', 'AO_CONSUMER', 'AO_SESSION']) delete env[key];
   const repos = {};
   // One hook, in order: reap the supervisors, kill our own server, then remove the directory.
