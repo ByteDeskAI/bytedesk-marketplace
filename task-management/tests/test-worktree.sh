@@ -132,5 +132,27 @@ OUT="$(remove '{}')"
 has "$OUT" '"removed":true' "a clean worktree removes without force"
 [[ ! -d "$WT" ]] && ok "the clean worktree is gone" || no "the clean worktree is gone"
 
+# ── TM-413: a placement inherited from a done parent is never reused ────────
+OUT="$(run <<'JS'
+const lib = (m) => import(`${process.env.PLUGIN_ROOT}/lib/${m}.mjs`);
+const { paths } = await lib("paths");
+const { create, read, update } = await lib("store");
+const { releaseClaim } = await lib("claims");
+const { provision } = await lib("worktree");
+const p = paths(process.env.TM_ROOT);
+const parent = create("task", { title: "Parent work" }, "", p);
+const placed = provision(parent, { base: "HEAD", p });
+releaseClaim(parent.id, p); update(parent.id, { status: "done" }, p);
+const child = create("task", { title: "Child work", worktree: placed.path, branch: placed.branch }, "", p);
+const res = provision(read(child.id, p), { base: "HEAD", p });
+console.log(JSON.stringify({ child: read(child.id, p), parent: read(parent.id, p), res, parentPath: placed.path }));
+JS
+)"
+has "$OUT" '"branch":"tm/TM-003-child-work"' "an inherited placement provisions the child's own branch"
+has "$OUT" 'worktrees/TM-003-child-work' "an inherited placement provisions the child's own worktree"
+has "$OUT" '"parent":{' "the provision ran to completion"
+PARENT_BRANCH="$(node -e 'const o=JSON.parse(process.argv[1]);console.log(o.parent.branch)' "$OUT" 2>&1)"
+[[ "$PARENT_BRANCH" == "tm/TM-002-parent-work" ]] && ok "the parent keeps its own placement" || no "the parent keeps its own placement" "$PARENT_BRANCH | $OUT"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" == 0 ]]
