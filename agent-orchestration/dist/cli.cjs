@@ -64640,11 +64640,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "655a3a88f047f208513b6a9224ebb39cd9af8e5551c97dea25426e27cb0ce48c";
+  return false ? null : "8081ad9ede76ed357e09ff47e07e3eda73b98920ce12c037e90f0fb5d79308c0";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "655a3a88f047f208513b6a9224ebb39cd9af8e5551c97dea25426e27cb0ce48c";
-  let version2 = false ? null : "0.17.1";
+  const fingerprint2 = false ? null : "8081ad9ede76ed357e09ff47e07e3eda73b98920ce12c037e90f0fb5d79308c0";
+  let version2 = false ? null : "0.17.2";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs14.readFileSync)((0, import_node_path70.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -65260,8 +65260,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "655a3a88f047f208513b6a9224ebb39cd9af8e5551c97dea25426e27cb0ce48c",
-  version: false ? null : "0.17.1"
+  sourceFingerprint: false ? null : "8081ad9ede76ed357e09ff47e07e3eda73b98920ce12c037e90f0fb5d79308c0",
+  version: false ? null : "0.17.2"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises63.readFile)(path3).then((bytes) => (0, import_node_crypto41.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
