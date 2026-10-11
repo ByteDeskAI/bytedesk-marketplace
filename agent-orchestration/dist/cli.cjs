@@ -19581,6 +19581,22 @@ async function recordPortConflict(env, home, error51) {
     };
   });
 }
+async function recordBlockingOutage(env, home, selection, unreachable, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  await updateTransportState(env, home, (previous) => {
+    const at2 = new Date(now).toISOString();
+    const open14 = previous?.outage && !previous.outage.recovered_at && previous.outage.url === unreachable.url ? previous.outage : null;
+    if (open14?.blocking && open14.error === unreachable.error && previous.source === selection.source && previous.fallback === null && now - Date.parse(open14.last_fallback_at ?? open14.since) < retireAfterMs / 4) return previous;
+    return {
+      kind: "nats",
+      source: selection.source,
+      url: selection.url,
+      fallback: null,
+      at: at2,
+      pid: process.pid,
+      outage: { source: unreachable.source, url: unreachable.url, error: unreachable.error, blocking: true, since: open14?.since ?? at2, last_fallback_at: at2, recovered_at: null }
+    };
+  }, { read: { now, retireAfterMs } });
+}
 function ignoredNatsEnv(env = process.env) {
   const names2 = ["NATS_URL", "NATS_USER", "NATS_PASSWORD"].filter((name) => env[name]);
   return names2.length ? {
@@ -19683,8 +19699,13 @@ async function openNatsTransport({ env = process.env, home = (0, import_node_os1
   } catch (error51) {
     bridge?.server.close();
     bridge = null;
-    if (!autostart || local) fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}`);
     const unreachable = { source: selection.source, url: selection.url, error: String(error51.message).slice(0, 500) };
+    if (selection.source === "AO_NATS_URL") {
+      await recordBlockingOutage(env, home, selection, unreachable).catch(() => {
+      });
+      fail2("TOPOLOGY_NATS_UNAVAILABLE", `AO_NATS_URL ${selection.url} is unreachable: ${error51.message}. ao does not fall back from an explicit AO_NATS_URL; nothing here continues until it answers. Fix the server, or unset AO_NATS_URL to use the gateway orch.sock or the managed local NATS.`);
+    }
+    if (!autostart || local) fail2("TOPOLOGY_NATS_UNAVAILABLE", `NATS connect failed: ${error51.message}`);
     try {
       await useLocal();
       selection = { ...selection, fallback: unreachable };
@@ -20980,6 +21001,12 @@ async function natsOutageTick({
     `Error: ${outage.error}`,
     `Since: ${outage.since}`,
     `ao does not move to another port (ADR-0032). Stop the holder, or set a different nats.port in the ao user config and run \`agent-orchestration services ensure\`. You will get one more message when it is resolved.`
+  ] : kind === "outage" && outage.blocking ? [
+    `NATS UNAVAILABLE on ${(0, import_node_os14.hostname)()}: the configured NATS ${where} is unreachable, and ao does not fall back from an explicit AO_NATS_URL (ADR-0035).`,
+    `Error: ${outage.error}`,
+    `Since: ${outage.since}`,
+    `Nothing on this host that needs NATS continues until it answers: repository supervisors tick degraded (transport-unavailable), and agents here can neither send nor receive mail, claims or presence. This message itself reaches you only once the server is back, or over whatever replaces AO_NATS_URL.`,
+    `Fix the server at ${outage.url}, or unset AO_NATS_URL on this host to use the gateway orch.sock or the managed local NATS. You will get one more message when it answers again.`
   ] : kind === "outage" ? [
     `NATS OUTAGE on ${(0, import_node_os14.hostname)()}: the configured NATS ${where} is unreachable.`,
     `Error: ${outage.error}`,
@@ -30891,8 +30918,11 @@ async function superviseRepository(options, { signal, once = false, intervalMs, 
           } catch (error51) {
             if (once) throw error51;
             if (error51?.code === "TOPOLOGY_TMUX_OBSERVATION_FAILED") report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, degraded: "tmux-observation-failed" };
-            else if (await transportFailed(error51)) report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, degraded: "transport-unavailable" };
-            else throw error51;
+            else if (await transportFailed(error51)) {
+              const natsOutage = await natsOutageTick({ ...options, env, home }).catch((e) => ({ status: "failed", reason: e?.code ?? String(e) }));
+              const transport = await describeTransport(env, home).catch(() => null);
+              report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, degraded: "transport-unavailable", transport, ...natsOutage ? { nats_outage: natsOutage } : {} };
+            } else throw error51;
           }
         } else {
           report = { ...report, at: (/* @__PURE__ */ new Date()).toISOString(), reconciled: false, activity: false };
@@ -64640,11 +64670,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "8081ad9ede76ed357e09ff47e07e3eda73b98920ce12c037e90f0fb5d79308c0";
+  return false ? null : "184c9db23c444854fab7cfe48972afd9f61cf46ff1723288e1bb5320f55d2621";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "8081ad9ede76ed357e09ff47e07e3eda73b98920ce12c037e90f0fb5d79308c0";
-  let version2 = false ? null : "0.17.2";
+  const fingerprint2 = false ? null : "184c9db23c444854fab7cfe48972afd9f61cf46ff1723288e1bb5320f55d2621";
+  let version2 = false ? null : "0.17.3";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs14.readFileSync)((0, import_node_path70.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -65260,8 +65290,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "8081ad9ede76ed357e09ff47e07e3eda73b98920ce12c037e90f0fb5d79308c0",
-  version: false ? null : "0.17.2"
+  sourceFingerprint: false ? null : "184c9db23c444854fab7cfe48972afd9f61cf46ff1723288e1bb5320f55d2621",
+  version: false ? null : "0.17.3"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises63.readFile)(path3).then((bytes) => (0, import_node_crypto41.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);
