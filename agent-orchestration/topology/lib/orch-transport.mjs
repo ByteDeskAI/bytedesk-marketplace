@@ -609,6 +609,30 @@ async function recordPortConflict(env, home, error) {
   });
 }
 
+/**
+ * ADR-0035: an unreachable explicit AO_NATS_URL is an outage with no fallback. The selection stays
+ * AO_NATS_URL — that is what this host is configured for and nothing else is in use — and `blocking`
+ * tells doctor, the supervisor log and the lead's mail that nothing continues until it answers. Each
+ * failed open refreshes last_fallback_at (the retirement clock), so the outage retires only once
+ * nothing on the host tries the server any more: the operator removed the variable. The first open
+ * that reaches it closes the outage through recordTransportSelection, which matches its source and url.
+ * A failed open inside a quarter of the retire bound with the same error rewrites nothing.
+ * ponytail: transport.json holds one outage. An open outage for a different url (an orch.sock
+ * fallback) is replaced, not closed — the same rule recordTransportSelection applies to a fallback
+ * from a new url — so its lead gets no recovery or retired mail, and its holders' heartbeats stop
+ * matching. Both mean the host switched source; keep a list of outages if that ever needs its own mail.
+ */
+async function recordBlockingOutage(env, home, selection, unreachable, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
+  await updateTransportState(env, home, (previous) => {
+    const at = new Date(now).toISOString();
+    const open = previous?.outage && !previous.outage.recovered_at && previous.outage.url === unreachable.url ? previous.outage : null;
+    if (open?.blocking && open.error === unreachable.error && previous.source === selection.source && previous.fallback === null
+      && now - Date.parse(open.last_fallback_at ?? open.since) < retireAfterMs / 4) return previous;
+    return { kind: 'nats', source: selection.source, url: selection.url, fallback: null, at, pid: process.pid,
+      outage: { source: unreachable.source, url: unreachable.url, error: unreachable.error, blocking: true, since: open?.since ?? at, last_fallback_at: at, recovered_at: null } };
+  }, { read: { now, retireAfterMs } });
+}
+
 /** ADR-0032: the generic NATS variables are not ao sources. One line for a supervisor to log at start, or null. */
 export function ignoredNatsEnv(env = process.env) {
   const names = ['NATS_URL', 'NATS_USER', 'NATS_PASSWORD'].filter((name) => env[name]);
@@ -678,8 +702,9 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   let selection = { kind: 'nats', source: configuredSource, url: redactUrl(url), fallback: null };
   let bridge = null;
   let target = url;
-  // An explicit `servers` argument (a test reader, a probe) is never replaced. AO_NATS_URL and the
-  // gateway socket fall back to the managed local server and report the outage (ADR-0031).
+  // An explicit `servers` argument (a test reader, a probe) is never replaced, and neither is an explicit
+  // AO_NATS_URL (ADR-0035: every open fails until it answers). A stale gateway socket falls back to the
+  // managed local server and reports the outage (ADR-0031).
   const autostart = !servers && env.AO_NATS_AUTOSTART !== '0';
   let local = null;
   const useLocal = async () => {
@@ -718,9 +743,15 @@ export async function openNatsTransport({ env = process.env, home = homedir(), s
   } catch (error) {
     bridge?.server.close();
     bridge = null;
-    if (!autostart || local) fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}`);
-    // The configured target (AO_NATS_URL or a stale gateway socket) is down: start the local one.
     const unreachable = { source: selection.source, url: selection.url, error: String(error.message).slice(0, 500) };
+    // ADR-0035: an explicit AO_NATS_URL is never replaced. Record the outage so the supervisor log,
+    // doctor, services status and the lead's mail name it, then fail; every open fails until it answers.
+    if (selection.source === 'AO_NATS_URL') {
+      await recordBlockingOutage(env, home, selection, unreachable).catch(() => {});
+      fail('TOPOLOGY_NATS_UNAVAILABLE', `AO_NATS_URL ${selection.url} is unreachable: ${error.message}. ao does not fall back from an explicit AO_NATS_URL; nothing here continues until it answers. Fix the server, or unset AO_NATS_URL to use the gateway orch.sock or the managed local NATS.`);
+    }
+    if (!autostart || local) fail('TOPOLOGY_NATS_UNAVAILABLE', `NATS connect failed: ${error.message}`);
+    // A stale gateway socket is down: start the local one.
     try {
       await useLocal();
       selection = { ...selection, fallback: unreachable };

@@ -1,0 +1,123 @@
+TM-324 rework (faro changes_requested at 2e6f343f) — 2026-10-11T01:48:49-04:00
+tree: dirty only with graft-generated agent wiring outside agent-orchestration/ (not part of this change)
+
+## build / build:check
+
+  dist/host-launcher.cjs  9.5kb
+
+⚡ Done in 15ms
+
+  dist/provider-sandbox.cjs  55.1kb
+
+⚡ Done in 46ms
+
+  dist/nats-client.cjs  546.2kb
+
+⚡ Done in 65ms
+
+  dist/probe-worker.cjs  950.7kb
+
+⚡ Done in 90ms
+
+  dist/mcp.cjs  3.3mb ⚠️
+
+⚡ Done in 123ms
+
+  dist/cli.cjs  2.7mb ⚠️
+
+⚡ Done in 123ms
+
+  dist/claude-agent-acp.mjs            2.2mb ⚠️
+  dist/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 197ms
+
+  ..../../../../../../../../tmp/ao-build-check-dRhN2a/host-launcher.cjs  9.5kb
+
+⚡ Done in 20ms
+
+  .../../../../../../../tmp/ao-build-check-dRhN2a/provider-sandbox.cjs  55.1kb
+
+⚡ Done in 35ms
+
+  ..../../../../../../../../tmp/ao-build-check-dRhN2a/nats-client.cjs  546.2kb
+
+⚡ Done in 63ms
+
+  .../../../../../../../../tmp/ao-build-check-dRhN2a/probe-worker.cjs  950.7kb
+
+⚡ Done in 98ms
+
+  ../../../../../../../../../../tmp/ao-build-check-dRhN2a/cli.cjs  2.7mb ⚠️
+
+⚡ Done in 108ms
+
+  ../../../../../../../../../../tmp/ao-build-check-dRhN2a/mcp.cjs  3.3mb ⚠️
+
+⚡ Done in 124ms
+
+  ...../../../../../../tmp/ao-build-check-dRhN2a/claude-agent-acp.mjs  2.2mb ⚠️
+  ..../../../tmp/ao-build-check-dRhN2a/claude-agent-acp.mjs.LEGAL.txt  197b 
+
+⚡ Done in 190ms
+exit build=0 build:check=0
+
+## nats-outage.test.mjs + topology-supervision-transport.test.mjs (test:unit preloads)
+# Subtest: redactUrl drops credentials and keeps host and port
+ok 1 - redactUrl drops credentials and keeps host and port
+# Subtest: redactUrl fails closed on server lists and malformed URLs
+ok 2 - redactUrl fails closed on server lists and malformed URLs
+# Subtest: a dead AO_NATS_URL fails every open and starts no local server; the lead gets one outage mail when it answers again, then one recovery mail
+ok 3 - a dead AO_NATS_URL fails every open and starts no local server; the lead gets one outage mail when it answers again, then one recovery mail
+# Subtest: an open from an env without AO_NATS_URL does not close the dead AO_NATS_URL outage: one outage mail, no recovery mail
+ok 4 - an open from an env without AO_NATS_URL does not close the dead AO_NATS_URL outage: one outage mail, no recovery mail
+# Subtest: openNatsTransport records the selection under the caller's home, not the process home
+ok 5 - openNatsTransport records the selection under the caller's home, not the process home
+# Subtest: a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+ok 6 - a configured server that accepts TCP but refuses NATS is re-dialled with backoff, not every tick
+# Subtest: an outage nothing retries any more is retired after the bound: one closing mail, doctor clears, no re-dials
+ok 7 - an outage nothing retries any more is retired after the bound: one closing mail, doctor clears, no re-dials
+# Subtest: a non-supervisor holding the orch.sock fallback keeps its outage open; closing it lets the outage retire
+ok 8 - a non-supervisor holding the orch.sock fallback keeps its outage open; closing it lets the outage retire
+# Subtest: C2: recovery waits for the last fallback holder; the lead gets one outage and one recovery, read from its inbox
+ok 9 - C2: recovery waits for the last fallback holder; the lead gets one outage and one recovery, read from its inbox
+# Subtest: C3/C6: a configured server without JetStream is neither probed as back nor recorded as recovered
+ok 10 - C3/C6: a configured server without JetStream is neither probed as back nor recorded as recovered
+# Subtest: C6: a configured port that only accepts TCP is never re-dialled
+ok 11 - C6: a configured port that only accepts TCP is never re-dialled
+# Subtest: C4/C5: a transport.json write that fails is surfaced on the selection and in the start-log view
+ok 12 - C4/C5: a transport.json write that fails is surfaced on the selection and in the start-log view
+# Subtest: C5: the start-log view is this connection's selection, not whatever transport.json says now
+ok 13 - C5: the start-log view is this connection's selection, not whatever transport.json says now
+# Subtest: B2: concurrent read-modify-writes of transport.json lose nothing
+ok 14 - B2: concurrent read-modify-writes of transport.json lose nothing
+# Subtest: B3: text services status names the transport and an open outage
+ok 15 - B3: text services status names the transport and an open outage
+# Subtest: no credential from a single, list or malformed AO_NATS_URL reaches transport.json, doctor, status, the start log or lead mail
+ok 16 - no credential from a single, list or malformed AO_NATS_URL reaches transport.json, doctor, status, the start log or lead mail
+# Subtest: AC2: a degraded supervisor tick carries the transport and nats_outage; doctor says nothing continues and names no fallback
+ok 17 - AC2: a degraded supervisor tick carries the transport and nats_outage; doctor says nothing continues and names no fallback
+# Subtest: AC2: the supervise CLI logs transport-unavailable with its error for a dead AO_NATS_URL
+ok 18 - AC2: the supervise CLI logs transport-unavailable with its error for a dead AO_NATS_URL
+# Subtest: only NATS outages are classified as transport failures
+ok 19 - only NATS outages are classified as transport failures
+# Subtest: a cached connection that reports closed is replaced, not reused
+ok 20 - a cached connection that reports closed is replaced, not reused
+# Subtest: a JetStream TIMEOUT and a closed connection each degrade one tick, and the next tick dials a fresh connection
+ok 21 - a JetStream TIMEOUT and a closed connection each degrade one tick, and the next tick dials a fresh connection
+# Subtest: a programming error in the transport path is still fatal
+ok 22 - a programming error in the transport path is still fatal
+# Subtest: a one-shot supervise still reports a NATS outage as its answer
+ok 23 - a one-shot supervise still reports a NATS outage as its answer
+# Subtest: a supervisor keeps its pid across a real nats-server kill -9 and restart, and publishes again
+ok 24 - a supervisor keeps its pid across a real nats-server kill -9 and restart, and publishes again
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 22514.965808
+
+## mutation checks (rule 1): AC2 tick test went red with (a) transport dropped from the degraded tick, (b) doctor message reworded to name a fallback; sources restored
