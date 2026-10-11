@@ -20,7 +20,10 @@
   `AO_NATS_URL` outage has no fallback holders, so the first open that reaches the server closes it. A stale
   gateway `orch.sock` still falls back and is reported per ADR-0031; the managed-port conflict report
   (ADR-0032) is unchanged. Decided by the operator on 2026-10-03 after the three-reviewer review of
-  PR #154 split on whether `AO_NATS_URL` belongs in the fallback path.
+  PR #154 split on whether `AO_NATS_URL` belongs in the fallback path. Tests now cover the degraded
+  tick's `transport` and `nats_outage`, the CLI's `transport-unavailable` log line, and doctor's
+  blocking message. A blocking outage replaces an open `orch.sock` outage for another url without a
+  closing mail, as a fallback from a new url already did; the code says so.
 
 ## [0.17.2] — 2026-10-10
 

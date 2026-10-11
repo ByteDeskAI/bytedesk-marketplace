@@ -617,6 +617,10 @@ async function recordPortConflict(env, home, error) {
  * nothing on the host tries the server any more: the operator removed the variable. The first open
  * that reaches it closes the outage through recordTransportSelection, which matches its source and url.
  * A failed open inside a quarter of the retire bound with the same error rewrites nothing.
+ * ponytail: transport.json holds one outage. An open outage for a different url (an orch.sock
+ * fallback) is replaced, not closed — the same rule recordTransportSelection applies to a fallback
+ * from a new url — so its lead gets no recovery or retired mail, and its holders' heartbeats stop
+ * matching. Both mean the host switched source; keep a list of outages if that ever needs its own mail.
  */
 async function recordBlockingOutage(env, home, selection, unreachable, { now = Date.now(), retireAfterMs = Number(env.AO_NATS_OUTAGE_RETIRE_MS) || OUTAGE_RETIRE_MS } = {}) {
   await updateTransportState(env, home, (previous) => {

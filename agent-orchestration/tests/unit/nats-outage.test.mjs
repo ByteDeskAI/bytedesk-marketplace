@@ -541,3 +541,62 @@ test('no credential from a single, list or malformed AO_NATS_URL reaches transpo
     await closeLiveTransports();
   }
 });
+
+// faro on TM-324 (AC2): while a blocking AO_NATS_URL outage is open, the degraded tick, doctor and
+// the supervise log each name it — and none of them mentions a fallback.
+test('AC2: a degraded supervisor tick carries the transport and nats_outage; doctor says nothing continues and names no fallback', { timeout: 60_000 }, async t => {
+  const f = await outageFixture(t, 'ao-nats-ac2-');
+  const { superviseRepository } = await import('../../topology/lib/supervision.mjs');
+  const controller = new AbortController();
+  const ticks = [];
+  await superviseRepository({ consumer: f.repo, home: f.home, env: f.env, tmuxServer: join(f.root, 'absent.sock'), lead: f.lead, deliver: f.deliver }, {
+    signal: controller.signal, reconcileMinMs: 0, sleepFn: async () => {},
+    onTick: tick => { ticks.push(tick); if (tick.degraded || ticks.length > 20) controller.abort(); },
+  });
+  const tick = ticks.find(x => x.degraded);
+  assert.ok(tick, `expected a degraded tick, got ${JSON.stringify(ticks)}`);
+  assert.equal(tick.degraded, 'transport-unavailable');
+  assert.equal(tick.transport.source, 'AO_NATS_URL');
+  assert.equal(tick.transport.fallback, null);
+  assert.equal(tick.transport.outage.blocking, true);
+  assert.equal(tick.transport.outage.url, f.configured);
+  assert.equal(tick.nats_outage.kind, 'outage');
+  assert.equal(tick.nats_outage.to, 'lead-1');
+  assert.notEqual(tick.nats_outage.status, 'delivered');
+  const held = await readStandingMessage({ id: tick.nats_outage.message_id, env: f.env, home: f.home });
+  assert.ok(held, 'the lead\'s outage mail is a durable standing record');
+  assert.equal(f.mail.length, 1);
+
+  const { doctor } = await import('../../topology/lib/doctor.mjs');
+  const report = await doctor({ adapters: new Map(), workflowDirs: [], skillDirs: [], roleDirs: [], providerDirs: [], consumer: f.repo, env: f.env, home: f.home });
+  const problem = report.problems.find(p => p.code === 'NATS_CONFIGURED_UNREACHABLE');
+  assert.ok(problem, 'doctor raises NATS_CONFIGURED_UNREACHABLE');
+  assert.match(problem.message, /nothing on this host .* continues until it answers/);
+  assert.doesNotMatch(problem.message, /working on|fall(s)? back to/);
+});
+
+test('AC2: the supervise CLI logs transport-unavailable with its error for a dead AO_NATS_URL', { timeout: 60_000 }, async t => {
+  const f = await outageFixture(t, 'ao-nats-ac2-cli-');
+  const { isolatedTmux } = await import('../helpers/isolated-tmux.mjs');
+  const { env: tmuxEnv, socket } = isolatedTmux(t);
+  const env = { ...f.env, TMUX: tmuxEnv.TMUX, TMUX_TMPDIR: tmuxEnv.TMUX_TMPDIR };
+  delete env.AGENT_ORCHESTRATION_SERVICES_MANAGED;
+  const cli = new URL('../../topology/cli.mjs', import.meta.url).pathname;
+  const child = spawn(process.execPath, [cli, 'supervise', '--consumer', f.repo, '--server', socket], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  let output = '';
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { output += d; });
+  // The CLI pretty-prints each record; a top-level record closes with a '}' at column 0.
+  const events = () => output.split(/(?<=^})\n/m).flatMap(chunk => { try { return [JSON.parse(chunk)]; } catch { return []; } });
+  const deadline = Date.now() + 30_000;
+  let logged;
+  while (!(logged = events().find(e => e.event === 'transport-unavailable' && e.error)) && Date.now() < deadline && child.exitCode === null) await sleep(100);
+  assert.ok(logged, `expected a transport-unavailable tick log with an error; output: ${output}`);
+  assert.equal(logged.source, 'AO_NATS_URL');
+  assert.match(logged.error, /does not fall back from an explicit AO_NATS_URL/);
+  assert.match(logged.error, /nothing here continues until it answers/);
+  const start = events().find(e => e.event === 'transport-unavailable' && e.code);
+  assert.equal(start?.code, 'TOPOLOGY_NATS_UNAVAILABLE', 'the start log names the failed open');
+  assert.equal(events().some(e => e.event === 'transport-fallback'), false, 'no fallback is logged');
+});
