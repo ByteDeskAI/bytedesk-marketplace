@@ -57,3 +57,23 @@ retest `auto` mode on 2.1.316. Version 2.1.289 is no longer installed (installed
 296, 312 and 316), so the probes did not reproduce the original refusals. That evidence comes from
 the transcripts above. Probe worktree 1 was removed with `git worktree remove --force`. Probe
 worktree 2 was cleaned up automatically because it had no changes.
+
+## Required checks at bec824d2 (this branch; diff = two Markdown files only)
+
+| Check | Exit | Result |
+|---|---|---|
+| agent-orchestration: npm ci | 0 | added 154 packages |
+| agent-orchestration: unit | 1 | 1297 tests, 1284 pass, 9 fail |
+| agent-orchestration: build:check | 0 | Done |
+| task-management: unit | 1 | 1677 tests, 1662 pass, 15 fail |
+| agent-orchestration: plugin validate | 0 | passed with warnings |
+| task-management: plugin validate | 0 | passed with warnings |
+
+The diff contains no code, so the two unit suite failures were not caused by this change. These
+failures depend on the environment. The checks ran inside a dispatched tm worker session. For
+example, the task-management `actor` test expected an empty actor, but read `fd2b831f`, the lead's
+session id, from the inherited environment. Failing tests include `actor`, `tm_claim`,
+`tm_task_update start`, `TM-247 governed worker lifecycle`, and agent-orchestration
+`topology-prompt-modes` `config set`. The working tree also held graft rewrites of tracked files
+(`.mcp.json`, `.claude/settings.json`, and others) that this task did not make (audit problem 3).
+The checks were not rerun in a clean shell.
