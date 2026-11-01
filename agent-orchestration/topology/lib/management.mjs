@@ -578,6 +578,57 @@ async function admissionBase(options, worktree, integration, branch) {
   return { base, source: 'local-fallback' };
 }
 
+/** TM-528: with no target_branch and no recorded branch, admission anchors on the default branch. When the
+ * task PR targets another branch, the review range takes in everything that branch has over the default,
+ * so admission says so and names the fix. Unanswerable lookups mean no warning, never a refusal. */
+async function baseWarning(options, worktree, integration, branch) {
+  if (integration || nonempty((await loadGovernedConfig(options)).config.management?.target_branch)) return null;
+  const pull = (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0];
+  const fallback = nonempty(pull) ? await defaultBranch(options, worktree) : null;
+  if (!fallback || pull === fallback) return null;
+  return `management.target_branch is unset, so the admission base is the merge-base with the default branch ${fallback}, but the task PR targets ${pull}: the review range includes every commit ${pull} has over ${fallback}. Set management.target_branch to ${pull}, then run ao-topology manage rebase --task ${options.task}.`;
+}
+
+/** TM-528: the supported way to NARROW a started record's base (a resumed admission only widens it, TM-349).
+ * The new base is merge-base(finish revision or HEAD, server tip of management.target_branch): on the server
+ * branch by construction, and refused unless it descends from the current base and is an ancestor of the
+ * revision. Only the admitting session (the lead) may run it; a base-narrowed event names it. A finish under
+ * review is re-queued against the new range, since the old request covers the old one. */
+export async function rebaseTask(options) {
+  const ctx = await context(options), { task, owner } = options;
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record = await loadRecord(ctx.path);
+    invariant(record?.started && record.owner === owner, 'TOPOLOGY_MANAGEMENT_REBASE', `Only the admitting session can re-base ${task}; admit it first.`);
+    invariant(!record.merge && !['merged', 'cleaned'].includes(record.state), 'TOPOLOGY_MANAGEMENT_LANDED', `${task} is landed; its base is final.`);
+    const target = (await loadGovernedConfig(options)).config.management?.target_branch;
+    invariant(nonempty(target) && INTEGRATION_BRANCH.test(target), 'TOPOLOGY_MANAGEMENT_REBASE', 'Configure management.target_branch (operator) before re-basing; it names the branch the new base is taken from.');
+    invariant(!record.integration_branch || record.integration_branch === target, 'TOPOLOGY_MANAGEMENT_REBASE', `${task} was admitted against ${record.integration_branch}, not ${target}; the recorded branch wins.`);
+    const tree = record.worktree;
+    const revision = record.finish?.revision ?? await gitText(tree, ['rev-parse', 'HEAD']);
+    let tip = '';
+    try { tip = String(await (options.serverBranchTip || githubBranchTip)(tree, target) ?? ''); } catch (error) { fail('TOPOLOGY_MANAGEMENT_REBASE', `The server tip of ${target} could not be read (${error.message}); re-basing needs the server.`); }
+    invariant(/^[a-f0-9]{40,64}$/.test(tip), 'TOPOLOGY_MANAGEMENT_REBASE', `The server named no tip for ${target}; re-basing needs the server.`);
+    const local = async () => (await git(tree, ['cat-file', '-e', `${tip}^{commit}`], true)).code === 0;
+    if (!(await local())) await fetchPinned(tree, [tip], { env: ctx.env, home: ctx.home, allowFailure: true });
+    invariant(await local(), 'TOPOLOGY_MANAGEMENT_REBASE', `The server tip ${tip} of ${target} is not in this repository and could not be fetched.`);
+    const found = await git(tree, ['merge-base', revision, tip], true);
+    const base = found.code === 0 ? found.stdout.trim() : '';
+    invariant(base, 'TOPOLOGY_MANAGEMENT_REBASE', `${revision} shares no history with the server tip of ${target}.`);
+    if (base === record.base_revision && record.integration_branch === target) return { rebased: false, record };
+    invariant((await git(tree, ['merge-base', '--is-ancestor', record.base_revision, base], true)).code === 0, 'TOPOLOGY_MANAGEMENT_REBASE',
+      `The ${target} merge-base ${base} is older than the recorded base ${record.base_revision}; re-basing only narrows (a resumed admission widens).`);
+    const next = await recordEvent(ctx, task, record, 'base-narrowed', { from: record.base_revision, to: base, branch: target, tip, revision, base_source: 'server-tip', by: owner });
+    Object.assign(next, { base_revision: base, base_source: 'server-tip', integration_branch: target });
+    if (next.review_request) {
+      delete next.review_request; delete next.review_blocked; delete next.review_blocked_notice;
+      try { next.review_request = await (options.queueReview || requestReview)({ ...options, revision, baseRevision: base, authorAgentIds: [next.owner], checkEvidence: claimedCheckEvidence(next.finish) }); }
+      catch (error) { next.review_blocked = error.message; }
+    }
+    await writeJson(ctx.path, next);
+    return { rebased: true, from: record.base_revision, to: base, record: next };
+  });
+}
+
 /** TM-247: the same observation without the finish requirement, for retiring a worker that died
  * before reporting. The claim may be released (a parked or blocked task) but never foreign. */
 export async function deadWorkerState(options, record) {
@@ -654,6 +705,8 @@ export async function admitTask(options) {
       const current = await reclaimAdmission(ctx, task, prior);
       // TM-349: a record admitted at a worker commit hides that commit; a resumed admission only ever widens it.
       const { base, source } = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
+      const warning = await baseWarning(options, current.worktree, prior.integration_branch, current.branch);
+      if (warning) prior.base_warning = warning; else delete prior.base_warning;
       if (base !== prior.base_revision && (await git(current.worktree, ['merge-base', '--is-ancestor', base, prior.base_revision], true)).code === 0) {
         const widened = await recordEvent(ctx, task, prior, 'base-widened', { from: prior.base_revision, to: base, base_source: source });
         Object.assign(widened, { base_revision: base, base_source: source }); await writeJson(ctx.path, widened);
@@ -672,13 +725,15 @@ export async function admitTask(options) {
     // TM-325: the PR base tm recorded on the task, frozen here so a later task-file edit cannot move the review range.
     const recorded = String(provisioned.integrationBranch ?? '').trim(), integration = recorded && recorded !== 'HEAD' ? recorded : null;
     const { base, source } = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
+    const warning = await baseWarning(options, provisioned.worktree, integration, provisioned.branch);
     await ctx.store.start(task, provisioned.worktree);
-    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
+    const record = await recordEvent(ctx, task, prior, 'start', { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, ...(warning ? { base_warning: warning } : {}), intent, boundaries, dependencies, checks, files: doc.touches });
     const lead=await findLead(agentDirs({...options,consumer:ctx.store.root}));
     // TM-417: the governance identity is the task's, stable across rounds; adopting a dispatch's
     // workflow id made it depend on whether a worker happened to be dispatched before admission.
     const workflowRunId=options.workflowRunId || `tm-${task}`;
     const leadId=lead?.id || options.leadId || owner;
+    if (warning) record.base_warning = warning;
     Object.assign(record, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id:workflowRunId,lead_id:leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: 'working' });
     await writeJson(ctx.path, record);
     await ctx.store.govern?.(task,{workflowRunId,leadId,recordPath:ctx.path});

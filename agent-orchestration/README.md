@@ -496,7 +496,7 @@ over the allowlist, so a later edit that adds one of these by mistake still cann
 
 - **External (deploy and release):** `ao-topology manage cutover|cut-release|land`. See
   [Landing autonomy](#landing-autonomy-pr-merge-publish) below.
-- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup|close|transfer|assign|rework|rebind`.
+- **PR-level and landing:** `ao-topology manage integrate|record-landing|cleanup|close|transfer|assign|rework|rebase|rebind`.
   These verbs keep their own delegation checks. (`ao-topology review submit` was removed in TM-427;
   the reviewer submits only through its `review_submit` MCP tool.) A lead that should
   run them unprompted gets the per-lead rules from `ao-topology permissions install` (see

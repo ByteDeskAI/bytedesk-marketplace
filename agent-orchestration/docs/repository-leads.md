@@ -318,6 +318,23 @@ from there. When the independent review of the finish revision returns `changes_
    `TOPOLOGY_MANAGEMENT_REVISION`. That new revision needs its own review: integration keys the
    review on the exact revision, so the earlier verdict never applies to it.
 
+### Narrowing a base admitted on a stale default branch
+
+With no `management.target_branch` and no branch recorded by tm, admission takes the merge-base with
+the repository default branch. When the real integration branch is far ahead of the default branch,
+the review range then holds every commit of other tasks on it, and the reviewer rightly refuses it. A
+resumed admission only ever widens a base (TM-349), so re-admitting does not help.
+
+- Admission warns when it can see this: `target_branch` is unset and the task PR targets a branch other
+  than the default. The warning is on the record and the `start` event as `base_warning`, and in the
+  `admit --summary` line.
+- To fix a started task, have the operator set `management.target_branch` (a protected key), then run
+  `manage rebase --task TM-id`. It reads the server tip of that branch, takes the merge-base with the
+  finish revision (or the worktree HEAD before a finish), and refuses unless that base descends from
+  the recorded one: it only narrows. It records a `base-narrowed` event naming the session, sets the
+  record's integration branch, and re-files a pending review against the new range. Only the admitting
+  session may run it, the server must answer, and a task admitted against another branch is refused.
+
 `reviewer request --task TM-id --revision <full-sha> --author <agent-id>` queues an independent
 review. The reviewer submits its verdict as JSON with its `review_submit` MCP tool, the only channel:
 the shell `ao-topology review submit` was removed in TM-427, and the tool proves the caller descends

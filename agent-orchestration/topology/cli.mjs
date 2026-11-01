@@ -206,6 +206,9 @@ Standing repository services
                                         retire one observed dead without a finish (TM-247)
   manage rework --task <TM-id>          after a changes_requested review of the finish revision and a
                                         stopped worker: back to working; the next finish needs a new revision
+  manage rebase --task <TM-id>          TM-528: narrow a started task's base to merge-base(revision, server
+                                        tip of management.target_branch); records base-narrowed and
+                                        re-queues a pending review. Never widens, never past the revision
   manage cutover|cut-release --epic <EP-id> [--authorized]
                                                TM-250, External class (ADR-0001): run the repository's
                                                own management.cutover / management.release argv (e.g.
@@ -240,8 +243,9 @@ function out(value) {
 function manageSummary(verb, task, r) {
   const auth = a => a ? ` by ${a.actor}${a.delegation_id ? ` (delegation ${a.delegation_id} from ${a.delegated_by})` : ['repository-lead', 'lead-autonomy-policy'].includes(a.channel) ? ` (${a.channel}, ${a.adr || a.policy?.adr})` : ''}` : '';
   switch (verb) {
-    case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}` : `${task} not admitted: ${r.state}`;
+    case 'admit': return r.admitted ? `${task} admitted${r.resumed ? ' (resumed)' : ''}: ${r.record?.worktree} on ${r.record?.branch}${r.record?.base_warning ? `\nWARNING: ${r.record.base_warning}` : ''}` : `${task} not admitted: ${r.state}`;
     case 'start-worker': return r.bound ? `${task} worker started and bound: ${r.run ?? r.worker?.run}` : `${task} worker started, NOT bound: ${r.reason} — ${r.recovery}`;
+    case 'rebase': return r.rebased ? `${task} base narrowed ${r.from} -> ${r.to} on ${r.record?.integration_branch}${r.record?.review_request ? '; review re-queued' : r.record?.review_blocked ? `; review blocked: ${r.record.review_blocked}` : ''}` : `${task} base already ${r.record?.base_revision} on ${r.record?.integration_branch}`;
     case 'rework': return `${task} back to working after changes requested on ${r.revision}; start the next worker with manage start-worker`;
     case 'stop-worker': return r.stopped ? `${task} worker ${r.retired ? `retired (${r.result?.outcome}${r.result?.reason ? `: ${r.result.reason}` : ''}; ` : 'stopped ('}${r.proof}${r.closed ? ', pane closed' : ''})` : `${task} worker NOT stopped: ${r.reason} — ${r.recovery}`;
     case 'report': return `${task} ${r.events?.at(-1)?.event ?? 'report'} recorded; state ${r.state}${r.review_request ? '; review queued' : ''}${r.review_blocked ? `; review blocked: ${r.review_blocked}; lead notified: ${r.review_blocked_notice?.status ?? 'no'}; retry: ao-topology manage retry-review --task ${task}` : ''}`;
@@ -929,9 +933,9 @@ const commands = {
       return out(flags.summary ? externalSummary(verb, result) : result);
     }
     const methods = { status:'managementStatus', bind:'bindTaskWorker', admit:'admitTask', report:'workerReport', eligible:'integrationEligibility', integrate:'integrateTask', cleanup:'cleanupTask', 'record-landing':'recordLanding', 'retry-review':'retryReview',
-      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask', rebind:'rebindTaskWorker' };
+      assign:'assignTaskToAgent', assignment:'assignmentResult', release:'releaseAssignment', 'start-worker':'startTaskWorker', 'stop-worker':'stopTaskWorker', close:'closeTask', transfer:'transferTask', rework:'reworkTask', rebase:'rebaseTask', rebind:'rebindTaskWorker' };
     const method = methods[verb];
-    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|rebind|stop-worker|rework|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
+    invariant(method, 'TOPOLOGY_SUBCOMMAND_UNKNOWN', 'Use manage status|admit|start-worker|bind|rebind|stop-worker|rework|rebase|report|retry-review|eligible|integrate|record-landing|cleanup|close|transfer|assign|assignment|release|cutover|cut-release|land.');
     const result = await api[method](options);
     return out(flags.summary ? manageSummary(verb, options.task, result) : result);
   },
