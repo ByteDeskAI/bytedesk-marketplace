@@ -10,7 +10,9 @@
  */
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { projectDir } from "../../lib/transcript.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addWorktree, cleanup, tempRepo, tempStore } from "./helpers.mjs";
@@ -219,10 +221,37 @@ describe("collectTmux — the session is the liveness signal", () => {
 
     assert.equal(res.outcome, "failed");
     const reason = read(id, p).parkedReason;
-    assert.match(reason, /^worker exited without closing\n\nuncommitted in /);
+    assert.match(reason, /^worker exited mid-task: no finish report, no block, uncommitted work\n\nlast assistant message: \(no transcript found\)\n\nuncommitted in /);
     assert.match(reason, /README\.md/);
     assert.match(reason, /new-file\.mjs/);
     assert.match(lastComment(p, id), /new-file\.mjs/);
+  });
+
+  it("session gone + dirty worktree = 'exited mid-task' naming the last assistant message (TM-292)", () => {
+    const p = store();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "half.mjs"), "export {};\n");
+    const home = mkdtempSync(join(tmpdir(), "tm292-home-"));
+    stores.push(home);
+    const dir = projectDir(repo, home);
+    mkdirSync(dir, { recursive: true });
+    const said = "Full unit suite is still running. Once it finishes, I'll commit, push and open the PR.";
+    writeFileSync(join(dir, "s.jsonl"), [
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "earlier" }] } }),
+      JSON.stringify({ type: "assistant", message: { stop_reason: "end_turn", content: [{ type: "thinking", thinking: "x" }, { type: "text", text: said }] } }),
+      JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "a", content: "ok" }] } }),
+      "{not json",
+    ].join("\n") + "\n");
+    const id = dispatched(p, { backend: "tmux", worktree: repo });
+    const res = collectTmux(id, { p, spawnImpl: spawnReturning({ status: 1 }), home });
+
+    assert.equal(res.outcome, "failed");
+    assert.equal(res.failureScope, "task");
+    const reason = read(id, p).parkedReason;
+    assert.match(reason, /^worker exited mid-task: /);
+    assert.ok(reason.includes(`last assistant message: ${JSON.stringify(said)}`), reason);
+    assert.ok(!reason.includes('"earlier"'), "the LAST message, not an earlier one");
+    assert.match(reason, /half\.mjs/);
   });
 
   it("session gone + clean worktree = the reason stays as it was", () => {
@@ -519,6 +548,7 @@ describe("the handoff's completion contract", () => {
     assert.match(out, /Never end your turn while a background agent or command you started is still running/);
     assert.match(out, new RegExp(`Never ask a question and wait for an answer; nobody will reply\\. Block instead: \\S+tm block ${t.id} "<the question>"`));
     assert.match(out, /no run_in_background, no Monitor/, "TM-426: a headless worker must not background its checks");
+    assert.match(out, /non-interactively \(claude -p\).*Run every command in the foreground.*end your turn only once you have committed and reported, or blocked/, "TM-292");
   });
 
   it("carries the lead's latest LEAD BRIEF comment, not earlier rounds or other comments (TM-426)", () => {

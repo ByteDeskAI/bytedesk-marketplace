@@ -204,7 +204,9 @@ const BRIEF_TASKS = 3;
 const BRIEF_CRITERIA = 5;
 /** A last-resort ceiling, in case a criterion is a paragraph. */
 const BRIEF_CHARS = 1200;
-const GOVERNED_BRIEF_CHARS = 2000;
+const GOVERNED_BRIEF_CHARS = 2150; // +150 for the TM-292 print-mode rule
+/** One per dispatch, not per fan-out: room for the session rules plus a few criteria (TM-292). */
+const WORKER_BRIEF_CHARS = 1500;
 
 /**
  * What a subagent is told when it starts.
@@ -288,7 +290,8 @@ const quoteArg = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
 function sessionRules(id) {
   return [
     "- Do the task in your own session. Do not hand it to a background agent and wait: you have no later turn, so ending your turn ends the work.",
-    "- Never end your turn while a background agent or command you started is still running; wait for it in the foreground (no run_in_background, no Monitor).",
+    // TM-292: print mode exits when the turn ends, so the foreground rule and the "until committed" rule are one line.
+    "- Never end your turn while a background agent or command you started is still running: you run non-interactively (claude -p) and exit when your turn ends. Run every command in the foreground (no run_in_background, no Monitor); end your turn only once you have committed and reported, or blocked.",
     `- Never ask a question and wait for an answer; nobody will reply. Block instead: .bytedesk/task-management/bin/tm block ${id} "<the question>"`,
   ];
 }
@@ -325,7 +328,7 @@ export function workerBrief(id, p = paths()) {
   ];
   // TM-426: criteria get only the room the rules and endings leave, so the cap never cuts those. The
   // governed protocol alone exceeds BRIEF_CHARS, which cut its "stop at ready-for-review" ending.
-  const cap = t.governance ? GOVERNED_BRIEF_CHARS : BRIEF_CHARS;
+  const cap = t.governance ? GOVERNED_BRIEF_CHARS : WORKER_BRIEF_CHARS;
   let room = cap - [...out, ...tail].join("\n").length - "\nNot yet met:".length;
   const unmet = [];
   for (const a of acceptanceOpen(t).slice(0, BRIEF_CRITERIA)) {

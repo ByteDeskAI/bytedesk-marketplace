@@ -210,6 +210,7 @@ describe("the dispatched worker", () => {
     assert.match(out, /Do the task in your own session/);
     assert.match(out, /Never end your turn while a background agent or command you started is still running/);
     assert.match(out, /no run_in_background, no Monitor/, "TM-426: a headless worker must not background its checks");
+    assert.match(out, /non-interactively \(claude -p\).*Run every command in the foreground.*end your turn only once you have committed and reported, or blocked/, "TM-292");
     assert.match(out, new RegExp(`Block instead: \\S+tm block ${t.id} "<the question>"`));
   });
 
@@ -231,7 +232,7 @@ describe("the dispatched worker", () => {
   it("never cuts the 'When you finish' tail, even when the head alone overflows the cap (TM-426)", () => {
     const { p, t } = dispatched({ title: "x".repeat(3000) });
     const out = workerBrief(t.id, p);
-    assert.ok(out.length <= 1200, `capped: ${out.length}`);
+    assert.ok(out.length <= 1500, `capped: ${out.length}`);
     assert.match(out, /x…\n/, "the head is what gets cut");
     assert.match(out, /Never leave the task in_progress: close it or block it\.$/, "the tail survives whole");
   });
@@ -240,12 +241,12 @@ describe("the dispatched worker", () => {
     assert.equal(workerBrief("TM-404", store()), "");
   });
 
-  it("stays inside the same size cap", () => {
+  it("stays inside its own size cap (1500, TM-292)", () => {
     const { p, t } = dispatched({
       acceptance: Array.from({ length: 12 }, (_, j) => ({ text: `criterion ${j} with some length to it`, done: false })),
     });
     const out = workerBrief(t.id, p);
-    assert.ok(out.length <= 1200, `brief was ${out.length} chars`);
+    assert.ok(out.length <= 1500, `brief was ${out.length} chars`);
     // The cap must not cut the endings or the no-later-turn rules (TM-246).
     assert.match(out, new RegExp(`tm done ${t.id}`));
     assert.match(out, new RegExp(`tm block ${t.id} "reason"`));
