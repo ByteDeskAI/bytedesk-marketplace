@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A print-mode worker cut off mid-task is recorded as exactly that (TM-292).** A `claude -p`
+  worker exits the moment its turn ends, so one that backgrounded its test suite and said "I'll
+  commit once it finishes" was gone with its work uncommitted, recorded as an ordinary "worker
+  exited without closing". The tmux collector now records an exit with no finish, no block and a
+  dirty worktree as `worker exited mid-task`, quoting the worker's last assistant message from its
+  transcript, and keeps the failure task-scoped so quoted model text cannot pause the pool. The
+  dispatch brief and handoff now tell the worker it runs non-interactively: foreground commands
+  only, and no ending the turn before it has committed and reported, or blocked. The worker brief
+  gets its own 1,500-character cap (subagent briefs stay at 1,200) so the extra rule does not push
+  the block instruction out.
+
 - **Stop says so when a store record exists only on this machine.** The store is the system of
   record and is git-tracked, so a record only one working tree has is a record one laptop can lose.
   The Stop hook now names them. It WARNS and never blocks — the Stop gate is the one thing allowed

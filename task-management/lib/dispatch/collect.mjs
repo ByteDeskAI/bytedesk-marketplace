@@ -37,6 +37,9 @@ import { rpcSession } from "./mcp-client.mjs";
 import { failureScope } from "./failure.mjs";
 import { managementIdentity, readManagementRecord } from "../governance-check.mjs";
 import { safeGitSync } from "../safe-git.mjs";
+import { projectDir, readTail } from "../transcript.mjs";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 
 /** A collection is a quick query, not the 120s launch handshake. */
 export const COLLECT_TIMEOUT_MS = 30_000;
@@ -112,6 +115,31 @@ function dirtyPaths(worktree) {
     return String(res.stdout || "").split("\n").filter(Boolean).map((line) => line.slice(3));
   } catch {
     return [];
+  }
+}
+
+/**
+ * The last assistant text in the newest Claude transcript for `cwd`, bounded to 600 chars, or null
+ * (TM-292). Read from the tail only; unknown or partial lines are skipped. Never throws.
+ */
+function lastAssistantMessage(cwd, home = homedir()) {
+  try {
+    const dir = projectDir(cwd, home);
+    if (!existsSync(dir)) return null;
+    const newest = readdirSync(dir).filter((f) => f.endsWith(".jsonl")).map((f) => join(dir, f))
+      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+    if (!newest) return null;
+    for (const line of readTail(newest).reverse()) {
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry?.type !== "assistant") continue;
+      const content = entry.message?.content;
+      const text = (typeof content === "string" ? content : (content || []).filter((c) => c?.type === "text").map((c) => c.text).join("\n")).trim();
+      if (text) return text.length > 600 ? `${text.slice(0, 599)}…` : text;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -348,7 +376,7 @@ export async function collectOrchestration(id, { caps = null, p = paths(), spawn
  *
  * Raw tmux puts its session name after the backend prefix in the dispatched handle.
  */
-function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync, caps = null } = {}) {
+function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync, caps = null, home = homedir() } = {}) {
   try {
     const task = read(id, p);
     if (!task) return { ok: false, reason: `not found: ${id}` };
@@ -369,6 +397,14 @@ function collectSession(id, backend, { p = paths(), spawnImpl = spawnSync, caps 
       return recordResult(id, { run: handle, outcome: "done", summary: `${backend} worker exited; the task was closed through the gates` }, p);
     }
     if (after.status === "in_progress") {
+      // TM-292: no finish, no block, and work left uncommitted is a worker cut off mid-task (claude -p
+      // exits when the model ends its turn), not a worker that chose to stop. Scope stays "task": the
+      // quoted message is model text and must not trip the provider brake.
+      if (dirtyPaths(after.worktree).length) {
+        const last = lastAssistantMessage(after.worktree, home);
+        const summary = `worker exited mid-task: no finish report, no block, uncommitted work\n\nlast assistant message: ${last ? JSON.stringify(last) : "(no transcript found)"}`;
+        return recordResult(id, { run: handle, outcome: "failed", summary, failureScope: "task" }, p, { caps });
+      }
       return recordResult(id, { run: handle, outcome: "failed", summary: "worker exited without closing" }, p, { caps });
     }
     if (after.status === "blocked") return recordBlocked(id, handle, after, `${backend} worker`, p);
