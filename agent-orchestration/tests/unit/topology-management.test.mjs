@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readJson, run, writeJson } from '../../topology/lib/util.mjs';
 import { canonicalRepoId, pinnedGithubRepo, repoKey } from '../../topology/lib/repoid.mjs';
-import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, rebindTaskWorker, taskWorkerState, managementStatus, recordLanding } from '../../topology/lib/management.mjs';
+import { admitTask, workerReport, retryReview, integrationEligibility, integrateTask, cleanupTask, bindTaskWorker, rebindTaskWorker, taskWorkerState, managementStatus, recordLanding, rebaseTask } from '../../topology/lib/management.mjs';
 import { grantDelegation as rawGrant, agentMarkers, planDigest } from '../../topology/lib/delegation.mjs';
 // TM-248: a grant names an approved plan (here epic EP-19, which the fixture task TM-1 belongs to) and an expiry.
 // epicTasks stands in for the task store at grant time: the grant freezes whatever it returns.
@@ -2821,4 +2821,53 @@ test('TM-475 review M2: fetchPinned refuses a pinned URL that url.*.insteadOf in
   assert.notEqual(result.code, 0, `the rewritten fetch ran: ${child.stdout}`);
   assert.match(result.stderr, /rewrites the pinned fetch URL .*insteadOf/);
   assert.notEqual((await run('git', ['-C', consumer, 'cat-file', '-e', `${payload}^{commit}`], { allowFailure: true })).code, 0, 'nothing was read from the rewritten URL');
+});
+
+// TM-528: Passport main sat far behind the integration branch, target_branch was unset, and every task
+// was admitted at the main merge-base; the resumed admission can only widen, so nothing could narrow it.
+async function staleDefault(t) {
+  const f = await fixture(t);
+  const id = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];
+  await withTarget(f.opts, null);
+  const main = (await f.git(f.opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  await f.git(f.opts.consumer, ["checkout", "-qb", "program"]);
+  await writeFile(join(f.opts.consumer, "other.txt"), "another task"); await f.git(f.opts.consumer, ["add", "other.txt"]); await f.git(f.opts.consumer, [...id, "commit", "-qm", "other task on program"]);
+  const program = (await f.git(f.opts.consumer, ["rev-parse", "HEAD"])).stdout.trim();
+  const server = f.opts.gh;
+  const queued = [];
+  Object.assign(f.opts, { gh: async args => args[0] === "repo" && args.includes("--jq") ? { code: 0, stdout: "main\n", stderr: "" } : server(args),
+    serverPullBase: async () => ["program"], queueReview: async o => { queued.push(o.baseRevision); return { nonce: `n${queued.length}`, base_revision: o.baseRevision }; } });
+  return { ...f, main, program, queued };
+}
+
+test("TM-528: admission warns when target_branch is unset and the PR targets another branch than the default", async t => {
+  const f = await staleDefault(t);
+  const { record } = await admitTask(f.opts);
+  assert.equal(record.base_revision, f.main, "the stale default-branch base this task exists to fix");
+  assert.match(record.base_warning, /default branch main, but the task PR targets program.*manage rebase --task TM-1/);
+  assert.equal(record.events.at(-1).base_warning, record.base_warning, "the start event carries it");
+  const quiet = await staleDefault(t);
+  quiet.opts.serverPullBase = async () => ["main"];
+  assert.equal((await admitTask(quiet.opts)).record.base_warning, undefined, "a PR on the default branch is not warned about");
+});
+
+test("TM-528: manage rebase narrows a started record to the server merge-base of target_branch and re-queues review", async t => {
+  const f = await staleDefault(t);
+  await admitTask(f.opts); await f.finish();
+  const revision = (await managementStatus(f.opts)).management.finish.revision;
+  await assert.rejects(rebaseTask(f.opts), { code: "TOPOLOGY_MANAGEMENT_REBASE", message: /Configure management.target_branch/ });
+  await withTarget(f.opts, "program");
+  await assert.rejects(rebaseTask({ ...f.opts, owner: "peer" }), { code: "TOPOLOGY_MANAGEMENT_REBASE", message: /admitting session/ });
+  await assert.rejects(rebaseTask(f.opts), { code: "TOPOLOGY_MANAGEMENT_REBASE", message: /needs the server/ }, "no server, no re-base");
+  const asked = [];
+  const result = await rebaseTask({ ...f.opts, serverBranchTip: async (dir, branch) => { asked.push(branch); return f.program; } });
+  assert.deepEqual(asked, ["program"]);
+  assert.equal(result.rebased, true); assert.equal(result.from, f.main); assert.equal(result.to, f.program);
+  const event = result.record.events.at(-1);
+  assert.deepEqual([event.event, event.from, event.to, event.branch, event.revision, event.by], ["base-narrowed", f.main, f.program, "program", revision, "author"]);
+  assert.equal(result.record.integration_branch, "program"); assert.equal(result.record.base_source, "server-tip");
+  assert.equal(f.queued.at(-1), f.program, "the pending review is re-filed against the narrowed range");
+  assert.deepEqual((await f.git(f.opts.consumer, ["diff", "--name-only", result.to, revision])).stdout.trim().split("\n"), ["code.txt"], "only the task's own change is in range");
+  assert.equal((await rebaseTask({ ...f.opts, serverBranchTip: async () => f.program })).rebased, false, "idempotent");
+  await assert.rejects(rebaseTask({ ...f.opts, serverBranchTip: async () => f.main }), { code: "TOPOLOGY_MANAGEMENT_REBASE", message: /only narrows/ }, "never widens");
 });

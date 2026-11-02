@@ -24815,6 +24815,7 @@ __export(management_exports, {
   ownerPresence: () => ownerPresence,
   parseAssignmentReply: () => parseAssignmentReply,
   protectedBranch: () => protectedBranch,
+  rebaseTask: () => rebaseTask,
   rebindTaskWorker: () => rebindTaskWorker,
   recordLanding: () => recordLanding,
   recordTaskEvent: () => recordTaskEvent,
@@ -25325,6 +25326,59 @@ async function admissionBase(options, worktree, integration, branch) {
   invariant2(/^[a-f0-9]{40,64}$/.test(base), "TOPOLOGY_MANAGEMENT_BASE", `The integration branch candidates (${named.join(", ")}) share no common ancestor with the task HEAD; refusing rather than guessing a base.`);
   return { base, source: "local-fallback" };
 }
+async function baseWarning(options, worktree, integration, branch) {
+  if (integration || nonempty((await loadGovernedConfig(options)).config.management?.target_branch)) return null;
+  const pull = (await (options.serverPullBase || githubPullBase)(worktree, branch).catch(() => []))?.[0];
+  const fallback = nonempty(pull) ? await defaultBranch(options, worktree) : null;
+  if (!fallback || pull === fallback) return null;
+  return `management.target_branch is unset, so the admission base is the merge-base with the default branch ${fallback}, but the task PR targets ${pull}: the review range includes every commit ${pull} has over ${fallback}. Set management.target_branch to ${pull}, then run ao-topology manage rebase --task ${options.task}.`;
+}
+async function rebaseTask(options) {
+  const ctx = await context2(options), { task, owner } = options;
+  return withLock(`${ctx.path}.lock`, async () => {
+    const record2 = await loadRecord(ctx.path);
+    invariant2(record2?.started && record2.owner === owner, "TOPOLOGY_MANAGEMENT_REBASE", `Only the admitting session can re-base ${task}; admit it first.`);
+    invariant2(!record2.merge && !["merged", "cleaned"].includes(record2.state), "TOPOLOGY_MANAGEMENT_LANDED", `${task} is landed; its base is final.`);
+    const target = (await loadGovernedConfig(options)).config.management?.target_branch;
+    invariant2(nonempty(target) && INTEGRATION_BRANCH.test(target), "TOPOLOGY_MANAGEMENT_REBASE", "Configure management.target_branch (operator) before re-basing; it names the branch the new base is taken from.");
+    invariant2(!record2.integration_branch || record2.integration_branch === target, "TOPOLOGY_MANAGEMENT_REBASE", `${task} was admitted against ${record2.integration_branch}, not ${target}; the recorded branch wins.`);
+    const tree = record2.worktree;
+    const revision = record2.finish?.revision ?? await gitText(tree, ["rev-parse", "HEAD"]);
+    let tip = "";
+    try {
+      tip = String(await (options.serverBranchTip || githubBranchTip)(tree, target) ?? "");
+    } catch (error51) {
+      fail("TOPOLOGY_MANAGEMENT_REBASE", `The server tip of ${target} could not be read (${error51.message}); re-basing needs the server.`);
+    }
+    invariant2(/^[a-f0-9]{40,64}$/.test(tip), "TOPOLOGY_MANAGEMENT_REBASE", `The server named no tip for ${target}; re-basing needs the server.`);
+    const local = async () => (await git2(tree, ["cat-file", "-e", `${tip}^{commit}`], true)).code === 0;
+    if (!await local()) await fetchPinned(tree, [tip], { env: ctx.env, home: ctx.home, allowFailure: true });
+    invariant2(await local(), "TOPOLOGY_MANAGEMENT_REBASE", `The server tip ${tip} of ${target} is not in this repository and could not be fetched.`);
+    const found = await git2(tree, ["merge-base", revision, tip], true);
+    const base = found.code === 0 ? found.stdout.trim() : "";
+    invariant2(base, "TOPOLOGY_MANAGEMENT_REBASE", `${revision} shares no history with the server tip of ${target}.`);
+    if (base === record2.base_revision && record2.integration_branch === target) return { rebased: false, record: record2 };
+    invariant2(
+      (await git2(tree, ["merge-base", "--is-ancestor", record2.base_revision, base], true)).code === 0,
+      "TOPOLOGY_MANAGEMENT_REBASE",
+      `The ${target} merge-base ${base} is older than the recorded base ${record2.base_revision}; re-basing only narrows (a resumed admission widens).`
+    );
+    const next = await recordEvent(ctx, task, record2, "base-narrowed", { from: record2.base_revision, to: base, branch: target, tip, revision, base_source: "server-tip", by: owner });
+    Object.assign(next, { base_revision: base, base_source: "server-tip", integration_branch: target });
+    if (next.review_request) {
+      delete next.review_request;
+      delete next.review_blocked;
+      delete next.review_blocked_notice;
+      try {
+        next.review_request = await (options.queueReview || requestReview)({ ...options, revision, baseRevision: base, authorAgentIds: [next.owner], checkEvidence: claimedCheckEvidence(next.finish) });
+      } catch (error51) {
+        next.review_blocked = error51.message;
+      }
+    }
+    await writeJson(ctx.path, next);
+    return { rebased: true, from: record2.base_revision, to: base, record: next };
+  });
+}
 async function deadWorkerState(options, record2) {
   const ctx = await context2(options);
   try {
@@ -25394,6 +25448,9 @@ async function admitTask(options) {
     if (prior?.owner === owner && prior.started) {
       const current = await reclaimAdmission(ctx, task, prior);
       const { base: base2, source: source2 } = await admissionBase(options, current.worktree, prior.integration_branch, current.branch);
+      const warning2 = await baseWarning(options, current.worktree, prior.integration_branch, current.branch);
+      if (warning2) prior.base_warning = warning2;
+      else delete prior.base_warning;
       if (base2 !== prior.base_revision && (await git2(current.worktree, ["merge-base", "--is-ancestor", base2, prior.base_revision], true)).code === 0) {
         const widened = await recordEvent(ctx, task, prior, "base-widened", { from: prior.base_revision, to: base2, base_source: source2 });
         Object.assign(widened, { base_revision: base2, base_source: source2 });
@@ -25410,11 +25467,13 @@ async function admitTask(options) {
     const provisioned = await ownedTask(ctx, task, owner);
     const recorded = String(provisioned.integrationBranch ?? "").trim(), integration = recorded && recorded !== "HEAD" ? recorded : null;
     const { base, source } = await admissionBase(options, provisioned.worktree, integration, provisioned.branch);
+    const warning = await baseWarning(options, provisioned.worktree, integration, provisioned.branch);
     await ctx.store.start(task, provisioned.worktree);
-    const record2 = await recordEvent(ctx, task, prior, "start", { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, intent, boundaries, dependencies, checks, files: doc.touches });
+    const record2 = await recordEvent(ctx, task, prior, "start", { owner, worktree: provisioned.worktree, branch: provisioned.branch, base_revision: base, base_source: source, ...warning ? { base_warning: warning } : {}, intent, boundaries, dependencies, checks, files: doc.touches });
     const lead = await findLead(agentDirs({ ...options, consumer: ctx.store.root }));
     const workflowRunId = options.workflowRunId || `tm-${task}`;
     const leadId = lead?.id || options.leadId || owner;
+    if (warning) record2.base_warning = warning;
     Object.assign(record2, { integration_branch: integration, base_revision: base, base_source: source, owner, workflow_run_id: workflowRunId, lead_id: leadId, worktree: provisioned.worktree, branch: provisioned.branch, started: true, state: "working" });
     await writeJson(ctx.path, record2);
     await ctx.store.govern?.(task, { workflowRunId, leadId, recordPath: ctx.path });
@@ -64670,11 +64729,11 @@ if (args[0] === 'ao-topology') {
 function pluginSha(pluginRoot) {
   const base = (0, import_node_path70.basename)(pluginRoot);
   if (/^[0-9a-f]{7,64}$/.test(base)) return base;
-  return false ? null : "30645c9e8db7be6a084701506db160c2c14ebe8ab35481c2478163dfbbbbae35";
+  return false ? null : "bab729024ae0d572959a3cc80e6f8ad1cbc5690920be27dbabcb4f3580b15948";
 }
 function pluginIdentity(pluginRoot) {
-  const fingerprint2 = false ? null : "30645c9e8db7be6a084701506db160c2c14ebe8ab35481c2478163dfbbbbae35";
-  let version2 = false ? null : "0.17.3";
+  const fingerprint2 = false ? null : "bab729024ae0d572959a3cc80e6f8ad1cbc5690920be27dbabcb4f3580b15948";
+  let version2 = false ? null : "0.18.0";
   if (!version2) {
     try {
       version2 = JSON.parse((0, import_node_fs14.readFileSync)((0, import_node_path70.join)(pluginRoot, "package.json"), "utf8")).version ?? null;
@@ -65290,8 +65349,8 @@ async function selfHeal({ pointer, stateRoot: stateRoot3, home, env = process.en
 // src/diagnostics.mjs
 var loadedBuild = {
   mode: false ? "source" : "bundle",
-  sourceFingerprint: false ? null : "30645c9e8db7be6a084701506db160c2c14ebe8ab35481c2478163dfbbbbae35",
-  version: false ? null : "0.17.3"
+  sourceFingerprint: false ? null : "bab729024ae0d572959a3cc80e6f8ad1cbc5690920be27dbabcb4f3580b15948",
+  version: false ? null : "0.18.0"
 };
 var json4 = (path3) => (0, import_promises63.readFile)(path3, "utf8").then(JSON.parse).catch(() => null);
 var fingerprint = (path3) => (0, import_promises63.readFile)(path3).then((bytes) => (0, import_node_crypto41.createHash)("sha256").update(bytes).digest("hex")).catch(() => null);

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-11-01
+
+### Added
+
+- **`manage rebase` narrows a base admitted on a stale default branch (TM-528).** With no
+  `management.target_branch`, Passport tasks were admitted at the merge-base with a `main` far behind
+  the integration branch, so every review range covered 1,000+ files of other tasks; a resumed
+  admission only widens, so nothing could fix a started record. `manage rebase --task TM-id` re-bases
+  it to merge-base(finish revision, server tip of the configured `target_branch`), refuses anything
+  that would widen the base, records a `base-narrowed` event naming the admitting session, and
+  re-files a pending review against the new range.
+- **Admission warns about the stale-default case (TM-528).** When `target_branch` is unset and the task
+  PR targets a branch other than the default, the record and `start` event carry a `base_warning`
+  naming the fix, and `admit --summary` prints it.
+
 ## [0.17.3] — 2026-10-11
 
 ### Changed
